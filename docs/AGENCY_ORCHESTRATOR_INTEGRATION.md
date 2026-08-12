@@ -32,6 +32,14 @@
 
 紧急回退只需将 `EXPERT_TEAM_AGENCY_PLANNER_ENABLED` 设为 `0` 并重启服务。原快速单专家派工、`/api/route-agent`、AI Team 和 `/api/team/chat` 不依赖该开关，仍保持可用。
 
+## R3 受控 DAG 执行 Beta
+
+`EXPERT_TEAM_AGENCY_EXECUTION_ENABLED=0` 独立控制 AI Team 的 DAG Beta，默认关闭；规划预览开关可单独开启。启用后，服务端仍会重新核对能力快照、上游版本、专家目录、计划与工作流一致性，再通过 `mm-agency-bridge/v2` 调用上游 `executeDAG`。
+
+执行面只接受 1–6 个普通文本模型步骤，最多并发 2 个模型请求、最多 10 次逻辑模型调用、单次最多 4096 输出 token，单次请求超时 180 秒、整体超时 900 秒。仅最终汇点执行验收核验和最多一次返工。Skill、工具、审批、人类输入、条件、循环、步骤级 Provider/密钥/模型覆盖均会被拒绝。
+
+后台事件复用 `WorkflowExecutionStore`，支持 SSE 断线后按 `after_sequence` 重放和幂等取消；不支持跨服务重启续跑，重启后未完成任务会标记为 `agency_execution_interrupted`。紧急回退只需将 `EXPERT_TEAM_AGENCY_EXECUTION_ENABLED=0` 并重启服务；规划预览、快速派工、串行接力、独立辩论和元智能体入口不受影响。
+
 ## 验收
 
 ```powershell

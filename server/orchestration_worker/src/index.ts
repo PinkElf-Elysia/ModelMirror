@@ -1,9 +1,11 @@
 import process from 'node:process';
 
 import { JsonlChannel } from './channel.js';
+import { executeRequest } from './execution.js';
 import { handleRequest } from './service.js';
 import {
   AGENCY_BRIDGE_PROTOCOL,
+  AGENCY_EXECUTION_PROTOCOL,
   AgencyBridgeError,
   parseRequest,
 } from './protocol.js';
@@ -21,13 +23,17 @@ console.error = diagnostic;
 
 const channel = new JsonlChannel(process.stdin, process.stdout);
 let requestId = 'unknown';
+let responseProtocol: typeof AGENCY_BRIDGE_PROTOCOL | typeof AGENCY_EXECUTION_PROTOCOL = AGENCY_BRIDGE_PROTOCOL;
 
 try {
   const request = parseRequest(await channel.read());
   requestId = request.id;
-  const result = await handleRequest(request, channel);
+  responseProtocol = request.protocol;
+  const result = request.protocol === AGENCY_EXECUTION_PROTOCOL
+    ? await executeRequest(request, channel)
+    : await handleRequest(request, channel);
   channel.write({
-    protocol: AGENCY_BRIDGE_PROTOCOL,
+    protocol: responseProtocol,
     type: 'response',
     id: request.id,
     ok: true,
@@ -36,7 +42,7 @@ try {
 } catch (error) {
   const known = error instanceof AgencyBridgeError;
   channel.write({
-    protocol: AGENCY_BRIDGE_PROTOCOL,
+    protocol: responseProtocol,
     type: 'response',
     id: requestId,
     ok: false,

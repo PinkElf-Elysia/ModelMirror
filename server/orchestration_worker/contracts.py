@@ -26,7 +26,7 @@ class AgencyModelMessage(StrictModel):
 
 class AgencyModelRequest(StrictModel):
     request_id: str = Field(min_length=1, max_length=200)
-    model_id: str = Field(min_length=1, max_length=256)
+    model_id: str = Field(min_length=1, max_length=300)
     messages: list[AgencyModelMessage] = Field(min_length=1, max_length=4)
     temperature: float = Field(ge=0, le=2)
     max_tokens: int = Field(ge=1, le=16_384)
@@ -40,3 +40,8 @@ class AgencyModelResponse(StrictModel):
 class AgencyWorkerResult(StrictModel):
     payload: dict[str, Any]
     model_calls: int = Field(default=0, ge=0, le=3)
+
+
+class AgencyExecutionWorkerResult(StrictModel):
+    payload: dict[str, Any]
+    model_calls: int = Field(default=0, ge=0, le=10)

@@ -1,6 +1,11 @@
 import type { Readable, Writable } from 'node:stream';
 
-import { AgencyBridgeError, MAX_MESSAGE_BYTES } from './protocol.js';
+import {
+  AGENCY_EXECUTION_PROTOCOL,
+  AgencyBridgeError,
+  MAX_MESSAGE_BYTES,
+  asObject,
+} from './protocol.js';
 
 type PendingRead = {
   resolve: (value: unknown) => void;
@@ -102,5 +107,97 @@ export class JsonlChannel {
     this.input.off('end', this.onEnd);
     this.input.off('error', this.onError);
     this.input.pause();
+  }
+}
+
+type PendingModelResponse = {
+  resolve: (value: Record<string, unknown>) => void;
+  reject: (reason: Error) => void;
+};
+
+/**
+ * v2 execution may issue two model requests concurrently. A single reader
+ * owns stdin and correlates responses by request_id so completion order does
+ * not have to match dispatch order.
+ */
+export class ModelResponseRouter {
+  private readonly pending = new Map<string, PendingModelResponse>();
+  private pumping = false;
+  private terminalError: Error | undefined;
+
+  constructor(
+    private readonly channel: JsonlChannel,
+    private readonly bridgeRequestId: string,
+  ) {}
+
+  request(requestId: string, message: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (this.terminalError) return Promise.reject(this.terminalError);
+    if (this.pending.has(requestId)) {
+      return Promise.reject(
+        new AgencyBridgeError('model_request_duplicate', 'Model request id is duplicated.'),
+      );
+    }
+    const response = new Promise<Record<string, unknown>>((resolve, reject) => {
+      this.pending.set(requestId, { resolve, reject });
+    });
+    try {
+      this.channel.write(message);
+    } catch (error) {
+      this.pending.delete(requestId);
+      throw error;
+    }
+    this.startPump();
+    return response;
+  }
+
+  close(error = new AgencyBridgeError('worker_cancelled', 'Agency execution stopped.')): void {
+    this.fail(error);
+  }
+
+  private startPump(): void {
+    if (this.pumping || this.terminalError) return;
+    this.pumping = true;
+    void this.pump();
+  }
+
+  private async pump(): Promise<void> {
+    try {
+      while (this.pending.size > 0 && !this.terminalError) {
+        const message = asObject(await this.channel.read());
+        const requestId = typeof message.request_id === 'string' ? message.request_id : '';
+        if (
+          message.protocol !== AGENCY_EXECUTION_PROTOCOL
+          || message.type !== 'model_response'
+          || message.id !== this.bridgeRequestId
+          || !requestId
+        ) {
+          throw new AgencyBridgeError(
+            'model_response_invalid',
+            'Model response does not match the execution bridge.',
+          );
+        }
+        const waiter = this.pending.get(requestId);
+        if (!waiter) {
+          throw new AgencyBridgeError(
+            'model_response_invalid',
+            'Model response request id is not pending.',
+          );
+        }
+        this.pending.delete(requestId);
+        waiter.resolve(message);
+      }
+    } catch (error) {
+      this.fail(error instanceof Error ? error : new Error(String(error)));
+    } finally {
+      this.pumping = false;
+      if (this.pending.size > 0 && !this.terminalError) this.startPump();
+    }
+  }
+
+  private fail(error: Error): void {
+    if (this.terminalError) return;
+    this.terminalError = error;
+    for (const waiter of this.pending.values()) waiter.reject(error);
+    this.pending.clear();
   }
 }

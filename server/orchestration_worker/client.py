@@ -91,7 +91,7 @@ class AgencyWorkerClient:
     def sanitized_environment(
         cls, source: Mapping[str, str] | None = None
     ) -> dict[str, str]:
-        values = source or os.environ
+        values = os.environ if source is None else source
         environment = {
             key: str(values[key])
             for key in cls._ENV_ALLOWLIST
@@ -170,25 +170,13 @@ class AgencyWorkerClient:
         started = time.monotonic()
         model_calls = 0
         try:
-            kwargs: dict[str, Any] = {}
-            if os.name == "nt":
-                kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-            else:
-                kwargs["start_new_session"] = True
-            process = await asyncio.create_subprocess_exec(
-                *self.argv,
-                cwd=str(self.worker_entry.parent),
-                env=self.sanitized_environment(),
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                limit=MAX_MESSAGE_BYTES + 1,
-                **kwargs,
+            process, stderr, stderr_task = await self._spawn_process(
+                self.argv,
+                self.worker_entry.parent,
             )
             assert process.stdin is not None
             assert process.stdout is not None
             assert process.stderr is not None
-            stderr_task = asyncio.create_task(self._drain_stderr(process.stderr, stderr))
             process.stdin.write(encoded)
             await process.stdin.drain()
 
@@ -198,22 +186,12 @@ class AgencyWorkerClient:
                     raise AgencyWorkerError(
                         "Agency worker timed out.", code="worker_timeout"
                     )
-                try:
-                    line = await asyncio.wait_for(process.stdout.readline(), timeout=remaining)
-                except TimeoutError as exc:
-                    raise AgencyWorkerError(
-                        "Agency worker timed out.", code="worker_timeout"
-                    ) from exc
-                except (ValueError, asyncio.LimitOverrunError) as exc:
-                    raise AgencyWorkerError(
-                        "Agency worker message exceeds 2 MiB.",
-                        code="worker_message_too_large",
-                    ) from exc
-                if not line:
-                    raise AgencyWorkerError(
-                        "Agency worker exited before returning a response.",
-                        code="worker_crashed",
-                    )
+                line = await self._read_stdout_line(
+                    process,
+                    timeout_seconds=remaining,
+                    timeout_code="worker_timeout",
+                    timeout_message="Agency worker timed out.",
+                )
                 message = self._decode(line)
                 if (
                     message.get("protocol") != AGENCY_BRIDGE_PROTOCOL
@@ -336,6 +314,63 @@ class AgencyWorkerClient:
             remaining = MAX_STDERR_BYTES - len(target)
             if remaining > 0:
                 target.extend(chunk[:remaining])
+
+    @classmethod
+    async def _spawn_process(
+        cls,
+        argv: Sequence[str],
+        cwd: str | Path,
+    ) -> tuple[asyncio.subprocess.Process, bytearray, asyncio.Task[None]]:
+        kwargs: dict[str, Any] = {}
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            cwd=str(cwd),
+            env=cls.sanitized_environment(),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            limit=MAX_MESSAGE_BYTES + 1,
+            **kwargs,
+        )
+        assert process.stderr is not None
+        stderr = bytearray()
+        stderr_task = asyncio.create_task(cls._drain_stderr(process.stderr, stderr))
+        return process, stderr, stderr_task
+
+    @staticmethod
+    async def _read_stdout_line(
+        process: asyncio.subprocess.Process,
+        *,
+        timeout_seconds: float,
+        timeout_code: str,
+        timeout_message: str,
+    ) -> bytes:
+        assert process.stdout is not None
+        try:
+            line = await asyncio.wait_for(
+                process.stdout.readline(),
+                timeout=timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise AgencyWorkerError(
+                timeout_message,
+                code=timeout_code,
+            ) from exc
+        except (ValueError, asyncio.LimitOverrunError) as exc:
+            raise AgencyWorkerError(
+                "Agency worker message exceeds 2 MiB.",
+                code="worker_message_too_large",
+            ) from exc
+        if not line:
+            raise AgencyWorkerError(
+                "Agency worker exited before returning a response.",
+                code="worker_crashed",
+            )
+        return line
 
     @staticmethod
     async def _interrupt_process(process: asyncio.subprocess.Process) -> None:

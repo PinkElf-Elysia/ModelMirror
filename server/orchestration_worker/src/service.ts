@@ -27,7 +27,7 @@ import {
   asObject,
 } from './protocol.js';
 
-interface ExpertDefinition {
+export interface ExpertDefinition {
   id: string;
   path: string;
   name: string;
@@ -39,7 +39,7 @@ interface ExpertDefinition {
 
 const MAX_WORKFLOW_STEPS = 8;
 
-function stringField(
+export function stringField(
   source: Record<string, unknown>,
   name: string,
   maxLength: number,
@@ -51,7 +51,7 @@ function stringField(
   return value;
 }
 
-function parseExperts(value: unknown): ExpertDefinition[] {
+export function parseExperts(value: unknown): ExpertDefinition[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > 512) {
     throw new AgencyBridgeError('worker_request_invalid', 'agents must contain 1-512 experts.');
   }

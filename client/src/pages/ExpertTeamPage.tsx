@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import AgencyDagRunPanel from "../components/AgencyDagRunPanel";
+import {
+  type AgencyAgentSummary,
+  type AgencyPlanPreview,
+  type AgencyPlanTask,
+  type AgencyPlannerCapabilities,
+  type AgencyValidationIssue,
+  type AgencyWorkflow,
+} from "../components/AgencyExpertTeamTypes";
+import { useAgencyDagRun } from "../components/useAgencyDagRun";
 import { DEFAULT_CHAT_MODEL_ID } from "../context/ModelPreferenceContext";
 import { agents, agentDepartments, type AgentProfile } from "../data/agents";
 import { models } from "../data/models";
@@ -12,34 +22,6 @@ import {
 type ExpertDesk = "fusion" | "route" | "team";
 type RunStatus = "idle" | "running" | "done" | "error";
 type RoutePlannerMode = "quick" | "agency";
-
-interface AgencyPlannerCapabilities {
-  enabled: boolean;
-  worker_available: boolean;
-  upstream_project: string;
-  upstream_revision: string;
-  supported_modes: Array<"auto" | "pinned">;
-  max_agents: number;
-  max_steps: number;
-}
-
-interface AgencyPlanTask {
-  task_id: string;
-  title: string;
-  objective: string;
-  depends_on: string[];
-  input_contract: string[];
-  output_contract: string;
-  agent_id?: string | null;
-  acceptance: string;
-}
-
-interface AgencyValidationIssue {
-  code?: string;
-  message?: string;
-  severity?: string;
-  node_id?: string;
-}
 
 interface GroupedAgencyValidationIssue extends AgencyValidationIssue {
   count: number;
@@ -62,67 +44,7 @@ function groupAgencyValidationIssues(
   return [...grouped.values()];
 }
 
-interface AgencyWorkflow {
-  id: string;
-  title: string;
-  version?: string;
-  source?: string;
-  nodes: Array<{
-    id: string;
-    type?: string;
-    position?: { x: number; y: number };
-    data: Record<string, unknown>;
-  }>;
-  edges: Array<{
-    id: string;
-    source: string;
-    target: string;
-    sourceHandle?: string;
-    targetHandle?: string;
-  }>;
-}
-
-interface AgencyPlanPreview {
-  plan: {
-    summary: string;
-    assumptions: string[];
-    tasks: AgencyPlanTask[];
-  };
-  candidate: {
-    name: string;
-    description: string;
-    draft: { workflow: AgencyWorkflow };
-  };
-  workflow: AgencyWorkflow;
-  validation: {
-    valid: boolean;
-    issues?: AgencyValidationIssue[];
-    stages?: Array<{
-      id: string;
-      valid: boolean;
-      issues: AgencyValidationIssue[];
-    }>;
-  };
-  selected_agents: AgentSummary[];
-  baseline_matches: AgentSummary[];
-  warnings: string[];
-  repair_used: boolean;
-  capability_snapshot_version: string;
-  capability_snapshot_hash: string;
-  upstream_project: string;
-  upstream_revision: string;
-}
-
-interface AgentSummary {
-  id: string;
-  name: string;
-  department: string;
-  expertise: string;
-  scenarios: string;
-  emoji?: string;
-  popularity?: number;
-  score?: number;
-}
+type AgentSummary = AgencyAgentSummary;
 
 interface FusionModelResult {
   modelId: string;
@@ -157,7 +79,8 @@ function isLikelyChatModel(model: (typeof models)[number]) {
   return (
     model.active &&
     model.input_modalities.includes("text") &&
-    model.capabilities.includes("text")
+    model.output_modalities.includes("text") &&
+    model.operations.includes("chat")
   );
 }
 
@@ -448,11 +371,17 @@ export default function ExpertTeamPage() {
     useState<AgencyPlanPreview | null>(null);
   const [agencyValidationStale, setAgencyValidationStale] = useState(false);
   const [agencyAppliedNotice, setAgencyAppliedNotice] = useState(false);
+  const [loadedAgencyPlan, setLoadedAgencyPlan] =
+    useState<AgencyPlanPreview | null>(null);
+  const [loadedAgencyGoal, setLoadedAgencyGoal] = useState("");
+  const [loadedAgencyPlanInvalid, setLoadedAgencyPlanInvalid] = useState(false);
+  const [dagConfirmOpen, setDagConfirmOpen] = useState(false);
+  const agencyDag = useAgencyDagRun();
 
   const [teamTask, setTeamTask] = useState(
     "为一个新上线的 AI 模型浏览器制定产品发布方案，包括技术风险、设计亮点和增长打法。",
   );
-  const [teamMode, setTeamMode] = useState<"serial" | "debate">("serial");
+  const [teamMode, setTeamMode] = useState<"serial" | "debate" | "dag">("serial");
   const [selectedDepartment, setSelectedDepartment] = useState("全部");
   const [agentSearch, setAgentSearch] = useState("");
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>(
@@ -475,6 +404,61 @@ export default function ExpertTeamPage() {
       setActiveDesk(desk);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    const restored = agencyDag.run;
+    if (!restored?.task_id) return;
+    setActiveDesk("team");
+    setTeamMode("dag");
+    const restoredAgentIds = (
+      restored.selected_agent_ids ||
+      restored.task_definitions?.map((task) => task.agent_id) ||
+      []
+    ).filter(
+      (agentId, index, values) =>
+        values.indexOf(agentId) === index &&
+        agents.some((agent) => agent.id === agentId),
+    );
+    if (restoredAgentIds.length > 0) setSelectedAgentIds(restoredAgentIds);
+    if (restored.goal) {
+      setTeamTask(restored.goal);
+      setLoadedAgencyGoal(restored.goal);
+    }
+    if (restored.team_name) setTeamName(restored.team_name);
+    if (restored.task_definitions?.length) {
+      const grouped = new Map<string, string[]>();
+      for (const task of restored.task_definitions) {
+        const existing = grouped.get(task.agent_id) || [];
+        const details = [
+          task.objective,
+          task.depends_on.length ? `依赖：${task.depends_on.join("、")}` : "",
+          task.acceptance ? `验收：${task.acceptance}` : "",
+        ].filter(Boolean).join("\n");
+        grouped.set(task.agent_id, [...existing, details]);
+      }
+      setAgentTasks(Object.fromEntries(
+        [...grouped.entries()].map(([agentId, tasks]) => [
+          agentId,
+          tasks.join("\n\n"),
+        ]),
+      ));
+    }
+    setLoadedAgencyPlanInvalid(false);
+  }, [agencyDag.run?.task_id]);
+
+  const dagEstimatedCostCny = useMemo(() => {
+    if (!agencyDag.run) return null;
+    const model = models.find(
+      (item) => item.id === (agencyDag.run?.model_id || sharedModelId),
+    );
+    if (!model || model.pricing_status === "dynamic") return null;
+    const inputTokens = agencyDag.run.usage.input_tokens || 0;
+    const outputTokens = agencyDag.run.usage.output_tokens || 0;
+    return (
+      (inputTokens / 1_000_000) * model.price_cny.input +
+      (outputTokens / 1_000_000) * model.price_cny.output
+    );
+  }, [agencyDag.run, sharedModelId]);
 
   useEffect(() => {
     let active = true;
@@ -523,21 +507,45 @@ export default function ExpertTeamPage() {
     });
   }
 
+  function invalidateLoadedAgencyPlan() {
+    if (loadedAgencyPlan) setLoadedAgencyPlanInvalid(true);
+    setDagConfirmOpen(false);
+  }
+
+  function updateRouteMessage(value: string) {
+    setRouteMessage(value);
+    if (loadedAgencyPlan && value !== loadedAgencyGoal) {
+      setLoadedAgencyPlanInvalid(true);
+    }
+  }
+
+  function updateTeamTask(value: string) {
+    setTeamTask(value);
+    if (teamMode === "dag" && value !== loadedAgencyGoal) {
+      setLoadedAgencyPlanInvalid(true);
+      setDagConfirmOpen(false);
+    }
+  }
+
   function toggleTeamAgent(agentId: string) {
+    if (teamMode === "dag") return;
     setSelectedAgentIds((current) => {
       if (current.includes(agentId)) {
         return current.filter((item) => item !== agentId);
       }
       return current.length >= 6 ? current : [...current, agentId];
     });
+    invalidateLoadedAgencyPlan();
   }
 
   function selectDepartmentAgents(department: string) {
+    if (teamMode === "dag") return;
     const departmentIds = agents
       .filter((agent) => agent.department === department)
       .slice(0, 6)
       .map((agent) => agent.id);
     setSelectedAgentIds(departmentIds);
+    invalidateLoadedAgencyPlan();
   }
 
   function saveCurrentTeam() {
@@ -552,8 +560,15 @@ export default function ExpertTeamPage() {
   }
 
   function loadTeam(team: TeamSavedConfig) {
+    if (teamMode === "dag") return;
     setTeamName(team.name);
     setSelectedAgentIds(team.members.filter((id) => agents.some((agent) => agent.id === id)));
+    invalidateLoadedAgencyPlan();
+  }
+
+  function updateAgentTask(agentId: string, value: string) {
+    setAgentTasks((current) => ({ ...current, [agentId]: value }));
+    invalidateLoadedAgencyPlan();
   }
 
   async function runFusion() {
@@ -680,6 +695,7 @@ export default function ExpertTeamPage() {
     setAgencyError("");
     setAgencyPreview(null);
     setAgencyValidationStale(false);
+    invalidateLoadedAgencyPlan();
     try {
       const response = await fetch("/api/expert-team/plan-preview", {
         method: "POST",
@@ -727,6 +743,7 @@ export default function ExpertTeamPage() {
       };
     });
     setAgencyValidationStale(true);
+    invalidateLoadedAgencyPlan();
   }
 
   function toggleAgencyDependency(taskId: string, dependencyId: string) {
@@ -751,6 +768,7 @@ export default function ExpertTeamPage() {
       };
     });
     setAgencyValidationStale(true);
+    invalidateLoadedAgencyPlan();
   }
 
   async function revalidateAgencyWorkflow() {
@@ -803,6 +821,7 @@ export default function ExpertTeamPage() {
       .map((agent) => agent.id)
       .filter((id) => agents.some((agent) => agent.id === id))
       .slice(0, 6);
+    agencyDag.clear();
     const tasksByAgent: Record<string, string[]> = {};
     agencyPreview.plan.tasks.forEach((task) => {
       if (!task.agent_id || !selectedIds.includes(task.agent_id)) return;
@@ -832,11 +851,45 @@ export default function ExpertTeamPage() {
     setTeamTask(routeMessage);
     setTeamName(agencyPreview.candidate.name || "智能组队专家团");
     setSharedModelId(agencyAgentModelId);
+    setLoadedAgencyPlan(agencyPreview);
+    setLoadedAgencyGoal(routeMessage);
+    setLoadedAgencyPlanInvalid(false);
+    setTeamMode(agencyCapabilities?.execution?.enabled ? "dag" : "serial");
     setAgencyAppliedNotice(true);
     setActiveDesk("team");
   }
 
+  async function startAgencyDag() {
+    if (!loadedAgencyPlan || loadedAgencyPlanInvalid) return;
+    try {
+      await agencyDag.start({
+        goal: loadedAgencyGoal,
+        plan: loadedAgencyPlan.plan,
+        workflow: loadedAgencyPlan.workflow,
+        model_id: sharedModelId,
+        capability_snapshot_version:
+          loadedAgencyPlan.capability_snapshot_version,
+        capability_snapshot_hash: loadedAgencyPlan.capability_snapshot_hash,
+        upstream_revision: loadedAgencyPlan.upstream_revision,
+      });
+      setDagConfirmOpen(false);
+    } catch {
+      // The hook exposes the actionable server message in the DAG panel.
+    }
+  }
+
   async function runTeam() {
+    if (teamMode === "dag") {
+      if (
+        !loadedAgencyPlan ||
+        loadedAgencyPlanInvalid ||
+        !agencyCapabilities?.execution?.enabled
+      ) {
+        return;
+      }
+      setDagConfirmOpen(true);
+      return;
+    }
     if (!teamTask.trim() || selectedAgentIds.length === 0) return;
     setTeamStatus("running");
     setTeamOutputs([]);
@@ -1147,7 +1200,7 @@ export default function ExpertTeamPage() {
                 </div>
                 <textarea
                   className="mt-5 min-h-44 w-full rounded-lg border border-white/10 bg-ink-950/76 p-4 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-hire-300/70 focus:ring-4 focus:ring-hire-300/10"
-                  onChange={(event) => setRouteMessage(event.target.value)}
+                  onChange={(event) => updateRouteMessage(event.target.value)}
                   placeholder="描述你要完成的任务"
                   value={routeMessage}
                 />
@@ -1248,7 +1301,7 @@ export default function ExpertTeamPage() {
 
                 <textarea
                   className="mt-5 min-h-36 w-full rounded-lg border border-white/10 bg-ink-950/76 p-4 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-hire-300/70 focus:ring-4 focus:ring-hire-300/10"
-                  onChange={(event) => setRouteMessage(event.target.value)}
+                  onChange={(event) => updateRouteMessage(event.target.value)}
                   placeholder="描述需要拆解并组队的目标"
                   value={routeMessage}
                 />
@@ -1579,7 +1632,9 @@ export default function ExpertTeamPage() {
             <div className="rounded-lg border border-hire-300/25 bg-hire-300/10 p-4 text-sm leading-6 text-hire-50 xl:col-span-2">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <p>
-                  智能组队计划已载入。当前按 AI Team 接力/辩论模式执行，DAG 自动执行尚未启用。
+                  {agencyCapabilities?.execution?.enabled
+                    ? "智能组队计划已载入，并默认选择 DAG Beta。计划不会自动运行，请检查成本护栏后再启动。"
+                    : "智能组队计划已载入。当前按 AI Team 接力/辩论模式执行，DAG 自动执行尚未启用。"}
                 </p>
                 <button
                   className="rounded-full border border-hire-200/25 px-3 py-1 text-xs font-semibold text-hire-100 transition hover:bg-hire-300/10"
@@ -1596,22 +1651,33 @@ export default function ExpertTeamPage() {
               <div>
                 <h2 className="text-xl font-semibold text-white">组建 AI Team</h2>
                 <p className="mt-1 text-sm text-slate-400">
-                  最多选择 6 位专家，串行接力或独立辩论后由项目经理汇总。
+                  最多选择 6 位专家；可串行接力、独立辩论，或执行已校验的 DAG Beta。
                 </p>
               </div>
               <div className="flex rounded-full border border-white/10 bg-white/[0.045] p-1">
-                {(["serial", "debate"] as const).map((mode) => (
+                {(["serial", "debate", "dag"] as const).map((mode) => (
                   <button
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
                       teamMode === mode
                         ? "bg-hire-300 text-ink-950"
                         : "text-slate-300 hover:text-white"
                     }`}
                     key={mode}
+                    disabled={
+                      mode === "dag" &&
+                      !agencyDag.run &&
+                      (!loadedAgencyPlan ||
+                        loadedAgencyPlanInvalid ||
+                        !agencyCapabilities?.execution?.enabled)
+                    }
                     onClick={() => setTeamMode(mode)}
                     type="button"
                   >
-                    {mode === "serial" ? "串行接力" : "独立辩论"}
+                    {mode === "serial"
+                      ? "串行接力"
+                      : mode === "debate"
+                        ? "独立辩论"
+                        : "DAG Beta"}
                   </button>
                 ))}
               </div>
@@ -1635,7 +1701,7 @@ export default function ExpertTeamPage() {
 
             <textarea
               className="mt-5 min-h-32 w-full rounded-lg border border-white/10 bg-ink-950/76 p-4 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-hire-300/70 focus:ring-4 focus:ring-hire-300/10"
-              onChange={(event) => setTeamTask(event.target.value)}
+              onChange={(event) => updateTeamTask(event.target.value)}
               placeholder="把团队任务交代清楚"
               value={teamTask}
             />
@@ -1683,11 +1749,12 @@ export default function ExpertTeamPage() {
                       const selected = selectedAgentIds.includes(agent.id);
                       return (
                         <button
-                          className={`rounded-lg border p-3 text-left transition ${
+                          className={`rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
                             selected
                               ? "border-hire-300/55 bg-hire-300/12"
                               : "border-white/10 bg-white/[0.045] hover:border-hire-300/30"
                           }`}
+                          disabled={teamMode === "dag"}
                           key={agent.id}
                           onClick={() => toggleTeamAgent(agent.id)}
                           type="button"
@@ -1729,11 +1796,9 @@ export default function ExpertTeamPage() {
                       </p>
                       <input
                         className="rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/70"
+                        disabled={teamMode === "dag"}
                         onChange={(event) =>
-                          setAgentTasks((current) => ({
-                            ...current,
-                            [agent.id]: event.target.value,
-                          }))
+                          updateAgentTask(agent.id, event.target.value)
                         }
                         placeholder="可选：给 TA 分配本轮任务"
                         value={agentTasks[agent.id] || ""}
@@ -1747,14 +1812,27 @@ export default function ExpertTeamPage() {
             <div className="mt-5 flex flex-wrap gap-2">
               <button
                 className="rounded-full bg-hire-300 px-5 py-3 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={teamStatus === "running" || selectedAgentIds.length === 0}
+                disabled={
+                  teamMode === "dag"
+                    ? agencyDag.busy ||
+                      agencyDag.run?.status === "running" ||
+                      !loadedAgencyPlan ||
+                      loadedAgencyPlanInvalid ||
+                      !agencyCapabilities?.execution?.enabled
+                    : teamStatus === "running" || selectedAgentIds.length === 0
+                }
                 onClick={runTeam}
                 type="button"
               >
-                {teamStatus === "running" ? "专家组协作中..." : "启动 AI Team"}
+                {teamMode === "dag" && agencyDag.run?.status === "running"
+                  ? "DAG 执行中..."
+                  : teamStatus === "running"
+                    ? "专家组协作中..."
+                    : "启动 AI Team"}
               </button>
               <button
                 className="rounded-full border border-white/10 bg-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-hire-300/35 hover:text-hire-100"
+                disabled={teamMode === "dag"}
                 onClick={saveCurrentTeam}
                 type="button"
               >
@@ -1766,7 +1844,8 @@ export default function ExpertTeamPage() {
               <div className="mt-4 flex flex-wrap gap-2">
                 {savedTeams.map((team) => (
                   <button
-                    className="rounded-full border border-white/10 bg-white/[0.045] px-3 py-1.5 text-xs text-slate-300 transition hover:border-hire-300/35 hover:text-hire-100"
+                    className="rounded-full border border-white/10 bg-white/[0.045] px-3 py-1.5 text-xs text-slate-300 transition hover:border-hire-300/35 hover:text-hire-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={teamMode === "dag"}
                     key={team.id}
                     onClick={() => loadTeam(team)}
                     type="button"
@@ -1779,7 +1858,25 @@ export default function ExpertTeamPage() {
           </div>
 
           <div className="space-y-4">
-            {teamOutputs.length > 0 ? (
+            {teamMode === "dag" ? (
+              <AgencyDagRunPanel
+                agentCatalog={agents}
+                busy={agencyDag.busy}
+                capabilities={agencyCapabilities?.execution}
+                confirmOpen={dagConfirmOpen}
+                error={agencyDag.error}
+                estimatedCostCny={dagEstimatedCostCny}
+                invalid={loadedAgencyPlanInvalid}
+                modelName={modelLabel(agencyDag.run?.model_id || sharedModelId)}
+                onCancel={() => void agencyDag.cancel()}
+                onConfirm={() => void startAgencyDag()}
+                onDismissConfirm={() => setDagConfirmOpen(false)}
+                preview={loadedAgencyPlan}
+                run={agencyDag.run}
+              />
+            ) : (
+              <>
+              {teamOutputs.length > 0 ? (
               teamOutputs.map((step) => (
                 <article className="surface-card rounded-lg p-4" key={step.agent.id}>
                   <div className="flex items-center justify-between gap-3">
@@ -1817,6 +1914,8 @@ export default function ExpertTeamPage() {
                 {teamFinal || "项目经理汇总会出现在这里。"}
               </p>
             </div>
+              </>
+            )}
           </div>
         </section>
       ) : null}

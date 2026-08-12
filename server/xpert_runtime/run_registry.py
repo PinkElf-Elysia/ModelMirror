@@ -20,6 +20,7 @@ RuntimeRunType = Literal[
     "knowledge_evaluation",
     "automation",
     "meta_planner",
+    "expert_team",
     "xpert_evaluation",
     "skill_evaluation",
     "xpert_evolution",

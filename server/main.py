@@ -50,6 +50,14 @@ from expert_team_agency import (
     ExpertTeamPlanPreviewResponse,
     build_meta_planner_inputs,
 )
+from expert_team_agency_runtime import (
+    AgencyExecutionCapacityError,
+    AgencyExecutionCapabilities,
+    AgencyExecutionCoordinator,
+    AgencyExecutionValidationError,
+    ExpertTeamDagRunRequest,
+    prepare_agency_execution,
+)
 
 try:
     from server.api.dify_proxy import router as dify_router
@@ -3426,6 +3434,11 @@ async def collect_agency_worker_model(
 
 
 agency_worker_client = AgencyWorkerClient(model_runner=collect_agency_worker_model)
+agency_execution_coordinator = AgencyExecutionCoordinator(
+    store=workflow_execution_store,
+    run_registry=run_registry,
+    model_runner=collect_agency_worker_model,
+)
 
 
 async def stream_chat_toolset_text(
@@ -4726,15 +4739,29 @@ def expert_team_agency_planner_enabled() -> bool:
     }
 
 
+def expert_team_agency_execution_enabled() -> bool:
+    return os.getenv("EXPERT_TEAM_AGENCY_EXECUTION_ENABLED", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 @app.get(
     "/api/expert-team/planner-capabilities",
     response_model=ExpertTeamAgencyCapabilities,
 )
 async def get_expert_team_planner_capabilities():
+    execution = AgencyExecutionCapabilities(
+        enabled=expert_team_agency_execution_enabled(),
+        worker_available=agency_execution_coordinator.worker_available(),
+    )
     return ExpertTeamAgencyCapabilities(
         enabled=expert_team_agency_planner_enabled(),
         worker_available=agency_worker_client.worker_entry.is_file(),
         upstream_revision=AGENCY_UPSTREAM_REVISION,
+        execution=execution.model_dump(mode="json"),
     )
 
 
@@ -4954,6 +4981,176 @@ async def preview_expert_team_plan(
             status_code=500,
             content={"error": "专家团智能组队预览失败。", "code": "agency_preview_failed"},
         )
+
+
+def agency_execution_error(
+    status_code: int,
+    code: str,
+    message: str,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": message, "code": code},
+    )
+
+
+async def expert_team_execution_model_is_text(model_id: str) -> bool:
+    """Reject catalog-known non-text models without blocking private gateway ids."""
+
+    try:
+        catalog = await get_catalog_coordinator().get_catalog()
+    except Exception:
+        return True
+    candidates = [
+        candidate
+        for candidate in catalog.models
+        if candidate.invocation_id == model_id or candidate.profile_id == model_id
+    ]
+    if not candidates:
+        return True
+    return any(
+        "text" in candidate.input_modalities
+        and "text" in candidate.output_modalities
+        and "chat" in candidate.operations
+        for candidate in candidates
+    )
+
+
+@app.post("/api/expert-team/dag-runs", status_code=202)
+async def start_expert_team_dag_run(
+    payload: ExpertTeamDagRunRequest,
+    request: Request,
+):
+    if not expert_team_agency_execution_enabled():
+        return agency_execution_error(
+            503,
+            "agency_execution_disabled",
+            "专家团 DAG Beta 当前未启用。",
+        )
+    if not agency_execution_coordinator.worker_available() or not get_llm_gateway_config()[0]:
+        return agency_execution_error(
+            503,
+            "agency_worker_unavailable",
+            "Agency Worker 或 LLM 网关当前不可用。",
+        )
+    if payload.upstream_revision != AGENCY_UPSTREAM_REVISION:
+        return agency_execution_error(
+            409,
+            "upstream_revision_changed",
+            "Agency Orchestrator 上游版本已变化，请重新生成计划。",
+        )
+    try:
+        rate_limit_or_raise(client_ip(request))
+        validate_plain_message(payload.goal)
+    except HTTPException as exc:
+        return agency_execution_error(
+            exc.status_code,
+            "agency_execution_plan_invalid",
+            str(exc.detail),
+        )
+    snapshot = build_meta_planner_capability_snapshot(AGENT_RECORDS)
+    if (
+        payload.capability_snapshot_version != snapshot.version
+        or payload.capability_snapshot_hash != snapshot.snapshot_hash
+    ):
+        return agency_execution_error(
+            409,
+            "capability_snapshot_changed",
+            "专家能力快照已变化，请重新生成计划。",
+        )
+    if not await expert_team_execution_model_is_text(payload.model_id):
+        return agency_execution_error(
+            422,
+            "agency_execution_plan_invalid",
+            "DAG Beta 只支持文本输入、文本输出的聊天模型。",
+        )
+    try:
+        prepared = prepare_agency_execution(
+            plan=payload.plan,
+            workflow=payload.workflow,
+            expert_records=AGENT_RECORDS,
+        )
+        result = await agency_execution_coordinator.start(
+            goal=payload.goal,
+            model_id=payload.model_id,
+            prepared=prepared,
+            capability_snapshot_version=payload.capability_snapshot_version,
+            capability_snapshot_hash=payload.capability_snapshot_hash,
+            upstream_revision=payload.upstream_revision,
+        )
+    except AgencyExecutionCapacityError as exc:
+        return agency_execution_error(
+            429, "agency_execution_capacity_reached", str(exc)
+        )
+    except AgencyExecutionValidationError as exc:
+        return agency_execution_error(422, exc.code, str(exc))
+    task_id = str(result["task_id"])
+    return {
+        **result,
+        "status_url": f"/api/expert-team/dag-runs/{task_id}",
+        "events_url": f"/api/expert-team/dag-runs/{task_id}/events",
+        "cancel_url": f"/api/expert-team/dag-runs/{task_id}/cancel",
+    }
+
+
+@app.get("/api/expert-team/dag-runs/{task_id}")
+async def get_expert_team_dag_run(task_id: str):
+    item = workflow_execution_store.get(task_id)
+    if item is None or item.source_kind != "expert_team_agency":
+        return agency_execution_error(
+            404, "agency_execution_not_found", "DAG 执行任务不存在。"
+        )
+    return agency_execution_coordinator.get(task_id)
+
+
+@app.get("/api/expert-team/dag-runs/{task_id}/events")
+async def stream_expert_team_dag_run_events(
+    task_id: str,
+    after_sequence: int = 0,
+):
+    item = workflow_execution_store.get(task_id)
+    if item is None or item.source_kind != "expert_team_agency":
+        return agency_execution_error(
+            404, "agency_execution_not_found", "DAG 执行任务不存在。"
+        )
+
+    async def event_stream():
+        cursor = max(0, int(after_sequence))
+        idle_rounds = 0
+        while True:
+            current = workflow_execution_store.get(task_id)
+            if current is None:
+                return
+            pending = [
+                event
+                for event in current.events
+                if int(event.get("sequence") or 0) > cursor
+            ]
+            for event in pending:
+                cursor = max(cursor, int(event.get("sequence") or 0))
+                yield sse_payload(event)
+            if current.status in {"completed", "failed", "cancelled"}:
+                return
+            idle_rounds += 1
+            if idle_rounds % 30 == 0:
+                yield b": keep-alive\n\n"
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+@app.post("/api/expert-team/dag-runs/{task_id}/cancel")
+async def cancel_expert_team_dag_run(task_id: str):
+    item = workflow_execution_store.get(task_id)
+    if item is None or item.source_kind != "expert_team_agency":
+        return agency_execution_error(
+            404, "agency_execution_not_found", "DAG 执行任务不存在。"
+        )
+    return await agency_execution_coordinator.cancel(task_id)
 
 
 @app.post(
@@ -15743,6 +15940,7 @@ async def list_runtime_runs(
         "chat",
         "knowledge_citation",
         "knowledge_pipeline",
+        "expert_team",
     }
     valid_statuses = {"pending", "running", "completed", "failed", "cancelled"}
     if run_type is not None and run_type not in valid_run_types:
@@ -16736,6 +16934,14 @@ configure_xpert_evolutions(
 @app.on_event("startup")
 async def start_mcp_ttl_cleanup() -> None:
     await asyncio.to_thread(datax_service.recover_import_jobs)
+    interrupted_agency_runs = await asyncio.to_thread(
+        agency_execution_coordinator.recover_interrupted
+    )
+    if interrupted_agency_runs:
+        logger.warning(
+            "Marked %s interrupted Expert Team Agency runs as failed.",
+            interrupted_agency_runs,
+        )
     mcp_manager.start_ttl_cleanup(on_cleanup=cleanup_mcp_session_state)
     builtin_warnings = await toolset_service.ensure_builtin_toolsets()
     for warning in builtin_warnings:
