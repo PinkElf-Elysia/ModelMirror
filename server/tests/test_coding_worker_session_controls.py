@@ -245,6 +245,15 @@ def test_service_undo_redo_restores_exact_turn_tree(tmp_path: Path) -> None:
         assert child_target.read_bytes() == b"before"
         assert await service.fork_task(task.task_id, "fork-one") == child
         assert store.list_children(task.task_id) == [child]
+        exported = await service.export_task(task.task_id)
+        assert exported.task.provider_session_id is None
+        assert exported.public_context["messages"] == [
+            {"role": "user", "content": "before"}
+        ]
+        assert exported.workspace_tree_hash == before.tree_hash
+        encoded = exported.model_dump_json()
+        assert "provider_session" not in encoded
+        assert str(tmp_path) not in encoded
 
     asyncio.run(scenario())
 
@@ -273,3 +282,16 @@ def test_session_control_capability_is_independently_gated(
         assert coding_worker_capabilities().turn_history is False
     finally:
         configure_coding_worker_for_tests(None, enabled=None)
+
+
+def test_session_control_public_routes_are_versioned() -> None:
+    from fastapi import FastAPI
+
+    from server.coding_worker.api import router
+
+    app = FastAPI()
+    app.include_router(router)
+    paths = app.openapi()["paths"]
+    assert "/api/coding-worker/v1/tasks/{task_id}/fork" in paths
+    assert "/api/coding-worker/v1/tasks/{task_id}/children" in paths
+    assert "/api/coding-worker/v1/tasks/{task_id}/export" in paths
