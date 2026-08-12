@@ -162,6 +162,32 @@ const STATIC_SECRET_PATTERNS = [
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,
 ];
 const ASSIGNED_SECRET = /\b(?:OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|GITHUB_TOKEN|NPM_TOKEN|_authToken|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*(?:"([^"]+)"|'([^']+)'|([^\s#;,]+))/gi;
+const R9_SHARP_LIBVIPS_LICENSE_EXCEPTIONS = [
+  ["@img/sharp-libvips-darwin-arm64", "1.3.2", "LGPL-3.0-or-later"],
+  ["@img/sharp-libvips-darwin-x64", "1.3.2", "LGPL-3.0-or-later"],
+  ["@img/sharp-libvips-linux-arm", "1.3.2", "LGPL-3.0-or-later"],
+  ["@img/sharp-libvips-linux-arm64", "1.3.2", "LGPL-3.0-or-later"],
+  ["@img/sharp-libvips-linux-ppc64", "1.3.2", "LGPL-3.0-or-later"],
+  ["@img/sharp-libvips-linux-riscv64", "1.3.2", "LGPL-3.0-or-later"],
+  ["@img/sharp-libvips-linux-s390x", "1.3.2", "LGPL-3.0-or-later"],
+  ["@img/sharp-libvips-linux-x64", "1.3.2", "LGPL-3.0-or-later"],
+  ["@img/sharp-libvips-linuxmusl-arm64", "1.3.2", "LGPL-3.0-or-later"],
+  ["@img/sharp-libvips-linuxmusl-x64", "1.3.2", "LGPL-3.0-or-later"],
+  ["@img/sharp-wasm32", "0.35.3", "Apache-2.0 AND LGPL-3.0-or-later AND MIT"],
+  ["@img/sharp-win32-arm64", "0.35.3", "Apache-2.0 AND LGPL-3.0-or-later"],
+  ["@img/sharp-win32-ia32", "0.35.3", "Apache-2.0 AND LGPL-3.0-or-later"],
+  ["@img/sharp-win32-x64", "0.35.3", "Apache-2.0 AND LGPL-3.0-or-later"],
+].map(([packageName, version, license]) => ({
+  package: packageName,
+  version,
+  license,
+  scope: "transitive-development-dependency",
+  approvedOn: "2026-08-11",
+  approvalRecord: "user-approved-r9-sharp-libvips",
+  compliance:
+    "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts.",
+}));
+
 const REQUIRED_POLICY_VALUES = [
   [["schemaVersion"], 9],
   [["moduleId"], "matrix-oasis-engine"],
@@ -383,6 +409,17 @@ const REQUIRED_POLICY_VALUES = [
         approvalRecord: "user-approved-during-r0",
         compliance:
           "Retain upstream attribution and license notice when distributing dependency materials.",
+      },
+      ...R9_SHARP_LIBVIPS_LICENSE_EXCEPTIONS,
+      {
+        package: "tslib",
+        version: "2.8.1",
+        license: "0BSD",
+        scope: "transitive-development-dependency",
+        approvedOn: "2026-08-11",
+        approvalRecord: "user-approved-r9-tslib",
+        compliance:
+          "Dev-only optional transitive helper; retain its license notice when redistributing dependency materials.",
       },
     ],
   ],

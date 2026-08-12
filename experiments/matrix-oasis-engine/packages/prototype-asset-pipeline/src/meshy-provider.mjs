@@ -8,18 +8,11 @@ export const MESHY_PROVIDER_LIMITS = Object.freeze({
   promptCharacters: 600,
   taskIdCharacters: 128,
 });
+import { PrototypeAssetPipelineOperationalError } from "./operational.mjs";
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const TASK_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const JSON_CONTENT = /^application\/(?:[a-z0-9.+-]+\+)?json(?:\s*;|$)/i;
-
-export class PrototypeAssetPipelineOperationalError extends Error {
-  constructor() {
-    super("PROTOTYPE_ASSET_PIPELINE_INTERNAL_ERROR");
-    this.name = "PrototypeAssetPipelineOperationalError";
-    this.code = "PROTOTYPE_ASSET_PIPELINE_INTERNAL_ERROR";
-  }
-}
 
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) {

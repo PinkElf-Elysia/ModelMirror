@@ -1,6 +1,6 @@
 # R9 验收记录
 
-状态：R9.3 已验证，等待本地提交；GLB 规范化、真实资格和 Godot 图形验收均未开始。
+状态：R9.4 已验证，等待本地提交；真实 Meshy 资格和 Godot 图形验收尚未开始。
 
 固定基线：`da5fd0fe39234807ae3c4a1d543b9fd64de66d97`
 
@@ -8,8 +8,8 @@
 
 - [x] R9.1 治理与供应商边界（`ec5f8f012b22601efffb9f7df22e3c3053829739`）
 - [x] R9.2 Prototype Asset Bundle 合同（`8d2aa16ffcc86ee2932124b86d37bc32b4a66557`）
-- [x] R9.3 Meshy Text-to-3D 适配器（本批提交；SHA 由 R9.4 记录）
-- [ ] R9.4 GLB 规范化与事务发布
+- [x] R9.3 Meshy Text-to-3D 适配器（`a3289d01`）
+- [x] R9.4 GLB 规范化与事务发布（本批提交；SHA 由 R9.5 记录）
 - [ ] R9.5 真实 Meshy 资格验证
 - [ ] R9.6 Godot 验证与验收收口
 
@@ -45,8 +45,21 @@
 - 最终树上完整 `npm.cmd run verify` 15/15 通过：strict doctor、范围/边界、R4–R7 Godot、R1–R9 全部 Node 测试、Creator 247 modules build 与 HTTP smoke 全绿。
 - 自动验证只启动 loopback 假服务；没有调用 Meshy、Marble 或其他真实供应商，没有读取凭据，也没有启动 Docker、父服务或共享栈。
 
+## R9.4 证据
+
+- Pipeline 公开面扩展为 `planPrototypeAssets`、`materializePrototypeAssetBundle` 与冻结合同验证入口；规划器同时核对 canonical R8 Proposal、Authoring source hash、Runtime Pack/Receipt 完整性和 Scene/Runtime identity。物化只接受当前进程签发的不可伪造 plan handle。
+- GLB 门禁直接检查 GLB 2.0 header/chunk/声明长度、严格 JSON、内嵌 buffer/texture、节点/mesh/surface/triangle 上限，并拒绝外部 URI、animation、skin、camera、light、required/未知扩展和非 triangle primitive。
+- 精确锁定 glTF Transform `4.4.2`、meshoptimizer `1.2.0` 与 Sharp `0.35.3`。visual 做 XZ 居中、Y=0 落地、prop 最长轴 1 m、静态人物高度 1.75 m、2K 纹理和 100k triangle 上限；collider 清除材质/纹理并限制 10k triangle。冻结 Kenney 平面地面得到显式支持，但整体零尺寸 bounds 继续拒绝。
+- `Prototype Asset Bundle` 与脱敏 report 只发布 canonical JSON 和 `assets/*.glb`；不含 prompt、供应商任务 ID、URL、原始响应或凭据。同一 Kenney 原始 GLB 20 次规范化字节一致，输入字节不变。
+- 仓外发布使用同父 staging、`wx+` FileHandle、bigint dev/ino、逐阶段 realpath/identity、句柄回读、单次目录 rename 和发布后身份复核；已有目标不覆盖，并发同名发布只有一个成功，换身被静态失败。无法确认安全身份的 staging 保留在 `C:\tmp`，不递归删除不可信路径。
+- 精确许可证例外已机器化：14 个 Sharp/libvips `dev=true, optional=true` 平台包沿用用户批准的 LGPL 复合许可范围；`tslib@2.8.1 / 0BSD` 经用户于 2026-08-11 单独批准为 dev-only optional transitive helper。两项均未扩展通用白名单，且不得进入 Creator、Godot 或分发物。
+- `npm.cmd ci --no-audit --no-fund` 从 lock 安装 110 包，`npm.cmd prefix` 与 `npm.cmd ls --all` 退出 0；仅报告既有 `esbuild@0.27.7` allow-scripts 提示。
+- R9 资产合同/管线定向测试 34/34，覆盖 GLB 负向门、20 次确定性、视觉/碰撞指标、issued-plan/Map hostile surface、真实 `C:\tmp` 发布、并发、existing target 与 post-rename identity 替换。
+- 显式使用已核验 Godot 4.6.3 后完整 `npm.cmd test` 595/595 通过；boundary checked=922/tracked=915，round scope 在文档落盘后 checked=54/changed=42，固定 BASE 的 parent scope 与 `git diff --check` 通过。
+- 最终树上的完整 `npm.cmd run verify` 15/15 通过：strict doctor、范围/边界、R4–R7 Godot、R1–R9 全部 595 项 Node 测试、Creator 247 modules build 与 HTTP smoke 全绿。R9.4 自动验证未调用 Meshy、Marble 或任何真实供应商，未读取凭据，未启动 Docker、父服务或共享栈。
+
 ## 回退与后续
 
-R9.2 与 R9.3 可按逆序独立 revert：先删除 provider workspace、根测试/lock 接线与本批文档，再按需删除合同 workspace；不影响 R1–R8 或 R9.1 治理。R9.4 只能消费冻结的本合同与 provider；若需要改变 Schema、诊断或传输协议，必须停报并单独申请。
+R9.2–R9.4 可按逆序独立 revert：先删除规范化/事务发布与精确 dev dependency，再删除 provider，最后按需删除合同 workspace；不影响 R1–R8 或 R9.1 治理。R9.5 只能消费冻结的合同、provider 和本批规范化工具；若需要改变 Schema、诊断、传输或许可范围，必须停报并单独申请。
 
 最终 HEAD、split tree、archive、真实资产 hash 和仓外截图只进入交付清单，避免文档自引用或提交供应商产物。

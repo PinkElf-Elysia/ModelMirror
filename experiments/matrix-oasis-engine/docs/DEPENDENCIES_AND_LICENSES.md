@@ -106,6 +106,16 @@ R9.2 新增私有 `@matrix-oasis/prototype-asset-contracts@0.1.0-r9`。该包只
 
 R9.3 新增私有 `@matrix-oasis/prototype-asset-pipeline@0.1.0-r9`。本批该包只精确依赖内部 `@matrix-oasis/prototype-asset-contracts@0.1.0-r9`；Meshy adapter 使用 Node 24 原生 Fetch、AbortController、TextEncoder 与 TextDecoder，没有模型 SDK、HTTP 库、新 registry tarball、平台二进制或许可证例外。GLB 规范化依赖仍留到 R9.4 按实际 lockfile 单独审计。
 
+### R9.4 GLB 规范化工具链（实际 lock）
+
+R9.4 直接开发依赖固定为 `@gltf-transform/core@4.4.2`、`@gltf-transform/extensions@4.4.2`、`@gltf-transform/functions@4.4.2`、`meshoptimizer@1.2.0`（均 MIT）和 `sharp@0.35.3`（Apache-2.0）。它们只在模块本地离线资产工具链中使用，不进入 Creator、Godot、Runtime Pack、Scene Pack 或产品分发。
+
+实际 lock 新增的普通传递依赖均为既有白名单许可：`@emnapi/runtime@1.11.3`、`@img/colour@1.1.0`、`@types/ndarray@1.0.14`、`cwise-compiler@1.1.3`、`iota-array@1.0.0`、`is-buffer@1.1.6`、`ktx-parse@1.1.0`、`ndarray@1.0.19`、`ndarray-lanczos@0.3.0`、`ndarray-ops@1.2.2`、`ndarray-pixels@5.2.0`、`property-graph@4.1.0`、`uniq@1.0.1`（MIT），`detect-libc@2.1.2` 及 Sharp 平台包装（Apache-2.0），以及 Sharp 内部 `semver@7.8.5`（ISC）。
+
+以下精确可选传递包使用用户在 R9 中批准的 Sharp/libvips 例外：`@img/sharp-libvips-darwin-arm64@1.3.2`、`@img/sharp-libvips-darwin-x64@1.3.2`、`@img/sharp-libvips-linux-arm@1.3.2`、`@img/sharp-libvips-linux-arm64@1.3.2`、`@img/sharp-libvips-linux-ppc64@1.3.2`、`@img/sharp-libvips-linux-riscv64@1.3.2`、`@img/sharp-libvips-linux-s390x@1.3.2`、`@img/sharp-libvips-linux-x64@1.3.2`、`@img/sharp-libvips-linuxmusl-arm64@1.3.2`、`@img/sharp-libvips-linuxmusl-x64@1.3.2`（LGPL-3.0-or-later），以及 `@img/sharp-wasm32@0.35.3`、`@img/sharp-win32-arm64@0.35.3`、`@img/sharp-win32-ia32@0.35.3`、`@img/sharp-win32-x64@0.35.3`（包含 LGPL-3.0-or-later 的复合许可）。这些包均为 `dev=true, optional=true`，不得 vendoring 或进入任何分发物。
+
+`tslib@2.8.1`（0BSD）是 `@emnapi/runtime` 的 dev-only optional 传递 helper；用户于 2026-08-11 明确批准该精确包、版本、许可和作用域。此批准不把 0BSD 扩展为通用白名单，版本或作用域变化必须重新审批。
+
 新增或升级依赖时必须：
 
 1. 记录精确版本、直接/间接用途和许可证；

@@ -83,3 +83,71 @@ export declare class PrototypeAssetPipelineOperationalError extends Error {
 export declare function createMeshyTextTo3DProvider(
   config: MeshyTextTo3DProviderConfig,
 ): MeshyTextTo3DProvider;
+
+export interface PrototypeAssetPlanRequest {
+  readonly authoringGamePackJson: string;
+  readonly sceneBlueprintJson: string;
+  readonly runtimeGamePackJson: string;
+  readonly runtimeReceiptJson: string;
+}
+
+export interface PrototypeAssetPlanSuccess {
+  readonly ok: true;
+  readonly plan: Readonly<{
+    scene: Readonly<{ id: string; contentVersion: string; title: string }>;
+    blueprint: Readonly<{
+      format: "matrix-oasis.scene-blueprint";
+      formatVersion: "0.1.0";
+      canonicalSha256: string;
+      assetBriefs: readonly Readonly<{
+        id: string;
+        kind: PrototypeAssetBriefKind;
+        prompt: string;
+        entityId: string | null;
+        roles: readonly PrototypeAssetRole[];
+      }>[];
+    }>;
+    runtimeIdentity: PrototypeAssetRuntimeIdentity;
+  }>;
+}
+
+export interface PrototypeAssetPipelineFailure {
+  readonly ok: false;
+  readonly diagnostics: readonly Readonly<{
+    phase: "pipeline";
+    severity: "error";
+    code: string;
+    path: "";
+    message: string;
+  }>[];
+}
+
+export declare function planPrototypeAssets(
+  request: PrototypeAssetPlanRequest,
+): Promise<PrototypeAssetPlanSuccess | PrototypeAssetPipelineFailure>;
+
+export declare function materializePrototypeAssetBundle(
+  request: Readonly<{
+    plan: PrototypeAssetPlanSuccess;
+    acquiredAssets: ReadonlyMap<string, Uint8Array>;
+    environmentAssets: ReadonlyMap<string, Uint8Array>;
+    environmentTexture: Uint8Array;
+  }>,
+): Promise<
+  | Readonly<{
+      ok: true;
+      bundle: PrototypeAssetBundle;
+      canonicalBundleJson: string;
+      canonicalReportJson: string;
+      files: readonly Readonly<{ path: string; bytes: Uint8Array }>[];
+    }>
+  | PrototypeAssetPipelineFailure
+>;
+
+export { validatePrototypeAssetBundleJson } from "@matrix-oasis/prototype-asset-contracts";
+import type {
+  PrototypeAssetBriefKind,
+  PrototypeAssetBundle,
+  PrototypeAssetRole,
+  PrototypeAssetRuntimeIdentity,
+} from "@matrix-oasis/prototype-asset-contracts";

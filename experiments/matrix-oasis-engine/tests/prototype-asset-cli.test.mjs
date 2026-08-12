@@ -1,15 +1,38 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { readFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import http from "node:http";
+import path from "node:path";
 import test from "node:test";
+import { compileAuthoringGamePackJson } from "@matrix-oasis/game-pack-compiler";
+import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import {
   MESHY_PROVIDER_ENDPOINT,
   MESHY_PROVIDER_LIMITS,
   MESHY_PROVIDER_MODEL,
   PrototypeAssetPipelineOperationalError,
   createMeshyTextTo3DProvider,
+  materializePrototypeAssetBundle,
+  planPrototypeAssets,
 } from "../packages/prototype-asset-pipeline/src/index.mjs";
+import { normalizePrototypeGlb } from "../packages/prototype-asset-pipeline/src/glb-normalizer.mjs";
+import {
+  executeMaterializePrototypeAssetsCli,
+  executePlanPrototypeAssetsCli,
+  parseMaterializePrototypeAssetsArgs,
+  parsePlanPrototypeAssetsArgs,
+} from "../scripts/lib/prototype-asset-cli-core.mjs";
 
 const apiKey = ["fixture", "credential", "do", "not", "echo"].join("-");
 
@@ -64,6 +87,9 @@ test("public surface and fixed Meshy identity are minimal", async () => {
     "MESHY_PROVIDER_MODEL",
     "PrototypeAssetPipelineOperationalError",
     "createMeshyTextTo3DProvider",
+    "materializePrototypeAssetBundle",
+    "planPrototypeAssets",
+    "validatePrototypeAssetBundleJson",
   ].sort());
   assert.equal(MESHY_PROVIDER_ENDPOINT, "https://api.meshy.ai/openapi/v2/text-to-3d");
   assert.equal(MESHY_PROVIDER_MODEL, "meshy-6");
@@ -359,4 +385,202 @@ test("provider source is the only network surface and never reads environment", 
   assert.equal(source.includes("EventSource"), false);
   assert.equal(source.includes("/stream"), false);
   assert.equal(index.includes("fetch"), false);
+});
+
+const tempRoot = path.resolve(path.parse(process.cwd()).root, "tmp");
+const moduleRoot = path.dirname(import.meta.dirname);
+const environmentRoot = path.resolve(
+  moduleRoot,
+  "examples",
+  "scene-bundles",
+  "kenney-prototype",
+  "assets",
+);
+const fileServices = { lstat, mkdir, mkdtemp, openFile: open, realpath, rename };
+
+async function createAssetCliFixture() {
+  const prototypeDir = await mkdtemp(path.join(tempRoot, "matrix-oasis-r9-prototype-"));
+  const acquiredDir = await mkdtemp(path.join(tempRoot, "matrix-oasis-r9-acquired-"));
+  const output = path.join(tempRoot, `${path.basename(prototypeDir).toLowerCase()}-output`);
+  const authoring = JSON.parse(await readFile(
+    path.join(moduleRoot, "examples", "mechanics-conformance.authoring-game-pack.json"),
+    "utf8",
+  ));
+  const authoringGamePackJson = canonicalizeJsonValue(authoring);
+  const compiled = await compileAuthoringGamePackJson(authoringGamePackJson);
+  assert.equal(compiled.ok, true);
+  const placementIds = ["place-room", "place-crate", "place-guide"];
+  const sceneBlueprintJson = canonicalizeJsonValue({
+    format: "matrix-oasis.scene-blueprint",
+    formatVersion: "0.1.0",
+    scene: {
+      id: authoring.id,
+      contentVersion: authoring.contentVersion,
+      title: authoring.title,
+      environmentPrompt: "A neutral enclosed validation room.",
+      visualStylePrompt: "Simple neutral geometry.",
+    },
+    zones: [{ id: "zone-main", label: "Main", description: "Validation zone." }],
+    assetBriefs: [
+      { id: "room", kind: "environment", prompt: "Neutral room.", entityId: null, roles: ["visual", "collider"] },
+      { id: "crate", kind: "prop", prompt: "Neutral crate.", entityId: "control-unit", roles: ["visual", "collider"] },
+      { id: "guide", kind: "character-placeholder", prompt: "Static neutral guide.", entityId: "actor-unit", roles: ["visual"] },
+    ],
+    placements: [
+      { id: placementIds[0], assetBriefId: "room", zoneId: "zone-main", entityId: null },
+      { id: placementIds[1], assetBriefId: "crate", zoneId: "zone-main", entityId: "control-unit" },
+      { id: placementIds[2], assetBriefId: "guide", zoneId: "zone-main", entityId: "actor-unit" },
+    ],
+    nodeBindings: authoring.nodes.map((node) => ({
+      nodeId: node.id,
+      zoneId: "zone-main",
+      visiblePlacementIds: placementIds,
+    })),
+  });
+  const prototypeFiles = {
+    "authoring-game-pack.json": authoringGamePackJson,
+    "scene-blueprint.json": sceneBlueprintJson,
+    "runtime-game-pack.json": compiled.canonicalJson,
+    "runtime-receipt.json": canonicalizeJsonValue(compiled.receipt),
+  };
+  for (const [name, text] of Object.entries(prototypeFiles)) {
+    await writeFile(path.join(prototypeDir, name), text);
+  }
+  const source = await readFile(path.join(environmentRoot, "crate.glb"));
+  const texture = await readFile(path.join(environmentRoot, "Textures", "colormap.png"));
+  const embedded = await normalizePrototypeGlb(source, {
+    kind: "prop",
+    role: "visual",
+    externalResources: new Map([["Textures/colormap.png", texture]]),
+  });
+  assert.equal(embedded.ok, true);
+  await writeFile(path.join(acquiredDir, "crate.glb"), embedded.bytes);
+  await writeFile(path.join(acquiredDir, "guide.glb"), embedded.bytes);
+  return { prototypeDir, acquiredDir, output };
+}
+
+async function removeFixture(fixture) {
+  for (const candidate of [fixture.output, fixture.acquiredDir, fixture.prototypeDir]) {
+    await rm(candidate, { recursive: true, force: true });
+  }
+  const prefix = `.matrix-oasis-r9-${path.basename(fixture.output)}-`;
+  for (const name of await readdir(tempRoot)) {
+    if (name.startsWith(prefix)) {
+      await rm(path.join(tempRoot, name), { recursive: true, force: true });
+    }
+  }
+}
+
+function materializeCliRequest(fixture, services = fileServices) {
+  return executeMaterializePrototypeAssetsCli({
+    args: [
+      "--prototype-dir", fixture.prototypeDir,
+      "--acquired-dir", fixture.acquiredDir,
+      "--output", fixture.output,
+    ],
+    tempRoot,
+    services,
+    environmentRoot,
+    planPrototypeAssets,
+    materializePrototypeAssetBundle,
+  });
+}
+
+test("asset CLI arguments are closed and do not accept path omissions", () => {
+  assert.equal(parsePlanPrototypeAssetsArgs(["--prototype-dir", "x"]).prototypeDir, "x");
+  const materializeArgs = parseMaterializePrototypeAssetsArgs([
+    "--prototype-dir", "a", "--acquired-dir", "b", "--output", "c",
+  ]);
+  assert.deepEqual(
+    [materializeArgs.prototypeDir, materializeArgs.acquiredDir, materializeArgs.output],
+    ["a", "b", "c"],
+  );
+  for (const args of [[], ["--other", "x"], ["--prototype-dir"], ["--prototype-dir", "x", "--prototype-dir", "y"]]) {
+    assert.throws(() => parsePlanPrototypeAssetsArgs(args));
+  }
+});
+
+test("asset planning and materialization publish only a complete canonical pair and GLBs", async () => {
+  const fixture = await createAssetCliFixture();
+  try {
+    const planned = await executePlanPrototypeAssetsCli({
+      args: ["--prototype-dir", fixture.prototypeDir],
+      tempRoot,
+      services: fileServices,
+      planPrototypeAssets,
+    });
+    assert.equal(planned.exitCode, 0, planned.stderr);
+    const publicPlan = JSON.parse(planned.stdout);
+    assert.deepEqual(publicPlan.assetBriefs.map(({ id }) => id), ["room", "crate", "guide"]);
+    assert.equal(planned.stdout.includes("Neutral crate"), false);
+
+    const materialized = await materializeCliRequest(fixture);
+    assert.equal(materialized.exitCode, 0, materialized.stderr);
+    const bundleText = await readFile(path.join(fixture.output, "prototype-asset-bundle.json"), "utf8");
+    const reportText = await readFile(path.join(fixture.output, "generation-report.json"), "utf8");
+    assert.equal(canonicalizeJsonValue(JSON.parse(bundleText)), bundleText);
+    assert.equal(canonicalizeJsonValue(JSON.parse(reportText)), reportText);
+    for (const name of ["room-floor-square.glb", "room-wall.glb", "crate-visual.glb", "crate-collider.glb", "guide-visual.glb"]) {
+      assert.ok((await readFile(path.join(fixture.output, "assets", name))).byteLength > 0);
+    }
+  } finally {
+    await removeFixture(fixture);
+  }
+});
+
+test("materialization fails closed for malformed acquired GLB and existing targets", async () => {
+  const fixture = await createAssetCliFixture();
+  try {
+    await writeFile(path.join(fixture.acquiredDir, "crate.glb"), new Uint8Array([1, 2, 3]));
+    const rejected = await materializeCliRequest(fixture);
+    assert.equal(rejected.exitCode, 1);
+    await assert.rejects(readFile(path.join(fixture.output, "prototype-asset-bundle.json")));
+    await writeFile(
+      path.join(fixture.acquiredDir, "crate.glb"),
+      await readFile(path.join(fixture.acquiredDir, "guide.glb")),
+    );
+    await writeFile(path.join(fixture.output), "existing");
+    const existing = await materializeCliRequest(fixture);
+    assert.equal(existing.exitCode, 2);
+    assert.equal(await readFile(fixture.output, "utf8"), "existing");
+  } finally {
+    await removeFixture(fixture);
+  }
+});
+
+test("concurrent publication has exactly one winner and never exposes a partial pair", async () => {
+  const fixture = await createAssetCliFixture();
+  try {
+    const results = await Promise.all([
+      materializeCliRequest(fixture),
+      materializeCliRequest(fixture),
+    ]);
+    assert.deepEqual(results.map(({ exitCode }) => exitCode).sort(), [0, 2]);
+    assert.ok((await readFile(path.join(fixture.output, "prototype-asset-bundle.json"))).byteLength > 0);
+    assert.ok((await readFile(path.join(fixture.output, "generation-report.json"))).byteLength > 0);
+  } finally {
+    await removeFixture(fixture);
+  }
+});
+
+test("post-rename target identity replacement is reported as failure", async () => {
+  const fixture = await createAssetCliFixture();
+  const held = `${fixture.output}-held`;
+  try {
+    const services = {
+      ...fileServices,
+      async rename(source, target) {
+        await rename(source, target);
+        await rename(target, held);
+        await mkdir(target);
+      },
+    };
+    const rejected = await materializeCliRequest(fixture, services);
+    assert.equal(rejected.exitCode, 2);
+    assert.deepEqual(await readdir(fixture.output), []);
+    assert.ok((await readFile(path.join(held, "prototype-asset-bundle.json"))).byteLength > 0);
+  } finally {
+    await rm(held, { recursive: true, force: true });
+    await removeFixture(fixture);
+  }
 });
