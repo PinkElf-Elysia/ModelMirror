@@ -8,12 +8,25 @@ from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
     Origin,
+    SessionLedgerKind,
     TaskSpec,
+    TaskState,
     WorkspaceSource,
 )
 from server.coding_worker.changeset import ChangesetEngine
+from server.coding_worker.api import (
+    coding_worker_capabilities,
+    configure_coding_worker_for_tests,
+)
+from server.coding_worker.provider import FakeCodingAgentProvider, ProviderEvent, ProviderEventKind
+from server.coding_worker.service import CodingWorkerService
+from server.coding_worker.tool_broker import ToolBroker
 from server.coding_worker.store import CodingWorkerStore
-from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
+from server.coding_worker.workspace import (
+    InMemoryWorkspaceSourceAdapter,
+    WorkspaceBroker,
+    WorkspaceSnapshot,
+)
 
 
 def _spec() -> TaskSpec:
@@ -64,6 +77,29 @@ def test_workspace_snapshot_preserves_binary_content(tmp_path: Path) -> None:
     assert (broker.repository_path(workspace.workspace_id) / "data.bin").read_bytes() == b"\x00one"
 
 
+def test_workspace_snapshot_does_not_apply_gitattributes_filters(tmp_path: Path) -> None:
+    import asyncio
+
+    broker = WorkspaceBroker(
+        tmp_path / "attributes",
+        {
+            "builtin": InMemoryWorkspaceSourceAdapter(
+                {
+                    ("source_session", "r1"): {
+                        ".gitattributes": b"*.txt text eol=lf\n",
+                        "value.txt": b"one\r\ntwo\r\n",
+                    }
+                }
+            )
+        },
+        id_key=b"a" * 32,
+    )
+    workspace = asyncio.run(broker.prepare(_spec().workspace_source))
+    snapshot = broker.capture_snapshot(workspace.workspace_id)
+    files = {item.path: item.content for item in broker.snapshot_files(workspace.workspace_id, snapshot)}
+    assert files["value.txt"] == b"one\r\ntwo\r\n"
+
+
 def test_turn_navigation_intent_is_durable_and_exact(tmp_path: Path) -> None:
     key = Fernet.generate_key()
     store = CodingWorkerStore(tmp_path / "worker", master_key=key)
@@ -93,3 +129,127 @@ def test_turn_navigation_intent_is_durable_and_exact(tmp_path: Path) -> None:
     assert history.cursor == 0
     redo = reopened.begin_turn_navigation(task.task_id, "redo")
     assert redo[1:] == (1, "1" * 64, "3" * 64, "4" * 40)
+
+
+def test_service_undo_redo_restores_exact_turn_tree(tmp_path: Path) -> None:
+    import asyncio
+
+    async def scenario() -> None:
+        key = Fernet.generate_key()
+        store = CodingWorkerStore(tmp_path / "store", master_key=key)
+        broker = WorkspaceBroker(
+            tmp_path / "workspaces",
+            {
+                "builtin": InMemoryWorkspaceSourceAdapter(
+                    {("source_session", "r1"): {"value.txt": b"before"}}
+                )
+            },
+            id_key=b"w" * 32,
+        )
+        provider = FakeCodingAgentProvider()
+        tool_broker = ToolBroker(store=store, workspace_broker=broker)
+        service = CodingWorkerService(
+            store=store,
+            workspace_broker=broker,
+            provider=provider,
+            tool_broker=tool_broker,
+        )
+        task = store.create_task(_spec())
+        workspace = await broker.prepare(task.spec.workspace_source)
+        store.transition(
+            task.task_id, TaskState.PREPARING, expected_state=TaskState.QUEUED
+        )
+        store.transition(
+            task.task_id,
+            TaskState.RUNNING,
+            workspace_id=workspace.workspace_id,
+            expected_state=TaskState.PREPARING,
+        )
+        before = broker.capture_snapshot(workspace.workspace_id)
+        target = broker.repository_path(workspace.workspace_id) / "value.txt"
+        target.write_bytes(b"after")
+        after = broker.capture_snapshot(workspace.workspace_id)
+        turn_id = "turn_" + "c" * 32
+        store.append_session_ledger(
+            task.task_id,
+            kind=SessionLedgerKind.TURN_STARTED,
+            turn_id=turn_id,
+            payload={},
+        )
+        store.finish_session_turn(
+            task.task_id,
+            turn_id=turn_id,
+            result_state="completed",
+            turn_checkpoint={
+                "before_tree_hash": before.tree_hash,
+                "before_tree_oid": before.tree_oid,
+                "after_tree_hash": after.tree_hash,
+                "after_tree_oid": after.tree_oid,
+            },
+        )
+        store.transition(
+            task.task_id, TaskState.TESTING, expected_state=TaskState.RUNNING
+        )
+        store.transition(
+            task.task_id, TaskState.COMPLETED, expected_state=TaskState.TESTING
+        )
+
+        history = await service.navigate_turn(task.task_id, "undo")
+        assert history.cursor == 0
+        assert target.read_bytes() == b"before"
+        assert store.get_task(task.task_id).state.value == "paused"
+        history = await service.navigate_turn(task.task_id, "redo")
+        assert history.cursor == 1
+        assert target.read_bytes() == b"after"
+
+        checkpoint, cursor, source_hash, target_hash, target_oid = (
+            store.begin_turn_navigation(task.task_id, "undo")
+        )
+        operation_id = service._turn_navigation_operation_id(
+            task.task_id, checkpoint.checkpoint_id, "undo"
+        )
+        changesets = tool_broker.changesets
+        changesets.restore_snapshot(
+            task_id=task.task_id,
+            workspace_id=workspace.workspace_id,
+            operation_id=operation_id,
+            expected_tree_hash=source_hash,
+            snapshot=WorkspaceSnapshot(tree_hash=target_hash, tree_oid=target_oid),
+        )
+        changesets.finalize(
+            task_id=task.task_id,
+            workspace_id=workspace.workspace_id,
+            operation_id=operation_id,
+        )
+        assert cursor == 0 and target.read_bytes() == b"before"
+        reconciled = await service.navigate_turn(task.task_id, "undo")
+        assert reconciled.cursor == 0
+        assert target.read_bytes() == b"before"
+
+    asyncio.run(scenario())
+
+
+def test_session_control_capability_is_independently_gated(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = CodingWorkerStore(tmp_path / "capability", master_key=Fernet.generate_key())
+    broker = WorkspaceBroker(
+        tmp_path / "capability-workspaces",
+        {"builtin": InMemoryWorkspaceSourceAdapter({})},
+        id_key=b"c" * 32,
+    )
+    service = CodingWorkerService(
+        store=store,
+        workspace_broker=broker,
+        provider=FakeCodingAgentProvider(),
+        tool_broker=ToolBroker(store=store, workspace_broker=broker),
+    )
+    configure_coding_worker_for_tests(service, enabled=True)
+    monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_SESSION_CONTROLS_ENABLED", "true")
+    try:
+        assert coding_worker_capabilities().turn_history is True
+        monkeypatch.setenv("CODING_WORKER_SESSION_CONTROLS_ENABLED", "false")
+        assert coding_worker_capabilities().turn_history is False
+    finally:
+        configure_coding_worker_for_tests(None, enabled=None)
