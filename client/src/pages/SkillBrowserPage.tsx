@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
 import AuthoringProposalPanel from "../components/authoring/AuthoringProposalPanel";
@@ -53,6 +53,9 @@ interface InstalledSkill extends InstalledSkillTrustFields {
   installed_at: number;
   source_ref?: string | null;
   source_kind: string;
+  source_id?: string | null;
+  source_revision?: number | null;
+  content_digest?: string | null;
 }
 
 interface InstalledSkillsResponse {
@@ -66,7 +69,13 @@ interface SkillSetBatchProgress {
   currentMemberName: string;
 }
 
-type SkillTab = "builtin" | "market" | "installed" | "drafts" | "proposals";
+type SkillTab =
+  | "builtin"
+  | "market"
+  | "installed"
+  | "imports"
+  | "drafts"
+  | "proposals";
 type SkillKindFilter = "all" | SkillProjectKind;
 type SkillAvailabilityFilter = "all" | SkillInstallStatus;
 type NeedSearchStatus = "idle" | "loading" | "ready" | "error";
@@ -99,6 +108,10 @@ const NEED_EXAMPLES = [
   "为 React 网页编写自动化测试",
   "审计 Postgres 数据库安全",
 ] as const;
+
+const SkillLocalImportSummaryPanel = lazy(
+  () => import("../components/skill-import/SkillLocalImportSummaryPanel"),
+);
 
 const INSTALL_STATUS_DETAILS: Record<
   SkillInstallStatus,
@@ -978,6 +991,17 @@ function InstalledSkillCard({
   uninstallingId: string;
 }) {
   const isUninstalling = uninstallingId === skill.skill_id;
+  const isLocalImport = skill.source_kind === "local_import";
+  const localRiskLabel =
+    skill.trust_risk_level === "low"
+      ? "低风险"
+      : skill.trust_risk_level === "medium"
+        ? "中风险"
+        : skill.trust_risk_level === "high"
+          ? "高风险"
+          : skill.trust_risk_level === "critical"
+            ? "严重风险"
+            : "风险未知";
 
   return (
     <article className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-prism">
@@ -985,8 +1009,10 @@ function InstalledSkillCard({
         <div>
           <p className="text-xs font-semibold text-emerald-100">已入职技能</p>
           <h3 className="mt-2 text-xl font-semibold text-white">{skill.name}</h3>
-          <p className="mt-1 text-xs text-slate-500">
-            {skill.repo_url} / {skill.sub_path || "."}
+          <p className="mt-1 break-all text-xs text-slate-500">
+            {isLocalImport
+              ? `本地导入 ${skill.source_id || skill.skill_id}`
+              : `${skill.repo_url} / ${skill.sub_path || "."}`}
           </p>
         </div>
         <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-3 py-1 text-xs font-semibold text-emerald-100">
@@ -998,6 +1024,10 @@ function InstalledSkillCard({
         <div className="flex flex-wrap items-center gap-2">
           {skill.source_kind === "git" ? (
             <SkillTrustBadge summary={trustSummary} />
+          ) : isLocalImport ? (
+            <span className="rounded-full border border-amber-300/25 bg-amber-300/10 px-2.5 py-1 text-xs font-semibold text-amber-100">
+              {localRiskLabel} · {skill.trust_install_policy === "allow" ? "已验证" : "已确认"}
+            </span>
           ) : (
             <span className="rounded-full border border-sky-300/25 bg-sky-300/10 px-2.5 py-1 text-xs font-semibold text-sky-100">
               本地来源合同
@@ -1012,13 +1042,18 @@ function InstalledSkillCard({
                   ? "本地来源"
                   : "已禁止激活"}
           </span>
-          {!skill.trust_router_eligible && skill.source_kind === "git" ? (
+          {!skill.trust_router_eligible && ["git", "local_import"].includes(skill.source_kind) ? (
             <span className="text-xs text-slate-500">不纳入 Router</span>
           ) : null}
         </div>
         {skill.source_ref ? (
           <p className="mt-2 break-all font-mono text-[11px] text-slate-500">
             SHA {skill.source_ref}
+          </p>
+        ) : null}
+        {isLocalImport && skill.content_digest ? (
+          <p className="mt-2 break-all font-mono text-[11px] text-slate-500">
+            package {skill.content_digest}
           </p>
         ) : null}
         {skill.trust_state === "unverified_legacy" ? (
@@ -1033,6 +1068,14 @@ function InstalledSkillCard({
         ) : null}
       </div>
       <div className="mt-5 flex flex-wrap justify-end gap-2">
+        {isLocalImport && skill.source_id ? (
+          <Link
+            className="inline-flex min-h-10 items-center rounded-full border border-white/15 px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06]"
+            to={`/skills/import/${encodeURIComponent(skill.source_id)}`}
+          >
+            查看导入
+          </Link>
+        ) : null}
         {skill.trust_receipt_id ? (
           <button
             className="min-h-10 rounded-full border border-white/15 px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06]"
@@ -1079,6 +1122,7 @@ export default function SkillBrowserPage() {
   const [activeTab, setActiveTab] = useState<SkillTab>(
     requestedTab === "builtin" ||
       requestedTab === "installed" ||
+      requestedTab === "imports" ||
       requestedTab === "drafts" ||
       requestedTab === "proposals"
       ? requestedTab
@@ -1754,16 +1798,17 @@ export default function SkillBrowserPage() {
 
       <section className="mt-8">
         <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="inline-flex w-fit rounded-full border border-white/10 bg-white/[0.055] p-1">
+          <div className="flex max-w-full overflow-x-auto rounded-full border border-white/10 bg-white/[0.055] p-1">
             {[
               { id: "builtin", label: `Agent 内置（${builtinSkills.length || 16}）` },
               { id: "market", label: "技能市场" },
               { id: "installed", label: "已安装" },
+              { id: "imports", label: "本地导入" },
               { id: "drafts", label: "工作区草稿" },
               { id: "proposals", label: "待审提案" },
             ].map((tab) => (
               <button
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition ${
                   activeTab === tab.id
                     ? "bg-hire-300 text-ink-950 shadow-[0_0_18px_rgba(251,146,60,0.24)]"
                     : "text-slate-300 hover:bg-white/[0.06] hover:text-white"
@@ -1777,6 +1822,12 @@ export default function SkillBrowserPage() {
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Link
+              className="inline-flex min-h-10 w-fit items-center rounded-full border border-hire-300/30 px-4 text-sm font-semibold text-hire-100 transition hover:bg-hire-300/10"
+              to="/skills/import"
+            >
+              导入本地 Skill
+            </Link>
             {creatorStatus?.enabled ? (
               <Link
                 className="w-fit rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:ring-2 focus-visible:ring-hire-100"
@@ -2215,6 +2266,17 @@ export default function SkillBrowserPage() {
               清除筛选
             </button>
           </div>
+        ) : activeTab === "imports" ? (
+          <Suspense
+            fallback={
+              <div aria-label="正在加载本地导入" className="space-y-3">
+                <div className="h-20 animate-pulse rounded-lg bg-white/[0.05] motion-reduce:animate-none" />
+                <div className="h-24 animate-pulse rounded-lg bg-white/[0.04] motion-reduce:animate-none" />
+              </div>
+            }
+          >
+            <SkillLocalImportSummaryPanel />
+          </Suspense>
         ) : activeTab === "installed" && installedSkills.length > 0 ? (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {installedSkills.map((skill) => (
