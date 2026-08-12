@@ -534,6 +534,58 @@ class CodingWorkerStore:
             ).fetchall()
         return [self._session_ledger_entry(row) for row in rows]
 
+    def latest_session_entry(
+        self, task_id: str, kind: SessionLedgerKind
+    ) -> WorkerSessionLedgerEntry | None:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            row = connection.execute(
+                """
+                SELECT * FROM worker_session_ledger
+                WHERE task_id = ? AND kind = ? ORDER BY sequence DESC LIMIT 1
+                """,
+                (task_id, kind.value),
+            ).fetchone()
+        return self._session_ledger_entry(row) if row is not None else None
+
+    def session_tool_boundary_sequence(self, task_id: str, turn_id: str) -> int:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            self._require_open_turn(connection, task_id, turn_id)
+            open_tool = connection.execute(
+                """
+                SELECT 1
+                FROM worker_session_ledger AS started
+                LEFT JOIN worker_session_ledger AS finished
+                  ON finished.task_id = started.task_id
+                 AND finished.operation_id = started.operation_id
+                 AND finished.kind = ?
+                WHERE started.task_id = ? AND started.turn_id = ?
+                  AND started.kind = ? AND finished.ledger_id IS NULL
+                LIMIT 1
+                """,
+                (
+                    SessionLedgerKind.TOOL_FINISHED.value,
+                    task_id,
+                    turn_id,
+                    SessionLedgerKind.TOOL_STARTED.value,
+                ),
+            ).fetchone()
+            if open_tool is not None:
+                raise WorkerConflictError(
+                    "Context compaction requires a complete tool boundary.",
+                    code="session_tool_boundary_incomplete",
+                )
+            return int(
+                connection.execute(
+                    """
+                    SELECT COALESCE(MAX(sequence), 0)
+                    FROM worker_session_ledger WHERE task_id = ?
+                    """,
+                    (task_id,),
+                ).fetchone()[0]
+            )
+
     def latest_plan(self, task_id: str) -> WorkerPlan | None:
         with self._connect() as connection:
             self._require_task_row(connection, task_id)

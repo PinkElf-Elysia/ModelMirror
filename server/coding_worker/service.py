@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import json
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 
@@ -432,7 +434,7 @@ class CodingWorkerService:
                         "Checkpoint payload is invalid.", code="checkpoint_invalid"
                     ) from exc
                 if (
-                    resume_phase not in {"testing", "waiting_input"}
+                    resume_phase not in {"testing", "waiting_input", "compacted"}
                     or completed_turns < 1
                     or (resume_phase == "waiting_input" and not resume_question_id)
                 ):
@@ -629,6 +631,12 @@ class CodingWorkerService:
                 )
                 return
             message = answer
+        elif resume_phase == "compacted":
+            message = self._restored_context_message(
+                resume_context,
+                "Continue from the controlled compaction boundary. Reinspect any "
+                "workspace state needed before the next side effect.",
+            )
         while True:
             durable_usage = self.store.budget_usage(task_id)
             turns = max(turns, durable_usage.turns_started)
@@ -650,6 +658,7 @@ class CodingWorkerService:
             )
             outcome = "interrupted"
             question_data: dict[str, object] | None = None
+            compaction_failed = False
             try:
                 async for event in self.provider.message(session, message):
                     self.store.append_event(
@@ -662,6 +671,20 @@ class CodingWorkerService:
                         outcome = "waiting_input"
                         question_data = event.data
                         break
+                    if event.kind is ProviderEventKind.COMPACTION:
+                        try:
+                            await self._record_controlled_compaction(
+                                task,
+                                session,
+                                turn_id=turn_id,
+                                turns=turns,
+                                message_cursor=message_cursor,
+                                provider_note=str(event.data["summary"]),
+                            )
+                        except Exception:
+                            outcome = "interrupted"
+                            compaction_failed = True
+                            break
                     if event.kind is ProviderEventKind.TURN_COMPLETED:
                         outcome = "completed"
                         break
@@ -731,6 +754,14 @@ class CodingWorkerService:
                     task_id,
                     TaskState.WAITING_INPUT,
                     reason="user_input_required",
+                    expected_state=TaskState.RUNNING,
+                )
+                return
+            if compaction_failed:
+                self.store.transition(
+                    task_id,
+                    TaskState.BLOCKED,
+                    reason="context_compaction_failed",
                     expected_state=TaskState.RUNNING,
                 )
                 return
@@ -844,13 +875,121 @@ class CodingWorkerService:
                 turn_id=turn_id,
                 payload=data,
             )
-        elif kind is ProviderEventKind.COMPACTION:
-            self.store.append_session_ledger(
-                task_id,
-                kind=SessionLedgerKind.COMPACTION,
-                turn_id=turn_id,
-                payload=data,
+
+    async def _record_controlled_compaction(
+        self,
+        task: TaskRecord,
+        session: ProviderSession,
+        *,
+        turn_id: str,
+        turns: int,
+        message_cursor: int,
+        provider_note: str,
+    ) -> None:
+        task_id = task.task_id
+        boundary = self.store.session_tool_boundary_sequence(task_id, turn_id)
+        workspace_id = self.store.get_task(task_id).workspace_id or ""
+        tree_hash = self.workspace_broker.current_tree_hash(workspace_id)
+        summary = self._controlled_compaction_summary(
+            task_id,
+            tree_hash=tree_hash,
+            provider_note=provider_note,
+        )
+        encoded = json.dumps(
+            summary,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        if len(encoded.encode("utf-8")) > 65_536:
+            raise WorkerConflictError(
+                "Controlled context is too large to compact.",
+                code="context_compaction_too_large",
             )
+        provider_checkpoint = await self.provider.checkpoint(session)
+        self.store.create_checkpoint(
+            task_id=task_id,
+            workspace_tree_hash=tree_hash,
+            payload={
+                "phase": "compacted",
+                "completed_turns": turns,
+                "message_cursor": message_cursor,
+                "provider": provider_checkpoint.model_dump(mode="json"),
+                "context_summary": summary,
+            },
+        )
+        self.store.append_session_ledger(
+            task_id,
+            kind=SessionLedgerKind.COMPACTION,
+            turn_id=turn_id,
+            payload={"summary": encoded, "boundary_sequence": boundary},
+        )
+        self.store.append_event(
+            task_id,
+            "context_compacted",
+            {
+                "boundary_sequence": boundary,
+                "workspace_tree_hash": tree_hash,
+            },
+        )
+
+    def _controlled_compaction_summary(
+        self, task_id: str, *, tree_hash: str, provider_note: str
+    ) -> dict[str, object]:
+        task = self.store.get_task(task_id)
+        base = self._context_summary(
+            task_id,
+            tree_hash=tree_hash,
+            public_output=provider_note[:16_384],
+        )
+        plan = self.store.latest_plan(task_id)
+        todo = self.store.latest_session_entry(task_id, SessionLedgerKind.TODO)
+        questions = self.store.list_questions(task_id)
+        resolved = [item for item in questions if item.status is QuestionStatus.RESOLVED]
+        pending = [item for item in questions if item.status is QuestionStatus.PENDING]
+        raw_diff = self.workspace_broker.diff(task.workspace_id or "")
+        changed_paths: list[str] = []
+        for line in raw_diff.decode("utf-8", errors="replace").splitlines():
+            if not line.startswith("diff --git a/") or " b/" not in line:
+                continue
+            path = line.split(" b/", 1)[1]
+            if path not in changed_paths:
+                changed_paths.append(path)
+        base.update(
+            {
+                "version": 2,
+                "acceptance_contract_id": task.spec.acceptance.contract_id,
+                "plan": plan.model_dump(mode="json") if plan is not None else None,
+                "todo": todo.payload if todo is not None else {"items": []},
+                "decisions": [
+                    {
+                        "question_id": item.question_id,
+                        "answer": item.answer,
+                        "selected_option_id": item.selected_option_id,
+                    }
+                    for item in resolved[-16:]
+                ],
+                "unresolved_questions": [
+                    {"question_id": item.question_id, "prompt": item.prompt}
+                    for item in pending[-16:]
+                ],
+                "changed_files": {
+                    "paths": changed_paths[:256],
+                    "count": len(changed_paths),
+                    "diff_sha256": hashlib.sha256(raw_diff).hexdigest(),
+                },
+                "next_step": self._next_compaction_step(plan),
+            }
+        )
+        return base
+
+    @staticmethod
+    def _next_compaction_step(plan: object) -> str:
+        if plan is not None:
+            for item in plan.items:
+                if item.status in {"in_progress", "pending"}:
+                    return item.step
+        return "continue_task"
 
     def _next_steering(
         self, task_id: str, *, after_sequence: int

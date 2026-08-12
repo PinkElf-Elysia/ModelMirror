@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import sys
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -208,6 +209,83 @@ class _LedgerProvider(FakeCodingAgentProvider):
             data={"text": "Public assistant result."},
         )
         yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+
+class _CompactionProvider(FakeCodingAgentProvider):
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        yield ProviderEvent(
+            kind=ProviderEventKind.PLAN,
+            data={
+                "explanation": "bounded plan",
+                "items": [{"step": "repair next", "status": "in_progress"}],
+            },
+        )
+        yield ProviderEvent(
+            kind=ProviderEventKind.TODO,
+            data={
+                "items": [
+                    {
+                        "todo_id": "todo-compact",
+                        "content": "preserve this todo",
+                        "status": "pending",
+                    }
+                ]
+            },
+        )
+        yield ProviderEvent(
+            kind=ProviderEventKind.COMPACTION,
+            data={"summary": "provider hint", "boundary_sequence": 999},
+        )
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+
+class _UnsafeCompactionProvider(FakeCodingAgentProvider):
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        yield ProviderEvent(
+            kind=ProviderEventKind.TOOL_STARTED,
+            data={
+                "operation_id": "operation-open-at-compaction",
+                "tool_name": "run_check",
+                "summary": "still running",
+            },
+        )
+        yield ProviderEvent(
+            kind=ProviderEventKind.COMPACTION,
+            data={"summary": "unsafe provider hint", "boundary_sequence": 999},
+        )
+
+
+class _BlockingCompactionProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = asyncio.Event()
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        yield ProviderEvent(
+            kind=ProviderEventKind.COMPACTION,
+            data={"summary": "restart-safe hint", "boundary_sequence": 1},
+        )
+        await self.release.wait()
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+
+class _CompactionRestoreProvider(_RestoreTrackingProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        self.messages.append(text)
+        async for event in super().message(session, text):
+            yield event
 
 
 def _service_with_harness(
@@ -436,6 +514,105 @@ async def test_provider_request_binds_tree_and_policy_tool_allowlist(
     assert rebound[0].content == root_rule.decode("utf-8")
     assert "network" not in request.tool_allowlist
     await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_controlled_compaction_preserves_public_state_at_tool_boundary(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path, _CompactionProvider())
+    task = await service.create_task(
+        Origin(module="test", object_id="compaction"), _request("compaction")
+    )
+    terminal = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.BLOCKED
+    )
+
+    assert terminal.reason == "acceptance_runner_pending"
+    compacted = [
+        item
+        for item in service.store.list_session_ledger(task.task_id)
+        if item.kind is SessionLedgerKind.COMPACTION
+    ]
+    assert len(compacted) == 1
+    summary = json.loads(compacted[0].payload["summary"])
+    assert summary["objective"] == "Complete compaction"
+    assert summary["required_checks"] == ["pytest"]
+    assert summary["plan"]["items"][0]["step"] == "repair next"
+    assert summary["todo"]["items"][0]["todo_id"] == "todo-compact"
+    assert summary["failure_evidence"] == []
+    assert summary["changed_files"]["count"] == 0
+    assert summary["unresolved_questions"] == []
+    assert summary["next_step"] == "repair next"
+    assert summary["public_output"] == "provider hint"
+    assert compacted[0].payload["boundary_sequence"] != 999
+    events = service.store.list_events(task.task_id)
+    assert [item.type for item in events].count("context_compacted") == 1
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_compaction_rejects_an_open_tool_boundary(tmp_path: Path) -> None:
+    service = _service(tmp_path, _UnsafeCompactionProvider())
+    task = await service.create_task(
+        Origin(module="test", object_id="unsafe-compaction"),
+        _request("unsafe-compaction"),
+    )
+    blocked = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.BLOCKED
+    )
+
+    assert blocked.reason == "context_compaction_failed"
+    ledger = service.store.list_session_ledger(task.task_id)
+    assert SessionLedgerKind.COMPACTION not in {item.kind for item in ledger}
+    finished = next(
+        item
+        for item in ledger
+        if item.kind is SessionLedgerKind.TOOL_FINISHED
+    )
+    assert finished.payload["result_state"] == "unknown"
+    assert service.store.latest_checkpoint(task.task_id) is None
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_compaction_checkpoint_restores_without_replaying_old_turn(
+    tmp_path: Path,
+) -> None:
+    provider = _BlockingCompactionProvider()
+    service = _service(tmp_path, provider)
+    task = await service.create_task(
+        Origin(module="test", object_id="compaction-restart"),
+        _request("compaction-restart"),
+    )
+    for _ in range(200):
+        if any(
+            event.type == "context_compacted"
+            for event in service.store.list_events(task.task_id)
+        ):
+            break
+        await asyncio.sleep(0.01)
+    checkpoint = service.store.latest_checkpoint(task.task_id)
+    assert checkpoint is not None and checkpoint.payload["phase"] == "compacted"
+
+    await service.shutdown()
+    assert service.store.get_task(task.task_id).state is TaskState.INTERRUPTED
+    restored_provider = _CompactionRestoreProvider()
+    restored_service = CodingWorkerService(
+        store=service.store,
+        workspace_broker=service.workspace_broker,
+        provider=restored_provider,
+    )
+    await restored_service.resume(task.task_id)
+    terminal = await restored_service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.BLOCKED
+    )
+
+    assert terminal.reason == "acceptance_runner_pending"
+    assert restored_provider.restore_count == 1
+    assert restored_provider.message_count == 1
+    assert "controlled compaction boundary" in restored_provider.messages[0]
+    await restored_service.shutdown()
 
 
 @pytest.mark.asyncio
