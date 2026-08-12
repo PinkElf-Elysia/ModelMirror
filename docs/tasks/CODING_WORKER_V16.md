@@ -74,3 +74,27 @@ PR B 基于 PR A `e03f5987`，按十个独立逻辑提交实现，且每个提�
 - V14 + V15 Claude overlays 的 Compose `config --quiet` 通过；20 个变更 Python 文件 AST 解析、逐提交五文件门禁、`git diff --check` 均通过。
 
 上述结果只证明 PR B 的确定性契约、恢复、隔离与默认关闭边界。真实 OpenCode/Claude 对照、24 项任务各三次、连续两轮认证、Console 人工验收以及“接近 OpenCode”限定文案授权仍未完成；PR B 必须保持 Draft/Experimental。
+
+## PR C 实现与验证快照
+
+PR C 基于已验证的 PR B `129c4c08`，按十二个独立提交实现，所有提交均不超过五个文件：
+
+1. `24c596ec`：深度一、每父任务最多四项的加密子任务契约与持久关系。
+2. `db03fb00`：父任务停车释放槽位，子任务在另一隔离 Workspace Fork 中排队执行。
+3. `c0465fdb`：只读 `explore/review` 与可变更 `implement` 工具策略，不继承父审批、租约、operation、Artifact 或 Provider session。
+4. `383d21fd`：公开中立 capability、创建与 children 查询接口。
+5. `88eaee84`：绑定 fork H0/result/changed-path receipt 的文本 changeset 合并；父 tree/preimage CAS 冲突时不覆盖父 Workspace。
+6. `ddc8b157`、`acd28bc0`、`394a7a04`：稳定 operation ID 的 Provider/MCP/HTTP 合并链与未知回执对账。
+7. `52a8ba3a`：公开回合历史查询。
+8. `f21c0440`：旧 PR C 数据库的子任务合并字段幂等迁移。
+9. `86c3fff6`、`52da3e26`：共享 Console 展示结构化 plan/todo、待回答问题、compaction、turn history、undo/redo/fork、子任务树、合并结果和冲突保护。
+
+自动门禁结果：
+
+- 全部 Coding Worker：`198 passed, 5 skipped`；5 项均为固定 LSP 仅在 Linux Executor 镜像运行的显式 skip。
+- Agent Workspace：`44 passed`；第一次只读挂载被 World/MCP 运行时目录初始化挡在收集阶段，改用一次性可写 `server` 副本后通过。
+- 全部 Coding：`820 passed, 14 skipped`，另将临时副本遗漏的 `.dockerignore` 精确补入后最后 1 项安全测试通过。临时副本缺 Compose/`.dockerignore` 的 9/1 项失败均已按原测试精确复跑，不属于产品失败。
+- 前端：`51` 个测试文件、`235 passed`；production build 通过。Vite 保留既有大 chunk 警告；`npm ci` 报告的 5 项 audit 告警未用无关依赖升级在本 PR 扩面。
+- `git diff --check`、逐提交五文件门禁与 Python 定向 `py_compile` 通过。
+
+尚未执行：真实 OpenCode/Claude 子任务、逐组件重启、Host Snapshot 写回、Console 人工脚本验收、144 次真实模型对照及连续两轮认证。因此 PR C 只能以 Experimental、默认关闭交付；不得使用任何“接近 OpenCode”宣传文案。
