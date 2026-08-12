@@ -140,7 +140,11 @@ class WorkspaceBroker:
         return self._materialize(source, snapshot.files, slot_id=slot_id)
 
     def fork(
-        self, workspace_id: str, *, expected_tree_hash: str
+        self,
+        workspace_id: str,
+        *,
+        expected_tree_hash: str,
+        slot_id: str | None = None,
     ) -> WorkspaceRecord:
         """Create an isolated synthetic H0 from an exact turn-bound Workspace tree."""
         record = self.get(workspace_id)
@@ -150,7 +154,9 @@ class WorkspaceBroker:
                 "Workspace changed before fork capture.", code="workspace_changed"
             )
         files = self.snapshot_files(workspace_id, snapshot)
-        return self._materialize(record.source, files, slot_id=record.slot_id)
+        return self._materialize(
+            record.source, files, slot_id=slot_id or record.slot_id
+        )
 
     def _materialize(
         self,
@@ -543,6 +549,56 @@ class WorkspaceBroker:
             if len(result) > max_bytes:
                 raise WorkspaceError("Workspace diff is too large.", code="diff_too_large")
             return result
+        finally:
+            try:
+                temporary_index.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def changed_paths(self, workspace_id: str) -> tuple[str, ...]:
+        """Return bounded normalized paths changed from this fork's synthetic H0."""
+        record = self.get(workspace_id)
+        repository = self.repository_path(workspace_id)
+        temporary_index = repository.parent / f"index-{uuid.uuid4().hex}"
+        try:
+            shutil.copy2(repository / ".git" / "index", temporary_index)
+            env = self._git_env(repository)
+            env["GIT_INDEX_FILE"] = str(temporary_index)
+            self._git(repository, "add", "-A", env=env)
+            raw = self._git(
+                repository,
+                "diff",
+                "--cached",
+                "--name-only",
+                "-z",
+                record.baseline_commit,
+                "--",
+                env=env,
+                text=False,
+            )
+            if not isinstance(raw, bytes) or len(raw) > 1024 * 1024:
+                raise WorkspaceError(
+                    "Workspace changed-path output is unavailable.",
+                    code="workspace_changed",
+                )
+            paths = tuple(
+                item.decode("utf-8", errors="strict")
+                for item in raw.split(b"\0")
+                if item
+            )
+            if len(paths) > 4096 or paths != tuple(sorted(set(paths))):
+                raise WorkspaceError(
+                    "Workspace changed-path output is invalid.",
+                    code="workspace_changed",
+                )
+            for path in paths:
+                self._normalize_path(path)
+            return paths
+        except UnicodeDecodeError as exc:
+            raise WorkspaceError(
+                "Workspace changed-path output is invalid.",
+                code="workspace_changed",
+            ) from exc
         finally:
             try:
                 temporary_index.unlink(missing_ok=True)
