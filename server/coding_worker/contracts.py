@@ -32,6 +32,7 @@ class TaskState(StrEnum):
     RUNNING = "running"
     WAITING_APPROVAL = "waiting_approval"
     WAITING_INPUT = "waiting_input"
+    WAITING_SUBTASKS = "waiting_subtasks"
     PAUSED = "paused"
     TESTING = "testing"
     INTERRUPTED = "interrupted"
@@ -78,6 +79,7 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
         {
             TaskState.WAITING_APPROVAL,
             TaskState.WAITING_INPUT,
+            TaskState.WAITING_SUBTASKS,
             TaskState.PAUSED,
             TaskState.TESTING,
             TaskState.INTERRUPTED,
@@ -102,6 +104,16 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
             TaskState.QUEUED,
             TaskState.PAUSED,
             TaskState.INTERRUPTED,
+            TaskState.CANCELLED,
+            TaskState.EXPIRED,
+        }
+    ),
+    TaskState.WAITING_SUBTASKS: frozenset(
+        {
+            TaskState.QUEUED,
+            TaskState.PAUSED,
+            TaskState.INTERRUPTED,
+            TaskState.BLOCKED,
             TaskState.CANCELLED,
             TaskState.EXPIRED,
         }
@@ -364,6 +376,21 @@ class WorkerCapabilities(StrictModel):
     context_compaction: bool = False
     turn_history: bool = False
     subtasks: bool = False
+
+
+class SubtaskKind(StrEnum):
+    EXPLORE = "explore"
+    IMPLEMENT = "implement"
+    REVIEW = "review"
+
+
+class SubtaskMergeState(StrEnum):
+    NOT_APPLICABLE = "not_applicable"
+    PENDING = "pending"
+    READY = "ready"
+    MERGED = "merged"
+    CONFLICTED = "conflicted"
+    FAILED = "failed"
 
 
 class OperationOutputStream(StrEnum):
@@ -631,6 +658,58 @@ class TaskRecord(StrictModel):
     def validate_optional_id(cls, value: str | None) -> str | None:
         if value is not None and SAFE_ID.fullmatch(value) is None:
             raise ValueError("record identifier is invalid")
+        return value
+
+
+class SubtaskRequest(StrictModel):
+    client_subtask_id: str
+    kind: SubtaskKind
+    objective: str = Field(min_length=1, max_length=65_536)
+
+    @field_validator("client_subtask_id")
+    @classmethod
+    def validate_client_subtask_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("subtask id is invalid")
+        return value
+
+    @field_validator("objective")
+    @classmethod
+    def reject_blank_subtask_objective(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("subtask objective cannot be blank")
+        return value
+
+
+class SubtaskRecord(StrictModel):
+    parent_task_id: str
+    child_task_id: str
+    client_subtask_id: str
+    kind: SubtaskKind
+    objective: str
+    base_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    merge_state: SubtaskMergeState
+    result_tree_hash: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    changed_paths: tuple[str, ...] = Field(default=(), max_length=4096)
+    summary: str | None = Field(default=None, max_length=65_536)
+    created_at: float
+    updated_at: float
+
+    @field_validator("parent_task_id", "child_task_id", "client_subtask_id")
+    @classmethod
+    def validate_subtask_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("subtask identifier is invalid")
+        return value
+
+    @field_validator("changed_paths")
+    @classmethod
+    def validate_changed_paths(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(_normalized_workspace_relative(item) for item in value)
+        if normalized != value or len(value) != len(set(value)):
+            raise ValueError("subtask changed paths are invalid")
         return value
 
 

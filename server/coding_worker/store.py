@@ -20,6 +20,9 @@ from .contracts import (
     OperationState,
     TERMINAL_STATES,
     Origin,
+    SubtaskKind,
+    SubtaskMergeState,
+    SubtaskRecord,
     TaskRecord,
     TaskSpec,
     TaskState,
@@ -191,6 +194,232 @@ class CodingWorkerStore:
                 (parent_task_id,),
             ).fetchall()
             return [self._task(row, connection) for row in rows]
+
+    def get_subtask(
+        self, parent_task_id: str, client_subtask_id: str
+    ) -> SubtaskRecord | None:
+        with self._connect() as connection:
+            self._require_task_row(connection, parent_task_id)
+            row = connection.execute(
+                """
+                SELECT * FROM worker_subtasks
+                WHERE parent_task_id = ? AND client_subtask_id = ?
+                """,
+                (parent_task_id, client_subtask_id),
+            ).fetchone()
+            return self._subtask(row) if row is not None else None
+
+    def subtask_for_child(self, child_task_id: str) -> SubtaskRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM worker_subtasks WHERE child_task_id = ?",
+                (child_task_id,),
+            ).fetchone()
+            return self._subtask(row) if row is not None else None
+
+    def list_subtasks(self, parent_task_id: str) -> list[SubtaskRecord]:
+        with self._connect() as connection:
+            self._require_task_row(connection, parent_task_id)
+            rows = connection.execute(
+                """
+                SELECT * FROM worker_subtasks
+                WHERE parent_task_id = ? ORDER BY created_at, child_task_id
+                """,
+                (parent_task_id,),
+            ).fetchall()
+            return [self._subtask(row) for row in rows]
+
+    def create_subtask_task(
+        self,
+        *,
+        parent_task_id: str,
+        client_subtask_id: str,
+        kind: SubtaskKind,
+        objective: str,
+        spec: TaskSpec,
+        workspace_id: str,
+        base_tree_hash: str,
+    ) -> SubtaskRecord:
+        now = self._now()
+        expires_at = now + self.retention_seconds
+        task_id = f"task_{uuid.uuid4().hex}"
+        encrypted_spec = self._codec.encrypt(spec.model_dump(mode="json"))
+        encrypted_objective = self._codec.encrypt(objective)
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_task_row(connection, parent_task_id)
+            if connection.execute(
+                "SELECT 1 FROM worker_subtasks WHERE child_task_id = ?",
+                (parent_task_id,),
+            ).fetchone() is not None:
+                raise WorkerConflictError(
+                    "Subtasks cannot create nested subtasks.",
+                    code="subtask_depth_exceeded",
+                )
+            existing = connection.execute(
+                """
+                SELECT * FROM worker_subtasks
+                WHERE parent_task_id = ? AND client_subtask_id = ?
+                """,
+                (parent_task_id, client_subtask_id),
+            ).fetchone()
+            if existing is not None:
+                current = self._subtask(existing)
+                if (
+                    current.kind is not kind
+                    or current.objective != objective
+                    or current.base_tree_hash != base_tree_hash
+                ):
+                    raise WorkerConflictError(
+                        "Subtask id is bound to another intent.",
+                        code="subtask_intent_conflict",
+                    )
+                return current
+            count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM worker_subtasks WHERE parent_task_id = ?",
+                    (parent_task_id,),
+                ).fetchone()[0]
+            )
+            if count >= 4:
+                raise WorkerConflictError(
+                    "A task can create at most four subtasks.",
+                    code="subtask_limit_exceeded",
+                )
+            connection.execute(
+                """
+                INSERT INTO worker_tasks (
+                    task_id, origin_module, origin_object_id, client_task_id,
+                    state, spec_ciphertext, workspace_id, created_at,
+                    updated_at, expires_at, pinned
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                """,
+                (
+                    task_id,
+                    spec.origin.module,
+                    spec.origin.object_id,
+                    spec.client_task_id,
+                    TaskState.QUEUED.value,
+                    encrypted_spec,
+                    workspace_id,
+                    now,
+                    now,
+                    expires_at,
+                ),
+            )
+            merge_state = (
+                SubtaskMergeState.PENDING
+                if kind is SubtaskKind.IMPLEMENT
+                else SubtaskMergeState.NOT_APPLICABLE
+            )
+            connection.execute(
+                """
+                INSERT INTO worker_subtasks (
+                    parent_task_id, client_subtask_id, child_task_id, kind,
+                    objective_ciphertext, base_tree_hash, merge_state,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    parent_task_id,
+                    client_subtask_id,
+                    task_id,
+                    kind.value,
+                    encrypted_objective,
+                    base_tree_hash,
+                    merge_state.value,
+                    now,
+                    now,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="task_created",
+                payload={"state": TaskState.QUEUED.value, "subtask": True},
+                created_at=now,
+            )
+            self._append_event_locked(
+                connection,
+                task_id=parent_task_id,
+                event_type="subtask_created",
+                payload={
+                    "child_task_id": task_id,
+                    "kind": kind.value,
+                    "base_tree_hash": base_tree_hash,
+                },
+                created_at=now,
+            )
+        return self.get_subtask(parent_task_id, client_subtask_id)  # type: ignore[return-value]
+
+    def finish_subtask(
+        self,
+        child_task_id: str,
+        *,
+        result_tree_hash: str,
+        changed_paths: tuple[str, ...],
+        summary: str,
+        failed: bool = False,
+    ) -> SubtaskRecord:
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM worker_subtasks WHERE child_task_id = ?",
+                (child_task_id,),
+            ).fetchone()
+            if row is None:
+                raise WorkerNotFoundError(
+                    "Subtask was not found.", code="subtask_not_found"
+                )
+            current = self._subtask(row)
+            target = (
+                SubtaskMergeState.FAILED
+                if failed
+                else SubtaskMergeState.READY
+                if current.kind is SubtaskKind.IMPLEMENT
+                else SubtaskMergeState.NOT_APPLICABLE
+            )
+            if current.result_tree_hash is not None:
+                if (
+                    current.result_tree_hash != result_tree_hash
+                    or current.changed_paths != changed_paths
+                    or current.summary != summary
+                    or current.merge_state is not target
+                ):
+                    raise WorkerConflictError(
+                        "Subtask result changed.", code="subtask_result_conflict"
+                    )
+                return current
+            connection.execute(
+                """
+                UPDATE worker_subtasks SET result_tree_hash = ?,
+                    changed_paths_ciphertext = ?, summary_ciphertext = ?,
+                    merge_state = ?, updated_at = ? WHERE child_task_id = ?
+                """,
+                (
+                    result_tree_hash,
+                    self._codec.encrypt(list(changed_paths)),
+                    self._codec.encrypt(summary),
+                    target.value,
+                    now,
+                    child_task_id,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=current.parent_task_id,
+                event_type="subtask_completed" if not failed else "subtask_failed",
+                payload={
+                    "child_task_id": child_task_id,
+                    "kind": current.kind.value,
+                    "merge_state": target.value,
+                    "result_tree_hash": result_tree_hash,
+                    "changed_paths": list(changed_paths),
+                },
+                created_at=now,
+            )
+        return self.subtask_for_child(child_task_id)  # type: ignore[return-value]
 
     def create_fork_task(
         self,
@@ -2255,8 +2484,61 @@ class CodingWorkerStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_worker_task_forks_parent
                     ON worker_task_forks(parent_task_id, created_at);
+                CREATE TABLE IF NOT EXISTS worker_subtasks (
+                    parent_task_id TEXT NOT NULL,
+                    client_subtask_id TEXT NOT NULL,
+                    child_task_id TEXT NOT NULL UNIQUE,
+                    kind TEXT NOT NULL,
+                    objective_ciphertext TEXT NOT NULL,
+                    base_tree_hash TEXT NOT NULL,
+                    merge_state TEXT NOT NULL,
+                    result_tree_hash TEXT,
+                    changed_paths_ciphertext TEXT,
+                    summary_ciphertext TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY(parent_task_id, client_subtask_id),
+                    FOREIGN KEY(parent_task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE,
+                    FOREIGN KEY(child_task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_worker_subtasks_parent
+                    ON worker_subtasks(parent_task_id, created_at);
                 """
             )
+
+    def _subtask(self, row: sqlite3.Row) -> SubtaskRecord:
+        try:
+            changed_paths = (
+                tuple(self._codec.decrypt(str(row["changed_paths_ciphertext"])))
+                if row["changed_paths_ciphertext"] is not None
+                else ()
+            )
+            return SubtaskRecord(
+                parent_task_id=str(row["parent_task_id"]),
+                child_task_id=str(row["child_task_id"]),
+                client_subtask_id=str(row["client_subtask_id"]),
+                kind=SubtaskKind(str(row["kind"])),
+                objective=self._decrypt_string(row["objective_ciphertext"]),
+                base_tree_hash=str(row["base_tree_hash"]),
+                merge_state=SubtaskMergeState(str(row["merge_state"])),
+                result_tree_hash=(
+                    str(row["result_tree_hash"])
+                    if row["result_tree_hash"] is not None
+                    else None
+                ),
+                changed_paths=changed_paths,
+                summary=(
+                    self._decrypt_string(row["summary_ciphertext"])
+                    if row["summary_ciphertext"] is not None
+                    else None
+                ),
+                created_at=float(row["created_at"]),
+                updated_at=float(row["updated_at"]),
+            )
+        except (WorkerCryptoError, ValueError, TypeError) as exc:
+            raise WorkerStoreError(
+                "Worker subtask data is corrupt.", code="worker_data_corrupt"
+            ) from exc
 
     def _task(self, row: sqlite3.Row, connection: sqlite3.Connection) -> TaskRecord:
         try:
