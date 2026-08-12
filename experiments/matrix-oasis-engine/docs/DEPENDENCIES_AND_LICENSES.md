@@ -122,6 +122,8 @@ R10.2新增私有`@matrix-oasis/prototype-environment-pipeline@0.1.0-r10`。它�
 
 该workspace是模块本地Node工具，不进入Creator或Godot分发。真实World Labs服务不是代码依赖；任何计费调用、凭据注入、输出下载和远程world保留仍由当次人工审批控制。
 
+R10.3新增私有`@matrix-oasis/prototype-assembler@0.1.0-r10`。它仅依赖模块内R8/R9/R10合同与Pipeline、R3 Runtime validator和R7 Scene Pack validator；文件事务与SHA-256使用Node 24内建API。没有新增registry tarball、原生二进制、install script或许可证例外，也不进入Creator/Godot分发。
+
 新增或升级依赖时必须：
 
 1. 记录精确版本、直接/间接用途和许可证；

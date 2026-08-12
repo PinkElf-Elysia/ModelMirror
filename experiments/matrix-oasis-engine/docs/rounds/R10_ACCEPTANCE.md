@@ -1,14 +1,14 @@
 # R10 验收记录
 
-状态：R10.2 已验证，等待本地提交。
+状态：R10.3 已验证，等待本地提交。
 
 固定基线：`09f4cca4f1e02fe275ada17535597437cac3778d`
 
 ## 批次
 
 - [x] R10.1 治理迁移（`60ce32eb49949f58ea1a67ee0cf8665e4ec588f4`）
-- [x] R10.2 Marble环境Pipeline（本批提交；SHA在R10.3记录）
-- [ ] R10.3 自动组装与缓存导入
+- [x] R10.2 Marble环境Pipeline（`61f293ea3f5c3a3ecc457173d01b45e21162e0fd`）
+- [x] R10.3 自动组装与缓存导入（本批提交；SHA在R10.4记录）
 - [ ] R10.4 本地宿主与审批状态机
 - [ ] R10.5 Creator与Godot一键预览
 - [ ] R10.6 真实资格与验收收口
@@ -33,6 +33,15 @@
 - `npm.cmd ci --offline --ignore-scripts --no-audit --no-fund`安装111个锁定包；`npm.cmd ls --all`、boundary checked=940/tracked=931、round/parent scope及`git diff --check`通过。
 - 最新14文件树执行完整`npm.cmd run verify`，15/15步骤通过：Node 612/612、Godot R4–R7全门、Creator 247 modules build与HTTP marker smoke均通过；R1–R9、Creator、Godot、examples与父仓相对本批HEAD零差异。
 - 本批无真实模型、Meshy或Marble调用，无API Key读取，无供应商费用；没有修改R1-R9、Creator、Godot、examples或父仓。
+
+## R10.3 证据
+
+- 新增私有`@matrix-oasis/prototype-assembler@0.1.0-r10`；只调用冻结的Generation、Asset、Environment、Runtime与Scene Pack验证入口。Marble collider固定成为环境asset，R9 Kenney环境物化不进入输出；Meshy文件按Blueprint placement和zone声明顺序映射到固定四区4×2槽位。
+- profile覆盖0/1/2个非环境brief成功与3个拒绝、1/4个zone成功与5个拒绝、32/33 placement及每zone 8/9边界；Scene Pack经公开R7 validator复验。20次并行组装的Scene Pack和report字节一致，输入Map/bytes不变且成功结果深冻结。
+- cache importer绑定prompt SHA、模型、Blueprint、Asset/Environment Bundle和assembler版本；FileHandle、bigint identity、size/mtime/ctime、junction、换身、并发同目录、发布失败窄清理、rename后全文件回读和`current.json`最后替换均有回归。run不含prompt或Kenney文件。
+- `npm.cmd run verify:prototype-assembly` 14/14通过，包含最大长度Blueprint placement ID到固定短Scene Pack ID的映射、真实Node CLI workspace解析与一次性`C:\tmp`事务发布；`node --check`、严格d.ts解析、`npm.cmd ls --all`、boundary checked=947/tracked=940、round/parent scope及`git diff --check`通过。
+- 最新12文件树执行完整`npm.cmd run verify`，15/15步骤通过：Node 626/626、Godot R4–R7全门、Creator 247 modules build与HTTP marker smoke均通过。
+- 当前真实R8/R9缓存已只读核对文件名、canonical脱敏report和hash结构；Marble真实Bundle尚不存在，完整三缓存导入按计划留到R10.6一次性资格之后。本批全部功能/事务测试使用本地合成输入，不调用模型、Meshy或Marble，不读取API Key。
 
 ## 回退
 
