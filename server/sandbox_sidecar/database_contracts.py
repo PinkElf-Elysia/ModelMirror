@@ -50,15 +50,21 @@ GRAPH_DATA_SERVICE_ADAPTERS = frozenset(
         "arcadedata-arcadedb",
     }
 )
+WAVE_TWENTYSEVEN_DATA_SERVICE_ADAPTERS = frozenset(
+    {
+        "greptimeteam-greptimedb-mcp-server",
+    }
+)
 REMOTE_DATA_SERVICE_ADAPTERS = frozenset(
     {
         "pab1it0-prometheus-mcp-server",
         "qdrant-mcp-server-qdrant",
         "cr7258-elasticsearch-mcp-server",
         *GRAPH_DATA_SERVICE_ADAPTERS,
+        *WAVE_TWENTYSEVEN_DATA_SERVICE_ADAPTERS,
     }
 )
-STAGED_DATABASE_ADAPTERS = frozenset()
+STAGED_DATABASE_ADAPTERS = WAVE_TWENTYSEVEN_DATA_SERVICE_ADAPTERS
 FORBIDDEN_CONFIGURATION_KEYS = frozenset(
     {
         "command",
@@ -214,6 +220,24 @@ DATABASE_ADAPTERS: dict[str, DatabaseAdapterContract] = {
         "arcadedata-arcadedb",
         frozenset({"list_types", "describe_type", "read_query"}),
         frozenset({"host", "port", "tls_mode", "database", "username"}),
+        frozenset(),
+        frozenset({"password"}),
+    ),
+    "greptimeteam-greptimedb-mcp-server": DatabaseAdapterContract(
+        "greptimeteam-greptimedb-mcp-server",
+        frozenset({"describe_table", "query_range", "health_check"}),
+        frozenset(
+            {
+                "host",
+                "port",
+                "database",
+                "table",
+                "time_column",
+                "value_column",
+                "tls_mode",
+                "username",
+            }
+        ),
         frozenset(),
         frozenset({"password"}),
     ),
@@ -419,6 +443,22 @@ def validate_configuration(adapter_id: str, configuration: object) -> ValidatedC
         )
         settings["username"] = _safe_text(
             raw_settings.get("username"), pattern=SAFE_USERNAME, code="invalid_username"
+        )
+    elif adapter_id == "greptimeteam-greptimedb-mcp-server":
+        settings["database"] = _safe_text(
+            raw_settings.get("database"), pattern=DATA_SERVICE_RESOURCE, code="invalid_database"
+        )
+        settings["username"] = _safe_text(
+            raw_settings.get("username"), pattern=SAFE_USERNAME, code="invalid_username"
+        )
+        settings["table"] = _safe_text(
+            raw_settings.get("table"), pattern=SAFE_IDENTIFIER, code="invalid_table"
+        )
+        settings["time_column"] = _safe_text(
+            raw_settings.get("time_column"), pattern=SAFE_IDENTIFIER, code="invalid_time_column"
+        )
+        settings["value_column"] = _safe_text(
+            raw_settings.get("value_column"), pattern=SAFE_IDENTIFIER, code="invalid_value_column"
         )
 
     workspace_raw = str(configuration.get("workspace_id") or "").strip()

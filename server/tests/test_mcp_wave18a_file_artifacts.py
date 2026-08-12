@@ -122,7 +122,8 @@ async def test_wave18a_tool_names_schema_digests_and_markers(
 def test_wave18a_is_default_allowed_and_file_workspaces_are_narrow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert STAGED_FILE_ADAPTERS == frozenset()
+    assert WAVE18A_IDS.isdisjoint(STAGED_FILE_ADAPTERS)
+    assert WAVE20_READY_IDS.isdisjoint(STAGED_FILE_ADAPTERS)
     assert WAVE18A_IDS.issubset(DEFAULT_ALLOWED_ADAPTERS)
     assert WAVE20_READY_IDS.issubset(DEFAULT_ALLOWED_ADAPTERS)
     assert WAVE18A_IDS.issubset(FILE_PROJECTS)

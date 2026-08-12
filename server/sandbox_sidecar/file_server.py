@@ -16,6 +16,7 @@ from .engine import SandboxEngineError
 from .file_artifacts import WAVE18A_BUILDERS
 from .file_analysis import WAVE18B_BUILDERS
 from .file_mcp import BUILDERS, WORKSPACE_PATTERN
+from .file_wave26 import STAGED_WAVE26_ADAPTERS
 
 
 SOCKET_PATH = Path(os.getenv("MCP_FILES_SOCKET_PATH", "/run/modelmirror-files-mcp/files-mcp.sock"))
@@ -27,8 +28,8 @@ MAX_MCP_MESSAGE_BYTES = 16 * 1024 * 1024
 MAX_SESSIONS = max(1, min(int(os.getenv("MCP_FILES_MAX_SESSIONS", "4")), 8))
 SEMAPHORE = asyncio.Semaphore(MAX_SESSIONS)
 OFFICE_PARSER_SEMAPHORE = asyncio.Semaphore(1)
-STAGED_FILE_ADAPTERS = frozenset()
-DEFAULT_ALLOWED_ADAPTERS = frozenset(BUILDERS)
+STAGED_FILE_ADAPTERS = STAGED_WAVE26_ADAPTERS
+DEFAULT_ALLOWED_ADAPTERS = frozenset(BUILDERS) - STAGED_FILE_ADAPTERS
 
 
 def _allowed_adapters() -> frozenset[str]:

@@ -78,6 +78,9 @@ EXPECTED_TOOLS = {
     },
     "neo4j-contrib-mcp-neo4j": {"get_schema", "read_cypher"},
     "arcadedata-arcadedb": {"list_types", "describe_type", "read_query"},
+    "greptimeteam-greptimedb-mcp-server": {
+        "describe_table", "query_range", "health_check",
+    },
 }
 
 EXPECTED_SCHEMA_SHA256 = {
@@ -205,6 +208,19 @@ VALID_CONFIGURATIONS = {
         },
         "credentials": {"password": "dummy"},
     },
+    "greptimeteam-greptimedb-mcp-server": {
+        "settings": {
+            "host": "greptime.example.com",
+            "port": 443,
+            "database": "public",
+            "table": "project_metrics",
+            "time_column": "observed_at",
+            "value_column": "metric_value",
+            "tls_mode": "verify-full",
+            "username": "readonly",
+        },
+        "credentials": {"password": "dummy"},
+    },
 }
 
 
@@ -220,15 +236,18 @@ async def _schema_smoke() -> None:
     try:
         from server.sandbox_sidecar.database_mcp import BUILDERS
         from server.sandbox_sidecar.database_graph_services import WAVE19B_SCHEMA_SHA256
+        from server.sandbox_sidecar.database_wave27 import WAVE27_SCHEMA_SHA256
     except ModuleNotFoundError as error:
         if error.name != "server":
             raise
         from sandbox_sidecar.database_mcp import BUILDERS
         from sandbox_sidecar.database_graph_services import WAVE19B_SCHEMA_SHA256
+        from sandbox_sidecar.database_wave27 import WAVE27_SCHEMA_SHA256
 
     for adapter_id, builder in BUILDERS.items():
         tools = await builder(None).list_tools()
-        if adapter_id in WAVE19B_SCHEMA_SHA256:
+        reviewed_digests = WAVE19B_SCHEMA_SHA256 | WAVE27_SCHEMA_SHA256
+        if adapter_id in reviewed_digests:
             reviewed = [
                 {"name": tool.name, "inputSchema": tool.inputSchema}
                 for tool in sorted(tools, key=lambda item: item.name)
@@ -236,7 +255,7 @@ async def _schema_smoke() -> None:
             digest = hashlib.sha256(
                 json.dumps(reviewed, sort_keys=True, separators=(",", ":")).encode("utf-8")
             ).hexdigest()
-            expected_digest = WAVE19B_SCHEMA_SHA256[adapter_id]
+            expected_digest = reviewed_digests[adapter_id]
         else:
             schemas = {tool.name: tool.inputSchema for tool in tools}
             digest = hashlib.sha256(

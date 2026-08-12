@@ -146,6 +146,24 @@ DECISION_GROUPS: dict[str, dict[str, Any]] = {
             "isnow890-naver-search-mcp",
         ),
     ),
+    "ready-wave26a-calculator": _group(
+        availability="ready",
+        wave=26,
+        reason=(
+            "已冻结单一 calculate 工具、断网数值 AST、复杂度与结果上限，"
+            "并通过真实 UDS、超时回收、默认拒绝和用户验收。"
+        ),
+        connection_kind="sandboxed-stdio",
+        risk="medium",
+        requirements=(),
+        capabilities=(
+            "network-disabled",
+            "bounded-runtime-surface",
+            "schema-drift-recovery",
+            "resource-limits",
+        ),
+        ids=("githejie-mcp-server-calculator",),
+    ),
     "planned-wave26-offline-file-or-deterministic-artifact": _group(
         availability="planned",
         wave=26,
@@ -163,7 +181,6 @@ DECISION_GROUPS: dict[str, dict[str, Any]] = {
             "resource-limits",
         ),
         ids=(
-            "githejie-mcp-server-calculator",
             "modelscope-funasr",
             "mckinsey-vizro",
             "openfate-ai-bazi-mcp",
@@ -438,7 +455,7 @@ def build_approved_payload(source: dict[str, Any]) -> dict[str, Any]:
         status: sum(item["proposed_availability"] == status for item in candidates)
         for status in ("ready", "planned", "blocked")
     }
-    if availability != {"ready": 4, "planned": 42, "blocked": 54}:
+    if availability != {"ready": 5, "planned": 41, "blocked": 54}:
         raise ValueError(f"unexpected Wave 24 classification: {availability}")
     payload.update(
         {
@@ -454,7 +471,7 @@ def build_approved_payload(source: dict[str, Any]) -> dict[str, Any]:
                 "classified_at": SNAPSHOT_DATE,
                 "classified_count": 100,
                 "availability": availability,
-                "ready_boundary": "wave25-runtime-evidence-and-user-acceptance",
+                "ready_boundary": "per-adapter-runtime-evidence-and-user-acceptance",
                 "non_ready_boundary": "no-command-endpoint-credential-tool-policy-or-allowlist",
             },
         }

@@ -25,6 +25,7 @@ ALLOWED_ADAPTERS = {
     "haris-musa-excel-mcp-server",
     "dataeval-dingo",
     "ozgurcd-gograph",
+    "githejie-mcp-server-calculator",
 }
 WORKSPACE_PATTERN = re.compile(r"mcpws_[0-9a-f]{32}")
 SOCKET_PATH = Path(os.getenv("MCP_FILES_SOCKET_PATH", "/run/modelmirror-files-mcp/files-mcp.sock"))

@@ -32,6 +32,7 @@ from pydantic import Field
 from .file_artifacts import WAVE18A_BUILDERS, WAVE18A_TOOL_NAMES
 from .file_analysis import WAVE18B_BUILDERS, WAVE18B_TOOL_NAMES
 from .file_code_index import WAVE20_BUILDERS, WAVE20_TOOL_NAMES
+from .file_wave26 import WAVE26_BUILDERS, WAVE26_TOOL_NAMES
 
 
 WORKSPACE_PATTERN = re.compile(r"mcpws_[0-9a-f]{32}")
@@ -2021,6 +2022,7 @@ BUILDERS = {
     **WAVE18A_BUILDERS,
     **WAVE18B_BUILDERS,
     **WAVE20_BUILDERS,
+    **WAVE26_BUILDERS,
 }
 
 ADAPTER_TOOL_NAMES = {
@@ -2044,6 +2046,7 @@ ADAPTER_TOOL_NAMES = {
     **WAVE18A_TOOL_NAMES,
     **WAVE18B_TOOL_NAMES,
     **WAVE20_TOOL_NAMES,
+    **WAVE26_TOOL_NAMES,
 }
 
 

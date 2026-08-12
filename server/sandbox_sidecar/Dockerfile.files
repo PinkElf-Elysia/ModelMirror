@@ -77,12 +77,13 @@ RUN pip install --no-cache-dir --retries 5 --timeout 120 -r file-requirements.lo
 RUN test "$(pandoc --version | sed -n '1s/^pandoc //p')" = "3.10.1"
 RUN test "$(gograph version)" = "gograph version v1.5.6"
 RUN test "$(go env GOVERSION)" = "go1.26.5"
-COPY __init__.py engine.py landlock_exec.py file_landlock_exec.py file_artifacts.py file_analysis.py file_code_index.py file_mcp.py file_server.py smoke_file_artifacts.py smoke_file_analysis.py smoke_file_code_index.py ./sandbox_sidecar/
+COPY __init__.py engine.py landlock_exec.py file_landlock_exec.py file_artifacts.py file_analysis.py file_code_index.py file_wave26.py file_mcp.py file_server.py smoke_file_artifacts.py smoke_file_analysis.py smoke_file_code_index.py smoke_file_wave26.py ./sandbox_sidecar/
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-mcp-files/THIRD_PARTY_NOTICES.md
 
 RUN python -m sandbox_sidecar.smoke_file_artifacts --contract-only
 RUN python -m sandbox_sidecar.smoke_file_analysis --contract-only
 RUN python -m sandbox_sidecar.smoke_file_code_index --contract-only
+RUN python -m sandbox_sidecar.smoke_file_wave26 --contract-only
 
 USER 65532:65532
 CMD ["python", "-m", "sandbox_sidecar.file_server"]

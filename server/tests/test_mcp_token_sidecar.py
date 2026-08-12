@@ -136,7 +136,9 @@ def test_runtime_contracts_match_catalog_and_never_include_snyk() -> None:
 
     assert STAGED_TOKEN_ADAPTERS == {
         "cablate-mcp-google-map",
+        "chanmeng666-server-google-news",
         "comet-ml-opik-mcp",
+        "isnow890-naver-search-mcp",
         "keboola-keboola-mcp-server",
     }
     assert not (set(token_server.ALLOWED_ADAPTERS) & set(STAGED_TOKEN_ADAPTERS))
@@ -154,6 +156,19 @@ def test_runtime_contracts_match_catalog_and_never_include_snyk() -> None:
     keboola = TOKEN_ADAPTERS["keboola-keboola-mcp-server"]
     assert keboola.tools == frozenset({"get_project_info", "get_buckets", "get_tables"})
     assert keboola.allowed_hosts == frozenset({"connection.keboola.com"})
+
+    google_news = TOKEN_ADAPTERS["chanmeng666-server-google-news"]
+    assert google_news.tools == frozenset({"google_news_search"})
+    assert google_news.allowed_hosts == frozenset({"serpapi.com"})
+    assert google_news.credential_environment == (("api_key", "SERP_API_KEY"),)
+
+    naver = TOKEN_ADAPTERS["isnow890-naver-search-mcp"]
+    assert naver.tools == frozenset({"search_webkr", "search_news", "search_blog"})
+    assert naver.allowed_hosts == frozenset({"openapi.naver.com"})
+    assert naver.credential_environment == (
+        ("client_id", "NAVER_CLIENT_ID"),
+        ("client_secret", "NAVER_CLIENT_SECRET"),
+    )
 
 
 def test_compose_token_allowlist_contains_every_non_registry_contract() -> None:

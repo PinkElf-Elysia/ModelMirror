@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
 import xml.etree.ElementTree as ET
-from typing import Any
+from typing import Annotated, Any, Literal
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from pydantic import ConfigDict, Field
 
-from .safe_http import SafeHttpClient
+from .safe_http import NetworkPolicyError, SafeHttpClient
 
 
 MAX_RESULT_BYTES = 256 * 1024
@@ -23,6 +25,20 @@ READ_ONLY = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=True,
 )
+
+
+def _freeze_strict_tool_contract(mcp: FastMCP) -> FastMCP:
+    """Reject undeclared arguments and non-finite numbers for reviewed facades."""
+    for tool in mcp._tool_manager._tools.values():
+        argument_model = tool.fn_metadata.arg_model
+        argument_model.model_config = ConfigDict(
+            **dict(argument_model.model_config),
+            extra="forbid",
+            allow_inf_nan=False,
+        )
+        argument_model.model_rebuild(force=True)
+        tool.parameters = argument_model.model_json_schema(by_alias=True)
+    return mcp
 
 
 def _required_environment(name: str, maximum: int = 20_000) -> str:
@@ -86,6 +102,21 @@ def _bounded_text_response(response: object, provider: str) -> str:
     if len(text.encode("utf-8")) > MAX_RESULT_BYTES:
         raise ValueError("Tool output exceeds the 256 KiB limit.")
     return text
+
+
+def _plain_provider_text(value: object, maximum: int = 2_000) -> str:
+    """Return bounded plain text without preserving provider-owned markup."""
+    clean = html.unescape(str(value or ""))
+    clean = re.sub(r"<[^>]*>", "", clean)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    return clean[:maximum]
+
+
+def _bounded_public_result_url(value: object) -> str:
+    try:
+        return _public_extract_url(value)
+    except (ValueError, NetworkPolicyError):
+        return ""
 
 
 _SENSITIVE_QUERY_KEYS = frozenset(
@@ -1471,6 +1502,183 @@ def build_keboola_metadata_readonly() -> FastMCP:
     return mcp
 
 
+def build_google_news_readonly() -> FastMCP:
+    """Expose the fixed search-only identity of server-google-news 1.0.0."""
+    api_key = _required_environment("SERP_API_KEY")
+    client = SafeHttpClient(
+        allowed_hosts=frozenset({"serpapi.com"}),
+        max_response_bytes=MAX_RESULT_BYTES,
+    )
+    mcp = FastMCP("ModelMirror Google News Read Only")
+
+    @mcp.tool(annotations=READ_ONLY)
+    def google_news_search(
+        q: Annotated[str, Field(min_length=1, max_length=500)],
+        gl: Annotated[str, Field(pattern=r"^[a-z]{2}$")] = "us",
+        hl: Annotated[str, Field(pattern=r"^[a-z]{2}(?:-[A-Z]{2})?$")] = "en",
+        max_results: Annotated[int, Field(ge=1, le=20)] = 10,
+    ) -> Any:
+        """Search Google News through one fixed SerpAPI endpoint and return bounded article metadata."""
+        query = _text(q, "q", 500)
+        country = str(gl).strip()
+        language = str(hl).strip()
+        if not re.fullmatch(r"[a-z]{2}", country):
+            raise ValueError("gl must be a two-letter lowercase country code.")
+        if not re.fullmatch(r"[a-z]{2}(?:-[A-Z]{2})?", language):
+            raise ValueError("hl must be a reviewed language code.")
+        limit = int(max_results)
+        if not 1 <= limit <= 20:
+            raise ValueError("max_results must be between 1 and 20.")
+        url = "https://serpapi.com/search?" + urlencode(
+            {
+                "engine": "google_news",
+                "q": query,
+                "gl": country,
+                "hl": language,
+                "api_key": api_key,
+            }
+        )
+        payload = _json(client.request(url), "SerpAPI Google News")
+        if not isinstance(payload, dict):
+            raise ValueError("SerpAPI Google News returned an invalid response.")
+        raw_articles = payload.get("news_results")
+        articles: list[dict[str, object]] = []
+        for item in raw_articles if isinstance(raw_articles, list) else []:
+            if not isinstance(item, dict):
+                continue
+            source_value = item.get("source")
+            if isinstance(source_value, dict):
+                source_name = _plain_provider_text(source_value.get("name"), 240)
+                raw_authors = source_value.get("authors")
+            else:
+                source_name = _plain_provider_text(source_value, 240)
+                raw_authors = None
+            authors = [
+                _plain_provider_text(author, 120)
+                for author in (raw_authors if isinstance(raw_authors, list) else [])[:10]
+                if _plain_provider_text(author, 120)
+            ]
+            article = {
+                "title": _plain_provider_text(item.get("title"), 500),
+                "source": source_name,
+                "date": _plain_provider_text(item.get("date"), 120),
+                "snippet": _plain_provider_text(item.get("snippet"), 2_000),
+                "link": _bounded_public_result_url(item.get("link")),
+                "authors": authors,
+            }
+            if article["title"]:
+                articles.append(article)
+            if len(articles) >= limit:
+                break
+        return {"articles": articles, "count": len(articles)}
+
+    return _freeze_strict_tool_contract(mcp)
+
+
+def build_naver_search_readonly() -> FastMCP:
+    """Expose three classic Naver Search API read tools from version 1.0.50."""
+    client_id = _required_environment("NAVER_CLIENT_ID", 1_000)
+    client_secret = _required_environment("NAVER_CLIENT_SECRET", 2_000)
+    client = SafeHttpClient(
+        allowed_hosts=frozenset({"openapi.naver.com"}),
+        max_response_bytes=MAX_RESULT_BYTES,
+        additional_allowed_headers=frozenset(
+            {"x-naver-client-id", "x-naver-client-secret"}
+        ),
+    )
+    headers = {
+        "X-Naver-Client-Id": client_id,
+        "X-Naver-Client-Secret": client_secret,
+    }
+    mcp = FastMCP("ModelMirror Naver Search Read Only")
+
+    def search(
+        search_type: Literal["webkr", "news", "blog"],
+        query: str,
+        display: int,
+        start: int,
+        sort: Literal["sim", "date"],
+    ) -> Any:
+        clean_query = _text(query, "query", 500)
+        page_size = int(display)
+        page_start = int(start)
+        if not 1 <= page_size <= 20:
+            raise ValueError("display must be between 1 and 20.")
+        if not 1 <= page_start <= 1_000:
+            raise ValueError("start must be between 1 and 1000.")
+        if sort not in {"sim", "date"}:
+            raise ValueError("sort must be sim or date.")
+        url = f"https://openapi.naver.com/v1/search/{search_type}?" + urlencode(
+            {
+                "query": clean_query,
+                "display": page_size,
+                "start": page_start,
+                "sort": sort,
+            }
+        )
+        payload = _json(client.request(url, headers=headers), "Naver Search")
+        if not isinstance(payload, dict):
+            raise ValueError("Naver Search returned an invalid response.")
+        raw_items = payload.get("items")
+        items: list[dict[str, str]] = []
+        for item in raw_items if isinstance(raw_items, list) else []:
+            if not isinstance(item, dict):
+                continue
+            projected = {
+                "title": _plain_provider_text(item.get("title"), 500),
+                "description": _plain_provider_text(item.get("description"), 2_000),
+                "link": _bounded_public_result_url(item.get("link")),
+                "originallink": _bounded_public_result_url(item.get("originallink")),
+                "bloggername": _plain_provider_text(item.get("bloggername"), 240),
+                "postdate": _plain_provider_text(item.get("postdate"), 40),
+                "pubDate": _plain_provider_text(item.get("pubDate"), 120),
+            }
+            if projected["title"]:
+                items.append(projected)
+            if len(items) >= page_size:
+                break
+        total_value = payload.get("total")
+        total = int(total_value) if isinstance(total_value, int) and total_value >= 0 else 0
+        return {
+            "total": total,
+            "start": page_start,
+            "display": len(items),
+            "items": items,
+        }
+
+    @mcp.tool(annotations=READ_ONLY)
+    def search_webkr(
+        query: Annotated[str, Field(min_length=1, max_length=500)],
+        display: Annotated[int, Field(ge=1, le=20)] = 10,
+        start: Annotated[int, Field(ge=1, le=1_000)] = 1,
+        sort: Literal["sim", "date"] = "sim",
+    ) -> Any:
+        """Search Korean web documents with bounded pagination."""
+        return search("webkr", query, display, start, sort)
+
+    @mcp.tool(annotations=READ_ONLY)
+    def search_news(
+        query: Annotated[str, Field(min_length=1, max_length=500)],
+        display: Annotated[int, Field(ge=1, le=20)] = 10,
+        start: Annotated[int, Field(ge=1, le=1_000)] = 1,
+        sort: Literal["sim", "date"] = "sim",
+    ) -> Any:
+        """Search Naver news metadata with bounded pagination."""
+        return search("news", query, display, start, sort)
+
+    @mcp.tool(annotations=READ_ONLY)
+    def search_blog(
+        query: Annotated[str, Field(min_length=1, max_length=500)],
+        display: Annotated[int, Field(ge=1, le=20)] = 10,
+        start: Annotated[int, Field(ge=1, le=1_000)] = 1,
+        sort: Literal["sim", "date"] = "sim",
+    ) -> Any:
+        """Search Naver blog metadata with bounded pagination."""
+        return search("blog", query, display, start, sort)
+
+    return _freeze_strict_tool_contract(mcp)
+
+
 BUILDERS = {
     "axiom-mcp": build_axiom,
     "blazickjp-arxiv-mcp-server": build_arxiv_readonly,
@@ -1484,6 +1692,8 @@ BUILDERS = {
     "cablate-mcp-google-map": build_google_map_readonly,
     "comet-ml-opik-mcp": build_opik_readonly,
     "keboola-keboola-mcp-server": build_keboola_metadata_readonly,
+    "chanmeng666-server-google-news": build_google_news_readonly,
+    "isnow890-naver-search-mcp": build_naver_search_readonly,
 }
 
 

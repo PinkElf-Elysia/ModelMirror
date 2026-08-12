@@ -68,7 +68,7 @@ def _context(adapter_id: str) -> SimpleNamespace:
 @pytest.mark.asyncio
 async def test_wave23_promotes_exact_wave19b_read_only_contracts() -> None:
     assert WAVE19B == GRAPH_DATA_SERVICE_ADAPTERS
-    assert STAGED_DATABASE_ADAPTERS == frozenset()
+    assert WAVE19B.isdisjoint(STAGED_DATABASE_ADAPTERS)
     assert WAVE19B <= set(DATABASE_ADAPTERS)
     assert WAVE19B <= database_proxy.ALLOWED_ADAPTERS
     assert WAVE19B <= set(BUILDERS) == set(PREFLIGHTS)

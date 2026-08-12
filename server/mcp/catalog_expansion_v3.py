@@ -60,13 +60,13 @@ CATALOG_EXPANSION_V3_ADAPTERS = (
     ),
     CatalogExpansionV3Adapter(
         project_id='githejie-mcp-server-calculator',
-        availability='planned',
-        decision_reason_code='planned-wave26-offline-file-or-deterministic-artifact',
+        availability='ready',
+        decision_reason_code='ready-wave26a-calculator',
         adaptation_wave=26,
         connection_kind='sandboxed-stdio',
         risk='medium',
-        required_capabilities=('scoped-filesystem', 'network-disabled', 'artifact-cleanup', 'resource-limits'),
-        limitations=('可继续评估断网、封存输入、确定性处理与服务端复制产物的文件子集；在路径隔离、资源限额、超时、清理和真实镜像验收前保持 planned。', '当前仅登记产品身份与适配判定；没有命令、端点、凭据槽、工具策略、运行镜像或默认 allowlist，任何功能开关都不能使该条目可执行。'),
+        required_capabilities=('network-disabled', 'bounded-runtime-surface', 'schema-drift-recovery', 'resource-limits'),
+        limitations=('已冻结单一 calculate 工具、断网数值 AST、复杂度与结果上限，并通过真实 UDS、超时回收、默认拒绝和用户验收。',),
     ),
     CatalogExpansionV3Adapter(
         project_id='modelscope-funasr',

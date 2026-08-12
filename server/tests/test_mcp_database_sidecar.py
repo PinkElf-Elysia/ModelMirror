@@ -74,6 +74,11 @@ EXPECTED_TOOLS = {
     },
     "neo4j-contrib-mcp-neo4j": {"get_schema", "read_cypher"},
     "arcadedata-arcadedb": {"list_types", "describe_type", "read_query"},
+    "greptimeteam-greptimedb-mcp-server": {
+        "describe_table",
+        "query_range",
+        "health_check",
+    },
 }
 
 
@@ -99,7 +104,7 @@ def test_database_contract_and_proxy_allowlists_are_exact() -> None:
         adapter_id: set(tool_names)
         for adapter_id, tool_names in ADAPTER_TOOL_NAMES.items()
     } == EXPECTED_TOOLS
-    assert STAGED_DATABASE_ADAPTERS == frozenset()
+    assert STAGED_DATABASE_ADAPTERS == {"greptimeteam-greptimedb-mcp-server"}
     assert GRAPH_DATA_SERVICE_ADAPTERS == {
         "zilliztech-mcp-server-milvus",
         "neo4j-contrib-mcp-neo4j",
@@ -110,8 +115,9 @@ def test_database_contract_and_proxy_allowlists_are_exact() -> None:
         "qdrant-mcp-server-qdrant",
         "cr7258-elasticsearch-mcp-server",
         *GRAPH_DATA_SERVICE_ADAPTERS,
+        *STAGED_DATABASE_ADAPTERS,
     }
-    assert REMOTE_DATA_SERVICE_ADAPTERS <= database_server.ALLOWED_ADAPTERS
+    assert database_server.ALLOWED_ADAPTERS == set(EXPECTED_TOOLS) - set(STAGED_DATABASE_ADAPTERS)
 
 
 def test_database_configuration_is_structured_and_tls_is_strict() -> None:

@@ -120,7 +120,7 @@ async def test_wave20_tool_contract_is_exact_and_closes_open_surfaces(
 def test_wave20_is_ready_default_allowed_and_workspace_formats_are_go_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert STAGED_FILE_ADAPTERS == frozenset()
+    assert GOGRAPH_ADAPTER_ID not in STAGED_FILE_ADAPTERS
     assert GOGRAPH_ADAPTER_ID in DEFAULT_ALLOWED_ADAPTERS
     assert GOGRAPH_ADAPTER_ID in file_proxy.ALLOWED_ADAPTERS
     assert GOGRAPH_ADAPTER_ID in FILE_PROJECTS
