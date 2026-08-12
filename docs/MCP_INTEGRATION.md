@@ -83,18 +83,20 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 目录适配器安全默认值：
 
 - 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
-- 当前目录状态为 **68 ready / 31 planned / 101 blocked**。第二阶段新增 100 项由批次 12 纳入目录，批次 14—20 共将其中 23 项提升为 ready；批次 20 只晋级 GoGraph v1.5.6，并将 Codebase Memory 与 CodeGraphContext 收敛为 superseded blocked，当前为 23 ready / 17 planned / 60 blocked。批次 21 的七个状态化资源和批次 22 的多租户/OAuth 恢复组继续 planned，批次 11 的 13 项全部 blocked。planned 与 blocked 项没有默认执行命令或端点，设置环境功能开关也不能绕过状态门槛。
+- 当前目录状态为 **75 ready / 69 planned / 156 blocked**。第二阶段新增 100 项由批次 12 纳入目录，批次 14—20 共将其中 23 项提升为 ready；Wave 23 将 Vectorize 因 MIT/ISC 许可证元数据冲突转为 blocked，并晋级三个真实复验的图数据库适配器。Wave 24 再以非执行状态导入固定 100 项；Wave 25A 的三个匿名公共读取候选和 Wave 25B 的 Fantasy PL 已通过隔离与用户验收并进入精确 allowlist，MCP-NixOS 因匿名后端依赖嵌入凭据转为 blocked。planned 与 blocked 项没有默认执行命令或端点，设置环境功能开关也不能绕过状态门槛。
 - 批次 13 的官方 Brave Search MCP Server v2.1.0 只开放 `brave_web_search` 与 `brave_local_search`。批次 14 新增官方 Kagi v1.0.2 的 `kagi_search_fetch`、`kagi_extract`，以及 arxiv-mcp-server v0.6.2 的 `search_papers`、`get_abstract` 原生只读兼容契约。批次 15 新增 Search1API v0.5.3 的 `search`、`news`、`trending`，以及 Live Tennis v1.4.0 的 8 项 FREE 层比分/赛程/目录工具；全部固定出口、工具 Schema、输出上限和服务端加密凭据槽，不运行可扩张能力的上游进程。
 - 批次 16A 复用 `mcp-public`：DuckDuckGo 只开放严格安全搜索元数据，shadcn/ui 只读取固定提交的组件目录/Git 元数据，Docker Hub 只开放匿名仓库搜索、仓库与标签元数据；三项已经人工验收并进入精确默认 allowlist。
 - 批次 16B 继续复用 `mcp-public`：BioMCP 只开放 Europe PMC、ClinicalTrials.gov 和 MyVariant.info 的公共文章/试验/变异元数据；SafeDep Vet 只接受规范化 npm/PyPI PURL，读取社区漏洞/许可证/恶意软件报告与公共 Registry 版本元数据。诊断上传、包下载或执行、SQL、任意 URL/Header/Registry 和认证租户均关闭；两项已完成人工验收并进入精确默认 allowlist。
 - 批次 17A 的 open-webSearch、Idea Reality 与 GitMCP 匿名只读子集已完成双轮隔离验收并进入精确默认 allowlist。固定边界见 [17A 多域公共研究](./MCP_WAVE17A_MULTI_DOMAIN_RESEARCH.md)。
-- 批次 17B 已为 Google Map、Vectorize、Opik 与 Keboola 冻结默认关闭的 Token 只读兼容层；四项仍缺真实账号只读预检，继续保持 planned 且未加入默认 allowlist。边界与晋级条件见 [17B Token 数据适配](./MCP_WAVE17B_TOKEN_DATA.md)。
+- Wave 25B 复用 `mcp-public`：Fantasy PL 的官方球员/赛程只读契约已完成两轮真实烟测和人工验收，已晋级 `ready` 并加入精确默认 allowlist；Reddit Buddy 仅开放匿名 Atom 浏览/搜索，但正式烟测命中提供方 429，因此继续 `planned` 且不进入 allowlist。
+- 批次 17B 的 Google Map、Opik 与 Keboola 保持默认关闭的 Token 只读兼容层，仍缺真实账号只读预检；Vectorize 因许可证元数据冲突已 blocked，proxy、contract、Schema 与 builder 均移除。四项均未加入默认 allowlist。边界与晋级条件见 [17B Token 数据适配](./MCP_WAVE17B_TOKEN_DATA.md)。
 - 批次 18A 已为 Markdownify、MCP Pandoc 与 AntV Chart 冻结断网产物兼容层；三项通过隔离验收并晋级 ready，生产文件 allowlist 仅增加这三个精确 ID。固定格式、Schema、Pandoc 供应链和 AntV 本地兼容边界见 [18A 确定性文件产物](./MCP_WAVE18A_DETERMINISTIC_ARTIFACTS.md)。
 - 批次 18B 已在同一断网文件 sidecar 中冻结 llm-context、Excel MCP 与 Dingo 的受控兼容层，并通过 staged 镜像与用户验收；三项已晋级 ready，生产文件 allowlist 仅增加这三个精确 ID。固定输入、输出副本与规则模式边界见 [18B 受控文件分析](./MCP_WAVE18B_FILE_ANALYSIS.md)。
 - 批次 19A 已在 `mcp-database` 中冻结 Prometheus、Qdrant 与 Elasticsearch 的原生只读兼容层，并通过真实服务、原生只读凭据、429、超时、拒写、清理与用户验收；三项已晋级 ready 并加入精确数据库 allowlist。边界见 [19A 只读数据服务](./MCP_WAVE19A_DATA_SERVICES.md)。
-- 批次 19B 已在同一 sidecar 中完成 Milvus、Neo4j 与 ArcadeDB 的固定原生只读 facade，并通过真实服务、原生只读账号、代表调用、429、超时、拒写、重启与清理验收。三项仍为默认关闭的 planned，尚未进入生产 allowlist；边界见 [19B 图与向量数据库](./MCP_WAVE19B_GRAPH_VECTOR_SERVICES.md)。
+- 批次 19B 已在同一 sidecar 中完成 Milvus、Neo4j 与 ArcadeDB 的固定原生只读 facade，并在 Wave 23 最新主线基线重新通过真实服务、原生只读账号、代表调用、429、超时、拒写、重启与清理验收。用户已明确批准三项晋级 `ready` 并进入生产数据库精确 allowlist；边界见 [19B 图与向量数据库](./MCP_WAVE19B_GRAPH_VECTOR_SERVICES.md)。
 - 批次 20 按 Codebase Memory → CodeGraphContext → GoGraph 顺序复审，只实现 GoGraph v1.5.6 的封存 Go 仓库、一次性内存索引和六工具 facade；另外两项转为 superseded blocked。GoGraph 已通过真实断网镜像、隔离 UDS 与用户验收并进入精确默认 allowlist，边界见 [20 代码索引](./MCP_WAVE20_CODE_INDEX.md)。
 - 批次 21—22 暂缓实现：状态化资源等待持久化、所有权、配额、保留/删除和写入审批基础；多租户/OAuth 等待不可伪造主体、租户隔离、PKCE/state、刷新/撤销/解绑和最小只读 Scope。当前没有运行时或真实凭据，恢复条件见 [21—22 暂缓实现收口](./MCP_WAVE21_22_DEFERRED.md)。
+- Wave 25A 已为 DexPaprika、Chess 与 AniList 冻结匿名公共读取兼容层，完成隔离双轮与用户验收，并只把三个精确 ID 加入生产 allowlist；MCP-NixOS 已 blocked。固定身份、Schema、真实调用和回退边界见 [Wave 25A 匿名公共读取](./MCP_WAVE25A_ANONYMOUS_PUBLIC_READ.md)。
 - 批次 16A/16B 的冻结身份、Schema、真实调用和回退证据分别见 [16A 匿名公共读取](./MCP_WAVE16A_PUBLIC_READ.md) 与 [16B 研究与安全公共读取](./MCP_WAVE16B_RESEARCH_SECURITY.md)。
 - 第一阶段的完整状态表、已交付边界与阶段二准入条件见 [MCP 适配第一阶段收口](./MCP_ADAPTER_PHASE_ONE_CLOSEOUT.md)。
 - 新适配器若没有显式工具读写与审批策略，工具调用会 fail-closed。
@@ -206,14 +208,16 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 
 ## 2. 如何适配冻结目录中的 MCP Server
 
-目录总数固定为 200 项；第二阶段新增 100 项已完成逐项目适配判定，后续状态变化仍必须单项通过安全门槛。中文展示数据与后端执行清单分别位于：
+目录总数固定为 300 项；第二阶段新增 100 项已完成逐项目适配判定，Wave 24 的第三阶段 100 项仅以 `planned/blocked` 非执行身份导入，后续状态变化仍必须单项通过安全门槛。中文展示数据与后端执行清单分别位于：
 
 ```text
 client/src/data/mcpProjects.ts
 client/src/data/mcpAdaptationPlan.ts
 client/src/data/mcpCatalogExpansionV2.generated.ts
+client/src/data/mcpCatalogExpansionV3.generated.ts
 server/mcp/catalog.py
 server/mcp/catalog_expansion_v2.py
+server/mcp/catalog_expansion_v3.py
 ```
 
 接入检查清单：
@@ -239,7 +243,7 @@ npm view @example/mcp-server version
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/mcp/catalog/adapters` | 返回 200 项安全状态，不返回命令、端点或 Secret |
+| GET | `/api/mcp/catalog/adapters` | 返回 300 项安全状态，不返回命令、端点或 Secret |
 | GET/POST | `/api/mcp/catalog/{project_id}/credentials` | 列出当前卡片的脱敏凭据，或创建绑定当前项目与固定槽位的加密凭据 |
 | DELETE | `/api/mcp/catalog/{project_id}/credentials/{credential_id}` | 撤销当前卡片凭据，并立即断开关联会话、清除失效配置 |
 | POST | `/api/mcp/catalog/{project_id}/prepare` | 使用后端固定安装配置准备已验收适配器 |
@@ -541,7 +545,7 @@ python server/mcp/test_manager.py
 | `server/tests/mock_mcp_server.py` | 本地 mock MCP Server。 |
 | `server/tests/test_mcp_integration.py` | FastAPI MCP 端点集成测试。 |
 | `server/tests/test_mcp_multisession.py` | 多 session、TTL 与 ToolRegistry 集成测试。 |
-| `server/tests/test_mcp_catalog.py` | 200 项契约、前后端 ID、服务端配置来源与 fail-closed 测试。 |
+| `server/tests/test_mcp_catalog.py` | 300 项契约、前后端 ID、服务端配置来源与 fail-closed 测试。 |
 | `server/tests/test_mcp_compute_adapters.py` | 批次 1 工具契约、输入上限、URL 拒绝与沙箱配置测试。 |
 | `server/tests/test_mcp_public_adapters.py` | 批次 2 SSRF、DNS、robots、响应上限、工具契约与容器隔离测试。 |
 | `server/tests/test_mcp_file_workspaces.py` | 批次 3 路径/ZIP、租户隔离、产物越权和一次性审批安全测试。 |

@@ -4,8 +4,9 @@
 
 本批已在现有 `mcp-database` sidecar 中实现 Milvus、Neo4j 与 ArcadeDB 三个固定原生
 REST facade，并完成独立镜像、真实服务、原生只读账号、代表调用、429、超时、拒写、
-断开、重启与清理验收。三项当前仍为 `planned`，未加入生产 Compose 默认 allowlist；
-等待用户验收后再决定是否晋级 `ready`。
+断开、重启与清理验收。Wave 23 又在 `origin/main@3546185d` 上使用 fresh sidecar 镜像和真实
+Milvus 2.5.21、Neo4j Enterprise 5.26.12、ArcadeDB 26.8.1 完整复验。用户已基于本次证据明确
+批准晋级；三项现为 `ready`，并进入 `mcp-database` 精确默认 allowlist。
 
 | 目录 ID | 审阅上游 | 许可证 | 固定兼容边界 |
 |---|---|---|---|
@@ -50,6 +51,11 @@ REST facade，并完成独立镜像、真实服务、原生只读账号、代表
 
 ## 隔离验收证据
 
+- Wave 23 fresh 镜像：`modelmirror-mcp-database:wave23-stock`，manifest list
+  `sha256:ac69da3ec78c98d1394339ab9a191e5db00551f6c5cbbf52b839a123a2606166`。
+- Wave 23 复验再次通过三项真实代表读取、Milvus/Neo4j/ArcadeDB 原生 reader 拒写、固定 429
+  脱敏、Neo4j 15 秒超时、断开后仅 PID1、sidecar 重启后代表调用恢复；验收资源最终为
+  `containers=0 volumes=0 networks=0`，未触碰共享栈。
 - staged 镜像：`modelmirror-mcp-database:wave19b-staged`，本地镜像 ID
   `sha256:47b5d11dd67e11f86f6c5935b649e5f95e4cc0ca97aa63b121259324d2fd269c`。
 - 真实服务：Milvus 2.5.21
@@ -70,11 +76,11 @@ REST facade，并完成独立镜像、真实服务、原生只读账号、代表
 
 ## 晋级、回退与剩余门槛
 
-完成批次 20 的候选收敛后，当前目录为 `67 ready / 32 planned / 101 blocked`。用户验收前，三个 ID 保持
-`planned-read-only-data-facade`，默认 sidecar 不加载它们。验收通过后，晋级仅包含：
+Wave 23 收口后，当前目录为 `71 ready / 27 planned / 102 blocked`，扩充 100 项为
+`26 ready / 13 planned / 61 blocked`。本次晋级仅包含：
 
-1. 将三个精确 ID 改为 `ready`；
-2. 将三个 ID 加入远程 database sidecar 的精确默认 allowlist；
+1. 三个精确 ID 改为 `ready`；
+2. 三个 ID 加入远程 database sidecar 的精确默认 allowlist；
 3. 保留所有固定 Host、资源、Schema、原生只读账号和输出上限。
 
 回退不需要数据迁移：从 allowlist 移除三个精确 ID、恢复为 `planned` 并断开相关目录

@@ -15,13 +15,13 @@
 - [Awesome-MCP-ZH](https://github.com/yzfly/Awesome-MCP-ZH)
 - [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)
 
-截至 2026-08-11，产品目录为 200 个 MCP 条目、18 个分类。第一阶段原有 100 项保持不变：批次 8 的两个 Python 执行上游均未通过门槛；批次 9 仅 Terraform 公共 Registry 只读子集通过；批次 10 暂缓到多租户主体边界完善后；批次 11 的 13 个桌面/宿主条目因缺少可信本机桥接、实例所有权证明和逐应用授权而全部受阻。第二阶段新增 100 项经批次 13 逐项判定，批次 14—15 提升五项固定只读子集，批次 16A—17A 再提升八项公共研究能力，批次 18A—18B 再提升六项确定性文件产物/分析能力，批次 19A 再提升三项只读数据服务；批次 20 只晋级 GoGraph，并将另外两个代码索引实现收敛为 superseded blocked，当前为 **23 ready / 17 planned / 60 blocked**。产品目录状态精确为 **68 ready / 31 planned / 101 blocked**。
+截至 2026-08-12，产品目录为 300 个 MCP 条目、18 个分类。第一阶段原有 100 项保持不变：批次 8 的两个 Python 执行上游均未通过门槛；批次 9 仅 Terraform 公共 Registry 只读子集通过；批次 10 暂缓到多租户主体边界完善后；批次 11 的 13 个桌面/宿主条目因缺少可信本机桥接、实例所有权证明和逐应用授权而全部受阻。第二阶段新增 100 项经批次 13 逐项判定，批次 14—15 提升五项固定只读子集，批次 16A—17A 再提升八项公共研究能力，批次 18A—18B 再提升六项确定性文件产物/分析能力，批次 19A 再提升三项只读数据服务；批次 20 只晋级 GoGraph，并将另外两个代码索引实现收敛为 superseded blocked。Wave 23 将 Vectorize 因持续 MIT/ISC 元数据冲突转为 blocked，并在最新主线复验后晋级 Milvus、Neo4j 与 ArcadeDB。第三阶段 Wave 24 将用户批准的双源固定 100 项先以静态 `planned/blocked` 身份纳入目录；Wave 25A 将通过真实隔离与用户验收的 DexPaprika、Chess、AniList 三项精确晋级，Wave 25B 又晋级 Fantasy PL；MCP-NixOS 因固定匿名后端依赖嵌入凭据转为 blocked，Reddit Buddy 因真实提供方 429 保持 planned。该批现为 **4 ready / 42 planned / 54 blocked**，产品目录为 **75 ready / 69 planned / 156 blocked**。
 
 批次 0—11 的第一阶段交付边界、状态分布、阶段二准入条件和可复现验收命令统一记录在 [MCP 适配第一阶段收口](./MCP_ADAPTER_PHASE_ONE_CLOSEOUT.md)。
 
 批次 16 的公共读取交付证据分别记录在 [16A 匿名公共读取](./MCP_WAVE16A_PUBLIC_READ.md) 与 [16B 研究与安全公共读取](./MCP_WAVE16B_RESEARCH_SECURITY.md)。批次 17A 的 open-webSearch、Idea Reality 与 GitMCP 已完成验收并加入精确默认 allowlist；边界见 [17A 多域公共研究](./MCP_WAVE17A_MULTI_DOMAIN_RESEARCH.md)。
 
-批次 17B 的 Google Map、Vectorize、Opik 与 Keboola 已完成固定版本、只读工具、Schema、凭据槽和出口冻结，并以 staged 镜像完成断网契约验证；由于当前没有四个真实账号的只读预检证据，目录状态仍为 planned，生产 allowlist 不包含这些 ID。详见 [17B Token 数据适配](./MCP_WAVE17B_TOKEN_DATA.md)。
+批次 17B 的 Google Map、Opik 与 Keboola 已完成固定版本、只读工具、Schema、凭据槽和出口冻结，并以 staged 镜像完成断网契约验证；由于没有三个真实账号的只读预检证据，目录状态仍为 planned。Vectorize 0.4.3 的 MIT/ISC 许可证元数据冲突在最新官方发布中仍存在，已转为 blocked 并移除运行时可达面。生产 allowlist 不包含这四个 ID。详见 [17B Token 数据适配](./MCP_WAVE17B_TOKEN_DATA.md)。
 
 批次 18A 的 Markdownify、MCP Pandoc 与 AntV Chart 已通过真实镜像与用户验收并晋级 ready：仅接收封存输入或受限结构化图表数据，完全断网并只生成服务端登记产物。AntV 官方远程服务没有被运行，当前实现明确为 line/bar/pie 本地兼容 facade。生产文件 allowlist 只增加三个精确 ID，详见 [18A 确定性文件产物](./MCP_WAVE18A_DETERMINISTIC_ARTIFACTS.md)。
 
@@ -29,11 +29,15 @@
 
 批次 19A 的 Prometheus、Qdrant 与 Elasticsearch 已完成原生只读 facade、真实隔离验收和用户验收：固定 Host/资源、原生只读凭据、Schema、代表调用、429、超时、拒写与清理均已验证。三项已晋级 ready 并进入生产数据库精确 allowlist，详见 [19A 只读数据服务](./MCP_WAVE19A_DATA_SERVICES.md)。
 
-批次 19B 的 Milvus、Neo4j 与 ArcadeDB 已完成固定原生只读 facade 与真实隔离验收：绑定 database/collection、原生只读账号、查询语法门禁、Schema、代表调用、429、超时、拒写、重启和清理均已验证。三项仍保持默认关闭的 planned，等待用户验收，不计入 ready 或生产 allowlist，详见 [19B 图与向量数据库](./MCP_WAVE19B_GRAPH_VECTOR_SERVICES.md)。
+批次 19B 的 Milvus、Neo4j 与 ArcadeDB 已完成固定原生只读 facade，并在 Wave 23 最新主线基线重新通过真实隔离验收：绑定 database/collection、原生只读账号、查询语法门禁、Schema、代表调用、429、超时、拒写、重启和清理均已验证。用户已明确批准三项晋级 `ready` 并加入生产数据库精确 allowlist，详见 [19B 图与向量数据库](./MCP_WAVE19B_GRAPH_VECTOR_SERVICES.md)。
 
 批次 20 选择 GoGraph v1.5.6 作为唯一实现：仅接受封存 Go 工作区、构建 session 内存索引并开放六个固定结构读取工具；Codebase Memory 因无法在不放宽 Landlock 根目录遍历的前提下启动，CodeGraphContext 因多数据库和宽控制面，均转为 superseded blocked。GoGraph 已通过真实断网镜像、隔离 UDS 与用户验收并进入精确默认 allowlist，详见 [20 代码索引](./MCP_WAVE20_CODE_INDEX.md)。
 
 批次 21 的七个状态化资源与批次 22 的多租户/OAuth 恢复组只完成归组和退出门槛，不新增运行时；详见 [21—22 暂缓实现收口](./MCP_WAVE21_22_DEFERRED.md)。
+
+Wave 25A 已为 DexPaprika、Chess 与 AniList 完成匿名公共读取兼容层、隔离双轮与用户验收，三项已晋级 ready 并进入精确 allowlist；MCP-NixOS 因固定匿名后端依赖嵌入凭据转为 blocked。详见 [Wave 25A 匿名公共读取](./MCP_WAVE25A_ANONYMOUS_PUBLIC_READ.md)。
+
+Wave 25B 已为 Reddit Buddy 与 Fantasy PL 落盘公共只读契约。Fantasy PL 已完成两轮隔离真实调用和用户验收，现已晋级 ready 并加入精确 allowlist；Reddit Buddy 因公共 Atom 端点返回 429 保持 planned。详见 [Wave 25B 公共研究读取](./MCP_WAVE25B_PUBLIC_RESEARCH_READ.md)。
 
 第二阶段已完成独立的双源目录审计、人工批准和逐项适配判定，固定解析两个上游清单的服务器实现章节，并对仓库身份、重复项、归档状态、许可证和最近维护时间执行 fail-closed 筛选。[100 项适配判定](./MCP_CATALOG_EXPANSION_REVIEW.md) 已写入前端发现目录与后端 manifest。十三项固定只读子集已经进入 Token Sidecar 或匿名公共读取 sidecar，批次 18A—18B 的六项确定性文件能力进入文件 sidecar，批次 19A 的三项只读数据服务进入数据库 sidecar；批次 17B 的四项仍处于默认关闭 staging，其余条目没有新增执行配置，且 14 个首轮复审条目已从 planned 收敛为 blocked。
 
@@ -99,7 +103,7 @@
 
 ## 5. 固定批次
 
-第一阶段 100 项继续冻结在批次 0—11；第二阶段批准的 100 项由批次 12 纳入目录、批次 13 完成适配判定，批次 14—20 按安全条件逐项验收和收敛，目录总数固定为 200。
+第一阶段 100 项继续冻结在批次 0—11；第二阶段批准的 100 项由批次 12 纳入目录、批次 13 完成适配判定，批次 14—20 按安全条件逐项验收和收敛；第三阶段批准的 100 项由批次 24 仅以非执行清单纳入。目录总数固定为 300，Wave 25—27 只能逐项改变状态，不能静默增加条目或直接制造 ready。
 
 | 批次 | 能力与条目 | 数量 | 主要退出门槛 |
 | --- | --- | ---: | --- |
@@ -122,11 +126,11 @@
 | 16A | 匿名公共读取 | 3 | **已实现并验收**：DuckDuckGo 严格搜索元数据、固定提交的 shadcn/ui 组件元数据、Docker Hub 公共仓库/标签元数据；固定 Host、Schema、速率与输出上限；[隔离验收与回退](./MCP_WAVE16A_PUBLIC_READ.md) |
 | 16B | 公共研究与安全 | 2 | **已实现并验收**：BioMCP 公共生物医学元数据与 SafeDep Vet 固定 npm/PyPI PURL 风险读取；不执行包、不上传诊断；[边界与验收](./MCP_WAVE16B_RESEARCH_SECURITY.md) |
 | 17A | 多域公共研究 | 3 | **已实现并验收**：open-webSearch、Idea Reality、GitMCP 固定域名与查询类型；GitMCP 仅接受规范化 GitHub repo slug；[边界与验收](./MCP_WAVE17A_MULTI_DOMAIN_RESEARCH.md) |
-| 17B | Token 数据 | 4 | **已实现、保持 planned**：Google Map、Vectorize、Opik、Keboola 固定凭据槽与只读工具；缺真实账号只读预检，不进入默认 allowlist；[staged 证据](./MCP_WAVE17B_TOKEN_DATA.md) |
+| 17B | Token 数据 | 4 | **3 planned / 1 blocked**：Google Map、Opik、Keboola 缺真实账号只读预检；Vectorize 因许可证元数据冲突 blocked 且无运行时；[staged 证据](./MCP_WAVE17B_TOKEN_DATA.md) |
 | 18A | 确定性文件产物 | 3 | **已实现并验收**：Markdownify、MCP Pandoc、AntV Chart 断网处理封存输入，只登记服务端复制产物；[边界与验收](./MCP_WAVE18A_DETERMINISTIC_ARTIFACTS.md) |
 | 18B | 受控文件分析 | 3 | **已实现并验收**：llm-context、Excel MCP、Dingo；Excel 仅输出副本并拒绝宏/外链，Dingo 仅固定规则；[边界与验收](./MCP_WAVE18B_FILE_ANALYSIS.md) |
 | 19A | 只读数据服务 | 3 | **已实现并验收**：Prometheus、Qdrant、Elasticsearch 固定资源、原生只读账号与查询上限；[边界与验收](./MCP_WAVE19A_DATA_SERVICES.md) |
-| 19B | 图与向量数据库 | 3 | **已实现、保持 planned**：Milvus、Neo4j、ArcadeDB 固定只读 facade 已通过隔离验收，等待用户晋级验收；[staged 证据](./MCP_WAVE19B_GRAPH_VECTOR_SERVICES.md) |
+| 19B / 23A | 图与向量数据库 | 3 | **已晋级 ready**：Milvus、Neo4j、ArcadeDB 在最新基线完成真实复验并进入精确数据库 allowlist；[验收证据](./MCP_WAVE19B_GRAPH_VECTOR_SERVICES.md) |
 | 20 | 代码索引收敛 | 3 | **已实现并验收**：GoGraph v1.5.6 仅索引封存 Go 工作区并开放六个固定结构读取工具；Codebase Memory 与 CodeGraphContext 转为 superseded blocked；[边界与验收](./MCP_WAVE20_CODE_INDEX.md) |
 | 21 | 状态化资源 | 7 | **暂缓**：等待项目级持久卷、所有权、配额、保留/导出/删除、模型费用和写入审批基础；[恢复条件](./MCP_WAVE21_22_DEFERRED.md) |
 | 22 | 多租户与 OAuth | 17 | **暂缓**：等待不可伪造主体、租户隔离、PKCE/state、刷新/撤销/解绑和最小只读 Scope；写入与管理工具继续 blocked；[恢复条件](./MCP_WAVE21_22_DEFERRED.md) |

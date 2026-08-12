@@ -89,6 +89,26 @@ GITMCP_USER_AGENT = (
     "ModelMirror-GitMCP/c487a298-compatible "
     "(+https://github.com/PinkElf-Elysia/ModelMirror)"
 )
+DEXPAPRIKA_USER_AGENT = (
+    "ModelMirror-DexPaprika-MCP/2.3.2-compatible "
+    "(+https://github.com/PinkElf-Elysia/ModelMirror)"
+)
+CHESS_USER_AGENT = (
+    "ModelMirror-Chess-MCP/0.1.0-compatible "
+    "(+https://github.com/PinkElf-Elysia/ModelMirror)"
+)
+ANILIST_USER_AGENT = (
+    "ModelMirror-AniList-MCP/1.4.0-compatible "
+    "(+https://github.com/PinkElf-Elysia/ModelMirror)"
+)
+REDDIT_BUDDY_USER_AGENT = (
+    "ModelMirror-Reddit-MCP-Buddy/1.1.14-compatible "
+    "(+https://github.com/PinkElf-Elysia/ModelMirror)"
+)
+FANTASY_PL_USER_AGENT = (
+    "ModelMirror-Fantasy-PL-MCP/0.1.7-compatible "
+    "(+https://github.com/PinkElf-Elysia/ModelMirror)"
+)
 
 QUICKCHART_HOSTS = frozenset({"quickchart.io"})
 AIRBNB_HOSTS = frozenset(
@@ -119,6 +139,11 @@ IDEA_REALITY_HOSTS = frozenset(
     {"api.github.com", "hn.algolia.com", "registry.npmjs.org", "pypi.org"}
 )
 GITMCP_HOSTS = frozenset({"api.github.com"})
+DEXPAPRIKA_HOSTS = frozenset({"api.dexpaprika.com"})
+CHESS_HOSTS = frozenset({"api.chess.com"})
+ANILIST_HOSTS = frozenset({"graphql.anilist.co"})
+REDDIT_BUDDY_HOSTS = frozenset({"www.reddit.com"})
+FANTASY_PL_HOSTS = frozenset({"fantasy.premierleague.com"})
 
 DUCKDUCKGO_REGION = re.compile(r"(?:[a-z]{2}-[a-z]{2}|wt-wt)")
 PUBLIC_SLUG = re.compile(r"[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?")
@@ -138,6 +163,11 @@ GITHUB_REPOSITORY = re.compile(
     r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?"
 )
 IDEA_WORD = re.compile(r"[A-Za-z][A-Za-z0-9+#.-]{2,40}")
+CHESS_USERNAME = re.compile(r"[A-Za-z0-9_-]{1,50}")
+REDDIT_SUBREDDIT = re.compile(r"(?:[A-Za-z0-9_]{2,21}|all|popular)")
+REDDIT_POST_PATH = re.compile(
+    r"/r/[A-Za-z0-9_]{2,21}/comments/[A-Za-z0-9]{2,13}(?:/[^/?#]*)?/?"
+)
 
 SHADCN_UI_COMMIT = "d14b6e69a91f0fc99e31a7adb26a48d661df9911"
 SHADCN_COMPONENT_PATH = "apps/v4/registry/new-york-v4/ui"
@@ -2451,6 +2481,1031 @@ def gitmcp_search_code_payload(
     )
 
 
+def _public_number(value: Any) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _dexpaprika_client() -> SafeHttpClient:
+    return SafeHttpClient(
+        allowed_hosts=DEXPAPRIKA_HOSTS,
+        timeout=20,
+        max_redirects=0,
+        max_response_bytes=1024 * 1024,
+        minimum_intervals={"api.dexpaprika.com": 0.5},
+    )
+
+
+def dexpaprika_networks_payload(
+    *, client: SafeHttpClient | None = None
+) -> dict[str, Any]:
+    policy_client = client or _dexpaprika_client()
+    payload = _json_response(
+        policy_client.request(
+            "https://api.dexpaprika.com/networks",
+            headers={"User-Agent": DEXPAPRIKA_USER_AGENT},
+        ),
+        "DexPaprika",
+    )
+    if not isinstance(payload, list) or len(payload) > 128:
+        raise ValueError("DexPaprika returned an invalid network list.")
+    networks: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise ValueError("DexPaprika returned an invalid network entry.")
+        network_id = _clean_public_text(item.get("id"), maximum=64).lower()
+        display_name = _clean_public_text(item.get("display_name"), maximum=128)
+        if not PUBLIC_SLUG.fullmatch(network_id) or not display_name:
+            raise ValueError("DexPaprika returned an invalid network identity.")
+        networks.append(
+            {
+                "id": network_id,
+                "display_name": display_name,
+                "volume_usd_24h": _public_number(item.get("volume_usd_24h")),
+                "transactions_24h": _public_number(item.get("txns_24h")),
+                "pool_count": _public_number(item.get("pools_count")),
+            }
+        )
+    return _bounded_result(
+        {"count": len(networks), "networks": networks, "provider": "DexPaprika"}
+    )
+
+
+def dexpaprika_stats_payload(
+    *, client: SafeHttpClient | None = None
+) -> dict[str, Any]:
+    policy_client = client or _dexpaprika_client()
+    payload = _json_response(
+        policy_client.request(
+            "https://api.dexpaprika.com/stats",
+            headers={"User-Agent": DEXPAPRIKA_USER_AGENT},
+        ),
+        "DexPaprika",
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("DexPaprika returned invalid statistics.")
+    statistics = {
+        key: _public_number(payload.get(key))
+        for key in ("chains", "factories", "pools", "tokens")
+    }
+    if any(value is None or value < 0 for value in statistics.values()):
+        raise ValueError("DexPaprika returned invalid statistics.")
+    return _bounded_result({**statistics, "provider": "DexPaprika"})
+
+
+def _dexpaprika_token_summary(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    identifier = _clean_public_text(item.get("id"), maximum=128)
+    name = _clean_public_text(item.get("name"), maximum=160)
+    symbol = _clean_public_text(item.get("symbol"), maximum=40)
+    chain = _clean_public_text(item.get("chain"), maximum=64).lower()
+    if not identifier or not name or not symbol or not PUBLIC_SLUG.fullmatch(chain):
+        return None
+    return {
+        "id": identifier,
+        "name": name,
+        "symbol": symbol,
+        "chain": chain,
+        "price_usd": _public_number(item.get("price_usd")),
+        "liquidity_usd": _public_number(item.get("liquidity_usd")),
+        "volume_usd": _public_number(item.get("volume_usd")),
+        "price_change_percentage_24h": _public_number(
+            item.get("price_usd_change")
+        ),
+    }
+
+
+def _dexpaprika_pool_summary(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    identifier = _clean_public_text(item.get("id"), maximum=128)
+    dex_name = _clean_public_text(item.get("dex_name"), maximum=160)
+    chain = _clean_public_text(item.get("chain"), maximum=64).lower()
+    if not identifier or not dex_name or not PUBLIC_SLUG.fullmatch(chain):
+        return None
+    tokens = [
+        summary
+        for summary in (
+            _dexpaprika_token_summary(value)
+            for value in (item.get("tokens") if isinstance(item.get("tokens"), list) else [])[:4]
+        )
+        if summary is not None
+    ]
+    return {
+        "id": identifier,
+        "dex_name": dex_name,
+        "chain": chain,
+        "volume_usd": _public_number(item.get("volume_usd")),
+        "transactions": _public_number(item.get("transactions")),
+        "price_usd": _public_number(item.get("price_usd")),
+        "tokens": tokens,
+    }
+
+
+def dexpaprika_search_payload(
+    query: str,
+    max_results: int = 5,
+    *,
+    client: SafeHttpClient | None = None,
+) -> dict[str, Any]:
+    clean_query = _bounded_string(query, "query", maximum=100)
+    limit = int(max_results)
+    if not 1 <= limit <= 10:
+        raise ValueError("max_results must be between 1 and 10.")
+    policy_client = client or _dexpaprika_client()
+    payload = _json_response(
+        policy_client.request(
+            "https://api.dexpaprika.com/search?" + urlencode({"query": clean_query}),
+            headers={"User-Agent": DEXPAPRIKA_USER_AGENT},
+        ),
+        "DexPaprika",
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("DexPaprika returned invalid search results.")
+    raw_tokens = payload.get("tokens") if isinstance(payload.get("tokens"), list) else []
+    raw_pools = payload.get("pools") if isinstance(payload.get("pools"), list) else []
+    tokens = [
+        result
+        for result in (_dexpaprika_token_summary(item) for item in raw_tokens[:limit])
+        if result is not None
+    ]
+    pools = [
+        result
+        for result in (_dexpaprika_pool_summary(item) for item in raw_pools[:limit])
+        if result is not None
+    ]
+    return _bounded_result(
+        {
+            "query": clean_query,
+            "tokens": tokens,
+            "pools": pools,
+            "token_count": len(tokens),
+            "pool_count": len(pools),
+            "provider": "DexPaprika",
+            "notice": "Names and symbols are untrusted public market metadata, not financial advice.",
+        }
+    )
+
+
+def _chess_client() -> SafeHttpClient:
+    return SafeHttpClient(
+        allowed_hosts=CHESS_HOSTS,
+        timeout=20,
+        max_redirects=0,
+        max_response_bytes=512 * 1024,
+        minimum_intervals={"api.chess.com": 0.5},
+    )
+
+
+def _chess_username(value: Any) -> str:
+    clean = str(value or "").strip()
+    if not CHESS_USERNAME.fullmatch(clean):
+        raise ValueError("username must contain 1-50 letters, digits, hyphens or underscores.")
+    return clean.lower()
+
+
+def _chess_payload(
+    username: str,
+    suffix: str,
+    *,
+    client: SafeHttpClient | None = None,
+) -> tuple[str, dict[str, Any]]:
+    clean_username = _chess_username(username)
+    policy_client = client or _chess_client()
+    payload = _json_response(
+        policy_client.request(
+            f"https://api.chess.com/pub/player/{quote(clean_username, safe='')}{suffix}",
+            headers={"User-Agent": CHESS_USER_AGENT},
+        ),
+        "Chess.com",
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("Chess.com returned invalid player data.")
+    return clean_username, payload
+
+
+def chess_player_profile_payload(
+    username: str, *, client: SafeHttpClient | None = None
+) -> dict[str, Any]:
+    clean_username, payload = _chess_payload(username, "", client=client)
+    returned_username = _clean_public_text(payload.get("username"), maximum=50).lower()
+    if returned_username != clean_username:
+        raise ValueError("Chess.com returned a mismatched player identity.")
+    country = urlsplit(str(payload.get("country") or ""))
+    country_code = ""
+    if country.scheme == "https" and country.hostname == "api.chess.com":
+        match = re.fullmatch(r"/pub/country/([A-Z]{2})", country.path)
+        country_code = match.group(1) if match else ""
+    return _bounded_result(
+        {
+            "username": returned_username,
+            "player_id": _public_number(payload.get("player_id")),
+            "name": _clean_public_text(payload.get("name"), maximum=160),
+            "title": _clean_public_text(payload.get("title"), maximum=8),
+            "country_code": country_code,
+            "status": _clean_public_text(payload.get("status"), maximum=32),
+            "followers": _public_number(payload.get("followers")),
+            "last_online": _public_number(payload.get("last_online")),
+            "joined": _public_number(payload.get("joined")),
+            "is_streamer": bool(payload.get("is_streamer")),
+            "verified": bool(payload.get("verified")),
+            "provider": "Chess.com",
+        }
+    )
+
+
+def _chess_rating_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    output: dict[str, Any] = {}
+    for section in ("last", "best", "record"):
+        raw = value.get(section)
+        if not isinstance(raw, dict):
+            continue
+        keys = ("rating", "date", "rd") if section != "record" else ("win", "loss", "draw")
+        clean = {key: _public_number(raw.get(key)) for key in keys}
+        output[section] = {key: number for key, number in clean.items() if number is not None}
+    return output or None
+
+
+def chess_player_stats_payload(
+    username: str, *, client: SafeHttpClient | None = None
+) -> dict[str, Any]:
+    clean_username, payload = _chess_payload(username, "/stats", client=client)
+    statistics = {
+        key: summary
+        for key in (
+            "chess_daily",
+            "chess_rapid",
+            "chess_blitz",
+            "chess_bullet",
+        )
+        if (summary := _chess_rating_summary(payload.get(key))) is not None
+    }
+    fide = _public_number(payload.get("fide"))
+    if fide is not None:
+        statistics["fide"] = fide
+    return _bounded_result(
+        {"username": clean_username, "statistics": statistics, "provider": "Chess.com"}
+    )
+
+
+ANILIST_MEDIA_FIELDS = """
+id
+idMal
+title { romaji english native }
+format
+status
+season
+seasonYear
+episodes
+duration
+genres
+averageScore
+popularity
+isAdult
+"""
+
+
+def _anilist_client() -> SafeHttpClient:
+    return SafeHttpClient(
+        allowed_hosts=ANILIST_HOSTS,
+        timeout=20,
+        max_redirects=0,
+        max_response_bytes=512 * 1024,
+        minimum_intervals={"graphql.anilist.co": 0.75},
+    )
+
+
+def _anilist_graphql(
+    query: str,
+    variables: dict[str, Any],
+    *,
+    client: SafeHttpClient,
+) -> dict[str, Any]:
+    response = client.request(
+        "https://graphql.anilist.co",
+        method="POST",
+        headers={
+            "User-Agent": ANILIST_USER_AGENT,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        body=json.dumps(
+            {"query": query, "variables": variables},
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode("utf-8"),
+    )
+    payload = _json_response(response, "AniList")
+    if not isinstance(payload, dict) or payload.get("errors"):
+        raise ValueError("AniList rejected the fixed public query.")
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise ValueError("AniList returned invalid GraphQL data.")
+    return data
+
+
+def _anilist_media_summary(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    media_id = item.get("id")
+    title = item.get("title")
+    if (
+        not isinstance(media_id, int)
+        or isinstance(media_id, bool)
+        or not isinstance(title, dict)
+    ):
+        return None
+    return {
+        "id": media_id,
+        "id_mal": _public_number(item.get("idMal")),
+        "title": {
+            key: _clean_public_text(title.get(key), maximum=256)
+            for key in ("romaji", "english", "native")
+        },
+        "format": _clean_public_text(item.get("format"), maximum=32),
+        "status": _clean_public_text(item.get("status"), maximum=32),
+        "season": _clean_public_text(item.get("season"), maximum=16),
+        "season_year": _public_number(item.get("seasonYear")),
+        "episodes": _public_number(item.get("episodes")),
+        "duration_minutes": _public_number(item.get("duration")),
+        "genres": [
+            _clean_public_text(value, maximum=80)
+            for value in (item.get("genres") if isinstance(item.get("genres"), list) else [])[:20]
+            if _clean_public_text(value, maximum=80)
+        ],
+        "average_score": _public_number(item.get("averageScore")),
+        "popularity": _public_number(item.get("popularity")),
+        "is_adult": bool(item.get("isAdult")),
+    }
+
+
+def anilist_genres_payload(
+    *, client: SafeHttpClient | None = None
+) -> dict[str, Any]:
+    data = _anilist_graphql(
+        "query ModelMirrorGenres { GenreCollection }",
+        {},
+        client=client or _anilist_client(),
+    )
+    raw_genres = data.get("GenreCollection")
+    if not isinstance(raw_genres, list) or len(raw_genres) > 128:
+        raise ValueError("AniList returned invalid genre metadata.")
+    genres = [
+        clean
+        for clean in (_clean_public_text(value, maximum=80) for value in raw_genres)
+        if clean
+    ]
+    if len(genres) != len(raw_genres):
+        raise ValueError("AniList returned invalid genre metadata.")
+    return _bounded_result({"count": len(genres), "genres": genres, "provider": "AniList"})
+
+
+def anilist_search_anime_payload(
+    term: str,
+    page: int = 1,
+    amount: int = 5,
+    *,
+    client: SafeHttpClient | None = None,
+) -> dict[str, Any]:
+    clean_term = _bounded_string(term, "term", maximum=200)
+    clean_page = int(page)
+    clean_amount = int(amount)
+    if not 1 <= clean_page <= 100:
+        raise ValueError("page must be between 1 and 100.")
+    if not 1 <= clean_amount <= 10:
+        raise ValueError("amount must be between 1 and 10.")
+    data = _anilist_graphql(
+        "query ModelMirrorAnimeSearch($search: String!, $page: Int!, $perPage: Int!) {"
+        " Page(page: $page, perPage: $perPage) {"
+        " pageInfo { total currentPage lastPage hasNextPage perPage }"
+        f" media(search: $search, type: ANIME, sort: SEARCH_MATCH) {{ {ANILIST_MEDIA_FIELDS} }}"
+        " } }",
+        {"search": clean_term, "page": clean_page, "perPage": clean_amount},
+        client=client or _anilist_client(),
+    )
+    page_data = data.get("Page")
+    if not isinstance(page_data, dict) or not isinstance(page_data.get("media"), list):
+        raise ValueError("AniList returned invalid anime search data.")
+    media = [
+        summary
+        for summary in (_anilist_media_summary(item) for item in page_data["media"][:clean_amount])
+        if summary is not None
+    ]
+    page_info = page_data.get("pageInfo") if isinstance(page_data.get("pageInfo"), dict) else {}
+    return _bounded_result(
+        {
+            "term": clean_term,
+            "page": clean_page,
+            "count": len(media),
+            "has_next_page": bool(page_info.get("hasNextPage")),
+            "results": media,
+            "provider": "AniList",
+        }
+    )
+
+
+def anilist_get_anime_payload(
+    ids: int | list[int], *, client: SafeHttpClient | None = None
+) -> dict[str, Any]:
+    raw_ids = ids if isinstance(ids, list) else [ids]
+    if not 1 <= len(raw_ids) <= 5:
+        raise ValueError("ids must contain between 1 and 5 AniList IDs.")
+    clean_ids: list[int] = []
+    for value in raw_ids:
+        if isinstance(value, bool):
+            raise ValueError("AniList IDs must be positive integers.")
+        number = int(value)
+        if number != value or not 1 <= number <= 10_000_000:
+            raise ValueError("AniList IDs must be positive integers.")
+        clean_ids.append(number)
+    if len(set(clean_ids)) != len(clean_ids):
+        raise ValueError("AniList IDs must be unique.")
+    data = _anilist_graphql(
+        "query ModelMirrorAnimeByIds($ids: [Int!]!) {"
+        f" Page(page: 1, perPage: 5) {{ media(id_in: $ids, type: ANIME, sort: ID) {{ {ANILIST_MEDIA_FIELDS} }} }}"
+        " }",
+        {"ids": clean_ids},
+        client=client or _anilist_client(),
+    )
+    page_data = data.get("Page")
+    if not isinstance(page_data, dict) or not isinstance(page_data.get("media"), list):
+        raise ValueError("AniList returned invalid anime detail data.")
+    media = [
+        summary
+        for summary in (_anilist_media_summary(item) for item in page_data["media"][:5])
+        if summary is not None
+    ]
+    return _bounded_result(
+        {"requested_ids": clean_ids, "count": len(media), "results": media, "provider": "AniList"}
+    )
+
+
+def _reddit_buddy_client() -> SafeHttpClient:
+    return SafeHttpClient(
+        allowed_hosts=REDDIT_BUDDY_HOSTS,
+        timeout=20,
+        max_redirects=0,
+        max_response_bytes=256 * 1024,
+        minimum_intervals={"www.reddit.com": 5.0},
+    )
+
+
+def _reddit_feed_entry(entry: ET.Element) -> dict[str, Any] | None:
+    namespace = "{http://www.w3.org/2005/Atom}"
+
+    def text(name: str, maximum: int) -> str:
+        node = entry.find(f"{namespace}{name}")
+        return _clean_public_text(node.text if node is not None else "", maximum=maximum)
+
+    title = text("title", 300)
+    updated = text("updated", 64)
+    author_node = entry.find(f"{namespace}author/{namespace}name")
+    author = _clean_public_text(
+        author_node.text if author_node is not None else "", maximum=64
+    )
+    canonical = ""
+    for link in entry.findall(f"{namespace}link"):
+        if link.attrib.get("rel", "alternate") != "alternate":
+            continue
+        parsed = urlsplit(str(link.attrib.get("href") or ""))
+        if (
+            parsed.scheme == "https"
+            and parsed.hostname in REDDIT_BUDDY_HOSTS
+            and REDDIT_POST_PATH.fullmatch(parsed.path)
+        ):
+            canonical = f"https://www.reddit.com{parsed.path}"
+            break
+    if not title or not canonical:
+        return None
+    content_node = entry.find(f"{namespace}content")
+    content = ""
+    if content_node is not None and content_node.text:
+        parser = _ReadableHtml()
+        parser.feed(content_node.text[:32_768])
+        content = _clean_public_text(parser.text(), maximum=800)
+    return {
+        "title": title,
+        "author": author.removeprefix("/u/"),
+        "updated": updated,
+        "permalink": canonical,
+        "content_preview": content,
+    }
+
+
+def _reddit_feed_payload(
+    response: Any,
+    *,
+    limit: int,
+    query: str,
+) -> dict[str, Any]:
+    _require_success(response.status, "Reddit")
+    content_type = str(response.headers.get("content-type") or "").lower()
+    if "xml" not in content_type:
+        raise ValueError("Reddit returned a non-Atom response.")
+    try:
+        root = ET.fromstring(response.body)
+    except ET.ParseError as exc:
+        raise ValueError("Reddit returned invalid Atom data.") from exc
+    namespace = "{http://www.w3.org/2005/Atom}"
+    if root.tag != f"{namespace}feed":
+        raise ValueError("Reddit returned an unexpected feed shape.")
+    raw_entries = root.findall(f"{namespace}entry")
+    if len(raw_entries) > 100:
+        raise ValueError("Reddit returned too many feed entries.")
+    entries = [
+        item
+        for item in (_reddit_feed_entry(entry) for entry in raw_entries[:limit])
+        if item is not None
+    ]
+    return _bounded_result(
+        {
+            "query": query,
+            "count": len(entries),
+            "posts": entries,
+            "data_source": "reddit-public-atom",
+            "notice": (
+                "Public Atom feeds omit reliable score, comment-count and NSFW metadata; "
+                "do not infer those values from this response."
+            ),
+        }
+    )
+
+
+def reddit_browse_payload(
+    subreddit: str,
+    sort: Literal["hot", "new", "top"] = "hot",
+    time: Literal["hour", "day", "week", "month", "year", "all"] = "day",
+    limit: int = 10,
+    *,
+    client: SafeHttpClient | None = None,
+) -> dict[str, Any]:
+    clean_subreddit = str(subreddit or "").strip()
+    if not REDDIT_SUBREDDIT.fullmatch(clean_subreddit):
+        raise ValueError("subreddit must be a normalized public subreddit name.")
+    clean_sort = str(sort)
+    clean_time = str(time)
+    if clean_sort not in {"hot", "new", "top"}:
+        raise ValueError("sort must be hot, new or top.")
+    if clean_time not in {"hour", "day", "week", "month", "year", "all"}:
+        raise ValueError("time must be a fixed Reddit time range.")
+    clean_limit = int(limit)
+    if not 1 <= clean_limit <= 10:
+        raise ValueError("limit must be between 1 and 10.")
+    params = {"limit": clean_limit}
+    if clean_sort == "top":
+        params["t"] = clean_time
+    response = (client or _reddit_buddy_client()).request(
+        "https://www.reddit.com/r/"
+        + quote(clean_subreddit.lower(), safe="")
+        + f"/{clean_sort}/.rss?"
+        + urlencode(params),
+        headers={
+            "User-Agent": REDDIT_BUDDY_USER_AGENT,
+            "Accept": "application/atom+xml",
+        },
+    )
+    return _reddit_feed_payload(
+        response,
+        limit=clean_limit,
+        query=f"r/{clean_subreddit.lower()}:{clean_sort}",
+    )
+
+
+def reddit_search_payload(
+    query: str,
+    sort: Literal["relevance", "hot", "top", "new", "comments"] = "relevance",
+    time: Literal["hour", "day", "week", "month", "year", "all"] = "all",
+    limit: int = 10,
+    *,
+    client: SafeHttpClient | None = None,
+) -> dict[str, Any]:
+    clean_query = _bounded_string(query, "query", maximum=120)
+    clean_sort = str(sort)
+    clean_time = str(time)
+    if clean_sort not in {"relevance", "hot", "top", "new", "comments"}:
+        raise ValueError("sort must be a fixed Reddit search order.")
+    if clean_time not in {"hour", "day", "week", "month", "year", "all"}:
+        raise ValueError("time must be a fixed Reddit time range.")
+    clean_limit = int(limit)
+    if not 1 <= clean_limit <= 10:
+        raise ValueError("limit must be between 1 and 10.")
+    response = (client or _reddit_buddy_client()).request(
+        "https://www.reddit.com/search.rss?"
+        + urlencode(
+            {
+                "q": clean_query,
+                "sort": clean_sort,
+                "t": clean_time,
+                "limit": clean_limit,
+            }
+        ),
+        headers={
+            "User-Agent": REDDIT_BUDDY_USER_AGENT,
+            "Accept": "application/atom+xml",
+        },
+    )
+    return _reddit_feed_payload(response, limit=clean_limit, query=clean_query)
+
+
+def _fantasy_pl_client() -> SafeHttpClient:
+    return SafeHttpClient(
+        allowed_hosts=FANTASY_PL_HOSTS,
+        timeout=20,
+        max_redirects=0,
+        max_response_bytes=2 * 1024 * 1024,
+        minimum_intervals={"fantasy.premierleague.com": 1.0},
+    )
+
+
+def _fantasy_pl_bootstrap(*, client: SafeHttpClient) -> dict[str, Any]:
+    payload = _json_response(
+        client.request(
+            "https://fantasy.premierleague.com/api/bootstrap-static/",
+            headers={"User-Agent": FANTASY_PL_USER_AGENT},
+        ),
+        "Fantasy Premier League",
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("Fantasy Premier League returned invalid bootstrap data.")
+    players = payload.get("elements")
+    teams = payload.get("teams")
+    positions = payload.get("element_types")
+    if (
+        not isinstance(players, list)
+        or not isinstance(teams, list)
+        or not isinstance(positions, list)
+        or len(players) > 1_000
+        or len(teams) > 30
+        or len(positions) > 10
+    ):
+        raise ValueError("Fantasy Premier League returned an invalid directory shape.")
+    return payload
+
+
+def _fantasy_pl_player_summary(
+    item: Any,
+    *,
+    teams: dict[int, str],
+    positions: dict[int, str],
+) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    player_id = item.get("id")
+    team_id = item.get("team")
+    position_id = item.get("element_type")
+    if (
+        isinstance(player_id, bool)
+        or not isinstance(player_id, int)
+        or isinstance(team_id, bool)
+        or not isinstance(team_id, int)
+        or isinstance(position_id, bool)
+        or not isinstance(position_id, int)
+        or team_id not in teams
+        or position_id not in positions
+    ):
+        return None
+    return {
+        "id": player_id,
+        "first_name": _clean_public_text(item.get("first_name"), maximum=80),
+        "second_name": _clean_public_text(item.get("second_name"), maximum=120),
+        "web_name": _clean_public_text(item.get("web_name"), maximum=80),
+        "team_id": team_id,
+        "team": teams[team_id],
+        "position": positions[position_id],
+        "price": (
+            round(item["now_cost"] / 10, 1)
+            if isinstance(item.get("now_cost"), int)
+            and not isinstance(item.get("now_cost"), bool)
+            else None
+        ),
+        "total_points": _public_number(item.get("total_points")),
+        "form": _clean_public_text(item.get("form"), maximum=32),
+        "points_per_game": _clean_public_text(item.get("points_per_game"), maximum=32),
+        "selected_by_percent": _clean_public_text(
+            item.get("selected_by_percent"), maximum=32
+        ),
+        "status": _clean_public_text(item.get("status"), maximum=8),
+    }
+
+
+def _fantasy_pl_directory(
+    *, client: SafeHttpClient
+) -> tuple[list[dict[str, Any]], dict[int, str], dict[int, str]]:
+    payload = _fantasy_pl_bootstrap(client=client)
+    teams = {
+        item["id"]: _clean_public_text(item.get("name"), maximum=80)
+        for item in payload["teams"]
+        if isinstance(item, dict)
+        and isinstance(item.get("id"), int)
+        and not isinstance(item.get("id"), bool)
+        and _clean_public_text(item.get("name"), maximum=80)
+    }
+    positions = {
+        item["id"]: _clean_public_text(item.get("singular_name_short"), maximum=8).upper()
+        for item in payload["element_types"]
+        if isinstance(item, dict)
+        and isinstance(item.get("id"), int)
+        and not isinstance(item.get("id"), bool)
+        and _clean_public_text(item.get("singular_name_short"), maximum=8)
+    }
+    if not teams or not positions:
+        raise ValueError("Fantasy Premier League returned invalid team metadata.")
+    players = [
+        summary
+        for summary in (
+            _fantasy_pl_player_summary(item, teams=teams, positions=positions)
+            for item in payload["elements"]
+        )
+        if summary is not None
+    ]
+    if not players:
+        raise ValueError("Fantasy Premier League returned no valid players.")
+    return players, teams, positions
+
+
+def fantasy_pl_search_players_payload(
+    query: str,
+    position: str = "",
+    team: str = "",
+    max_results: int = 10,
+    *,
+    client: SafeHttpClient | None = None,
+) -> dict[str, Any]:
+    clean_query = _bounded_string(query, "query", maximum=80).casefold()
+    clean_position = str(position or "").strip().upper()
+    clean_team = str(team or "").strip().casefold()
+    if clean_position and clean_position not in {"GKP", "DEF", "MID", "FWD"}:
+        raise ValueError("position must be GKP, DEF, MID or FWD.")
+    if len(clean_team) > 80:
+        raise ValueError("team cannot exceed 80 characters.")
+    clean_limit = int(max_results)
+    if not 1 <= clean_limit <= 20:
+        raise ValueError("max_results must be between 1 and 20.")
+    players, _, _ = _fantasy_pl_directory(client=client or _fantasy_pl_client())
+    matches = []
+    for player in players:
+        identity = " ".join(
+            str(player.get(key) or "")
+            for key in ("first_name", "second_name", "web_name")
+        ).casefold()
+        if clean_query not in identity:
+            continue
+        if clean_position and player["position"] != clean_position:
+            continue
+        if clean_team and clean_team not in str(player["team"]).casefold():
+            continue
+        matches.append(player)
+        if len(matches) >= clean_limit:
+            break
+    return _bounded_result(
+        {
+            "query": clean_query,
+            "count": len(matches),
+            "players": matches,
+            "provider": "Fantasy Premier League",
+            "notice": "Official public game data only; no transfer or lineup advice is provided.",
+        }
+    )
+
+
+def fantasy_pl_player_payload(
+    player_id: int,
+    *,
+    client: SafeHttpClient | None = None,
+) -> dict[str, Any]:
+    if isinstance(player_id, bool):
+        raise ValueError("player_id must be a positive integer.")
+    clean_id = int(player_id)
+    if clean_id != player_id or not 1 <= clean_id <= 100_000:
+        raise ValueError("player_id must be a positive integer.")
+    players, _, _ = _fantasy_pl_directory(client=client or _fantasy_pl_client())
+    match = next((player for player in players if player["id"] == clean_id), None)
+    if match is None:
+        raise ValueError("Fantasy Premier League player was not found.")
+    return _bounded_result(
+        {
+            "player": match,
+            "provider": "Fantasy Premier League",
+            "notice": "Official public game data only; no transfer or lineup advice is provided.",
+        }
+    )
+
+
+def fantasy_pl_fixtures_payload(
+    event: int | None = None,
+    team_id: int | None = None,
+    max_results: int = 20,
+    *,
+    client: SafeHttpClient | None = None,
+) -> dict[str, Any]:
+    clean_event: int | None = None
+    if event is not None:
+        if isinstance(event, bool) or not 1 <= int(event) <= 60 or int(event) != event:
+            raise ValueError("event must be between 1 and 60.")
+        clean_event = int(event)
+    clean_team: int | None = None
+    if team_id is not None:
+        if isinstance(team_id, bool) or not 1 <= int(team_id) <= 100 or int(team_id) != team_id:
+            raise ValueError("team_id must be between 1 and 100.")
+        clean_team = int(team_id)
+    clean_limit = int(max_results)
+    if not 1 <= clean_limit <= 50:
+        raise ValueError("max_results must be between 1 and 50.")
+    query = "?" + urlencode({"event": clean_event}) if clean_event is not None else ""
+    payload = _json_response(
+        (client or _fantasy_pl_client()).request(
+            "https://fantasy.premierleague.com/api/fixtures/" + query,
+            headers={"User-Agent": FANTASY_PL_USER_AGENT},
+        ),
+        "Fantasy Premier League",
+    )
+    if not isinstance(payload, list) or len(payload) > 1_000:
+        raise ValueError("Fantasy Premier League returned invalid fixture data.")
+    fixtures: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        home = item.get("team_h")
+        away = item.get("team_a")
+        fixture_id = item.get("id")
+        if not all(isinstance(value, int) and not isinstance(value, bool) for value in (home, away, fixture_id)):
+            continue
+        if clean_team is not None and clean_team not in {home, away}:
+            continue
+        fixtures.append(
+            {
+                "id": fixture_id,
+                "event": _public_number(item.get("event")),
+                "kickoff_time": _clean_public_text(item.get("kickoff_time"), maximum=64),
+                "started": bool(item.get("started")),
+                "finished": bool(item.get("finished")),
+                "home_team_id": home,
+                "away_team_id": away,
+                "home_score": _public_number(item.get("team_h_score")),
+                "away_score": _public_number(item.get("team_a_score")),
+                "home_difficulty": _public_number(item.get("team_h_difficulty")),
+                "away_difficulty": _public_number(item.get("team_a_difficulty")),
+            }
+        )
+        if len(fixtures) >= clean_limit:
+            break
+    return _bounded_result(
+        {
+            "event": clean_event,
+            "team_id": clean_team,
+            "count": len(fixtures),
+            "fixtures": fixtures,
+            "provider": "Fantasy Premier League",
+        }
+    )
+
+
+def build_reddit_buddy() -> FastMCP:
+    mcp = FastMCP("ModelMirror Reddit MCP Buddy")
+    client = _reddit_buddy_client()
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def browse_subreddit(
+        subreddit: str,
+        sort: Literal["hot", "new", "top"] = "hot",
+        time: Literal["hour", "day", "week", "month", "year", "all"] = "day",
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        """Read a bounded public subreddit Atom feed without credentials."""
+
+        return reddit_browse_payload(subreddit, sort, time, limit, client=client)
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def search_reddit(
+        query: str,
+        sort: Literal["relevance", "hot", "top", "new", "comments"] = "relevance",
+        time: Literal["hour", "day", "week", "month", "year", "all"] = "all",
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        """Search bounded public Reddit Atom metadata without user or post-detail tools."""
+
+        return reddit_search_payload(query, sort, time, limit, client=client)
+
+    return mcp
+
+
+def build_fantasy_pl() -> FastMCP:
+    mcp = FastMCP("ModelMirror Fantasy PL")
+    client = _fantasy_pl_client()
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def search_fpl_players(
+        query: str,
+        position: str = "",
+        team: str = "",
+        max_results: int = 10,
+    ) -> dict[str, Any]:
+        """Search bounded official public FPL player metadata."""
+
+        return fantasy_pl_search_players_payload(
+            query, position, team, max_results, client=client
+        )
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def get_player_information(player_id: int) -> dict[str, Any]:
+        """Read official public metadata for one numeric FPL player ID."""
+
+        return fantasy_pl_player_payload(player_id, client=client)
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def list_fpl_fixtures(
+        event: int | None = None,
+        team_id: int | None = None,
+        max_results: int = 20,
+    ) -> dict[str, Any]:
+        """List bounded official fixture metadata without team-management tools."""
+
+        return fantasy_pl_fixtures_payload(
+            event, team_id, max_results, client=client
+        )
+
+    return mcp
+
+
+def build_dexpaprika() -> FastMCP:
+    mcp = FastMCP("ModelMirror DexPaprika")
+    client = _dexpaprika_client()
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def getNetworks() -> dict[str, Any]:
+        """List bounded public network metadata from the fixed DexPaprika API."""
+
+        return dexpaprika_networks_payload(client=client)
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def getStats() -> dict[str, Any]:
+        """Read aggregate chain, factory, pool and token counts from DexPaprika."""
+
+        return dexpaprika_stats_payload(client=client)
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def search(query: str, max_results: int = 5) -> dict[str, Any]:
+        """Search bounded token and pool metadata without transaction or wallet tools."""
+
+        return dexpaprika_search_payload(query, max_results, client=client)
+
+    return mcp
+
+
+def build_chess() -> FastMCP:
+    mcp = FastMCP("ModelMirror Chess.com")
+    client = _chess_client()
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def get_player_profile(username: str) -> dict[str, Any]:
+        """Read a bounded public Chess.com player profile."""
+
+        return chess_player_profile_payload(username, client=client)
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def get_player_stats(username: str) -> dict[str, Any]:
+        """Read bounded public Chess.com rating and game-result aggregates."""
+
+        return chess_player_stats_payload(username, client=client)
+
+    return mcp
+
+
+def build_anilist() -> FastMCP:
+    mcp = FastMCP("ModelMirror AniList")
+    client = _anilist_client()
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def get_genres() -> dict[str, Any]:
+        """List public AniList genres without authentication."""
+
+        return anilist_genres_payload(client=client)
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def search_anime(
+        term: str, page: int = 1, amount: int = 5
+    ) -> dict[str, Any]:
+        """Search bounded public anime metadata with a fixed GraphQL document."""
+
+        return anilist_search_anime_payload(
+            term, page, amount, client=client
+        )
+
+    @mcp.tool(annotations=READ_ONLY_NETWORK)
+    def get_anime(ids: int | list[int]) -> dict[str, Any]:
+        """Read bounded public anime metadata for one to five AniList IDs."""
+
+        return anilist_get_anime_payload(ids, client=client)
+
+    return mcp
+
+
 def build_duckduckgo() -> FastMCP:
     mcp = FastMCP("ModelMirror DuckDuckGo")
     client = SafeHttpClient(
@@ -2699,6 +3754,11 @@ BUILDERS = {
     "aas-ee-open-websearch": build_open_websearch,
     "mnemox-ai-idea-reality-mcp": build_idea_reality,
     "idosal-git-mcp": build_gitmcp,
+    "coinpaprika-dexpaprika-mcp": build_dexpaprika,
+    "pab1it0-chess-mcp": build_chess,
+    "yuna0x0-anilist-mcp": build_anilist,
+    "karanb192-reddit-mcp-buddy": build_reddit_buddy,
+    "rishijatia-fantasy-pl-mcp": build_fantasy_pl,
 }
 
 ADAPTER_TOOL_NAMES = {
@@ -2738,6 +3798,18 @@ ADAPTER_TOOL_NAMES = {
         "search_repository_documentation",
         "search_repository_code",
     ),
+    "coinpaprika-dexpaprika-mcp": ("getNetworks", "getStats", "search"),
+    "pab1it0-chess-mcp": (
+        "get_player_profile",
+        "get_player_stats",
+    ),
+    "yuna0x0-anilist-mcp": ("get_genres", "search_anime", "get_anime"),
+    "karanb192-reddit-mcp-buddy": ("browse_subreddit", "search_reddit"),
+    "rishijatia-fantasy-pl-mcp": (
+        "search_fpl_players",
+        "get_player_information",
+        "list_fpl_fixtures",
+    ),
 }
 
 PUBLIC_SCHEMA_SHA256 = {
@@ -2764,6 +3836,21 @@ PUBLIC_SCHEMA_SHA256 = {
     ),
     "idosal-git-mcp": (
         "56a8c84a969a4beaca16bf905be83899bb497d19a4e95cef5135ad4465ef4811"
+    ),
+    "coinpaprika-dexpaprika-mcp": (
+        "b6b6a6ef17aed4544341be76648401fd4ac6a62f4d657d9f5da0f2429429ebc9"
+    ),
+    "pab1it0-chess-mcp": (
+        "d33380c3a2cd3e271e289c9a021c1c8d67403bb2f74a4c5df6e075b67882cf7d"
+    ),
+    "yuna0x0-anilist-mcp": (
+        "060e2a7e6eb92fd44a945b99ca91adb614eb877e286535516b9ec8c0a7b7e239"
+    ),
+    "karanb192-reddit-mcp-buddy": (
+        "a0644027f1cf46f23c447e607bd7aef38465932a67b36f20e1a10c62b57ed2bd"
+    ),
+    "rishijatia-fantasy-pl-mcp": (
+        "b9760cc0e80c3c906a96e9090e90c57e31b4443e2f58a622c6769ee8448fe602"
     ),
 }
 

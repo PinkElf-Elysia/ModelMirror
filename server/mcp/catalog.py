@@ -36,6 +36,7 @@ from mcp.types import CallToolResult, Tool
 
 try:
     from server.mcp.catalog_expansion_v2 import CATALOG_EXPANSION_V2_ADAPTERS
+    from server.mcp.catalog_expansion_v3 import CATALOG_EXPANSION_V3_ADAPTERS
     from server.mcp.manager import (
         MCPClientManager,
         MCPClientError,
@@ -56,6 +57,7 @@ try:
     )
 except ModuleNotFoundError:
     from mcp.catalog_expansion_v2 import CATALOG_EXPANSION_V2_ADAPTERS
+    from mcp.catalog_expansion_v3 import CATALOG_EXPANSION_V3_ADAPTERS
     from mcp.manager import (
         MCPClientError,
         MCPClientManager,
@@ -956,6 +958,94 @@ WAVE_SIXTEEN_PUBLIC_ADAPTERS: dict[
             "动态 GitMCP endpoint、通用 URL 抓取、Token、clone、代码执行、私有仓库和仓库写入均不可发现。",
         ),
     ),
+    "coinpaprika-dexpaprika-mcp": (
+        "2.3.2-compatible-native-v1",
+        ("getNetworks", "getStats", "search"),
+        CatalogPublicPolicy(
+            provider="DexPaprika",
+            upstream_repository="coinpaprika/dexpaprika-mcp",
+            upstream_version="v2.3.2",
+            upstream_commit="02bfbcc8e0468d3a82d9e060e5da398a0d22f23c",
+            upstream_license="MIT",
+            fixed_hosts=("api.dexpaprika.com",),
+            tool_schema_sha256=(
+                "b6b6a6ef17aed4544341be76648401fd4ac6a62f4d657d9f5da0f2429429ebc9"
+            ),
+            rate_limit_per_minute=120,
+            max_results=10,
+        ),
+        (
+            "仅开放公共 network、aggregate stats 与有限 token/pool 搜索；名称、符号和市场字段均按不可信公网元数据返回，不构成金融建议。",
+            "反馈、钱包、交易、任意 URL/Header/env、认证和动态 endpoint 均不可发现。",
+        ),
+    ),
+    "pab1it0-chess-mcp": (
+        "0.1.0-compatible-native-v1",
+        ("get_player_profile", "get_player_stats"),
+        CatalogPublicPolicy(
+            provider="Chess.com Public Data API",
+            upstream_repository="pab1it0/chess-mcp",
+            upstream_version="v0.1.0",
+            upstream_commit="3f4068ed6befe0be34c4cef3e7e5e9234ebc3a3d",
+            upstream_license="MIT",
+            fixed_hosts=("api.chess.com",),
+            tool_schema_sha256=(
+                "d33380c3a2cd3e271e289c9a021c1c8d67403bb2f74a4c5df6e075b67882cf7d"
+            ),
+            rate_limit_per_minute=120,
+            max_results=5,
+        ),
+        (
+            "仅按规范化用户名读取公开玩家 profile 与有限 rating/result 汇总；头像、外部 URL、对局下载和大批量历史均不返回。",
+            "上游声明的 is_player_online 当前公共 API 路径返回 404，已从冻结工具面移除而不伪造结果；账号操作和 PGN 下载不可发现。",
+        ),
+    ),
+    "yuna0x0-anilist-mcp": (
+        "1.4.0-compatible-native-v1",
+        ("get_genres", "search_anime", "get_anime"),
+        CatalogPublicPolicy(
+            provider="AniList public GraphQL API",
+            upstream_repository="yuna0x0/anilist-mcp",
+            upstream_version="v1.4.0",
+            upstream_commit="7c5cf1e374c09e3ddbd9c68f92c4c08a43e65477",
+            upstream_license="MIT",
+            fixed_hosts=("graphql.anilist.co",),
+            tool_schema_sha256=(
+                "060e2a7e6eb92fd44a945b99ca91adb614eb877e286535516b9ec8c0a7b7e239"
+            ),
+            rate_limit_per_minute=80,
+            max_results=10,
+        ),
+        (
+            "仅发送仓库内冻结的匿名 GraphQL 查询，开放 genre、有限 anime 搜索和最多五个 ID 的详情读取；页面与结果数量固定受限。",
+            "客户端 GraphQL、OAuth、账号、收藏/列表写入、成人内容扩展、任意 URL/Header/env 和 mutation 均不可发现。",
+        ),
+    ),
+    "rishijatia-fantasy-pl-mcp": (
+        "0.1.7-compatible-native-v1",
+        (
+            "search_fpl_players",
+            "get_player_information",
+            "list_fpl_fixtures",
+        ),
+        CatalogPublicPolicy(
+            provider="Fantasy Premier League public API",
+            upstream_repository="rishijatia/fantasy-pl-mcp",
+            upstream_version="v0.1.7",
+            upstream_commit="fdaef005143347455fc500cb1f934d451f95251a",
+            upstream_license="MIT",
+            fixed_hosts=("fantasy.premierleague.com",),
+            tool_schema_sha256=(
+                "b9760cc0e80c3c906a96e9090e90c57e31b4443e2f58a622c6769ee8448fe602"
+            ),
+            rate_limit_per_minute=60,
+            max_results=50,
+        ),
+        (
+            "仅投影官方公开球员与赛程字段；球员和赛程查询均有固定数量上限，不构成阵容、转会或其他现实决策建议。",
+            "登录、经理队伍、联赛、阵容、转会、建议、任意 URL/Header/env 和动态 endpoint 均不可发现。",
+        ),
+    ),
 }
 
 WAVE_EIGHTEEN_FILE_ADAPTERS: dict[
@@ -1700,6 +1790,123 @@ WAVE_NINETEEN_DATABASE_ADAPTERS: dict[str, WaveFiveAdapterSpec] = {
             "原生角色仅允许 cluster monitor 与目标索引 read/view_index_metadata，最多返回 100 条。",
         ),
         wave=19,
+    ),
+    "zilliztech-mcp-server-milvus": WaveFiveAdapterSpec(
+        "0.1.1-compatible-native-read-only-v1",
+        ("list_collections", "describe_collection", "get_entities", "search_vectors"),
+        CatalogDatabasePolicy(
+            mode="remote-read-only",
+            engine="milvus",
+            max_rows_default=50,
+            max_rows_hard=100,
+            statement_timeout_seconds=12,
+            preflight_checks=(
+                "dns-policy",
+                "tls-verification",
+                "authentication",
+                "database-and-collection-scope",
+                "native-read-only-role",
+                "query-limits",
+            ),
+        ),
+        (_credential("password", "Milvus 只读密码", "仅用于固定 database 与 collection 的原生只读用户。"),),
+        (
+            _database_host(),
+            _database_port(19530),
+            _database_tls(),
+            _database_name(),
+            _database_username(),
+            CatalogSettingPolicy(
+                "collection",
+                "Milvus Collection",
+                "只绑定一个既有 collection，不接受动态切换。",
+                required=True,
+                pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+            ),
+            CatalogSettingPolicy(
+                "vector_field",
+                "向量字段",
+                "固定一个既有向量字段，不接受运行时覆盖。",
+                required=True,
+                pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$",
+            ),
+            CatalogSettingPolicy(
+                "output_fields",
+                "输出字段",
+                "逗号分隔的固定字段白名单，最多 32 个。",
+                required=True,
+                pattern=r"^[A-Za-z_][A-Za-z0-9_]*(?:,[A-Za-z_][A-Za-z0-9_]*){0,31}$",
+            ),
+        ),
+        (
+            "仅开放集合目录、集合描述、按 ID 读取和固定向量字段搜索；insert、delete、动态 filter、任意输出字段和管理入口关闭。",
+            "实体 ID 最多 100 个、向量搜索最多 100 条，且必须使用只具 Query/Search/DescribeCollection/ShowCollections 权限的原生账号。",
+        ),
+        wave=23,
+    ),
+    "neo4j-contrib-mcp-neo4j": WaveFiveAdapterSpec(
+        "mcp-neo4j-cypher-v0.6.0-compatible-native-read-only-v1",
+        ("get_schema", "read_cypher"),
+        CatalogDatabasePolicy(
+            mode="remote-read-only",
+            engine="neo4j",
+            max_rows_default=50,
+            max_rows_hard=100,
+            statement_timeout_seconds=12,
+            preflight_checks=(
+                "dns-policy",
+                "tls-verification",
+                "authentication",
+                "database-scope",
+                "native-reader-role",
+                "readonly-query-type",
+            ),
+        ),
+        (_credential("password", "Neo4j 只读密码", "必须属于固定 database 的原生 reader 账号。"),),
+        (
+            _database_host(),
+            _database_port(7474),
+            _database_tls(),
+            _database_name(),
+            _database_username(),
+        ),
+        (
+            "仅开放固定 database 的 Schema 与单条只读 Cypher；写子句、procedure、扩展函数、LOAD、管理、记忆和多语句全部关闭。",
+            "服务端包裹固定 LIMIT，并要求 Query API 返回只读 queryType；必须使用 Neo4j 原生 reader 角色。",
+        ),
+        wave=23,
+    ),
+    "arcadedata-arcadedb": WaveFiveAdapterSpec(
+        "26.8.1-compatible-native-read-only-v1",
+        ("list_types", "describe_type", "read_query"),
+        CatalogDatabasePolicy(
+            mode="remote-read-only",
+            engine="arcadedb",
+            max_rows_default=50,
+            max_rows_hard=100,
+            statement_timeout_seconds=12,
+            preflight_checks=(
+                "dns-policy",
+                "tls-verification",
+                "authentication",
+                "database-scope",
+                "native-readonly-group",
+                "query-limits",
+            ),
+        ),
+        (_credential("password", "ArcadeDB 只读密码", "必须属于固定 database 的原生 readonly 账号。"),),
+        (
+            _database_host(),
+            _database_port(2480),
+            _database_tls(),
+            _database_name(),
+            _database_username(),
+        ),
+        (
+            "仅开放固定 database 的类型目录、类型描述和 Query API 只读查询；command、写入、DDL、管理、脚本与导入导出关闭。",
+            "只允许单条 SELECT、MATCH 或 TRAVERSE，最多返回 100 行，并要求原生账号属于 readonly 组。",
+        ),
+        wave=23,
     ),
 }
 
@@ -3300,8 +3507,73 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
             filesystem_policy=f"{adapter.availability}:no-runtime",
         )
 
-    if len(manifests) != 200:
-        raise RuntimeError(f"MCP catalog must contain 200 adapters, got {len(manifests)}")
+    for adapter in CATALOG_EXPANSION_V3_ADAPTERS:
+        if adapter.project_id in manifests:
+            raise RuntimeError(
+                f"duplicate Wave 24 catalog expansion id: {adapter.project_id}"
+            )
+        if adapter.availability == "ready":
+            public_spec = WAVE_SIXTEEN_PUBLIC_ADAPTERS.get(adapter.project_id)
+            if public_spec is None:
+                raise RuntimeError(
+                    f"ready Wave 24 expansion lacks runtime contract: {adapter.project_id}"
+                )
+            adapter_version, tool_names, public_policy, limitations = public_spec
+            manifests[adapter.project_id] = CatalogAdapterManifest(
+                project_id=adapter.project_id,
+                wave=adapter.adaptation_wave,
+                availability="ready",
+                connection_kind="sandboxed-stdio",
+                risk="medium",
+                required_capabilities=adapter.required_capabilities,
+                limitations=limitations,
+                adapter_version=adapter_version,
+                runtime_image="modelmirror-mcp-public:wave17a-v1",
+                network_policy="allowlist:" + ",".join(public_policy.fixed_hosts),
+                filesystem_policy="read-only-empty-workspace",
+                resource_limits=(
+                    ("cpu", "1 core / 60 CPU seconds per session process"),
+                    ("memory", "512 MiB sidecar"),
+                    ("processes", "maximum 6 sessions / 128 sidecar PIDs"),
+                    ("request_timeout", "20 seconds per HTTPS request"),
+                    ("operation_timeout", "30 seconds"),
+                    ("raw_response", "maximum 1 MiB"),
+                    ("tool_output", "128 KiB"),
+                ),
+                server_command=(*PUBLIC_SANDBOX_PROXY, adapter.project_id),
+                preparation_kind="bundled",
+                tool_policies={
+                    name: CatalogToolPolicy(read_only=True, effect="read")
+                    for name in tool_names
+                },
+                public_policy=public_policy,
+                enabled_by_default=False,
+                operation_timeout=30.0,
+                max_output_bytes=128 * 1024,
+            )
+            continue
+        if adapter.project_id in WAVE_SIXTEEN_PUBLIC_ADAPTERS:
+            raise RuntimeError(
+                f"non-ready Wave 24 expansion has runtime contract: {adapter.project_id}"
+            )
+        if adapter.availability not in {"planned", "blocked"}:
+            raise RuntimeError(
+                f"invalid Wave 24 catalog availability: {adapter.project_id}"
+            )
+        manifests[adapter.project_id] = CatalogAdapterManifest(
+            project_id=adapter.project_id,
+            wave=adapter.adaptation_wave,
+            availability=adapter.availability,  # type: ignore[arg-type]
+            connection_kind=adapter.connection_kind,  # type: ignore[arg-type]
+            risk=adapter.risk,  # type: ignore[arg-type]
+            required_capabilities=adapter.required_capabilities,
+            limitations=adapter.limitations,
+            network_policy=f"{adapter.availability}:{adapter.decision_reason_code}",
+            filesystem_policy=f"{adapter.availability}:no-runtime",
+        )
+
+    if len(manifests) != 300:
+        raise RuntimeError(f"MCP catalog must contain 300 adapters, got {len(manifests)}")
     return manifests
 
 

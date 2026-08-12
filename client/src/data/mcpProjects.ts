@@ -5,6 +5,7 @@ import {
   type McpRiskLevel,
 } from "./mcpAdaptationPlan";
 import { mcpCatalogExpansionV2 } from "./mcpCatalogExpansionV2.generated";
+import { mcpCatalogExpansionV3 } from "./mcpCatalogExpansionV3.generated";
 
 export const mcpCategories = [
   "浏览器与网页",
@@ -1712,6 +1713,18 @@ const approvedCatalogExpansionV2Seeds: McpProjectSeed[] =
       }),
   );
 
+const approvedCatalogExpansionV3Seeds: McpProjectSeed[] =
+  mcpCatalogExpansionV3.map(
+    ({ adaptation: _adaptation, requirements, tags, usageExamples, sources, ...input }) =>
+      plannedMcp({
+        ...input,
+        requirements: [...requirements],
+        tags: [...tags],
+        usageExamples: [...usageExamples],
+        sources: [...sources],
+      }),
+  );
+
 const originalRequirements: Partial<Record<string, McpRequirement[]>> = {
   "playwright-mcp": ["external-runtime", "system-permission"],
   "chrome-devtools-mcp": ["external-runtime", "system-permission"],
@@ -1902,4 +1915,5 @@ export const mcpProjects: McpProject[] = [
   ...originalMcpProjectSeeds,
   ...expandedMcpProjectSeeds,
   ...approvedCatalogExpansionV2Seeds,
+  ...approvedCatalogExpansionV3Seeds,
 ].map(normalizeMcpProject);

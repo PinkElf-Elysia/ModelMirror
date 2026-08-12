@@ -1346,46 +1346,6 @@ def build_google_map_readonly() -> FastMCP:
     return mcp
 
 
-def build_vectorize_retrieval_readonly() -> FastMCP:
-    """Expose only Vectorize 0.4.3 document retrieval; uploads and research jobs stay disabled."""
-    token = _required_environment("VECTORIZE_TOKEN")
-    organization_id = _opaque_identifier(
-        _required_environment("VECTORIZE_ORG_ID", 120), "organization_id", 120
-    )
-    pipeline_id = _opaque_identifier(
-        _required_environment("VECTORIZE_PIPELINE_ID", 120), "pipeline_id", 120
-    )
-    client = SafeHttpClient(
-        allowed_hosts=frozenset({"api.vectorize.io"}),
-        max_response_bytes=MAX_RESULT_BYTES,
-        additional_allowed_headers=frozenset({"authorization"}),
-    )
-    mcp = FastMCP("ModelMirror Vectorize Retrieval Read Only")
-
-    @mcp.tool(annotations=READ_ONLY)
-    def retrieve(question: str, k: int = 4) -> Any:
-        """Retrieve at most twenty documents from the configured Vectorize pipeline."""
-        count = int(k)
-        if not 1 <= count <= 20:
-            raise ValueError("k must be between 1 and 20.")
-        url = (
-            "https://api.vectorize.io/v1/org/"
-            f"{quote(organization_id, safe='')}/pipelines/{quote(pipeline_id, safe='')}/retrieve"
-        )
-        response = client.request(
-            url,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            body=_body({"question": _text(question, "question", 2_000), "numResults": count}),
-        )
-        return _json(response, "Vectorize")
-
-    return mcp
-
-
 def build_opik_readonly() -> FastMCP:
     """Expose Opik 0.2.15's universal list/read identity without write or Ollie tools."""
     api_key = _required_environment("OPIK_API_KEY")
@@ -1522,7 +1482,6 @@ BUILDERS = {
     "pinecone-assistant-mcp": build_pinecone,
     "terraform-mcp": build_terraform,
     "cablate-mcp-google-map": build_google_map_readonly,
-    "vectorize-io-vectorize-mcp-server": build_vectorize_retrieval_readonly,
     "comet-ml-opik-mcp": build_opik_readonly,
     "keboola-keboola-mcp-server": build_keboola_metadata_readonly,
 }

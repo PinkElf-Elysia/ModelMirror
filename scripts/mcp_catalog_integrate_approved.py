@@ -419,6 +419,42 @@ READY_DECISIONS.update(
 )
 STAGED_PLANNED_DECISIONS.pop("ozgurcd-gograph", None)
 
+READY_DECISIONS.update(
+    {
+        "zilliztech-mcp-server-milvus": {
+            "reason_code": "ready-isolated-readonly-graph-data-facade",
+            "reason": (
+                "Milvus MCP Server 0.1.1 的单 collection 只读 facade 已在最新基线重新通过真实 Milvus 2.5.21、"
+                "原生只读账号、固定 Schema、代表读取、拒写、限流、超时、重启与清理验收；写入、动态 filter、"
+                "任意输出字段和管理能力保持关闭。"
+            ),
+            "adapter_version": "0.1.1-compatible-native-read-only-v1",
+            "wave": 23,
+        },
+        "neo4j-contrib-mcp-neo4j": {
+            "reason_code": "ready-isolated-readonly-graph-data-facade",
+            "reason": (
+                "Neo4j MCP Cypher v0.6.0 的固定 database 只读 facade 已在最新基线重新通过真实 Neo4j Enterprise 5.26.12、"
+                "原生 reader 角色、固定 Schema、代表读取、拒写、限流、超时、重启与清理验收；写 Cypher、管理和"
+                "知识图谱记忆工具保持关闭。"
+            ),
+            "adapter_version": "mcp-neo4j-cypher-v0.6.0-compatible-native-read-only-v1",
+            "wave": 23,
+        },
+        "arcadedata-arcadedb": {
+            "reason_code": "ready-isolated-readonly-graph-data-facade",
+            "reason": (
+                "ArcadeDB 26.8.1 的固定 database 只读 facade 已在最新基线重新通过真实 ArcadeDB 26.8.1、原生 readonly "
+                "账号、固定 Schema、代表读取、拒写、限流、超时、重启与清理验收；command、写查询和管理能力保持关闭。"
+            ),
+            "adapter_version": "26.8.1-compatible-native-read-only-v1",
+            "wave": 23,
+        },
+    }
+)
+
+STAGED_PLANNED_DECISIONS.pop("vectorize-io-vectorize-mcp-server", None)
+
 STAGED_PLANNED_DECISIONS.update(
     {
         project_id: {
@@ -463,6 +499,9 @@ STAGED_PLANNED_DECISIONS.update(
 
 
 BLOCKED_DECISION_GROUPS = {
+    "blocked-license-metadata-conflict": {
+        "vectorize-io-vectorize-mcp-server",
+    },
     "blocked-arbitrary-browser-or-url-surface": {
         "0xmassi-webclaw",
         "co-browser-browser-use-mcp-server",
@@ -556,6 +595,10 @@ BLOCKED_DECISION_GROUPS = {
 }
 
 BLOCKED_REASONS = {
+    "blocked-license-metadata-conflict": (
+        "固定发布物 0.4.3 的仓库 LICENSE 声明 MIT，但 package metadata 声明 ISC；最新官方发布仍未消除冲突，"
+        "因此停止可执行适配，待上游以一致发布物或明确官方说明闭合许可证边界后再复审。"
+    ),
     "blocked-arbitrary-browser-or-url-surface": (
         "上游开放任意 URL、浏览器状态或反自动化能力，无法复用已冻结的匿名单 Origin 浏览器契约。"
     ),
@@ -1002,6 +1045,30 @@ def _classified_adaptation(candidate: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
         )
+    elif availability == "ready" and candidate["catalog_id"] in {
+        "zilliztech-mcp-server-milvus",
+        "neo4j-contrib-mcp-neo4j",
+        "arcadedata-arcadedb",
+    }:
+        classification.update(
+            {
+                "connection_kind": "sandboxed-stdio",
+                "risk": "high",
+                "requirements": ["database-credentials"],
+                "required_capabilities": [
+                    "encrypted-credential-binding",
+                    "fixed-database-target",
+                    "native-read-only-role",
+                    "read-only-query-policy",
+                    "query-and-output-limits",
+                    "schema-drift-recovery",
+                ],
+                "limitations": [
+                    decision["reason"],
+                    "仅接受结构化 host、port、database、TLS 与 username 配置和服务端加密 password；DSN、URL、Header、环境变量、动态 endpoint、写工具和管理工具均不可提交。",
+                ],
+            }
+        )
     elif availability == "planned" and decision["wave"] == 21:
         classification.update(
             {
@@ -1094,7 +1161,7 @@ def build_approved_payload(source: dict[str, Any]) -> dict[str, Any]:
         status: sum(item["proposed_availability"] == status for item in candidates)
         for status in ("ready", "planned", "blocked")
     }
-    if availability != {"ready": 23, "planned": 17, "blocked": 60}:
+    if availability != {"ready": 26, "planned": 13, "blocked": 61}:
         raise ValueError(f"unexpected adaptation classification: {availability}")
     payload["purpose"] = "adaptation-classification"
     payload["runtime_catalog_changed"] = True
@@ -1259,7 +1326,7 @@ def render_report(payload: dict[str, Any]) -> str:
             f"- 中文源命中：{summary['by_source']['awesome-mcp-zh']}",
             f"- 英文源命中：{summary['by_source']['awesome-mcp-servers']}",
             f"- 本批状态：{payload['adaptation']['availability']['ready']} ready / {payload['adaptation']['availability']['planned']} planned / {payload['adaptation']['availability']['blocked']} blocked",
-            "- 新增执行能力：22（批次 14—19A 的固定只读/确定性产物子集）",
+            "- 新增执行能力：26（批次 14—20 与 23A 的固定只读/确定性产物/临时代码索引子集）",
             "",
             "硬门禁：公开仓库存在，未归档/禁用/私有/派生，许可证 SPDX 明确，且最近 12 个月有推送。每个分类最多 15 项，每个仓库最多 2 项。",
             "",
@@ -1283,7 +1350,7 @@ def render_report(payload: dict[str, Any]) -> str:
             "",
             "## 执行边界",
             "",
-            "批次 14—19A 的二十二项只读、公共研究、确定性文件与数据服务能力均锁定上游身份、出口、Schema 与输出上限；其余 78 项没有新增默认执行配置，18 项保留后续受控 facade 规划，60 项因重复、漂移、安全、身份、宿主或代码索引实现收敛而阻断。",
+            "批次 14—20 与 23A 的二十六项只读、公共研究、确定性文件、数据服务与临时代码索引能力均锁定上游身份、出口、Schema 与输出上限；其余 74 项没有默认执行配置，13 项保留后续受控 facade 规划，61 项因重复、漂移、安全、身份、宿主、许可证或代码索引实现收敛而阻断。",
             "",
         ]
     )

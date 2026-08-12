@@ -138,6 +138,19 @@ def test_existing_repo_root_excludes_new_subpath_variant() -> None:
     assert merged[0].prefilter_reason == "existing-catalog-entry"
 
 
+def test_current_catalog_keys_many_reads_source_and_quoted_generated_fields() -> None:
+    keys = audit.current_catalog_keys_many(
+        [
+            'repoName: "Owner/Source"\nrepoUrl: "https://github.com/Owner/Source"',
+            '"repoName": "Owner/Generated",\n"repoUrl": "https://github.com/Owner/Generated"',
+        ]
+    )
+    assert keys == {
+        "github.com/owner/source",
+        "github.com/owner/generated",
+    }
+
+
 def test_snapshot_hash_drift_fails_closed() -> None:
     spec = _spec("awesome-mcp-servers", "## Start", "## End")
     with pytest.raises(ValueError, match="SHA-256 mismatch"):

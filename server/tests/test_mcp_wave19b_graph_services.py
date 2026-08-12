@@ -66,12 +66,13 @@ def _context(adapter_id: str) -> SimpleNamespace:
 
 
 @pytest.mark.asyncio
-async def test_wave19b_contracts_are_exact_read_only_and_default_off() -> None:
-    assert WAVE19B == GRAPH_DATA_SERVICE_ADAPTERS == STAGED_DATABASE_ADAPTERS
+async def test_wave23_promotes_exact_wave19b_read_only_contracts() -> None:
+    assert WAVE19B == GRAPH_DATA_SERVICE_ADAPTERS
+    assert STAGED_DATABASE_ADAPTERS == frozenset()
     assert WAVE19B <= set(DATABASE_ADAPTERS)
     assert WAVE19B <= database_proxy.ALLOWED_ADAPTERS
     assert WAVE19B <= set(BUILDERS) == set(PREFLIGHTS)
-    assert WAVE19B.isdisjoint(database_server.ALLOWED_ADAPTERS)
+    assert WAVE19B <= database_server.ALLOWED_ADAPTERS
     for adapter_id, expected in EXPECTED_TOOLS.items():
         tools = await BUILDERS[adapter_id](_context(adapter_id)).list_tools()
         assert {tool.name for tool in tools} == expected
@@ -290,13 +291,14 @@ def test_provider_query_type_drift_fails_closed(monkeypatch: pytest.MonkeyPatch)
         services._neo4j_query(_context("neo4j-contrib-mcp-neo4j"), "RETURN 1")
 
 
-def test_wave19b_stays_planned_and_absent_from_default_compose_allowlist() -> None:
+def test_wave23_promotes_wave19b_and_adds_exact_default_compose_allowlist() -> None:
     by_id = {adapter.project_id: adapter for adapter in CATALOG_EXPANSION_V2_ADAPTERS}
     for adapter_id in WAVE19B:
         adapter = by_id[adapter_id]
-        assert adapter.availability == "planned"
-        assert adapter.decision_reason_code == "planned-read-only-data-facade"
+        assert adapter.availability == "ready"
+        assert adapter.adaptation_wave == 23
+        assert adapter.decision_reason_code == "ready-isolated-readonly-graph-data-facade"
     root = Path(__file__).resolve().parents[2]
     compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
     configured = compose.split("MCP_DATABASE_ALLOWED_ADAPTERS:", 1)[1].splitlines()[0]
-    assert all(adapter_id not in configured for adapter_id in WAVE19B)
+    assert all(adapter_id in configured for adapter_id in WAVE19B)

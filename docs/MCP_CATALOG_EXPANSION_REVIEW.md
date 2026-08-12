@@ -19,8 +19,8 @@
 - 覆盖分类：17
 - 中文源命中：71
 - 英文源命中：99
-- 本批状态：23 ready / 17 planned / 60 blocked
-- 新增执行能力：22（批次 14—19A 的固定只读/确定性产物子集）
+- 本批状态：26 ready / 13 planned / 61 blocked
+- 新增执行能力：26（批次 14—20 与 23A 的固定只读/确定性产物/临时代码索引子集）
 
 硬门禁：公开仓库存在，未归档/禁用/私有/派生，许可证 SPDX 明确，且最近 12 个月有推送。每个分类最多 15 项，每个仓库最多 2 项。
 
@@ -81,7 +81,7 @@
 | 51 | `samvallad33-vestige` | [samvallad33/vestige](https://github.com/samvallad33/vestige) | 知识与记忆 | 603 | AGPL-3.0 | planned | `planned-wave21-stateful-foundation-required` |
 | 52 | `vivekvells-mcp-pandoc` | [vivekVells/mcp-pandoc](https://github.com/vivekVells/mcp-pandoc) | 开发与代码 | 573 | MIT | ready | `ready-isolated-deterministic-file-artifact-facade` |
 | 53 | `yolfinance-yolfi-agent` | [yolfinance/yolfi-agent](https://github.com/yolfinance/yolfi-agent) | 金融与市场 | 198 | MIT | blocked | `blocked-financial-or-transactional-write` |
-| 54 | `zilliztech-mcp-server-milvus` | [zilliztech/mcp-server-milvus](https://github.com/zilliztech/mcp-server-milvus) | 数据库 | 238 | Apache-2.0 | planned | `planned-read-only-data-facade` |
+| 54 | `zilliztech-mcp-server-milvus` | [zilliztech/mcp-server-milvus](https://github.com/zilliztech/mcp-server-milvus) | 数据库 | 238 | Apache-2.0 | ready | `ready-isolated-readonly-graph-data-facade` |
 | 55 | `alexei-led-k8s-mcp-server` | [alexei-led/k8s-mcp-server](https://github.com/alexei-led/k8s-mcp-server) | 云平台与运维 | 213 | MIT | blocked | `blocked-privileged-infrastructure-write` |
 | 56 | `anypost-emailmd` | [anypost/emailmd](https://github.com/anypost/emailmd) | 通讯与协作 | 1297 | MIT | blocked | `blocked-publishing-or-high-risk-advice` |
 | 57 | `brave-brave-search-mcp-server` | [brave/brave-search-mcp-server](https://github.com/brave/brave-search-mcp-server) | 搜索与研究 | 1362 | MIT | ready | `ready-official-read-only-token-contract` |
@@ -92,7 +92,7 @@
 | 62 | `ivanmurzak-unity-mcp` | [IvanMurzak/Unity-MCP](https://github.com/IvanMurzak/Unity-MCP) | 通用工具 | 3845 | Apache-2.0 | blocked | `blocked-desktop-host-instance-unverified` |
 | 63 | `juyterman1000-entroly` | [juyterman1000/entroly](https://github.com/juyterman1000/entroly) | 知识与记忆 | 435 | Apache-2.0 | planned | `planned-wave21-stateful-foundation-required` |
 | 64 | `livetennisapi-livetennisapi-mcp` | [livetennisapi/livetennisapi-mcp](https://github.com/livetennisapi/livetennisapi-mcp) | 通用工具 | 190 | MIT | ready | `ready-official-native-free-read-only-facade` |
-| 65 | `neo4j-contrib-mcp-neo4j` | [neo4j-contrib/mcp-neo4j](https://github.com/neo4j-contrib/mcp-neo4j) | 数据库 | 979 | MIT | planned | `planned-read-only-data-facade` |
+| 65 | `neo4j-contrib-mcp-neo4j` | [neo4j-contrib/mcp-neo4j](https://github.com/neo4j-contrib/mcp-neo4j) | 数据库 | 979 | MIT | ready | `ready-isolated-readonly-graph-data-facade` |
 | 66 | `pab1it0-prometheus-mcp-server` | [pab1it0/prometheus-mcp-server](https://github.com/pab1it0/prometheus-mcp-server) | 数据库 | 512 | MIT | ready | `ready-isolated-readonly-data-service-facade` |
 | 67 | `pv-bhat-vibe-check-mcp-server` | [PV-Bhat/vibe-check-mcp-server](https://github.com/PV-Bhat/vibe-check-mcp-server) | 通用工具 | 503 | MIT | planned | `planned-wave21-stateful-foundation-required` |
 | 68 | `r-huijts-strava-mcp` | [r-huijts/strava-mcp](https://github.com/r-huijts/strava-mcp) | 通用工具 | 465 | MIT | planned | `planned-wave22-multitenant-oauth-foundation-required` |
@@ -103,7 +103,7 @@
 | 73 | `tiberriver256-mcp-server-azure-devops` | [Tiberriver256/mcp-server-azure-devops](https://github.com/Tiberriver256/mcp-server-azure-devops) | 版本控制 | 382 | MIT | planned | `planned-wave22-multitenant-oauth-foundation-required` |
 | 74 | `xquik-dev-x-twitter-scraper` | [Xquik-dev/x-twitter-scraper](https://github.com/Xquik-dev/x-twitter-scraper) | 通讯与协作 | 178 | MIT | blocked | `blocked-social-publishing-or-session-reuse` |
 | 75 | `alexei-led-aws-mcp-server` | [alexei-led/cloud-mcp-server](https://github.com/alexei-led/cloud-mcp-server) | 云平台与运维 | 185 | MIT | blocked | `blocked-privileged-infrastructure-write` |
-| 76 | `arcadedata-arcadedb` | [ArcadeData/arcadedb](https://github.com/ArcadeData/arcadedb) | 数据库 | 1068 | Apache-2.0 | planned | `planned-read-only-data-facade` |
+| 76 | `arcadedata-arcadedb` | [ArcadeData/arcadedb](https://github.com/ArcadeData/arcadedb) | 数据库 | 1068 | Apache-2.0 | ready | `ready-isolated-readonly-graph-data-facade` |
 | 77 | `carterlasalle-mac-messages-mcp` | [carterlasalle/mac_messages_mcp](https://github.com/carterlasalle/mac_messages_mcp) | 通讯与协作 | 313 | MIT | blocked | `blocked-desktop-host-instance-unverified` |
 | 78 | `cr7258-elasticsearch-mcp-server` | [cr7258/elasticsearch-mcp-server](https://github.com/cr7258/elasticsearch-mcp-server) | 数据库 | 302 | Apache-2.0 | ready | `ready-isolated-readonly-data-service-facade` |
 | 79 | `datalayer-jupyter-mcp-server` | [datalayer/jupyter-mcp-server](https://github.com/datalayer/jupyter-mcp-server) | 数据分析 | 1239 | BSD-3-Clause | blocked | `blocked-arbitrary-command-or-code-execution` |
@@ -114,7 +114,7 @@
 | 84 | `kiliczsh-mcp-mongo-server` | [kiliczsh/mcp-mongo-server](https://github.com/kiliczsh/mcp-mongo-server) | 数据库 | 281 | MIT | blocked | `blocked-superseded-existing-capability` |
 | 85 | `lpigeon-ros-mcp-server` | [robotmcp/ros-mcp-server](https://github.com/robotmcp/ros-mcp-server) | 开发与代码 | 1381 | Apache-2.0 | blocked | `blocked-physical-device-control` |
 | 86 | `nwiizo-tfmcp` | [nwiizo/tfmcp](https://github.com/nwiizo/tfmcp) | 云平台与运维 | 371 | MIT | blocked | `blocked-privileged-infrastructure-write` |
-| 87 | `vectorize-io-vectorize-mcp-server` | [vectorize-io/vectorize-mcp-server](https://github.com/vectorize-io/vectorize-mcp-server) | 搜索与研究 | 110 | MIT | planned | `planned-real-account-readonly-preflight-required` |
+| 87 | `vectorize-io-vectorize-mcp-server` | [vectorize-io/vectorize-mcp-server](https://github.com/vectorize-io/vectorize-mcp-server) | 搜索与研究 | 110 | MIT | blocked | `blocked-license-metadata-conflict` |
 | 88 | `antvis-mcp-server-chart` | [antvis/mcp-server-chart](https://github.com/antvis/mcp-server-chart) | 数据分析 | 4307 | MIT | ready | `ready-isolated-deterministic-file-artifact-facade` |
 | 89 | `caol64-wenyan-mcp` | [caol64/wenyan-mcp](https://github.com/caol64/wenyan-mcp) | 效率与协作 | 1294 | Apache-2.0 | blocked | `blocked-social-publishing-or-session-reuse` |
 | 90 | `dataeval-dingo` | [MigoXLab/dingo](https://github.com/MigoXLab/dingo) | 数据分析 | 736 | Apache-2.0 | ready | `ready-isolated-file-analysis-facade` |
@@ -131,4 +131,4 @@
 
 ## 执行边界
 
-批次 14—19A 的二十二项只读、公共研究、确定性文件与数据服务能力均锁定上游身份、出口、Schema 与输出上限；其余 78 项没有新增默认执行配置，18 项保留后续受控 facade 规划，60 项因重复、漂移、安全、身份、宿主或代码索引实现收敛而阻断。
+批次 14—20 与 23A 的二十六项只读、公共研究、确定性文件、数据服务与临时代码索引能力均锁定上游身份、出口、Schema 与输出上限；其余 74 项没有默认执行配置，13 项保留后续受控 facade 规划，61 项因重复、漂移、安全、身份、宿主、许可证或代码索引实现收敛而阻断。

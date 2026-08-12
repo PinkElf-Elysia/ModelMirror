@@ -51,7 +51,26 @@ WAVE17A_ADAPTERS = frozenset(
         "idosal-git-mcp",
     }
 )
-PUBLIC_EXPANSION_ADAPTERS = WAVE16A_ADAPTERS | WAVE16B_ADAPTERS | WAVE17A_ADAPTERS
+WAVE25A_ADAPTERS = frozenset(
+    {
+        "coinpaprika-dexpaprika-mcp",
+        "pab1it0-chess-mcp",
+        "yuna0x0-anilist-mcp",
+    }
+)
+WAVE25B_ADAPTERS = frozenset(
+    {
+        "karanb192-reddit-mcp-buddy",
+        "rishijatia-fantasy-pl-mcp",
+    }
+)
+PUBLIC_EXPANSION_ADAPTERS = (
+    WAVE16A_ADAPTERS
+    | WAVE16B_ADAPTERS
+    | WAVE17A_ADAPTERS
+    | WAVE25A_ADAPTERS
+    | WAVE25B_ADAPTERS
+)
 BLOCKED_TOOL_PROBES = {
     "nickclyde-duckduckgo-mcp-server": "fetch_content",
     "jpisnice-shadcn-ui-mcp-server": "apply_theme",
@@ -61,6 +80,11 @@ BLOCKED_TOOL_PROBES = {
     "aas-ee-open-websearch": "fetchWebContent",
     "mnemox-ai-idea-reality-mcp": "producthunt_search",
     "idosal-git-mcp": "fetch_generic_url_content",
+    "coinpaprika-dexpaprika-mcp": "submitFeedback",
+    "pab1it0-chess-mcp": "download_player_games_pgn",
+    "yuna0x0-anilist-mcp": "favourite_anime",
+    "karanb192-reddit-mcp-buddy": "get_post_details",
+    "rishijatia-fantasy-pl-mcp": "get_transfer_advice",
 }
 TIMEOUT_TOOL_PROBES: dict[str, tuple[str, dict[str, Any]]] = {
     "nickclyde-duckduckgo-mcp-server": (
@@ -88,6 +112,17 @@ TIMEOUT_TOOL_PROBES: dict[str, tuple[str, dict[str, Any]]] = {
     "idosal-git-mcp": (
         "fetch_repository_documentation",
         {"repository": "octocat/hello-world"},
+    ),
+    "coinpaprika-dexpaprika-mcp": ("getStats", {}),
+    "pab1it0-chess-mcp": ("get_player_profile", {"username": "hikaru"}),
+    "yuna0x0-anilist-mcp": ("get_genres", {}),
+    "karanb192-reddit-mcp-buddy": (
+        "browse_subreddit",
+        {"subreddit": "python", "sort": "hot", "limit": 1},
+    ),
+    "rishijatia-fantasy-pl-mcp": (
+        "search_fpl_players",
+        {"query": "a", "max_results": 1},
     ),
 }
 MAX_HANDSHAKE_BYTES = 4 * 1024
@@ -452,7 +487,7 @@ async def runtime_adapter(socket_path: Path, adapter_id: str) -> None:
                 print("input.idea_reality.depth=quick")
                 print(f"result.idea_reality.sources={','.join(sources)}")
                 print(f"result.idea_reality.similar_count={research.get('similar_result_count', 0)}")
-            else:
+            elif adapter_id == "idosal-git-mcp":
                 repository = "octocat/hello-world"
                 docs = await _call(
                     session,
@@ -481,6 +516,120 @@ async def runtime_adapter(socket_path: Path, adapter_id: str) -> None:
                 print(f"result.gitmcp.readme_path={docs.get('path')}")
                 print(f"result.gitmcp.docs_count={doc_search.get('count', 0)}")
                 print(f"result.gitmcp.code_count={code_search.get('count', 0)}")
+            elif adapter_id == "coinpaprika-dexpaprika-mcp":
+                networks = await _call(session, "getNetworks", {})
+                stats = await _call(session, "getStats", {})
+                search = await _call(
+                    session,
+                    "search",
+                    {"query": "bitcoin", "max_results": 2},
+                )
+                if (
+                    not isinstance(networks.get("networks"), list)
+                    or not networks["networks"]
+                    or int(stats.get("chains") or 0) < 1
+                    or not isinstance(search.get("tokens"), list)
+                    or not search["tokens"]
+                ):
+                    raise RuntimeError("dexpaprika_runtime_contract_invalid")
+                print("input.dexpaprika.query=bitcoin")
+                print(f"result.dexpaprika.network_count={networks.get('count', 0)}")
+                print(f"result.dexpaprika.chain_count={stats.get('chains', 0)}")
+                print(f"result.dexpaprika.token_count={search.get('token_count', 0)}")
+            elif adapter_id == "pab1it0-chess-mcp":
+                profile = await _call(
+                    session, "get_player_profile", {"username": "hikaru"}
+                )
+                stats = await _call(
+                    session, "get_player_stats", {"username": "hikaru"}
+                )
+                if (
+                    profile.get("username") != "hikaru"
+                    or not isinstance(stats.get("statistics"), dict)
+                ):
+                    raise RuntimeError("chess_runtime_contract_invalid")
+                print("input.chess.username=hikaru")
+                print(f"result.chess.player_id={profile.get('player_id', 0)}")
+                print(f"result.chess.rating_modes={len(stats.get('statistics', {}))}")
+            elif adapter_id == "yuna0x0-anilist-mcp":
+                genres = await _call(session, "get_genres", {})
+                search = await _call(
+                    session,
+                    "search_anime",
+                    {"term": "Frieren", "page": 1, "amount": 2},
+                )
+                details = await _call(session, "get_anime", {"ids": 154587})
+                if (
+                    not isinstance(genres.get("genres"), list)
+                    or not genres["genres"]
+                    or not isinstance(search.get("results"), list)
+                    or not search["results"]
+                    or not isinstance(details.get("results"), list)
+                    or not details["results"]
+                    or details["results"][0].get("id") != 154587
+                ):
+                    raise RuntimeError("anilist_runtime_contract_invalid")
+                print("input.anilist.term=Frieren")
+                print(f"result.anilist.genre_count={genres.get('count', 0)}")
+                print(f"result.anilist.search_count={search.get('count', 0)}")
+                print(f"result.anilist.detail_id={details['results'][0].get('id')}")
+            elif adapter_id == "karanb192-reddit-mcp-buddy":
+                browse = await _call(
+                    session,
+                    "browse_subreddit",
+                    {"subreddit": "python", "sort": "hot", "limit": 3},
+                )
+                search = await _call(
+                    session,
+                    "search_reddit",
+                    {
+                        "query": "model context protocol",
+                        "sort": "relevance",
+                        "time": "year",
+                        "limit": 3,
+                    },
+                )
+                if (
+                    browse.get("data_source") != "reddit-public-atom"
+                    or not isinstance(browse.get("posts"), list)
+                    or not browse["posts"]
+                    or search.get("data_source") != "reddit-public-atom"
+                    or not isinstance(search.get("posts"), list)
+                ):
+                    raise RuntimeError("reddit_buddy_runtime_contract_invalid")
+                print("input.reddit_buddy.subreddit=python")
+                print(f"result.reddit_buddy.post_count={browse.get('count', 0)}")
+                print(f"result.reddit_buddy.search_count={search.get('count', 0)}")
+            elif adapter_id == "rishijatia-fantasy-pl-mcp":
+                players = await _call(
+                    session,
+                    "search_fpl_players",
+                    {"query": "a", "max_results": 3},
+                )
+                fixtures = await _call(
+                    session,
+                    "list_fpl_fixtures",
+                    {"max_results": 3},
+                )
+                if (
+                    not isinstance(players.get("players"), list)
+                    or not players["players"]
+                    or not isinstance(fixtures.get("fixtures"), list)
+                ):
+                    raise RuntimeError("fantasy_pl_runtime_contract_invalid")
+                player_id = players["players"][0].get("id")
+                details = await _call(
+                    session,
+                    "get_player_information",
+                    {"player_id": player_id},
+                )
+                if details.get("player", {}).get("id") != player_id:
+                    raise RuntimeError("fantasy_pl_runtime_contract_invalid")
+                print("input.fantasy_pl.query=a")
+                print(f"result.fantasy_pl.player_count={players.get('count', 0)}")
+                print(f"result.fantasy_pl.fixture_count={fixtures.get('count', 0)}")
+            else:
+                raise RuntimeError("public_runtime_adapter_unhandled")
             print(
                 f"adapter={adapter_id} initialized=true tools={len(names)} "
                 f"schema_sha256={digest} blocked_tool=denied",

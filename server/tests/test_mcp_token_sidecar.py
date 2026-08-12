@@ -76,6 +76,10 @@ def test_runtime_contracts_match_catalog_and_never_include_snyk() -> None:
     assert set(TOKEN_SCHEMA_SHA256) == set(TOKEN_ADAPTERS)
     assert set(token_proxy.ALLOWED_ADAPTERS) == expected | set(STAGED_TOKEN_ADAPTERS)
     assert "snyk-mcp" not in TOKEN_ADAPTERS
+    assert "vectorize-io-vectorize-mcp-server" not in TOKEN_ADAPTERS
+    assert "vectorize-io-vectorize-mcp-server" not in TOKEN_SCHEMA_SHA256
+    assert "vectorize-io-vectorize-mcp-server" not in token_proxy.ALLOWED_ADAPTERS
+    assert "vectorize-io-vectorize-mcp-server" not in token_builtin.BUILDERS
     for project_id in expected:
         contract = TOKEN_ADAPTERS[project_id]
         assert contract.tools == frozenset(CATALOG_ADAPTERS[project_id].tool_policies)
@@ -132,7 +136,6 @@ def test_runtime_contracts_match_catalog_and_never_include_snyk() -> None:
 
     assert STAGED_TOKEN_ADAPTERS == {
         "cablate-mcp-google-map",
-        "vectorize-io-vectorize-mcp-server",
         "comet-ml-opik-mcp",
         "keboola-keboola-mcp-server",
     }
@@ -142,14 +145,6 @@ def test_runtime_contracts_match_catalog_and_never_include_snyk() -> None:
     assert google.tools == frozenset({"maps_search_places", "maps_place_details"})
     assert google.allowed_hosts == frozenset({"places.googleapis.com"})
     assert google.credential_environment == (("api_key", "GOOGLE_MAPS_API_KEY"),)
-
-    vectorize = TOKEN_ADAPTERS["vectorize-io-vectorize-mcp-server"]
-    assert vectorize.tools == frozenset({"retrieve"})
-    assert vectorize.allowed_hosts == frozenset({"api.vectorize.io"})
-    assert vectorize.setting_environment == (
-        ("organization_id", "VECTORIZE_ORG_ID"),
-        ("pipeline_id", "VECTORIZE_PIPELINE_ID"),
-    )
 
     opik = TOKEN_ADAPTERS["comet-ml-opik-mcp"]
     assert opik.tools == frozenset({"list", "read"})
@@ -263,18 +258,17 @@ def test_configuration_contract_rejects_missing_and_extra_fields() -> None:
     assert credentials == {"api_key": "secret"}
     assert settings == {}
 
-    _, credentials, settings = validate_configuration(
-        "vectorize-io-vectorize-mcp-server",
-        {
-            "credentials": {"api_token": "secret"},
-            "settings": {
-                "organization_id": "org_123",
-                "pipeline_id": "pipe-456",
+    with pytest.raises(ValueError, match="mcp_adapter_denied"):
+        validate_configuration(
+            "vectorize-io-vectorize-mcp-server",
+            {
+                "credentials": {"api_token": "secret"},
+                "settings": {
+                    "organization_id": "org_123",
+                    "pipeline_id": "pipe-456",
+                },
             },
-        },
-    )
-    assert credentials == {"api_token": "secret"}
-    assert settings == {"organization_id": "org_123", "pipeline_id": "pipe-456"}
+        )
 
     _, credentials, settings = validate_configuration(
         "comet-ml-opik-mcp",
@@ -439,32 +433,6 @@ async def test_wave_seventeen_google_map_facade_uses_fixed_places_contract(
     assert headers["X-Goog-Api-Key"] == "private-google-key"
     assert "reviews" not in headers["X-Goog-FieldMask"]
     assert "photos" not in headers["X-Goog-FieldMask"]
-
-
-@pytest.mark.asyncio
-async def test_wave_seventeen_vectorize_facade_is_retrieval_only(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = RecordingHttpClient([FakeHttpResponse(b'{"documents":[]}')])
-    monkeypatch.setenv("VECTORIZE_TOKEN", "private-vectorize-token")
-    monkeypatch.setenv("VECTORIZE_ORG_ID", "org_123")
-    monkeypatch.setenv("VECTORIZE_PIPELINE_ID", "pipe-456")
-    monkeypatch.setattr(token_builtin, "SafeHttpClient", lambda **_: client)
-    mcp = token_builtin.build_vectorize_retrieval_readonly()
-
-    await mcp.call_tool("retrieve", {"question": "release notes", "k": 5})
-
-    assert client.calls[0][0] == (
-        "https://api.vectorize.io/v1/org/org_123/pipelines/pipe-456/retrieve"
-    )
-    request = client.calls[0][1]
-    assert request["method"] == "POST"
-    assert json.loads(request["body"]) == {
-        "question": "release notes",
-        "numResults": 5,
-    }
-    assert request["headers"]["Authorization"] == "Bearer private-vectorize-token"
-    assert TOKEN_ADAPTERS["vectorize-io-vectorize-mcp-server"].tools == {"retrieve"}
 
 
 @pytest.mark.asyncio

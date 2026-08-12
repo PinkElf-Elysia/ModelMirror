@@ -3905,13 +3905,13 @@
         },
         "latestRelease": null
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "Milvus MCP Server 0.1.1 的单 collection 只读 facade 已在最新基线重新通过真实 Milvus 2.5.21、原生只读账号、固定 Schema、代表读取、拒写、限流、超时、重启与清理验收；写入、动态 filter、任意输出字段和管理能力保持关闭。",
       "catalog_id": "zilliztech-mcp-server-milvus",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-readonly-graph-data-facade",
+      "adapter_version": "0.1.1-compatible-native-read-only-v1",
+      "adaptation_wave": 23
     },
     {
       "rank": 55,
@@ -4663,13 +4663,13 @@
           "publishedAt": "2026-04-10T18:53:37Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "Neo4j MCP Cypher v0.6.0 的固定 database 只读 facade 已在最新基线重新通过真实 Neo4j Enterprise 5.26.12、原生 reader 角色、固定 Schema、代表读取、拒写、限流、超时、重启与清理验收；写 Cypher、管理和知识图谱记忆工具保持关闭。",
       "catalog_id": "neo4j-contrib-mcp-neo4j",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-readonly-graph-data-facade",
+      "adapter_version": "mcp-neo4j-cypher-v0.6.0-compatible-native-read-only-v1",
+      "adaptation_wave": 23
     },
     {
       "rank": 66,
@@ -5442,13 +5442,13 @@
           "publishedAt": "2026-08-03T21:15:22Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "ArcadeDB 26.8.1 的固定 database 只读 facade 已在最新基线重新通过真实 ArcadeDB 26.8.1、原生 readonly 账号、固定 Schema、代表读取、拒写、限流、超时、重启与清理验收；command、写查询和管理能力保持关闭。",
       "catalog_id": "arcadedata-arcadedb",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-readonly-graph-data-facade",
+      "adapter_version": "26.8.1-compatible-native-read-only-v1",
+      "adaptation_wave": 23
     },
     {
       "rank": 77,
@@ -6215,13 +6215,13 @@
           "publishedAt": "2025-04-07T08:34:51Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "Vectorize 0.4.3 的既有 pipeline 检索兼容层、固定出口与 Schema 已冻结；当前缺少真实组织、pipeline 与 Token 代表调用，且标签 LICENSE 与 package metadata 的许可证声明不一致，因此继续保持 planned 且默认关闭。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "固定发布物 0.4.3 的仓库 LICENSE 声明 MIT，但 package metadata 声明 ISC；最新官方发布仍未消除冲突，因此停止可执行适配，待上游以一致发布物或明确官方说明闭合许可证边界后再复审。",
       "catalog_id": "vectorize-io-vectorize-mcp-server",
-      "decision_reason_code": "planned-real-account-readonly-preflight-required",
-      "adapter_version": "0.4.3-compatible-native-v1",
-      "adaptation_wave": 17
+      "decision_reason_code": "blocked-license-metadata-conflict",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 88,
@@ -7142,9 +7142,9 @@
     "classified_at": "2026-08-09",
     "classified_count": 100,
     "availability": {
-      "ready": 23,
-      "planned": 17,
-      "blocked": 60
+      "ready": 26,
+      "planned": 13,
+      "blocked": 61
     },
     "ready_boundary": "fixed-reviewed-read-artifact-or-index-sidecar-contract",
     "non_ready_boundary": "no-command-endpoint-credential-or-tool-policy"

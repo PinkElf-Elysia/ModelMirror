@@ -20,7 +20,7 @@ def test_committed_approved_list_is_balanced_and_classified() -> None:
     assert payload["adaptation"] == {
         "classified_at": "2026-08-09",
         "classified_count": 100,
-        "availability": {"ready": 23, "planned": 17, "blocked": 60},
+        "availability": {"ready": 26, "planned": 13, "blocked": 61},
         "ready_boundary": "fixed-reviewed-read-artifact-or-index-sidecar-contract",
         "non_ready_boundary": "no-command-endpoint-credential-or-tool-policy",
     }
@@ -41,9 +41,9 @@ def test_committed_approved_list_is_balanced_and_classified() -> None:
             >= 25
         )
     assert Counter(item["proposed_availability"] for item in candidates) == {
-        "ready": 23,
-        "planned": 17,
-        "blocked": 60,
+        "ready": 26,
+        "planned": 13,
+        "blocked": 61,
     }
     ready = [item for item in candidates if item["proposed_availability"] == "ready"]
     assert [item["catalog_id"] for item in ready] == [
@@ -60,11 +60,14 @@ def test_committed_approved_list_is_balanced_and_classified() -> None:
         "haris-musa-excel-mcp-server",
         "idosal-git-mcp",
         "vivekvells-mcp-pandoc",
+        "zilliztech-mcp-server-milvus",
         "brave-brave-search-mcp-server",
         "docker-hub-mcp",
         "livetennisapi-livetennisapi-mcp",
+        "neo4j-contrib-mcp-neo4j",
         "pab1it0-prometheus-mcp-server",
         "safedep-vet",
+        "arcadedata-arcadedb",
         "cr7258-elasticsearch-mcp-server",
         "jpisnice-shadcn-ui-mcp-server",
         "antvis-mcp-server-chart",
@@ -122,6 +125,18 @@ def test_committed_approved_list_is_balanced_and_classified() -> None:
         "c487a298-compatible-native-v1"
     )
     assert ready_by_id["idosal-git-mcp"]["adaptation_wave"] == 17
+    assert ready_by_id["zilliztech-mcp-server-milvus"]["adapter_version"] == (
+        "0.1.1-compatible-native-read-only-v1"
+    )
+    assert ready_by_id["zilliztech-mcp-server-milvus"]["adaptation_wave"] == 23
+    assert ready_by_id["neo4j-contrib-mcp-neo4j"]["adapter_version"] == (
+        "mcp-neo4j-cypher-v0.6.0-compatible-native-read-only-v1"
+    )
+    assert ready_by_id["neo4j-contrib-mcp-neo4j"]["adaptation_wave"] == 23
+    assert ready_by_id["arcadedata-arcadedb"]["adapter_version"] == (
+        "26.8.1-compatible-native-read-only-v1"
+    )
+    assert ready_by_id["arcadedata-arcadedb"]["adaptation_wave"] == 23
     staged = {
         item["catalog_id"]: item
         for item in candidates
@@ -130,7 +145,6 @@ def test_committed_approved_list_is_balanced_and_classified() -> None:
     }
     assert set(staged) == {
         "cablate-mcp-google-map",
-        "vectorize-io-vectorize-mcp-server",
         "comet-ml-opik-mcp",
         "keboola-keboola-mcp-server",
     }
@@ -139,15 +153,20 @@ def test_committed_approved_list_is_balanced_and_classified() -> None:
     assert staged["cablate-mcp-google-map"]["adapter_version"] == (
         "0.0.53-compatible-native-v1"
     )
-    assert staged["vectorize-io-vectorize-mcp-server"]["adapter_version"] == (
-        "0.4.3-compatible-native-v1"
-    )
     assert staged["comet-ml-opik-mcp"]["adapter_version"] == (
         "0.2.15-compatible-native-v1"
     )
     assert staged["keboola-keboola-mcp-server"]["adapter_version"] == (
         "1.75.2-compatible-native-v1"
     )
+    vectorize = next(
+        item
+        for item in candidates
+        if item["catalog_id"] == "vectorize-io-vectorize-mcp-server"
+    )
+    assert vectorize["proposed_availability"] == "blocked"
+    assert vectorize["decision_reason_code"] == "blocked-license-metadata-conflict"
+    assert vectorize["adapter_version"] == "blocked"
     deferred_by_wave = {
         wave: {
             item["catalog_id"]
@@ -260,7 +279,7 @@ def test_committed_approved_list_is_balanced_and_classified() -> None:
             ("ready-", "planned-", "blocked-")
         )
         assert item["decision_reason"]
-        assert item["adaptation_wave"] in {13, 14, 15, 16, 17, 18, 19, 20, 21, 22}
+        assert item["adaptation_wave"] in {13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23}
         assert item["github"]["licenseInfo"]["spdxId"] not in {
             "",
             "NOASSERTION",
