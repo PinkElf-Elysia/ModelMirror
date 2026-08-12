@@ -604,13 +604,14 @@ export default function ModelListPage() {
   const activeFilterCount =
     countActiveFilters(filters) + (hasSearchTerm ? 1 : 0);
   const onsiteModels = models.filter(
-    (model) => model.catalog_status !== "expired",
+    (model) => model.catalog_counted,
   );
   const browseableModels = models.filter(
     (model) => model.catalog_status !== "expired",
   );
   const onsiteFilteredModels = filteredModels.filter(
-    (model) => model.catalog_status !== "expired",
+    (model) =>
+      model.catalog_counted && model.catalog_status !== "expired",
   );
   const adaptedFilteredCount = onsiteFilteredModels.filter(
     (model) => {
@@ -643,7 +644,7 @@ export default function ModelListPage() {
     (model) =>
       invocableModelIds.has(model.id) ||
       (
-        model.catalog_status !== "historical" &&
+        model.active &&
         runtimeEnvironment?.model_gateway_ready === true &&
         model.interaction_status === "ready" &&
         (model.ui_entrypoint === "chat" || model.ui_entrypoint === "rag")
@@ -697,11 +698,14 @@ export default function ModelListPage() {
 
             <div className="surface-card min-w-0 overflow-hidden rounded-lg p-4">
               <div className="flex items-center justify-between border-b border-white/10 pb-4">
-                <span className="text-sm text-slate-400">现场候选人</span>
+                <span className="text-sm text-slate-400">模型快照</span>
                 <span className="text-2xl font-semibold text-white">
                   {onsiteModels.length}
                 </span>
               </div>
+              <p className="mt-3 text-xs leading-5 text-slate-500">
+                不含列表底部的路由变体。
+              </p>
               <div className="mt-4 grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 text-center text-xs">
                 <div className="rounded-lg bg-white/[0.055] px-2 py-3">
                   <p className="text-lg font-semibold text-hire-100">

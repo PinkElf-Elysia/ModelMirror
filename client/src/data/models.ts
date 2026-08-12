@@ -1,8 +1,9 @@
-﻿// Merged with OpenRouter model catalog on 2026-08-06T08:31:09.233Z.
-// Refreshed with entries published through 2026-08-05T23:51:37.000Z.
-// Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest
-// Supplemental OpenRouter refresh: 2026-08-12 (three general catalog records
-// plus xAI Grok Imagine Image 2.0 from the dedicated image-model catalog).
+﻿// Merged with OpenRouter model catalog on 2026-08-12T05:13:30.761Z.
+// Refreshed with entries published through 2026-08-11T22:07:24.000Z.
+// Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
+// Full OpenRouter catalog audit refresh: 2026-08-12. Batch route variants are
+// stored separately and excluded from snapshot totals; the xAI image profile
+// keeps the dedicated image-model contract.
 // Image source: https://openrouter.ai/api/v1/images/models
 // Prices are stored as USD per 1M tokens and CNY per 1M tokens.
 export const USD_TO_CNY = 6.77;
@@ -66,7 +67,12 @@ export type JobCapability =
   | "world_generation";
 export type InteractionStatus = "ready" | "planned" | "unsupported";
 export type ModelUiEntrypoint = "chat" | "rag" | "multimodal" | "planned";
-export type CatalogStatus = "live" | "curated" | "historical" | "expired";
+export type CatalogStatus =
+  | "live"
+  | "curated"
+  | "uncertain"
+  | "route_variant"
+  | "expired";
 export type Category = string;
 export type SupportedParameter = string;
 export type PricingTier = "free" | "dynamic" | "low" | "medium" | "high";
@@ -104,6 +110,8 @@ export interface Model {
   zero_data_retention: boolean;
   in_region_routing: boolean;
   catalog_status: CatalogStatus;
+  /** True only for records that belong to the OpenRouter model snapshot. */
+  catalog_counted: boolean;
   active: boolean;
   tags: string[];
   note?: string;
@@ -130,41 +138,53 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
-    id: "x-ai/grok-imagine-image-2.0",
-    canonical_slug: "x-ai/grok-imagine-image-2.0",
-    name: "xAI: Grok Imagine Image 2.0",
-    raw_description:
-      "Grok Imagine Image 2.0 is an image generation and editing model from xAI. It is suited for creating images from text prompts and editing images from references, with low and medium quality modes at 1K or 2K resolution.",
-    context_length: 0,
-    pricing: { input: -1, output: -1 },
-    input_modalities: ["text", "image"],
-    output_modalities: ["image"],
-    tokenizer: "Other",
-    supported_parameters: [
+    "id": "x-ai/grok-imagine-image-2.0",
+    "canonical_slug": "x-ai/grok-imagine-image-2.0",
+    "name": "xAI: Grok Imagine Image 2.0",
+    "raw_description": "Grok Imagine Image 2.0 is an image generation and editing model from xAI. It is suited for creating images from text prompts and editing images from references, with low and medium quality modes at 1K or 2K resolution.",
+    "context_length": 0,
+    "pricing": {
+      "input": -1,
+      "output": -1
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
       "resolution",
       "aspect_ratio",
       "quality",
       "n",
-      "input_references",
+      "input_references"
     ],
-    created: 1786486044,
-    expiration_date: null,
-    model_author: "xAI",
-    note:
-      "OpenRouter 专用图片 API：非流式返回完整 base64 图片；每次输出 1 张，最多 3 张参考图。参考图约 $0.01/张，输出按 low/medium 与 1K/2K 约 $0.04–$0.08/张。",
+    "created": 1786486044,
+    "expiration_date": null,
+    "model_author": "xAI",
+    "note": "OpenRouter 专用图片 API：非流式返回完整 base64 图片；每次输出 1 张，最多 3 张参考图。参考图约 $0.01/张，输出按 low/medium 与 1K/2K 约 $0.04–$0.08/张。"
   },
   {
-    id: "liquid/lfm-2.5-2.6b:free",
-    canonical_slug: "liquid/lfm-2.5-2.6b-20260811",
-    name: "LiquidAI: LFM2.5-2.6B (free)",
-    raw_description:
-      "LFM2.5-2.6B is a compact reasoning model from Liquid AI. It is suited for agent workflows, data extraction, RAG, and long-context processing. Liquid advises against using it for agentic coding.",
-    context_length: 128000,
-    pricing: { input: 0, output: 0 },
-    input_modalities: ["text"],
-    output_modalities: ["text"],
-    tokenizer: "Other",
-    supported_parameters: [
+    "id": "liquid/lfm-2.5-2.6b:free",
+    "canonical_slug": "liquid/lfm-2.5-2.6b-20260811",
+    "name": "LiquidAI: LFM2.5-2.6B (free)",
+    "raw_description": "LFM2.5-2.6B is a compact reasoning model from Liquid AI. It is suited for agent workflows, data extraction, RAG, and long-context processing. Liquid advises against using it for agentic coding or...",
+    "context_length": 128000,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
       "logprobs",
@@ -183,24 +203,30 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tools",
       "top_k",
       "top_logprobs",
-      "top_p",
+      "top_p"
     ],
-    created: 1786470519,
-    expiration_date: null,
-    model_author: "LiquidAI",
+    "created": 1786470519,
+    "expiration_date": null,
+    "model_author": "LiquidAI"
   },
   {
-    id: "nvidia/nemotron-3.5-lightning",
-    canonical_slug: "nvidia/nemotron-3.5-lightning-20260807",
-    name: "NVIDIA: Nemotron 3.5 Lightning",
-    raw_description:
-      "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks.",
-    context_length: 262144,
-    pricing: { input: 0.1, output: 0.25 },
-    input_modalities: ["text"],
-    output_modalities: ["text"],
-    tokenizer: "Other",
-    supported_parameters: [
+    "id": "nvidia/nemotron-3.5-lightning",
+    "canonical_slug": "nvidia/nemotron-3.5-lightning-20260807",
+    "name": "NVIDIA: Nemotron 3.5 Lightning",
+    "raw_description": "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0.25
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
@@ -217,24 +243,30 @@ const rawCatalogModels: RawCatalogModel[] = [
       "temperature",
       "top_k",
       "top_logprobs",
-      "top_p",
+      "top_p"
     ],
-    created: 1786452751,
-    expiration_date: null,
-    model_author: "NVIDIA",
+    "created": 1786452751,
+    "expiration_date": null,
+    "model_author": "NVIDIA"
   },
   {
-    id: "nvidia/nemotron-3.5-lightning:free",
-    canonical_slug: "nvidia/nemotron-3.5-lightning-20260807",
-    name: "NVIDIA: Nemotron 3.5 Lightning (free)",
-    raw_description:
-      "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. This free route exposes an OpenRouter-listed 1M-token context window.",
-    context_length: 1000000,
-    pricing: { input: 0, output: 0 },
-    input_modalities: ["text"],
-    output_modalities: ["text"],
-    tokenizer: "Other",
-    supported_parameters: [
+    "id": "nvidia/nemotron-3.5-lightning:free",
+    "canonical_slug": "nvidia/nemotron-3.5-lightning-20260807",
+    "name": "NVIDIA: Nemotron 3.5 Lightning (free)",
+    "raw_description": "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
       "include_reasoning",
       "max_tokens",
       "reasoning",
@@ -242,72 +274,62 @@ const rawCatalogModels: RawCatalogModel[] = [
       "temperature",
       "tool_choice",
       "tools",
-      "top_p",
+      "top_p"
     ],
-    created: 1786452751,
-    expiration_date: null,
-    model_author: "NVIDIA",
+    "created": 1786452751,
+    "expiration_date": null,
+    "model_author": "NVIDIA"
   },
   {
-    id: "bytedance/seedance-2.5",
-    canonical_slug: "bytedance/seedance-2.5-20260807",
-    name: "ByteDance: Seedance 2.5",
-    raw_description:
-      "Seedance 2.5 is a video generation model from ByteDance. It is suited for long-form storytelling, multimodal reference-based generation, video editing, and video extension. It supports first-frame and first-and-last-frame control.",
-    context_length: 0,
-    pricing: { input: 10.7, output: 10.7 },
-    input_modalities: ["text", "image"],
-    output_modalities: ["video"],
-    tokenizer: "Other",
-    supported_parameters: [
-      "duration",
-      "resolution",
-      "aspect_ratio",
-      "frame_images",
-      "input_references",
-      "generate_audio",
-      "seed",
+    "id": "sakana/sakana-namazu",
+    "canonical_slug": "sakana/namazu-20260811",
+    "name": "Sakana: Sakana Namazu",
+    "raw_description": "Sakana Namazu is a Japanese-specialized reasoning model from Sakana AI, based on Kimi K2.6 with additional training for Japanese language and business contexts. It is suited for Japanese instruction following,...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.95,
+      "output": 4
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
     ],
-    created: 1786141253,
-    expiration_date: null,
-    model_author: "ByteDance",
-  },
-  {
-    id: "sakana/sakana-namazu",
-    canonical_slug: "sakana/namazu-20260811",
-    name: "Sakana: Sakana Namazu",
-    raw_description:
-      "Sakana Namazu is a Japanese-specialized reasoning model from Sakana AI, based on Kimi K2.6 with additional training for Japanese language and business contexts. It is suited for Japanese instruction following and business work.",
-    context_length: 262144,
-    pricing: { input: 0.95, output: 4 },
-    input_modalities: ["text", "image", "file"],
-    output_modalities: ["text"],
-    tokenizer: "Other",
-    supported_parameters: [
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
       "include_reasoning",
       "reasoning",
       "reasoning_effort",
       "structured_outputs",
       "tool_choice",
       "tools",
-      "web_search_options",
+      "web_search_options"
     ],
-    created: 1786410129,
-    expiration_date: null,
-    model_author: "Sakana",
+    "created": 1786410129,
+    "expiration_date": null,
+    "model_author": "Sakana"
   },
   {
-    id: "upstage/solar-pro4",
-    canonical_slug: "upstage/solar-pro4-20260810",
-    name: "Upstage: Solar Pro 4",
-    raw_description:
-      "Solar Pro 4 is a large language model from Upstage. It is suited for agentic workflows, office productivity, document-intensive work, and coding.",
-    context_length: 524288,
-    pricing: { input: 0.03, output: 0.12 },
-    input_modalities: ["text"],
-    output_modalities: ["text"],
-    tokenizer: "Other",
-    supported_parameters: [
+    "id": "upstage/solar-pro4",
+    "canonical_slug": "upstage/solar-pro4-20260810",
+    "name": "Upstage: Solar Pro 4",
+    "raw_description": "Solar Pro 4 is a large language model from Upstage. It is suited for agentic workflows, office productivity, document-intensive work, and coding.",
+    "context_length": 524288,
+    "pricing": {
+      "input": 0.03,
+      "output": 0.12
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
       "max_tokens",
@@ -318,27 +340,35 @@ const rawCatalogModels: RawCatalogModel[] = [
       "temperature",
       "tool_choice",
       "tools",
-      "top_p",
+      "top_p"
     ],
-    created: 1786371636,
-    expiration_date: null,
-    model_author: "Upstage",
+    "created": 1786371636,
+    "expiration_date": null,
+    "model_author": "Upstage"
   },
   {
-    id: "meta/muse-glimmer-30b",
-    canonical_slug: "meta/muse-glimmer-30b-20260810",
-    name: "Meta: Muse Glimmer 30B",
-    raw_description:
-      "Muse Glimmer 30B is a dense, open-weight multimodal model from Meta Superintelligence Labs, distilled from Muse Spark and optimized for autonomous agents on consumer hardware. It is suited for long-horizon agent work.",
-    context_length: 131072,
-    pricing: { input: 0.35, output: 1.5 },
-    input_modalities: ["text", "image"],
-    output_modalities: ["text"],
-    tokenizer: "Other",
-    supported_parameters: [
+    "id": "meta/muse-glimmer-30b",
+    "canonical_slug": "meta/muse-glimmer-30b-20260810",
+    "name": "Meta: Muse Glimmer 30B",
+    "raw_description": "Muse Glimmer 30B is a dense, open-weight multimodal model from Meta Superintelligence Labs, distilled from Muse Spark and optimized for autonomous agents on consumer hardware. It is suited for long-horizon...",
+    "context_length": 131072,
+    "pricing": {
+      "input": 0.35,
+      "output": 1.5
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -346,30 +376,65 @@ const rawCatalogModels: RawCatalogModel[] = [
       "reasoning_effort",
       "repetition_penalty",
       "response_format",
+      "seed",
       "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
       "top_k",
-      "top_p",
+      "top_logprobs",
+      "top_p"
     ],
-    created: 1786302394,
-    expiration_date: null,
-    model_author: "Meta",
+    "created": 1786302394,
+    "expiration_date": null,
+    "model_author": "Meta"
   },
   {
-    id: "inclusionai/ling-3.0-tiny:free",
-    canonical_slug: "inclusionai/ling-3.0-tiny-20260806",
-    name: "inclusionAI: Ling 3.0 Tiny (free)",
-    raw_description:
-      "Ling 3.0 Tiny is a mixture-of-experts model from InclusionAI, with 1.3B active parameters out of 7.9B total. It is designed for responsive agents, instruction following, and multi-turn conversations.",
-    context_length: 262144,
-    pricing: { input: 0, output: 0 },
-    input_modalities: ["text"],
-    output_modalities: ["text"],
-    tokenizer: "Other",
-    supported_parameters: [
+    "id": "bytedance/seedance-2.5",
+    "canonical_slug": "bytedance/seedance-2.5-20260807",
+    "name": "ByteDance: Seedance 2.5",
+    "raw_description": "Seedance 2.5 is a video generation model from ByteDance. It is suited for long-form storytelling, multimodal reference-based generation, video editing, and video extension. It supports first-frame and first-and-last-frame control, up...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "audio"
+    ],
+    "output_modalities": [
+      "video"
+    ],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "frequency_penalty"
+    ],
+    "created": 1786141253,
+    "expiration_date": null,
+    "model_author": "ByteDance"
+  },
+  {
+    "id": "inclusionai/ling-3.0-tiny:free",
+    "canonical_slug": "inclusionai/ling-3.0-tiny-20260806",
+    "name": "inclusionAI: Ling 3.0 Tiny (free)",
+    "raw_description": "Ling 3.0 Tiny is a mixture-of-experts model from InclusionAI, with 1.3B active parameters out of 7.9B total. It is designed for responsive agents, instruction following, and multi-turn conversations, with switchable...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
       "logprobs",
@@ -384,11 +449,11 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tools",
       "top_k",
       "top_logprobs",
-      "top_p",
+      "top_p"
     ],
-    created: 1786034890,
-    expiration_date: null,
-    model_author: "InclusionAI",
+    "created": 1786034890,
+    "expiration_date": null,
+    "model_author": "InclusionAI"
   },
   {
     "id": "openai/gpt-transcribe",
@@ -597,8 +662,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.09,
-      "output": 0.18
+      "input": 0.072,
+      "output": 0.144
     },
     "input_modalities": [
       "text"
@@ -614,6 +679,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "logprobs",
       "max_tokens",
       "min_p",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -641,7 +707,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.09,
+      "input": 0.08,
       "output": 0.18
     },
     "input_modalities": [
@@ -658,6 +724,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "logprobs",
       "max_tokens",
       "min_p",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -679,13 +746,50 @@ const rawCatalogModels: RawCatalogModel[] = [
     "model_author": "DeepSeek"
   },
   {
+    "id": "bytedance-seed/seed-2.0-code",
+    "canonical_slug": "bytedance-seed/seed-2.0-code-20260730",
+    "name": "ByteDance Seed: Seed-2.0-Code",
+    "raw_description": "Seed 2.0 Code is a model from ByteDance Seed optimized for agentic coding. It is suited for frontend development, multilingual programming tasks, and coding-agent workflows in tools such as Claude...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.5,
+      "output": 3
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1785451719,
+    "expiration_date": null,
+    "model_author": "ByteDance Seed"
+  },
+  {
     "id": "thinkingmachines/inkling-small",
     "canonical_slug": "thinkingmachines/inkling-small-20260730",
     "name": "Thinking Machines: Inkling Small",
     "raw_description": "Inkling Small is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 12B active parameters out of 276B total. It is positioned as the smaller, more efficient member of...",
     "context_length": 524288,
     "pricing": {
-      "input": 0.5,
+      "input": 0.44999999999999996,
       "output": 1.2
     },
     "input_modalities": [
@@ -710,6 +814,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "repetition_penalty",
       "seed",
       "stop",
+      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
@@ -1208,10 +1313,10 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "inclusionai/ling-3.0-flash-20260723",
     "name": "Ling-3.0-flash",
     "raw_description": "*Ling-3.0-flash* is a *124B-parameter Mixture-of-Experts (MoE) model*, with approximately *5.1B parameters activated per token*. The model is designed with *token efficiency and production-scale agentic inference* as key priorities, enabling developers...",
-    "context_length": 131072,
+    "context_length": 262144,
     "pricing": {
-      "input": 0.075,
-      "output": 0.22
+      "input": 0.020999999999999998,
+      "output": 0.063
     },
     "input_modalities": [
       "text"
@@ -1224,6 +1329,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -1235,11 +1341,12 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1784818580,
     "expiration_date": null,
-    "model_author": "inclusionAI"
+    "model_author": "InclusionAI"
   },
   {
     "id": "inclusionai/ling-3.0-flash:free",
@@ -1654,7 +1761,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Inkling is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 41B active parameters out of 975B total. It is designed for general-purpose reasoning, coding, agentic and tool-use systems,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 1,
+      "input": 0.95,
       "output": 4.05
     },
     "input_modalities": [
@@ -1774,7 +1881,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     },
     "input_modalities": [
       "text",
-      "image"
+      "image",
+      "video"
     ],
     "output_modalities": [
       "text"
@@ -2924,8 +3032,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.76,
-      "output": 2.42
+      "input": 0.42,
+      "output": 1.4
     },
     "input_modalities": [
       "text"
@@ -4287,7 +4395,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1778247440,
     "expiration_date": null,
-    "model_author": "inclusionAI"
+    "model_author": "InclusionAI"
   },
   {
     "id": "recraft/recraft-v4-pro",
@@ -5072,12 +5180,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the MoonshotAI Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 2.9000000000000004,
+      "input": 2.8,
       "output": 14
     },
     "input_modalities": [
       "text",
-      "image"
+      "image",
+      "video"
     ],
     "output_modalities": [
       "text"
@@ -5308,7 +5417,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.6-35B-A3B is an open-weight multimodal model from Alibaba Cloud with 35 billion total parameters and 3 billion active parameters per token. It uses a hybrid sparse mixture-of-experts architecture combining Gated...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.14,
+      "input": 0.15,
       "output": 1
     },
     "input_modalities": [
@@ -5504,8 +5613,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.435,
-      "output": 0.87
+      "input": 0.63168,
+      "output": 1.26336
     },
     "input_modalities": [
       "text"
@@ -5547,8 +5656,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0882,
-      "output": 0.1764
+      "input": 0.14,
+      "output": 0.28
     },
     "input_modalities": [
       "text"
@@ -5878,7 +5987,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1776948238,
     "expiration_date": null,
-    "model_author": "inclusionAI"
+    "model_author": "InclusionAI"
   },
   {
     "id": "tencent/hy3-preview",
@@ -6074,7 +6183,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1776795886,
     "expiration_date": null,
-    "model_author": "inclusionAI"
+    "model_author": "InclusionAI"
   },
   {
     "id": "~anthropic/claude-opus-latest",
@@ -6196,8 +6305,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K2.6 is Moonshot AI's next-generation multimodal model, designed for long-horizon coding, coding-driven UI/UX generation, and multi-agent orchestration. It handles complex end-to-end coding tasks across Python, Rust, and Go, and...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.589,
-      "output": 2.48
+      "input": 0.95,
+      "output": 4
     },
     "input_modalities": [
       "text",
@@ -6484,8 +6593,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.1 delivers a major leap in coding capability, with particularly significant gains in handling long-horizon tasks. Unlike previous models built around minute-level interactions, GLM-5.1 can work independently and continuously on...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.952,
-      "output": 2.992
+      "input": 1.4,
+      "output": 4.4
     },
     "input_modalities": [
       "text"
@@ -6625,8 +6734,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.07,
-      "output": 0.33999999999999997
+      "input": 0.12,
+      "output": 0.39999999999999997
     },
     "input_modalities": [
       "image",
@@ -7228,8 +7337,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M2.7 is a next-generation large language model designed for autonomous, real-world productivity and continuous improvement. Built to actively participate in its own evolution, M2.7 integrates advanced agentic capabilities through multi-agent...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.27,
-      "output": 1.08
+      "input": 0.3,
+      "output": 1.2
     },
     "input_modalities": [
       "text"
@@ -7961,8 +8070,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 122B-A10B native vision-language model is built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. In terms of...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.26,
-      "output": 2.08
+      "input": 0.29,
+      "output": 2.4
     },
     "input_modalities": [
       "text",
@@ -8328,8 +8437,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 series 397B-A17B native vision-language model is built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. It delivers...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.39,
-      "output": 2.34
+      "input": 0.5,
+      "output": 3.5999999999999996
     },
     "input_modalities": [
       "text",
@@ -8635,7 +8744,9 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logprobs",
+      "max_completion_tokens",
       "max_tokens",
+      "min_p",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -9436,7 +9547,6 @@ const rawCatalogModels: RawCatalogModel[] = [
     "tokenizer": "GPT",
     "supported_parameters": [
       "max_completion_tokens",
-      "max_tokens",
       "response_format",
       "seed",
       "structured_outputs",
@@ -9444,7 +9554,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tools"
     ],
     "created": 1765389783,
-    "expiration_date": 1786320000,
+    "expiration_date": null,
     "model_author": "OpenAI"
   },
   {
@@ -11970,8 +12080,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Compared with GLM-4.5, this generation brings several key improvements: Longer context window: The context window has been expanded from 128K to 200K tokens, enabling the model to handle more complex...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.5,
-      "output": 2
+      "input": 0.55,
+      "output": 2.2
     },
     "input_modalities": [
       "text"
@@ -12189,8 +12299,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-VL-235B-A22B Thinking is a multimodal model that unifies strong text generation with visual understanding across images and video. The Thinking model is optimized for multimodal reasoning in STEM and math....",
     "context_length": 131072,
     "pricing": {
-      "input": 0.98,
-      "output": 3.95
+      "input": 0.39999999999999997,
+      "output": 4
     },
     "input_modalities": [
       "text",
@@ -12230,8 +12340,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-VL-235B-A22B Instruct is an open-weight multimodal model that unifies strong text generation with visual understanding across images and video. The Instruct model targets general vision-language use (VQA, document parsing, chart/table...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.21,
-      "output": 1.9
+      "input": 0.26,
+      "output": 1.04
     },
     "input_modalities": [
       "text",
@@ -12378,7 +12488,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 163840,
     "pricing": {
       "input": 0.27,
-      "output": 1
+      "output": 0.95
     },
     "input_modalities": [
       "text"
@@ -13133,7 +13243,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.037,
+      "input": 0.03,
       "output": 0.16999999999999998
     },
     "input_modalities": [
@@ -13306,12 +13416,9 @@ const rawCatalogModels: RawCatalogModel[] = [
     "tokenizer": "Claude",
     "supported_parameters": [
       "include_reasoning",
-      "max_completion_tokens",
       "max_tokens",
       "reasoning",
-      "response_format",
       "stop",
-      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
@@ -13366,7 +13473,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 262144,
     "pricing": {
       "input": 0.07,
-      "output": 0.27
+      "output": 0.28
     },
     "input_modalities": [
       "text"
@@ -14700,8 +14807,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-14B is a dense 14.8B parameter causal language model from the Qwen3 series, designed for both complex reasoning and efficient dialogue. It supports seamless switching between a \"thinking\" mode for...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.22749999999999998,
-      "output": 0.9099999999999999
+      "input": 0.12,
+      "output": 0.24
     },
     "input_modalities": [
       "text"
@@ -15023,7 +15130,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.19999999999999998,
-      "output": 0.7999999999999999
+      "output": 0.696
     },
     "input_modalities": [
       "text",
@@ -18093,8 +18200,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "One of the highest performing and most popular fine-tunes of Llama 2 13B, with rich descriptions and roleplay. #merge",
     "context_length": 8192,
     "pricing": {
-      "input": 0.08,
-      "output": 0.11
+      "input": 0.06,
+      "output": 0.06
     },
     "input_modalities": [
       "text"
@@ -18202,9 +18309,2213 @@ const rawCatalogModels: RawCatalogModel[] = [
   }
 ];
 
-// Generated by scripts/update-openrouter-models.mjs. Entries remain browsable
-// in the complete catalog but are excluded from the live recruitment pool.
-const historicalCatalogModelIds = new Set<string>([
+const rawRouteVariantModels: RawCatalogModel[] = [
+  {
+    "id": "anthropic/claude-opus-5:batch",
+    "canonical_slug": "anthropic/claude-opus-5-20260723",
+    "name": "Claude Opus 5 (batch)",
+    "raw_description": "Claude Opus 5 is Anthropic’s flagship model for demanding reasoning, coding, and long-horizon agentic work. It is particularly strong at end-to-end software tasks, code review and bug finding, visual analysis...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 2.5,
+      "output": 12.5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1784912544,
+    "expiration_date": null,
+    "model_author": "Anthropic"
+  },
+  {
+    "id": "google/gemini-3.6-flash:batch",
+    "canonical_slug": "google/gemini-3.6-flash-20260721",
+    "name": "Google: Gemini 3.6 Flash (batch)",
+    "raw_description": "Gemini 3.6 Flash is a high-efficiency model from Google for coding, agentic workflows, and web and app development. It is designed to produce polished outputs with fewer unnecessary edits and...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.75,
+      "output": 3.75
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "file",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1784646733,
+    "expiration_date": null,
+    "model_author": "Google"
+  },
+  {
+    "id": "google/gemini-3.5-flash-lite:batch",
+    "canonical_slug": "google/gemini-3.5-flash-lite-20260721",
+    "name": "Google: Gemini 3.5 Flash Lite (batch)",
+    "raw_description": "Gemini 3.5 Flash Lite is a high-efficiency model from Google with upgraded agentic capabilities. It is suited for subagents that execute focused tasks within complex, multi-agent workflows.",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.15,
+      "output": 1.25
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "file",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1784646726,
+    "expiration_date": null,
+    "model_author": "Google"
+  },
+  {
+    "id": "thinkingmachines/inkling:batch",
+    "canonical_slug": "thinkingmachines/inkling-20260715",
+    "name": "Thinking Machines: Inkling (batch)",
+    "raw_description": "Inkling is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 41B active parameters out of 975B total. It is designed for general-purpose reasoning, coding, agentic and tool-use systems,...",
+    "context_length": 524288,
+    "pricing": {
+      "input": 0.5,
+      "output": 2.025
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "stop",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1784325956,
+    "expiration_date": null,
+    "model_author": "Thinkingmachines"
+  },
+  {
+    "id": "openai/gpt-5.6-luna-pro:batch",
+    "canonical_slug": "openai/gpt-5.6-luna-pro-20260709",
+    "name": "OpenAI: GPT-5.6 Luna Pro (batch)",
+    "raw_description": "GPT-5.6 Luna Pro is the same underlying model as [GPT-5.6 Luna](https://openrouter.ai/openai/gpt-5.6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0.6
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1783590867,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5.6-luna:batch",
+    "canonical_slug": "openai/gpt-5.6-luna-20260709",
+    "name": "OpenAI: GPT-5.6 Luna (batch)",
+    "raw_description": "GPT-5.6 Luna is a fast, cost-efficient model in OpenAI's GPT-5.6 series. It is suited for high-volume, latency-sensitive tasks such as chat, classification, and lightweight agentic workflows, providing capable reasoning for...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0.6
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1783590864,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5.6-terra-pro:batch",
+    "canonical_slug": "openai/gpt-5.6-terra-pro-20260709",
+    "name": "OpenAI: GPT-5.6 Terra Pro (batch)",
+    "raw_description": "GPT-5.6 Terra Pro is the same underlying model as [GPT-5.6 Terra](https://openrouter.ai/openai/gpt-5.6-terra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 1,
+      "output": 6
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1783590861,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5.6-terra:batch",
+    "canonical_slug": "openai/gpt-5.6-terra-20260709",
+    "name": "OpenAI: GPT-5.6 Terra (batch)",
+    "raw_description": "GPT-5.6 Terra is a balanced model in OpenAI's GPT-5.6 series, positioned between the flagship Sol tier and the cost-efficient Luna tier. It is suited for everyday coding, reasoning, and agentic...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 1,
+      "output": 6
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1783590857,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5.6-sol-pro:batch",
+    "canonical_slug": "openai/gpt-5.6-sol-pro-20260709",
+    "name": "OpenAI: GPT-5.6 Sol Pro (batch)",
+    "raw_description": "GPT-5.6 Sol Pro is the same underlying model as [GPT-5.6 Sol](https://openrouter.ai/openai/gpt-5.6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 2.5,
+      "output": 15
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1783590854,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5.6-sol:batch",
+    "canonical_slug": "openai/gpt-5.6-sol-20260709",
+    "name": "OpenAI: GPT-5.6 Sol (batch)",
+    "raw_description": "GPT-5.6 Sol is the flagship model in OpenAI's GPT-5.6 series. It is suited for complex reasoning, coding, and agentic workflows, and is particularly strong at command-line and multi-step coding tasks...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 2.5,
+      "output": 15
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1783590850,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "anthropic/claude-sonnet-5:batch",
+    "canonical_slug": "anthropic/claude-sonnet-5-20260630",
+    "name": "Anthropic: Claude Sonnet 5 (batch)",
+    "raw_description": "Sonnet 5 is Anthropic's most capable Sonnet-class model, with frontier performance across coding, agents, and professional work. It supports adaptive thinking with selectable reasoning effort levels (low, medium, high, max,...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 1,
+      "output": 5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1782843083,
+    "expiration_date": null,
+    "model_author": "Anthropic"
+  },
+  {
+    "id": "z-ai/glm-5.2:batch",
+    "canonical_slug": "z-ai/glm-5.2-20260616",
+    "name": "Z.ai: GLM 5.2 (batch)",
+    "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
+    "context_length": 512000,
+    "pricing": {
+      "input": 0.7,
+      "output": 2.2
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1781631930,
+    "expiration_date": null,
+    "model_author": "Z.ai"
+  },
+  {
+    "id": "moonshotai/kimi-k2.7-code:batch",
+    "canonical_slug": "moonshotai/kimi-k2.7-code-20260612",
+    "name": "MoonshotAI: Kimi K2.7 Code (batch)",
+    "raw_description": "MoonshotAI: Kimi K2.7 Code is a coding-focused model in Moonshot AI's Kimi K2 family, built to complete end-to-end programming tasks reliably over long contexts. It uses a native multimodal mixture-of-experts...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.475,
+      "output": 2
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1781266361,
+    "expiration_date": null,
+    "model_author": "MoonshotAI"
+  },
+  {
+    "id": "anthropic/claude-fable-5:batch",
+    "canonical_slug": "anthropic/claude-5-fable-20260609",
+    "name": "Anthropic: Claude Fable 5 (batch)",
+    "raw_description": "Claude Fable 5 is a Mythos-class model from Anthropic, built for autonomous knowledge work and coding. It supports text, image, and file inputs with text output, with reasoning support and...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 5,
+      "output": 25
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1781007515,
+    "expiration_date": null,
+    "model_author": "Anthropic"
+  },
+  {
+    "id": "nvidia/nemotron-3-ultra-550b-a55b:batch",
+    "canonical_slug": "nvidia/nemotron-3-ultra-550b-a55b-20260604",
+    "name": "NVIDIA: Nemotron 3 Ultra (batch)",
+    "raw_description": "NVIDIA Nemotron 3 Ultra is an open frontier-reasoning and orchestration model from NVIDIA, with 55B active parameters out of 550B total (MoE). Built on a hybrid Transformer-Mamba mixture-of-experts architecture, it...",
+    "context_length": 512288,
+    "pricing": {
+      "input": 0.3,
+      "output": 1.7999999999999998
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1780551208,
+    "expiration_date": null,
+    "model_author": "NVIDIA"
+  },
+  {
+    "id": "minimax/minimax-m3:batch",
+    "canonical_slug": "minimax/minimax-m3-20260531",
+    "name": "MiniMax: MiniMax M3 (batch)",
+    "raw_description": "MiniMax-M3 is a multimodal foundation model from MiniMax. It supports text, image, and video inputs with text output, a 1M-token context window, and is suited for long-horizon agentic work, coding,...",
+    "context_length": 524288,
+    "pricing": {
+      "input": 0.15,
+      "output": 0.6
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1780245374,
+    "expiration_date": null,
+    "model_author": "MiniMax"
+  },
+  {
+    "id": "anthropic/claude-opus-4.8:batch",
+    "canonical_slug": "anthropic/claude-4.8-opus-20260528",
+    "name": "Anthropic: Claude Opus 4.8 (batch)",
+    "raw_description": "Claude Opus 4.8 is Anthropic's most capable generally available model in the Opus family. It supports text, image, and file inputs with text output, with reasoning support and a 1M-token...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 2.5,
+      "output": 12.5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1779905091,
+    "expiration_date": null,
+    "model_author": "Anthropic"
+  },
+  {
+    "id": "google/gemini-3.5-flash:batch",
+    "canonical_slug": "google/gemini-3.5-flash-20260519",
+    "name": "Google: Gemini 3.5 Flash (batch)",
+    "raw_description": "Gemini 3.5 Flash is Google's high-efficiency multimodal model, bringing near-Pro level coding and reasoning at Flash-tier cost and speed. It is highly optimized for coding proficiency and parallel agentic execution...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.75,
+      "output": 4.5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "file",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1779193800,
+    "expiration_date": null,
+    "model_author": "Google"
+  },
+  {
+    "id": "google/gemini-3.1-flash-lite:batch",
+    "canonical_slug": "google/gemini-3.1-flash-lite-20260507",
+    "name": "Google: Gemini 3.1 Flash Lite (batch)",
+    "raw_description": "Gemini 3.1 Flash Lite is Google’s GA high-efficiency multimodal model optimized for low-latency, high-volume workloads. It supports text, image, video, audio, and PDF inputs, and is designed for lightweight agentic...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.125,
+      "output": 0.75
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "file",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1778168828,
+    "expiration_date": null,
+    "model_author": "Google"
+  },
+  {
+    "id": "openai/gpt-5.5-pro:batch",
+    "canonical_slug": "openai/gpt-5.5-pro-20260423",
+    "name": "OpenAI: GPT-5.5 Pro (batch)",
+    "raw_description": "GPT-5.5 Pro is OpenAI’s high-capability model optimized for deep reasoning and accuracy on complex, high-stakes workloads. It features a 1M+ token context window (922K input, 128K output) with support for...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 15,
+      "output": 90
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1777051896,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5.5:batch",
+    "canonical_slug": "openai/gpt-5.5-20260423",
+    "name": "OpenAI: GPT-5.5 (batch)",
+    "raw_description": "GPT-5.5 is OpenAI’s frontier model designed for complex professional workloads, building on GPT-5.4 with stronger reasoning, higher reliability, and improved token efficiency on hard tasks. It features a 1M+ token...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 2.5,
+      "output": 15
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1777051893,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "anthropic/claude-opus-4.7:batch",
+    "canonical_slug": "anthropic/claude-4.7-opus-20260416",
+    "name": "Anthropic: Claude Opus 4.7 (batch)",
+    "raw_description": "Opus 4.7 is the next generation of Anthropic's Opus family, built for long-running, asynchronous agents. Building on the coding and agentic strengths of Opus 4.6, it delivers stronger performance on...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 2.5,
+      "output": 12.5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1776351100,
+    "expiration_date": null,
+    "model_author": "Anthropic"
+  },
+  {
+    "id": "openai/gpt-5.4-nano:batch",
+    "canonical_slug": "openai/gpt-5.4-nano-20260317",
+    "name": "OpenAI: GPT-5.4 Nano (batch)",
+    "raw_description": "GPT-5.4 nano is the most lightweight and cost-efficient variant of the GPT-5.4 family, optimized for speed-critical and high-volume tasks. It supports text and image inputs and is designed for low-latency...",
+    "context_length": 400000,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0.625
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1773748187,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5.4-mini:batch",
+    "canonical_slug": "openai/gpt-5.4-mini-20260317",
+    "name": "OpenAI: GPT-5.4 Mini (batch)",
+    "raw_description": "GPT-5.4 mini brings the core capabilities of GPT-5.4 to a faster, more efficient model optimized for high-throughput workloads. It supports text and image inputs with strong performance across reasoning, coding,...",
+    "context_length": 400000,
+    "pricing": {
+      "input": 0.375,
+      "output": 2.25
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1773748178,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5.4-pro:batch",
+    "canonical_slug": "openai/gpt-5.4-pro-20260305",
+    "name": "OpenAI: GPT-5.4 Pro (batch)",
+    "raw_description": "GPT-5.4 Pro is OpenAI's most advanced model, building on GPT-5.4's unified architecture with enhanced reasoning capabilities for complex, high-stakes tasks. It features a 1M+ token context window (922K input, 128K...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 15,
+      "output": 90
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1772734366,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5.4:batch",
+    "canonical_slug": "openai/gpt-5.4-20260305",
+    "name": "OpenAI: GPT-5.4 (batch)",
+    "raw_description": "GPT-5.4 is OpenAI’s latest frontier model, unifying the Codex and GPT lines into a single system. It features a 1M+ token context window (922K input, 128K output) with support for...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 1.25,
+      "output": 7.5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1772734352,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "google/gemini-3.1-pro-preview:batch",
+    "canonical_slug": "google/gemini-3.1-pro-preview-20260219",
+    "name": "Google: Gemini 3.1 Pro Preview (batch)",
+    "raw_description": "Gemini 3.1 Pro Preview is Google’s frontier reasoning model, delivering enhanced software engineering performance, improved agentic reliability, and more efficient token usage across complex workflows. Building on the multimodal foundation...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 1,
+      "output": 6
+    },
+    "input_modalities": [
+      "audio",
+      "file",
+      "image",
+      "text",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1771509627,
+    "expiration_date": null,
+    "model_author": "Google"
+  },
+  {
+    "id": "anthropic/claude-sonnet-4.6:batch",
+    "canonical_slug": "anthropic/claude-4.6-sonnet-20260217",
+    "name": "Anthropic: Claude Sonnet 4.6 (batch)",
+    "raw_description": "Sonnet 4.6 is Anthropic's most capable Sonnet-class model yet, with frontier performance across coding, agents, and professional work. It excels at iterative development, complex codebase navigation, end-to-end project management with...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 1.5,
+      "output": 7.5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p",
+      "verbosity"
+    ],
+    "created": 1771342990,
+    "expiration_date": null,
+    "model_author": "Anthropic"
+  },
+  {
+    "id": "anthropic/claude-opus-4.6:batch",
+    "canonical_slug": "anthropic/claude-4.6-opus-20260205",
+    "name": "Anthropic: Claude Opus 4.6 (batch)",
+    "raw_description": "Opus 4.6 is Anthropic’s strongest model for coding and long-running professional tasks. It is built for agents that operate across entire workflows rather than single prompts, making it especially effective...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 2.5,
+      "output": 12.5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p",
+      "verbosity"
+    ],
+    "created": 1770219050,
+    "expiration_date": null,
+    "model_author": "Anthropic"
+  },
+  {
+    "id": "google/gemini-3-flash-preview:batch",
+    "canonical_slug": "google/gemini-3-flash-preview-20251217",
+    "name": "Google: Gemini 3 Flash Preview (batch)",
+    "raw_description": "Gemini 3 Flash Preview is a high speed, high value thinking model designed for agentic workflows, multi turn chat, and coding assistance. It delivers near Pro level reasoning and tool...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.25,
+      "output": 1.5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file",
+      "audio",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1765987078,
+    "expiration_date": null,
+    "model_author": "Google"
+  },
+  {
+    "id": "openai/gpt-5.2-pro:batch",
+    "canonical_slug": "openai/gpt-5.2-pro-20251211",
+    "name": "OpenAI: GPT-5.2 Pro (batch)",
+    "raw_description": "GPT-5.2 Pro is OpenAI’s most advanced model, offering major improvements in agentic coding and long context performance over GPT-5 Pro. It is optimized for complex tasks that require step-by-step reasoning,...",
+    "context_length": 400000,
+    "pricing": {
+      "input": 10.5,
+      "output": 84
+    },
+    "input_modalities": [
+      "image",
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1765389780,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5.2:batch",
+    "canonical_slug": "openai/gpt-5.2-20251211",
+    "name": "OpenAI: GPT-5.2 (batch)",
+    "raw_description": "GPT-5.2 is the latest frontier-grade model in the GPT-5 series, offering stronger agentic and long context perfomance compared to GPT-5.1. It uses adaptive reasoning to allocate computation dynamically, responding quickly...",
+    "context_length": 400000,
+    "pricing": {
+      "input": 0.875,
+      "output": 7
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1765389775,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "anthropic/claude-opus-4.5:batch",
+    "canonical_slug": "anthropic/claude-4.5-opus-20251124",
+    "name": "Anthropic: Claude Opus 4.5 (batch)",
+    "raw_description": "Claude Opus 4.5 is Anthropic’s frontier reasoning model optimized for complex software engineering, agentic workflows, and long-horizon computer use. It offers strong multimodal capabilities, competitive performance across real-world coding and...",
+    "context_length": 200000,
+    "pricing": {
+      "input": 2.5,
+      "output": 12.5
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1764010580,
+    "expiration_date": null,
+    "model_author": "Anthropic"
+  },
+  {
+    "id": "openai/gpt-5.1:batch",
+    "canonical_slug": "openai/gpt-5.1-20251113",
+    "name": "OpenAI: GPT-5.1 (batch)",
+    "raw_description": "GPT-5.1 is the latest frontier-grade model in the GPT-5 series, offering stronger general-purpose reasoning, improved instruction adherence, and a more natural conversational style compared to GPT-5. It uses adaptive reasoning...",
+    "context_length": 400000,
+    "pricing": {
+      "input": 0.625,
+      "output": 5
+    },
+    "input_modalities": [
+      "image",
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1763060305,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/text-embedding-ada-002:batch",
+    "canonical_slug": "openai/text-embedding-ada-002",
+    "name": "OpenAI: Text Embedding Ada 002 (batch)",
+    "raw_description": "text-embedding-ada-002 is OpenAI's legacy text embedding model.",
+    "context_length": 8192,
+    "pricing": {
+      "input": 0.049999999999999996,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1761865798,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/text-embedding-3-large:batch",
+    "canonical_slug": "openai/text-embedding-3-large",
+    "name": "OpenAI: Text Embedding 3 Large (batch)",
+    "raw_description": "text-embedding-3-large is OpenAI's most capable embedding model for both english and non-english tasks. Embeddings are a numerical representation of text that can be used to measure the relatedness between two...",
+    "context_length": 8192,
+    "pricing": {
+      "input": 0.065,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1761862866,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "anthropic/claude-haiku-4.5:batch",
+    "canonical_slug": "anthropic/claude-4.5-haiku-20251001",
+    "name": "Anthropic: Claude Haiku 4.5 (batch)",
+    "raw_description": "Claude Haiku 4.5 is Anthropic’s fastest and most efficient model, delivering near-frontier intelligence at a fraction of the cost and latency of larger Claude models. Matching Claude Sonnet 4’s performance...",
+    "context_length": 200000,
+    "pricing": {
+      "input": 0.5,
+      "output": 2.5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1760547638,
+    "expiration_date": null,
+    "model_author": "Anthropic"
+  },
+  {
+    "id": "openai/gpt-5-pro:batch",
+    "canonical_slug": "openai/gpt-5-pro-2025-10-06",
+    "name": "OpenAI: GPT-5 Pro (batch)",
+    "raw_description": "GPT-5 Pro is OpenAI’s most advanced model, offering major improvements in reasoning, code quality, and user experience. It is optimized for complex tasks that require step-by-step reasoning, instruction following, and...",
+    "context_length": 400000,
+    "pricing": {
+      "input": 7.5,
+      "output": 60
+    },
+    "input_modalities": [
+      "image",
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1759776663,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "anthropic/claude-sonnet-4.5:batch",
+    "canonical_slug": "anthropic/claude-4.5-sonnet-20250929",
+    "name": "Anthropic: Claude Sonnet 4.5 (batch)",
+    "raw_description": "Claude Sonnet 4.5 is Anthropic’s most advanced Sonnet model to date, optimized for real-world agents and coding workflows. It delivers state-of-the-art performance on coding benchmarks such as SWE-bench Verified, with...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 1.5,
+      "output": 7.5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1759161676,
+    "expiration_date": null,
+    "model_author": "Anthropic"
+  },
+  {
+    "id": "openai/gpt-5-codex:batch",
+    "canonical_slug": "openai/gpt-5-codex",
+    "name": "OpenAI: GPT-5 Codex (batch)",
+    "raw_description": "GPT-5-Codex is a specialized version of GPT-5 optimized for software engineering and coding workflows. It is designed for both interactive development sessions and long, independent execution of complex engineering tasks....",
+    "context_length": 400000,
+    "pricing": {
+      "input": 0.625,
+      "output": 5
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1758643403,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5:batch",
+    "canonical_slug": "openai/gpt-5-2025-08-07",
+    "name": "OpenAI: GPT-5 (batch)",
+    "raw_description": "GPT-5 is OpenAI’s most advanced model, offering major improvements in reasoning, code quality, and user experience. It is optimized for complex tasks that require step-by-step reasoning, instruction following, and accuracy...",
+    "context_length": 400000,
+    "pricing": {
+      "input": 0.625,
+      "output": 5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1754587413,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5-mini:batch",
+    "canonical_slug": "openai/gpt-5-mini-2025-08-07",
+    "name": "OpenAI: GPT-5 Mini (batch)",
+    "raw_description": "GPT-5 Mini is a compact version of GPT-5, designed to handle lighter-weight reasoning tasks. It provides the same instruction-following and safety-tuning benefits as GPT-5, but with reduced latency and cost....",
+    "context_length": 400000,
+    "pricing": {
+      "input": 0.125,
+      "output": 1
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1754587407,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-5-nano:batch",
+    "canonical_slug": "openai/gpt-5-nano-2025-08-07",
+    "name": "OpenAI: GPT-5 Nano (batch)",
+    "raw_description": "GPT-5-Nano is the smallest and fastest variant in the GPT-5 system, optimized for developer tools, rapid interactions, and ultra-low latency environments. While limited in reasoning depth compared to its larger...",
+    "context_length": 400000,
+    "pricing": {
+      "input": 0.024999999999999998,
+      "output": 0.19999999999999998
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1754587402,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "anthropic/claude-opus-4.1:batch",
+    "canonical_slug": "anthropic/claude-4.1-opus-20250805",
+    "name": "Anthropic: Claude Opus 4.1 (batch)",
+    "raw_description": "Claude Opus 4.1 is an updated version of Anthropic’s flagship model, offering improved performance in coding, reasoning, and agentic tasks. It achieves 74.5% on SWE-bench Verified and shows notable gains...",
+    "context_length": 200000,
+    "pricing": {
+      "input": 7.5,
+      "output": 37.5
+    },
+    "input_modalities": [
+      "image",
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1754411591,
+    "expiration_date": null,
+    "model_author": "Anthropic"
+  },
+  {
+    "id": "google/gemini-2.5-flash-lite:batch",
+    "canonical_slug": "google/gemini-2.5-flash-lite",
+    "name": "Google: Gemini 2.5 Flash Lite (batch)",
+    "raw_description": "Gemini 2.5 Flash-Lite is a lightweight reasoning model in the Gemini 2.5 family, optimized for ultra-low latency and cost efficiency. It offers improved throughput, faster token generation, and better performance...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.049999999999999996,
+      "output": 0.19999999999999998
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file",
+      "audio",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1753200276,
+    "expiration_date": null,
+    "model_author": "Google"
+  },
+  {
+    "id": "google/gemini-2.5-flash:batch",
+    "canonical_slug": "google/gemini-2.5-flash",
+    "name": "Google: Gemini 2.5 Flash (batch)",
+    "raw_description": "Gemini 2.5 Flash is Google's state-of-the-art workhorse model, specifically designed for advanced reasoning, coding, mathematics, and scientific tasks. It includes built-in \"thinking\" capabilities, enabling it to provide responses with greater...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.15,
+      "output": 1.25
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text",
+      "audio",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1750172488,
+    "expiration_date": null,
+    "model_author": "Google"
+  },
+  {
+    "id": "google/gemini-2.5-pro:batch",
+    "canonical_slug": "google/gemini-2.5-pro",
+    "name": "Google: Gemini 2.5 Pro (batch)",
+    "raw_description": "Gemini 2.5 Pro is Google’s state-of-the-art AI model designed for advanced reasoning, coding, mathematics, and scientific tasks. It employs “thinking” capabilities, enabling it to reason through responses with enhanced accuracy...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.625,
+      "output": 5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file",
+      "audio",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1750169544,
+    "expiration_date": null,
+    "model_author": "Google"
+  },
+  {
+    "id": "openai/o3-pro:batch",
+    "canonical_slug": "openai/o3-pro-2025-06-10",
+    "name": "OpenAI: o3 Pro (batch)",
+    "raw_description": "The o-series of models are trained with reinforcement learning to think before they answer and perform complex reasoning. The o3-pro model uses more compute to think harder and provide consistently...",
+    "context_length": 200000,
+    "pricing": {
+      "input": 10,
+      "output": 40
+    },
+    "input_modalities": [
+      "text",
+      "file",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1749598352,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/o4-mini-high:batch",
+    "canonical_slug": "openai/o4-mini-high-2025-04-16",
+    "name": "OpenAI: o4 Mini High (batch)",
+    "raw_description": "OpenAI o4-mini-high is the same model as [o4-mini](/openai/o4-mini) with reasoning_effort set to high. OpenAI o4-mini is a compact reasoning model in the o-series, optimized for fast, cost-efficient performance while retaining...",
+    "context_length": 200000,
+    "pricing": {
+      "input": 0.55,
+      "output": 2.2
+    },
+    "input_modalities": [
+      "image",
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1744824212,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/o3:batch",
+    "canonical_slug": "openai/o3-2025-04-16",
+    "name": "OpenAI: o3 (batch)",
+    "raw_description": "o3 is a well-rounded and powerful model across domains. It sets a new standard for math, science, coding, and visual reasoning tasks. It also excels at technical writing and instruction-following....",
+    "context_length": 200000,
+    "pricing": {
+      "input": 1,
+      "output": 4
+    },
+    "input_modalities": [
+      "image",
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1744823457,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/o4-mini:batch",
+    "canonical_slug": "openai/o4-mini-2025-04-16",
+    "name": "OpenAI: o4 Mini (batch)",
+    "raw_description": "OpenAI o4-mini is a compact reasoning model in the o-series, optimized for fast, cost-efficient performance while retaining strong multimodal and agentic capabilities. It supports tool use and demonstrates competitive reasoning...",
+    "context_length": 200000,
+    "pricing": {
+      "input": 0.55,
+      "output": 2.2
+    },
+    "input_modalities": [
+      "image",
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1744820942,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-4.1:batch",
+    "canonical_slug": "openai/gpt-4.1-2025-04-14",
+    "name": "OpenAI: GPT-4.1 (batch)",
+    "raw_description": "GPT-4.1 is a flagship large language model optimized for advanced instruction following, real-world software engineering, and long-context reasoning. It supports a 1 million token context window and outperforms GPT-4o and...",
+    "context_length": 1047576,
+    "pricing": {
+      "input": 1,
+      "output": 4
+    },
+    "input_modalities": [
+      "image",
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "max_tokens",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1744651385,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-4.1-mini:batch",
+    "canonical_slug": "openai/gpt-4.1-mini-2025-04-14",
+    "name": "OpenAI: GPT-4.1 Mini (batch)",
+    "raw_description": "GPT-4.1 Mini is a mid-sized model delivering performance competitive with GPT-4o at substantially lower latency and cost. It retains a 1 million token context window and scores 45.1% on hard...",
+    "context_length": 1047576,
+    "pricing": {
+      "input": 0.19999999999999998,
+      "output": 0.7999999999999999
+    },
+    "input_modalities": [
+      "image",
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "max_tokens",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1744651381,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-4.1-nano:batch",
+    "canonical_slug": "openai/gpt-4.1-nano-2025-04-14",
+    "name": "OpenAI: GPT-4.1 Nano (batch)",
+    "raw_description": "For tasks that demand low latency, GPT‑4.1 nano is the fastest and cheapest model in the GPT-4.1 series. It delivers exceptional performance at a small size with its 1 million...",
+    "context_length": 1047576,
+    "pricing": {
+      "input": 0.049999999999999996,
+      "output": 0.19999999999999998
+    },
+    "input_modalities": [
+      "image",
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "max_tokens",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1744651369,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/o1-pro:batch",
+    "canonical_slug": "openai/o1-pro",
+    "name": "OpenAI: o1-pro (batch)",
+    "raw_description": "The o1 series of models are trained with reinforcement learning to think before they answer and perform complex reasoning. The o1-pro model uses more compute to think harder and provide...",
+    "context_length": 200000,
+    "pricing": {
+      "input": 75,
+      "output": 300
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "seed",
+      "structured_outputs"
+    ],
+    "created": 1742423211,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/o3-mini-high:batch",
+    "canonical_slug": "openai/o3-mini-high-2025-01-31",
+    "name": "OpenAI: o3 Mini High (batch)",
+    "raw_description": "OpenAI o3-mini-high is the same model as [o3-mini](/openai/o3-mini) with reasoning_effort set to high. o3-mini is a cost-efficient language model optimized for STEM reasoning tasks, particularly excelling in science, mathematics, and...",
+    "context_length": 200000,
+    "pricing": {
+      "input": 0.55,
+      "output": 2.2
+    },
+    "input_modalities": [
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1739372611,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/o3-mini:batch",
+    "canonical_slug": "openai/o3-mini-2025-01-31",
+    "name": "OpenAI: o3 Mini (batch)",
+    "raw_description": "OpenAI o3-mini is a cost-efficient language model optimized for STEM reasoning tasks, particularly excelling in science, mathematics, and coding. This model supports the `reasoning_effort` parameter, which can be set to...",
+    "context_length": 200000,
+    "pricing": {
+      "input": 0.55,
+      "output": 2.2
+    },
+    "input_modalities": [
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1738351721,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/o1:batch",
+    "canonical_slug": "openai/o1-2024-12-17",
+    "name": "OpenAI: o1 (batch)",
+    "raw_description": "The latest and strongest model family from OpenAI, o1 is designed to spend more time thinking before responding. The o1 model series is trained with large-scale reinforcement learning to reason...",
+    "context_length": 200000,
+    "pricing": {
+      "input": 7.5,
+      "output": 30
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1734459999,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-4o-mini:batch",
+    "canonical_slug": "openai/gpt-4o-mini",
+    "name": "OpenAI: GPT-4o-mini (batch)",
+    "raw_description": "GPT-4o mini is OpenAI's newest model after [GPT-4 Omni](/models/openai/gpt-4o), supporting both text and image inputs with text outputs. As their most advanced small model, it is many multiples more affordable...",
+    "context_length": 128000,
+    "pricing": {
+      "input": 0.075,
+      "output": 0.3
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "frequency_penalty",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "prediction",
+      "presence_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p",
+      "web_search_options"
+    ],
+    "created": 1721260800,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-4o:batch",
+    "canonical_slug": "openai/gpt-4o",
+    "name": "OpenAI: GPT-4o (batch)",
+    "raw_description": "GPT-4o (\"o\" for \"omni\") is OpenAI's latest AI model, supporting both text and image inputs with text outputs. It maintains the intelligence level of [GPT-4 Turbo](/models/openai/gpt-4-turbo) while being twice as...",
+    "context_length": 128000,
+    "pricing": {
+      "input": 1.25,
+      "output": 5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "frequency_penalty",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "prediction",
+      "presence_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p",
+      "web_search_options"
+    ],
+    "created": 1715558400,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-4-turbo:batch",
+    "canonical_slug": "openai/gpt-4-turbo",
+    "name": "OpenAI: GPT-4 Turbo (batch)",
+    "raw_description": "The latest GPT-4 Turbo model with vision capabilities. Vision requests can now use JSON mode and function calling.\n\nTraining data: up to December 2023.",
+    "context_length": 128000,
+    "pricing": {
+      "input": 5,
+      "output": 15
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "frequency_penalty",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1712620800,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  },
+  {
+    "id": "openai/gpt-3.5-turbo:batch",
+    "canonical_slug": "openai/gpt-3.5-turbo",
+    "name": "OpenAI: GPT-3.5 Turbo (batch)",
+    "raw_description": "GPT-3.5 Turbo is OpenAI's fastest model. It can understand and generate natural language or code, and is optimized for chat and traditional completion tasks.\n\nTraining data up to Sep 2021.",
+    "context_length": 16385,
+    "pricing": {
+      "input": 0.25,
+      "output": 0.75
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "frequency_penalty",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1685232000,
+    "expiration_date": null,
+    "model_author": "OpenAI"
+  }
+];
+
+// Generated by scripts/update-openrouter-models.mjs. Entries remain callable
+// but carry a warning because they are absent from the current live catalog.
+const uncertainCatalogModelIds = new Set<string>([
   "aion-labs/aion-1.0",
   "aion-labs/aion-1.0-mini",
   "anthropic/claude-3.5-haiku",
@@ -18216,6 +20527,7 @@ const historicalCatalogModelIds = new Set<string>([
   "deepseek/deepseek-r1-distill-qwen-32b",
   "essentialai/rnj-1-instruct",
   "google/gemini-2.5-flash-lite-preview-09-2025",
+  "inclusionai/ling-3.0-flash:free",
   "inflection/inflection-3-pi",
   "inflection/inflection-3-productivity",
   "liquid/lfm-2-24b-a2b",
@@ -18243,8 +20555,6 @@ const historicalCatalogModelIds = new Set<string>([
   "openai/o3-deep-research",
   "openai/o4-mini-deep-research",
   "openrouter/owl-alpha",
-  "poolside/laguna-m.1",
-  "poolside/laguna-m.1:free",
   "poolside/laguna-xs.2:free",
   "prime-intellect/intellect-3",
   "qwen/qwen3-coder:free",
@@ -18256,7 +20566,6 @@ const historicalCatalogModelIds = new Set<string>([
   "sourceful/riverflow-v2.5-fast:free",
   "sourceful/riverflow-v2.5-pro:free",
   "switchpoint/router",
-  "tencent/hy3:free",
   "xiaomi/mimo-v2-flash",
   "z-ai/glm-4-32b",
   "z-ai/glm-4.5-air:free"
@@ -18547,16 +20856,25 @@ function buildChineseDescription(
   return raw.name + " \u662f模镜\u76ee\u5f55\u6536\u5f55\u7684 " + raw.model_author + " 模型，支持" + inputs + "输入并输出" + outputs + "，适合" + scenes + "等场景。上下文长度为 " + context + "，" + price + lifecycle;
 }
 
-function enrichModel(raw: RawCatalogModel): Model {
+function enrichModel(
+  raw: RawCatalogModel,
+  options: {
+    catalogStatus?: CatalogStatus;
+    catalogCounted?: boolean;
+    note?: string;
+  } = {},
+): Model {
   const expired =
     raw.expiration_date !== null &&
     raw.expiration_date <= CURRENT_TIME_SECONDS;
-  const catalog_status: CatalogStatus = expired
-    ? "expired"
-    : historicalCatalogModelIds.has(raw.id)
-      ? "historical"
-      : "live";
-  const active = catalog_status === "live";
+  const catalog_status: CatalogStatus =
+    options.catalogStatus ??
+    (expired
+      ? "expired"
+      : uncertainCatalogModelIds.has(raw.id)
+        ? "uncertain"
+        : "live");
+  const active = catalog_status !== "expired";
   const pricing_status = getPricingStatus(raw);
   const price_cny =
     pricing_status === "free"
@@ -18600,6 +20918,7 @@ function enrichModel(raw: RawCatalogModel): Model {
     zero_data_retention: false,
     in_region_routing: false,
     catalog_status,
+    catalog_counted: options.catalogCounted ?? true,
     active,
     tags: inferTags(
       raw,
@@ -18608,7 +20927,7 @@ function enrichModel(raw: RawCatalogModel): Model {
       active,
       pricing_status,
     ),
-    note: raw.note,
+    note: options.note ?? raw.note,
   };
 }
 
@@ -18639,6 +20958,7 @@ const worldModelEntry: Model = {
   zero_data_retention: false,
   in_region_routing: false,
   catalog_status: "curated",
+  catalog_counted: false,
   active: true,
   tags: ["3D", "空间智能", "新"],
   note: "真实 Marble 生成和 PLY 导出可能消耗 World Labs Credits。",
@@ -18667,7 +20987,7 @@ function catalogSort(left: RawCatalogModel, right: RawCatalogModel) {
     ) {
       return 2;
     }
-    return historicalCatalogModelIds.has(model.id) ? 1 : 0;
+    return uncertainCatalogModelIds.has(model.id) ? 1 : 0;
   };
   const leftLifecycleRank = lifecycleRank(left);
   const rightLifecycleRank = lifecycleRank(right);
@@ -18719,6 +21039,7 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
     zero_data_retention: false,
     in_region_routing: false,
     catalog_status: "curated",
+    catalog_counted: false,
     active: true,
     tags: ["新", "音频"],
     note: "需要配置 OpenAI 音频连接；声音克隆仍未开放。",
@@ -18750,6 +21071,7 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
     zero_data_retention: false,
     in_region_routing: false,
     catalog_status: "curated",
+    catalog_counted: false,
     active: true,
     tags: ["新", "音频", "热门"],
     note: "需要配置 OpenAI 音频与实时语音连接。",
@@ -18781,6 +21103,7 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
     zero_data_retention: false,
     in_region_routing: false,
     catalog_status: "curated",
+    catalog_counted: false,
     active: true,
     tags: ["新", "音频", "热门"],
     note: "需要配置 OpenAI 音频与实时语音连接。",
@@ -18789,7 +21112,16 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
 
 const sortedCatalogModels = [...rawCatalogModels]
   .sort(catalogSort)
-  .map(enrichModel);
+  .map((raw) => enrichModel(raw));
+
+const routeVariantModels = rawRouteVariantModels.map((raw) =>
+  enrichModel(raw, {
+    catalogStatus: "route_variant",
+    catalogCounted: false,
+    note:
+      "OpenRouter 路由变体：可以进入对应入口，但不计入模型快照数量；独立界面与分类等待后续审计。",
+  }),
+);
 
 const SEEDANCE_2_5_MODEL_ID = "bytedance/seedance-2.5";
 const MID_CATALOG_MODEL_IDS = [
@@ -18803,6 +21135,7 @@ const LATEST_REFRESH_MODEL_IDS = [
   "liquid/lfm-2.5-2.6b:free",
   "nvidia/nemotron-3.5-lightning",
   "nvidia/nemotron-3.5-lightning:free",
+  "bytedance-seed/seed-2.0-code",
 ];
 const reservedCatalogModelIds = new Set([
   SEEDANCE_2_5_MODEL_ID,
@@ -18895,12 +21228,14 @@ const assembledModels: Model[] = [
     LATEST_REFRESH_MIN_INDEX,
   ),
   worldModelEntry,
+  ...routeVariantModels,
 ];
 
 export const models: Model[] = assembledModels.sort((left, right) => {
   const lifecycleRank = (model: Model) => {
+    if (model.catalog_status === "route_variant") return 3;
     if (model.catalog_status === "expired") return 2;
-    if (model.catalog_status === "historical") return 1;
+    if (model.catalog_status === "uncertain") return 1;
     return 0;
   };
   return lifecycleRank(left) - lifecycleRank(right);
