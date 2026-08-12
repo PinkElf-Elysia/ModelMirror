@@ -520,6 +520,10 @@ MCP 原生集成属于后端进程管理和工具执行能力，开发时必须�
 - `required` Promotion Gate 必须校验评估运行成功、知识库与候选版本匹配、评估集 revision 仍为当前版本且门禁通过；`advisory` 模式保留人工激活兼容路径。
 - Knowledge Runtime Toolset 只能访问 `workflow_agent.knowledgeBaseIds` 显式声明的 1 至 5 个知识库。模型不得通过工具参数扩展作用域；`toolNames` 仍只过滤 MCP 工具。
 - `knowledge_search/get/cite/propose_write` 必须继续经过 Runtime middleware、tool policy、audit 和 checkpoint。工具输出与审计不得保存完整知识正文或写入提议正文。
+- Classic workflow 的知识分类只承载消费能力；数据源、Processor、分块、Embedding、索引、策略、评测和版本管理由 `/rag` 独占，不得以占位 stage 重新进入工作流节点库。
+- 新建 `knowledge_retrieval` 必须使用 `contractVersion=2` 并显式配置 `knowledgeBaseId`。节点只调用 `RagService.search_knowledge`，不得额外生成 RAG 回答；`result` 模式保留 typed object，`context` 模式返回纯文本。
+- `knowledge_citation` 仅用于旧图加载和执行兼容，不得重新进入节点库或 Planner。旧节点缺失知识库 ID 时，只能在恰有一个可用知识库时兼容；零个或多个必须 fail-closed。
+- 修改工作流知识消费至少运行 `test_workflow_knowledge_retrieval_v2.py`、`test_workflow_knowledge_citation_node.py`、`test_workflow_native_validate.py`、节点 registry 测试和前端构建。
 - 模型写入只能生成 `KnowledgeWriteProposal`，不得直接修改知识库。`/rag/:kbId/inbox` 是唯一正式审批入口；pending 编辑必须使用 revision 乐观并发。
 - 批准提议只能创建受管文档和候选 Pipeline Job，不得自动激活。提议候选必须标记 `promotion_required=true`，通过 Evaluation Gate 后才能由 `/promote` 切换活动版本。
 - 批准创建 Job 失败必须回滚受管文档并保持提议 pending；拒绝不得创建文档、Job 或候选版本。

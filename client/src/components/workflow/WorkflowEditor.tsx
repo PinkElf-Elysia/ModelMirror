@@ -256,10 +256,13 @@ function createNodeData(
     return {
       kind,
       title: "知识检索",
-      description: "使用本地 RAG 资料库检索相关片段。",
+      description: "检索指定知识库的活动版本。",
+      contractVersion: 2,
+      knowledgeBaseId: "",
       queryVariable: "user_input",
-      top_k: "3",
-      outputVariable: "rag_context",
+      top_k: "5",
+      returnMode: "result",
+      outputVariable: "knowledge_result",
     };
   }
 
@@ -1590,23 +1593,9 @@ interface WorkflowResourceOption {
   middleware_count?: number;
 }
 
-function ResourceNodeConfig({
-  data,
-  update,
-}: {
-  data: WorkflowNodeData;
-  update: (patch: Partial<WorkflowNodeData>) => void;
-}) {
+function useWorkflowResourceOptions(resourceKind: string) {
   const [options, setOptions] = useState<WorkflowResourceOption[]>([]);
   const [loadError, setLoadError] = useState("");
-  const resourceKind =
-    data.kind === "external_xpert"
-      ? "external_xpert"
-      : data.kind === "toolset_resource"
-        ? "toolset"
-        : data.kind === "plugin_resource"
-          ? "plugin"
-          : "knowledge_base";
 
   useEffect(() => {
     let cancelled = false;
@@ -1635,6 +1624,26 @@ function ResourceNodeConfig({
       cancelled = true;
     };
   }, [resourceKind]);
+
+  return { loadError, options };
+}
+
+function ResourceNodeConfig({
+  data,
+  update,
+}: {
+  data: WorkflowNodeData;
+  update: (patch: Partial<WorkflowNodeData>) => void;
+}) {
+  const resourceKind =
+    data.kind === "external_xpert"
+      ? "external_xpert"
+      : data.kind === "toolset_resource"
+        ? "toolset"
+        : data.kind === "plugin_resource"
+          ? "plugin"
+          : "knowledge_base";
+  const { loadError, options } = useWorkflowResourceOptions(resourceKind);
 
   if (data.kind === "external_xpert") {
     return (
@@ -1965,6 +1974,154 @@ function ResourceNodeConfig({
         <p className="text-xs leading-5 text-amber-200">{loadError}</p>
       ) : null}
     </ConfigSection>
+  );
+}
+
+function KnowledgeBaseSelector({
+  allowLegacyEmpty = false,
+  onChange,
+  value,
+}: {
+  allowLegacyEmpty?: boolean;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const { loadError, options } = useWorkflowResourceOptions("knowledge_base");
+  return (
+    <>
+      <select
+        className={textInputClass()}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        <option className="bg-slate-950" value="">
+          {allowLegacyEmpty ? "未固定（仅单知识库旧图兼容）" : "选择知识库"}
+        </option>
+        {options.map((item) => (
+          <option className="bg-slate-950" key={item.id} value={item.id}>
+            {item.name} · {item.active_version_id ? "活动索引可用" : "暂无活动索引"}
+          </option>
+        ))}
+      </select>
+      {loadError ? (
+        <p className="mt-2 text-xs leading-5 text-amber-200">{loadError}</p>
+      ) : null}
+    </>
+  );
+}
+
+function KnowledgeRetrievalNodeConfig({
+  data,
+  update,
+}: {
+  data: WorkflowNodeData;
+  update: (patch: Partial<WorkflowNodeData>) => void;
+}) {
+  const isLegacy = !data.contractVersion;
+  return (
+    <>
+      <div className="rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-xs leading-5 text-cyan-50">
+        {isLegacy
+          ? "兼容旧版文本契约。保存现有工作流不会自动改变输出类型。"
+          : "V2 只执行活动知识版本检索；结果模式返回上下文、来源、CitationAnchor 与安全诊断。"}
+      </div>
+      <Field label="知识库">
+        <KnowledgeBaseSelector
+          allowLegacyEmpty={isLegacy}
+          onChange={(value) => update({ knowledgeBaseId: value })}
+          value={data.knowledgeBaseId ?? ""}
+        />
+      </Field>
+      <Field label="查询变量">
+        <input
+          className={textInputClass()}
+          onChange={(event) => update({ queryVariable: event.target.value })}
+          value={data.queryVariable ?? ""}
+        />
+      </Field>
+      <Field label="返回片段数 Top K">
+        <input
+          className={textInputClass()}
+          inputMode="numeric"
+          max={isLegacy ? 20 : 10}
+          min={1}
+          onChange={(event) => update({ top_k: event.target.value })}
+          type="number"
+          value={data.top_k ?? "5"}
+        />
+      </Field>
+      {!isLegacy ? (
+        <Field label="返回模式">
+          <select
+            className={textInputClass()}
+            onChange={(event) => update({ returnMode: event.target.value as "context" | "result" })}
+            value={data.returnMode ?? "result"}
+          >
+            <option className="bg-slate-950" value="result">
+              类型化结果（推荐）
+            </option>
+            <option className="bg-slate-950" value="context">
+              纯文本上下文
+            </option>
+          </select>
+        </Field>
+      ) : null}
+      <Field label="输出变量">
+        <input
+          className={textInputClass()}
+          onChange={(event) => update({ outputVariable: event.target.value })}
+          value={data.outputVariable ?? ""}
+        />
+      </Field>
+    </>
+  );
+}
+
+function LegacyKnowledgeCitationConfig({
+  data,
+  update,
+}: {
+  data: WorkflowNodeData;
+  update: (patch: Partial<WorkflowNodeData>) => void;
+}) {
+  return (
+    <>
+      <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-50">
+        该节点已弃用，仅用于旧工作流兼容。新流程请使用知识检索 V2 的类型化结果。
+      </div>
+      <Field label="查询变量">
+        <input
+          className={textInputClass()}
+          onChange={(event) => update({ queryVariable: event.target.value })}
+          value={data.queryVariable ?? ""}
+        />
+      </Field>
+      <Field label="知识库">
+        <KnowledgeBaseSelector
+          allowLegacyEmpty
+          onChange={(value) => update({ knowledgeBaseId: value })}
+          value={data.knowledgeBaseId ?? ""}
+        />
+      </Field>
+      <Field label="返回引用数 Top K">
+        <input
+          className={textInputClass()}
+          inputMode="numeric"
+          max={10}
+          min={1}
+          onChange={(event) => update({ top_k: event.target.value })}
+          type="number"
+          value={data.top_k ?? "4"}
+        />
+      </Field>
+      <Field label="输出变量">
+        <input
+          className={textInputClass()}
+          onChange={(event) => update({ outputVariable: event.target.value })}
+          value={data.outputVariable ?? ""}
+        />
+      </Field>
+    </>
   );
 }
 
@@ -2469,72 +2626,11 @@ function NodeConfig({
       ) : null}
 
       {data.kind === "knowledge_retrieval" ? (
-        <>
-          <Field label="查询变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ queryVariable: event.target.value })}
-              value={data.queryVariable ?? ""}
-            />
-          </Field>
-          <Field label="返回片段数 Top K">
-            <input
-              className={textInputClass()}
-              inputMode="numeric"
-              onChange={(event) => update({ top_k: event.target.value })}
-              type="number"
-              value={data.top_k ?? "3"}
-            />
-          </Field>
-          <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
-              value={data.outputVariable ?? ""}
-            />
-          </Field>
-        </>
+        <KnowledgeRetrievalNodeConfig data={data} update={update} />
       ) : null}
 
       {data.kind === "knowledge_citation" ? (
-        <>
-          <div className="rounded-lg border border-teal-300/25 bg-teal-300/10 px-3 py-2 text-xs leading-5 text-teal-50">
-            输出为 JSON 字符串，包含 citations 与 citation_count；不返回本地文件路径或向量内容。
-          </div>
-          <Field label="查询变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ queryVariable: event.target.value })}
-              value={data.queryVariable ?? ""}
-            />
-          </Field>
-          <Field label="知识库 ID（可选）">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ knowledgeBaseId: event.target.value })}
-              placeholder="留空时使用第一个知识库"
-              value={data.knowledgeBaseId ?? ""}
-            />
-          </Field>
-          <Field label="返回引用数 Top K">
-            <input
-              className={textInputClass()}
-              inputMode="numeric"
-              max={10}
-              min={1}
-              onChange={(event) => update({ top_k: event.target.value })}
-              type="number"
-              value={data.top_k ?? "4"}
-            />
-          </Field>
-          <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
-              value={data.outputVariable ?? ""}
-            />
-          </Field>
-        </>
+        <LegacyKnowledgeCitationConfig data={data} update={update} />
       ) : null}
 
       {data.kind === "document_extractor" ? (

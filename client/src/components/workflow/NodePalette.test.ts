@@ -3,12 +3,24 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import NodePalette, { disabledPaletteItem } from "./NodePalette";
+import {
+  knowledgePipelineItems,
+  knowledgePipelinePlaceholders,
+} from "./workflowNodeRegistry";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("NodePalette disabled workflow nodes", () => {
+  it("only exposes executable knowledge consumption nodes", () => {
+    expect(knowledgePipelineItems.map((item) => item.kind)).toEqual([
+      "knowledge_base",
+      "knowledge_retrieval",
+    ]);
+    expect(knowledgePipelinePlaceholders).toEqual([]);
+  });
+
   it("keeps a disabled node visible with its explicit reason", () => {
     const placeholder = disabledPaletteItem({
       kind: "document_extractor",

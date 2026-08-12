@@ -143,6 +143,47 @@ def _with_bound_resources(
     return NativeWorkflowDefinition.model_validate(result)
 
 
+def _with_knowledge_retrieval(
+    workflow: NativeWorkflowDefinition,
+    *,
+    knowledge_base_id: str,
+) -> NativeWorkflowDefinition:
+    result = workflow.model_dump(mode="json")
+    result["nodes"].append(
+        {
+            "id": "knowledge-retrieval-1",
+            "type": "knowledge_retrieval",
+            "data": {
+                "kind": "knowledge_retrieval",
+                "contractVersion": 2,
+                "knowledgeBaseId": knowledge_base_id,
+                "queryVariable": "user_input",
+                "top_k": "5",
+                "returnMode": "result",
+                "outputVariable": "knowledge_result",
+            },
+        }
+    )
+    result["edges"] = [
+        {
+            "id": "edge-input-retrieval",
+            "source": "input-1",
+            "target": "knowledge-retrieval-1",
+        },
+        {
+            "id": "edge-retrieval-agent",
+            "source": "knowledge-retrieval-1",
+            "target": "workflow-agent-1",
+        },
+        {
+            "id": "edge-agent-output",
+            "source": "workflow-agent-1",
+            "target": "output-1",
+        },
+    ]
+    return NativeWorkflowDefinition.model_validate(result)
+
+
 def test_resource_bindings_are_valid_and_do_not_enter_control_flow(
     resource_stores,
 ) -> None:
@@ -308,6 +349,55 @@ async def test_publish_pins_external_xpert_version_and_app_blocks_it(
     )
     assert "app_external_xpert_forbidden" in {
         issue["code"] for issue in preflight["issues"]
+    }
+
+
+@pytest.mark.asyncio
+async def test_publish_validates_explicit_knowledge_retrieval_resource(
+    client: httpx.AsyncClient,
+    resource_stores,
+) -> None:
+    xpert_store, rag_service = resource_stores
+    knowledge_base = rag_service.create_knowledge_base("Published Knowledge")
+    xpert = xpert_store.create_xpert(name="Knowledge Consumer")
+    draft = xpert.draft.model_copy(deep=True)
+    draft.workflow = _with_knowledge_retrieval(
+        draft.workflow,
+        knowledge_base_id=knowledge_base["id"],
+    )
+    xpert = xpert_store.update_xpert(
+        xpert.id,
+        {"draft": draft.model_dump(mode="json")},
+    )
+
+    response = await client.post(f"/api/xperts/{xpert.id}/publish", json={})
+    assert response.status_code == 200, response.text
+    published = xpert_store.get_version(xpert.id, 1)
+    retrieval = next(
+        node
+        for node in published.workflow.nodes
+        if str(node.data.get("kind") or node.type) == "knowledge_retrieval"
+    )
+    assert retrieval.data["knowledgeBaseId"] == knowledge_base["id"]
+    assert retrieval.data["contractVersion"] == 2
+
+    missing = xpert_store.create_xpert(name="Missing Knowledge Consumer")
+    missing_draft = missing.draft.model_copy(deep=True)
+    missing_draft.workflow = _with_knowledge_retrieval(
+        missing_draft.workflow,
+        knowledge_base_id="kb_missing",
+    )
+    missing = xpert_store.update_xpert(
+        missing.id,
+        {"draft": missing_draft.model_dump(mode="json")},
+    )
+    rejected = await client.post(
+        f"/api/xperts/{missing.id}/publish",
+        json={},
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert "xpert_knowledge_base_not_found" in {
+        issue["code"] for issue in rejected.json()["detail"]["issues"]
     }
 
 

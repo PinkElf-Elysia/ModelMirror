@@ -361,7 +361,7 @@ Evaluator、Prompt 候选和工作流结构候选顺序推进。MIT 代码只允
 ## 已实现基线
 
 - `/api/chat` 默认保持普通 SSE 聊天；显式启用 `tool_mode=mcp_tools` 时进入 Runtime Toolset 工具循环，登记 chat run、checkpoint、tool events 与审计摘要。
-- Classic workflow 已支持 `workflow_agent`、`agent_task`、`agent_handoff`、`handoff_router`、`knowledge_citation`、`mcp_tool`、`runtime_middleware` 等 Xpert 对齐节点。
+- Classic workflow 已支持 `workflow_agent`、`agent_task`、`agent_handoff`、`handoff_router`、`knowledge_base`、`knowledge_retrieval`、`mcp_tool`、`runtime_middleware` 等 Xpert 对齐节点；`knowledge_citation` 仅保留旧图兼容。
 - `/workflow` 节点库已从平铺数组收敛为前端 `workflowNodeRegistry`，按工作流、中间件、知识流水线 tab 和逻辑、转换、工具、记忆、其他等 Xpert 分类渲染；拖拽协议和运行语义不变。
 - `/workflow` 中 `agent` 与 `workflow_agent` 的右侧配置已对齐为 Xpert 式分区侧栏，包含节点、参数、提示词/模型、中间件、知识库、工具、运行策略、输出结构和记忆写入；其中高级区块当前只保存配置草稿。
 - `MCPToolsetProvider`、`CapabilityRegistry`、`run_tool_with_runtime` 已成为 MCP 工具调用主路径。
@@ -399,7 +399,7 @@ Evaluator、Prompt 候选和工作流结构候选顺序推进。MIT 代码只允
 目标：把 classic workflow 节点从散落的静态列表收敛为 Xpert 分类节点注册表。
 
 - `XPERT-WORKFLOW-PALETTE-01`：已完成第一版前端节点 registry，按逻辑、转换、工具、记忆、其他、中间件、知识流水线分类渲染节点库。
-- 当前边界：registry 先放前端本地；未实现的数据库、注释、知识流水线 stage 只显示禁用占位，不生成节点；拖拽 payload、validate、runner 和 SSE 协议保持不变。
+- 当前边界：registry 以后端 API 为主、前端 fallback 为辅。数据库、注释和 JSON 节点已由独立工作流数据轮次收尾；知识建设 stage 已从 classic workflow 节点库移除，由 `/rag` 独占。
 
 ### 阶段 3：智能体配置面板对齐
 
@@ -413,7 +413,7 @@ Evaluator、Prompt 候选和工作流结构候选顺序推进。MIT 代码只允
 目标：从当前 RAG 元数据视图推进到可视化知识流水线草稿。
 
 - `XPERT-KNOWLEDGE-PIPELINE-02`：已引入数据源、处理器、分块器、图像理解四类 stage 的只读草稿 API 与 `/rag` UI。
-- 当前边界：不迁移向量库，不改变 `/api/rag/query`，不执行真实图像理解；只新增可观测草稿层。
+- 当前边界：该历史阶段现已发展为 `/rag` 的可执行、版本化知识流水线；classic workflow 只通过知识库绑定与检索消费活动版本。
 
 ### 阶段 5：运行与工具运维收口
 

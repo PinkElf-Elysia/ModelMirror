@@ -6,6 +6,12 @@ from typing import Any, Literal
 
 
 WorkflowNodeRegistryTab = Literal["workflow", "knowledge"]
+WorkflowPlannerSupport = Literal[
+    "full",
+    "binding_only",
+    "metadata_only",
+    "unsupported",
+]
 WorkflowNodeCategory = Literal[
     "logic",
     "transform",
@@ -36,8 +42,14 @@ class WorkflowPaletteItem:
     enabled: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
     planner_enabled: bool = True
+    planner_support: WorkflowPlannerSupport = "full"
     planner_default_data: dict[str, Any] = field(default_factory=dict)
     planner_config_constraints: dict[str, Any] = field(default_factory=dict)
+    input_contract: dict[str, Any] = field(default_factory=dict)
+    output_contract: dict[str, Any] = field(default_factory=dict)
+    resource_requirements: list[str] = field(default_factory=list)
+    deprecated: bool = False
+    replacement_kind: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -49,8 +61,16 @@ class WorkflowPaletteItem:
             "tags": list(self.tags),
             "enabled": self.enabled,
             "metadata": dict(self.metadata),
+            "contracts": {
+                "inputs": dict(self.input_contract),
+                "outputs": dict(self.output_contract),
+                "resources": list(self.resource_requirements),
+                "deprecated": self.deprecated,
+                "replacement_kind": self.replacement_kind,
+            },
             "planner": {
                 "enabled": self.enabled and self.planner_enabled,
+                "support": self.planner_support,
                 "default_data": {
                     "kind": self.kind,
                     "title": self.title,
@@ -123,7 +143,7 @@ class WorkflowNodeRegistry:
     """Xpert-style metadata registry for classic workflow palette nodes."""
 
     def __init__(self) -> None:
-        self.version = "xpert-workflow-node-registry-v1"
+        self.version = "xpert-workflow-node-registry-v2"
         self._tabs: list[WorkflowPaletteTab] = []
         self._sections: list[WorkflowPaletteSection] = []
         self._knowledge_pipeline = KnowledgePipelinePalette()
@@ -259,14 +279,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     tags=["classifier", "question"],
                 ),
                 WorkflowPaletteItem(
-                    kind="knowledge_retrieval",
-                    icon="RAG",
-                    title="知识检索",
-                    description="查询本地 RAG 资料库，把相关段落写入变量。",
-                    category="transform",
-                    tags=["rag", "knowledge"],
-                ),
-                WorkflowPaletteItem(
                     kind="code",
                     icon="</>",
                     title="代码执行",
@@ -385,19 +397,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     planner_config_constraints={
                         "required": ["xpertId", "toolName"],
                         "target_handle": "expert",
-                    },
-                ),
-                WorkflowPaletteItem(
-                    kind="knowledge_base",
-                    icon="KB",
-                    title="知识库",
-                    description="Bind one knowledge base to the agent's read-only knowledge tools.",
-                    category="resource",
-                    tags=["knowledge", "rag", "resource", "binding"],
-                    planner_default_data={"topK": "5", "scoreThreshold": "0"},
-                    planner_config_constraints={
-                        "required": ["knowledgeBaseId"],
-                        "target_handle": "knowledge",
                     },
                 ),
                 WorkflowPaletteItem(
@@ -664,48 +663,59 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
         KnowledgePipelinePalette(
             items=[
                 WorkflowPaletteItem(
-                    kind="knowledge_citation",
-                    icon="CITE",
-                    title="知识引用锚点",
-                    description="查询本地 RAG，输出 CitationAnchor JSON。",
+                    kind="knowledge_base",
+                    icon="KB",
+                    title="知识库",
+                    description="将一个知识库绑定到工作流智能体的只读知识工具。",
+                    category="resource",
+                    tags=["knowledge", "rag", "resource", "binding"],
+                    planner_support="binding_only",
+                    planner_default_data={"topK": "5", "scoreThreshold": "0"},
+                    planner_config_constraints={
+                        "required": ["knowledgeBaseId"],
+                        "target_handle": "knowledge",
+                    },
+                    input_contract={"binding": "knowledge_base"},
+                    output_contract={"control_flow": False},
+                    resource_requirements=["knowledge_base"],
+                ),
+                WorkflowPaletteItem(
+                    kind="knowledge_retrieval",
+                    icon="RAG",
+                    title="知识检索",
+                    description="检索指定知识库的活动版本并输出文本或类型化结果。",
                     category="transform",
-                    tags=["citation", "rag", "knowledge-pipeline"],
-                )
-            ],
-            placeholders=[
-                WorkflowPalettePlaceholder(
-                    id="pipeline_source_default",
-                    icon="TXT",
-                    title="默认数据源",
-                    description="从知识流水线数据源读取文件。",
-                    category="other",
-                    tags=["source", "data"],
-                ),
-                WorkflowPalettePlaceholder(
-                    id="pipeline_processor",
-                    icon="PX",
-                    title="处理器",
-                    description="清洗、解析和转换文档内容。",
-                    category="other",
-                    tags=["processor"],
-                ),
-                WorkflowPalettePlaceholder(
-                    id="pipeline_splitter",
-                    icon="SPLIT",
-                    title="分块器",
-                    description="递归字符、Markdown 或父子分块。",
-                    category="other",
-                    tags=["splitter", "chunk"],
-                ),
-                WorkflowPalettePlaceholder(
-                    id="pipeline_vision",
-                    icon="VISION",
-                    title="图像理解",
-                    description="使用视觉语言模型处理图片内容。",
-                    category="other",
-                    tags=["vision", "image"],
+                    tags=["rag", "knowledge", "retrieval"],
+                    planner_enabled=False,
+                    planner_support="unsupported",
+                    planner_default_data={
+                        "contractVersion": 2,
+                        "knowledgeBaseId": "",
+                        "queryVariable": "user_input",
+                        "top_k": "5",
+                        "returnMode": "result",
+                        "outputVariable": "knowledge_result",
+                    },
+                    planner_config_constraints={
+                        "required": [
+                            "knowledgeBaseId",
+                            "queryVariable",
+                            "outputVariable",
+                        ],
+                        "return_mode": ["context", "result"],
+                    },
+                    input_contract={
+                        "queryVariable": "string",
+                        "knowledgeBaseId": "resource:knowledge_base",
+                    },
+                    output_contract={
+                        "context": "string",
+                        "result": "object",
+                    },
+                    resource_requirements=["knowledge_base"],
                 ),
             ],
+            placeholders=[],
         )
     )
 

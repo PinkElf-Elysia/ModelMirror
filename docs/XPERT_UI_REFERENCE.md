@@ -79,7 +79,7 @@ Xpert “添加工作流”菜单按以下分类组织：
 
 ModelMirror 已有对应基础：`input`、`condition`、`iteration`、`list_operation`、`variable_aggregator`、`variable_assign`、`question_classifier`、`knowledge_retrieval`、`code`、`template_transform`、`mcp_tool`、`workflow_agent`、`agent_task`、`agent_handoff`、`handoff_router`、`knowledge_citation`、`output`。
 
-`XPERT-WORKFLOW-PALETTE-01` 已完成第一版本地映射：ModelMirror 在前端建立 `workflowNodeRegistry`，并让 `/workflow` 节点库以“工作流 / 中间件 / 知识流水线”三个 tab 呈现。工作流 tab 内按 Xpert 的逻辑、转换、工具、记忆、其他分类渲染；中间件 tab 继续读取 `/api/runtime/middleware-nodes`；知识流水线 tab 先暴露可运行的 `knowledge_citation`，并以禁用占位呈现数据源、处理器、分块器、图像理解等后续 stage。
+`XPERT-WORKFLOW-PALETTE-01` 已完成节点 registry 与分类渲染。当前知识流水线 tab 只展示 `knowledge_base` 与 `knowledge_retrieval`；数据源、处理器、分块器、Embedding、索引和评测由 `/rag` 独占，不再显示工作流占位。`knowledge_citation` 仅保留旧图兼容。
 
 `XPERT-WORKFLOW-REGISTRY-API-01` 已把“工作流 / 知识流水线”菜单元数据后端化为 `GET /api/workflow/node-registry`。前端仍保留本地 registry 作为 fallback；后端 registry 仅暴露概念、分类、标题、描述、图标、标签与禁用占位，不复制 Xpert 源码，也不改变节点执行语义。中间件菜单继续由现有 middleware registry 提供，避免两个 registry 在本轮混用职责。
 
@@ -87,7 +87,7 @@ ModelMirror 已有对应基础：`input`、`condition`、`iteration`、`list_ope
 
 - 普通工作流节点仍使用原有 `application/modelmirror-node = kind` 拖拽协议。
 - runtime middleware 仍使用现有 JSON payload，不改变 `WorkflowEditor` 解析逻辑。
-- 数据库、注释、JSON 序列化/反序列化、知识流水线 stage 等 Xpert 节点暂不创建真实节点，只显示“待接入”占位，避免用户拖入无法运行的节点。
+- 知识流水线建设 stage 不进入 classic workflow；工作流只保留知识库绑定、确定性检索，以及后续独立交付的通用视觉理解。
 - registry 先放在前端本地，后续如节点元数据继续扩张，再评估后端统一 registry API。
 
 ## 中间件菜单

@@ -79,6 +79,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   schema?: string;
   queryVariable?: string;
   knowledgeBaseId?: string;
+  contractVersion?: number | string;
   toolsetId?: string;
   pluginId?: string;
   xpertId?: string;
@@ -90,7 +91,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   filter?: Record<string, unknown>;
   sort?: Array<{ field: string; direction: "asc" | "desc" }>;
   limit?: number | string;
-  returnMode?: "list" | "first";
+  returnMode?: "list" | "first" | "context" | "result";
   valueBindings?: Record<string, unknown>;
   topK?: string;
   scoreThreshold?: string;

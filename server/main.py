@@ -435,10 +435,21 @@ except ModuleNotFoundError:
 
 try:
     from server.rag.document_parser import parse_document
-    from server.rag.rag_service import RagService
 except ModuleNotFoundError:
     from rag.document_parser import parse_document
-    from rag.rag_service import RagService
+
+try:
+    from server.xpert_runtime.workflow_knowledge import (
+        WorkflowKnowledgeContractError,
+        execute_workflow_knowledge_retrieval,
+        resolve_workflow_knowledge_base,
+    )
+except ModuleNotFoundError:
+    from xpert_runtime.workflow_knowledge import (
+        WorkflowKnowledgeContractError,
+        execute_workflow_knowledge_retrieval,
+        resolve_workflow_knowledge_base,
+    )
 
 try:
     from server.coding_runtime.api import router as coding_router
@@ -4294,6 +4305,16 @@ def workflow_document_extractor_root() -> Path:
 
 class WorkflowDocumentFatalError(RuntimeError):
     """Stable, path-free fatal error for document_extractor nodes."""
+
+    def __init__(self, node_id: str, error_code: str, safe_message: str) -> None:
+        super().__init__(safe_message)
+        self.node_id = node_id
+        self.error_code = error_code
+        self.safe_message = safe_message
+
+
+class WorkflowKnowledgeFatalError(RuntimeError):
+    """Stable, content-free fatal error for knowledge consumption nodes."""
 
     def __init__(self, node_id: str, error_code: str, safe_message: str) -> None:
         super().__init__(safe_message)
@@ -10005,6 +10026,7 @@ async def _run_workflow_response(
                         )
 
                 elif kind == "knowledge_retrieval":
+                    retrieval_run = None
                     try:
                         output_variable = str(
                             node.data.get("outputVariable") or "rag_context"
@@ -10017,53 +10039,161 @@ async def _run_workflow_response(
                             top_k = int(str(node.data.get("top_k") or "3"))
                         except ValueError:
                             top_k = 3
-                        top_k = max(1, min(top_k, 20))
-                        service = RagService(llm_enabled=False)
-                        knowledge_bases = service.list_knowledge_bases()
-                        if not knowledge_bases:
-                            output = ""
-                            variables[output_variable] = output
-                            yield sse_payload(
-                                {
-                                    "event": "error",
-                                    "node_id": node.id,
-                                    "message": "RAG 索引未就绪，尚无可查询知识库。",
-                                }
+                        contract_value = node.data.get("contractVersion")
+                        try:
+                            contract_version = (
+                                int(contract_value) if contract_value is not None else 1
                             )
-                        else:
-                            kb_id = str(knowledge_bases[0]["id"])
-                            result = await service.query(kb_id, query_text, top_k=top_k)
-                            sources = result.get("sources")
-                            if isinstance(sources, list):
-                                parts = [
-                                    str(source.get("text") or "")
-                                    for source in sources
-                                    if isinstance(source, dict) and source.get("text")
-                                ]
-                            else:
-                                parts = []
-                            output = "\n---\n".join(parts)
-                            variables[output_variable] = output
-                            yield sse_payload(
-                                {
-                                    "event": "node_delta",
-                                    "node_id": node.id,
-                                    "node_title": title,
-                                    "node_type": kind,
-                                    "output": output or "RAG 未返回相关片段。",
-                                    "variable": output_variable,
-                                }
+                        except (TypeError, ValueError) as exc:
+                            raise WorkflowKnowledgeContractError(
+                                "workflow_knowledge_contract_invalid",
+                                "Knowledge retrieval contractVersion is invalid.",
+                            ) from exc
+                        return_mode = str(
+                            node.data.get("returnMode")
+                            or ("result" if contract_version >= 2 else "context")
+                        ).strip()
+                        configured_kb_id = str(
+                            node.data.get("knowledgeBaseId") or ""
+                        ).strip()
+                        retrieval_run = await run_registry.create_run(
+                            "knowledge_retrieval",
+                            title,
+                            status="running",
+                            source_id=f"{task_id}:{node.id}",
+                            parent_run_id=workflow_run.run_id,
+                            metadata={
+                                "workflow_id": payload.workflow.id,
+                                "workflow_task_id": task_id,
+                                "node_id": node.id,
+                                "kb_id": configured_kb_id,
+                                "contract_version": contract_version,
+                                "return_mode": return_mode,
+                                "top_k": top_k,
+                                "output_variable": output_variable,
+                            },
+                        )
+                        await run_registry.record_checkpoint(
+                            retrieval_run.run_id,
+                            event_type="knowledge_retrieval.started",
+                            title="Knowledge retrieval started",
+                            summary=f"top_k={top_k}, return_mode={return_mode}",
+                            metadata={
+                                "node_id": node.id,
+                                "kb_id": configured_kb_id,
+                                "contract_version": contract_version,
+                                "return_mode": return_mode,
+                                "top_k": top_k,
+                            },
+                        )
+                        output, retrieval_metadata = (
+                            await execute_workflow_knowledge_retrieval(
+                                get_rag_service(),
+                                configured_kb_id=configured_kb_id,
+                                query=query_text,
+                                top_k=top_k,
+                                contract_version=contract_version,
+                                return_mode=return_mode,
                             )
-                    except Exception as exc:
-                        logger.warning("Workflow knowledge_retrieval node failed: %s", exc)
-                        variables[str(node.data.get("outputVariable") or "rag_context")] = ""
+                        )
+                        variables[output_variable] = output
+                        output_length = len(workflow_value_to_text(output))
+                        await run_registry.update_run(
+                            retrieval_run.run_id,
+                            status="completed",
+                            metadata={
+                                **retrieval_metadata,
+                                "output_length": output_length,
+                            },
+                        )
+                        await run_registry.record_checkpoint(
+                            retrieval_run.run_id,
+                            event_type="knowledge_retrieval.completed",
+                            title="Knowledge retrieval completed",
+                            summary=(
+                                f"hit_count={retrieval_metadata['hit_count']}, "
+                                f"output_length={output_length}"
+                            ),
+                            metadata={
+                                "node_id": node.id,
+                                **retrieval_metadata,
+                                "output_variable": output_variable,
+                                "output_length": output_length,
+                            },
+                        )
+                        display_output = (
+                            workflow_value_to_text(output)[:1_000]
+                            if isinstance(output, str)
+                            else (
+                                f"Retrieved {retrieval_metadata['hit_count']} source(s) "
+                                f"into {output_variable}."
+                            )
+                        )
                         yield sse_payload(
                             {
-                                "event": "error",
+                                "event": "node_delta",
                                 "node_id": node.id,
-                                "message": str(exc),
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": display_output,
+                                "variable": output_variable,
+                                "run_id": retrieval_run.run_id,
+                                **retrieval_metadata,
                             }
                         )
+                    except WorkflowKnowledgeContractError as exc:
+                        if retrieval_run is not None:
+                            await run_registry.record_checkpoint(
+                                retrieval_run.run_id,
+                                event_type="knowledge_retrieval.failed",
+                                title="Knowledge retrieval failed",
+                                summary=exc.error_code,
+                                severity="error",
+                                metadata={
+                                    "node_id": node.id,
+                                    "error_code": exc.error_code,
+                                },
+                            )
+                            await run_registry.update_run(
+                                retrieval_run.run_id,
+                                status="failed",
+                                error=exc.safe_message,
+                            )
+                        raise WorkflowKnowledgeFatalError(
+                            node.id,
+                            exc.error_code,
+                            exc.safe_message,
+                        ) from None
+                    except Exception as exc:
+                        logger.warning(
+                            "Workflow knowledge_retrieval node failed: %s",
+                            type(exc).__name__,
+                        )
+                        if retrieval_run is not None:
+                            try:
+                                await run_registry.record_checkpoint(
+                                    retrieval_run.run_id,
+                                    event_type="knowledge_retrieval.failed",
+                                    title="Knowledge retrieval failed",
+                                    summary="workflow_knowledge_retrieval_failed",
+                                    severity="error",
+                                    metadata={"node_id": node.id},
+                                )
+                                await run_registry.update_run(
+                                    retrieval_run.run_id,
+                                    status="failed",
+                                    error="Knowledge retrieval failed.",
+                                )
+                            except Exception:
+                                logger.warning(
+                                    "Failed to update knowledge retrieval run",
+                                    exc_info=True,
+                                )
+                        raise WorkflowKnowledgeFatalError(
+                            node.id,
+                            "workflow_knowledge_retrieval_failed",
+                            "Knowledge retrieval failed.",
+                        ) from None
 
                 elif kind == "knowledge_citation":
                     output_variable = str(
@@ -10091,10 +10221,13 @@ async def _run_workflow_response(
                         top_k = max(1, min(top_k, 10))
 
                         service = get_rag_service()
-                        if not knowledge_base_id:
-                            knowledge_bases = service.list_knowledge_bases()
-                            if knowledge_bases:
-                                knowledge_base_id = str(knowledge_bases[0]["id"])
+                        knowledge_base_id, compatibility_warnings = (
+                            resolve_workflow_knowledge_base(
+                                service,
+                                knowledge_base_id,
+                                allow_legacy_fallback=True,
+                            )
+                        )
 
                         citation_run = await run_registry.create_run(
                             "knowledge_citation",
@@ -10112,6 +10245,7 @@ async def _run_workflow_response(
                                 "query_variable": query_variable,
                                 "output_variable": output_variable,
                                 "top_k": top_k,
+                                "warning_count": len(compatibility_warnings),
                             },
                         )
                         await run_registry.record_checkpoint(
@@ -10125,123 +10259,95 @@ async def _run_workflow_response(
                                 "query_variable": query_variable,
                                 "output_variable": output_variable,
                                 "top_k": top_k,
+                                "warning_count": len(compatibility_warnings),
                             },
                         )
-
-                        if not knowledge_base_id:
-                            variables[output_variable] = output
-                            await run_registry.update_run(
-                                citation_run.run_id,
-                                status="completed",
-                                metadata={"citation_count": 0},
-                            )
-                            await run_registry.record_checkpoint(
-                                citation_run.run_id,
-                                event_type="knowledge_citation.completed",
-                                title="Knowledge citation completed",
-                                summary="citation_count=0",
-                                metadata={
-                                    "node_id": node.id,
-                                    "citation_count": 0,
-                                },
-                            )
-                            yield sse_payload(
-                                {
-                                    "event": "error",
-                                    "node_id": node.id,
-                                    "message": "RAG 索引尚未就绪，暂无可查询知识库。",
-                                }
-                            )
-                            yield sse_payload(
-                                {
-                                    "event": "node_delta",
-                                    "node_id": node.id,
-                                    "node_title": title,
-                                    "node_type": kind,
-                                    "output": "未找到可查询知识库，已写入空 CitationAnchor JSON。",
-                                    "variable": output_variable,
-                                    "run_id": citation_run.run_id,
-                                    "citation_count": 0,
-                                }
-                            )
-                        else:
-                            citations = await service.create_pipeline_citations(
-                                knowledge_base_id,
-                                query_text,
-                                top_k=top_k,
-                            )
-                            payload_json = {
-                                "citations": citations,
-                                "citation_count": len(citations),
-                            }
-                            output = json.dumps(payload_json, ensure_ascii=False)
-                            variables[output_variable] = output
-                            await run_registry.update_run(
-                                citation_run.run_id,
-                                status="completed",
-                                metadata={
-                                    "kb_id": knowledge_base_id,
-                                    "citation_count": len(citations),
-                                    "output_length": len(output),
-                                },
-                            )
-                            await run_registry.record_checkpoint(
-                                citation_run.run_id,
-                                event_type="knowledge_citation.completed",
-                                title="Knowledge citation completed",
-                                summary=f"citation_count={len(citations)}",
-                                metadata={
-                                    "node_id": node.id,
-                                    "kb_id": knowledge_base_id,
-                                    "citation_count": len(citations),
-                                    "output_variable": output_variable,
-                                },
-                            )
-                            yield sse_payload(
-                                {
-                                    "event": "node_delta",
-                                    "node_id": node.id,
-                                    "node_title": title,
-                                    "node_type": kind,
-                                    "output": (
-                                        f"已生成 {len(citations)} 个 CitationAnchor，"
-                                        f"写入 {output_variable}。"
-                                    ),
-                                    "variable": output_variable,
-                                    "run_id": citation_run.run_id,
-                                    "citation_count": len(citations),
-                                }
-                            )
-                    except Exception as exc:
-                        logger.warning("Workflow knowledge_citation node failed: %s", exc)
+                        citations = await service.create_pipeline_citations(
+                            knowledge_base_id,
+                            query_text,
+                            top_k=top_k,
+                        )
+                        payload_json = {
+                            "citations": citations,
+                            "citation_count": len(citations),
+                        }
+                        output = json.dumps(payload_json, ensure_ascii=False)
                         variables[output_variable] = output
+                        await run_registry.update_run(
+                            citation_run.run_id,
+                            status="completed",
+                            metadata={
+                                "kb_id": knowledge_base_id,
+                                "citation_count": len(citations),
+                                "output_length": len(output),
+                                "warning_count": len(compatibility_warnings),
+                            },
+                        )
+                        await run_registry.record_checkpoint(
+                            citation_run.run_id,
+                            event_type="knowledge_citation.completed",
+                            title="Knowledge citation completed",
+                            summary=f"citation_count={len(citations)}",
+                            metadata={
+                                "node_id": node.id,
+                                "kb_id": knowledge_base_id,
+                                "citation_count": len(citations),
+                                "output_variable": output_variable,
+                                "warning_count": len(compatibility_warnings),
+                            },
+                        )
+                        yield sse_payload(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": (
+                                    f"已生成 {len(citations)} 个 CitationAnchor，"
+                                    f"写入 {output_variable}。"
+                                ),
+                                "variable": output_variable,
+                                "run_id": citation_run.run_id,
+                                "citation_count": len(citations),
+                                "warning_count": len(compatibility_warnings),
+                            }
+                        )
+                    except WorkflowKnowledgeContractError as exc:
+                        raise WorkflowKnowledgeFatalError(
+                            node.id,
+                            exc.error_code,
+                            exc.safe_message,
+                        ) from None
+                    except Exception as exc:
+                        logger.warning(
+                            "Workflow knowledge_citation node failed: %s",
+                            type(exc).__name__,
+                        )
                         if citation_run is not None:
                             try:
                                 await run_registry.record_checkpoint(
                                     citation_run.run_id,
                                     event_type="knowledge_citation.failed",
                                     title="Knowledge citation failed",
-                                    summary=str(exc),
+                                    summary="workflow_knowledge_citation_failed",
                                     severity="error",
                                     metadata={"node_id": node.id},
                                 )
                                 await run_registry.update_run(
                                     citation_run.run_id,
                                     status="failed",
-                                    error=str(exc),
+                                    error="Knowledge citation failed.",
                                 )
                             except Exception:
                                 logger.warning(
                                     "Failed to update knowledge_citation run status",
                                     exc_info=True,
                                 )
-                        yield sse_payload(
-                            {
-                                "event": "error",
-                                "node_id": node.id,
-                                "message": str(exc),
-                            }
-                        )
+                        raise WorkflowKnowledgeFatalError(
+                            node.id,
+                            "workflow_knowledge_citation_failed",
+                            "Knowledge citation failed.",
+                        ) from None
 
                 elif kind == "document_extractor":
                     try:
@@ -13986,6 +14092,64 @@ async def _run_workflow_response(
                 )
             task_state["created_at"] = time.monotonic()
             yield sse_payload(pending_event)
+        except WorkflowKnowledgeFatalError as exc:
+            failure_error = f"{exc.error_code}: {exc.safe_message}"
+            logger.warning(
+                "Workflow knowledge node failed workflow=%s node=%s code=%s",
+                payload.workflow.id,
+                exc.node_id,
+                exc.error_code,
+            )
+            try:
+                await run_registry.update_run(
+                    workflow_run.run_id,
+                    status="failed",
+                    error=failure_error,
+                )
+                await run_registry.record_checkpoint(
+                    workflow_run.run_id,
+                    event_type="workflow.knowledge.failed",
+                    title="Knowledge consumption failed",
+                    summary=exc.error_code,
+                    severity="error",
+                    metadata={
+                        "node_id": exc.node_id,
+                        "error_code": exc.error_code,
+                    },
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to update workflow knowledge failure status",
+                    exc_info=True,
+                )
+            try:
+                workflow_execution_store.fail(task_id, error=failure_error)
+                workflow_execution_store.append_event(
+                    task_id,
+                    {
+                        "event": "error",
+                        "task_id": task_id,
+                        "run_id": workflow_run.run_id,
+                        "node_id": exc.node_id,
+                        "code": exc.error_code,
+                        "message": exc.safe_message,
+                    },
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to persist workflow knowledge failure",
+                    exc_info=True,
+                )
+            yield sse_payload(
+                {
+                    "event": "error",
+                    "task_id": task_id,
+                    "run_id": workflow_run.run_id,
+                    "node_id": exc.node_id,
+                    "code": exc.error_code,
+                    "message": exc.safe_message,
+                }
+            )
         except WorkflowDocumentFatalError as exc:
             failure_error = f"{exc.error_code}: {exc.safe_message}"
             logger.warning(
