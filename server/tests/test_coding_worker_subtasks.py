@@ -24,6 +24,12 @@ from server.coding_worker.provider import (
     INSPECT_PROVIDER_TOOLS,
     PROVIDER_TOOL_NAMES,
 )
+from server.coding_worker.api import (
+    coding_worker_capabilities,
+    configure_coding_worker_for_tests,
+    router,
+)
+from server.coding_worker.runtime import CodingWorkerRuntime
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.tool_broker import ToolBroker, ToolBrokerError
 from server.coding_worker.workspace import (
@@ -323,3 +329,35 @@ def test_inspect_parent_cannot_delegate_implementation(
         assert store.list_subtasks(parent.task_id) == []
 
     asyncio.run(scenario())
+
+
+def test_subtask_capability_routes_and_runtime_wiring(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_SUBAGENTS_ENABLED", "true")
+    adapter = InMemoryWorkspaceSourceAdapter(
+        {("source", "revision"): {"main.py": b"print('ok')\n"}}
+    )
+    runtime = CodingWorkerRuntime(
+        storage_root=tmp_path / "runtime",
+        slot_roots={
+            "slot-a": tmp_path / "slot-a",
+            "slot-b": tmp_path / "slot-b",
+        },
+        source_adapters={"manifest": adapter},
+        frozen_checks={},
+        provider_endpoints={"slot-a": "tcp:127.0.0.1:1", "slot-b": "tcp:127.0.0.1:2"},
+        provider_tokens={"slot-a": "a" * 32, "slot-b": "b" * 32},
+        broker_socket_path=None,
+    )
+    configure_coding_worker_for_tests(runtime.service, enabled=True)
+    try:
+        assert coding_worker_capabilities().subtasks is True
+        paths = {route.path for route in router.routes}
+        assert "/api/coding-worker/v1/tasks/{task_id}/subtasks" in paths
+        assert "/api/coding-worker/v1/tasks/{task_id}/children" in paths
+        assert runtime.tool_broker.subtask_handler is not None
+        assert runtime.tool_broker.subtask_handler.__self__ is runtime.service
+    finally:
+        configure_coding_worker_for_tests(None, enabled=None)

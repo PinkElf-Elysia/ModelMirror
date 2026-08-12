@@ -125,6 +125,7 @@ class CodingWorkerRuntime:
             tool_broker=self.tool_broker,
             route_slots=route_slots,
         )
+        self.tool_broker.subtask_handler = self.service.create_subtask
         self.broker_socket_path = broker_socket_path
         self.sidecar_gid = sidecar_gid
         self.network_enabled = network_enabled
