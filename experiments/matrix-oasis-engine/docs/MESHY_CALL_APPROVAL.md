@@ -11,3 +11,14 @@
 - 日志脱敏、失败清理和本地回退方法。
 
 固定四任务为 prop preview/refine、character preview/refine。轮询最多120次、每5秒一次；每个任务最多一次GLB下载。API key只由资格CLI从 `MATRIX_OASIS_MESHY_API_KEY` 读取，仓内模板和日志不得含值。
+
+R9.3 固定传输协议：
+
+- 创建与状态均使用 `https://api.meshy.ai/openapi/v2/text-to-3d`，模型固定 `meshy-6`；
+- preview 固定 `standard`、triangle、remesh、50,000 polygons、moderation 和仅 GLB；
+- refine 固定 2K、base-color only、关闭 PBR、remove-lighting、moderation 和仅 GLB；
+- 每个 provider 方法只发一个 non-streaming 请求，不跟随 redirect、不自动重试；
+- JSON 响应最大 1 MiB，原始 GLB 最大 128 MiB；下载仅接受 `assets.meshy.ai` HTTPS；
+- provider 配置由宿主注入且不读取环境变量；只有后续资格 CLI 可在获得阶段批准后读取专用 key。
+
+R9.3 的自动测试全部使用 loopback 假服务，未调用 Meshy、未读取 API key、未创建远程任务，也未下载供应商资产。

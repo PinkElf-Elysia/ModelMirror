@@ -1,0 +1,16 @@
+{
+  "name": "@matrix-oasis/prototype-asset-pipeline",
+  "version": "0.1.0-r9",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.mjs"
+    }
+  },
+  "dependencies": {
+    "@matrix-oasis/prototype-asset-contracts": "0.1.0-r9"
+  }
+}

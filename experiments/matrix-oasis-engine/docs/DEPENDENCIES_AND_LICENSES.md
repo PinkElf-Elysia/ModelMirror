@@ -104,6 +104,8 @@ R9.1 仅记录依赖决策，尚未引入新的 registry 包。R9.4 计划精确
 
 R9.2 新增私有 `@matrix-oasis/prototype-asset-contracts@0.1.0-r9`。该包只依赖内部 `@matrix-oasis/runtime-pack-contracts@0.1.0-r3`，并复用 lockfile 中已有的 Ajv `8.20.0`（MIT）与 jsonc-parser `3.3.1`（MIT）；其传递依赖版本与上表一致。本批没有新增 registry tarball、平台二进制、install script 或许可证例外。
 
+R9.3 新增私有 `@matrix-oasis/prototype-asset-pipeline@0.1.0-r9`。本批该包只精确依赖内部 `@matrix-oasis/prototype-asset-contracts@0.1.0-r9`；Meshy adapter 使用 Node 24 原生 Fetch、AbortController、TextEncoder 与 TextDecoder，没有模型 SDK、HTTP 库、新 registry tarball、平台二进制或许可证例外。GLB 规范化依赖仍留到 R9.4 按实际 lockfile 单独审计。
+
 新增或升级依赖时必须：
 
 1. 记录精确版本、直接/间接用途和许可证；
