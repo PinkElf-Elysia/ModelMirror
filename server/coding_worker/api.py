@@ -685,6 +685,15 @@ async def pause_task(task_id: str) -> TaskRecord:
         _raise_worker_error(exc)
 
 
+@router.get("/tasks/{task_id}/turns", response_model=WorkerTurnHistory)
+async def task_turn_history(task_id: str) -> WorkerTurnHistory:
+    _require_session_controls_enabled()
+    try:
+        return get_coding_worker_service().store.turn_history(task_id)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
 @router.post("/tasks/{task_id}/undo", response_model=WorkerTurnHistory)
 async def undo_task_turn(task_id: str) -> WorkerTurnHistory:
     _require_session_controls_enabled()
