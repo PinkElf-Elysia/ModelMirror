@@ -162,7 +162,13 @@ def get_skill_manager() -> SkillManager:
 
     global _skill_manager
     if _skill_manager is None:
-        _skill_manager = SkillManager()
+        # Resolve the process-wide import Store lazily to avoid duplicate
+        # in-memory projections of the same immutable receipt index.
+        from .local_import_api import get_skill_local_import_store
+
+        _skill_manager = SkillManager(
+            local_import_store=get_skill_local_import_store()
+        )
     return _skill_manager
 
 
@@ -337,7 +343,7 @@ def _payload_from_skill(skill: InstalledSkill) -> SkillPayload:
 
 
 def _trust_projection(skill: InstalledSkill) -> dict[str, object]:
-    if skill.source_kind != "git":
+    if skill.source_kind not in {"git", "local_import"}:
         return {
             "trust_router_eligible": True,
             "trust_activation_status": "not_applicable",
@@ -347,9 +353,9 @@ def _trust_projection(skill: InstalledSkill) -> dict[str, object]:
             "trust_reason_codes": [],
         }
     try:
-        decision = get_skill_manager().trust_service.activation_decision(
-            skill,
-            environment=None,
+        decision = get_skill_manager().trust_activation_decision(
+            skill.skill_id,
+            runtime_environment=None,
             check_runtime=False,
         ).to_dict()
     except SkillTrustError as exc:
@@ -633,25 +639,10 @@ async def acknowledge_installed_skill(
 ) -> SkillPayload:
     try:
         manager = get_skill_manager()
-        skill = await asyncio.to_thread(manager.get_installed_skill, skill_id)
-        expected = payload.expected_trust_fingerprint.lower()
-        if (
-            skill.source_kind != "git"
-            or skill.trust_state != "receipt_matched"
-            or skill.trust_fingerprint != expected
-        ):
-            raise SkillTrustError(
-                "Installed Skill trust receipt changed. Reload before confirming.",
-                code="skill_trust_candidate_stale",
-                details={
-                    "skillId": skill.skill_id,
-                    "trustFingerprint": skill.trust_fingerprint,
-                },
-            )
-        await asyncio.to_thread(
-            manager.trust_service.acknowledge,
-            skill_id=skill.skill_id,
-            trust_fingerprint=expected,
+        skill = await asyncio.to_thread(
+            manager.acknowledge_trust,
+            skill_id,
+            expected_trust_fingerprint=payload.expected_trust_fingerprint,
             confirmed=payload.confirmed,
         )
         return _payload_from_skill(skill)
@@ -698,13 +689,29 @@ async def uninstall_skill(skill_id: str) -> dict[str, bool]:
             repaired = await asyncio.to_thread(
                 get_skill_draft_store().mark_uninstalled_skill, skill_id
             )
-            if repaired is None:
+            local_repaired = []
+            if manager.local_import_store is not None:
+                local_repaired = await asyncio.to_thread(
+                    manager.local_import_store.mark_uninstalled_skill, skill_id
+                )
+            if repaired is None and not local_repaired:
                 raise
+            if local_repaired:
+                await asyncio.to_thread(manager.trust_service.revoke, skill_id)
             return {"ok": True}
         if installed_before and installed_before.source_kind == "workspace_draft":
             await asyncio.to_thread(
                 get_skill_draft_store().mark_uninstalled_skill, skill_id
             )
+        if (
+            installed_before
+            and installed_before.source_kind == "local_import"
+            and manager.local_import_store is not None
+        ):
+            await asyncio.to_thread(
+                manager.local_import_store.mark_uninstalled_skill, skill_id
+            )
+            await asyncio.to_thread(manager.trust_service.revoke, skill_id)
         return {"ok": True}
     except SkillNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

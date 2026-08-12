@@ -15,7 +15,7 @@ import uuid
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Literal, Mapping, Sequence
+from typing import Any, Callable, Iterable, Literal, Mapping, Sequence, TypeVar
 
 from .package_validation import (
     SkillPackageIssue,
@@ -54,6 +54,7 @@ ImportState = Literal[
     "stale",
 ]
 TransportKind = Literal["zip", "folder"]
+_InstallResult = TypeVar("_InstallResult")
 
 _LOCAL_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
@@ -1077,6 +1078,130 @@ class SkillLocalImportStore:
             files = self._read_package_unlocked(record.package_digest)
             self._verify_package_unlocked(record, files)
             return self.packages_root / record.package_digest
+
+    def install_current(
+        self,
+        import_id: str,
+        *,
+        expected_revision: int,
+        expected_package_digest: str,
+        expected_trust_fingerprint: str,
+        installer: Callable[[LocalSkillImport, Path], _InstallResult],
+    ) -> tuple[LocalSkillImport, _InstallResult]:
+        """Install one frozen import and persist its projection atomically.
+
+        The installer runs while the import record is locked so a rescan cannot
+        replace the receipt between final verification and installation.  If
+        the Store write fails after the filesystem transaction, retrying the
+        same request is safe because the manager installation is idempotent.
+        """
+
+        clean_digest = str(expected_package_digest or "").casefold()
+        clean_fingerprint = str(expected_trust_fingerprint or "").casefold()
+        with self._lock:
+            self._ensure_available(mutation=True)
+            current = self._records.get(str(import_id))
+            if current is None:
+                raise SkillLocalImportNotFoundError(
+                    "Local Skill import was not found.", code="skill_import_not_found"
+                )
+            if (
+                current.revision != expected_revision
+                or current.package_digest != clean_digest
+                or current.trust_fingerprint != clean_fingerprint
+            ):
+                raise SkillLocalImportConflictError(
+                    "Local Skill import changed. Reload before installing.",
+                    code="skill_import_stale",
+                )
+            if current.state in {
+                "blocked",
+                "failed",
+                "archived",
+                "stale",
+                "superseded",
+            }:
+                raise SkillLocalImportConflictError(
+                    "This local Skill import is not installable.",
+                    code=(
+                        "skill_import_blocked"
+                        if current.state == "blocked"
+                        else "skill_import_stale"
+                    ),
+                )
+            if not current.local_skill_id or not current.trust_receipt:
+                raise SkillLocalImportConflictError(
+                    "This local Skill import is missing a stable Skill ID or trust receipt.",
+                    code="skill_import_stale",
+                )
+            files = self._read_package_unlocked(clean_digest)
+            self._verify_package_unlocked(current, files)
+            package_dir = self.packages_root / clean_digest
+            result = installer(copy.deepcopy(current), package_dir)
+            now = time.time()
+            records = dict(self._records)
+            for other_id, other in list(records.items()):
+                if (
+                    other_id != current.import_id
+                    and other.installed_skill_id == current.local_skill_id
+                    and other.state == "installed"
+                ):
+                    superseded = copy.deepcopy(other)
+                    superseded.revision += 1
+                    superseded.state = "superseded"
+                    superseded.installed_skill_id = None
+                    superseded.updated_at = now
+                    records[other_id] = superseded
+            updated = copy.deepcopy(current)
+            if updated.state != "installed" or updated.installed_skill_id != current.local_skill_id:
+                updated.revision += 1
+            updated.state = "installed"
+            updated.installed_skill_id = current.local_skill_id
+            updated.error_code = None
+            updated.updated_at = now
+            records[current.import_id] = updated
+            self._save_records_unlocked(records)
+            self._records = records
+            return copy.deepcopy(updated), result
+
+    def mark_uninstalled_skill(self, skill_id: str) -> list[LocalSkillImport]:
+        """Clear installed projections after the global package is removed."""
+
+        clean_skill_id = _validate_local_skill_id(skill_id)
+        if clean_skill_id is None:
+            return []
+        with self._lock:
+            # Disabling imports must not strand an already-installed package.
+            self._ensure_available()
+            records = dict(self._records)
+            changed: list[LocalSkillImport] = []
+            now = time.time()
+            for import_id, item in list(records.items()):
+                if item.installed_skill_id != clean_skill_id:
+                    continue
+                updated = copy.deepcopy(item)
+                updated.revision += 1
+                updated.installed_skill_id = None
+                policy = str(
+                    (updated.trust_receipt or {}).get("installPolicy") or "block"
+                )
+                updated.state = (
+                    "ready"
+                    if policy == "allow"
+                    else "confirmation_required"
+                    if policy == "confirm"
+                    else "blocked"
+                )
+                updated.error_code = (
+                    "skill_import_blocked" if updated.state == "blocked" else None
+                )
+                updated.updated_at = now
+                records[import_id] = updated
+                changed.append(copy.deepcopy(updated))
+            if changed:
+                self._save_records_unlocked(records)
+                self._records = records
+            return changed
 
     def preview_file(self, import_id: str, path: str) -> str:
         clean_path = _normalize_path(path)

@@ -316,6 +316,21 @@ class SkillFinder:
         for order, skill in enumerate(installed):
             if _source_key(skill.repo_url, skill.sub_path) in catalog_sources:
                 continue
+            trust = None
+            if str(getattr(skill, "source_kind", "")) == "local_import":
+                trust = {
+                    "receiptId": getattr(skill, "trust_receipt_id", None),
+                    "trustFingerprint": getattr(skill, "trust_fingerprint", None),
+                    "riskLevel": getattr(skill, "trust_risk_level", None),
+                    "trustStatus": getattr(skill, "trust_status", None),
+                    "installPolicy": getattr(skill, "trust_install_policy", None),
+                    "compatibilityStatus": getattr(
+                        skill, "trust_compatibility_status", None
+                    ),
+                    "routerEligible": bool(
+                        getattr(skill, "trust_router_eligible", False)
+                    ),
+                }
             payload = {
                 "candidateId": f"installed:{skill.skill_id}",
                 "sourceType": "installed",
@@ -344,6 +359,8 @@ class SkillFinder:
                     "sourceKind": skill.source_kind,
                 },
             }
+            if trust is not None:
+                payload["trust"] = trust
             dynamic.append(
                 {
                     **payload,
@@ -451,11 +468,21 @@ class SkillFinder:
                 )
                 or (
                     candidate.get("sourceType") == "installed"
-                    and str(
-                        ((candidate.get("installedSource") or {}).get("sourceKind"))
-                        or "git"
+                    and (
+                        (
+                            str(
+                                ((candidate.get("installedSource") or {}).get("sourceKind"))
+                                or "git"
+                            )
+                            == "local_import"
+                            and bool((candidate.get("trust") or {}).get("routerEligible"))
+                        )
+                        or str(
+                            ((candidate.get("installedSource") or {}).get("sourceKind"))
+                            or "git"
+                        )
+                        in {"workspace_draft", "plugin"}
                     )
-                    != "git"
                 )
             ]
         prepared: list[dict[str, Any]] = []

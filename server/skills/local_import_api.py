@@ -16,6 +16,8 @@ from .local_import import (
     SkillLocalImportStorageError,
     SkillLocalImportStore,
 )
+from .skill_manager import SkillInstallError, SkillManagerError, SkillValidationError
+from .trust_service import SkillTrustError
 from .trust_scanner import (
     MAX_TRUST_FILE_BYTES,
     MAX_TRUST_FILES,
@@ -55,6 +57,27 @@ class LocalImportRescanRequest(BaseModel):
         pattern=r"^[0-9a-fA-F]{64}$",
     )
     expected_trust_fingerprint: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+    )
+
+
+class LocalImportInstallRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
+    expected_package_digest: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+    )
+    expected_trust_fingerprint: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+    )
+    confirmed: bool = False
+    expected_installed_digest: str | None = Field(
+        default=None,
         min_length=64,
         max_length=64,
         pattern=r"^[0-9a-fA-F]{64}$",
@@ -104,6 +127,34 @@ def _raise_import_error(exc: SkillLocalImportError) -> None:
     raise HTTPException(
         status_code=status,
         detail={"code": exc.code, "message": str(exc), "details": exc.details},
+    ) from exc
+
+
+def _raise_install_error(exc: Exception) -> None:
+    fallback_code = (
+        "skill_import_storage_unavailable"
+        if isinstance(exc, (SkillInstallError, SkillManagerError))
+        and not isinstance(exc, SkillValidationError)
+        else "skill_import_scan_failed"
+    )
+    code = str(getattr(exc, "code", "") or fallback_code)
+    details = dict(getattr(exc, "details", {}) or {})
+    if code in {
+        "skill_import_stale",
+        "skill_import_replace_required",
+        "skill_import_package_mismatch",
+        "skill_import_ack_required",
+        "skill_trust_ack_required",
+        "skill_trust_candidate_stale",
+    }:
+        status = 409
+    elif code in {"skill_import_storage_unavailable", "skill_trust_index_unavailable"}:
+        status = 503
+    else:
+        status = 400 if isinstance(exc, (SkillValidationError, SkillTrustError)) else 500
+    raise HTTPException(
+        status_code=status,
+        detail={"code": code, "message": str(exc), "details": details},
     ) from exc
 
 
@@ -220,9 +271,32 @@ async def get_local_import(import_id: str) -> dict[str, Any]:
     store = get_skill_local_import_store()
     _require_enabled(store)
     try:
-        return _serialize(await asyncio.to_thread(store.require, import_id))
+        record = await asyncio.to_thread(store.require, import_id)
+        payload = _serialize(record)
+        if (
+            record.package_digest
+            and record.file_manifest
+            and record.state not in {"blocked", "failed", "archived"}
+        ):
+            from .api import get_skill_manager
+
+            manager = get_skill_manager()
+            manager.local_import_store = store
+            package_dir = await asyncio.to_thread(
+                store.package_directory, import_id
+            )
+            payload["replacementPreview"] = await asyncio.to_thread(
+                manager.describe_local_import_replacement,
+                record=record,
+                package_dir=package_dir,
+            )
+        else:
+            payload["replacementPreview"] = None
+        return payload
     except SkillLocalImportError as exc:
         _raise_import_error(exc)
+    except (SkillValidationError, SkillManagerError) as exc:
+        _raise_install_error(exc)
 
 
 @router.get("/{import_id}/file")
@@ -257,6 +331,51 @@ async def rescan_local_import(
         return _serialize(record)
     except SkillLocalImportError as exc:
         _raise_import_error(exc)
+
+
+@router.post("/{import_id}/install")
+async def install_local_import(
+    import_id: str,
+    payload: LocalImportInstallRequest,
+) -> dict[str, Any]:
+    store = get_skill_local_import_store()
+    _require_enabled(store)
+    try:
+        # Imported lazily so the existing /api/skills manager remains the one
+        # authoritative installed-package registry.
+        from .api import _payload_from_skill, get_skill_manager
+
+        manager = get_skill_manager()
+        manager.local_import_store = store
+
+        updated, installed = await asyncio.to_thread(
+            manager.install_local_import_current,
+            import_id,
+            expected_revision=payload.expected_revision,
+            expected_package_digest=payload.expected_package_digest,
+            expected_trust_fingerprint=payload.expected_trust_fingerprint,
+            confirmed=payload.confirmed,
+            expected_installed_digest=payload.expected_installed_digest,
+        )
+        if str((updated.trust_receipt or {}).get("installPolicy") or "") == "confirm":
+            installed = await asyncio.to_thread(
+                manager.acknowledge_trust,
+                installed.skill_id,
+                expected_trust_fingerprint=payload.expected_trust_fingerprint,
+                confirmed=payload.confirmed,
+            )
+        return {
+            "import": _serialize(updated),
+            "installed": _payload_from_skill(installed).model_dump(mode="json"),
+        }
+    except SkillLocalImportError as exc:
+        _raise_import_error(exc)
+    except (SkillValidationError, SkillTrustError, SkillInstallError, SkillManagerError) as exc:
+        _raise_install_error(exc)
+    except (OSError, ValueError) as exc:
+        _raise_install_error(
+            SkillInstallError("Local Skill installation storage is unavailable.")
+        )
 
 
 @router.delete("/{import_id}")

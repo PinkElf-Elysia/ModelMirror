@@ -352,24 +352,137 @@ class SkillTrustService:
         trust_fingerprint: str,
         confirmed: bool,
         actor_kind: str = "local_console",
+        receipt: Mapping[str, Any] | None = None,
     ) -> SkillTrustAcknowledgement:
         if not confirmed:
             raise SkillTrustError(
                 "Skill trust acknowledgement requires explicit confirmation.",
                 code="skill_trust_ack_required",
             )
-        receipt = self.receipt_by_fingerprint(trust_fingerprint)
-        if receipt["installPolicy"] != "confirm":
+        resolved_receipt = (
+            self.validate_local_receipt(receipt)
+            if receipt is not None
+            else self.receipt_by_fingerprint(trust_fingerprint)
+        )
+        if resolved_receipt["trustFingerprint"] != trust_fingerprint.casefold():
+            raise SkillTrustError(
+                "Skill trust receipt changed. Reload before confirming.",
+                code="skill_trust_candidate_stale",
+            )
+        if resolved_receipt["installPolicy"] != "confirm":
             raise SkillTrustError(
                 "This Skill receipt cannot be acknowledged.",
                 code="skill_trust_policy_blocked",
             )
         return self.acknowledgements.acknowledge(
             skill_id=skill_id,
-            receipt_id=receipt["receiptId"],
-            trust_fingerprint=receipt["trustFingerprint"],
+            receipt_id=resolved_receipt["receiptId"],
+            trust_fingerprint=resolved_receipt["trustFingerprint"],
             actor_kind=actor_kind,
         )
+
+    @staticmethod
+    def validate_local_receipt(
+        receipt: Mapping[str, Any] | None,
+        *,
+        import_id: str | None = None,
+        import_revision: int | None = None,
+        package_digest: str | None = None,
+    ) -> dict[str, Any]:
+        """Validate a detached local-import receipt without the catalog index."""
+
+        if not isinstance(receipt, Mapping):
+            raise SkillTrustError(
+                "Local Skill trust receipt is unavailable.",
+                code="skill_trust_receipt_missing",
+            )
+        clean = json.loads(json.dumps(dict(receipt), ensure_ascii=False))
+        try:
+            _receipt_id(str(clean.get("receiptId") or ""))
+            fingerprint = _sha256(
+                str(clean.get("trustFingerprint") or ""), "trust fingerprint"
+            )
+            if sha256_json(
+                {key: value for key, value in clean.items() if key != "trustFingerprint"}
+            ) != fingerprint:
+                raise ValueError("fingerprint mismatch")
+            source = clean.get("source")
+            if not isinstance(source, dict) or source.get("kind") != "local_import":
+                raise ValueError("source mismatch")
+            if not re.fullmatch(
+                r"skillimport_[0-9a-f]{32}", str(source.get("importId") or "")
+            ):
+                raise ValueError("invalid import ID")
+            source_revision = source.get("importRevision")
+            if (
+                not isinstance(source_revision, int)
+                or isinstance(source_revision, bool)
+                or source_revision < 1
+            ):
+                raise ValueError("invalid import revision")
+            if source.get("transportKind") not in {"zip", "folder"}:
+                raise ValueError("invalid transport")
+            _sha256(str(source.get("transportDigest") or ""), "transport digest")
+            receipt_digest = _sha256(
+                str(clean.get("packageDigest") or ""), "package digest"
+            )
+            if clean.get("riskLevel") not in {"low", "medium", "high", "critical"}:
+                raise ValueError("invalid risk")
+            if clean.get("installPolicy") not in {"allow", "confirm", "block"}:
+                raise ValueError("invalid install policy")
+            if clean.get("trustStatus") not in {"verified", "conditional", "blocked"}:
+                raise ValueError("invalid trust status")
+            if clean.get("compatibilityStatus") not in {
+                "portable",
+                "conditional",
+                "unsupported",
+            }:
+                raise ValueError("invalid compatibility status")
+            if not isinstance(clean.get("routerEligible"), bool):
+                raise ValueError("invalid Router eligibility")
+            if import_id is not None and source.get("importId") != import_id:
+                raise ValueError("import ID mismatch")
+            if import_revision is not None and source_revision != import_revision:
+                raise ValueError("import revision mismatch")
+            if package_digest is not None and receipt_digest != package_digest.casefold():
+                raise ValueError("package digest mismatch")
+        except (TypeError, ValueError, SkillTrustError) as exc:
+            if isinstance(exc, SkillTrustError):
+                raise
+            raise SkillTrustError(
+                "Local Skill trust receipt is invalid.",
+                code="skill_trust_receipt_missing",
+            ) from exc
+        return clean
+
+    def local_import_decision(
+        self,
+        receipt: Mapping[str, Any] | None,
+        *,
+        skill_id: str | None,
+        import_id: str | None = None,
+        import_revision: int | None = None,
+        package_digest: str | None = None,
+        ephemeral_trust_fingerprint: str | None = None,
+        environment: SkillRuntimeEnvironment | None = None,
+    ) -> SkillTrustDecision:
+        if self.mode == "off":
+            return self._off_decision()
+        clean = self.validate_local_receipt(
+            receipt,
+            import_id=import_id,
+            import_revision=import_revision,
+            package_digest=package_digest,
+        )
+        decision = self._evaluate_receipt(
+            clean,
+            skill_id=skill_id,
+            ephemeral_trust_fingerprint=ephemeral_trust_fingerprint,
+            allow_pending_confirmation=False,
+            environment=environment,
+        )
+        self._raise_if_denied(decision)
+        return decision
 
     def revoke(self, skill_id: str) -> bool:
         return self.acknowledgements.revoke(skill_id)
@@ -541,11 +654,46 @@ class SkillTrustService:
         environment: SkillRuntimeEnvironment | None,
         ephemeral_authorizations: Mapping[str, str] | None = None,
         check_runtime: bool = True,
+        local_receipt: Mapping[str, Any] | None = None,
     ) -> SkillTrustDecision:
-        if str(getattr(installed_skill, "source_kind", "git")) != "git":
-            return self._off_decision(trust_status="not_applicable")
+        source_kind = str(getattr(installed_skill, "source_kind", "git"))
         if self.mode == "off":
             return self._off_decision()
+        if source_kind == "local_import":
+            skill_id = str(getattr(installed_skill, "skill_id", "") or "")
+            ephemeral = dict(ephemeral_authorizations or {}).get(skill_id)
+            clean = self.validate_local_receipt(
+                local_receipt,
+                import_id=str(getattr(installed_skill, "source_id", "") or ""),
+                import_revision=getattr(installed_skill, "source_revision", None),
+                package_digest=str(
+                    getattr(installed_skill, "content_digest", "") or ""
+                ),
+            )
+            state_matches = bool(
+                getattr(installed_skill, "trust_state", "") == "receipt_matched"
+                and getattr(installed_skill, "trust_receipt_id", None)
+                == clean["receiptId"]
+                and getattr(installed_skill, "trust_fingerprint", None)
+                == clean["trustFingerprint"]
+                and getattr(installed_skill, "trust_package_digest", None)
+                == clean["packageDigest"]
+            )
+            if not state_matches:
+                decision = self._missing_decision("skill_trust_receipt_missing")
+                self._raise_if_denied(decision)
+                return decision
+            decision = self._evaluate_receipt(
+                clean,
+                skill_id=skill_id,
+                ephemeral_trust_fingerprint=ephemeral,
+                allow_pending_confirmation=False,
+                environment=environment if check_runtime else None,
+            )
+            self._raise_if_denied(decision)
+            return decision
+        if source_kind != "git":
+            return self._off_decision(trust_status="not_applicable")
         source_ref = str(getattr(installed_skill, "source_ref", "") or "")
         try:
             receipt = self.resolve_source(
@@ -679,6 +827,7 @@ class SkillTrustService:
             "trust_status": receipt.get("trustStatus"),
             "trust_install_policy": receipt.get("installPolicy"),
             "trust_compatibility_status": receipt.get("compatibilityStatus"),
+            "trust_router_eligible": bool(receipt.get("routerEligible", False)),
             "trust_package_digest": receipt.get("packageDigest"),
             "trust_directory_tree_sha": receipt.get("directoryTreeSha"),
             "trust_verified_at": verified_at,
@@ -694,6 +843,7 @@ class SkillTrustService:
             "trust_status": "unknown",
             "trust_install_policy": "block",
             "trust_compatibility_status": "unsupported",
+            "trust_router_eligible": False,
             "trust_package_digest": None,
             "trust_directory_tree_sha": None,
             "trust_verified_at": None,
@@ -1095,7 +1245,10 @@ def _sha256(value: str, label: str) -> str:
 
 def _receipt_id(value: str) -> str:
     normalized = str(value or "").strip()
-    if not re.fullmatch(r"skill-trust-[0-9a-f]{24}", normalized):
+    if not re.fullmatch(
+        r"(?:skill-trust-[0-9a-f]{24}|trust_local_[0-9a-f]{32})",
+        normalized,
+    ):
         raise SkillTrustError(
             "Skill trust receipt id is invalid.",
             code="skill_trust_receipt_missing",
