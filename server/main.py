@@ -908,6 +908,7 @@ LLM_GATEWAY_KEY = os.getenv("LLM_GATEWAY_KEY", "").strip()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 API_KEY = OPENROUTER_API_KEY
 CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_BATCHES_URL = "https://openrouter.ai/api/beta/batches"
 LLM_GATEWAY_NOT_CONFIGURED_MESSAGE = (
     "LLM 网关未配置，请设置环境变量 LLM_GATEWAY_KEY 或 OPENROUTER_API_KEY。"
 )
@@ -1629,6 +1630,44 @@ class ChatRequest(BaseModel):
         max_length=256,
         pattern=r"^[A-Za-z0-9._:-]+$",
     )
+
+
+class OpenRouterBatchRequestItem(BaseModel):
+    custom_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+    input: str = Field(min_length=1, max_length=20_000)
+
+    @model_validator(mode="after")
+    def validate_text_input(self):
+        if not self.input.strip():
+            raise ValueError("Batch input must contain text.")
+        return self
+
+
+class OpenRouterBatchSubmitRequest(BaseModel):
+    model_id: str = Field(min_length=1, max_length=256)
+    endpoint: Literal["/v1/chat/completions", "/v1/embeddings"]
+    requests: list[OpenRouterBatchRequestItem] = Field(
+        min_length=1,
+        max_length=100,
+    )
+    temperature: float = Field(default=0.7, ge=0, le=2)
+    max_tokens: int = Field(default=2048, ge=1, le=128000)
+
+    @model_validator(mode="after")
+    def validate_batch_contract(self):
+        if self.model_id.endswith(":batch"):
+            raise ValueError(
+                "Submit the base model ID; :batch is a catalog serving variant."
+            )
+        if len({request.custom_id for request in self.requests}) != len(
+            self.requests
+        ):
+            raise ValueError("Batch custom_id values must be unique.")
+        return self
 
 
 class AgentRecord(BaseModel):
@@ -3069,6 +3108,15 @@ def openrouter_client_kwargs() -> dict[str, Any]:
     """Backward-compatible alias for legacy OpenRouter client settings."""
 
     return llm_client_kwargs()
+
+
+def openrouter_batch_client_kwargs() -> dict[str, Any]:
+    timeout = httpx.Timeout(connect=15, read=45, write=45, pool=10)
+    client_kwargs: dict[str, Any] = {"timeout": timeout}
+    proxy = proxy_url()
+    if proxy:
+        client_kwargs["proxy"] = proxy
+    return client_kwargs
 
 
 def completion_text_from_payload(payload: dict[str, Any]) -> str:
@@ -18146,6 +18194,116 @@ async def disconnect_mcp_server(session_id: str):
         raise HTTPException(status_code=404, detail="MCP session 不存在或已断开。") from exc
     except MCPClientError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def openrouter_batch_headers() -> dict[str, str]:
+    return llm_gateway_headers(OPENROUTER_API_KEY)
+
+
+def openrouter_batch_response_payload(response: httpx.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError:
+        return {
+            "error": (
+                "OpenRouter Batch API returned a non-JSON response "
+                f"(HTTP {response.status_code})."
+            )
+        }
+
+
+def validate_openrouter_batch_id(batch_id: str) -> str:
+    normalized = batch_id.strip()
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{1,256}", normalized):
+        raise HTTPException(status_code=422, detail="Invalid OpenRouter batch ID.")
+    return normalized
+
+
+@app.post("/api/openrouter/batches")
+async def submit_openrouter_batch(
+    payload: OpenRouterBatchSubmitRequest,
+    request: Request,
+):
+    if not OPENROUTER_API_KEY:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": (
+                    "OpenRouter Batch 尚未配置，请设置 OPENROUTER_API_KEY。"
+                    "普通 LLM 网关密钥不能代替 Batch API 凭据。"
+                )
+            },
+        )
+
+    rate_limit_or_raise(client_ip(request))
+    requests: list[dict[str, Any]] = []
+    for item in payload.requests:
+        if payload.endpoint == "/v1/embeddings":
+            body: dict[str, Any] = {
+                "model": payload.model_id,
+                "input": item.input.strip(),
+            }
+        else:
+            body = {
+                "model": payload.model_id,
+                "messages": [
+                    {"role": "user", "content": item.input.strip()},
+                ],
+                "temperature": payload.temperature,
+                "max_tokens": payload.max_tokens,
+            }
+        requests.append({"custom_id": item.custom_id, "body": body})
+
+    # Field order is intentional. OpenRouter stream-parses the request and
+    # requires endpoint/model to appear before the potentially large array.
+    upstream_payload = {
+        "endpoint": payload.endpoint,
+        "model": payload.model_id,
+        "requests": requests,
+    }
+    try:
+        async with httpx.AsyncClient(**openrouter_batch_client_kwargs()) as client:
+            response = await client.post(
+                OPENROUTER_BATCHES_URL,
+                headers=openrouter_batch_headers(),
+                json=upstream_payload,
+            )
+    except httpx.RequestError as exc:
+        logger.warning("OpenRouter Batch submission failed: %s", exc)
+        return JSONResponse(
+            status_code=502,
+            content={"error": "无法连接 OpenRouter Batch API，请稍后重试。"},
+        )
+    return JSONResponse(
+        status_code=response.status_code,
+        content=openrouter_batch_response_payload(response),
+    )
+
+
+@app.get("/api/openrouter/batches/{batch_id}")
+async def get_openrouter_batch(batch_id: str):
+    if not OPENROUTER_API_KEY:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "OpenRouter Batch 尚未配置，请设置 OPENROUTER_API_KEY。"},
+        )
+    normalized_batch_id = validate_openrouter_batch_id(batch_id)
+    try:
+        async with httpx.AsyncClient(**openrouter_batch_client_kwargs()) as client:
+            response = await client.get(
+                f"{OPENROUTER_BATCHES_URL}/{normalized_batch_id}",
+                headers=openrouter_batch_headers(),
+            )
+    except httpx.RequestError as exc:
+        logger.warning("OpenRouter Batch polling failed: %s", exc)
+        return JSONResponse(
+            status_code=502,
+            content={"error": "无法刷新 OpenRouter Batch 状态，请稍后重试。"},
+        )
+    return JSONResponse(
+        status_code=response.status_code,
+        content=openrouter_batch_response_payload(response),
+    )
 
 
 @app.post("/api/chat")

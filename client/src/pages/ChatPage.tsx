@@ -28,6 +28,7 @@ import AdvancedParamsPanel, {
 } from "../components/AdvancedParamsPanel";
 import AudioCreationWorkspace from "../components/AudioCreationWorkspace";
 import ImageGenerationWorkspace from "../components/ImageGenerationWorkspace";
+import OpenRouterBatchWorkspace from "../components/OpenRouterBatchWorkspace";
 import BrandLogo from "../components/BrandLogo";
 import ChatAudioComposer, {
   QuickTranscriptionControl,
@@ -1181,6 +1182,24 @@ export default function ChatPage() {
   const [searchParams] = useSearchParams();
   const decodedModelId = decodeModelId(modelId);
   const requestedOperation = searchParams.get("operation");
+  const requestedServingMode = searchParams.get("serving");
+  const servingModel = models.find((item) => item.id === decodedModelId);
+  const batchServingVariant = servingModel?.serving_variants.find(
+    (variant) => variant.type === "batch",
+  );
+
+  if (
+    requestedServingMode === "batch" &&
+    servingModel &&
+    batchServingVariant
+  ) {
+    return (
+      <OpenRouterBatchWorkspace
+        model={servingModel}
+        variant={batchServingVariant}
+      />
+    );
+  }
 
   if (requestedOperation === "realtime_voice") {
     return <RealtimeVoiceWorkspace initialModelId={decodedModelId} />;
@@ -1302,6 +1321,9 @@ function ChatConversationPage() {
     isOmniAutoRoute &&
     (decodedModelId === "auto/vision" ||
       decodedModelId.startsWith("auto/multimodal"));
+  const batchServingVariant = model?.serving_variants.find(
+    (variant) => variant.type === "batch",
+  );
   const agentInterview = useMemo<AgentInterviewPayload | null>(() => {
     const agentId = searchParams.get("agentId");
     const stored = readAgentInterview(agentId);
@@ -4227,7 +4249,7 @@ function ChatConversationPage() {
       </ChatOverlayDrawer>
 
       <ChatOverlayDrawer
-        description="模型、路由、工具与语音设置"
+        description="模型、服务档位、路由、工具与语音设置"
         onClose={() => setTopOverlay(null)}
         open={topOverlay === "settings"}
         title="对话设置"
@@ -4263,6 +4285,60 @@ function ChatConversationPage() {
               </div>
             </dl>
           </section>
+
+          {batchServingVariant ? (
+            <section className="space-y-4 p-5">
+              <div>
+                <h3 className="text-sm font-semibold text-white">服务档位</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-400">
+                  Batch 使用同一底层模型的异步处理档位，不会作为新的候选模型计数。
+                </p>
+              </div>
+              <div
+                aria-label="调用模式"
+                className="grid grid-cols-2 gap-2 rounded-lg border border-white/10 bg-ink-950/65 p-1"
+              >
+                <button
+                  className="min-h-11 rounded-md bg-white/[0.09] px-3 text-sm font-semibold text-white"
+                  type="button"
+                >
+                  实时调用
+                </button>
+                <button
+                  className="min-h-11 rounded-md px-3 text-sm font-semibold text-sky-100 transition hover:bg-sky-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/70"
+                  disabled={isSending}
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    next.set("serving", "batch");
+                    next.delete("operation");
+                    next.delete("media");
+                    setSearchParams(next);
+                    setTopOverlay(null);
+                  }}
+                  type="button"
+                >
+                  批量处理
+                </button>
+              </div>
+              <dl className="grid grid-cols-2 gap-3 text-xs">
+                <div className="rounded-lg bg-white/[0.035] p-3">
+                  <dt className="text-slate-500">实时价格</dt>
+                  <dd className="mt-1 font-semibold text-slate-100">
+                    ¥{model.price_cny.input.toFixed(2)} / ¥{model.price_cny.output.toFixed(2)}
+                  </dd>
+                </div>
+                <div className="rounded-lg bg-sky-300/10 p-3">
+                  <dt className="text-sky-100/70">批处理价格</dt>
+                  <dd className="mt-1 font-semibold text-sky-100">
+                    ¥{batchServingVariant.price_cny.input.toFixed(2)} / ¥{batchServingVariant.price_cny.output.toFixed(2)}
+                  </dd>
+                </div>
+              </dl>
+              <p className="text-xs leading-5 text-amber-100">
+                当前 Batch 仅接受文本输入，不支持流式输出；输入与结果由 OpenRouter 保留 30 天。
+              </p>
+            </section>
+          ) : null}
 
           {isOmniAutoRoute ? (
             <section className="space-y-4 p-5">

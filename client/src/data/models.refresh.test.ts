@@ -49,7 +49,7 @@ describe("OpenRouter 2026-08-11 model refresh", () => {
     expect(model?.active).toBe(true);
   });
 
-  it("keeps uncertain entries callable between live models and routes", () => {
+  it("keeps uncertain entries callable below clearly available models", () => {
     const uncertain = models.filter(
       (model) => model.catalog_status === "uncertain",
     );
@@ -67,31 +67,44 @@ describe("OpenRouter 2026-08-11 model refresh", () => {
     const firstUncertainIndex = models.findIndex(
       (model) => model.catalog_status === "uncertain",
     );
-    const firstRouteIndex = models.findIndex(
-      (model) => model.catalog_status === "route_variant",
+    const firstExpiredIndex = models.findIndex(
+      (model) => model.catalog_status === "expired",
     );
 
     expect(uncertain).toHaveLength(53);
     expect(ling?.active).toBe(true);
     expect(firstUncertainIndex).toBeGreaterThan(lastClearIndex);
-    expect(firstRouteIndex).toBeGreaterThan(firstUncertainIndex);
+    expect(firstExpiredIndex).toBeGreaterThan(firstUncertainIndex);
   });
 
-  it("keeps all route variants usable, uncounted, and at the list bottom", () => {
-    const firstRouteIndex = models.findIndex(
-      (model) => model.catalog_status === "route_variant",
+  it("attaches all batch entries as uncounted serving variants", () => {
+    const batchVariants = models.flatMap((model) =>
+      model.serving_variants.filter((variant) => variant.type === "batch"),
     );
-    const routeVariants = models.slice(firstRouteIndex);
+    const gemini = models.find(
+      (model) => model.id === "google/gemini-2.5-flash",
+    );
+    const geminiBatch = gemini?.serving_variants.find(
+      (variant) => variant.type === "batch",
+    );
 
-    expect(routeVariants).toHaveLength(62);
-    expect(
-      routeVariants.every(
-        (model) =>
-          model.catalog_status === "route_variant" &&
-          model.catalog_counted === false &&
-          model.active,
-      ),
-    ).toBe(true);
+    expect(models.some((model) => model.id.endsWith(":batch"))).toBe(false);
+    expect(batchVariants).toHaveLength(62);
+    expect(geminiBatch).toMatchObject({
+      catalog_id: "google/gemini-2.5-flash:batch",
+      request_model_id: "google/gemini-2.5-flash",
+      endpoint: "/v1/chat/completions",
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+      completion_window: "24h",
+      data_retention_days: 30,
+    });
+    expect(geminiBatch?.pricing.input).toBeCloseTo(
+      (gemini?.pricing.input ?? 0) / 2,
+    );
+    expect(geminiBatch?.pricing.output).toBeCloseTo(
+      (gemini?.pricing.output ?? 0) / 2,
+    );
   });
 
   it("keeps only explicitly expired models inactive", () => {

@@ -2,7 +2,10 @@ import { memo } from "react";
 import { Link } from "react-router-dom";
 import { useModelPreference } from "../context/ModelPreferenceContext";
 import type { FileSurfaceSummary } from "../data/fileCapabilities";
-import { type Model, type ModelOperation } from "../data/models";
+import {
+  type Model,
+  type ModelOperation,
+} from "../data/models";
 import {
   getRecruitmentTag,
   getTalentStats,
@@ -192,7 +195,9 @@ const ModelCard = memo(function ModelCard({
     !domesticFriendly &&
     includesProviderKeyword(identity, restrictedProviderKeywords);
   const isUncertain = model.catalog_status === "uncertain";
-  const isRouteVariant = model.catalog_status === "route_variant";
+  const batchVariant = model.serving_variants.find(
+    (variant) => variant.type === "batch",
+  );
   const generalInvocationAllowed = model.active || catalogInvocable;
   const canChat =
     generalInvocationAllowed &&
@@ -361,15 +366,11 @@ const ModelCard = memo(function ModelCard({
             className={`rounded-full border px-3 py-1 text-xs font-semibold ${
               isUncertain
                 ? "border-amber-300/35 bg-amber-300/10 text-amber-100"
-                : isRouteVariant
-                  ? "border-sky-300/35 bg-sky-300/10 text-sky-100"
-                  : "border-hire-200/30 bg-hire-400/15 text-hire-100"
+                : "border-hire-200/30 bg-hire-400/15 text-hire-100"
             }`}
           >
             {isUncertain
               ? "可能不可用"
-              : isRouteVariant
-                ? "路由变体"
               : canManuallyVerifyVideo
                 ? "等待人工验收"
               : adaptedAudioUnavailable
@@ -532,6 +533,14 @@ const ModelCard = memo(function ModelCard({
                     : "立即面试"}
               </Link>
             ) : null}
+            {canUseInRag ? (
+              <Link
+                className="rounded-full border border-hire-300/35 bg-hire-300/10 px-3.5 py-2 text-center text-sm font-semibold text-hire-100 transition duration-200 hover:border-hire-300/60 hover:bg-hire-300/15 active:scale-[0.98]"
+                to="/rag"
+              >
+                用于资料库
+              </Link>
+            ) : null}
             {isTranscriptionModel ? (
               <Link
                 className="text-center text-xs font-semibold text-slate-400 underline decoration-white/20 underline-offset-4 transition hover:text-hire-100"
@@ -667,6 +676,11 @@ const ModelCard = memo(function ModelCard({
             {getRecruitmentTag(tag)}
           </span>
         ))}
+        {batchVariant ? (
+          <span className="rounded-full border border-sky-300/30 bg-sky-300/10 px-2.5 py-1 text-xs font-medium text-sky-100">
+            支持批处理
+          </span>
+        ) : null}
         {domesticFriendly ? (
           <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-2.5 py-1 text-xs font-medium text-emerald-100">
             国内可用优先
