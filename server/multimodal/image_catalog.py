@@ -21,6 +21,9 @@ from .readiness import OperationReadiness
 
 IMAGE_CATALOG_TTL_SECONDS = 300.0
 IMAGE_CATALOG_STALE_SECONDS = 1_800.0
+IMAGE_PRICING_DETAIL_MODEL_IDS = frozenset(
+    {"x-ai/grok-imagine-image-2.0"}
+)
 
 
 class ImageParameterProfile(BaseModel):
@@ -28,6 +31,13 @@ class ImageParameterProfile(BaseModel):
     values: list[str] = Field(default_factory=list)
     min: int | float | None = None
     max: int | float | None = None
+
+
+class ImagePricingItem(BaseModel):
+    billable: Literal["input_image", "output_image"]
+    unit: Literal["image"]
+    cost_usd: float = Field(ge=0)
+    variant: str | None = None
 
 
 class ImageModelProfile(BaseModel):
@@ -40,6 +50,7 @@ class ImageModelProfile(BaseModel):
     supported_parameters: dict[str, ImageParameterProfile] = Field(
         default_factory=dict
     )
+    pricing: list[ImagePricingItem] = Field(default_factory=list)
     supports_streaming: bool = False
     interaction_status: Literal["ready", "planned", "disabled"] = "ready"
     status_reason: str | None = None
@@ -228,6 +239,11 @@ class ImageCatalogService:
                 outputs = self._modalities(item, "output_modalities")
                 if "image" not in outputs:
                     continue
+                pricing = (
+                    await self._fetch_pricing(target, model_id)
+                    if model_id in IMAGE_PRICING_DETAIL_MODEL_IDS
+                    else []
+                )
                 profiles.append(
                     ImageModelProfile(
                         model_id=model_id,
@@ -238,6 +254,7 @@ class ImageCatalogService:
                         supported_parameters=self._parameters(
                             item.get("supported_parameters")
                         ),
+                        pricing=pricing,
                         supports_streaming=bool(
                             item.get("supports_streaming")
                         ),
@@ -252,6 +269,64 @@ class ImageCatalogService:
                     )
                 )
         return profiles
+
+    async def _fetch_pricing(
+        self,
+        target: OpenRouterTarget,
+        model_id: str,
+    ) -> list[ImagePricingItem]:
+        try:
+            async with self.client_factory() as client:
+                response = await client.get(
+                    self._api_url(
+                        target.base_url,
+                        f"images/models/{model_id}/endpoints",
+                    ),
+                    headers={"Authorization": f"Bearer {target.api_key}"},
+                )
+            if response.status_code >= 400:
+                return []
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return []
+
+        endpoints = (
+            payload.get("endpoints") if isinstance(payload, dict) else None
+        )
+        result: list[ImagePricingItem] = []
+        if not isinstance(endpoints, list):
+            return result
+        for endpoint in endpoints:
+            raw_pricing = (
+                endpoint.get("pricing")
+                if isinstance(endpoint, dict)
+                else None
+            )
+            if not isinstance(raw_pricing, list):
+                continue
+            for raw in raw_pricing:
+                if not isinstance(raw, dict):
+                    continue
+                billable = str(raw.get("billable") or "")
+                unit = str(raw.get("unit") or "")
+                cost = raw.get("cost_usd")
+                if (
+                    billable not in {"input_image", "output_image"}
+                    or unit != "image"
+                    or not isinstance(cost, (int, float))
+                    or cost < 0
+                ):
+                    continue
+                variant = str(raw.get("variant") or "").strip() or None
+                result.append(
+                    ImagePricingItem(
+                        billable=billable,
+                        unit="image",
+                        cost_usd=float(cost),
+                        variant=variant,
+                    )
+                )
+        return result
 
     def resolve_target(self) -> OpenRouterTarget:
         connections = [

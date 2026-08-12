@@ -1,7 +1,9 @@
 ﻿// Merged with OpenRouter model catalog on 2026-08-06T08:31:09.233Z.
 // Refreshed with entries published through 2026-08-05T23:51:37.000Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest
-// Supplemental OpenRouter refresh: 2026-08-11 (five newly listed models).
+// Supplemental OpenRouter refresh: 2026-08-12 (three general catalog records
+// plus xAI Grok Imagine Image 2.0 from the dedicated image-model catalog).
+// Image source: https://openrouter.ai/api/v1/images/models
 // Prices are stored as USD per 1M tokens and CNY per 1M tokens.
 export const USD_TO_CNY = 6.77;
 
@@ -123,9 +125,129 @@ interface RawCatalogModel {
   created: number;
   expiration_date: number | null;
   model_author: string;
+  note?: string;
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    id: "x-ai/grok-imagine-image-2.0",
+    canonical_slug: "x-ai/grok-imagine-image-2.0",
+    name: "xAI: Grok Imagine Image 2.0",
+    raw_description:
+      "Grok Imagine Image 2.0 is an image generation and editing model from xAI. It is suited for creating images from text prompts and editing images from references, with low and medium quality modes at 1K or 2K resolution.",
+    context_length: 0,
+    pricing: { input: -1, output: -1 },
+    input_modalities: ["text", "image"],
+    output_modalities: ["image"],
+    tokenizer: "Other",
+    supported_parameters: [
+      "resolution",
+      "aspect_ratio",
+      "quality",
+      "n",
+      "input_references",
+    ],
+    created: 1786486044,
+    expiration_date: null,
+    model_author: "xAI",
+    note:
+      "OpenRouter 专用图片 API：非流式返回完整 base64 图片；每次输出 1 张，最多 3 张参考图。参考图约 $0.01/张，输出按 low/medium 与 1K/2K 约 $0.04–$0.08/张。",
+  },
+  {
+    id: "liquid/lfm-2.5-2.6b:free",
+    canonical_slug: "liquid/lfm-2.5-2.6b-20260811",
+    name: "LiquidAI: LFM2.5-2.6B (free)",
+    raw_description:
+      "LFM2.5-2.6B is a compact reasoning model from Liquid AI. It is suited for agent workflows, data extraction, RAG, and long-context processing. Liquid advises against using it for agentic coding.",
+    context_length: 128000,
+    pricing: { input: 0, output: 0 },
+    input_modalities: ["text"],
+    output_modalities: ["text"],
+    tokenizer: "Other",
+    supported_parameters: [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_completion_tokens",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p",
+    ],
+    created: 1786470519,
+    expiration_date: null,
+    model_author: "LiquidAI",
+  },
+  {
+    id: "nvidia/nemotron-3.5-lightning",
+    canonical_slug: "nvidia/nemotron-3.5-lightning-20260807",
+    name: "NVIDIA: Nemotron 3.5 Lightning",
+    raw_description:
+      "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks.",
+    context_length: 262144,
+    pricing: { input: 0.1, output: 0.25 },
+    input_modalities: ["text"],
+    output_modalities: ["text"],
+    tokenizer: "Other",
+    supported_parameters: [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "top_k",
+      "top_logprobs",
+      "top_p",
+    ],
+    created: 1786452751,
+    expiration_date: null,
+    model_author: "NVIDIA",
+  },
+  {
+    id: "nvidia/nemotron-3.5-lightning:free",
+    canonical_slug: "nvidia/nemotron-3.5-lightning-20260807",
+    name: "NVIDIA: Nemotron 3.5 Lightning (free)",
+    raw_description:
+      "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. This free route exposes an OpenRouter-listed 1M-token context window.",
+    context_length: 1000000,
+    pricing: { input: 0, output: 0 },
+    input_modalities: ["text"],
+    output_modalities: ["text"],
+    tokenizer: "Other",
+    supported_parameters: [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "seed",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p",
+    ],
+    created: 1786452751,
+    expiration_date: null,
+    model_author: "NVIDIA",
+  },
   {
     id: "bytedance/seedance-2.5",
     canonical_slug: "bytedance/seedance-2.5-20260807",
@@ -18486,6 +18608,7 @@ function enrichModel(raw: RawCatalogModel): Model {
       active,
       pricing_status,
     ),
+    note: raw.note,
   };
 }
 
@@ -18675,14 +18798,24 @@ const MID_CATALOG_MODEL_IDS = [
   "meta/muse-glimmer-30b",
   "inclusionai/ling-3.0-tiny:free",
 ];
+const LATEST_REFRESH_MODEL_IDS = [
+  "x-ai/grok-imagine-image-2.0",
+  "liquid/lfm-2.5-2.6b:free",
+  "nvidia/nemotron-3.5-lightning",
+  "nvidia/nemotron-3.5-lightning:free",
+];
 const reservedCatalogModelIds = new Set([
   SEEDANCE_2_5_MODEL_ID,
   ...MID_CATALOG_MODEL_IDS,
+  ...LATEST_REFRESH_MODEL_IDS,
 ]);
 const seedance25Model = sortedCatalogModels.find(
   (model) => model.id === SEEDANCE_2_5_MODEL_ID,
 );
 const midCatalogModels = MID_CATALOG_MODEL_IDS.map((modelId) =>
+  sortedCatalogModels.find((model) => model.id === modelId),
+).filter((model): model is Model => Boolean(model));
+const latestRefreshModels = LATEST_REFRESH_MODEL_IDS.map((modelId) =>
   sortedCatalogModels.find((model) => model.id === modelId),
 ).filter((model): model is Model => Boolean(model));
 const normallyOrderedCatalogModels = sortedCatalogModels.filter(
@@ -18701,10 +18834,66 @@ const primaryCatalogModels: Model[] = [
 ];
 const catalogMidpoint = Math.floor(primaryCatalogModels.length / 2);
 
-const assembledModels: Model[] = [
+const baseCatalogModels: Model[] = [
   ...primaryCatalogModels.slice(0, catalogMidpoint),
   ...midCatalogModels,
   ...primaryCatalogModels.slice(catalogMidpoint),
+];
+
+function stableCatalogHash(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function scatterCatalogModels(
+  baseModels: Model[],
+  additions: Model[],
+  minimumIndex: number,
+) {
+  if (additions.length === 0) return [...baseModels];
+
+  const lowerBound = Math.min(minimumIndex, baseModels.length);
+  const tailSlots = Math.max(1, baseModels.length - lowerBound + 1);
+  const placements = additions
+    .map((model, additionIndex) => {
+      const bucketStart = Math.floor(
+        (tailSlots * additionIndex) / additions.length,
+      );
+      const bucketEnd = Math.floor(
+        (tailSlots * (additionIndex + 1)) / additions.length,
+      );
+      const bucketSize = Math.max(1, bucketEnd - bucketStart);
+      return {
+        model,
+        index:
+          lowerBound +
+          bucketStart +
+          (stableCatalogHash(model.id) % bucketSize),
+      };
+    })
+    .sort((left, right) => left.index - right.index);
+
+  const result = [...baseModels];
+  placements.forEach((placement, offset) => {
+    result.splice(placement.index + offset, 0, placement.model);
+  });
+  return result;
+}
+
+// The list page renders two spotlight cards, then a three-column gallery.
+// Keep this refresh below the first six complete gallery rows and scatter it
+// deterministically so cards do not jump between renders.
+const LATEST_REFRESH_MIN_INDEX = 2 + 6 * 3;
+const assembledModels: Model[] = [
+  ...scatterCatalogModels(
+    baseCatalogModels,
+    latestRefreshModels,
+    LATEST_REFRESH_MIN_INDEX,
+  ),
   worldModelEntry,
 ];
 
