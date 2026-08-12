@@ -1,0 +1,82 @@
+# R10 验收记录
+
+状态：R10.6 已验证，等待本地提交；提交后须在最终clean HEAD重跑extraction与发布门。
+
+固定基线：`09f4cca4f1e02fe275ada17535597437cac3778d`
+
+## 批次
+
+- [x] R10.1 治理迁移（`60ce32eb49949f58ea1a67ee0cf8665e4ec588f4`）
+- [x] R10.2 Marble环境Pipeline（`61f293ea3f5c3a3ecc457173d01b45e21162e0fd`）
+- [x] R10.3 自动组装与缓存导入（`2d26d0018e4b83f2b2fc3778f6837d848cdb443b`）
+- [x] R10.4 本地宿主与审批状态机（`ebc6c2c396c1271a1e73f5fdc0058760794ab444`）
+- [x] R10.5 Creator与Godot一键预览（`e72777c3f71142a7b62f57d3a9696cc8036ddb86`）
+- [x] R10.6 真实资格与验收收口（本批提交；最终SHA与拆分标识在仓外交付清单记录）
+
+## R10.1 证据
+
+- 从`origin/main@09f4cca4f1e02fe275ada17535597437cac3778d`创建独立分支`codex/matrix-oasis-r10-prototype-builder`与worktree`C:\tmp\modelmirror-matrix-oasis-r10`；该主线包含R9合并提交。
+- schema v10、active round、固定BASE、两个新workspace与R10 Godot前缀、精确Creator/host/test文件allowlist已同步；R1–R9与未知模块路径继续fail-closed。
+- R10固定Marble `marble-1.1`、panorama/collider上限、loopback宿主、两道审批和不持久化prompt；只有三个精确provider adapter可联网。
+- `npm.cmd ci --offline --ignore-scripts --no-audit --no-fund`安装110个锁定包；`npm.cmd prefix`与`npm.cmd ls --all`退出0。
+- scope/boundary正反测试137/137通过；真实round/parent scope均checked=20/changed=20，boundary checked=931/tracked=926，`git diff --check`通过。
+- 首次完整verify只因未注入`GODOT_BIN`在doctor前置按预期阻断；使用R4–R9已核验的仓外Godot 4.6.3 console executable后原命令15/15通过，Node 606/606、Godot R4–R7、Creator 247 modules build与HTTP smoke全绿。
+- 本批未调用真实模型、Meshy或Marble，未读取供应商凭据，未启动父服务、Docker或共享栈。
+
+## R10.2 证据
+
+- 新增私有`@matrix-oasis/prototype-environment-pipeline@0.1.0-r10`，公开计划、Marble provider、环境物化和Bundle复验；使用不透明计划句柄，公开Bundle/report不保存prompt、operation/world ID、URL、密钥或原始响应。
+- Provider固定`marble-1.1`纯文本payload、一次create、最多180次poll、一次world get与两次下载；只使用Node 24原生Fetch，不读环境变量、不redirect、不重试，正式资产host受固定候选约束。
+- Bundle闭合绑定Scene/Blueprint/prompt SHA，固定两个相对文件；panorama检查PNG签名、chunk/CRC、2:1与尺寸上限，collider复用冻结R7 GLB安全门并记录结构/三角指标。
+- `npm.cmd run verify:prototype-environment` 6/6通过，覆盖审批前零请求、text-only payload、timeout、429/402、redirect、响应/下载超限、恶意host、180次poll上限、PNG/GLB损坏、脱敏和20次字节稳定。
+- 首次全量测试在受限沙箱中因既有R5-R9夹具无法写`C:\tmp`而失败；提升到既定一次性临时目录权限后，仅因shell未注入Godot前置出现doctor阻断。注入已核验的仓外Godot 4.6.3后，doctor 7/7且同一`npm.cmd test` 612/612通过。
+- `npm.cmd ci --offline --ignore-scripts --no-audit --no-fund`安装111个锁定包；`npm.cmd ls --all`、boundary checked=940/tracked=931、round/parent scope及`git diff --check`通过。
+- 最新14文件树执行完整`npm.cmd run verify`，15/15步骤通过：Node 612/612、Godot R4–R7全门、Creator 247 modules build与HTTP marker smoke均通过；R1–R9、Creator、Godot、examples与父仓相对本批HEAD零差异。
+- 本批无真实模型、Meshy或Marble调用，无API Key读取，无供应商费用；没有修改R1-R9、Creator、Godot、examples或父仓。
+
+## R10.3 证据
+
+- 新增私有`@matrix-oasis/prototype-assembler@0.1.0-r10`；只调用冻结的Generation、Asset、Environment、Runtime与Scene Pack验证入口。Marble collider固定成为环境asset，R9 Kenney环境物化不进入输出；Meshy文件按Blueprint placement和zone声明顺序映射到固定四区4×2槽位。
+- profile覆盖0/1/2个非环境brief成功与3个拒绝、1/4个zone成功与5个拒绝、32/33 placement及每zone 8/9边界；Scene Pack经公开R7 validator复验。20次并行组装的Scene Pack和report字节一致，输入Map/bytes不变且成功结果深冻结。
+- cache importer绑定prompt SHA、模型、Blueprint、Asset/Environment Bundle和assembler版本；FileHandle、bigint identity、size/mtime/ctime、junction、换身、并发同目录、发布失败窄清理、rename后全文件回读和`current.json`最后替换均有回归。run不含prompt；Kenney规范化文件只作为R9 Asset Bundle复验证据保留，Scene Pack不引用。
+- `npm.cmd run verify:prototype-assembly` 14/14通过，包含最大长度Blueprint placement ID到固定短Scene Pack ID的映射、真实Node CLI workspace解析与一次性`C:\tmp`事务发布；`node --check`、严格d.ts解析、`npm.cmd ls --all`、boundary checked=947/tracked=940、round/parent scope及`git diff --check`通过。
+- 最新12文件树执行完整`npm.cmd run verify`，15/15步骤通过：Node 626/626、Godot R4–R7全门、Creator 247 modules build与HTTP marker smoke均通过。
+- 当前真实R8/R9缓存已只读核对文件名、canonical脱敏report和hash结构；Marble真实Bundle尚不存在，完整三缓存导入按计划留到R10.6一次性资格之后。本批全部功能/事务测试使用本地合成输入，不调用模型、Meshy或Marble，不读取API Key。
+
+## R10.4 证据
+
+- 新增固定`127.0.0.1:43110`宿主、exact same-origin/JSON/HttpOnly SameSite会话门、64 KiB body和32 KiB纯文本prompt上限；API只公开readiness、静态diagnostic、审批摘要、状态和run标识，不返回凭据、供应商ID/URL或异常正文。
+- 模型审批绑定prompt SHA、endpoint host、model、3次请求和1美元；环境/资产审批绑定Blueprint SHA、Marble固定有界操作及Meshy精确brief/任务/credits。状态`awaiting_model_approval→generating→awaiting_asset_approval→acquiring→normalizing→assembling→ready|failed`逐阶段可观察，重复/过期审批与并发run均fail closed。
+- 内存发布入口不把prompt写盘；cache hit和重启恢复会重新复验Generation/Asset/Environment/Runtime/Scene Pack、reports、全部hash与GLB。损坏run被排除，失败保持上一份current；恢复run获得新的会话run ID并可沿同一路由launch。
+- `npm.cmd run verify:prototype-host` 13/13、`npm.cmd run verify:prototype-assembly` 15/15、boundary正反74/74通过；真实无配置入口只启动loopback且readiness全false，未读取API Key、未调用模型/Meshy/Marble。
+- 最新12文件树执行完整`npm.cmd run verify`，15/15步骤通过：Node 642/642、Godot R4–R7全门、Creator 247 modules build与HTTP marker smoke均通过；round scope checked=49/changed=40、boundary checked=950/tracked=947。
+- R10.4实际Godot launch有意保持not-ready，留待R10.5 wrapper；普通测试全部使用注入式假操作、loopback和本地合成GLB，无外部费用或共享栈。
+
+## R10.5 证据
+
+- Creator新增默认`Prototype Builder`模式并保留冻结Runtime/Parity实验台；文本只驻留内存，显示32 KiB字节计数、配置readiness、阶段进度、两道内容绑定审批、当前/历史成功run、失败保留说明与稳定marker `MATRIX_OASIS_R10_PROTOTYPE_BUILDER`。
+- 浏览器客户端只调用固定相对`/api/**`路径，使用same-origin cookie、redirect=error和no-store；响应被exact-key重建，额外字段、动态错误正文、超限或非JSON响应均折叠为静态诊断。边界门只对这一精确文件开放该same-origin能力，Creator其他来源继续禁网。
+- 宿主同源提供构建后的Creator静态资源，固定CSP仅允许self；冻结Ajv Validator需要运行时代码生成，因此loopback页面的script-src精确包含`unsafe-eval`，仍禁止外部脚本、外部连接、frame、object和CORS。实际新页面加载控制台零error/warning，冻结Runtime/Parity模式可正常创建初始会话。
+- 新R10 Godot wrapper严格绑定Runtime/Receipt/Scene/Environment四个同run文件；Environment Bundle经canonical、identity、path、hash、PNG 2:1及collider指标复验，使用`PanoramaSkyMaterial`设置天空，只隐藏环境collider的视觉节点并保留冻结R7静态碰撞与Action终端。
+- `npm.cmd run verify:prototype-builder`通过：18/18客户端/宿主测试、Creator 248 modules build、真实Godot 4.6.3离线wrapper smoke输出R7/R10两个唯一readiness marker；未配置或读取模型、Meshy或Marble凭据，未产生外部请求或费用。
+- 浏览器实际检查覆盖默认Builder、等待模型审批、禁用未配置审批、Runtime/Parity回归；1280、640与320像素宽度均无水平溢出，原生控件、焦点、aria-live与静态诊断可见。人工真实缓存、完整审批、Godot图形预览留到R10.6。
+- 最新树上boundary `checked=956/tracked=950`、round/parent scope均通过且`git diff --check`通过；R1–R9冻结范围及父仓无修改。
+
+## R10.6 真实资格与验收证据
+
+- 真实R8、R9与Marble缓存已原子导入同一仓外run；Scene Pack明确包含Marble环境collider、Meshy prop visual/collider及Meshy character visual/collider，未以Kenney环境冒充正式结果。
+- R10资格脚本固定中性环境prompt与`marble-1.1`，并把实际有效链记录为1次create、27次有界poll、1次Get World和2次下载；正式资产host仅精确增加`cdn.marble.worldlabs.ai`，没有开放通配符。仓库未保存operation/world ID、下载URL、凭据、原始响应或供应商错误正文。
+- 仓外Environment Bundle SHA-256为`2da2de30b9177421f3d4bbdbfef42b8f3e5e2e786c63d27e70aa9507adabcdf6`；panorama为4608×2304、9,874,030 bytes、SHA-256 `fe7ca1024e1ef006a193c42252072e794f967b7b60fd10462a0ffdb6dcd054f8`；collider为2,265,108 bytes、87,068 triangles、SHA-256 `e5763afb340b9d4dcfb21ed0ea436c413018526a0534be8f08f5b9436c8497fc`。真实文件、日志与远程标识只留在`C:\tmp`。
+- 首次图形验收确认panorama能够显示，但真实Marble collider原始边界约为`3.08 × 1.34 × 5.95m`，与R10确定性`30 × 30m`布局不在同一尺度，玩家出生后离开碰撞区域，表现为无法有效移动且看不到Meshy资产。R10 wrapper已在本批对环境collider做确定性尺度/地面基准对齐并增加不可见安全地面；未修改冻结R6/R7控制器、Scene Pack或真实资产。
+- 修复后合成离线Godot smoke不仅检查marker，还执行30个物理帧的合成移动并断言水平位移与高度稳定；同一真实缓存的独立headless移动验收输出`R10_REAL_MOVEMENT_SMOKE_OK`。`npm.cmd run verify:prototype-builder`为18/18，Creator 248 modules build与Godot wrapper smoke通过。
+- 人工复验确认Marble碰撞、第一人称移动、Meshy prop和静态人物显示均通过；没有新增模型、Meshy或Marble调用，也没有读取供应商凭据。
+- panorama仍是固定中心天空背景：平移不会产生视差或房间体积反馈，而独立碰撞/物体会相对移动。用户确认技术链路通过，但室内体验存在系统性偏差；本轮将其列为明确已知限制，后续轮次必须先审计环境呈现路线，再决定HQ mesh、SPZ或混合几何方案。
+- 最新树`npm.cmd ci --ignore-scripts --no-audit --no-fund`安装112个锁定包，`npm.cmd prefix`与`npm.cmd ls --all`退出0。首次ci因遗留R10预览进程占用`sharp/libvips`而未完成；精确关闭该进程后原命令成功，后续测试不再使用不完整依赖树的结果。
+- `npm.cmd run verify:r10`全绿：Environment 6/6、Assembly 15/15、Host 14/14、Builder 18/18，Creator 248 modules build及真实Godot wrapper smoke通过。最新树完整`npm.cmd run verify`为16/16步骤、Node 652/652、Godot R4–R7全门、Creator build与HTTP smoke全绿。
+- `check:boundary`为checked=958/tracked=956，round/parent scope均checked=67/changed=51，`git diff --check`通过；R1–R9冻结实现、examples、历史验收、父`client/server/.github`及容器路径相对固定BASE零差异。
+- 冻结父`client`在独立worktree执行clean `npm.cmd ci --no-audit --no-fund`和`npm.cmd run build`成功（3101 modules）；构建前后父client Git状态为空，仅保留既有大chunk与esbuild allow-scripts提示。未运行父后端、Docker、共享栈、部署或正式导出。
+- `verify:extraction`在未提交源树按设计返回`EXTRACTION_SOURCE_NOT_CLEAN`且未创建拆分产物；第六提交后必须在最终clean HEAD重跑成功，最终commit、split tree与archive SHA-256只写仓外交付清单，避免验收文档自引用。
+
+## 回退
+
+本轮六批均可按逆序`git revert`。Git回退不删除仓外run、真实供应商资产或远程Marble world。

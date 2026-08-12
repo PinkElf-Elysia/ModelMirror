@@ -119,6 +119,8 @@ const NETWORK_GLOBAL_NAMES = [
   ["send", "Beacon"].join(""),
 ];
 const FETCH_GLOBAL_NAME = NETWORK_GLOBAL_NAMES[0];
+const APPROVED_CREATOR_LOOPBACK_CLIENT_SOURCE =
+  "apps/creator-web/src/prototype-builder.ts";
 const NETWORK_MODULES = new Set([
   "http",
   "http2",
@@ -151,9 +153,11 @@ const MESHY_ENDPOINT = [
   "v2",
   "text-to-3d",
 ].join("/");
+const MARBLE_ENDPOINT = ["https:", "", "api.worldlabs.ai", "marble", "v1"].join("/");
 const APPROVED_PROVIDER_NETWORK_SOURCES = new Set([
   "packages/prototype-generator/src/openai-compatible.mjs",
   "packages/prototype-asset-pipeline/src/meshy-provider.mjs",
+  "packages/prototype-environment-pipeline/src/marble-provider.mjs",
 ]);
 const STATIC_SECRET_PATTERNS = [
   /-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----/,
@@ -189,7 +193,7 @@ const R9_SHARP_LIBVIPS_LICENSE_EXCEPTIONS = [
 }));
 
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 9],
+  [["schemaVersion"], 10],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
@@ -201,7 +205,7 @@ const REQUIRED_POLICY_VALUES = [
   [["networkPolicy", "creatorSource"], "none"],
   [["networkPolicy", "godotFirstPartySource"], "none"],
   [["networkPolicy", "verificationScripts"], "loopback-only"],
-  [["networkPolicy", "providerCalls"], "openai-compatible-and-meshy-adapters-only"],
+  [["networkPolicy", "providerCalls"], "openai-compatible-meshy-and-marble-adapters-only"],
   [["networkPolicy", "splatQualification"], "source-checkout-and-loopback-disposable-only"],
   [["runtimeArtifactInputPolicy", "mode"], "paired-local-files-only"],
   [["runtimeArtifactInputPolicy", "runtimeMaxBytes"], 16 * 1024 * 1024],
@@ -279,6 +283,38 @@ const REQUIRED_POLICY_VALUES = [
   [["prototypeAssetPolicy", "marbleCallsAllowed"], false],
   [["prototypeAssetPolicy", "meshyCallsRequireHumanApproval"], true],
   [["prototypeAssetPolicy", "trackedGeneratedArtifactsAllowed"], false],
+  [["prototypeEnvironmentPolicy", "format"], "matrix-oasis.prototype-environment-bundle"],
+  [["prototypeEnvironmentPolicy", "formatVersion"], "0.1.0"],
+  [["prototypeEnvironmentPolicy", "canonicalization"], "matrix-oasis.canonical-json/1"],
+  [["prototypeEnvironmentPolicy", "provider"], "marble"],
+  [["prototypeEnvironmentPolicy", "providerEndpoint"], MARBLE_ENDPOINT],
+  [["prototypeEnvironmentPolicy", "providerModel"], "marble-1.1"],
+  [["prototypeEnvironmentPolicy", "providerNetworkSource"], "packages/prototype-environment-pipeline/src/marble-provider.mjs"],
+  [["prototypeEnvironmentPolicy", "panoramaMaxBytes"], 64 * 1024 * 1024],
+  [["prototypeEnvironmentPolicy", "panoramaMaxWidth"], 16384],
+  [["prototypeEnvironmentPolicy", "panoramaMaxHeight"], 8192],
+  [["prototypeEnvironmentPolicy", "colliderMaxBytes"], 32 * 1024 * 1024],
+  [["prototypeEnvironmentPolicy", "responseMaxBytes"], 1024 * 1024],
+  [["prototypeEnvironmentPolicy", "pollMaxAttempts"], 180],
+  [["prototypeEnvironmentPolicy", "pollIntervalMs"], 10000],
+  [["prototypeEnvironmentPolicy", "creatorNetworkAllowed"], false],
+  [["prototypeEnvironmentPolicy", "godotNetworkAllowed"], false],
+  [["prototypeEnvironmentPolicy", "humanApprovalRequired"], true],
+  [["prototypeEnvironmentPolicy", "spzAllowed"], false],
+  [["prototypeEnvironmentPolicy", "trackedGeneratedArtifactsAllowed"], false],
+  [["prototypeBuilderPolicy", "host"], "127.0.0.1"],
+  [["prototypeBuilderPolicy", "port"], 43110],
+  [["prototypeBuilderPolicy", "jsonBodyMaxBytes"], 64 * 1024],
+  [["prototypeBuilderPolicy", "promptMaxBytes"], 32 * 1024],
+  [["prototypeBuilderPolicy", "maxZones"], 4],
+  [["prototypeBuilderPolicy", "maxNonEnvironmentBriefs"], 2],
+  [["prototypeBuilderPolicy", "maxPlacements"], 32],
+  [["prototypeBuilderPolicy", "maxPlacementsPerZone"], 8],
+  [["prototypeBuilderPolicy", "singleActiveRun"], true],
+  [["prototypeBuilderPolicy", "singleGodotProcess"], true],
+  [["prototypeBuilderPolicy", "sameOriginOnly"], true],
+  [["prototypeBuilderPolicy", "corsAllowed"], false],
+  [["prototypeBuilderPolicy", "persistRawPrompt"], false],
   [["scenePackInputPolicy", "symlinksAllowed"], false],
   [
     ["forbiddenParentRoots"],
@@ -1005,6 +1041,30 @@ function usesNetworkModule(specifiers) {
 }
 
 function checkRuntimeNetwork(relative, content, specifiers, violations) {
+  if (relative === APPROVED_CREATOR_LOOPBACK_CLIENT_SOURCE) {
+    const approvedRequestCall = `this.#${FETCH_GLOBAL_NAME}(path`;
+    const forbiddenCapability =
+      NETWORK_GLOBAL_NAMES
+        .filter((name) => name !== FETCH_GLOBAL_NAME)
+        .some((name) => new RegExp(`\\b${name}\\b`).test(content)) ||
+      usesNetworkModule(specifiers) ||
+      hasExternalOrProtocolRelativeUrl(content) ||
+      /\bprocess\s*\.\s*env\b/u.test(content) ||
+      !content.includes("!API_PATH.test(path)") ||
+      !content.includes('credentials: "same-origin"') ||
+      !content.includes('redirect: "error"') ||
+      !content.includes('cache: "no-store"') ||
+      !content.includes(approvedRequestCall);
+    if (forbiddenCapability) {
+      addViolation(
+        violations,
+        "creator-prototype-client-network-invalid",
+        relative,
+        "The approved Creator client may call only bounded same-origin prototype-host API paths.",
+      );
+    }
+    return;
+  }
   if (APPROVED_PROVIDER_NETWORK_SOURCES.has(relative)) {
     const forbiddenCapability =
       NETWORK_GLOBAL_NAMES
@@ -1180,6 +1240,24 @@ function checkSmokeNetwork(relative, content, specifiers, violations) {
 function checkScriptNetwork(relative, content, specifiers, violations) {
   if (relative === "scripts/smoke-creator.mjs") {
     checkSmokeNetwork(relative, content, specifiers, violations);
+    return;
+  }
+  if (relative === "scripts/lib/prototype-host-core.mjs") {
+    const allowedModules = new Set(["http", "node:http"]);
+    if (specifiers.some((specifier) => NETWORK_MODULES.has(specifier) && !allowedModules.has(specifier)) ||
+        NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(content)) ||
+        !/export const PROTOTYPE_HOST = "127\.0\.0\.1";/u.test(content) ||
+        !/export const PROTOTYPE_HOST_PORT = 43_110;/u.test(content) ||
+        !/server\.listen\(PROTOTYPE_HOST_PORT, PROTOTYPE_HOST,/u.test(content) ||
+        /\b(?:connect|createConnection|Socket)\s*\(/u.test(content)) {
+      addViolation(violations, "prototype-host-network-invalid", relative,
+        "Prototype host may only listen on its fixed 127.0.0.1:43110 endpoint and may not create outbound clients.");
+    }
+    for (const match of content.matchAll(/\b(?:https?|wss?):\/\/([A-Za-z0-9.:[\]-]+)/gu)) {
+      const host = match[1].replace(/^\[/u, "").replace(/\]$/u, "").split(":", 1)[0];
+      if (!LOOPBACK_HOSTS.has(host)) addViolation(violations, "prototype-host-network-invalid", relative,
+        "Prototype host literals must remain loopback-only.");
+    }
     return;
   }
   if (

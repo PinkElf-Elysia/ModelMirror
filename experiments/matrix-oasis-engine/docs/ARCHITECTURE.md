@@ -1,42 +1,22 @@
-# 架构方向
+# 架构
 
-最后更新：2026-08-11
-状态：R9 资产物化与规范化
-
-## 当前系统
-
-R1–R8 的合同、Validator、Compiler、Runtime、Creator、Godot、Scene Pack、Blueprint 和验证链均为冻结权威。R9 在 Blueprint 与 Scene Pack 之间增加私有 Asset Bundle，不修改执行语义、Godot 源码或正式 Scene Pack 合同。
+状态：R10 初版原型闭环
 
 ```text
-pure text → Authoring + private Scene Blueprint（R8，冻结）
-                               │
-                               ▼
-Kenney environment + Meshy prop/character → normalized GLB + Asset Bundle（R9）
-                               │
-                               ▼
-fixed qualification layout → Scene Pack + Godot scene lab（冻结入口）
+R8 Prototype Generator
+  ├─ Authoring / Runtime / Blueprint
+  ├─ R9 Asset Pipeline → Meshy prop + static character
+  └─ R10 Environment Pipeline → Marble panorama + collider
+             ↓
+      R10 deterministic Assembler
+             ↓
+       frozen R7 Scene Pack
+             ↓
+      R10 Godot wrapper + frozen R7 scene lab
 ```
 
-R9 的 Prototype Asset Bundle 只绑定 Blueprint/Runtime 身份、固定环境模板和规范化 GLB 元数据。它不包含供应商任务 ID、下载 URL、原始响应、用户提示或布局坐标，也不扩展 Runtime Pack、Scene Pack 或存档格式。R10 才负责通用 Blueprint→Scene Pack 布局与一键预览。
+R10不修改R1–R9合同或执行语义。panorama通过私有Environment Bundle进入新wrapper；Scene Pack仍只引用GLB。宿主负责provider配置、审批、缓存、原子run和Godot子进程，Creator只访问same-origin loopback API。
 
-## 独立模块原则
+主项目Marble适配仅作为已验证协议参考。R10模块实现独立Node provider，不导入父Python、凭据存储、路由或数据，确保subtree standalone。
 
-- Godot 二进制、生成的 Runtime Pack/Receipt、图形证据和详细日志在仓外。
-- 正式源码只依赖 Godot 标准 API；GdUnit4 是 dev-only vendored 测试框架。
-- 自动门只使用 headless；图形捕获是 PR 前人工硬门。
-- Godot 执行器独立于 JavaScript oracle；差分 harness 只调用冻结包的公开根接口。
-- 网络例外仅限冻结的 OpenAI 兼容适配器与 R9 Meshy adapter；Creator、Godot和既有运行包仍完全离线。
-- R9 不实现 Marble、环境生成、自动布局、AI NPC、记忆、任务规划、世界事件、图片输入或运行期AI。
-
-## 决策记录
-
-- [ADR-0001：独立实验模块](./adr/0001-isolated-experiment-module.md)
-- [ADR-0002：R1 活动轮次治理](./adr/0002-r1-active-round-governance.md)
-- [ADR-0003：R2 参考模拟器治理](./adr/0003-r2-reference-simulator-governance.md)
-- [ADR-0004：R3 Runtime Pack 与双执行治理](./adr/0004-r3-runtime-pack-governance.md)
-- [ADR-0005：R4 Godot 工程底座治理](./adr/0005-r4-godot-foundation-governance.md)
-- [ADR-0006：R5 Godot Runtime Pack 适配治理](./adr/0006-r5-godot-runtime-adapter-governance.md)
-- [ADR-0007：R6 第一人称可玩 3D 骨架治理](./adr/0007-r6-playable-3d-governance.md)
-- [ADR-0008：R7 Scene Pack 与离线资产治理](./adr/0008-r7-scene-pack-governance.md)
-- [ADR-0009：R8 自然语言原型生成治理](./adr/0009-r8-natural-language-prototype-governance.md)
-- [ADR-0010：R9 资产物化治理](./adr/0010-r9-asset-materialization-governance.md)
+相关决策见[ADR-0011](./adr/0011-r10-prototype-builder-governance.md)。

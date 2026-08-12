@@ -1,16 +1,9 @@
-# R9已知限制
+# R10已知限制
 
-- R9只物化道具和静态人物资产，不完成“自然语言到3D原型”全链路。
-- 输入仅为纯文本；不支持图片、全景、视频、3D场景、数字孪生或实时世界模型。
-- Scene Blueprint是私有版本化中间合同，不是长期公共格式、Scene Pack或存档。
-- 模型只允许最多两轮修复；不保证任意提示都能得到合法结果。
-- R8不提供AI NPC、记忆、关系、动态任务、世界事件或运行期模型调用。
-- OpenAI兼容资格只证明选定endpoint/model在当次测试中支持严格结构化输出，不证明所有兼容网关可用。
-- 普通自动验证只使用loopback假Provider；真实资格需要凭据、费用披露和单次人工批准。
-- 环境仍是固定Kenney模板；Marble、SPZ/Splat、通用自动布局和Creator一键预览不在R9。
-- Meshy资格只证明选定模型在当次任务中可生成可规范化GLB，不保证服务长期可用或输出稳定。
-- Asset Bundle是R9/R10间私有中间产物，不是Runtime Pack、Scene Pack、正式资产格式或存档。
-- 规范化字节确定性只在锁定Windows工具链内保证，不建立跨平台纹理编码golden。
-- 模块仍为private/UNLICENSED；既有许可证例外和Godot工具链限制不变。
-
-移除任何限制必须进入后续批准轮次，不能以低风险或易实现为由混入R9。
+- Marble环境视觉是固定中心的360°panorama，没有平移视差，也不承载房间几何。玩家平移时背景只随视角旋转，独立collider与Meshy物体会移动，但背景缺少对应空间线索；真实室内场景人工验收确认该组合存在明显的系统性体验偏差。R10只把它认定为技术闭环和原型级碰撞通过，不宣称沉浸式室内环境体验通过。
+- 不支持SPZ、HQ环境网格、图片/视频输入、AI NPC、记忆、动态任务、存档、导出或父产品接入。
+- Scene Pack不包含panorama；Environment Bundle与Assembly Report是R10私有中间产物。
+- 真实供应商需要人工审批、凭据、额度和等待时间；普通verify仅证明loopback与离线缓存路径。
+- R10.6真实缓存已确认panorama加载、Marble碰撞、第一人称移动及Meshy prop/静态人物显示；全景背景与可移动世界之间的空间一致性仍须后续轮次先审计方案再修复，不能以调整样例或遮掩背景替代架构决策。
+- 冻结Validator在浏览器中依赖Ajv运行时代码生成；因此仅loopback Creator宿主的CSP允许同源脚本使用`unsafe-eval`。外部脚本、外部连接、frame、object和CORS仍禁止。
+- Git回退不会删除仓外run、供应商任务、下载物或远程Marble world。

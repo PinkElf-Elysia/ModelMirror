@@ -247,6 +247,28 @@ test("the exact R9 Meshy adapter may use fetch without reading process environme
   });
 });
 
+test("the exact R10 Marble adapter may use fetch without reading process environment", async () => {
+  await withFixture(async ({ root }) => {
+    const operation = ["fet", "ch"].join("");
+    const providerRoot = path.join(
+      root,
+      "packages",
+      "prototype-environment-pipeline",
+      "src",
+    );
+    await fs.mkdir(providerRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(providerRoot, "marble-provider.mjs"),
+      `export const request = (endpoint, options) => ${operation}(endpoint, options);\n`,
+      "utf8",
+    );
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.report.ok, true);
+  });
+});
+
 test("secret scanning permits an indirect credential reference but not embedded values", async () => {
   await withFixture(async ({ root }) => {
     await fs.mkdir(path.join(root, "src"), { recursive: true });
@@ -586,6 +608,16 @@ const negativeCases = [
     },
   },
   {
+    name: "Prototype Builder client without same-origin request guards",
+    expectedRule: "creator-prototype-client-network-invalid",
+    setup: async ({ root }) => {
+      const operation = ["fet", "ch"].join("");
+      const target = path.join(root, "apps", "creator-web", "src", "prototype-builder.ts");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, `export const request = (path) => ${operation}(path);\n`, "utf8");
+    },
+  },
+  {
     name: "root runtime source network call",
     expectedRule: "module-network-forbidden",
     setup: async ({ root }) => {
@@ -715,6 +747,37 @@ const negativeCases = [
         `${capability}("https://example.invalid/tool");\n`,
         "utf8",
       );
+    },
+  },
+  {
+    name: "prototype host outbound request",
+    expectedRule: "prototype-host-network-invalid",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "prototype-host-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, [
+        'import { createServer } from "node:http";',
+        'export const PROTOTYPE_HOST = "127.0.0.1";',
+        "export const PROTOTYPE_HOST_PORT = 43_110;",
+        "const server = createServer();",
+        "server.listen(PROTOTYPE_HOST_PORT, PROTOTYPE_HOST, () => {});",
+        'fetch("https://example.invalid");',
+      ].join("\n"), "utf8");
+    },
+  },
+  {
+    name: "prototype host wildcard binding",
+    expectedRule: "prototype-host-network-invalid",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "prototype-host-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, [
+        'import { createServer } from "node:http";',
+        'export const PROTOTYPE_HOST = "0.0.0.0";',
+        "export const PROTOTYPE_HOST_PORT = 43_110;",
+        "const server = createServer();",
+        "server.listen(PROTOTYPE_HOST_PORT, PROTOTYPE_HOST, () => {});",
+      ].join("\n"), "utf8");
     },
   },
   {
