@@ -13,6 +13,7 @@ export type WorkflowNodeKind =
   | "knowledge_retrieval"
   | "knowledge_citation"
   | "document_extractor"
+  | "vision_understanding"
   | "human_intervention"
   | "question_classifier"
   | "agent"
@@ -97,6 +98,11 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   scoreThreshold?: string;
   top_k?: string;
   assetIdVariable?: string;
+  visionModelId?: string;
+  pdfPageStrategy?: "auto" | "all" | "scanned_only";
+  maxPages?: number | string;
+  maxImageEdge?: number | string;
+  failurePolicy?: "continue_on_error" | "strict";
   /** One-release read-only compatibility for previously saved path graphs. */
   sourcePathVariable?: string;
   categories?: string;

@@ -714,6 +714,51 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     },
                     resource_requirements=["knowledge_base"],
                 ),
+                WorkflowPaletteItem(
+                    kind="vision_understanding",
+                    icon="VISION",
+                    title="视觉理解",
+                    description=(
+                        "读取当前私有运行显式共享的图片或扫描 PDF，输出 OCR、"
+                        "视觉描述、表格和图表等类型化结果。"
+                    ),
+                    category="knowledge-pipeline",
+                    tags=["vision", "ocr", "image", "pdf", "typed-value"],
+                    planner_enabled=False,
+                    planner_support="unsupported",
+                    planner_default_data={
+                        "assetIdVariable": "selected_file_asset_id",
+                        "visionModelId": "",
+                        "pdfPageStrategy": "auto",
+                        "maxPages": 100,
+                        "maxImageEdge": 2048,
+                        "failurePolicy": "continue_on_error",
+                        "outputVariable": "vision_result",
+                    },
+                    planner_config_constraints={
+                        "required": [
+                            "assetIdVariable",
+                            "visionModelId",
+                            "outputVariable",
+                        ],
+                        "pdfPageStrategy": ["auto", "all", "scanned_only"],
+                        "maxPages": {"minimum": 1, "maximum": 200},
+                        "maxImageEdge": {"minimum": 512, "maximum": 4096},
+                        "failurePolicy": ["continue_on_error", "strict"],
+                    },
+                    input_contract={
+                        "assetIdVariable": "resource:file_asset_id",
+                    },
+                    output_contract={
+                        "outputVariable": "object",
+                    },
+                    resource_requirements=["file_asset"],
+                    metadata={
+                        "private_only": True,
+                        "supported_formats": ["png", "jpeg", "webp", "pdf"],
+                        "side_effect": "external_model_read",
+                    },
+                ),
             ],
             placeholders=[],
         )

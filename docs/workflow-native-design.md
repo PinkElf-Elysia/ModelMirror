@@ -104,9 +104,11 @@
 
 ### 知识流水线分类
 
-工作流中的知识分类只展示知识消费节点。当前为 `knowledge_base` 资源绑定和 `knowledge_retrieval` 确定性检索；后续独立 PR 增加通用 `vision_understanding`。数据源、Processor、分块、Embedding、索引、检索策略、评测和版本管理属于 `/rag`，不得在 classic workflow 中复制实现或保留占位节点。
+工作流中的知识分类只展示 `knowledge_base`、`knowledge_retrieval` 与 `vision_understanding`。数据源、Processor、分块、Embedding、索引、检索策略、评测和版本管理属于 `/rag`，不得在 classic workflow 中复制实现或保留占位节点。
 
 `knowledge_retrieval` V2 读取指定知识库的活动版本并调用 `RagService.search_knowledge`，不额外生成回答。`returnMode=result` 输出上下文、受限来源、CitationAnchor、检索诊断和 warnings 的 typed object；`returnMode=context` 输出纯文本。活动版本切换仍由 RAG 指针控制，工作流定义无需改变。
+
+`vision_understanding` 从私有运行显式选择的 PNG、JPEG、WebP 或 PDF FileAsset 读取内容，调用通用多模态服务并输出 OCR、视觉描述、表格、图表与 warnings 的 typed object。直接 Workflow 使用固定 `workflow:<workflow_id>` 作用域；Xpert、Goal 与 Handoff 使用发布运行元数据中的显式共享附件。该节点不会创建 RAG Job、Chunk、索引或知识版本，公共 App 部署预检拒绝包含该节点的版本。
 
 ### 对齐顺序
 
@@ -124,7 +126,7 @@
 
 - `工作流`：按逻辑、转换、工具、记忆、其他分组展示现有可运行节点。
 - `中间件`：继续从 `GET /api/runtime/middleware-nodes` 拉取 runtime middleware metadata，并保持现有 JSON 拖拽 payload。
-- `知识流水线`：classic workflow 暴露 `knowledge_base` 与 `knowledge_retrieval`；独立 `/rag/:kbId/pipeline` 画布负责数据源、视觉理解、处理器、分块器、Embedding、索引、策略和评测。
+- `知识流水线`：classic workflow 暴露 `knowledge_base`、`knowledge_retrieval` 与一次性 `vision_understanding`；独立 `/rag/:kbId/pipeline` 画布负责数据源、可索引视觉处理、处理器、分块器、Embedding、索引、策略和评测。
 
 历史占位已收口：知识流水线 stage 不再显示在 classic workflow 节点库。`knowledge_citation` 仍属于 `SUPPORTED_NODE_KINDS` 以加载和运行旧图，但不再提供新建入口或 Planner 能力。
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -140,6 +141,34 @@ def test_context_store_rejects_unsafe_files_and_cross_xpert_access(stores) -> No
         context.get_file("xpert-2", asset.asset_id)
     with pytest.raises(XpertContextNotFoundError):
         context.get_conversation("xpert-2", conversation.conversation_id)
+
+
+def test_context_store_accepts_valid_visual_attachment_without_text_extraction(
+    stores,
+) -> None:
+    _, context = stores
+    conversation = context.create_conversation("xpert-vision")
+    content = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+
+    asset = context.add_file(
+        "xpert-vision",
+        conversation.conversation_id,
+        filename="scan.png",
+        content=content,
+    )
+
+    assert asset.extension == ".png"
+    assert asset.character_count == 0
+    assert context.read_file_bytes(asset) == content
+    file_context, selected = context.build_file_context(
+        "xpert-vision",
+        [asset.asset_id],
+        conversation_id=conversation.conversation_id,
+    )
+    assert selected[0].asset_id == asset.asset_id
+    assert "scan.png" in file_context
 
 
 def test_context_store_rolls_back_file_delete_when_snapshot_persistence_fails(

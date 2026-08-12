@@ -66,6 +66,7 @@ _ALLOWED_INPUTS = {
     (FilePurpose.AGENT, FileInputKind.DOCUMENT),
     (FilePurpose.DATAX, FileInputKind.DATA_SOURCE),
     (FilePurpose.WORKFLOW, FileInputKind.DOCUMENT),
+    (FilePurpose.WORKFLOW, FileInputKind.VISUAL_ANALYSIS),
 }
 _TEXT_FORMATS = {
     "plain_text",

@@ -15,7 +15,11 @@ from fastapi.testclient import TestClient
 
 from server.file_assets import api as file_asset_api
 from server.file_assets.api import router
-from server.file_assets.service import FileAssetService, get_file_asset_service
+from server.file_assets.service import (
+    FileAssetService,
+    FileAssetServiceError,
+    get_file_asset_service,
+)
 
 
 def _client(tmp_path: Path, *, mode: str = "native", tenant_id: str = "local"):
@@ -425,6 +429,42 @@ def test_chat_visual_analysis_upload_has_an_independent_gate(
     assert uploaded.status_code == 201
     assert uploaded.json()["format"] == "png"
     assert uploaded.json()["expires_at"] is not None
+
+
+def test_workflow_visual_upload_is_persistent_and_scope_bound(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FILE_ASSET_STORE_MODE", "shadow")
+    monkeypatch.setenv("WORKFLOW_FILE_ASSETS_ENABLED", "true")
+    client, service = _client(tmp_path, mode="shadow")
+
+    uploaded = _upload(
+        client,
+        body=_ONE_PIXEL_PNG,
+        filename="scan.png",
+        media_type="image/png",
+        purpose="workflow",
+        scope_id="workflow:vision-one",
+        input_kind="visual_analysis",
+    )
+
+    assert uploaded.status_code == 201, uploaded.text
+    payload = uploaded.json()
+    assert payload["format"] == "png"
+    assert payload["expires_at"] is None
+    resolved = service.resolve_workflow_visual_asset(
+        payload["asset_id"],
+        scope_id="workflow:vision-one",
+    )
+    assert resolved.content == _ONE_PIXEL_PNG
+    assert resolved.display_name == "scan.png"
+    with pytest.raises(FileAssetServiceError) as denied:
+        service.resolve_workflow_visual_asset(
+            payload["asset_id"],
+            scope_id="workflow:other",
+        )
+    assert denied.value.error_code == "file_asset_not_found"
 
 
 def test_expiry_conflict_startup_gc_and_database_are_body_free(tmp_path: Path) -> None:

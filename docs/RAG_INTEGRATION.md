@@ -188,6 +188,8 @@ data_source -> image_understanding -> structured_processor
 
 安全能力摘要使用 `GET /api/rag/vision-capabilities`。Graph 节点预览最多返回 20 个截断视觉块，不返回原图、Base64、本地路径、正文全集、prompt 或密钥。第三方许可证见 `server/THIRD_PARTY_NOTICES.md`。
 
+底层图片校验、PDF 渲染、页面选择、VLM 严格 JSON 和视觉块生成由 `server/multimodal/vision_understanding.py` 提供。RAG 的 `VisionUnderstandingService` 保持原公开契约，只把通用视觉块适配为 `DocumentBlock` 并继续进入 Processor 与双索引。Classic workflow 的 `vision_understanding` 也复用该底层，但仅返回一次性 typed result，不创建 Pipeline Job、索引 namespace 或知识版本。
+
 ## 2026-07-13 增量：可执行知识流水线画布
 
 新增 `/rag/:kbId/pipeline` 和服务端 Knowledge Pipeline Graph。画布不是新的索引执行系统：Graph 经过校验后编译为现有 Draft，随后仍由 `KnowledgePipelineExecutor` 按 `load / vision / process / chunk / embed / store` 执行并生成隔离候选版本。

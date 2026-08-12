@@ -15,8 +15,10 @@ from typing import Any, Iterator, Literal
 
 try:
     from server.rag.document_parser import DocumentParseError, parse_document, supported_extensions
+    from server.multimodal.vision_understanding import VisionProcessingError, VisionUnderstandingService
 except ModuleNotFoundError:
     from rag.document_parser import DocumentParseError, parse_document, supported_extensions
+    from multimodal.vision_understanding import VisionProcessingError, VisionUnderstandingService
 
 from .file_memory import (
     FileMemoryConflictError,
@@ -36,6 +38,7 @@ MAX_EXTRACTED_CHARS = 500_000
 MAX_CONVERSATION_MESSAGES = 200
 MAX_TOOL_MEMORY_CHARS = 8_000
 MAX_TOOL_MEMORIES_PER_CONVERSATION = 100
+_VISUAL_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 class XpertContextError(Exception):
@@ -410,7 +413,7 @@ class XpertContextStore:
     ) -> XpertFileAsset:
         clean_filename = self._safe_filename(filename)
         extension = Path(clean_filename).suffix.lower()
-        if extension not in supported_extensions():
+        if extension not in supported_extensions() | _VISUAL_EXTENSIONS:
             raise XpertContextValidationError(
                 f"Unsupported file type: {extension or '<none>'}."
             )
@@ -443,8 +446,15 @@ class XpertContextStore:
             temporary.write_bytes(content)
             os.replace(temporary, raw_path)
             try:
-                extracted = parse_document(raw_path, clean_filename)
-            except DocumentParseError as exc:
+                if extension in _VISUAL_EXTENSIONS:
+                    VisionUnderstandingService().validate_image_bytes(
+                        content,
+                        clean_filename,
+                    )
+                    extracted = ""
+                else:
+                    extracted = parse_document(raw_path, clean_filename)
+            except (DocumentParseError, VisionProcessingError) as exc:
                 raw_path.unlink(missing_ok=True)
                 raise XpertContextValidationError(str(exc)) from exc
             truncated = len(extracted) > MAX_EXTRACTED_CHARS

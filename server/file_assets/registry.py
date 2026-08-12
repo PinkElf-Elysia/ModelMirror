@@ -430,7 +430,8 @@ class FileFormatRegistry:
         ):
             return FileInteractionStatus.DISABLED, purpose_gate[2]
         if (
-            policy.input_kind == FileInputKind.DOCUMENT
+            policy.input_kind
+            in {FileInputKind.DOCUMENT, FileInputKind.VISUAL_ANALYSIS}
             and policy.purpose in {FilePurpose.CHAT, FilePurpose.WORKFLOW}
             and os.getenv("FILE_ASSET_STORE_MODE", "legacy").strip().lower()
             not in {"shadow", "native"}
@@ -755,6 +756,18 @@ _POLICIES = (
         "workflow.document_extractor",
         "/workflow",
         retention=FileRetention.PERSISTENT,
+    ),
+    _policy(
+        FilePurpose.WORKFLOW,
+        FileInputKind.VISUAL_ANALYSIS,
+        ("pdf", "jpeg", "png", "webp"),
+        10,
+        FileSupportLevel.SPECIALIZED,
+        FileInteractionStatus.READY,
+        "workflow.vision_understanding",
+        "/workflow",
+        retention=FileRetention.PERSISTENT,
+        max_files_per_request=1,
     ),
 )
 

@@ -8,6 +8,8 @@ Conversation title and follow-up generation use the existing OpenAI-compatible g
 
 File policy controls whether selected conversation assets enter the run, their allowed extension, and the per-run maximum. A disabled file feature preserves stored conversation files but excludes their IDs from Xpert and Goal execution. High-confidence memory replies only use memories already visible to that Xpert/conversation and fall back to the normal model path when confidence is insufficient.
 
+Published private Xperts may contain `vision_understanding`. The runner injects only the selected `file_asset_ids` plus a convenience `selected_file_asset_id`; the node must resolve the asset through the owning Xpert and conversation recorded in runtime metadata. Goal and Handoff runs inherit only the explicitly shared file IDs. Cross-conversation lookup fails closed, while archived files remain readable only for already-started runs that retain an explicit reference. Public Xpert App deployment rejects this node because the public surface does not accept attachments.
+
 Audio endpoints reuse `LLM_GATEWAY_URL` / `LLM_GATEWAY_KEY` or the OpenRouter-compatible fallback:
 
 - `GET /api/xperts/{xpert_id}/audio-capabilities`

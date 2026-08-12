@@ -111,6 +111,17 @@ class ResolvedChatFile:
     analysis_prompt: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ResolvedWorkflowVisualAsset:
+    asset_id: str
+    scope_id: str
+    display_name: str
+    format_id: str
+    media_type: str
+    byte_size: int
+    content: bytes
+
+
 class FileAssetService:
     def __init__(
         self,
@@ -1541,6 +1552,48 @@ class FileAssetService:
                     exc.message,
                 ) from exc
 
+    def resolve_workflow_visual_asset(
+        self,
+        asset_id: str,
+        *,
+        scope_id: str,
+    ) -> ResolvedWorkflowVisualAsset:
+        """Read one scoped visual asset without exposing its storage key."""
+
+        self._ready_upload_policy(
+            FilePurpose.WORKFLOW,
+            input_kind=FileInputKind.VISUAL_ANALYSIS,
+        )
+        clean_asset = _identifier(asset_id, "asset_id")
+        clean_scope = _identifier(scope_id, "scope_id")
+        with self._claim_asset_read(clean_asset):
+            record = self._scoped_record(
+                clean_asset,
+                purpose=FilePurpose.WORKFLOW,
+                scope_id=clean_scope,
+            )
+            if record.status != "ready":
+                raise FileAssetServiceError(
+                    409,
+                    "file_asset_state_conflict",
+                    "文件当前尚未就绪，请刷新后重试。",
+                )
+            if record.format_id not in {"pdf", "jpeg", "png", "webp"}:
+                raise FileAssetServiceError(
+                    422,
+                    "workflow_visual_asset_unsupported",
+                    "该工作流文件不能用于视觉理解。",
+                )
+            return ResolvedWorkflowVisualAsset(
+                asset_id=record.id,
+                scope_id=clean_scope,
+                display_name=record.display_name,
+                format_id=record.format_id,
+                media_type=record.media_type,
+                byte_size=record.byte_size,
+                content=self.blob_store.read_bytes(record.storage_key),
+            )
+
     @contextmanager
     def _claim_asset_read(self, asset_id: str) -> Iterator[None]:
         """Hold a process-local run claim until parsing finishes."""
@@ -1742,8 +1795,8 @@ class FileAssetService:
             FileInputKind(input_kind) if input_kind is not None else default_input_kind
         )
         if input_kind is not None and not (
-            purpose == FilePurpose.CHAT
-            and requested_input_kind == FileInputKind.VISUAL_ANALYSIS
+            requested_input_kind == FileInputKind.VISUAL_ANALYSIS
+            and purpose in {FilePurpose.CHAT, FilePurpose.WORKFLOW}
         ):
             raise FileAssetServiceError(
                 422,

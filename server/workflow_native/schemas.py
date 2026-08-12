@@ -17,6 +17,7 @@ NativeNodeKind = Literal[
     "knowledge_retrieval",
     "knowledge_citation",
     "document_extractor",
+    "vision_understanding",
     "human_intervention",
     "question_classifier",
     "agent",

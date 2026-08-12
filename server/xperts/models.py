@@ -58,7 +58,16 @@ class XpertFileUploadFeature(BaseModel):
     enabled: bool = True
     max_files_per_run: int = Field(default=5, ge=1, le=5)
     allowed_extensions: list[str] = Field(
-        default_factory=lambda: [".txt", ".md", ".markdown", ".pdf"],
+        default_factory=lambda: [
+            ".txt",
+            ".md",
+            ".markdown",
+            ".pdf",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".webp",
+        ],
         min_length=1,
         max_length=12,
     )
