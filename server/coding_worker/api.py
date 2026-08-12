@@ -122,7 +122,7 @@ def coding_worker_capabilities() -> WorkerCapabilities:
         ),
         structured_plan=interaction,
         user_questions=interaction,
-        context_compaction=False,
+        context_compaction=v16,
         turn_history=False,
         subtasks=False,
     )

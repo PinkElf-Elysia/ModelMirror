@@ -201,6 +201,7 @@ def test_v16_plan_and_question_resume_once_from_encrypted_waiting_state(
         capabilities = client.get("/api/coding-worker/v1/capabilities").json()
         assert capabilities["structured_plan"] is True
         assert capabilities["user_questions"] is True
+        assert capabilities["context_compaction"] is True
         created = client.post(
             "/api/coding-worker/v1/tasks", json=_payload("question-task")
         ).json()
