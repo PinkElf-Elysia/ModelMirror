@@ -61,6 +61,7 @@ class ExpertTeamAgencyCapabilities(BaseModel):
     )
     max_agents: int = 6
     max_steps: int = EXPERT_TEAM_AGENCY_MAX_STEPS
+    execution: dict[str, Any] | None = None
 
 
 class ExpertTeamPlanPreviewResponse(BaseModel):

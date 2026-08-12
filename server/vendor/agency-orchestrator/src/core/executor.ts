@@ -1,9 +1,13 @@
 /**
  * DAG 执行引擎 — 核心调度器
+ *
+ * MODELMIRROR MODIFICATION: callers may inject an in-memory agent resolver.
+ * The default upstream file-loader behavior remains unchanged.
  */
 import type {
   WorkflowDefinition,
   DAGNode,
+  AgentDefinition,
   LLMConnector,
   LLMConfig,
   WorkflowResult,
@@ -24,6 +28,8 @@ export interface ExecutorOptions {
   llmConfig: LLMConfig;
   concurrency: number;
   inputs: Map<string, string>;
+  /** Optional host-owned role catalog; defaults to the upstream file loader. */
+  resolveAgent?: (rolePath: string) => AgentDefinition;
   /** 每步完成的回调 */
   onStepComplete?: (node: DAGNode) => void;
   onStepStart?: (node: DAGNode) => void;
@@ -153,7 +159,9 @@ export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<Wo
         fillSkippedDepOutputs(dag, node, context);
         if (!node.agentName && node.step.role) {
           try {
-            const agentInfo = loadAgent(agentsDir, node.step.role);
+            const agentInfo = options.resolveAgent
+              ? options.resolveAgent(node.step.role)
+              : loadAgent(agentsDir, node.step.role);
             node.agentName = node.step.name || agentInfo.name;
             node.agentEmoji = node.step.emoji || agentInfo.emoji;
           } catch { /* executeStep 里会再加载并报错 */ }
@@ -173,6 +181,7 @@ export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<Wo
           onStepStart,
           feedback: options.feedback,
           verify: options.verify,
+          resolveAgent: options.resolveAgent,
         }).then(value => {
           // 中断兜底：settle 即写入 sink 一份最小记录，不等整批屏障——否则并行批次里
           // 先完成的步骤在 SIGTERM 时会被当作"未完成"丢弃（产出和 token 白花）。
@@ -399,6 +408,7 @@ async function executeStep(
     onStepStart?: (node: DAGNode) => void;
     feedback?: { stepId: string; text: string; previousOutput?: string };
     verify?: boolean;
+    resolveAgent?: (rolePath: string) => AgentDefinition;
   }
 ): Promise<string> {
   node.status = 'running';
@@ -430,7 +440,9 @@ async function executeStep(
   }
 
   // 加载角色定义（步骤级 name/emoji 优先）
-  const agent = loadAgent(opts.agentsDir, node.step.role);
+  const agent = opts.resolveAgent
+    ? opts.resolveAgent(node.step.role)
+    : loadAgent(opts.agentsDir, node.step.role);
   node.agentName = node.step.name || agent.name;
   node.agentEmoji = node.step.emoji || agent.emoji;
   let systemPrompt = agent.systemPrompt;

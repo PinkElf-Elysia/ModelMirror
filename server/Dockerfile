@@ -51,6 +51,7 @@ RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
 
 COPY main.py .
 COPY expert_team_agency.py .
+COPY expert_team_agency_runtime.py .
 COPY data ./data
 COPY api ./api
 COPY mcp ./mcp

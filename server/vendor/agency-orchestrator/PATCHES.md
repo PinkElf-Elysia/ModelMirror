@@ -44,6 +44,18 @@ recorded upstream Blob SHA. There are no inline modifications in round 0.
   `95f173675f0b17d2576bdefebf228d5d19740ad2`; the Round 1 ModelMirror host
   injection, pinned-lineup validation and `repairUsed` reporting remain the
   only inline ModelMirror adaptations.
+
+## Round 3 execution adaptation
+
+- `src/core/executor.ts`
+  - Original upstream Blob SHA:
+    `7ed21655e822950882b7274747ed489901a6f37b`.
+  - Adds an optional host-provided in-memory `AgentDefinition` resolver.
+  - ModelMirror uses this seam to execute against its current expert catalog
+    without writing a second role directory. When omitted, the upstream
+    `loadAgent(agentsDir, rolePath)` behavior is unchanged.
+  - DAG scheduling, template rendering, batching, acceptance verification and
+    one-round rework remain the upstream implementation.
 - Provider, Studio, website, doctor, sponsor and unrelated CLI changes in the
   audited range remain excluded.
 

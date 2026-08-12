@@ -18,7 +18,11 @@ WorkflowExecutionStatus = Literal[
     "failed",
     "cancelled",
 ]
-WorkflowExecutionSourceKind = Literal["workflow_classic", "xpert_chat"]
+WorkflowExecutionSourceKind = Literal[
+    "workflow_classic",
+    "xpert_chat",
+    "expert_team_agency",
+]
 
 
 class WorkflowExecutionError(Exception):
@@ -383,7 +387,10 @@ class WorkflowExecutionStore:
         event: dict[str, Any],
     ) -> None:
         item.sequence += 1
-        clean = self._safe_event(event)
+        clean = self._safe_event(
+            event,
+            agency_execution=item.source_kind == "expert_team_agency",
+        )
         if item.run_type == "skill_evaluation" or self._is_skill_creator(item):
             clean.pop("message", None)
             clean.pop("final_output", None)
@@ -394,7 +401,11 @@ class WorkflowExecutionStore:
             item.events = item.events[-500:]
 
     @staticmethod
-    def _safe_event(event: dict[str, Any]) -> dict[str, Any]:
+    def _safe_event(
+        event: dict[str, Any],
+        *,
+        agency_execution: bool = False,
+    ) -> dict[str, Any]:
         allowed = {
             "event",
             "task_id",
@@ -420,10 +431,61 @@ class WorkflowExecutionStore:
             "final_output",
             "variable",
         }
+        if agency_execution:
+            allowed.update(
+                {
+                    "agent_id",
+                    "depends_on",
+                    "acceptance",
+                    "output",
+                    "error",
+                    "verification",
+                    "usage",
+                    "warnings",
+                    "model_calls",
+                    "quality_status",
+                    "task_ids",
+                    "step_count",
+                    "model_id",
+                }
+            )
         clean = {key: value for key, value in event.items() if key in allowed}
         for key in ("message", "final_output"):
             if key in clean:
                 clean[key] = str(clean[key] or "")[:200_000]
+        for key, limit in (("output", 64 * 1024), ("error", 4_000), ("acceptance", 4_000)):
+            if key in clean:
+                clean[key] = str(clean[key] or "")[:limit]
+        for key in ("depends_on", "task_ids"):
+            if key in clean:
+                values = clean[key] if isinstance(clean[key], list) else []
+                clean[key] = [str(value)[:128] for value in values[:6]]
+        if "warnings" in clean:
+            values = clean["warnings"] if isinstance(clean["warnings"], list) else []
+            clean["warnings"] = [str(value)[:500] for value in values[:10]]
+        if "usage" in clean:
+            raw_usage = clean["usage"] if isinstance(clean["usage"], dict) else {}
+            clean["usage"] = {
+                key: max(0, int(value))
+                for key, value in raw_usage.items()
+                if key in {"input_tokens", "output_tokens"}
+                and isinstance(value, (int, float))
+                and not isinstance(value, bool)
+            }
+        if "verification" in clean:
+            raw_verification = (
+                clean["verification"]
+                if isinstance(clean["verification"], dict)
+                else {}
+            )
+            failed = raw_verification.get("failed")
+            clean["verification"] = {
+                "pass": bool(raw_verification.get("pass")),
+                "failed": [str(value)[:500] for value in failed[:20]]
+                if isinstance(failed, list)
+                else [],
+                "reworked": bool(raw_verification.get("reworked")),
+            }
         return clean
 
     @staticmethod
@@ -456,6 +518,7 @@ class WorkflowExecutionStore:
         expected_run_types = {
             "workflow_classic": "workflow",
             "xpert_chat": "xpert",
+            "expert_team_agency": "expert_team",
         }
         if clean not in expected_run_types or expected_run_types[clean] != str(run_type):
             if strict:
