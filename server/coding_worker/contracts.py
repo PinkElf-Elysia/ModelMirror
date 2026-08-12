@@ -964,6 +964,33 @@ class WorkerCheckpoint(StrictModel):
     created_at: float
 
 
+class WorkerTurnCheckpoint(StrictModel):
+    checkpoint_id: str
+    task_id: str
+    ordinal: int = Field(ge=1)
+    turn_id: str
+    before_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    before_tree_oid: str = Field(pattern=r"^[a-f0-9]{40}$")
+    after_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    after_tree_oid: str = Field(pattern=r"^[a-f0-9]{40}$")
+    ledger_sequence: int = Field(ge=1)
+    created_at: float
+
+    @field_validator("checkpoint_id", "task_id", "turn_id")
+    @classmethod
+    def validate_turn_checkpoint_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("turn checkpoint identifier is invalid")
+        return value
+
+
+class WorkerTurnHistory(StrictModel):
+    task_id: str
+    cursor: int = Field(ge=0)
+    checkpoints: tuple[WorkerTurnCheckpoint, ...]
+    pending_action: Literal["undo", "redo"] | None = None
+
+
 class WorkerArtifact(StrictModel):
     artifact_id: str
     task_id: str
