@@ -17,6 +17,7 @@ describe("NodePalette disabled workflow nodes", () => {
     expect(knowledgePipelineItems.map((item) => item.kind)).toEqual([
       "knowledge_base",
       "knowledge_retrieval",
+      "vision_understanding",
     ]);
     expect(knowledgePipelinePlaceholders).toEqual([]);
   });
