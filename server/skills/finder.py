@@ -552,11 +552,12 @@ class SkillFinder:
             "installedSourceRef": installed_skill.source_ref if installed_skill else None,
         }
 
-    def find(
+    def _find(
         self,
         need: str,
         *,
         limit: int = MAX_RESULTS,
+        max_results: int = MAX_RESULTS,
         active_skill_ids: Iterable[str] = (),
         router_eligible_only: bool = False,
     ) -> dict[str, Any]:
@@ -630,7 +631,7 @@ class SkillFinder:
             need,
             candidates,
             limit=limit,
-            max_results=MAX_RESULTS,
+            max_results=max_results,
             score_boost=lambda candidate: availability_boost.get(
                 statuses[candidate["candidateId"]][0], 0.0
             ),
@@ -665,6 +666,42 @@ class SkillFinder:
             "trustCatalogFingerprint": self._load_index()["catalogFingerprint"],
             "results": matches,
         }
+
+    def find(
+        self,
+        need: str,
+        *,
+        limit: int = MAX_RESULTS,
+        active_skill_ids: Iterable[str] = (),
+        router_eligible_only: bool = False,
+    ) -> dict[str, Any]:
+        """Return the stable public result window used by existing callers."""
+
+        return self._find(
+            need,
+            limit=limit,
+            max_results=MAX_RESULTS,
+            active_skill_ids=active_skill_ids,
+            router_eligible_only=router_eligible_only,
+        )
+
+    def recall(
+        self,
+        need: str,
+        *,
+        limit: int = MAX_RECALL_RESULTS,
+        active_skill_ids: Iterable[str] = (),
+        router_eligible_only: bool = False,
+    ) -> dict[str, Any]:
+        """Return the bounded 24-candidate window reserved for reranking."""
+
+        return self._find(
+            need,
+            limit=limit,
+            max_results=MAX_RECALL_RESULTS,
+            active_skill_ids=active_skill_ids,
+            router_eligible_only=router_eligible_only,
+        )
 
 
 __all__ = [

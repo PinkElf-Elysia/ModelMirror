@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from server.skills.finder import SkillFinder, _fingerprint
+from server.skills.semantic_rerank import SkillRankingReceipt, SkillRerankOutcome
 from server.skills.skill_manager import SkillManager
 from server.xpert_runtime import (
     MiddlewareContext,
@@ -149,6 +150,50 @@ def provider_fixture(tmp_path: Path):
     return provider, manager, candidate
 
 
+class StubShadowReranker:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def rerank_router_results(
+        self,
+        *,
+        query: str,
+        lexical_results: list[dict[str, object]],
+        limit: int,
+    ) -> SkillRerankOutcome:
+        self.calls.append(
+            {"query": query, "lexical_results": lexical_results, "limit": limit}
+        )
+        candidate_fingerprints = tuple(
+            (
+                str(item["candidateId"]),
+                str(item["candidateFingerprint"]),
+            )
+            for item in lexical_results
+        )
+        ranks = tuple(item[0] for item in candidate_fingerprints)
+        return SkillRerankOutcome(
+            lexical_results=tuple(lexical_results),
+            final_results=tuple(lexical_results[:limit]),
+            status="shadow",
+            warnings=tuple(),
+            receipt=SkillRankingReceipt(
+                query_hash="a" * 64,
+                candidate_set_fingerprint="b" * 64,
+                candidate_fingerprints=candidate_fingerprints,
+                lexical_ranks=ranks,
+                semantic_ranks=tuple(reversed(ranks)),
+                proposed_ranks=tuple(reversed(ranks)),
+                final_ranks=ranks,
+                rank_changes=tuple(),
+                provider="api",
+                model="rerank-test",
+                strategy_version="skill-semantic-rrf-v1",
+                duration_ms=12,
+            ),
+        )
+
+
 def test_router_omits_and_rejects_manual_only_candidate(tmp_path: Path) -> None:
     repo, source_ref = create_skill_repo(tmp_path)
     index_path = tmp_path / "runtime-index.json"
@@ -206,6 +251,28 @@ def metadata(**updates: object) -> dict[str, object]:
         "catalog_install_count": 0,
         **updates,
     }
+
+
+@pytest.mark.asyncio
+async def test_router_shadow_receipt_is_metadata_only_and_keeps_lexical_output(
+    tmp_path: Path,
+) -> None:
+    provider, _manager, _candidate = provider_fixture(tmp_path)
+    reranker = StubShadowReranker()
+    provider.semantic_rerank_service = reranker
+
+    found = await provider.call_tool(
+        RuntimeToolCall("skill_find", {"need": "提取 PDF 合同"}, metadata())
+    )
+    payload = json.loads(found.output)
+    receipt = found.metadata["skill_ranking_receipt"]
+
+    assert reranker.calls[0]["query"] == "提取 PDF 合同"
+    assert payload["results"][0]["candidateId"] == receipt["lexicalRanks"][0]
+    assert found.metadata["skill_ranking_status"] == "shadow"
+    assert receipt["queryHash"] == "a" * 64
+    assert receipt["candidateFingerprints"][0]["candidateFingerprint"]
+    assert "提取 PDF 合同" not in json.dumps(found.metadata, ensure_ascii=False)
 
 
 @pytest.mark.asyncio

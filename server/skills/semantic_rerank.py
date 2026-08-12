@@ -63,9 +63,12 @@ class SkillRerankRequest:
 class SkillRankingReceipt:
     query_hash: str
     candidate_set_fingerprint: str
+    candidate_fingerprints: tuple[tuple[str, str], ...]
     lexical_ranks: tuple[str, ...]
     semantic_ranks: tuple[str, ...]
+    proposed_ranks: tuple[str, ...]
     final_ranks: tuple[str, ...]
+    rank_changes: tuple[tuple[str, int, int], ...]
     provider: str
     model: str | None
     strategy_version: str
@@ -76,9 +79,22 @@ class SkillRankingReceipt:
         return {
             "queryHash": self.query_hash,
             "candidateSetFingerprint": self.candidate_set_fingerprint,
+            "candidateFingerprints": [
+                {"candidateId": candidate_id, "candidateFingerprint": fingerprint}
+                for candidate_id, fingerprint in self.candidate_fingerprints
+            ],
             "lexicalRanks": list(self.lexical_ranks),
             "semanticRanks": list(self.semantic_ranks),
+            "proposedRanks": list(self.proposed_ranks),
             "finalRanks": list(self.final_ranks),
+            "rankChanges": [
+                {
+                    "candidateId": candidate_id,
+                    "lexicalRank": lexical_rank,
+                    "finalRank": final_rank,
+                }
+                for candidate_id, lexical_rank, final_rank in self.rank_changes
+            ],
             "provider": self.provider,
             "model": self.model,
             "strategyVersion": self.strategy_version,
@@ -132,6 +148,7 @@ class SkillSearchIndexV1:
         )
         self._payload: dict[str, Any] | None = None
         self._runtime_by_id: dict[str, dict[str, Any]] = {}
+        self._candidates_by_id: dict[str, dict[str, Any]] = {}
 
     @property
     def fingerprint(self) -> str:
@@ -242,6 +259,7 @@ class SkillSearchIndexV1:
         ):
             raise SkillSearchIndexError("Skill Search client summary is stale or invalid.")
         self._runtime_by_id = runtime_by_id
+        self._candidates_by_id = candidates_by_id
         self._payload = payload
         return payload
 
@@ -262,6 +280,28 @@ class SkillSearchIndexV1:
             )
         ]
 
+    def candidate_by_id(self, candidate_id: str) -> dict[str, Any] | None:
+        """Resolve one immutable public Search candidate without accepting client data."""
+
+        self._load()
+        return self._candidates_by_id.get(str(candidate_id))
+
+    def public_candidate_for_result(
+        self, result: dict[str, Any], *, runtime_binding: bool = False
+    ) -> dict[str, Any] | None:
+        """Return a public candidate only when its immutable binding still matches."""
+
+        candidate = self.candidate_by_id(str(result.get("candidateId") or ""))
+        if candidate is None:
+            return None
+        result_fingerprint = str(result.get("candidateFingerprint") or "")
+        if runtime_binding:
+            if candidate.get("runtimeCandidateFingerprint") != result_fingerprint:
+                return None
+        elif candidate.get("candidateFingerprint") != result_fingerprint:
+            return None
+        return candidate
+
     def lexical_search(self, request: SkillRerankRequest) -> SkillRerankOutcome:
         started = time.perf_counter()
         candidates = self.candidates(scope=request.scope)
@@ -281,6 +321,7 @@ class SkillSearchIndexV1:
             {
                 "candidateId": match["candidate"]["candidateId"],
                 "candidateFingerprint": match["candidate"]["candidateFingerprint"],
+                "sourceType": "catalog",
                 "runtimeCandidateFingerprint": match["candidate"].get(
                     "runtimeCandidateFingerprint"
                 ),
@@ -295,18 +336,18 @@ class SkillSearchIndexV1:
             for match in ranked
         )
         final_results = lexical_results[: request.limit]
-        candidate_set_fingerprint = (
-            self._load()["searchCatalogFingerprint"]
-            if request.scope == "market"
-            else _fingerprint(
-                [
-                    {
-                        "candidateId": candidate["candidateId"],
-                        "candidateFingerprint": candidate["candidateFingerprint"],
-                    }
-                    for candidate in candidates
-                ]
+        candidate_fingerprints = tuple(
+            (
+                str(item["candidateId"]),
+                str(item["candidateFingerprint"]),
             )
+            for item in lexical_results
+        )
+        candidate_set_fingerprint = _fingerprint(
+            [
+                {"candidateId": candidate_id, "candidateFingerprint": fingerprint}
+                for candidate_id, fingerprint in candidate_fingerprints
+            ]
         )
         normalized_query = _normalize(request.query[:MAX_QUERY_LENGTH])
         warnings = (
@@ -315,9 +356,12 @@ class SkillSearchIndexV1:
         receipt = SkillRankingReceipt(
             query_hash=hashlib.sha256(normalized_query.encode("utf-8")).hexdigest(),
             candidate_set_fingerprint=candidate_set_fingerprint,
+            candidate_fingerprints=candidate_fingerprints,
             lexical_ranks=tuple(item["candidateId"] for item in lexical_results),
             semantic_ranks=tuple(),
+            proposed_ranks=tuple(item["candidateId"] for item in final_results),
             final_ranks=tuple(item["candidateId"] for item in final_results),
+            rank_changes=tuple(),
             provider="none",
             model=None,
             strategy_version=RANKER_VERSION,

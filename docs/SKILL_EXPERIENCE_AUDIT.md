@@ -126,6 +126,8 @@ node scripts/audit-skill-experience.mjs
 - 需求输入限制为 500 个字符，结果和理由由同一份本地目录确定，便于离线复现。
 - `SkillSearchIndexV1` 只为语义层准备名称、类别、标签、能力说明、触发边界和父集合等有界公共摘要；不包含 `SKILL.md` 正文、资源、安装记录或信任详情。服务端索引、前端摘要、Runtime 与 Trust 任一指纹不一致都会失败关闭。
 - `skill-rerank-eval-v1` 固定 71 条合成金标（50 条正向、21 条近似反例/无匹配），离线报告 Recall@24、MRR@6、nDCG@6、Top-1、近似反例误召率和策略违规数。该报告当前只建立基线，不构成语义 Provider 或 Router 晋级证据。
+- 可选语义层使用独立 `SkillSemanticRerankService`：市场仅在请求显式开启时发送最多 500 字符查询和 24 份公开摘要；本地导入、Creator、插件及其他私有候选不外发且固定保留词典槽位。专用 API 优先，`auto` 仅在 `SKILL_RERANK_ALLOW_LLM_FALLBACK=true` 时使用显式配置的 ModelMirror LLM 网关。
+- 市场超时 8 秒、Router 超时 3 秒；配置缺失、网络、HTTP 或响应校验失败均返回词典结果。Router 默认 `shadow`，真实输出仍为词典顺序，运行元数据只保存查询哈希、候选 ID/指纹、建议名次差异、耗时和错误码；`on` 在没有后续晋级凭据前仍降级为影子模式。
 
 验收由 `scripts/audit-skill-need-matcher.mjs` 与 `python scripts/audit_skill_rerank.py` 覆盖 PDF、表格分析、网页自动化测试、数据库安全、中英文表达、状态排序、解释理由、无匹配场景、三份索引一致性及固定金标指标。
 

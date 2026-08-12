@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 try:
     from server.skills.finder import SkillFinder, SkillFinderError
+    from server.skills.semantic_rerank_service import SkillSemanticRerankService
     from server.skills.trust_service import (
         SkillRuntimeEnvironment,
         SkillTrustError,
@@ -22,6 +23,7 @@ except ModuleNotFoundError as exc:  # Docker image copies server/* directly into
     if exc.name != "server":
         raise
     from skills.finder import SkillFinder, SkillFinderError
+    from skills.semantic_rerank_service import SkillSemanticRerankService
     from skills.trust_service import (
         SkillRuntimeEnvironment,
         SkillTrustError,
@@ -65,6 +67,7 @@ class SandboxToolsetProvider:
         *,
         skill_manager: Any,
         skill_finder: SkillFinder | None = None,
+        semantic_rerank_service: SkillSemanticRerankService | None = None,
         trust_service: SkillTrustService | None = None,
         context_store: Any | None = None,
     ) -> None:
@@ -72,6 +75,7 @@ class SandboxToolsetProvider:
         self.client = client
         self.skill_manager = skill_manager
         self.skill_finder = skill_finder or SkillFinder(skill_manager=skill_manager)
+        self.semantic_rerank_service = semantic_rerank_service
         self.trust_service = trust_service or getattr(
             skill_manager, "trust_service", None
         )
@@ -362,7 +366,7 @@ class SandboxToolsetProvider:
             if call.tool_name == "skill_stage":
                 return await self._skill_stage(workspace, call)
             if call.tool_name == "skill_find":
-                return self._skill_find(call)
+                return await self._skill_find_with_rerank(call)
             if call.tool_name == "skill_enable":
                 return self._skill_enable(call)
             if call.tool_name == "skill_install":
@@ -593,7 +597,9 @@ class SandboxToolsetProvider:
         content = self.skill_manager.get_skill_content(skill_id)
         return RuntimeToolResult(output=content[:50_000], metadata={"content_types": ["text"], "skill_id": skill_id, "truncated": len(content) > 50_000})
 
-    def _skill_find(self, call: RuntimeToolCall) -> RuntimeToolResult:
+    def _skill_find(
+        self, call: RuntimeToolCall, *, recall: bool = False
+    ) -> RuntimeToolResult:
         self._require_catalog_config(call, "catalog_search")
         need = str(call.arguments.get("need") or "").strip()
         if len(need) < 2:
@@ -607,9 +613,10 @@ class SandboxToolsetProvider:
         except (TypeError, ValueError):
             limit = 6
         try:
-            result = self.skill_finder.find(
+            search = self.skill_finder.recall if recall else self.skill_finder.find
+            result = search(
                 need,
-                limit=limit,
+                limit=24 if recall else limit,
                 active_skill_ids=self._active_skill_ids(call),
                 router_eligible_only=True,
             )
@@ -693,6 +700,47 @@ class SandboxToolsetProvider:
                 "ranker_version": result["rankerVersion"],
             },
         )
+
+    async def _skill_find_with_rerank(
+        self, call: RuntimeToolCall
+    ) -> RuntimeToolResult:
+        if self.semantic_rerank_service is None:
+            return self._skill_find(call)
+        lexical = self._skill_find(call, recall=True)
+        payload = json.loads(lexical.output)
+        need = str(call.arguments.get("need") or "").strip()
+        try:
+            limit = max(1, min(int(call.arguments.get("limit") or 6), 6))
+        except (TypeError, ValueError):
+            limit = 6
+        try:
+            outcome = await self.semantic_rerank_service.rerank_router_results(
+                query=need,
+                lexical_results=payload.get("results") or [],
+                limit=limit,
+            )
+            payload["results"] = list(outcome.final_results)
+            return RuntimeToolResult(
+                output=json.dumps(payload, ensure_ascii=False),
+                metadata={
+                    **lexical.metadata,
+                    "result_count": len(payload["results"]),
+                    "skill_ranking_status": outcome.status,
+                    "skill_ranking_receipt": outcome.receipt.serialize(),
+                    "skill_ranking_warnings": list(outcome.warnings),
+                },
+            )
+        except Exception:
+            # Search index/provider failures may never break the lexical Router.
+            fallback = self._skill_find(call)
+            return RuntimeToolResult(
+                output=fallback.output,
+                metadata={
+                    **fallback.metadata,
+                    "skill_ranking_status": "lexical_fallback",
+                    "skill_ranking_warnings": ["semantic_rerank_unavailable"],
+                },
+            )
 
     def _skill_enable(self, call: RuntimeToolCall) -> RuntimeToolResult:
         self._require_catalog_config(call, "catalog_search")

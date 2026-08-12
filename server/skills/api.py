@@ -15,6 +15,12 @@ from .skill_manager import (
     SkillValidationError,
 )
 from .trust_service import SkillRuntimeEnvironment, SkillTrustError
+from .semantic_rerank import (
+    SkillRerankRequest,
+    SkillSearchIndexError,
+    SkillSearchIndexV1,
+)
+from .semantic_rerank_service import SkillSemanticRerankService
 from .local_import import (
     SkillLocalImportNotFoundError,
     SkillLocalImportStorageError,
@@ -55,6 +61,7 @@ router = APIRouter(prefix="/api/skills", tags=["skills"])
 _skill_manager: SkillManager | None = None
 _skill_draft_store: WorkspaceSkillDraftStore | None = None
 _builtin_library: BuiltinSkillLibrary | None = None
+_semantic_rerank_service: SkillSemanticRerankService | None = None
 
 
 class SkillInstallRequest(BaseModel):
@@ -113,6 +120,12 @@ class SkillTrustAcknowledgementRequest(BaseModel):
         pattern=r"^[0-9a-fA-F]{64}$",
     )
     confirmed: bool
+
+
+class SkillSearchRequestPayload(BaseModel):
+    query: str = Field(min_length=2, max_length=500)
+    limit: int = Field(default=6, ge=1, le=6)
+    semantic: bool = False
 
 
 class InstalledSkillsResponse(BaseModel):
@@ -209,6 +222,22 @@ def set_builtin_skill_library_for_tests(
 ) -> None:
     global _builtin_library
     _builtin_library = library
+
+
+def get_skill_semantic_rerank_service() -> SkillSemanticRerankService:
+    global _semantic_rerank_service
+    if _semantic_rerank_service is None:
+        _semantic_rerank_service = SkillSemanticRerankService(
+            search_index=SkillSearchIndexV1()
+        )
+    return _semantic_rerank_service
+
+
+def set_skill_semantic_rerank_service_for_tests(
+    service: SkillSemanticRerankService | None,
+) -> None:
+    global _semantic_rerank_service
+    _semantic_rerank_service = service
 
 
 def _raise_builtin_error(exc: BuiltinSkillLibraryError) -> None:
@@ -421,6 +450,33 @@ async def get_skill_trust_index():
                 "warning": {"code": exc.code, "message": str(exc)},
             }
         _raise_trust_error(exc)
+
+
+@router.get("/rerank/status")
+async def get_skill_rerank_status():
+    return get_skill_semantic_rerank_service().status()
+
+
+@router.post("/search")
+async def search_skills(payload: SkillSearchRequestPayload):
+    try:
+        outcome = await get_skill_semantic_rerank_service().search(
+            SkillRerankRequest(
+                query=payload.query,
+                scope="market",
+                limit=payload.limit,
+                semantic=payload.semantic,
+            )
+        )
+        return outcome.serialize()
+    except SkillSearchIndexError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": exc.code,
+                "message": str(exc),
+            },
+        ) from exc
 
 
 @router.get("/trust/{receipt_id}")
