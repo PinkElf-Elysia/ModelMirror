@@ -30,6 +30,7 @@ class TaskState(StrEnum):
     PREPARING = "preparing"
     RUNNING = "running"
     WAITING_APPROVAL = "waiting_approval"
+    WAITING_INPUT = "waiting_input"
     PAUSED = "paused"
     TESTING = "testing"
     INTERRUPTED = "interrupted"
@@ -75,6 +76,7 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     TaskState.RUNNING: frozenset(
         {
             TaskState.WAITING_APPROVAL,
+            TaskState.WAITING_INPUT,
             TaskState.PAUSED,
             TaskState.TESTING,
             TaskState.INTERRUPTED,
@@ -90,6 +92,15 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
             TaskState.PAUSED,
             TaskState.INTERRUPTED,
             TaskState.BLOCKED,
+            TaskState.CANCELLED,
+            TaskState.EXPIRED,
+        }
+    ),
+    TaskState.WAITING_INPUT: frozenset(
+        {
+            TaskState.QUEUED,
+            TaskState.PAUSED,
+            TaskState.INTERRUPTED,
             TaskState.CANCELLED,
             TaskState.EXPIRED,
         }
@@ -324,6 +335,11 @@ class WorkerCapabilities(StrictModel):
     operation_output: bool
     changesets: bool
     code_intelligence: bool
+    structured_plan: bool = False
+    user_questions: bool = False
+    context_compaction: bool = False
+    turn_history: bool = False
+    subtasks: bool = False
 
 
 class OperationOutputStream(StrEnum):
@@ -611,6 +627,91 @@ class WorkerMessage(StrictModel):
     created_at: float
 
 
+class WorkerPlanItem(StrictModel):
+    step: str = Field(min_length=1, max_length=4096)
+    status: Literal["pending", "in_progress", "completed"]
+
+
+class WorkerPlan(StrictModel):
+    task_id: str
+    sequence: int = Field(ge=1)
+    turn_id: str
+    explanation: str | None = Field(default=None, max_length=16_384)
+    items: tuple[WorkerPlanItem, ...] = Field(min_length=1, max_length=128)
+    updated_at: float
+
+    @field_validator("task_id", "turn_id")
+    @classmethod
+    def validate_plan_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("plan identifier is invalid")
+        return value
+
+
+class QuestionStatus(StrEnum):
+    PENDING = "pending"
+    RESOLVED = "resolved"
+
+
+class WorkerQuestionOption(StrictModel):
+    option_id: str
+    label: str = Field(min_length=1, max_length=200)
+
+    @field_validator("option_id")
+    @classmethod
+    def validate_option_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("question option id is invalid")
+        return value
+
+
+class WorkerQuestionAnswer(StrictModel):
+    answer: str | None = Field(default=None, min_length=1, max_length=16_384)
+    option_id: str | None = None
+
+    @field_validator("option_id")
+    @classmethod
+    def validate_answer_option_id(cls, value: str | None) -> str | None:
+        if value is not None and SAFE_ID.fullmatch(value) is None:
+            raise ValueError("question option id is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_single_answer(self) -> "WorkerQuestionAnswer":
+        if (self.answer is None) == (self.option_id is None):
+            raise ValueError("exactly one question answer is required")
+        return self
+
+
+class WorkerQuestion(StrictModel):
+    task_id: str
+    question_id: str
+    turn_id: str
+    status: QuestionStatus
+    prompt: str = Field(min_length=1, max_length=16_384)
+    options: tuple[WorkerQuestionOption, ...] = Field(max_length=16)
+    answer: str | None = Field(default=None, max_length=16_384)
+    selected_option_id: str | None = None
+    created_at: float
+    resolved_at: float | None = None
+
+    @field_validator("task_id", "question_id", "turn_id", "selected_option_id")
+    @classmethod
+    def validate_question_id(cls, value: str | None) -> str | None:
+        if value is not None and SAFE_ID.fullmatch(value) is None:
+            raise ValueError("question identifier is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_resolution(self) -> "WorkerQuestion":
+        resolved = self.status is QuestionStatus.RESOLVED
+        if resolved != (self.resolved_at is not None):
+            raise ValueError("question resolution timestamp is invalid")
+        if resolved != (self.answer is not None or self.selected_option_id is not None):
+            raise ValueError("question resolution payload is invalid")
+        return self
+
+
 class SessionLedgerKind(StrEnum):
     PUBLIC_MESSAGE = "public_message"
     PLAN = "plan"
@@ -727,6 +828,7 @@ class WorkerSessionLedgerEntry(StrictModel):
                 "cancelled",
                 "failed",
                 "interrupted",
+                "waiting_input",
             }:
                 raise ValueError("session ledger turn result is invalid")
         elif self.kind is SessionLedgerKind.PLAN:

@@ -28,6 +28,9 @@ from .contracts import (
     WorkerChangeset,
     WorkerEvidence,
     WorkerDiagnostic,
+    WorkerPlan,
+    WorkerQuestion,
+    WorkerQuestionAnswer,
     OperationOutputChunk,
 )
 from .service import CodingWorkerService
@@ -106,6 +109,8 @@ def _feature_enabled(name: str) -> bool:
 def coding_worker_capabilities() -> WorkerCapabilities:
     task_runtime = is_coding_worker_enabled() and _service is not None
     v15 = task_runtime and _feature_enabled("CODING_WORKER_V15_ENABLED")
+    v16 = task_runtime and _feature_enabled("CODING_WORKER_V16_ENABLED")
+    interaction = v16 and _feature_enabled("CODING_WORKER_INTERACTION_ENABLED")
     return WorkerCapabilities(
         task_runtime=task_runtime,
         professional_file_tools=v15,
@@ -115,7 +120,22 @@ def coding_worker_capabilities() -> WorkerCapabilities:
         code_intelligence=(
             v15 and _feature_enabled("CODING_WORKER_CODE_INTELLIGENCE_ENABLED")
         ),
+        structured_plan=interaction,
+        user_questions=interaction,
+        context_compaction=False,
+        turn_history=False,
+        subtasks=False,
     )
+
+
+def _require_interaction_enabled() -> None:
+    if not (
+        _feature_enabled("CODING_WORKER_V16_ENABLED")
+        and _feature_enabled("CODING_WORKER_INTERACTION_ENABLED")
+    ):
+        raise HTTPException(
+            status_code=404, detail="Coding Worker V16 interaction is disabled"
+        )
 
 
 def configure_coding_worker_for_tests(
@@ -260,6 +280,46 @@ async def task_events(
 async def append_task_message(task_id: str, payload: TaskMessageRequest) -> TaskRecord:
     try:
         return await get_coding_worker_service().append_message(task_id, payload.message)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/plan", response_model=WorkerPlan | None)
+async def task_plan(task_id: str) -> WorkerPlan | None:
+    _require_interaction_enabled()
+    try:
+        return get_coding_worker_service().store.latest_plan(task_id)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get(
+    "/tasks/{task_id}/questions",
+    response_model=dict[str, list[WorkerQuestion]],
+)
+async def task_questions(task_id: str) -> dict[str, list[WorkerQuestion]]:
+    _require_interaction_enabled()
+    try:
+        return {
+            "questions": get_coding_worker_service().store.list_questions(task_id)
+        }
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post(
+    "/tasks/{task_id}/questions/{question_id}",
+    response_model=WorkerQuestion,
+    status_code=202,
+)
+async def answer_task_question(
+    task_id: str, question_id: str, payload: WorkerQuestionAnswer
+) -> WorkerQuestion:
+    _require_interaction_enabled()
+    try:
+        return await get_coding_worker_service().answer_question(
+            task_id, question_id, payload
+        )
     except Exception as exc:
         _raise_worker_error(exc)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,14 @@ from fastapi.testclient import TestClient
 
 from server.coding_worker.api import configure_coding_worker_for_tests, router
 import server.coding_worker.api as worker_api
-from server.coding_worker.provider import FakeCodingAgentProvider
+from server.coding_worker.provider import (
+    FakeCodingAgentProvider,
+    ProviderCheckpoint,
+    ProviderEvent,
+    ProviderEventKind,
+    ProviderOpenRequest,
+    ProviderSession,
+)
 from server.coding_worker.contracts import (
     OperationState,
     Origin,
@@ -46,8 +54,16 @@ def _payload(client_task_id: str = "api-task-01") -> dict[str, object]:
     }
 
 
-def _client(tmp_path: Path, *, blocked: bool = False) -> tuple[TestClient, CodingWorkerService]:
-    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+def _client(
+    tmp_path: Path,
+    *,
+    blocked: bool = False,
+    provider: FakeCodingAgentProvider | None = None,
+    master_key: bytes | None = None,
+) -> tuple[TestClient, CodingWorkerService]:
+    store = CodingWorkerStore(
+        tmp_path / "worker", master_key=master_key or Fernet.generate_key()
+    )
     broker = WorkspaceBroker(
         tmp_path / "worker",
         {
@@ -57,12 +73,58 @@ def _client(tmp_path: Path, *, blocked: bool = False) -> tuple[TestClient, Codin
         },
         id_key=b"a" * 32,
     )
-    provider = FakeCodingAgentProvider(block=asyncio.Event() if blocked else None)
-    service = CodingWorkerService(store=store, workspace_broker=broker, provider=provider)
+    selected_provider = provider or FakeCodingAgentProvider(
+        block=asyncio.Event() if blocked else None
+    )
+    service = CodingWorkerService(
+        store=store, workspace_broker=broker, provider=selected_provider
+    )
     configure_coding_worker_for_tests(service, enabled=True)
     app = FastAPI()
     app.include_router(router)
     return TestClient(app), service
+
+
+class _QuestionProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+        self.restore_count = 0
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        self.messages.append(text)
+        if len(self.messages) == 1:
+            yield ProviderEvent(
+                kind=ProviderEventKind.PLAN,
+                data={
+                    "explanation": "Confirm the bounded repair.",
+                    "items": [
+                        {"step": "inspect", "status": "completed"},
+                        {"step": "repair", "status": "pending"},
+                    ],
+                },
+            )
+            yield ProviderEvent(
+                kind=ProviderEventKind.QUESTION,
+                data={
+                    "question_id": "question_scope",
+                    "prompt": "Which repair scope should be used?",
+                    "options": [
+                        {"option_id": "minimal", "label": "Minimal repair"},
+                        {"option_id": "broad", "label": "Broader cleanup"},
+                    ],
+                },
+            )
+            return
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+    async def restore(
+        self, request: ProviderOpenRequest, checkpoint: ProviderCheckpoint
+    ) -> ProviderSession:
+        self.restore_count += 1
+        return await super().restore(request, checkpoint)
 
 
 def teardown_function() -> None:
@@ -88,6 +150,11 @@ def test_feature_flag_is_default_deny(monkeypatch: pytest.MonkeyPatch) -> None:
         "operation_output": False,
         "changesets": False,
         "code_intelligence": False,
+        "structured_plan": False,
+        "user_questions": False,
+        "context_compaction": False,
+        "turn_history": False,
+        "subtasks": False,
     }
     assert client.post("/api/coding-worker/v1/tasks", json=_payload()).status_code == 404
 
@@ -111,9 +178,96 @@ def test_v15_capabilities_are_vendor_neutral_and_independently_gated(
         "operation_output": True,
         "changesets": True,
         "code_intelligence": False,
+        "structured_plan": False,
+        "user_questions": False,
+        "context_compaction": False,
+        "turn_history": False,
+        "subtasks": False,
     }
     encoded = response.text.lower()
     assert "opencode" not in encoded and "claude" not in encoded
+
+
+def test_v16_plan_and_question_resume_once_from_encrypted_waiting_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_INTERACTION_ENABLED", "true")
+    key = Fernet.generate_key()
+    provider = _QuestionProvider()
+    client, service = _client(tmp_path, provider=provider, master_key=key)
+
+    with client:
+        capabilities = client.get("/api/coding-worker/v1/capabilities").json()
+        assert capabilities["structured_plan"] is True
+        assert capabilities["user_questions"] is True
+        created = client.post(
+            "/api/coding-worker/v1/tasks", json=_payload("question-task")
+        ).json()
+        task_id = created["task_id"]
+        waiting = asyncio.run(
+            service.wait_for(
+                task_id, lambda item: item.state is TaskState.WAITING_INPUT
+            )
+        )
+        assert waiting.reason == "user_input_required"
+
+        plan = client.get(f"/api/coding-worker/v1/tasks/{task_id}/plan")
+        assert plan.status_code == 200
+        assert [item["step"] for item in plan.json()["items"]] == [
+            "inspect",
+            "repair",
+        ]
+        questions = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/questions"
+        )
+        assert questions.status_code == 200
+        assert questions.json()["questions"] == [
+            {
+                "task_id": task_id,
+                "question_id": "question_scope",
+                "turn_id": questions.json()["questions"][0]["turn_id"],
+                "status": "pending",
+                "prompt": "Which repair scope should be used?",
+                "options": [
+                    {"option_id": "minimal", "label": "Minimal repair"},
+                    {"option_id": "broad", "label": "Broader cleanup"},
+                ],
+                "answer": None,
+                "selected_option_id": None,
+                "created_at": questions.json()["questions"][0]["created_at"],
+                "resolved_at": None,
+            }
+        ]
+
+        restarted_store = CodingWorkerStore(tmp_path / "worker", master_key=key)
+        assert restarted_store.get_task(task_id).state is TaskState.WAITING_INPUT
+        assert restarted_store.list_questions(task_id)[0].status.value == "pending"
+        persisted = b"".join(
+            path.read_bytes()
+            for path in (tmp_path / "worker").glob("coding-worker.sqlite3*")
+        )
+        assert b"Which repair scope should be used?" not in persisted
+
+        answered = client.post(
+            f"/api/coding-worker/v1/tasks/{task_id}/questions/question_scope",
+            json={"option_id": "minimal"},
+        )
+        assert answered.status_code == 202
+        assert answered.json()["status"] == "resolved"
+        replay = client.post(
+            f"/api/coding-worker/v1/tasks/{task_id}/questions/question_scope",
+            json={"option_id": "minimal"},
+        )
+        assert replay.status_code == 409
+        assert replay.json()["detail"]["code"] == "question_already_resolved"
+        terminal = asyncio.run(
+            service.wait_for(task_id, lambda item: item.state is TaskState.BLOCKED)
+        )
+
+    assert terminal.reason == "acceptance_runner_pending"
+    assert provider.restore_count == 1
+    assert provider.messages[-1].endswith("Minimal repair [option:minimal]")
 
 
 def test_enabled_runtime_fails_closed_when_sidecar_tokens_are_missing(
