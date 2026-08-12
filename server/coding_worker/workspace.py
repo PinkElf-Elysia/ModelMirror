@@ -16,13 +16,17 @@ from typing import Protocol
 
 from pydantic import Field
 
-from .contracts import StrictModel, WorkspaceSource
+from .contracts import RepositoryInstruction, StrictModel, WorkspaceSource
 
 
 SAFE_WORKSPACE_ID = re.compile(r"^workspace_[a-f0-9]{32}$")
 MAX_SOURCE_FILES = 20_000
 MAX_SOURCE_FILE_BYTES = 8 * 1024 * 1024
 MAX_SOURCE_BYTES = 192 * 1024 * 1024
+MAX_REPOSITORY_INSTRUCTIONS = 16
+MAX_REPOSITORY_INSTRUCTION_DEPTH = 8
+MAX_REPOSITORY_INSTRUCTION_BYTES = 16 * 1024
+MAX_REPOSITORY_INSTRUCTIONS_BYTES = 64 * 1024
 
 
 class WorkspaceError(RuntimeError):
@@ -219,6 +223,105 @@ class WorkspaceBroker:
         if not repository.is_dir() or repository.is_symlink():
             raise WorkspaceError("Workspace repository is invalid.", code="workspace_corrupt")
         return repository
+
+    def repository_instructions(
+        self, workspace_id: str
+    ) -> tuple[RepositoryInstruction, ...]:
+        """Read bounded AGENTS.md rules from immutable synthetic H0 objects."""
+        record = self.get(workspace_id)
+        repository = self.repository_path(workspace_id)
+        env = self._git_env(repository)
+        raw_tree = self._git(
+            repository,
+            "ls-tree",
+            "-r",
+            "-z",
+            "--full-tree",
+            record.baseline_commit,
+            env=env,
+            text=False,
+        )
+        if not isinstance(raw_tree, bytes):
+            raise WorkspaceError(
+                "Repository instructions are unavailable.",
+                code="repository_instructions_unsafe",
+            )
+        candidates: list[tuple[PurePosixPath, str]] = []
+        for encoded_entry in raw_tree.split(b"\0"):
+            if not encoded_entry:
+                continue
+            try:
+                metadata, encoded_path = encoded_entry.split(b"\t", 1)
+                mode, object_type, _object_id = metadata.decode("ascii").split(" ")
+                rendered = encoded_path.decode("utf-8", errors="strict")
+                path = PurePosixPath(rendered)
+            except (UnicodeDecodeError, ValueError) as exc:
+                raise WorkspaceError(
+                    "Repository instruction metadata is invalid.",
+                    code="repository_instructions_unsafe",
+                ) from exc
+            if path.name != "AGENTS.md":
+                continue
+            if (
+                object_type != "blob"
+                or mode not in {"100644", "100755"}
+                or len(path.parts) - 1 > MAX_REPOSITORY_INSTRUCTION_DEPTH
+            ):
+                raise WorkspaceError(
+                    "Repository instruction layout is unsafe.",
+                    code="repository_instructions_unsafe",
+                )
+            candidates.append((path, rendered))
+        if len(candidates) > MAX_REPOSITORY_INSTRUCTIONS:
+            raise WorkspaceError(
+                "Repository instruction count is too large.",
+                code="repository_instructions_unsafe",
+            )
+        instructions: list[RepositoryInstruction] = []
+        total_bytes = 0
+        for path, rendered in sorted(
+            candidates, key=lambda item: (len(item[0].parts), item[1])
+        ):
+            raw_content = self._git(
+                repository,
+                "cat-file",
+                "blob",
+                f"{record.baseline_commit}:{rendered}",
+                env=env,
+                text=False,
+            )
+            if not isinstance(raw_content, bytes):
+                raise WorkspaceError(
+                    "Repository instruction content is unavailable.",
+                    code="repository_instructions_unsafe",
+                )
+            total_bytes += len(raw_content)
+            if (
+                len(raw_content) > MAX_REPOSITORY_INSTRUCTION_BYTES
+                or total_bytes > MAX_REPOSITORY_INSTRUCTIONS_BYTES
+                or b"\0" in raw_content
+            ):
+                raise WorkspaceError(
+                    "Repository instruction content is unsafe.",
+                    code="repository_instructions_unsafe",
+                )
+            try:
+                content = raw_content.decode("utf-8", errors="strict")
+            except UnicodeDecodeError as exc:
+                raise WorkspaceError(
+                    "Repository instruction content is not text.",
+                    code="repository_instructions_unsafe",
+                ) from exc
+            parent = path.parent.as_posix()
+            instructions.append(
+                RepositoryInstruction(
+                    display_path=rendered,
+                    scope=parent if parent else ".",
+                    sha256=hashlib.sha256(raw_content).hexdigest(),
+                    content=content,
+                )
+            )
+        return tuple(instructions)
 
     def tree(self, workspace_id: str) -> tuple[WorkspaceEntry, ...]:
         repository = self.repository_path(workspace_id)

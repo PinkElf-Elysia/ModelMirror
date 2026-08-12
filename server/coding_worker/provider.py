@@ -8,7 +8,13 @@ from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from pydantic import Field, field_validator, model_validator
 
-from .contracts import PolicyProfile, SAFE_ID, StrictModel, TaskBudget
+from .contracts import (
+    PolicyProfile,
+    RepositoryInstruction,
+    SAFE_ID,
+    StrictModel,
+    TaskBudget,
+)
 
 
 PROVIDER_CONTRACT_VERSION = 3
@@ -224,6 +230,9 @@ class ProviderOpenRequest(StrictModel):
     budget: TaskBudget
     workspace_tree_hash: str | None = Field(
         default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    repository_instructions: tuple[RepositoryInstruction, ...] = Field(
+        default=(), max_length=16
     )
     tool_allowlist: tuple[str, ...] = PROVIDER_TOOL_NAMES
 

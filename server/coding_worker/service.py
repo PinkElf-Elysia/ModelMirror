@@ -377,6 +377,9 @@ class CodingWorkerService:
                 workspace_tree_hash=self.workspace_broker.current_tree_hash(
                     workspace.workspace_id
                 ),
+                repository_instructions=self.workspace_broker.repository_instructions(
+                    workspace.workspace_id
+                ),
                 tool_allowlist=provider_tools_for_policy(task.spec.policy_profile),
             )
             resume_phase: str | None = None
