@@ -361,3 +361,123 @@ def test_subtask_capability_routes_and_runtime_wiring(
         assert runtime.tool_broker.subtask_handler.__self__ is runtime.service
     finally:
         configure_coding_worker_for_tests(None, enabled=None)
+
+
+def test_implement_subtasks_merge_non_overlapping_changes_and_conflict_on_preimage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+        monkeypatch.setenv("CODING_WORKER_SUBAGENTS_ENABLED", "true")
+        store = CodingWorkerStore(
+            tmp_path / "worker", master_key=Fernet.generate_key()
+        )
+        adapter = InMemoryWorkspaceSourceAdapter(
+            {
+                ("source", "revision"): {
+                    "a.py": b"A = 1\n",
+                    "b.py": b"B = 1\n",
+                }
+            }
+        )
+        workspace_broker = WorkspaceBroker(
+            tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
+        )
+        tool_broker = ToolBroker(store=store, workspace_broker=workspace_broker)
+        service = CodingWorkerService(
+            store=store,
+            workspace_broker=workspace_broker,
+            provider=FakeCodingAgentProvider(),
+            tool_broker=tool_broker,
+        )
+        parent = store.create_task(_spec())
+        workspace = await workspace_broker.prepare(parent.spec.workspace_source)
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(
+            parent.task_id,
+            TaskState.RUNNING,
+            workspace_id=workspace.workspace_id,
+        )
+        first = await service.create_subtask(
+            parent.task_id,
+            SubtaskRequest(
+                client_subtask_id="first",
+                kind=SubtaskKind.IMPLEMENT,
+                objective="Change a.py",
+            ),
+        )
+        store.transition(parent.task_id, TaskState.QUEUED)
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(parent.task_id, TaskState.RUNNING)
+        second = await service.create_subtask(
+            parent.task_id,
+            SubtaskRequest(
+                client_subtask_id="second",
+                kind=SubtaskKind.IMPLEMENT,
+                objective="Change b.py",
+            ),
+        )
+        for relation, path, content in (
+            (first, "a.py", "A = 2\n"),
+            (second, "b.py", "B = 2\n"),
+        ):
+            child = store.get_task(relation.child_task_id)
+            child_path = workspace_broker.repository_path(child.workspace_id or "") / path
+            child_path.write_text(content, encoding="utf-8")
+            store.finish_subtask(
+                child.task_id,
+                result_tree_hash=workspace_broker.current_tree_hash(
+                    child.workspace_id or ""
+                ),
+                changed_paths=(path,),
+                summary=f"Changed {path}",
+            )
+        store.transition(parent.task_id, TaskState.QUEUED)
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(parent.task_id, TaskState.RUNNING)
+
+        first_result = await service.merge_subtask(
+            parent.task_id, first.child_task_id, "merge-first"
+        )
+        second_result = await service.merge_subtask(
+            parent.task_id, second.child_task_id, "merge-second"
+        )
+        assert first_result.merge_state is SubtaskMergeState.MERGED
+        assert second_result.merge_state is SubtaskMergeState.MERGED
+        parent_repo = workspace_broker.repository_path(workspace.workspace_id)
+        assert (parent_repo / "a.py").read_text(encoding="utf-8") == "A = 2\n"
+        assert (parent_repo / "b.py").read_text(encoding="utf-8") == "B = 2\n"
+
+        third = await service.create_subtask(
+            parent.task_id,
+            SubtaskRequest(
+                client_subtask_id="third",
+                kind=SubtaskKind.IMPLEMENT,
+                objective="Change a.py again",
+            ),
+        )
+        third_task = store.get_task(third.child_task_id)
+        third_repo = workspace_broker.repository_path(third_task.workspace_id or "")
+        (third_repo / "a.py").write_text("A = 3\n", encoding="utf-8")
+        store.finish_subtask(
+            third.child_task_id,
+            result_tree_hash=workspace_broker.current_tree_hash(
+                third_task.workspace_id or ""
+            ),
+            changed_paths=("a.py",),
+            summary="Changed a.py again",
+        )
+        (parent_repo / "a.py").write_text("A = 4\n", encoding="utf-8")
+        store.transition(parent.task_id, TaskState.QUEUED)
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(parent.task_id, TaskState.RUNNING)
+        conflict = await service.merge_subtask(
+            parent.task_id, third.child_task_id, "merge-third"
+        )
+        assert conflict.merge_state is SubtaskMergeState.CONFLICTED
+        assert (parent_repo / "a.py").read_text(encoding="utf-8") == "A = 4\n"
+        events = store.list_events(parent.task_id)
+        assert [event.type for event in events].count("changeset_merged") == 2
+        assert events[-1].type == "changeset_conflicted"
+
+    asyncio.run(scenario())

@@ -421,6 +421,138 @@ class CodingWorkerStore:
             )
         return self.subtask_for_child(child_task_id)  # type: ignore[return-value]
 
+    def begin_subtask_merge(
+        self, parent_task_id: str, child_task_id: str, operation_id: str
+    ) -> SubtaskRecord:
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM worker_subtasks WHERE child_task_id = ?",
+                (child_task_id,),
+            ).fetchone()
+            if row is None:
+                raise WorkerNotFoundError(
+                    "Subtask was not found.", code="subtask_not_found"
+                )
+            current = self._subtask(row)
+            if current.parent_task_id != parent_task_id:
+                raise WorkerConflictError(
+                    "Subtask parent binding changed.", code="subtask_merge_conflict"
+                )
+            if current.kind is not SubtaskKind.IMPLEMENT:
+                raise WorkerConflictError(
+                    "Read-only subtasks cannot be merged.", code="subtask_not_mergeable"
+                )
+            if current.merge_state in {
+                SubtaskMergeState.MERGED,
+                SubtaskMergeState.CONFLICTED,
+            }:
+                if current.merge_operation_id != operation_id:
+                    raise WorkerConflictError(
+                        "Subtask merge operation changed.",
+                        code="subtask_merge_conflict",
+                    )
+                return current
+            if current.merge_state is not SubtaskMergeState.READY:
+                raise WorkerConflictError(
+                    "Subtask is not ready to merge.", code="subtask_not_mergeable"
+                )
+            if current.merge_operation_id is not None:
+                if current.merge_operation_id != operation_id:
+                    raise WorkerConflictError(
+                        "Subtask merge operation changed.",
+                        code="subtask_merge_conflict",
+                    )
+                return current
+            connection.execute(
+                """
+                UPDATE worker_subtasks SET merge_operation_id = ?, updated_at = ?
+                WHERE child_task_id = ? AND merge_operation_id IS NULL
+                """,
+                (operation_id, now, child_task_id),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=parent_task_id,
+                event_type="changeset_merge_started",
+                payload={"child_task_id": child_task_id},
+                created_at=now,
+            )
+        return self.subtask_for_child(child_task_id)  # type: ignore[return-value]
+
+    def settle_subtask_merge(
+        self,
+        parent_task_id: str,
+        child_task_id: str,
+        operation_id: str,
+        *,
+        merge_state: SubtaskMergeState,
+        merged_tree_hash: str,
+    ) -> SubtaskRecord:
+        if merge_state not in {
+            SubtaskMergeState.MERGED,
+            SubtaskMergeState.CONFLICTED,
+        }:
+            raise ValueError("subtask merge settlement is invalid")
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM worker_subtasks WHERE child_task_id = ?",
+                (child_task_id,),
+            ).fetchone()
+            if row is None:
+                raise WorkerNotFoundError(
+                    "Subtask was not found.", code="subtask_not_found"
+                )
+            current = self._subtask(row)
+            if (
+                current.parent_task_id != parent_task_id
+                or current.merge_operation_id != operation_id
+            ):
+                raise WorkerConflictError(
+                    "Subtask merge binding changed.", code="subtask_merge_conflict"
+                )
+            if current.merge_state in {
+                SubtaskMergeState.MERGED,
+                SubtaskMergeState.CONFLICTED,
+            }:
+                if (
+                    current.merge_state is not merge_state
+                    or current.merged_tree_hash != merged_tree_hash
+                ):
+                    raise WorkerConflictError(
+                        "Subtask merge result changed.", code="subtask_merge_conflict"
+                    )
+                return current
+            if current.merge_state is not SubtaskMergeState.READY:
+                raise WorkerConflictError(
+                    "Subtask is not ready to merge.", code="subtask_not_mergeable"
+                )
+            connection.execute(
+                """
+                UPDATE worker_subtasks SET merge_state = ?, merged_tree_hash = ?,
+                    updated_at = ? WHERE child_task_id = ?
+                """,
+                (merge_state.value, merged_tree_hash, now, child_task_id),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=parent_task_id,
+                event_type=(
+                    "changeset_merged"
+                    if merge_state is SubtaskMergeState.MERGED
+                    else "changeset_conflicted"
+                ),
+                payload={
+                    "child_task_id": child_task_id,
+                    "merged_tree_hash": merged_tree_hash,
+                },
+                created_at=now,
+            )
+        return self.subtask_for_child(child_task_id)  # type: ignore[return-value]
+
     def create_fork_task(
         self,
         *,
@@ -2493,6 +2625,8 @@ class CodingWorkerStore:
                     base_tree_hash TEXT NOT NULL,
                     merge_state TEXT NOT NULL,
                     result_tree_hash TEXT,
+                    merge_operation_id TEXT,
+                    merged_tree_hash TEXT,
                     changed_paths_ciphertext TEXT,
                     summary_ciphertext TEXT,
                     created_at REAL NOT NULL,
@@ -2524,6 +2658,16 @@ class CodingWorkerStore:
                 result_tree_hash=(
                     str(row["result_tree_hash"])
                     if row["result_tree_hash"] is not None
+                    else None
+                ),
+                merge_operation_id=(
+                    str(row["merge_operation_id"])
+                    if row["merge_operation_id"] is not None
+                    else None
+                ),
+                merged_tree_hash=(
+                    str(row["merged_tree_hash"])
+                    if row["merged_tree_hash"] is not None
                     else None
                 ),
                 changed_paths=changed_paths,
