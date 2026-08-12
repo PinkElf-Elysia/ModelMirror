@@ -34,6 +34,8 @@ from .contracts import (
     WorkerTurnHistory,
     WorkerTaskExport,
     OperationOutputChunk,
+    SubtaskRecord,
+    SubtaskRequest,
 )
 from .service import CodingWorkerService
 from .runtime import CodingWorkerRuntime, build_runtime_from_environment
@@ -53,6 +55,11 @@ class ApprovalDecisionRequest(StrictModel):
 
 class TaskForkRequest(StrictModel):
     client_fork_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+
+
+class TaskChildrenResponse(StrictModel):
+    tasks: tuple[TaskRecord, ...]
+    subtasks: tuple[SubtaskRecord, ...] = ()
 
 
 _service: CodingWorkerService | None = None
@@ -132,7 +139,7 @@ def coding_worker_capabilities() -> WorkerCapabilities:
         turn_history=(
             v16 and _feature_enabled("CODING_WORKER_SESSION_CONTROLS_ENABLED")
         ),
-        subtasks=False,
+        subtasks=(v16 and _feature_enabled("CODING_WORKER_SUBAGENTS_ENABLED")),
     )
 
 
@@ -153,6 +160,29 @@ def _require_session_controls_enabled() -> None:
     ):
         raise HTTPException(
             status_code=404, detail="Coding Worker V16 session controls are disabled"
+        )
+
+
+def _require_subtasks_enabled() -> None:
+    if not (
+        _feature_enabled("CODING_WORKER_V16_ENABLED")
+        and _feature_enabled("CODING_WORKER_SUBAGENTS_ENABLED")
+    ):
+        raise HTTPException(
+            status_code=404, detail="Coding Worker V16 subtasks are disabled"
+        )
+
+
+def _require_children_enabled() -> None:
+    if not (
+        _feature_enabled("CODING_WORKER_V16_ENABLED")
+        and (
+            _feature_enabled("CODING_WORKER_SESSION_CONTROLS_ENABLED")
+            or _feature_enabled("CODING_WORKER_SUBAGENTS_ENABLED")
+        )
+    ):
+        raise HTTPException(
+            status_code=404, detail="Coding Worker V16 task children are disabled"
         )
 
 
@@ -680,13 +710,28 @@ async def fork_task(task_id: str, payload: TaskForkRequest) -> TaskRecord:
         _raise_worker_error(exc)
 
 
-@router.get("/tasks/{task_id}/children", response_model=dict[str, list[TaskRecord]])
-async def task_children(task_id: str) -> dict[str, list[TaskRecord]]:
-    _require_session_controls_enabled()
+@router.post(
+    "/tasks/{task_id}/subtasks", response_model=SubtaskRecord, status_code=202
+)
+async def create_task_subtask(
+    task_id: str, payload: SubtaskRequest
+) -> SubtaskRecord:
+    _require_subtasks_enabled()
     try:
-        return {
-            "tasks": get_coding_worker_service().store.list_children(task_id)
-        }
+        return await get_coding_worker_service().create_subtask(task_id, payload)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/children", response_model=TaskChildrenResponse)
+async def task_children(task_id: str) -> TaskChildrenResponse:
+    _require_children_enabled()
+    try:
+        service = get_coding_worker_service()
+        return TaskChildrenResponse(
+            tasks=tuple(service.store.list_children(task_id)),
+            subtasks=tuple(service.store.list_subtasks(task_id)),
+        )
     except Exception as exc:
         _raise_worker_error(exc)
 
