@@ -9,7 +9,7 @@ import re
 import shutil
 import tempfile
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from time import time
 from typing import Any, Protocol
@@ -30,6 +30,9 @@ from .contracts import (
     ShellApprovalScope,
     ShellMode,
     StrictModel,
+    SubtaskKind,
+    SubtaskRecord,
+    SubtaskRequest,
     TaskState,
     WorkerDiagnostic,
 )
@@ -122,6 +125,10 @@ class ToolBroker:
         max_output_bytes: int = MAX_TOOL_OUTPUT_BYTES,
         executor: ToolExecutor | None = None,
         documentation_resources: Mapping[str, str] | None = None,
+        subtask_handler: Callable[
+            [str, SubtaskRequest], Awaitable[SubtaskRecord]
+        ]
+        | None = None,
     ) -> None:
         if not 1024 <= max_output_bytes <= 16 * 1024 * 1024:
             raise ValueError("tool output limit is invalid")
@@ -136,6 +143,7 @@ class ToolBroker:
         self.documentation_resources = self._validate_documentation_resources(
             documentation_resources or {}
         )
+        self.subtask_handler = subtask_handler
         self.changesets = ChangesetEngine(workspace_broker)
 
     async def execute(
@@ -218,13 +226,23 @@ class ToolBroker:
                     expected_state=OperationState.RUNNING,
                 )
             except Exception as exc:
-                if self._tool_can_publish_changeset(tool_name) and self.changesets.is_applied(
-                    task_id=task_id,
-                    workspace_id=task.workspace_id,
-                    operation_id=operation_id,
-                ):
+                durable_result = (
+                    self._tool_can_publish_changeset(tool_name)
+                    and self.changesets.is_applied(
+                        task_id=task_id,
+                        workspace_id=task.workspace_id,
+                        operation_id=operation_id,
+                    )
+                ) or (
+                    tool_name == "create_subtask"
+                    and self.store.get_subtask(
+                        task_id, str(arguments.get("client_subtask_id", ""))
+                    )
+                    is not None
+                )
+                if durable_result:
                     raise ToolBrokerError(
-                        "Changeset result must be reconciled.",
+                        "Durable tool result must be reconciled.",
                         code="operation_result_unknown",
                     ) from exc
                 raise
@@ -392,6 +410,24 @@ class ToolBroker:
             )
         elif operation.tool_name == "run_shell":
             return self._reconcile_shell(operation_id)
+        elif operation.tool_name == "create_subtask":
+            relation = self.store.get_subtask(
+                operation.task_id,
+                str(arguments.get("client_subtask_id", "")),
+            )
+            if relation is not None:
+                resolved = self.store.transition_operation(
+                    operation_id,
+                    OperationState.COMPLETED,
+                    result={"subtask": relation.model_dump(mode="json")},
+                    expected_state=OperationState.UNKNOWN,
+                )
+                return ToolResult(
+                    operation_id=operation_id,
+                    tool_name=operation.tool_name,
+                    state=resolved.state,
+                    data=resolved.result or {},
+                )
         raise ToolBrokerError(
             "Tool result is unknown and must not be replayed.",
             code="operation_result_unknown",
@@ -419,6 +455,36 @@ class ToolBroker:
             "code_hover",
             "code_diagnostics",
         }
+        if tool_name == "create_subtask":
+            if (
+                os.getenv("CODING_WORKER_V16_ENABLED", "false").strip().lower()
+                not in {"1", "true", "yes", "on"}
+                or os.getenv("CODING_WORKER_SUBAGENTS_ENABLED", "false")
+                .strip()
+                .lower()
+                not in {"1", "true", "yes", "on"}
+            ):
+                raise ToolBrokerError(
+                    "Controlled subtasks are disabled.", code="tool_not_allowed"
+                )
+            try:
+                subtask = SubtaskRequest.model_validate(request["arguments"])
+            except ValidationError as exc:
+                raise ToolBrokerError(
+                    "Subtask input is invalid.", code="tool_input_invalid"
+                ) from exc
+            if (
+                subtask.kind is SubtaskKind.IMPLEMENT
+                and profile not in {
+                    PolicyProfile.DEVELOP,
+                    PolicyProfile.DEVELOP_NETWORKED,
+                }
+            ):
+                raise ToolBrokerError(
+                    "Read-only tasks cannot delegate implementation.",
+                    code="task_policy_readonly",
+                )
+            return None
         if tool_name == "query_documentation" and (
             os.getenv("CODING_WORKER_V16_ENABLED", "false").strip().lower()
             not in {"1", "true", "yes", "on"}
@@ -576,6 +642,19 @@ class ToolBroker:
         *,
         network_lease: CapabilityLease | None,
     ) -> dict[str, Any]:
+        if tool_name == "create_subtask":
+            if self.subtask_handler is None:
+                raise ToolBrokerError(
+                    "Subtask scheduler is unavailable.", code="subtask_unavailable"
+                )
+            try:
+                request = SubtaskRequest.model_validate(arguments)
+                relation = await self.subtask_handler(task_id, request)
+            except ValidationError as exc:
+                raise ToolBrokerError(
+                    "Subtask input is invalid.", code="tool_input_invalid"
+                ) from exc
+            return {"subtask": relation.model_dump(mode="json")}
         if tool_name == "list_files":
             return {
                 "entries": [

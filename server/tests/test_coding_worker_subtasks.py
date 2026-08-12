@@ -19,8 +19,13 @@ from server.coding_worker.contracts import (
     WorkspaceSource,
 )
 from server.coding_worker.store import CodingWorkerStore, WorkerConflictError
-from server.coding_worker.provider import FakeCodingAgentProvider
+from server.coding_worker.provider import (
+    FakeCodingAgentProvider,
+    INSPECT_PROVIDER_TOOLS,
+    PROVIDER_TOOL_NAMES,
+)
 from server.coding_worker.service import CodingWorkerService
+from server.coding_worker.tool_broker import ToolBroker, ToolBrokerError
 from server.coding_worker.workspace import (
     InMemoryWorkspaceSourceAdapter,
     WorkspaceBroker,
@@ -205,5 +210,116 @@ def test_service_parks_parent_spreads_fork_and_resumes_with_public_result(
         assert store.get_task(parent.task_id).state is TaskState.QUEUED
         parent_messages = store.list_messages(parent.task_id)
         assert "child Evidence does not satisfy parent acceptance" in parent_messages[-1].content
+
+    asyncio.run(scenario())
+
+
+def test_provider_tool_delegates_exact_idempotent_subtask(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+        monkeypatch.setenv("CODING_WORKER_SUBAGENTS_ENABLED", "true")
+        store = CodingWorkerStore(
+            tmp_path / "worker", master_key=Fernet.generate_key()
+        )
+        adapter = InMemoryWorkspaceSourceAdapter(
+            {("source", "revision"): {"main.py": b"print('ok')\n"}}
+        )
+        workspace_broker = WorkspaceBroker(
+            tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
+        )
+        service = CodingWorkerService(
+            store=store,
+            workspace_broker=workspace_broker,
+            provider=FakeCodingAgentProvider(),
+        )
+        broker = ToolBroker(
+            store=store,
+            workspace_broker=workspace_broker,
+            subtask_handler=service.create_subtask,
+        )
+        parent = store.create_task(_spec())
+        workspace = await workspace_broker.prepare(parent.spec.workspace_source)
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(
+            parent.task_id,
+            TaskState.RUNNING,
+            workspace_id=workspace.workspace_id,
+        )
+        arguments = {
+            "client_subtask_id": "explore-api",
+            "kind": "explore",
+            "objective": "Locate the relevant module.",
+        }
+        first = await broker.execute(
+            task_id=parent.task_id,
+            operation_id="subtask-operation",
+            tool_name="create_subtask",
+            arguments=arguments,
+        )
+        replay = await broker.execute(
+            task_id=parent.task_id,
+            operation_id="subtask-operation",
+            tool_name="create_subtask",
+            arguments=arguments,
+        )
+        assert replay == first
+        assert first.data["subtask"]["kind"] == "explore"
+        assert len(store.list_subtasks(parent.task_id)) == 1
+        assert "create_subtask" in PROVIDER_TOOL_NAMES
+        assert "create_subtask" in INSPECT_PROVIDER_TOOLS
+
+    asyncio.run(scenario())
+
+
+def test_inspect_parent_cannot_delegate_implementation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+        monkeypatch.setenv("CODING_WORKER_SUBAGENTS_ENABLED", "true")
+        store = CodingWorkerStore(
+            tmp_path / "worker", master_key=Fernet.generate_key()
+        )
+        adapter = InMemoryWorkspaceSourceAdapter(
+            {("source", "revision"): {"main.py": b"print('ok')\n"}}
+        )
+        workspace_broker = WorkspaceBroker(
+            tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
+        )
+        service = CodingWorkerService(
+            store=store,
+            workspace_broker=workspace_broker,
+            provider=FakeCodingAgentProvider(),
+        )
+        broker = ToolBroker(
+            store=store,
+            workspace_broker=workspace_broker,
+            subtask_handler=service.create_subtask,
+        )
+        parent = store.create_task(
+            _spec().model_copy(update={"policy_profile": PolicyProfile.INSPECT})
+        )
+        workspace = await workspace_broker.prepare(parent.spec.workspace_source)
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(
+            parent.task_id,
+            TaskState.RUNNING,
+            workspace_id=workspace.workspace_id,
+        )
+        with pytest.raises(ToolBrokerError) as raised:
+            await broker.execute(
+                task_id=parent.task_id,
+                operation_id="subtask-implement-denied",
+                tool_name="create_subtask",
+                arguments={
+                    "client_subtask_id": "implement-denied",
+                    "kind": "implement",
+                    "objective": "Modify main.py",
+                },
+            )
+        assert raised.value.code == "task_policy_readonly"
+        assert store.list_subtasks(parent.task_id) == []
 
     asyncio.run(scenario())

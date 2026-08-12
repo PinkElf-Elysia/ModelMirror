@@ -258,6 +258,24 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         )
 
     @mcp.tool()
+    async def create_subtask(
+        operation_id: str,
+        client_subtask_id: str,
+        kind: str,
+        objective: str,
+    ) -> dict[str, Any]:
+        """Delegate one depth-one explore, implement, or review task to an isolated fork."""
+        return await call(
+            "create_subtask",
+            {
+                "client_subtask_id": client_subtask_id,
+                "kind": kind,
+                "objective": objective,
+            },
+            operation_id=operation_id,
+        )
+
+    @mcp.tool()
     async def stop_service(operation_id: str, service_id: str) -> dict[str, Any]:
         """Send Ctrl-C to a task-owned service and archive its output."""
         return await call(
