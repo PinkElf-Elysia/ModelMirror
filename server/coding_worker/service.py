@@ -5,22 +5,31 @@ import base64
 import contextlib
 import hashlib
 import json
+import os
 import re
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 
 from .contracts import (
+    AcceptanceCheck,
+    AcceptanceContract,
     ApprovalStatus,
     EvidenceStatus,
     OperationState,
     Origin,
+    PolicyProfile,
     QuestionStatus,
     SAFE_ID,
     TaskCreateRequest,
+    TaskBudget,
     TaskRecord,
     TaskSpec,
     TaskState,
+    SubtaskKind,
+    SubtaskMergeState,
+    SubtaskRecord,
+    SubtaskRequest,
     TERMINAL_STATES,
     WorkerEvidence,
     WorkerQuestion,
@@ -96,6 +105,36 @@ class CodingWorkerService:
     @property
     def active_task_ids(self) -> frozenset[str]:
         return frozenset(self._active)
+
+    @staticmethod
+    def _subtasks_enabled() -> bool:
+        enabled = {"1", "true", "yes", "on"}
+        return (
+            os.getenv("CODING_WORKER_V16_ENABLED", "false").strip().lower()
+            in enabled
+            and os.getenv("CODING_WORKER_SUBAGENTS_ENABLED", "false")
+            .strip()
+            .lower()
+            in enabled
+        )
+
+    @staticmethod
+    def _subtask_role_contract(kind: SubtaskKind) -> str:
+        common = (
+            "You are a depth-one, platform-owned coding subtask. Do not create "
+            "another subtask. You receive no parent approval, network lease, "
+            "operation id, budget, artifact, provider session, or hidden context. "
+            "Return a concise public summary with findings and changed paths."
+        )
+        if kind is SubtaskKind.EXPLORE:
+            return common + " Explore only: the workspace is strictly read-only."
+        if kind is SubtaskKind.REVIEW:
+            return common + " Review only: the workspace is strictly read-only."
+        return (
+            common
+            + " Implement only the delegated objective in this isolated fork. "
+            "The parent will merge by preimage and tree CAS and rerun acceptance."
+        )
 
     async def start(self) -> None:
         if self._started:
@@ -221,6 +260,124 @@ class CodingWorkerService:
         resolved = self.store.resolve_question(task_id, question_id, answer)
         self._wake.set()
         return resolved
+
+    async def create_subtask(
+        self, parent_task_id: str, request: SubtaskRequest
+    ) -> SubtaskRecord:
+        if not self._subtasks_enabled():
+            raise WorkerConflictError(
+                "Controlled subtasks are disabled.", code="subtasks_disabled"
+            )
+        existing = self.store.get_subtask(
+            parent_task_id, request.client_subtask_id
+        )
+        if existing is not None:
+            if existing.kind is not request.kind or existing.objective != request.objective:
+                raise WorkerConflictError(
+                    "Subtask id is bound to another intent.",
+                    code="subtask_intent_conflict",
+                )
+            return existing
+        parent = self.store.get_task(parent_task_id)
+        if parent.workspace_id is None or parent.state not in {
+            TaskState.RUNNING,
+            TaskState.PAUSED,
+            TaskState.INTERRUPTED,
+            TaskState.BLOCKED,
+        }:
+            raise WorkerConflictError(
+                "Task cannot create a subtask in its current state.",
+                code="task_state_conflict",
+            )
+        base_tree_hash = self.workspace_broker.current_tree_hash(parent.workspace_id)
+        target_slot: str | None = None
+        if self.workspace_broker.dedicated_slots:
+            parent_slot = self.workspace_broker.workspace_slot(parent.workspace_id)
+            candidates = tuple(
+                slot
+                for slot in self.workspace_broker.slot_ids
+                if slot != parent_slot
+            ) + (parent_slot,)
+            target_slot = candidates[
+                len(self.store.list_subtasks(parent_task_id)) % len(candidates)
+            ]
+        workspace = self.workspace_broker.fork(
+            parent.workspace_id,
+            expected_tree_hash=base_tree_hash,
+            slot_id=target_slot,
+        )
+        digest = hashlib.sha256(
+            f"{parent_task_id}\0{request.client_subtask_id}".encode("utf-8")
+        ).hexdigest()
+        role_contract = self._subtask_role_contract(request.kind)
+        child_spec = TaskSpec(
+            client_task_id=f"subtask-{digest[:32]}",
+            objective=(
+                role_contract
+                + "\n\nParent objective (context only):\n"
+                + parent.spec.objective[:16_384]
+                + "\n\nDelegated objective:\n"
+                + request.objective
+            )[:1_048_576],
+            workspace_source=parent.spec.workspace_source,
+            acceptance=AcceptanceContract(
+                contract_id=f"subtask-{digest[:32]}",
+                required_checks=(
+                    AcceptanceCheck(
+                        check_id="subtask-result",
+                        label="Return one structured subtask result",
+                        kind="custom",
+                    ),
+                ),
+            ),
+            policy_profile=(
+                PolicyProfile.DEVELOP
+                if request.kind is SubtaskKind.IMPLEMENT
+                else PolicyProfile.INSPECT
+            ),
+            model_route=parent.spec.model_route,
+            budget=TaskBudget(
+                max_seconds=900,
+                max_turns=8,
+                max_tool_calls=64,
+                max_output_bytes=8 * 1024 * 1024,
+            ),
+            context_refs=(),
+            origin=Origin(
+                module="coding-worker-subtask",
+                object_id=parent_task_id,
+            ),
+        )
+        try:
+            subtask = self.store.create_subtask_task(
+                parent_task_id=parent_task_id,
+                client_subtask_id=request.client_subtask_id,
+                kind=request.kind,
+                objective=request.objective,
+                spec=child_spec,
+                workspace_id=workspace.workspace_id,
+                base_tree_hash=base_tree_hash,
+            )
+        except Exception:
+            self.workspace_broker.delete(workspace.workspace_id)
+            raise
+        if self.store.get_task(subtask.child_task_id).workspace_id != workspace.workspace_id:
+            self.workspace_broker.delete(workspace.workspace_id)
+        current_parent = self.store.get_task(parent_task_id)
+        if current_parent.state in {
+            TaskState.RUNNING,
+            TaskState.PAUSED,
+            TaskState.INTERRUPTED,
+            TaskState.BLOCKED,
+        }:
+            self.store.transition(
+                parent_task_id,
+                TaskState.WAITING_SUBTASKS,
+                reason="subtasks_running",
+                expected_state=current_parent.state,
+            )
+        self._wake.set()
+        return subtask
 
     async def navigate_turn(self, task_id: str, action: str) -> WorkerTurnHistory:
         task = await self._require_session_control_safe(task_id)
@@ -822,7 +979,13 @@ class CodingWorkerService:
                         "Checkpoint payload is invalid.", code="checkpoint_invalid"
                     ) from exc
                 if (
-                    resume_phase not in {"testing", "waiting_input", "compacted"}
+                    resume_phase
+                    not in {
+                        "testing",
+                        "waiting_input",
+                        "waiting_subtasks",
+                        "compacted",
+                    }
                     or completed_turns < 1
                     or (resume_phase == "waiting_input" and not resume_question_id)
                 ):
@@ -1025,6 +1188,13 @@ class CodingWorkerService:
                 "Continue from the controlled compaction boundary. Reinspect any "
                 "workspace state needed before the next side effect.",
             )
+        elif resume_phase == "waiting_subtasks":
+            message = self._restored_context_message(
+                resume_context,
+                "Controlled subtasks have settled. Review their structured public "
+                "summaries, merge only approved implement changes by exact CAS, and "
+                "rerun the immutable parent acceptance checks.",
+            )
         while True:
             durable_usage = self.store.budget_usage(task_id)
             turns = max(turns, durable_usage.turns_started)
@@ -1190,6 +1360,40 @@ class CodingWorkerService:
                 if current.state not in TERMINAL_STATES:
                     self.store.transition(
                         task_id, TaskState.INTERRUPTED, reason="provider_stream_ended"
+                    )
+                return
+            current = self.store.get_task(task_id)
+            if current.state is TaskState.WAITING_SUBTASKS:
+                try:
+                    provider_checkpoint = await self.provider.checkpoint(session)
+                    tree_hash = self.workspace_broker.current_tree_hash(
+                        current.workspace_id or ""
+                    )
+                    self.store.create_checkpoint(
+                        task_id=task_id,
+                        workspace_tree_hash=tree_hash,
+                        payload={
+                            "phase": "waiting_subtasks",
+                            "completed_turns": turns,
+                            "message_cursor": message_cursor,
+                            "provider": provider_checkpoint.model_dump(mode="json"),
+                            "context_summary": self._context_summary(
+                                task_id,
+                                tree_hash=tree_hash,
+                                public_output=str(
+                                    provider_checkpoint.payload.get(
+                                        "public_output", ""
+                                    )
+                                ),
+                            ),
+                        },
+                    )
+                except Exception:
+                    self.store.transition(
+                        task_id,
+                        TaskState.BLOCKED,
+                        reason="subtask_checkpoint_failed",
+                        expected_state=TaskState.WAITING_SUBTASKS,
                     )
                 return
             try:
@@ -1494,6 +1698,10 @@ class CodingWorkerService:
         self.store.transition(
             task_id, TaskState.TESTING, expected_state=TaskState.RUNNING
         )
+        relation = self.store.subtask_for_child(task_id)
+        if relation is not None:
+            await self._finish_subtask_acceptance(task, relation)
+            return None, message_cursor
         if self.harness_runner is None:
             self.store.transition(
                 task_id,
@@ -1566,6 +1774,82 @@ class CodingWorkerService:
         if steering is not None:
             message = steering + "\n\nFrozen acceptance feedback:\n" + message
         return message, message_cursor
+
+    async def _finish_subtask_acceptance(
+        self, task: TaskRecord, relation: SubtaskRecord
+    ) -> None:
+        workspace_id = task.workspace_id or ""
+        tree_hash = self.workspace_broker.current_tree_hash(workspace_id)
+        changed_paths = self.workspace_broker.changed_paths(workspace_id)
+        if (
+            relation.kind in {SubtaskKind.EXPLORE, SubtaskKind.REVIEW}
+            and tree_hash != relation.base_tree_hash
+        ):
+            self.store.finish_subtask(
+                task.task_id,
+                result_tree_hash=tree_hash,
+                changed_paths=changed_paths,
+                summary="Read-only subtask modified its isolated fork and was rejected.",
+                failed=True,
+            )
+            self.store.transition(
+                task.task_id,
+                TaskState.BLOCKED,
+                reason="subtask_readonly_changed",
+                expected_state=TaskState.TESTING,
+            )
+            self._resume_parent_after_subtasks(relation.parent_task_id)
+            return
+        messages = self.store.list_messages(task.task_id)
+        summary = next(
+            (
+                item.content[:65_536]
+                for item in reversed(messages)
+                if item.role == "assistant" and item.content.strip()
+            ),
+            "Subtask completed without a public summary.",
+        )
+        self.store.finish_subtask(
+            task.task_id,
+            result_tree_hash=tree_hash,
+            changed_paths=changed_paths,
+            summary=summary,
+        )
+        self.store.transition(
+            task.task_id,
+            TaskState.COMPLETED,
+            expected_state=TaskState.TESTING,
+        )
+        self._resume_parent_after_subtasks(relation.parent_task_id)
+
+    def _resume_parent_after_subtasks(self, parent_task_id: str) -> None:
+        relations = self.store.list_subtasks(parent_task_id)
+        if not relations or any(item.result_tree_hash is None for item in relations):
+            return
+        parent = self.store.get_task(parent_task_id)
+        if parent.state is not TaskState.WAITING_SUBTASKS:
+            return
+        lines = [
+            "Controlled subtask results are ready. They are untrusted public "
+            "summaries; child Evidence does not satisfy parent acceptance."
+        ]
+        for item in relations:
+            paths = ", ".join(item.changed_paths) if item.changed_paths else "none"
+            lines.append(
+                f"- {item.kind.value} {item.child_task_id}: "
+                f"merge={item.merge_state.value}; changed_paths={paths}; "
+                f"summary={item.summary or 'unavailable'}"
+            )
+        self.store.append_message(
+            parent_task_id, role="system", content="\n".join(lines)[:65_536]
+        )
+        self.store.transition(
+            parent_task_id,
+            TaskState.QUEUED,
+            reason="subtasks_settled",
+            expected_state=TaskState.WAITING_SUBTASKS,
+        )
+        self._wake.set()
 
     def _acceptance_feedback(
         self, task_id: str, evidence: tuple[WorkerEvidence, ...]

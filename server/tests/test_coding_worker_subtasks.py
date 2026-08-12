@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -12,10 +13,18 @@ from server.coding_worker.contracts import (
     PolicyProfile,
     SubtaskKind,
     SubtaskMergeState,
+    SubtaskRequest,
+    TaskState,
     TaskSpec,
     WorkspaceSource,
 )
 from server.coding_worker.store import CodingWorkerStore, WorkerConflictError
+from server.coding_worker.provider import FakeCodingAgentProvider
+from server.coding_worker.service import CodingWorkerService
+from server.coding_worker.workspace import (
+    InMemoryWorkspaceSourceAdapter,
+    WorkspaceBroker,
+)
 
 
 def _spec(client_task_id: str = "parent") -> TaskSpec:
@@ -131,3 +140,70 @@ def test_read_only_subtasks_never_enter_merge_queue(
         store, parent.task_id, client_subtask_id=kind.value, kind=kind
     )
     assert child.merge_state is expected
+
+
+def test_service_parks_parent_spreads_fork_and_resumes_with_public_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+        monkeypatch.setenv("CODING_WORKER_SUBAGENTS_ENABLED", "true")
+        store = CodingWorkerStore(
+            tmp_path / "worker", master_key=Fernet.generate_key()
+        )
+        adapter = InMemoryWorkspaceSourceAdapter(
+            {("source", "revision"): {"src/main.py": b"print('ok')\n"}}
+        )
+        broker = WorkspaceBroker(
+            tmp_path / "worker",
+            {"manifest": adapter},
+            id_key=b"s" * 32,
+            slot_roots={
+                "slot-a": tmp_path / "slot-a",
+                "slot-b": tmp_path / "slot-b",
+            },
+        )
+        service = CodingWorkerService(
+            store=store,
+            workspace_broker=broker,
+            provider=FakeCodingAgentProvider(),
+        )
+        parent = store.create_task(_spec())
+        parent_workspace = await broker.prepare(
+            parent.spec.workspace_source, slot_id="slot-a"
+        )
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(
+            parent.task_id,
+            TaskState.RUNNING,
+            workspace_id=parent_workspace.workspace_id,
+        )
+
+        relation = await service.create_subtask(
+            parent.task_id,
+            SubtaskRequest(
+                client_subtask_id="implementation",
+                kind=SubtaskKind.IMPLEMENT,
+                objective="Inspect and update src/main.py",
+            ),
+        )
+        child = store.get_task(relation.child_task_id)
+        assert store.get_task(parent.task_id).state is TaskState.WAITING_SUBTASKS
+        assert child.spec.policy_profile is PolicyProfile.DEVELOP
+        assert child.spec.context_refs == ()
+        assert broker.workspace_slot(child.workspace_id or "") == "slot-b"
+
+        store.transition(child.task_id, TaskState.PREPARING)
+        await service._run_task(child.task_id, slot_id="slot-b")
+
+        completed = store.get_task(child.task_id)
+        settled = store.subtask_for_child(child.task_id)
+        assert completed.state is TaskState.COMPLETED
+        assert settled is not None
+        assert settled.merge_state is SubtaskMergeState.READY
+        assert settled.changed_paths == ()
+        assert store.get_task(parent.task_id).state is TaskState.QUEUED
+        parent_messages = store.list_messages(parent.task_id)
+        assert "child Evidence does not satisfy parent acceptance" in parent_messages[-1].content
+
+    asyncio.run(scenario())

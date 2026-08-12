@@ -119,7 +119,12 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
         }
     ),
     TaskState.PAUSED: frozenset(
-        {TaskState.QUEUED, TaskState.CANCELLED, TaskState.EXPIRED}
+        {
+            TaskState.QUEUED,
+            TaskState.WAITING_SUBTASKS,
+            TaskState.CANCELLED,
+            TaskState.EXPIRED,
+        }
     ),
     TaskState.TESTING: frozenset(
         {
@@ -135,11 +140,23 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
         }
     ),
     TaskState.INTERRUPTED: frozenset(
-        {TaskState.QUEUED, TaskState.PAUSED, TaskState.CANCELLED, TaskState.EXPIRED}
+        {
+            TaskState.QUEUED,
+            TaskState.WAITING_SUBTASKS,
+            TaskState.PAUSED,
+            TaskState.CANCELLED,
+            TaskState.EXPIRED,
+        }
     ),
     TaskState.COMPLETED: frozenset({TaskState.PAUSED, TaskState.EXPIRED}),
     TaskState.BLOCKED: frozenset(
-        {TaskState.QUEUED, TaskState.PAUSED, TaskState.CANCELLED, TaskState.EXPIRED}
+        {
+            TaskState.QUEUED,
+            TaskState.WAITING_SUBTASKS,
+            TaskState.PAUSED,
+            TaskState.CANCELLED,
+            TaskState.EXPIRED,
+        }
     ),
     TaskState.FAILED: frozenset(
         {TaskState.QUEUED, TaskState.PAUSED, TaskState.CANCELLED, TaskState.EXPIRED}
