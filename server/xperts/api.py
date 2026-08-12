@@ -344,13 +344,46 @@ def _prepare_published_resource_snapshot(
                     )
                 )
             continue
-        if kind == "knowledge_base":
+        if kind in {"knowledge_base", "knowledge_retrieval", "knowledge_citation"}:
             kb_id = str(data.get("knowledgeBaseId") or "").strip()
+            rag_service = get_rag_service()
             if not kb_id:
-                continue
+                is_legacy_consumer = kind in {
+                    "knowledge_retrieval",
+                    "knowledge_citation",
+                } and data.get("contractVersion") is None
+                if is_legacy_consumer:
+                    knowledge_bases = rag_service.list_knowledge_bases()
+                    if len(knowledge_bases) == 1:
+                        kb_id = str(knowledge_bases[0].get("id") or "").strip()
+                        issues.append(
+                            ValidationIssue(
+                                code="xpert_knowledge_legacy_base_resolved",
+                                message=(
+                                    "Legacy knowledge node omitted knowledgeBaseId; "
+                                    "the only available knowledge base will be used."
+                                ),
+                                severity="warning",
+                                node_id=node.id,
+                            )
+                        )
+                    else:
+                        issues.append(
+                            ValidationIssue(
+                                code="xpert_knowledge_base_required",
+                                message=(
+                                    "Legacy knowledge nodes without knowledgeBaseId "
+                                    "require exactly one available knowledge base."
+                                ),
+                                node_id=node.id,
+                            )
+                        )
+                        continue
+                else:
+                    continue
             try:
-                get_rag_service().get_pipeline_draft(kb_id)
-                active = get_rag_service().get_active_pipeline_version(kb_id)
+                rag_service.get_pipeline_draft(kb_id)
+                active = rag_service.get_active_pipeline_version(kb_id)
                 if active is None:
                     issues.append(
                         ValidationIssue(
@@ -371,6 +404,7 @@ def _prepare_published_resource_snapshot(
                         node_id=node.id,
                     )
                 )
+            continue
         if kind != "external_xpert":
             continue
         reference = str(data.get("xpertId") or "").strip()

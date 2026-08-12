@@ -124,13 +124,6 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["classifier", "question"],
       },
       {
-        kind: "knowledge_retrieval",
-        icon: "▥",
-        title: "知识检索",
-        description: "查询本地 RAG 资料库，把相关段落写入变量。",
-        tags: ["rag", "knowledge"],
-      },
-      {
         kind: "code",
         icon: "</>",
         title: "代码执行",
@@ -207,13 +200,6 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         title: "外部智能体",
         description: "将已发布智能体作为同步协作者工具绑定到工作流智能体。",
         tags: ["xpert", "expert", "resource", "binding"],
-      },
-      {
-        kind: "knowledge_base",
-        icon: "KB",
-        title: "知识库",
-        description: "将知识库的检索、原文和引用能力绑定到工作流智能体。",
-        tags: ["knowledge", "rag", "resource", "binding"],
       },
       {
         kind: "toolset_resource",
@@ -337,48 +323,22 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
 
 export const knowledgePipelineItems: WorkflowPaletteItem[] = [
   {
-    kind: "knowledge_citation",
-    icon: "◇",
-    title: "知识引用锚点",
-    description: "查询本地 RAG，输出 CitationAnchor JSON。",
-    tags: ["citation", "rag", "knowledge-pipeline"],
+    kind: "knowledge_base",
+    icon: "KB",
+    title: "知识库",
+    description: "将一个知识库绑定到工作流智能体的只读知识工具。",
+    tags: ["knowledge", "rag", "resource", "binding"],
+  },
+  {
+    kind: "knowledge_retrieval",
+    icon: "▥",
+    title: "知识检索",
+    description: "检索指定知识库的活动版本并输出文本或类型化结果。",
+    tags: ["rag", "knowledge", "retrieval"],
   },
 ];
 
-export const knowledgePipelinePlaceholders: WorkflowPalettePlaceholder[] = [
-  {
-    id: "pipeline_source_default",
-    icon: "TXT",
-    title: "默认数据源",
-    description: "待接入：从知识流水线数据源读取文件。",
-    statusLabel: "待接入",
-    tags: ["source", "data"],
-  },
-  {
-    id: "pipeline_processor",
-    icon: "PX",
-    title: "处理器",
-    description: "待接入：清洗、解析和转换文档内容。",
-    statusLabel: "待接入",
-    tags: ["processor"],
-  },
-  {
-    id: "pipeline_splitter",
-    icon: "¶",
-    title: "分块器",
-    description: "待接入：递归字符、Markdown 或父子分块。",
-    statusLabel: "待接入",
-    tags: ["splitter", "chunk"],
-  },
-  {
-    id: "pipeline_vision",
-    icon: "眼",
-    title: "图像理解",
-    description: "待接入：视觉语言模型处理图片内容。",
-    statusLabel: "待接入",
-    tags: ["vision", "image"],
-  },
-];
+export const knowledgePipelinePlaceholders: WorkflowPalettePlaceholder[] = [];
 
 export function matchesWorkflowPaletteQuery(
   item: WorkflowPaletteItem | WorkflowPalettePlaceholder,

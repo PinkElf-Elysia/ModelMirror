@@ -425,14 +425,14 @@ export default function NodePalette() {
           <section className="space-y-2">
             <div>
               <h3 className="text-sm font-semibold text-slate-200">
-                引用与检索
+                知识消费
               </h3>
               <p className="mt-0.5 text-xs leading-5 text-slate-500">
-                当前先暴露可运行的 CitationAnchor 节点。
+                绑定知识库，或在控制流中检索其当前活动版本。
               </p>
             </div>
             {filteredKnowledgeItems.length === 0 ? (
-              <EmptyState>没有匹配的知识引用节点。</EmptyState>
+              <EmptyState>没有匹配的知识消费节点。</EmptyState>
             ) : (
               <div className="space-y-2">
                 {filteredKnowledgeItems.map((item) => (
@@ -442,25 +442,15 @@ export default function NodePalette() {
             )}
           </section>
 
-          <section className="space-y-2">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-200">
-                流水线阶段
-              </h3>
-              <p className="mt-0.5 text-xs leading-5 text-slate-500">
-                智能体资源草稿入口，当前不会直接创建工作流节点。
-              </p>
-            </div>
-            {filteredKnowledgePlaceholders.length === 0 ? (
-              <EmptyState>没有匹配的知识流水线条目。</EmptyState>
-            ) : (
+          {filteredKnowledgePlaceholders.length > 0 ? (
+            <section className="space-y-2">
               <div className="space-y-2">
                 {filteredKnowledgePlaceholders.map((item) => (
                   <PlaceholderCard item={item} key={item.id} />
                 ))}
               </div>
-            )}
-          </section>
+            </section>
+          ) : null}
         </div>
       ) : null}
     </div>

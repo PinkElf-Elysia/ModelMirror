@@ -88,11 +88,13 @@ def build_capability_snapshot(
                     "tags": list(item.get("tags") or [])[:12],
                     "planner": {
                         "enabled": True,
+                        "support": planner.get("support", "full"),
                         "default_data": dict(planner.get("default_data") or {}),
                         "config_constraints": dict(
                             planner.get("config_constraints") or {}
                         ),
                     },
+                    "contracts": dict(item.get("contracts") or {}),
                 }
             )
     for item in node_payload.get("knowledge_pipeline", {}).get("items", []):
@@ -107,11 +109,13 @@ def build_capability_snapshot(
                     "tags": list(item.get("tags") or [])[:12],
                     "planner": {
                         "enabled": True,
+                        "support": planner.get("support", "full"),
                         "default_data": dict(planner.get("default_data") or {}),
                         "config_constraints": dict(
                             planner.get("config_constraints") or {}
                         ),
                     },
+                    "contracts": dict(item.get("contracts") or {}),
                 }
             )
     nodes.sort(key=lambda item: item["kind"])

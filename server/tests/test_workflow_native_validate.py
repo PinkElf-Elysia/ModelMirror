@@ -400,6 +400,45 @@ async def test_validate_knowledge_retrieval_top_k(client: httpx.AsyncClient) -> 
 
 
 @pytest.mark.asyncio
+async def test_validate_knowledge_retrieval_v2_contract(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = linear_workflow()
+    workflow["nodes"][1] = {
+        "id": "retrieval",
+        "type": "knowledge_retrieval",
+        "data": {
+            "kind": "knowledge_retrieval",
+            "contractVersion": 2,
+            "knowledgeBaseId": "kb_test",
+            "queryVariable": "user_input",
+            "top_k": "5",
+            "returnMode": "result",
+            "outputVariable": "knowledge_result",
+        },
+    }
+    workflow["nodes"][2]["data"]["outputVariable"] = "knowledge_result"
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "retrieval"},
+        {"id": "e2", "source": "retrieval", "target": "output"},
+    ]
+
+    data = await validate(client, workflow)
+    assert data["valid"] is True
+
+    workflow["nodes"][1]["data"]["knowledgeBaseId"] = ""
+    data = await validate(client, workflow)
+    assert data["valid"] is False
+    assert "missing_knowledge_retrieval_knowledge_base_id" in issue_codes(data)
+
+    workflow["nodes"][1]["data"]["knowledgeBaseId"] = "kb_test"
+    workflow["nodes"][1]["data"]["returnMode"] = "answer"
+    data = await validate(client, workflow)
+    assert data["valid"] is False
+    assert "invalid_knowledge_retrieval_return_mode" in issue_codes(data)
+
+
+@pytest.mark.asyncio
 async def test_validate_knowledge_citation_node_ok(client: httpx.AsyncClient) -> None:
     workflow = linear_workflow()
     workflow["nodes"][1] = {

@@ -937,7 +937,8 @@ def validate_node_configuration(
             )
 
     if kind == "knowledge_retrieval":
-        if not str(data.get("queryVariable") or "").strip():
+        query_variable = str(data.get("queryVariable") or "").strip()
+        if not query_variable:
             issues.append(
                 ValidationIssue(
                     code="missing_knowledge_retrieval_query_variable",
@@ -945,16 +946,63 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
+        elif not is_variable_name(query_variable):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_knowledge_retrieval_query_variable",
+                    message="Knowledge retrieval queryVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+        raw_contract_version = data.get("contractVersion")
+        contract_version = 1
+        if raw_contract_version is not None:
+            try:
+                contract_version = int(raw_contract_version)
+            except (TypeError, ValueError):
+                contract_version = 0
+            if contract_version != 2:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_knowledge_retrieval_contract_version",
+                        message="Knowledge retrieval contractVersion must be 2 when set.",
+                        node_id=node.id,
+                    )
+                )
+        if contract_version == 2:
+            if not str(data.get("knowledgeBaseId") or "").strip():
+                issues.append(
+                    ValidationIssue(
+                        code="missing_knowledge_retrieval_knowledge_base_id",
+                        message="Knowledge retrieval V2 needs data.knowledgeBaseId.",
+                        node_id=node.id,
+                    )
+                )
+            return_mode = str(data.get("returnMode") or "result").strip()
+            if return_mode not in {"context", "result"}:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_knowledge_retrieval_return_mode",
+                        message=(
+                            "Knowledge retrieval returnMode must be context or result."
+                        ),
+                        node_id=node.id,
+                    )
+                )
         top_k = str(data.get("top_k") or "3").strip()
         try:
             top_k_int = int(top_k)
         except ValueError:
             top_k_int = 0
-        if top_k_int < 1 or top_k_int > 20:
+        top_k_max = 10 if contract_version == 2 else 20
+        if top_k_int < 1 or top_k_int > top_k_max:
             issues.append(
                 ValidationIssue(
                     code="invalid_knowledge_retrieval_top_k",
-                    message="Knowledge retrieval top_k must be an integer between 1 and 20.",
+                    message=(
+                        "Knowledge retrieval top_k must be an integer between "
+                        f"1 and {top_k_max}."
+                    ),
                     node_id=node.id,
                 )
             )

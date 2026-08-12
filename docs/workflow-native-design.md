@@ -21,6 +21,8 @@
 
 > 2026-07-22 Resource Nodes：新增 `external_xpert` 与 `knowledge_base`。资源节点通过 `sourceHandle="expert-binding" -> targetHandle="expert"` 或 `sourceHandle="knowledge-binding" -> targetHandle="knowledge"` 绑定单个 `workflow_agent`，不参与控制流、变量可达性或节点调度。发布 Xpert 时外部专家解析为不可变版本；知识库继续读取活动索引。同步专家调用与异步 Handoff 是两套明确语义。
 
+> 2026-08-11 Workflow RAG Consumption V2：知识分类收口为 `knowledge_base` 与 `knowledge_retrieval`。数据源、Processor、分块、Embedding、索引、策略、评测和版本管理继续由 `/rag` 独占。新检索节点必须显式选择知识库，可返回纯文本上下文或 typed result；`knowledge_citation` 从新建入口和 Planner 隐藏，仅保留旧图兼容。
+
 > 2026-07-19 Office Automation：`office_automation` 可通过 middleware binding 绑定到 `workflow_agent`，复用 `wait_kind=client_tool` 的持久暂停和恢复语义。22 个 Word/Excel/PowerPoint 工具由用户主动绑定的 Office.js Task Pane 执行；绑定边不参与控制流，修改工具必须有 HITL 覆盖，公开 App/API 禁止该中间件。完整契约见 `docs/XPERT_OFFICE_AUTOMATION.md`。
 
 > 2026-07-19 File Memory Middleware：`xpert_file_memory` 可通过 middleware binding 绑定到 `workflow_agent`，提供索引、摘要 digest、正文选择和候选写回。绑定边不参与控制流；显式配置优先于旧 `memoryReadEnabled/memoryWriteEnabled` 字段。普通 Workflow 无 Xpert 上下文时安全跳过，公开 App 只允许显式开启的只读访问。完整契约见 `docs/XPERT_FILE_MEMORY.md`。
@@ -91,7 +93,7 @@
 | Xpert 分类 | Xpert 菜单示例 | ModelMirror 已有/对应节点 | 下一步 |
 | --- | --- | --- | --- |
 | 逻辑 | 触发器、路由、迭代、子流程、列表操作、变量聚合、变量赋值 | `input`、`condition`、`iteration`、`list_operation`、`variable_aggregator`、`variable_assign` | 用节点 registry 统一分类与元数据 |
-| 转换 | 问题分类器、知识检索、代码执行、模板、JSON 序列化、JSON 反序列化、回答 | `question_classifier`、`knowledge_retrieval`、`knowledge_citation`、`code`、`template_transform`、`output` | 补 JSON 序列化/反序列化节点前先统一 registry |
+| 转换 | 问题分类器、代码执行、模板、JSON 序列化、JSON 反序列化、回答 | `question_classifier`、`code`、`template_transform`、`json_serialize`、`json_deserialize`、`output` | 知识检索已归入知识消费分类 |
 | 工具 | HTTP、工具调用、智能体工作流、任务移交 | `http_request`、`mcp_tool`、`workflow_agent`、`agent_task`、`agent_handoff`、`handoff_router` | 继续收敛到 Runtime Toolset 与 RunRegistry |
 | 记忆 | 数据库 | 暂无完整数据库/记忆节点，仅有 RunRegistry 与 RAG 元数据 | 等工作空间资源与记忆模型稳定后推进 |
 | 其他 | 注释 | 暂无 | 作为 UI-only 节点，低优先级 |
@@ -102,7 +104,9 @@
 
 ### 知识流水线分类
 
-Xpert 知识流水线菜单按数据源、处理器、分块器、图像理解组织。ModelMirror 当前已有 RAG pipeline 元数据、`knowledge_citation` 节点、四段草稿、版本化执行，以及 Advanced RAG V2 的递归/父子分块、向量/FTS5 双索引和混合检索。工作流节点不直接保存检索实现细节，而是统一消费知识库 active version 固定 profile；候选失败或回滚不需要修改 workflow definition。
+工作流中的知识分类只展示知识消费节点。当前为 `knowledge_base` 资源绑定和 `knowledge_retrieval` 确定性检索；后续独立 PR 增加通用 `vision_understanding`。数据源、Processor、分块、Embedding、索引、检索策略、评测和版本管理属于 `/rag`，不得在 classic workflow 中复制实现或保留占位节点。
+
+`knowledge_retrieval` V2 读取指定知识库的活动版本并调用 `RagService.search_knowledge`，不额外生成回答。`returnMode=result` 输出上下文、受限来源、CitationAnchor、检索诊断和 warnings 的 typed object；`returnMode=context` 输出纯文本。活动版本切换仍由 RAG 指针控制，工作流定义无需改变。
 
 ### 对齐顺序
 
@@ -120,9 +124,9 @@ Xpert 知识流水线菜单按数据源、处理器、分块器、图像理解�
 
 - `工作流`：按逻辑、转换、工具、记忆、其他分组展示现有可运行节点。
 - `中间件`：继续从 `GET /api/runtime/middleware-nodes` 拉取 runtime middleware metadata，并保持现有 JSON 拖拽 payload。
-- `知识流水线`：classic workflow 暴露可运行的 `knowledge_citation` 节点；独立 `/rag/:kbId/pipeline` 画布负责数据源、视觉理解、处理器、分块器、Embedding 与索引执行，避免把两套节点协议混在一起。
+- `知识流水线`：classic workflow 暴露 `knowledge_base` 与 `knowledge_retrieval`；独立 `/rag/:kbId/pipeline` 画布负责数据源、视觉理解、处理器、分块器、Embedding、索引、策略和评测。
 
-本轮不新增后端节点类型，不修改 `NativeNodeKind`、validate、classic runner、SSE 协议或 React Flow 拖拽协议。数据库、注释、JSON 序列化/反序列化和知识流水线 stage 仅显示“待接入”占位，不会生成无法运行的画布节点。
+历史占位已收口：知识流水线 stage 不再显示在 classic workflow 节点库。`knowledge_citation` 仍属于 `SUPPORTED_NODE_KINDS` 以加载和运行旧图，但不再提供新建入口或 Planner 能力。
 
 ### 2026-07-09 增量：Xpert 式智能体配置侧栏
 
@@ -132,7 +136,7 @@ Xpert 知识流水线菜单按数据源、处理器、分块器、图像理解�
 
 - 继续复用现有 `agentMode`、`instruction`、`modelId`、`rolePrompt`、`taskInput`、`toolMode`、`toolNames`、`maxIterations`、`promptSuffix`、`outputVariable` 执行字段。
 - 新增 `disableOutput`、`enableFileUnderstanding`、`parallelToolCalls`、`retryOnFailure`、`fallbackModelId`、`exceptionHandling`、`outputSchemaMode`、`outputSchemaJson`、`memoryWriteEnabled`、`memoryWriteTarget`、`nodeParametersJson` 作为配置草稿字段。
-- 中间件与知识库区块当前只提示继续使用画布上的 `runtime_middleware`、`knowledge_retrieval`、`knowledge_citation` 节点，不做节点内嵌语义。
+- 中间件与知识库区块继续使用画布上的 `runtime_middleware`、`knowledge_base` 和 `knowledge_retrieval`；`knowledge_citation` 仅用于旧图加载与执行兼容。
 - 本轮不修改后端 validate、runner、RunRegistry、SSE 和拖拽协议；非 Agent 节点仍使用原有配置表单。
 
 > 2026-07-08 状态补充：Chat Toolset 运行观测进入最小闭环。`tool_mode=mcp_tools` 的聊天请求会登记 `chat` run，响应 header 返回 `X-ModelMirror-Runtime-Run-Id` / `X-ModelMirror-Runtime-Task-Id`；前端聊天页展示 run 状态、checkpoint、tool events 与 audit 摘要。普通聊天仍不创建 chat run，SSE wire format 不变。
@@ -724,9 +728,9 @@ Classic workflow 新增 handoff_router 节点，作为 workflow_agent -> Handoff
 
 因此 classic `/workflow` 的节点数据、validate API、拖拽协议和 SSE wire format 均保持不变。详细契约见 `docs/XPERT_GOALS.md`。
 
-## 2026-07-08 增量：Knowledge Citation 工作流节点
+## 2026-07-08 增量：Knowledge Citation 工作流节点（旧图兼容）
 
-Classic workflow 新增 `knowledge_citation` 节点，用于把本地 RAG Knowledge Pipeline 的 `CitationAnchor` 变成可拖拽、可配置、可运行、可观测的工作流能力。前端字段为 `queryVariable`、`knowledgeBaseId`、`top_k`、`outputVariable`；`knowledgeBaseId` 留空时使用第一个知识库，`top_k` 静态校验范围为 1-10。
+该历史节点把 CitationAnchor 写为 JSON 字符串。自 Workflow RAG Consumption V2 起，它不再出现在节点库或 Planner 中；旧图仍可加载和执行。显式 `knowledgeBaseId` 继续使用；缺失时只有恰好一个可用知识库才兼容执行，零个或多个知识库均 fail-closed。
 
 运行时读取 `variables[queryVariable]` 作为检索问题，调用 `RagService.create_pipeline_citations(kb_id, query_text, top_k=...)`，并将输出变量写成 JSON 字符串：
 
@@ -734,7 +738,7 @@ Classic workflow 新增 `knowledge_citation` 节点，用于把本地 RAG Knowle
 {"citations":[{"chunk_id":"...","document_name":"...","score":0.91,"snippet":"..."}],"citation_count":1}
 ```
 
-节点会登记 `knowledge_citation` 子 run，`parent_run_id` 指向 workflow run，并写入 `knowledge_citation.started/completed/failed` checkpoint。metadata 只保存知识库 ID、变量名、输出变量、引用数量等摘要，不返回本地文件路径、embedding、完整上传文件内容或密钥。该节点与既有 `knowledge_retrieval` 并存，不改变 `/api/rag/query`、聊天 RAG 或向量库行为。
+节点会登记 `knowledge_citation` 子 run，`parent_run_id` 指向 workflow run，并写入 `knowledge_citation.started/completed/failed` checkpoint。metadata 只保存知识库 ID、变量名、输出变量、引用数量等摘要，不返回本地文件路径、embedding、完整上传文件内容或密钥。新工作流统一使用 `knowledge_retrieval` V2 的 typed CitationAnchor。
 
 > 2026-07-10 Knowledge Pipeline draft config: `/rag` Pipeline Draft now supports safe saved config and preflight observation. Classic workflow `knowledge_citation` is unchanged; it still reads CitationAnchor summary JSON and does not execute draft config.
 

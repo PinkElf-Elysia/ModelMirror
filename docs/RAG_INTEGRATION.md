@@ -348,9 +348,20 @@ disabled 占位。它已在 2026-07-15 升级为可选真实阶段，当前状�
 “图像与扫描 PDF 知识理解”为准。安全响应仍不返回本地文件绝对路径、完整
 chunk 文本、embedding、prompt 或密钥。
 
-## 2026-07-08 增量：Workflow CitationAnchor 节点
+## 2026-08-11 增量：Workflow RAG Consumption V2
 
-Classic workflow 已新增 `knowledge_citation` 节点，复用本地 RAG Knowledge Pipeline 的 citation 生成能力。节点读取 `queryVariable` 中的文本，使用可选 `knowledgeBaseId` 和 `top_k` 调用 `RagService.create_pipeline_citations(...)`，并把结果写入 `outputVariable`：
+Classic workflow 的知识节点已收口为 `knowledge_base` 与 `knowledge_retrieval`。`/rag` 继续独占数据源、Processor、分块、Embedding、索引、策略、评测和版本管理；工作流只消费活动版本，不创建 RAG Job 或知识版本。
+
+新建检索节点使用 `contractVersion=2`，必须显式选择 `knowledgeBaseId`，并直接调用 `RagService.search_knowledge(...)`，不生成额外回答：
+
+- `returnMode=result` 输出 typed object，包含实际知识库/活动版本、受限上下文、来源、CitationAnchor、Retrieval 诊断和 warnings。
+- `returnMode=context` 仅输出纯文本上下文，便于直接进入 Prompt。
+- 旧检索节点缺少版本字段时保持文本输出；缺失知识库 ID 时仅在恰有一个知识库时兼容。
+- `knowledge_citation` 从节点库和 Planner 隐藏，保留旧工作流加载与执行兼容。
+
+## 2026-07-08 增量：Workflow CitationAnchor 节点（历史）
+
+Classic workflow 曾新增 `knowledge_citation` 节点，复用本地 RAG Knowledge Pipeline 的 citation 生成能力。该节点现在只承担旧图兼容，新流程使用 `knowledge_retrieval` V2。
 
 ```json
 {"citations":[...],"citation_count":1}

@@ -4128,8 +4128,18 @@ class RagService:
             top_k=top_k,
             retrieval=retrieval,
         )
+        return self.citation_anchors_from_search_result(result)
+
+    def citation_anchors_from_search_result(
+        self,
+        result: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Build stable citation anchors without issuing a second retrieval."""
+
         citations: list[dict[str, Any]] = []
         for source in result.get("sources", []):
+            if not isinstance(source, dict):
+                continue
             chunk_id = str(source.get("chunk_id", ""))
             doc_id = str(source.get("source_document_id") or source.get("doc_id", ""))
             citations.append(
