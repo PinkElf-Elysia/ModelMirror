@@ -39,6 +39,7 @@ from .validation import validate_xpert_definition
 try:
     from server.file_assets.contracts import FileInputKind, FilePurpose
     from server.file_assets.registry import get_file_format_registry
+    from server.data_tables.api import get_agent_table_store
     from server.rag.api import get_rag_service
     from server.plugins.registry import get_plugin_store
     from server.prompts import get_prompt_profile_store
@@ -49,6 +50,7 @@ try:
 except ModuleNotFoundError:
     from file_assets.contracts import FileInputKind, FilePurpose
     from file_assets.registry import get_file_format_registry
+    from data_tables.api import get_agent_table_store
     from rag.api import get_rag_service
     from plugins.registry import get_plugin_store
     from prompts import get_prompt_profile_store
@@ -164,6 +166,48 @@ def _prepare_published_resource_snapshot(
     for node in workflow.nodes:
         data = node.data if isinstance(node.data, dict) else {}
         kind = str(data.get("kind") or node.type or "")
+        if kind in {
+            "data_table_query",
+            "data_table_insert",
+            "data_table_update",
+            "data_table_delete",
+        }:
+            reference = str(data.get("tableId") or "").strip()
+            try:
+                if not reference:
+                    raise ValueError("Agent Table resource ID is required.")
+                policy = str(data.get("versionPolicy") or "latest").strip()
+                pinned_value = data.get("pinnedSchemaVersion")
+                pinned_version = (
+                    int(pinned_value)
+                    if pinned_value not in {None, ""}
+                    else None
+                )
+                schema = get_agent_table_store().resolve_schema_version(
+                    reference,
+                    version_policy=policy,
+                    pinned_version=pinned_version,
+                    write=kind != "data_table_query",
+                )
+                get_agent_table_store().validate_workflow_node_contract(
+                    reference,
+                    schema_version=schema.version,
+                    kind=kind,
+                    data=data,
+                )
+                data["tableId"] = schema.table_id
+                data["versionPolicy"] = "pinned"
+                data["pinnedSchemaVersion"] = schema.version
+                node.data = data
+            except Exception as exc:
+                issues.append(
+                    ValidationIssue(
+                        code="xpert_agent_table_invalid",
+                        message=str(exc),
+                        node_id=node.id,
+                    )
+                )
+            continue
         if kind == "plugin_resource":
             reference = str(data.get("pluginId") or "").strip()
             try:

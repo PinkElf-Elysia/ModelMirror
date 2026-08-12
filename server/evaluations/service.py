@@ -30,6 +30,10 @@ UNSAFE_NODE_KINDS = {
     "agent_handoff",
     "handoff_router",
     "human_intervention",
+    "data_table_query",
+    "data_table_insert",
+    "data_table_update",
+    "data_table_delete",
 }
 UNSAFE_MIDDLEWARE_IDS = {
     "human_in_the_loop",

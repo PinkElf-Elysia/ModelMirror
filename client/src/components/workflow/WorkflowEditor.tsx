@@ -53,11 +53,17 @@ import {
   reconcileSkillCatalogApprovals,
 } from "../../utils/skillCatalogApproval";
 import NodePalette from "./NodePalette";
+import WorkflowTypedDataNodeConfig from "./WorkflowTypedDataNodeConfig";
 import WorkflowNodeCard from "./WorkflowNodeCard";
 import WorkflowRun from "./WorkflowRun";
 import TrustedSkillSelect, {
   type TrustSelectableSkill,
 } from "../skill-trust/TrustedSkillSelect";
+import {
+  createDataTableNodeData,
+  createTypedCanvasNodeData,
+  normalizeRecentlyEnabledNodeData,
+} from "./workflowDataTableNodeDefaults";
 
 const nodeTypes = {
   workflowNode: WorkflowNodeCard,
@@ -147,6 +153,16 @@ function createNodeData(
   kind: WorkflowNodeKind,
   payload?: RuntimeMiddlewareDragPayload,
 ): WorkflowNodeData {
+  const typedCanvasNode = createTypedCanvasNodeData(kind);
+  if (typedCanvasNode) {
+    return typedCanvasNode;
+  }
+
+  const dataTableNode = createDataTableNodeData(kind);
+  if (dataTableNode) {
+    return dataTableNode;
+  }
+
   if (kind === "input") {
     return {
       kind,
@@ -537,12 +553,16 @@ function createNodeData(
     };
   }
 
-  return {
-    kind,
-    title: "最终交付",
-    description: "把指定变量作为工作流结果交付。",
-    outputVariable: "llm_output",
-  };
+  if (kind === "output") {
+    return {
+      kind,
+      title: "最终交付",
+      description: "把指定变量作为工作流结果交付。",
+      outputVariable: "llm_output",
+    };
+  }
+
+  throw new Error(`不支持的工作流节点类型：${kind}`);
 }
 
 function createNode(
@@ -608,7 +628,7 @@ function cloneDefinition(definition: WorkflowDefinition): WorkflowDefinition {
     nodes: definition.nodes.map((node) => ({
       ...node,
       position: { ...node.position },
-      data: { ...node.data },
+      data: normalizeRecentlyEnabledNodeData({ ...node.data }),
     })),
     edges: definition.edges.map((edge) => ({ ...edge })),
   };
@@ -630,7 +650,7 @@ function loadDefinition(
     saveStoredWorkflow(upgradedDefinition);
     return upgradedDefinition;
   }
-  return storedDefinition;
+  return cloneDefinition(storedDefinition);
 }
 
 function Field({
@@ -2152,6 +2172,18 @@ function NodeConfig({
           value={data.description}
         />
       </Field>
+
+      {[
+        "json_serialize",
+        "json_deserialize",
+        "annotation",
+        "data_table_query",
+        "data_table_insert",
+        "data_table_update",
+        "data_table_delete",
+      ].includes(data.kind) ? (
+        <WorkflowTypedDataNodeConfig data={data} onChange={update} />
+      ) : null}
 
       {data.kind === "input" ? (
         <Field label="输入变量名">
@@ -3793,10 +3825,17 @@ function WorkflowCanvas({
     const kind = rawKind as WorkflowNodeKind;
     if (!kind) return;
 
-    const nextNode = createNode(kind, position.x, position.y);
-    setNodes((currentNodes) => [...currentNodes, nextNode]);
-    setSelectedNodeId(nextNode.id);
-    setIsNodePaletteOpen(false);
+    try {
+      const nextNode = createNode(kind, position.x, position.y);
+      setNodes((currentNodes) => [...currentNodes, nextNode]);
+      setSelectedNodeId(nextNode.id);
+      setIsNodePaletteOpen(false);
+      setSaveNotice("");
+    } catch (error) {
+      setSaveNotice(
+        error instanceof Error ? error.message : "无法创建该工作流节点。",
+      );
+    }
   }
 
   useEffect(() => {
@@ -3854,6 +3893,13 @@ function WorkflowCanvas({
             </p>
           </div>
           <div className="relative flex flex-wrap items-center gap-2">
+            <button
+              className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200/45 hover:bg-emerald-300/20"
+              onClick={() => navigate("/data-tables")}
+              type="button"
+            >
+              数据表
+            </button>
             <button
               className="rounded-full border border-hire-300/30 bg-hire-300/10 px-4 py-2 text-sm font-semibold text-hire-100 transition hover:border-hire-200/50 hover:bg-hire-300/20"
               onClick={() => setIsNodePaletteOpen((current) => !current)}

@@ -1,13 +1,13 @@
 # Native Agent Table
 
 最后更新日期：2026-08-11  
-状态：当前（资源与管理闭环；工作流 CRUD 节点待下一轮）
+状态：当前（资源、管理与私有工作流 CRUD 闭环）
 
 ## 当前结论
 
-Native Agent Table 是可信本地工作空间中的轻量业务记录资源。它解决私有
-Workflow、Xpert、Goal 与 Handoff 后续需要的可控结构化读写底座，但当前轮次尚未
-把 CRUD 暴露为工作流节点或 Agent 工具。
+Native Agent Table 是可信本地工作空间中的轻量业务记录资源。私有 Workflow、
+Xpert、Goal 与 Handoff 可以通过类型化节点查询和修改记录；它不是 Agent 可任意
+调用的数据库工具，也不接受 SQL。
 
 它与现有两条数据路径职责不同：
 
@@ -75,27 +75,46 @@ Schema 草稿和记录修改都使用 revision 防止覆盖。记录写入可携
 校验/发布、版本查看、记录浏览及人工增删改。`/studio` 的数据库主入口指向 Agent
 Table，同时保留 Data X 分析和外部 Database MCP 入口。
 
+经典工作流顶栏也提供“数据表”入口。四类 Agent Table 节点的配置侧栏直接加载已发布
+数据表和不可变 SchemaVersion，可选择字段、递归 `and/or` 条件、排序、返回模式，或
+把写入字段绑定到类型化固定值和工作流变量。节点侧栏提供当前表详情和新建/管理数据表
+的跳转，设计者无需手写 Workflow JSON 才能形成可执行配置。
+
 ## 安全边界
 
-- 首版不接受自定义 SQL，也不向 Agent 暴露自主查询工具。
+- 首版不接受自定义 SQL，也不向 Agent 暴露自主数据库工具。
 - 当前可信边界是单机、单工作空间；不宣称用户、组织、RLS 或多租户隔离。
 - 审计只保存资源 ID、操作、Schema 版本、记录 ID、影响数量和时间，不保存完整记录。
 - SQLite 文件、WAL、Runtime Store 和上传数据必须保持在 Git 之外。
-- 公共 App 当前不能消费 Agent Table。
+- 公共 App 和只读 Evaluator 当前不能消费 Agent Table 节点。
 
-## 后续轮次
+## 工作流节点
 
-`WORKFLOW-DATABASE-NODES-03` 将在稳定资源上增加查询、插入、更新和删除节点，固定
-SchemaVersion、类型化输出、条件 DSL、写入上限和 operation ID 恢复语义。该轮完成
-前，Planner 也不会生成数据库节点。
+四类经典工作流节点已经启用：
+
+- `data_table_query`：字段白名单、递归 `and/or` 条件、排序、`list/first` 返回模式，
+  默认最多 20 条、上限 200 条。
+- `data_table_insert`：按字段绑定 literal 或 typed workflow variable，返回完整新记录。
+- `data_table_update`：必须配置条件，单次最多影响 100 条，返回 matched/affected。
+- `data_table_delete`：必须配置条件，单次最多影响 100 条，返回 matched/affected。
+
+条件操作符固定为 `eq/ne/gt/gte/lt/lte/in/contains/is_null`。所有值都经过固定
+SchemaVersion 的字段和类型校验；Schema、字段或类型漂移时 fail-closed。Classic
+Workflow 可在运行时解析 `latest`，Xpert 发布则将其固定为具体 SchemaVersion。
+写节点使用由 `task_id + node_id` 派生的稳定 operation ID，恢复或重放不会重复写入。
+
+这些节点在 Registry 中保持 `planner_enabled=false`。原计划中的
+`EVOAGENTX-META-PLANNER-DATA-04` 已从本闭环取消，后续需要以独立、可控的 Planner
+数据编排闭环重新立项。
 
 ## 验证
 
 ```bash
 python -m pytest server/tests/test_agent_tables.py -q
+python -m pytest server/tests/test_workflow_data_table_nodes.py -q
 python -m py_compile server/main.py server/data_tables/*.py
 cd client && npm.cmd run build
 ```
 
-容器验收还应覆盖 Schema 发布、记录 CRUD、归档只读和重启后 SQLite 数据恢复。
-
+容器验收还应覆盖 Schema 发布、记录 CRUD、条件查询、写入幂等、Xpert 固定版本、
+归档只读和重启后 SQLite 数据恢复。

@@ -31,6 +31,10 @@ export type WorkflowNodeKind =
   | "iteration"
   | "json_serialize"
   | "json_deserialize"
+  | "data_table_query"
+  | "data_table_insert"
+  | "data_table_update"
+  | "data_table_delete"
   | "annotation"
   | "runtime_middleware"
   | "output";
@@ -80,6 +84,14 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   xpertId?: string;
   versionPolicy?: string;
   pinnedVersion?: string;
+  tableId?: string;
+  pinnedSchemaVersion?: number | string;
+  selectFields?: string[];
+  filter?: Record<string, unknown>;
+  sort?: Array<{ field: string; direction: "asc" | "desc" }>;
+  limit?: number | string;
+  returnMode?: "list" | "first";
+  valueBindings?: Record<string, unknown>;
   topK?: string;
   scoreThreshold?: string;
   top_k?: string;

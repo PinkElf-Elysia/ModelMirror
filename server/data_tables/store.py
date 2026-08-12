@@ -33,6 +33,20 @@ from .models import (
 FIELD_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 MAX_FIELDS = 50
 MAX_RECORD_BYTES = 256 * 1024
+MAX_QUERY_LIMIT = 200
+MAX_MUTATION_ROWS = 100
+SYSTEM_FIELDS = {"record_id", "created_at", "updated_at", "revision"}
+FILTER_OPERATORS = {
+    "eq",
+    "ne",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "in",
+    "contains",
+    "is_null",
+}
 
 
 class AgentTableError(Exception):
@@ -61,6 +75,16 @@ class AgentTableBackend(Protocol):
     def get_table(self, table_id: str) -> AgentTableDefinition: ...
 
     def get_detail(self, table_id: str) -> AgentTableDetail: ...
+
+    def resolve_schema_version(self, table_id: str, **kwargs: Any) -> AgentTableSchemaVersion: ...
+
+    def query_records(self, table_id: str, **kwargs: Any) -> list[dict[str, Any]]: ...
+
+    def create_record_for_schema(self, table_id: str, **kwargs: Any) -> dict[str, Any]: ...
+
+    def update_records(self, table_id: str, **kwargs: Any) -> dict[str, int]: ...
+
+    def delete_records(self, table_id: str, **kwargs: Any) -> dict[str, int]: ...
 
 
 class SQLiteAgentTableBackend:
@@ -374,6 +398,335 @@ class SQLiteAgentTableBackend:
                 connection, table_id, int(target)
             ).model_copy(deep=True)
 
+    def resolve_schema_version(
+        self,
+        table_id: str,
+        *,
+        version_policy: str = "latest",
+        pinned_version: int | None = None,
+        write: bool = False,
+    ) -> AgentTableSchemaVersion:
+        with self._lock, self._connection() as connection:
+            table = self._load_table(connection, table_id)
+            if version_policy not in {"latest", "pinned"}:
+                raise AgentTableValidationError(
+                    "version_policy must be latest or pinned."
+                )
+            version = (
+                int(pinned_version or 0)
+                if version_policy == "pinned"
+                else int(table.active_schema_version or 0)
+            )
+            if version < 1:
+                raise AgentTableNotFoundError(
+                    "Agent Table has no published schema for this version policy."
+                )
+            if write:
+                if table.status == "archived":
+                    raise AgentTableConflictError(
+                        "Archived Agent Tables are read-only."
+                    )
+                if version != int(table.active_schema_version or 0):
+                    raise AgentTableConflictError(
+                        "Agent Table writes require the active schema version."
+                    )
+            return self._load_schema_version(
+                connection, table_id, version
+            ).model_copy(deep=True)
+
+    def validate_workflow_node_contract(
+        self,
+        table_id: str,
+        *,
+        schema_version: int,
+        kind: str,
+        data: dict[str, Any],
+    ) -> None:
+        schema = self.get_schema_version(table_id, schema_version)
+        business_fields = {field.name for field in schema.fields}
+        readable_fields = business_fields | SYSTEM_FIELDS
+
+        def require_field(field_name: object, *, readable: bool) -> None:
+            name = str(field_name or "").strip()
+            allowed = readable_fields if readable else business_fields
+            if name not in allowed:
+                raise AgentTableValidationError(
+                    f"Agent Table schema {schema.version} has no field '{name or '<empty>'}'."
+                )
+
+        if kind == "data_table_query":
+            for field_name in data.get("selectFields") or []:
+                require_field(field_name, readable=False)
+            for sort_item in data.get("sort") or []:
+                if isinstance(sort_item, dict):
+                    require_field(sort_item.get("field"), readable=True)
+        if kind in {"data_table_insert", "data_table_update"}:
+            bindings = data.get("valueBindings") or {}
+            if isinstance(bindings, dict):
+                for field_name in bindings:
+                    require_field(field_name, readable=False)
+
+        def check_filter(value: object) -> None:
+            if not isinstance(value, dict):
+                return
+            items = value.get("items")
+            if isinstance(items, list):
+                for item in items:
+                    check_filter(item)
+                return
+            require_field(value.get("field"), readable=True)
+
+        check_filter(data.get("filter"))
+
+    def query_records(
+        self,
+        table_id: str,
+        *,
+        schema_version: int,
+        fields: list[str] | None = None,
+        filter_tree: dict[str, Any] | None = None,
+        sort: list[dict[str, Any]] | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        bounded_limit = int(limit)
+        if not 1 <= bounded_limit <= MAX_QUERY_LIMIT:
+            raise AgentTableValidationError(
+                f"Query limit must be between 1 and {MAX_QUERY_LIMIT}."
+            )
+        with self._lock, self._connection() as connection:
+            table = self._load_table(connection, table_id)
+            schema = self._load_schema_version(
+                connection, table_id, int(schema_version)
+            )
+            selected = self._validate_selected_fields(fields, schema.fields)
+            parameters: list[Any] = []
+            where = self._compile_filter(
+                filter_tree,
+                schema.fields,
+                parameters,
+                allow_empty=True,
+            )
+            order_by = self._compile_sort(sort or [], schema.fields, parameters)
+            parameters.append(bounded_limit)
+            rows = connection.execute(
+                "SELECT * FROM agent_table_records "
+                "WHERE table_id = ? AND (" + where + ") "
+                + order_by
+                + " LIMIT ?",
+                [table.table_id, *parameters],
+            ).fetchall()
+        return [
+            self._flatten_record(self._record_from_row(row), selected)
+            for row in rows
+        ]
+
+    def create_record_for_schema(
+        self,
+        table_id: str,
+        *,
+        schema_version: int,
+        data: dict[str, Any],
+        operation_id: str,
+    ) -> dict[str, Any]:
+        payload_hash = self._request_hash(
+            "workflow.record.create",
+            {"schema_version": schema_version, "data": data},
+        )
+        with self._lock, self._connection(write=True) as connection:
+            replay = self._load_operation(
+                connection,
+                table_id,
+                operation_id,
+                "workflow.record.create",
+                payload_hash,
+            )
+            if replay is not None:
+                return replay
+            table, schema = self._writable_schema(connection, table_id)
+            if schema.version != int(schema_version):
+                raise AgentTableConflictError(
+                    "Agent Table writes require the active schema version."
+                )
+            normalized = self._validate_record_data(
+                data, schema.fields, partial=False
+            )
+            now = time.time()
+            record = AgentTableRecord(
+                record_id=f"record_{uuid.uuid4().hex}",
+                table_id=table_id,
+                schema_version=schema.version,
+                data=normalized,
+                revision=1,
+                created_at=now,
+                updated_at=now,
+            )
+            connection.execute(
+                """INSERT INTO agent_table_records
+                   (table_id, record_id, schema_version, data_json, revision,
+                    created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                self._record_parameters(record),
+            )
+            result = self._flatten_record(record, [field.name for field in schema.fields])
+            self._save_operation(
+                connection,
+                table_id,
+                operation_id,
+                "workflow.record.create",
+                payload_hash,
+                result,
+            )
+            self._write_audit(
+                connection,
+                table_id=table_id,
+                operation="workflow.record.create",
+                record_id=record.record_id,
+                schema_version=schema.version,
+                affected_count=1,
+            )
+            return result
+
+    def update_records(
+        self,
+        table_id: str,
+        *,
+        schema_version: int,
+        filter_tree: dict[str, Any],
+        data: dict[str, Any],
+        operation_id: str,
+    ) -> dict[str, int]:
+        if not data:
+            raise AgentTableValidationError("Update data cannot be empty.")
+        payload_hash = self._request_hash(
+            "workflow.records.update",
+            {
+                "schema_version": schema_version,
+                "filter": filter_tree,
+                "data": data,
+            },
+        )
+        with self._lock, self._connection(write=True) as connection:
+            replay = self._load_operation(
+                connection,
+                table_id,
+                operation_id,
+                "workflow.records.update",
+                payload_hash,
+            )
+            if replay is not None:
+                return {"matched": int(replay["matched"]), "affected": int(replay["affected"])}
+            _, schema = self._writable_schema(connection, table_id)
+            if schema.version != int(schema_version):
+                raise AgentTableConflictError(
+                    "Agent Table writes require the active schema version."
+                )
+            normalized_patch = self._validate_record_data(
+                data, schema.fields, partial=True
+            )
+            rows = self._matching_rows(
+                connection, table_id, schema.fields, filter_tree
+            )
+            if len(rows) > MAX_MUTATION_ROWS:
+                raise AgentTableValidationError(
+                    f"Update matches more than {MAX_MUTATION_ROWS} records."
+                )
+            for row in rows:
+                record = self._record_from_row(row)
+                merged = dict(record.data)
+                merged.update(normalized_patch)
+                record.data = self._validate_record_data(
+                    merged, schema.fields, partial=False
+                )
+                record.schema_version = schema.version
+                record.revision += 1
+                record.updated_at = time.time()
+                connection.execute(
+                    """UPDATE agent_table_records SET schema_version = ?, data_json = ?,
+                       revision = ?, updated_at = ? WHERE table_id = ? AND record_id = ?""",
+                    (
+                        record.schema_version,
+                        self._json(record.data),
+                        record.revision,
+                        record.updated_at,
+                        table_id,
+                        record.record_id,
+                    ),
+                )
+            result = {"matched": len(rows), "affected": len(rows)}
+            self._save_operation(
+                connection,
+                table_id,
+                operation_id,
+                "workflow.records.update",
+                payload_hash,
+                result,
+            )
+            self._write_audit(
+                connection,
+                table_id=table_id,
+                operation="workflow.records.update",
+                schema_version=schema.version,
+                affected_count=len(rows),
+            )
+            return result
+
+    def delete_records(
+        self,
+        table_id: str,
+        *,
+        schema_version: int,
+        filter_tree: dict[str, Any],
+        operation_id: str,
+    ) -> dict[str, int]:
+        payload_hash = self._request_hash(
+            "workflow.records.delete",
+            {"schema_version": schema_version, "filter": filter_tree},
+        )
+        with self._lock, self._connection(write=True) as connection:
+            replay = self._load_operation(
+                connection,
+                table_id,
+                operation_id,
+                "workflow.records.delete",
+                payload_hash,
+            )
+            if replay is not None:
+                return {"matched": int(replay["matched"]), "affected": int(replay["affected"])}
+            _, schema = self._writable_schema(connection, table_id)
+            if schema.version != int(schema_version):
+                raise AgentTableConflictError(
+                    "Agent Table writes require the active schema version."
+                )
+            rows = self._matching_rows(
+                connection, table_id, schema.fields, filter_tree
+            )
+            if len(rows) > MAX_MUTATION_ROWS:
+                raise AgentTableValidationError(
+                    f"Delete matches more than {MAX_MUTATION_ROWS} records."
+                )
+            record_ids = [str(row["record_id"]) for row in rows]
+            if record_ids:
+                connection.executemany(
+                    "DELETE FROM agent_table_records WHERE table_id = ? AND record_id = ?",
+                    [(table_id, record_id) for record_id in record_ids],
+                )
+            result = {"matched": len(rows), "affected": len(rows)}
+            self._save_operation(
+                connection,
+                table_id,
+                operation_id,
+                "workflow.records.delete",
+                payload_hash,
+                result,
+            )
+            self._write_audit(
+                connection,
+                table_id=table_id,
+                operation="workflow.records.delete",
+                schema_version=schema.version,
+                affected_count=len(rows),
+            )
+            return result
+
     def list_records(
         self,
         table_id: str,
@@ -606,6 +959,10 @@ class SQLiteAgentTableBackend:
                 raise AgentTableValidationError(
                     f"Invalid field name '{name or '<empty>'}'. Use ASCII letters, numbers, and underscores."
                 )
+            if name in SYSTEM_FIELDS:
+                raise AgentTableValidationError(
+                    f"Field name '{name}' is reserved for Agent Table metadata."
+                )
             if name in names:
                 raise AgentTableValidationError(f"Duplicate field name: {name}.")
             supplied_id = str(item.get("field_id") or "").strip()
@@ -742,6 +1099,218 @@ class SQLiteAgentTableBackend:
         if row is None:
             raise AgentTableNotFoundError(f"Agent Table not found: {table_id}")
         return self._table_from_row(row)
+
+    @staticmethod
+    def _validate_selected_fields(
+        fields: list[str] | None,
+        schema_fields: list[AgentTableField],
+    ) -> list[str]:
+        allowed = {field.name for field in schema_fields}
+        if not fields:
+            return [field.name for field in schema_fields]
+        if not isinstance(fields, list) or len(fields) > MAX_FIELDS:
+            raise AgentTableValidationError(
+                f"Query fields must contain at most {MAX_FIELDS} field names."
+            )
+        selected = [str(value).strip() for value in fields]
+        unknown = sorted(set(selected) - allowed)
+        if unknown:
+            raise AgentTableValidationError(
+                "Unknown query fields: " + ", ".join(unknown)
+            )
+        if len(selected) != len(set(selected)):
+            raise AgentTableValidationError("Query fields cannot contain duplicates.")
+        return selected
+
+    def _matching_rows(
+        self,
+        connection: sqlite3.Connection,
+        table_id: str,
+        schema_fields: list[AgentTableField],
+        filter_tree: dict[str, Any],
+    ) -> list[sqlite3.Row]:
+        parameters: list[Any] = []
+        where = self._compile_filter(
+            filter_tree,
+            schema_fields,
+            parameters,
+            allow_empty=False,
+        )
+        return connection.execute(
+            "SELECT * FROM agent_table_records WHERE table_id = ? AND ("
+            + where
+            + ") ORDER BY record_id LIMIT ?",
+            [table_id, *parameters, MAX_MUTATION_ROWS + 1],
+        ).fetchall()
+
+    def _compile_filter(
+        self,
+        tree: dict[str, Any] | None,
+        schema_fields: list[AgentTableField],
+        parameters: list[Any],
+        *,
+        allow_empty: bool,
+        depth: int = 0,
+    ) -> str:
+        if tree is None or tree == {}:
+            if allow_empty:
+                return "1 = 1"
+            raise AgentTableValidationError(
+                "Update and delete operations require a non-empty filter."
+            )
+        if not isinstance(tree, dict) or depth > 4:
+            raise AgentTableValidationError("Invalid or overly deep filter tree.")
+        if "items" in tree or "logic" in tree:
+            logic = str(tree.get("logic") or "").lower()
+            items = tree.get("items")
+            if logic not in {"and", "or"} or not isinstance(items, list):
+                raise AgentTableValidationError(
+                    "Filter groups require logic=and|or and an items array."
+                )
+            if not 1 <= len(items) <= 20:
+                raise AgentTableValidationError(
+                    "Filter groups require between 1 and 20 items."
+                )
+            compiled = [
+                self._compile_filter(
+                    item,
+                    schema_fields,
+                    parameters,
+                    allow_empty=False,
+                    depth=depth + 1,
+                )
+                for item in items
+            ]
+            return "(" + f" {logic.upper()} ".join(compiled) + ")"
+
+        field_name = str(tree.get("field") or "").strip()
+        operator = str(tree.get("operator") or "").strip().lower()
+        fields_by_name = {field.name: field for field in schema_fields}
+        if field_name not in fields_by_name and field_name not in SYSTEM_FIELDS:
+            raise AgentTableValidationError(
+                f"Unknown filter field: {field_name or '<empty>'}."
+            )
+        if operator not in FILTER_OPERATORS:
+            raise AgentTableValidationError(
+                f"Unsupported filter operator: {operator or '<empty>'}."
+            )
+        expression = self._field_expression(field_name, parameters)
+        if operator == "is_null":
+            return f"{expression} IS NULL"
+        if "value" not in tree:
+            raise AgentTableValidationError(
+                f"Filter operator {operator} requires a value."
+            )
+        raw_value = tree.get("value")
+        if operator == "in":
+            if not isinstance(raw_value, list) or not 1 <= len(raw_value) <= 100:
+                raise AgentTableValidationError(
+                    "The in operator requires an array with 1 to 100 values."
+                )
+            values = [
+                self._normalize_filter_value(field_name, value, fields_by_name)
+                for value in raw_value
+            ]
+            parameters.extend(values)
+            return f"{expression} IN ({', '.join('?' for _ in values)})"
+        value = self._normalize_filter_value(
+            field_name, raw_value, fields_by_name
+        )
+        if operator == "contains":
+            if not isinstance(value, str):
+                raise AgentTableValidationError(
+                    "The contains operator requires a string value."
+                )
+            parameters.append(value)
+            return f"INSTR(CAST({expression} AS TEXT), ?) > 0"
+        sql_operator = {
+            "eq": "=",
+            "ne": "!=",
+            "gt": ">",
+            "gte": ">=",
+            "lt": "<",
+            "lte": "<=",
+        }[operator]
+        parameters.append(value)
+        return f"{expression} {sql_operator} ?"
+
+    def _compile_sort(
+        self,
+        items: list[dict[str, Any]],
+        schema_fields: list[AgentTableField],
+        parameters: list[Any],
+    ) -> str:
+        if not isinstance(items, list) or len(items) > 5:
+            raise AgentTableValidationError("Sort supports at most 5 fields.")
+        allowed = {field.name for field in schema_fields} | SYSTEM_FIELDS
+        compiled: list[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                raise AgentTableValidationError("Sort items must be objects.")
+            field_name = str(item.get("field") or "").strip()
+            direction = str(item.get("direction") or "asc").lower()
+            if field_name not in allowed or direction not in {"asc", "desc"}:
+                raise AgentTableValidationError("Invalid sort field or direction.")
+            compiled.append(
+                f"{self._field_expression(field_name, parameters)} {direction.upper()}"
+            )
+        if not compiled:
+            return "ORDER BY updated_at DESC, record_id"
+        return "ORDER BY " + ", ".join(compiled) + ", record_id"
+
+    @staticmethod
+    def _field_expression(field_name: str, parameters: list[Any]) -> str:
+        if field_name in SYSTEM_FIELDS:
+            return field_name
+        parameters.append(f"$.{field_name}")
+        return "json_extract(data_json, ?)"
+
+    def _normalize_filter_value(
+        self,
+        field_name: str,
+        value: Any,
+        fields_by_name: dict[str, AgentTableField],
+    ) -> Any:
+        if value is None:
+            raise AgentTableValidationError(
+                "Use is_null instead of comparing filter values to null."
+            )
+        if field_name == "record_id":
+            if not isinstance(value, str):
+                raise AgentTableValidationError("record_id filters require a string.")
+            return value
+        if field_name in {"created_at", "updated_at"}:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise AgentTableValidationError(
+                    f"{field_name} filters require a numeric timestamp."
+                )
+            return value
+        if field_name == "revision":
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise AgentTableValidationError("revision filters require an integer.")
+            return value
+        normalized = self._validate_field_value(
+            fields_by_name[field_name], value, path=f"filter.{field_name}"
+        )
+        if isinstance(normalized, (dict, list)):
+            return self._json(normalized)
+        return normalized
+
+    @staticmethod
+    def _flatten_record(
+        record: AgentTableRecord, selected_fields: list[str]
+    ) -> dict[str, Any]:
+        return {
+            "record_id": record.record_id,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+            "revision": record.revision,
+            **{
+                name: record.data.get(name)
+                for name in selected_fields
+                if name in record.data
+            },
+        }
 
     def _load_versions(
         self, connection: sqlite3.Connection, table_id: str
@@ -995,4 +1564,3 @@ class AgentTableStore:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.backend, name)
-

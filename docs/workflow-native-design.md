@@ -826,9 +826,25 @@ fields, draft revision, immutable SchemaVersion, record revision, transactional
 SQLite persistence, and idempotent operation receipts. It is deliberately
 separate from Data X analytics and external Database MCP connections.
 
-This round adds the resource and management API only. It does not register
-`data_table_query/insert/update/delete` in the Workflow Registry or runner, and
-Meta Planner cannot generate database operations yet. The following round will
-bind those nodes to a fixed SchemaVersion and the existing typed WorkflowValue
-contract. Knowledge pipeline stages remain owned by `/rag`; workflows continue
-to consume them through knowledge bindings and retrieval/citation nodes.
+Classic Workflow now registers and executes `data_table_query`,
+`data_table_insert`, `data_table_update`, and `data_table_delete`. The nodes use
+the typed WorkflowValue contract, a field/filter DSL, and an exact
+SchemaVersion. Classic drafts may resolve `latest` at run time; Xpert publish
+replaces it with a pinned immutable version. Update and delete require a
+non-empty filter, are limited to 100 rows, and use a stable operation ID so a
+recovered execution cannot repeat a completed write.
+
+The classic canvas configuration sidebar is part of this contract. It resolves
+published tables and SchemaVersions from `/api/data-tables`, exposes field
+selection, nested boolean filters, sorting, typed literal/variable bindings,
+and direct links to the table manager. JSON transform nodes expose their input,
+output, and format fields; annotation exposes persisted canvas-only content.
+These nodes must not regress to title/description-only cards or require hand
+editing workflow JSON.
+
+These nodes remain private-only and are excluded from Evaluator and Xpert App
+execution. They are also marked `planner_enabled=false`: the former
+`EVOAGENTX-META-PLANNER-DATA-04` round was removed from this delivery route and
+must return as a standalone Planner closed loop. Knowledge pipeline stages
+remain owned by `/rag`; workflows continue to consume them through knowledge
+bindings and retrieval/citation nodes.

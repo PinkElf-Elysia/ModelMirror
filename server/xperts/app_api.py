@@ -137,6 +137,7 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
     has_external_xpert = False
     has_plugin_resource = False
     has_toolset_resource = False
+    has_agent_table = False
     toolset_resource_issues: list[dict[str, str]] = []
     datax_project_ids: set[str] = set()
     datax_model_ids: set[str] = set()
@@ -167,6 +168,13 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
             contract_forbidden_middleware.add(middleware_id)
         if kind == "mcp_tool":
             has_tool_call = True
+        if kind in {
+            "data_table_query",
+            "data_table_insert",
+            "data_table_update",
+            "data_table_delete",
+        }:
+            has_agent_table = True
         if kind == "external_xpert":
             has_external_xpert = True
             has_tool_call = True
@@ -343,6 +351,15 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
             {
                 "code": "app_external_xpert_forbidden",
                 "message": "Public Xpert Apps cannot deploy external Xpert collaborators.",
+            }
+        )
+    if has_agent_table:
+        issues.append(
+            {
+                "code": "app_agent_table_forbidden",
+                "message": (
+                    "Public Xpert Apps cannot deploy private Agent Table nodes."
+                ),
             }
         )
     if has_plugin_resource:

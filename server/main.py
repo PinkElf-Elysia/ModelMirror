@@ -396,6 +396,7 @@ try:
     from server.workflow_native.values import (
         WorkflowValue,
         deserialize_workflow_value,
+        normalize_workflow_value,
         normalize_workflow_variables,
         serialize_workflow_value,
         workflow_condition_matches,
@@ -422,6 +423,7 @@ except ModuleNotFoundError:
     from workflow_native.values import (
         WorkflowValue,
         deserialize_workflow_value,
+        normalize_workflow_value,
         normalize_workflow_variables,
         serialize_workflow_value,
         workflow_condition_matches,
@@ -3928,6 +3930,10 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
         "iteration",
         "json_serialize",
         "json_deserialize",
+        "data_table_query",
+        "data_table_insert",
+        "data_table_update",
+        "data_table_delete",
         "annotation",
         "runtime_middleware",
         "output",
@@ -3992,6 +3998,76 @@ def render_workflow_template(
 
 def split_workflow_variable_names(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def resolve_data_table_value_binding(
+    binding: object,
+    variables: dict[str, WorkflowValue],
+    *,
+    label: str,
+) -> WorkflowValue:
+    if not isinstance(binding, dict):
+        raise ValueError(f"{label} must be a literal or variable binding.")
+    source = str(binding.get("source") or "").strip()
+    if source == "literal" and "value" in binding:
+        return normalize_workflow_value(binding.get("value"), path=label)
+    if source == "variable":
+        variable = str(binding.get("variable") or "").strip()
+        if not variable or variable not in variables:
+            raise ValueError(
+                f"{label} references unavailable workflow variable '{variable}'."
+            )
+        return normalize_workflow_value(variables[variable], path=label)
+    raise ValueError(
+        f"{label} must use source=literal or source=variable."
+    )
+
+
+def resolve_data_table_filter(
+    value: object,
+    variables: dict[str, WorkflowValue],
+) -> dict[str, Any] | None:
+    if value is None or value == {}:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("Agent Table filter must be an object.")
+    if "items" in value or "logic" in value:
+        items = value.get("items")
+        if not isinstance(items, list):
+            raise ValueError("Agent Table filter group items must be an array.")
+        return {
+            "logic": str(value.get("logic") or "").lower(),
+            "items": [
+                resolve_data_table_filter(item, variables) for item in items
+            ],
+        }
+    resolved = {
+        "field": str(value.get("field") or "").strip(),
+        "operator": str(value.get("operator") or "").strip().lower(),
+    }
+    if resolved["operator"] != "is_null":
+        resolved["value"] = resolve_data_table_value_binding(
+            value.get("value"),
+            variables,
+            label=f"filter.{resolved['field']}",
+        )
+    return resolved
+
+
+def resolve_data_table_values(
+    value: object,
+    variables: dict[str, WorkflowValue],
+) -> dict[str, WorkflowValue]:
+    if not isinstance(value, dict) or not value:
+        raise ValueError("Agent Table valueBindings cannot be empty.")
+    return {
+        str(field_name): resolve_data_table_value_binding(
+            binding,
+            variables,
+            label=f"valueBindings.{field_name}",
+        )
+        for field_name, binding in value.items()
+    }
 
 
 def parse_workflow_tool_policy_list(value: Any) -> set[str]:
@@ -9628,6 +9704,152 @@ async def _run_workflow_response(
                                 "message": str(exc),
                             }
                         )
+
+                elif kind in {
+                    "data_table_query",
+                    "data_table_insert",
+                    "data_table_update",
+                    "data_table_delete",
+                }:
+                    started_at = time.perf_counter()
+                    table_id = str(node.data.get("tableId") or "").strip()
+                    version_policy = str(
+                        node.data.get("versionPolicy") or "latest"
+                    ).strip()
+                    pinned_value = node.data.get("pinnedSchemaVersion")
+                    pinned_version = (
+                        int(pinned_value) if pinned_value not in {None, ""} else None
+                    )
+                    is_write = kind != "data_table_query"
+                    schema = agent_table_store.resolve_schema_version(
+                        table_id,
+                        version_policy=version_policy,
+                        pinned_version=pinned_version,
+                        write=is_write,
+                    )
+                    output_variable = str(
+                        node.data.get("outputVariable") or "table_result"
+                    )
+                    operation_id = "workflow_" + hashlib.sha256(
+                        f"{task_id}:{node.id}".encode("utf-8")
+                    ).hexdigest()
+                    filter_tree = resolve_data_table_filter(
+                        node.data.get("filter"), variables
+                    )
+                    result_count = 0
+                    affected_count = 0
+                    if kind == "data_table_query":
+                        fields = node.data.get("selectFields")
+                        selected_fields = (
+                            [str(value) for value in fields]
+                            if isinstance(fields, list)
+                            else None
+                        )
+                        sort = node.data.get("sort")
+                        records = agent_table_store.query_records(
+                            table_id,
+                            schema_version=schema.version,
+                            fields=selected_fields,
+                            filter_tree=filter_tree,
+                            sort=sort if isinstance(sort, list) else None,
+                            limit=int(node.data.get("limit") or 20),
+                        )
+                        result_count = len(records)
+                        if str(node.data.get("returnMode") or "list") == "first":
+                            stored_output: WorkflowValue = records[0] if records else None
+                        else:
+                            stored_output = records
+                        output = f"Agent Table query returned {result_count} record(s)."
+                        operation = "query"
+                    elif kind == "data_table_insert":
+                        values = resolve_data_table_values(
+                            node.data.get("valueBindings"), variables
+                        )
+                        stored_output = agent_table_store.create_record_for_schema(
+                            table_id,
+                            schema_version=schema.version,
+                            data=values,
+                            operation_id=operation_id,
+                        )
+                        result_count = 1
+                        affected_count = 1
+                        output = "Agent Table inserted 1 record."
+                        operation = "insert"
+                    elif kind == "data_table_update":
+                        if filter_tree is None:
+                            raise ValueError(
+                                "Agent Table update requires a non-empty filter."
+                            )
+                        values = resolve_data_table_values(
+                            node.data.get("valueBindings"), variables
+                        )
+                        stored_output = agent_table_store.update_records(
+                            table_id,
+                            schema_version=schema.version,
+                            filter_tree=filter_tree,
+                            data=values,
+                            operation_id=operation_id,
+                        )
+                        result_count = int(stored_output.get("matched") or 0)
+                        affected_count = int(stored_output.get("affected") or 0)
+                        output = (
+                            "Agent Table update matched "
+                            f"{result_count} and affected {affected_count} record(s)."
+                        )
+                        operation = "update"
+                    else:
+                        if filter_tree is None:
+                            raise ValueError(
+                                "Agent Table delete requires a non-empty filter."
+                            )
+                        stored_output = agent_table_store.delete_records(
+                            table_id,
+                            schema_version=schema.version,
+                            filter_tree=filter_tree,
+                            operation_id=operation_id,
+                        )
+                        result_count = int(stored_output.get("matched") or 0)
+                        affected_count = int(stored_output.get("affected") or 0)
+                        output = (
+                            "Agent Table delete matched "
+                            f"{result_count} and affected {affected_count} record(s)."
+                        )
+                        operation = "delete"
+                    variables[output_variable] = normalize_workflow_value(
+                        stored_output,
+                        path=f"$.{output_variable}",
+                    )
+                    duration_ms = round(
+                        (time.perf_counter() - started_at) * 1000,
+                        2,
+                    )
+                    await run_registry.record_checkpoint(
+                        workflow_run.run_id,
+                        event_type=f"workflow.data_table.{operation}",
+                        title=f"Agent Table {operation}",
+                        summary=(
+                            f"schema={schema.version}, matched={result_count}, "
+                            f"affected={affected_count}"
+                        ),
+                        metadata={
+                            "table_id": table_id,
+                            "schema_version": schema.version,
+                            "operation": operation,
+                            "matched_count": result_count,
+                            "affected_count": affected_count,
+                            "duration_ms": duration_ms,
+                        },
+                    )
+                    yield sse_payload(
+                        {
+                            "event": "node_delta",
+                            "node_id": node.id,
+                            "node_title": title,
+                            "node_type": kind,
+                            "output": output,
+                            "variable": output_variable,
+                        }
+                    )
 
                 elif kind == "json_serialize":
                     try:
@@ -16639,7 +16861,13 @@ async def list_workflow_node_registry():
 
 @app.get("/api/workflow/resource-options", response_model=dict[str, Any])
 async def list_workflow_resource_options(
-    kind: Literal["external_xpert", "knowledge_base", "toolset", "plugin"],
+    kind: Literal[
+        "external_xpert",
+        "knowledge_base",
+        "toolset",
+        "plugin",
+        "data_table",
+    ],
 ):
     if kind == "external_xpert":
         items = await asyncio.to_thread(
@@ -16718,6 +16946,45 @@ async def list_workflow_resource_options(
                 for item in plugins
             ],
         }
+
+    if kind == "data_table":
+        tables = await asyncio.to_thread(
+            agent_table_store.list_tables,
+            status=None,
+            search="",
+            limit=200,
+        )
+        items: list[dict[str, Any]] = []
+        for table in tables:
+            fields: list[dict[str, Any]] = []
+            if table.active_schema_version is not None:
+                schema = await asyncio.to_thread(
+                    agent_table_store.get_schema_version,
+                    table.table_id,
+                    table.active_schema_version,
+                )
+                fields = [
+                    {
+                        "field_id": field.field_id,
+                        "name": field.name,
+                        "label": field.label,
+                        "description": field.description,
+                        "data_type": field.data_type,
+                        "required": field.required,
+                    }
+                    for field in schema.fields
+                ]
+            items.append(
+                {
+                    "id": table.table_id,
+                    "name": table.name,
+                    "description": table.description,
+                    "status": table.status,
+                    "active_schema_version": table.active_schema_version,
+                    "fields": fields,
+                }
+            )
+        return {"kind": kind, "items": items}
 
     knowledge_bases = await asyncio.to_thread(
         get_rag_service().list_knowledge_bases

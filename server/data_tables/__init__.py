@@ -1,4 +1,8 @@
-from .api import configure_agent_table_store, router as agent_tables_router
+from .api import (
+    configure_agent_table_store,
+    get_agent_table_store,
+    router as agent_tables_router,
+)
 from .models import (
     AgentTableDefinition,
     AgentTableDetail,
@@ -29,4 +33,5 @@ __all__ = [
     "SQLiteAgentTableBackend",
     "agent_tables_router",
     "configure_agent_table_store",
+    "get_agent_table_store",
 ]

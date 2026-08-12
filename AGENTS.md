@@ -661,8 +661,12 @@ Office 自动化是高风险客户端副作用路径。修改 `server/xpert_runt
 - 记录写入必须支持稳定 `operation_id`。相同请求重放返回原结果，不同请求复用同一 ID 必须冲突，防止恢复后重复写入。
 - API、审计和前端不得返回 SQLite 物理路径；SQLite、WAL、Runtime Store 和记录数据不得提交。
 - `/data-tables` 是本地业务记录入口；`/datax` 仍是分析入口，外部数据库仍走受控 MCP，三者不得合并 Store 或伪装语义。
-- 当前公共 App 禁用 Agent Table。第三轮工作流 CRUD 节点完成前，Meta Planner 也不得生成数据库节点。
-- 修改 Agent Table 必须运行 `server/tests/test_agent_tables.py`、后端语法、前端生产构建和重启恢复验收。
+- `data_table_query/insert/update/delete` 只能通过固定字段、条件和排序 DSL 执行，禁止自定义 SQL。查询上限 200；更新和删除必须有非空条件且最多影响 100 行。
+- Classic Workflow 可在运行时解析 `latest`，Xpert 发布必须固定具体 SchemaVersion。字段或类型漂移必须 fail-closed，禁止回退到其他版本。
+- 工作流写节点使用由 `task_id + node_id` 派生的稳定 operation ID；HITL、断点恢复或请求重放不得重复写入。
+- 经典画布配置侧栏必须能选择已发布数据表和 SchemaVersion，并配置字段、条件树、排序、返回模式及类型化 literal/variable 绑定；不得退化为只有名称/说明或要求人工编辑 Workflow JSON。画布顶栏和节点侧栏均应保留 `/data-tables` 管理入口。
+- 当前公共 App 和 Evaluator 禁用全部 Agent Table 节点。Registry 必须保持 `planner_enabled=false`，直到独立的 Planner 数据编排闭环完成。
+- 修改 Agent Table 或工作流数据库节点必须运行 `server/tests/test_agent_tables.py`、`server/tests/test_workflow_data_table_nodes.py`、后端语法、前端生产构建和重启恢复验收。
 
 ## 22. Workflow 资源绑定与 EvoAgentX 复用规则
 
