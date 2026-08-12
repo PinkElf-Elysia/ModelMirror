@@ -276,6 +276,17 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         )
 
     @mcp.tool()
+    async def merge_subtask(
+        operation_id: str, child_task_id: str
+    ) -> dict[str, Any]:
+        """Merge a ready implement subtask by exact preimage and parent-tree CAS."""
+        return await call(
+            "merge_subtask",
+            {"child_task_id": child_task_id},
+            operation_id=operation_id,
+        )
+
+    @mcp.tool()
     async def stop_service(operation_id: str, service_id: str) -> dict[str, Any]:
         """Send Ctrl-C to a task-owned service and archive its output."""
         return await call(

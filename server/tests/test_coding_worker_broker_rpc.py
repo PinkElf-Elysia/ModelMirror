@@ -141,9 +141,11 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
         "query_documentation",
         "start_service",
         "service_status",
-        "service_input",
-        "stop_service",
-    }
+            "service_input",
+            "stop_service",
+            "create_subtask",
+            "merge_subtask",
+        }
     write = next(tool for tool in tools if tool.name == "write_file")
     assert set(write.inputSchema["required"]) == {"operation_id", "path", "content"}
     assert "content_sha256" not in write.inputSchema["properties"]
