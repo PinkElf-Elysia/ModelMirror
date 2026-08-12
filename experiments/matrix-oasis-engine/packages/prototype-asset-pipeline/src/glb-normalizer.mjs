@@ -435,6 +435,16 @@ function stripColliderAppearance(document) {
   for (const texture of [...root.listTextures()]) texture.dispose();
 }
 
+function stripColliderVertexAttributes(document) {
+  for (const mesh of document.getRoot().listMeshes()) {
+    for (const primitive of mesh.listPrimitives()) {
+      for (const semantic of primitive.listSemantics()) {
+        if (semantic !== "POSITION") primitive.setAttribute(semantic, null);
+      }
+    }
+  }
+}
+
 export async function normalizePrototypeGlb(
   inputBytes,
   { kind, role, externalResources = new Map() },
@@ -466,6 +476,7 @@ export async function normalizePrototypeGlb(
       ? await normalizeTextures(document)
       : { maxWidth: 0, maxHeight: 0 };
     const triangleMaximum = role === "visual" ? 100_000 : 10_000;
+    if (role === "collider") stripColliderVertexAttributes(document);
     await simplifyTo(document, triangleMaximum);
     if (role === "collider") stripColliderAppearance(document);
     await document.transform(prune({ keepAttributes: false, keepLeaves: false, keepSolidTextures: false }));

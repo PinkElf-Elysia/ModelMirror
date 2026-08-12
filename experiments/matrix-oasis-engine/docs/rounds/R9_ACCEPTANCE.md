@@ -1,6 +1,6 @@
 # R9 验收记录
 
-状态：R9.4 已验证，等待本地提交；真实 Meshy 资格和 Godot 图形验收尚未开始。
+状态：R9.5 已验证，等待本地提交；R9.6 Godot 图形验收与最终拆分尚未开始。
 
 固定基线：`da5fd0fe39234807ae3c4a1d543b9fd64de66d97`
 
@@ -9,8 +9,8 @@
 - [x] R9.1 治理与供应商边界（`ec5f8f012b22601efffb9f7df22e3c3053829739`）
 - [x] R9.2 Prototype Asset Bundle 合同（`8d2aa16ffcc86ee2932124b86d37bc32b4a66557`）
 - [x] R9.3 Meshy Text-to-3D 适配器（`a3289d01`）
-- [x] R9.4 GLB 规范化与事务发布（本批提交；SHA 由 R9.5 记录）
-- [ ] R9.5 真实 Meshy 资格验证
+- [x] R9.4 GLB 规范化与事务发布（`55d09816c4c8352489eb160854dc9b8668336372`）
+- [x] R9.5 真实 Meshy 资格验证（本批提交；SHA 由 R9.6 记录）
 - [ ] R9.6 Godot 验证与验收收口
 
 ## R9.1 证据
@@ -58,8 +58,20 @@
 - 显式使用已核验 Godot 4.6.3 后完整 `npm.cmd test` 595/595 通过；boundary checked=922/tracked=915，round scope 在文档落盘后 checked=54/changed=42，固定 BASE 的 parent scope 与 `git diff --check` 通过。
 - 最终树上的完整 `npm.cmd run verify` 15/15 通过：strict doctor、范围/边界、R4–R7 Godot、R1–R9 全部 595 项 Node 测试、Creator 247 modules build 与 HTTP smoke 全绿。R9.4 自动验证未调用 Meshy、Marble 或任何真实供应商，未读取凭据，未启动 Docker、父服务或共享栈。
 
+## R9.5 证据
+
+- 用户逐阶段批准了 `asset-prop` 与 `asset-character` 各自的 preview create、bounded poll、preview download、refine create、bounded poll 与 refine download；每个远程阶段只执行一次，未自动重试或跨阶段复用批准。两项 preview 各消耗 20 credits，两项 refine 各消耗 10 credits，合计 60 credits。
+- 上传内容只来自冻结 R8 资格产物中的两个中性 asset brief，不包含用户数据。凭据只由仓外 `C:\tmp\matrix-oasis-r9-secrets\set-r9-meshy-env.ps1` 注入；任务 ID、下载 URL、原始 HTTP 响应与 API Key 未进入仓库、终端交付摘要或生成 Bundle。
+- 两份 refine GLB 只保存在仓外 `C:\tmp\matrix-oasis-r9-qualification-meshy-20260811\acquired`：`asset-prop.glb` 为 4,881,524 bytes、SHA-256 `e0f85d1ff8bcd3116858d39ba2a77d41a50f4b16f8fed14c0506299acda82647`；`asset-character.glb` 为 3,992,444 bytes、SHA-256 `dbe9cb67edca84f1e3535e93eddf40bcd63cdc856ca28f738dbcab4eac3e9855`。两者 GLB magic 与 128 MiB 下载上限核验通过。
+- 首次真实物化暴露并关闭两个集成缺口：资格输出的 `acquired` 是 `C:\tmp` 下的嵌套真实目录，而 CLI 原先只接受直接子目录；现逐级验证所有祖先的 lstat、bigint identity 与 realpath containment，仍拒绝 symlink/junction。Meshy prop collider 的非 POSITION 属性使简化器停在 13,630 triangles；现 collider 专用预处理先移除不参与碰撞的 NORMAL/UV 等属性，保持 visual 不变且保持 10k 门限，最终为 9,981 triangles。
+- 真实 Bundle 原子发布在仓外 `C:\tmp\matrix-oasis-r9-real-asset-bundle-20260811`，合同验证、Bundle/report canonical 与全部文件 hash 回读一致；Bundle SHA-256 为 `e2c3cb75dc73ec390542b6b41de107a88ce8be8fc9835417d42ae0f01b6d03d3`，六个 GLB 共 5,808,480 bytes。
+- 规范化结果：prop visual/collider 分别 49,789/9,981 triangles，character visual/collider 分别 52,048/9,998 triangles；visual 纹理最大 2048×2048，collider 无材质或纹理，prop 归一为约 1 m，character 高度为 1.75 m。两份真实输入的四种输出各重复 20 次，所有对应 SHA-256 唯一。
+- 资格与发布回归 27/27 通过，覆盖六阶段独立批准表面、无远端标识回显、乱序/重复阶段拒绝、嵌套 acquired 目录、原子发布、并发、existing target 与换身。
+- 最终树上完整 `npm.cmd run verify` 15/15 通过：Node 601/601，strict doctor、R4–R7 Godot、Creator 247 modules build 与 HTTP smoke 全绿；boundary checked=924/tracked=922，round scope checked=50/changed=44。文档证据落盘后另行重跑 round/parent/boundary 与 `git diff --check` 作为提交门。
+- 本批没有调用 Marble、语言模型或其他供应商，没有修改 Godot、Creator、R1–R8 冻结文件、父仓或共享栈；仓外远程任务和资产不会随 Git revert 自动删除。
+
 ## 回退与后续
 
-R9.2–R9.4 可按逆序独立 revert：先删除规范化/事务发布与精确 dev dependency，再删除 provider，最后按需删除合同 workspace；不影响 R1–R8 或 R9.1 治理。R9.5 只能消费冻结的合同、provider 和本批规范化工具；若需要改变 Schema、诊断、传输或许可范围，必须停报并单独申请。
+R9.2–R9.5 可按逆序独立 revert：先删除资格 harness 与两项真实集成修复，再删除规范化/事务发布与精确 dev dependency，再删除 provider，最后按需删除合同 workspace；不影响 R1–R8 或 R9.1 治理。Git 回退不会删除仓外 Meshy 任务、下载物或规范化 Bundle，需按最终仓外交付清单单独处理。
 
 最终 HEAD、split tree、archive、真实资产 hash 和仓外截图只进入交付清单，避免文档自引用或提交供应商产物。

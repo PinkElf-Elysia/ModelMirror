@@ -459,8 +459,34 @@ async function createAssetCliFixture() {
   return { prototypeDir, acquiredDir, output };
 }
 
+async function createNestedAcquiredFixture() {
+  const fixture = await createAssetCliFixture();
+  const qualificationRoot = await mkdtemp(path.join(tempRoot, "matrix-oasis-r9-qualification-"));
+  const nestedAcquiredDir = path.join(qualificationRoot, "acquired");
+  await mkdir(nestedAcquiredDir);
+  for (const name of await readdir(fixture.acquiredDir)) {
+    await writeFile(
+      path.join(nestedAcquiredDir, name),
+      await readFile(path.join(fixture.acquiredDir, name)),
+    );
+  }
+  return {
+    ...fixture,
+    qualificationRoot,
+    acquiredDir: nestedAcquiredDir,
+    originalAcquiredDir: fixture.acquiredDir,
+  };
+}
+
 async function removeFixture(fixture) {
-  for (const candidate of [fixture.output, fixture.acquiredDir, fixture.prototypeDir]) {
+  for (const candidate of [
+    fixture.output,
+    fixture.qualificationRoot,
+    fixture.originalAcquiredDir,
+    fixture.acquiredDir,
+    fixture.prototypeDir,
+  ]) {
+    if (!candidate) continue;
     await rm(candidate, { recursive: true, force: true });
   }
   const prefix = `.matrix-oasis-r9-${path.basename(fixture.output)}-`;
@@ -523,6 +549,17 @@ test("asset planning and materialization publish only a complete canonical pair 
     for (const name of ["room-floor-square.glb", "room-wall.glb", "crate-visual.glb", "crate-collider.glb", "guide-visual.glb"]) {
       assert.ok((await readFile(path.join(fixture.output, "assets", name))).byteLength > 0);
     }
+  } finally {
+    await removeFixture(fixture);
+  }
+});
+
+test("materialization accepts the qualification nested acquired directory", async () => {
+  const fixture = await createNestedAcquiredFixture();
+  try {
+    const materialized = await materializeCliRequest(fixture);
+    assert.equal(materialized.exitCode, 0, materialized.stderr);
+    assert.ok((await readFile(path.join(fixture.output, "prototype-asset-bundle.json"))).byteLength > 0);
   } finally {
     await removeFixture(fixture);
   }

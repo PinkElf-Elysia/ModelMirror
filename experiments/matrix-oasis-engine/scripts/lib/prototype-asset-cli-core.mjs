@@ -1,4 +1,5 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 
 const PROTOTYPE_FILES = Object.freeze({
   authoringGamePackJson: ["authoring-game-pack.json", 1024 * 1024],
@@ -29,6 +30,12 @@ function samePath(left, right) {
 function directChild(parent, candidate) {
   const relative = path.relative(parent, candidate);
   return relative !== "" && !path.isAbsolute(relative) && !relative.includes(path.sep) && relative !== "..";
+}
+
+function containedDescendant(parent, candidate) {
+  const relative = path.relative(parent, candidate);
+  return relative !== "" && !path.isAbsolute(relative) && relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`);
 }
 
 function normalDirectory(stat) {
@@ -126,6 +133,27 @@ async function trustedInputDirectory(candidate, tempRoot, services, code) {
     const stat = await services.lstat(resolved, { bigint: true });
     if (!normalDirectory(stat) || identity(stat) === null || !samePath(await services.realpath(resolved), resolved)) {
       fail(code);
+    }
+  } catch (error) {
+    if (error instanceof PrototypeAssetCliOperationalError) throw error;
+    fail(code);
+  }
+  return resolved;
+}
+
+async function trustedDescendantInputDirectory(candidate, tempRoot, services, code) {
+  if (typeof candidate !== "string" || !path.isAbsolute(candidate)) fail(code);
+  const resolved = path.resolve(candidate);
+  if (!containedDescendant(tempRoot, resolved)) fail(code);
+  const relative = path.relative(tempRoot, resolved);
+  let current = tempRoot;
+  try {
+    for (const segment of relative.split(path.sep)) {
+      current = path.join(current, segment);
+      const stat = await services.lstat(current, { bigint: true });
+      if (!normalDirectory(stat) || identity(stat) === null || !samePath(await services.realpath(current), current)) {
+        fail(code);
+      }
     }
   } catch (error) {
     if (error instanceof PrototypeAssetCliOperationalError) throw error;
@@ -350,7 +378,7 @@ export async function executeMaterializePrototypeAssetsCli({
     const parsed = parseMaterializePrototypeAssetsArgs(args);
     const trustedRoot = await trustedTempRoot(tempRoot, services);
     const prototypeDir = await trustedInputDirectory(parsed.prototypeDir, trustedRoot, services, "PROTOTYPE_ASSET_INPUT_INVALID");
-    const acquiredDir = await trustedInputDirectory(parsed.acquiredDir, trustedRoot, services, "PROTOTYPE_ASSET_ACQUIRED_INPUT_INVALID");
+    const acquiredDir = await trustedDescendantInputDirectory(parsed.acquiredDir, trustedRoot, services, "PROTOTYPE_ASSET_ACQUIRED_INPUT_INVALID");
     const planned = await planPrototypeAssets(await readPrototypeInputs(prototypeDir, services));
     if (!planned?.ok) return result(1, "", "PROTOTYPE_ASSET_PLAN_REJECTED\n");
     const acquiredAssets = new Map();
@@ -389,5 +417,243 @@ export async function executeMaterializePrototypeAssetsCli({
     return result(0, `PROTOTYPE_ASSET_MATERIALIZED files=${materialized.files.length}\n`, "");
   } catch (error) {
     return safeFailure(error, "PROTOTYPE_ASSET_CLI_INTERNAL_ERROR");
+  }
+}
+
+export const MESHY_QUALIFICATION_OPERATIONS = Object.freeze([
+  "preview-create",
+  "preview-poll",
+  "preview-download",
+  "refine-create",
+  "refine-poll",
+  "refine-download",
+]);
+
+export function parseQualifyMeshyAssetArgs(args) {
+  const parsed = parsePairs(
+    args,
+    {
+      "--prototype-dir": "prototypeDir",
+      "--brief": "briefId",
+      "--operation": "operation",
+    },
+    ["prototypeDir", "briefId", "operation"],
+    "MESHY_QUALIFICATION_ARGUMENT_INVALID",
+  );
+  if (!safeBriefId(parsed.briefId) || !MESHY_QUALIFICATION_OPERATIONS.includes(parsed.operation)) {
+    fail("MESHY_QUALIFICATION_ARGUMENT_INVALID");
+  }
+  return parsed;
+}
+
+function stageFile(briefRoot, stage) {
+  return path.join(briefRoot, `${stage}.json`);
+}
+
+function exactState(value, keys) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const actual = Object.keys(value);
+  if (actual.length !== keys.length || actual.some((key) => !keys.includes(key))) return null;
+  return value;
+}
+
+async function readState(briefRoot, stage, keys, services) {
+  const text = decodeFatal(
+    await readTrustedFile(stageFile(briefRoot, stage), briefRoot, 16 * 1024, services, "MESHY_QUALIFICATION_STATE_INVALID"),
+    "MESHY_QUALIFICATION_STATE_INVALID",
+  );
+  try {
+    const value = exactState(JSON.parse(text), keys);
+    if (!value || value.briefId !== path.basename(briefRoot)) fail("MESHY_QUALIFICATION_STATE_INVALID");
+    return value;
+  } catch (error) {
+    if (error instanceof PrototypeAssetCliOperationalError) throw error;
+    fail("MESHY_QUALIFICATION_STATE_INVALID");
+  }
+}
+
+async function writeNewFile(candidate, parent, bytes, services, code) {
+  let handle;
+  try {
+    handle = await services.openFile(candidate, "wx+");
+    const fileIdentity = await assertHandle(handle, candidate, parent, null, services);
+    await handle.writeFile(bytes);
+    await handle.sync();
+    if (!equalBytes(await readHandle(handle, bytes.byteLength), bytes)) throw new Error("WRITE_MISMATCH");
+    await assertHandle(handle, candidate, parent, fileIdentity, services);
+    await handle.close();
+    handle = undefined;
+    await assertFile(candidate, parent, fileIdentity, services);
+  } catch (error) {
+    try { await handle?.close(); } catch { /* preserve primary failure */ }
+    if (error?.code === "EEXIST") fail("MESHY_QUALIFICATION_STAGE_EXISTS");
+    if (error instanceof PrototypeAssetCliOperationalError) throw error;
+    fail(code);
+  }
+}
+
+async function writeState(briefRoot, stage, value, services) {
+  await writeNewFile(
+    stageFile(briefRoot, stage),
+    briefRoot,
+    new TextEncoder().encode(JSON.stringify(value)),
+    services,
+    "MESHY_QUALIFICATION_STATE_WRITE_ERROR",
+  );
+}
+
+async function ensureQualificationRoots({ tempRoot, qualificationRoot, briefId, operation, services }) {
+  if (!path.isAbsolute(qualificationRoot) || !directChild(tempRoot, qualificationRoot)) {
+    fail("MESHY_QUALIFICATION_OUTPUT_INVALID");
+  }
+  if (!(await exists(qualificationRoot, services.lstat))) {
+    if (operation !== "preview-create") fail("MESHY_QUALIFICATION_STATE_INVALID");
+    await services.mkdir(qualificationRoot, { recursive: false });
+  }
+  const rootStat = await services.lstat(qualificationRoot, { bigint: true });
+  const rootIdentity = identity(rootStat);
+  if (rootIdentity === null) fail("MESHY_QUALIFICATION_OUTPUT_INVALID");
+  await assertDirectory(qualificationRoot, tempRoot, rootIdentity, services);
+  const briefRoot = path.join(qualificationRoot, briefId);
+  if (!(await exists(briefRoot, services.lstat))) {
+    if (operation !== "preview-create") fail("MESHY_QUALIFICATION_STATE_INVALID");
+    await services.mkdir(briefRoot, { recursive: false });
+  }
+  const briefIdentity = identity(await services.lstat(briefRoot, { bigint: true }));
+  if (briefIdentity === null) fail("MESHY_QUALIFICATION_OUTPUT_INVALID");
+  await assertDirectory(briefRoot, qualificationRoot, briefIdentity, services);
+  return { briefRoot, rootIdentity };
+}
+
+function safeTaskId(value) {
+  return typeof value === "string" && value.length >= 1 && value.length <= 128 && !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function safeGlbUrl(value) {
+  return typeof value === "string" && value.length >= 1 && value.length <= 4096 && !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function providerFailure() {
+  return result(1, "", "MESHY_QUALIFICATION_PROVIDER_REJECTED\n");
+}
+
+async function pollTask({ provider, taskId, attempts, intervalMs, delay }) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const current = await provider.getTask({ taskId });
+    if (!current?.ok) return current;
+    if (current.task.status === "succeeded") return current;
+    if (current.task.status === "failed") return { ok: false };
+    if (attempt + 1 < attempts) await delay(intervalMs);
+  }
+  return { ok: false };
+}
+
+function sha256Bytes(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+export async function executeQualifyMeshyAssetCli({
+  args,
+  tempRoot,
+  qualificationRoot,
+  services,
+  provider,
+  planPrototypeAssets,
+  pollAttempts = 120,
+  pollIntervalMs = 5_000,
+  delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+}) {
+  try {
+    const parsed = parseQualifyMeshyAssetArgs(args);
+    const trustedRoot = await trustedTempRoot(tempRoot, services);
+    const prototypeDir = await trustedInputDirectory(parsed.prototypeDir, trustedRoot, services, "PROTOTYPE_ASSET_INPUT_INVALID");
+    const planned = await planPrototypeAssets(await readPrototypeInputs(prototypeDir, services));
+    if (!planned?.ok) return result(1, "", "PROTOTYPE_ASSET_PLAN_REJECTED\n");
+    const brief = planned.plan.blueprint.assetBriefs.find(({ id }) => id === parsed.briefId);
+    if (!brief || !["prop", "character-placeholder"].includes(brief.kind)) {
+      return result(1, "", "MESHY_QUALIFICATION_BRIEF_REJECTED\n");
+    }
+    const { briefRoot } = await ensureQualificationRoots({
+      tempRoot: trustedRoot,
+      qualificationRoot: path.resolve(qualificationRoot),
+      briefId: brief.id,
+      operation: parsed.operation,
+      services,
+    });
+    const outputStage = {
+      "preview-create": "preview-created",
+      "preview-poll": "preview-polled",
+      "preview-download": "preview-downloaded",
+      "refine-create": "refine-created",
+      "refine-poll": "refine-polled",
+      "refine-download": "refine-downloaded",
+    }[parsed.operation];
+    if (await exists(stageFile(briefRoot, outputStage), services.lstat)) {
+      fail("MESHY_QUALIFICATION_STAGE_EXISTS");
+    }
+    if (parsed.operation === "preview-create") {
+      const created = await provider.createPreview({ prompt: brief.prompt });
+      if (!created?.ok || !safeTaskId(created.taskId)) return providerFailure();
+      await writeState(briefRoot, "preview-created", { briefId: brief.id, taskId: created.taskId }, services);
+    } else if (parsed.operation === "preview-poll") {
+      const state = await readState(briefRoot, "preview-created", ["briefId", "taskId"], services);
+      if (!safeTaskId(state.taskId)) fail("MESHY_QUALIFICATION_STATE_INVALID");
+      const polled = await pollTask({ provider, taskId: state.taskId, attempts: pollAttempts, intervalMs: pollIntervalMs, delay });
+      if (!polled?.ok || !safeGlbUrl(polled.task.glbUrl)) return providerFailure();
+      await writeState(briefRoot, "preview-polled", {
+        briefId: brief.id,
+        taskId: state.taskId,
+        glbUrl: polled.task.glbUrl,
+        consumedCredits: polled.task.consumedCredits,
+      }, services);
+    } else if (parsed.operation === "preview-download") {
+      const state = await readState(briefRoot, "preview-polled", ["briefId", "taskId", "glbUrl", "consumedCredits"], services);
+      if (!safeGlbUrl(state.glbUrl)) fail("MESHY_QUALIFICATION_STATE_INVALID");
+      const downloaded = await provider.downloadGlb({ url: state.glbUrl });
+      if (!downloaded?.ok || !(downloaded.bytes instanceof Uint8Array)) return providerFailure();
+      await writeNewFile(path.join(briefRoot, "preview.glb"), briefRoot, downloaded.bytes, services, "MESHY_QUALIFICATION_ASSET_WRITE_ERROR");
+      await writeState(briefRoot, "preview-downloaded", {
+        briefId: brief.id,
+        byteLength: downloaded.bytes.byteLength,
+        sha256: sha256Bytes(downloaded.bytes),
+      }, services);
+    } else if (parsed.operation === "refine-create") {
+      await readState(briefRoot, "preview-downloaded", ["briefId", "byteLength", "sha256"], services);
+      const preview = await readState(briefRoot, "preview-created", ["briefId", "taskId"], services);
+      if (!safeTaskId(preview.taskId)) fail("MESHY_QUALIFICATION_STATE_INVALID");
+      const created = await provider.createRefine({ previewTaskId: preview.taskId });
+      if (!created?.ok || !safeTaskId(created.taskId)) return providerFailure();
+      await writeState(briefRoot, "refine-created", { briefId: brief.id, taskId: created.taskId }, services);
+    } else if (parsed.operation === "refine-poll") {
+      const state = await readState(briefRoot, "refine-created", ["briefId", "taskId"], services);
+      if (!safeTaskId(state.taskId)) fail("MESHY_QUALIFICATION_STATE_INVALID");
+      const polled = await pollTask({ provider, taskId: state.taskId, attempts: pollAttempts, intervalMs: pollIntervalMs, delay });
+      if (!polled?.ok || !safeGlbUrl(polled.task.glbUrl)) return providerFailure();
+      await writeState(briefRoot, "refine-polled", {
+        briefId: brief.id,
+        taskId: state.taskId,
+        glbUrl: polled.task.glbUrl,
+        consumedCredits: polled.task.consumedCredits,
+      }, services);
+    } else {
+      const state = await readState(briefRoot, "refine-polled", ["briefId", "taskId", "glbUrl", "consumedCredits"], services);
+      if (!safeGlbUrl(state.glbUrl)) fail("MESHY_QUALIFICATION_STATE_INVALID");
+      const downloaded = await provider.downloadGlb({ url: state.glbUrl });
+      if (!downloaded?.ok || !(downloaded.bytes instanceof Uint8Array)) return providerFailure();
+      const acquiredRoot = path.join(path.resolve(qualificationRoot), "acquired");
+      if (!(await exists(acquiredRoot, services.lstat))) await services.mkdir(acquiredRoot, { recursive: false });
+      const acquiredIdentity = identity(await services.lstat(acquiredRoot, { bigint: true }));
+      if (acquiredIdentity === null) fail("MESHY_QUALIFICATION_OUTPUT_INVALID");
+      await assertDirectory(acquiredRoot, path.resolve(qualificationRoot), acquiredIdentity, services);
+      await writeNewFile(path.join(acquiredRoot, `${brief.id}.glb`), acquiredRoot, downloaded.bytes, services, "MESHY_QUALIFICATION_ASSET_WRITE_ERROR");
+      await writeState(briefRoot, "refine-downloaded", {
+        briefId: brief.id,
+        byteLength: downloaded.bytes.byteLength,
+        sha256: sha256Bytes(downloaded.bytes),
+      }, services);
+    }
+    return result(0, `MESHY_QUALIFICATION_STAGE_OK operation=${parsed.operation}\n`, "");
+  } catch (error) {
+    return safeFailure(error, "MESHY_QUALIFICATION_INTERNAL_ERROR");
   }
 }

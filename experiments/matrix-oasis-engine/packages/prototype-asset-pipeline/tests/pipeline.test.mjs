@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { compileAuthoringGamePackJson } from "@matrix-oasis/game-pack-compiler";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
+import { NodeIO } from "@gltf-transform/core";
+import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 import {
   materializePrototypeAssetBundle,
   planPrototypeAssets,
@@ -177,6 +179,12 @@ test("normalization embeds textures, strips collider appearance, and is byte det
   assert.equal(collider.ok, true);
   assert.equal(collider.metrics.maxTextureWidth, 0);
   assert.equal(collider.metrics.triangleCount <= 10_000, true);
+  const colliderDocument = await new NodeIO().registerExtensions(ALL_EXTENSIONS).readBinary(collider.bytes);
+  for (const mesh of colliderDocument.getRoot().listMeshes()) {
+    for (const primitive of mesh.listPrimitives()) {
+      assert.deepEqual(primitive.listSemantics(), ["POSITION"]);
+    }
+  }
   assert.deepEqual([...crate], [...await fixtureBytes("crate.glb")]);
 });
 
