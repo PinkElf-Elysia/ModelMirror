@@ -49,3 +49,28 @@
 - 前端：生产 build 通过；测试 `233 passed, 1 failed`，失败为 PR #176 新增 `vision_understanding` 后主线 `NodePalette` 旧期望未同步，PR A 无前端 Diff。
 - Compose：V14 + V15 Claude overlays 的 `config --quiet` 通过；Python `py_compile`、`git diff --check`、敏感信息与禁止产物扫描通过。
 - 真实 144 次模型对照和两轮认证尚未运行，因此 PR A 保持 Draft/Experimental，不能使用限定或非限定的“接近 OpenCode”宣传文案。
+
+## PR B 实现与验证快照
+
+PR B 基于 PR A `e03f5987`，按十个独立逻辑提交实现，且每个提交均不超过五个文件：
+
+1. `4126254f`：可恢复的结构化计划、一次性问题回答与 `waiting_input`。
+2. `8f628cab`：只读取 H0 中哈希绑定、限量且分层的仓库说明。
+3. `2bca2623`：以平台包装消息向 OpenCode 与 Claude 注入同一受控仓库说明。
+4. `801c7fe4`：仅在完整工具边界执行并由 Worker 生成的受控上下文压缩。
+5. `85eb2848`：二进制安全、精确 tree hash 绑定的持久回合快照。
+6. `eb52b82c`：无活动命令、服务、审批或问题时可用的原子 undo/redo。
+7. `99caea20`：从精确公开回合快照创建隔离任务 fork，不继承 Provider 会话、审批、租约或 operation。
+8. `08a5b6bd`：开放 plan、questions、undo/redo/fork、children 与脱敏 export 公共接口。
+9. `62f33588`：冻结 `npm ci`、`uv --frozen`、带 SHA-256 哈希的 requirements，以及官方资源目录驱动的双租约文档出站。
+10. `f1da6dbe`：把冻结依赖与文档查询接入真实 Provider MCP/RPC 边界，并保持 URL、租约与供应商信息不可由模型直接提交。
+
+自动门禁结果：
+
+- 全部 Coding Worker：`187 passed, 5 skipped`；MCP/RPC、Tool Broker 与 Provider 合同的新增定向组合为 `33 passed`。
+- Agent Workspace 与 Coding 联合回归：`852 passed, 14 skipped, 1 failed`；唯一失败为只读 bind/overlay 上 Host Apply 同内容文件替换复用了文件身份，PR B 对该路径零 Diff。把源码复制到容器内正常可写 overlay 后，对应 Host Apply 用例通过。
+- 后端全量（一次性可写源码副本、容器无网络）：`2915 passed, 29 skipped, 12 failed`。其中 11 项 Agency Worker bridge/execution 因现有 `modelmirror-server` 镜像缺少已构建 worker 产物而失败；精确复跑返回 `Agency worker build output is unavailable`。另 1 项为 Node 20 无法直接导入 TypeScript；同一用例在本地 Node 24 测试镜像中 `1 passed`。这些文件与 PR B 均无 Diff。
+- 前端：production build 通过；稳定复跑为 `233 passed, 1 failed`，失败仍是主线 `NodePalette` 未把 `vision_understanding` 纳入旧期望。首次全跑另出现一次 OCR 面板查询超时，立即复跑未重现，按测试波动保留记录，不写成已修复。
+- V14 + V15 Claude overlays 的 Compose `config --quiet` 通过；20 个变更 Python 文件 AST 解析、逐提交五文件门禁、`git diff --check` 均通过。
+
+上述结果只证明 PR B 的确定性契约、恢复、隔离与默认关闭边界。真实 OpenCode/Claude 对照、24 项任务各三次、连续两轮认证、Console 人工验收以及“接近 OpenCode”限定文案授权仍未完成；PR B 必须保持 Draft/Experimental。
