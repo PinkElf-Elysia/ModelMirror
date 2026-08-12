@@ -16,10 +16,11 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+if TYPE_CHECKING:
+    from mcp.client.session import ClientSession
+    from mcp.client.stdio import StdioServerParameters
 
 from .file_code_index import (
     GOGRAPH_ADAPTER_ID,
@@ -31,6 +32,15 @@ from .file_code_index import (
     WAVE20_TOOL_NAMES,
 )
 from .smoke_file_artifacts import _base_env, _start_file_server, _stop_process
+
+
+def _load_mcp_stdio() -> tuple[Any, Any, Any]:
+    """Load the official SDK only inside isolated runtime smoke paths."""
+
+    from mcp.client.session import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    return ClientSession, StdioServerParameters, stdio_client
 
 
 def _digest(tools: list[Any]) -> str:
@@ -240,6 +250,9 @@ async def _call_ok(
 
 
 async def _one_round(root: Path, round_number: int) -> dict[str, Any]:
+    client_session_type, stdio_parameters_type, stdio_client_runtime = (
+        _load_mcp_stdio()
+    )
     workspace_id = "mcpws_" + hashlib.sha256(
         f"wave20:{round_number}".encode("utf-8")
     ).hexdigest()[:32]
@@ -256,15 +269,15 @@ async def _one_round(root: Path, round_number: int) -> dict[str, Any]:
     )
     env = _base_env(root, workspace_id)
     env["MCP_FILES_SOCKET_PATH"] = str(socket_path)
-    params = StdioServerParameters(
+    params = stdio_parameters_type(
         command=sys.executable,
         args=["-m", "sandbox_sidecar.smoke_file_code_index", "--proxy"],
         env=env,
         cwd=Path(env["TMPDIR"]),
     )
     try:
-        async with stdio_client(params) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
+        async with stdio_client_runtime(params) as (read_stream, write_stream):
+            async with client_session_type(read_stream, write_stream) as session:
                 await session.initialize()
                 listed = await session.list_tools()
                 if {tool.name for tool in listed.tools} != set(

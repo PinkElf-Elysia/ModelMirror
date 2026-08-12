@@ -15,10 +15,11 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+if TYPE_CHECKING:
+    from mcp.client.session import ClientSession
+    from mcp.client.stdio import StdioServerParameters
 
 from .file_artifacts import (
     PANDOC_VERSION,
@@ -27,6 +28,15 @@ from .file_artifacts import (
     WAVE18A_TOOL_NAMES,
 )
 from .file_mcp import opaque_file_id
+
+
+def _load_mcp_stdio() -> tuple[Any, Any, Any]:
+    """Load the official SDK only inside isolated runtime smoke paths."""
+
+    from mcp.client.session import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    return ClientSession, StdioServerParameters, stdio_client
 
 
 BLOCKED_TOOL = {
@@ -183,6 +193,9 @@ async def _call_ok(session: ClientSession, name: str, arguments: dict[str, Any])
 
 
 async def _one_round(adapter_id: str, root: Path, round_number: int) -> dict[str, bytes]:
+    client_session_type, stdio_parameters_type, stdio_client_runtime = (
+        _load_mcp_stdio()
+    )
     workspace_id = "mcpws_" + hashlib.sha256(
         f"{adapter_id}:{round_number}".encode()
     ).hexdigest()[:32]
@@ -200,7 +213,7 @@ async def _one_round(adapter_id: str, root: Path, round_number: int) -> dict[str
     )
     env = _base_env(root, workspace_id)
     env["MCP_FILE_ADAPTER_ID"] = adapter_id
-    params = StdioServerParameters(
+    params = stdio_parameters_type(
         command=sys.executable,
         args=[
             "-m",
@@ -214,8 +227,8 @@ async def _one_round(adapter_id: str, root: Path, round_number: int) -> dict[str
         env=env,
         cwd=Path(env["TMPDIR"]),
     )
-    async with stdio_client(params) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
+    async with stdio_client_runtime(params) as (read_stream, write_stream):
+        async with client_session_type(read_stream, write_stream) as session:
             await session.initialize()
             listed = await session.list_tools()
             if {tool.name for tool in listed.tools} != set(WAVE18A_TOOL_NAMES[adapter_id]):
@@ -419,6 +432,9 @@ def _pandoc_process_count() -> int:
 
 
 async def _timeout_probe(root: Path) -> None:
+    client_session_type, stdio_parameters_type, stdio_client_runtime = (
+        _load_mcp_stdio()
+    )
     adapter_id = "vivekvells-mcp-pandoc"
     workspace_id = "mcpws_" + "e" * 32
     input_root = root / "inputs" / workspace_id
@@ -431,7 +447,7 @@ async def _timeout_probe(root: Path) -> None:
     )
     proxy_env = _base_env(root, workspace_id)
     proxy_env["MCP_FILES_SOCKET_PATH"] = str(socket_path)
-    params = StdioServerParameters(
+    params = stdio_parameters_type(
         command=sys.executable,
         args=["-m", "sandbox_sidecar.smoke_file_artifacts", "--proxy", adapter_id],
         env=proxy_env,
@@ -439,8 +455,8 @@ async def _timeout_probe(root: Path) -> None:
     )
     started = time.monotonic()
     try:
-        async with stdio_client(params) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
+        async with stdio_client_runtime(params) as (read_stream, write_stream):
+            async with client_session_type(read_stream, write_stream) as session:
                 await session.initialize()
                 try:
                     await asyncio.wait_for(

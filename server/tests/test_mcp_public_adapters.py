@@ -5,6 +5,9 @@ import base64
 import hashlib
 import json
 import socket
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +74,50 @@ from server.sandbox_sidecar.safe_http import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_smoke_modules_do_not_import_sdk_during_pytest_collection() -> None:
+    script = textwrap.dedent(
+        f"""
+        import importlib
+        import sys
+        from pathlib import Path
+
+        project_root = Path({str(PROJECT_ROOT)!r})
+        sys.path.insert(0, str(project_root / "server"))
+        for module_name in (
+            "server.sandbox_sidecar.smoke_public_adapters",
+            "server.sandbox_sidecar.smoke_file_artifacts",
+            "server.sandbox_sidecar.smoke_file_code_index",
+        ):
+            module = importlib.import_module(module_name)
+            for runtime_name in (
+                "ClientSession",
+                "StdioServerParameters",
+                "stdio_client",
+            ):
+                if hasattr(module, runtime_name):
+                    raise SystemExit(
+                        f"{{module_name}} eagerly imported {{runtime_name}}"
+                    )
+            client_session, stdio_parameters, stdio_client = module._load_mcp_stdio()
+            if client_session.__module__ != "mcp.client.session":
+                raise SystemExit(f"{{module_name}} loaded the wrong ClientSession")
+            if stdio_parameters.__module__ != "mcp.client.stdio":
+                raise SystemExit(f"{{module_name}} loaded the wrong stdio parameters")
+            if stdio_client.__module__ != "mcp.client.stdio":
+                raise SystemExit(f"{{module_name}} loaded the wrong stdio client")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_public_url_policy_rejects_ssrf_primitives() -> None:
