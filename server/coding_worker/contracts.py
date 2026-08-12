@@ -15,6 +15,7 @@ CapabilityName = Literal[
     "workspace_write",
     "command",
     "dependency_install",
+    "documentation_query",
     "service",
     "network",
     "shell",

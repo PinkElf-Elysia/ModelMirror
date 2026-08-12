@@ -13,7 +13,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from time import time
 from typing import Any, Protocol
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
+
+import httpx
 
 from pydantic import Field, ValidationError
 
@@ -119,6 +121,7 @@ class ToolBroker:
         egress_proxy_url: str | None = None,
         max_output_bytes: int = MAX_TOOL_OUTPUT_BYTES,
         executor: ToolExecutor | None = None,
+        documentation_resources: Mapping[str, str] | None = None,
     ) -> None:
         if not 1024 <= max_output_bytes <= 16 * 1024 * 1024:
             raise ValueError("tool output limit is invalid")
@@ -130,6 +133,9 @@ class ToolBroker:
         self.egress_proxy_url = self._validate_proxy_url(egress_proxy_url)
         self.max_output_bytes = max_output_bytes
         self.executor = executor
+        self.documentation_resources = self._validate_documentation_resources(
+            documentation_resources or {}
+        )
         self.changesets = ChangesetEngine(workspace_broker)
 
     async def execute(
@@ -413,6 +419,18 @@ class ToolBroker:
             "code_hover",
             "code_diagnostics",
         }
+        if tool_name == "query_documentation" and (
+            os.getenv("CODING_WORKER_V16_ENABLED", "false").strip().lower()
+            not in {"1", "true", "yes", "on"}
+            or os.getenv(
+                "CODING_WORKER_DOCUMENTATION_EGRESS_ENABLED", "false"
+            ).strip().lower()
+            not in {"1", "true", "yes", "on"}
+        ):
+            raise ToolBrokerError(
+                "Controlled documentation egress is disabled.",
+                code="tool_not_allowed",
+            )
         if tool_name in v15_tools and os.getenv(
             "CODING_WORKER_V15_ENABLED", "false"
         ).strip().lower() not in {"1", "true", "yes", "on"}:
@@ -484,14 +502,32 @@ class ToolBroker:
                     "Dependency installation requires networked development policy.",
                     code="approval_required",
                 )
+            policy = self._require_egress_policy()
             capability = "dependency_install"
+            plan = self._dependency_plan(
+                str(request["workspace_id"]), request["arguments"]
+            )
+            approval_scope = plan["approval_scope"]
+        elif tool_name == "query_documentation":
+            if profile is not PolicyProfile.DEVELOP_NETWORKED:
+                raise ToolBrokerError(
+                    "Documentation queries require networked development policy.",
+                    code="approval_required",
+                )
+            capability = "documentation_query"
+            plan = self._documentation_plan(request["arguments"])
+            approval_scope = plan["approval_scope"]
         else:
             raise ToolBrokerError("Tool is not available.", code="tool_not_allowed")
         network_scope: dict[str, object] | None = None
         if tool_name == "install_dependencies":
+            network_scope = policy.approval_scope(
+                domains=plan["domains"], purpose="dependency-install"
+            )
+        elif tool_name == "query_documentation":
             policy = self._require_egress_policy()
             network_scope = policy.approval_scope(
-                domains=("registry.npmjs.org",), purpose="dependency-install"
+                domains=plan["domains"], purpose="documentation-query"
             )
         if lease_id is None:
             self.store.create_approval(
@@ -525,8 +561,8 @@ class ToolBroker:
             )
             self._require_egress_policy().validate_lease_scope(
                 lease=consumed_network_lease,
-                domains=("registry.npmjs.org",),
-                purpose="dependency-install",
+                domains=network_scope["domains"],
+                purpose=str(network_scope["purpose"]),
             )
         return consumed_network_lease
 
@@ -750,11 +786,7 @@ class ToolBroker:
             )
             return record.model_dump(mode="json")
         if tool_name == "install_dependencies":
-            if arguments != {"manager": "npm", "action": "ci"}:
-                raise ToolBrokerError(
-                    "Only frozen npm lockfile installation is supported.",
-                    code="dependency_plan_invalid",
-                )
+            plan = self._dependency_plan(workspace_id, arguments)
             if self.egress_proxy_url is None:
                 raise ToolBrokerError("Egress proxy is unavailable.", code="network_disabled")
             if network_lease is None:
@@ -770,22 +802,20 @@ class ToolBroker:
             result = await self._run_process(
                 task_id,
                 workspace_id,
-                ("npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"),
+                plan["argv"],
                 1800,
                 environment_overrides={
                     "HTTPS_PROXY": authenticated_proxy,
                     "HTTP_PROXY": authenticated_proxy,
                     "NO_PROXY": "",
-                    "npm_config_registry": "https://registry.npmjs.org/",
-                    "npm_config_ignore_scripts": "true",
-                    "npm_config_audit": "false",
-                    "npm_config_fund": "false",
+                    **plan["environment"],
                 },
             )
             source = {
-                "manager": "npm",
-                "action": "ci",
-                "registry_domains": ["registry.npmjs.org"],
+                "manager": plan["manager"],
+                "action": plan["action"],
+                "lock_sha256": plan["lock_sha256"],
+                "registry_domains": list(plan["domains"]),
                 "exit_code": result["exit_code"],
             }
             artifact = self.store.create_artifact(
@@ -795,7 +825,263 @@ class ToolBroker:
                 metadata={"kind": "dependency_source"},
             )
             return {**result, "source_artifact_id": artifact.artifact_id}
+        if tool_name == "query_documentation":
+            plan = self._documentation_plan(arguments)
+            if self.egress_proxy_url is None or network_lease is None:
+                raise ToolBrokerError(
+                    "Documentation network lease is unavailable.",
+                    code="network_lease_invalid",
+                )
+            authenticated_proxy = self._require_egress_policy().proxy_url(
+                base_url=self.egress_proxy_url,
+                lease=network_lease,
+                task_id=task_id,
+                purpose="documentation-query",
+            )
+            fetched = await self._fetch_documentation(
+                plan["url"], proxy=authenticated_proxy
+            )
+            receipt = {
+                "resource_id": plan["resource_id"],
+                "document_path": plan["document_path"],
+                "domain": plan["domains"][0],
+                "sha256": hashlib.sha256(fetched["content"]).hexdigest(),
+            }
+            artifact = self.store.create_artifact(
+                task_id=task_id,
+                media_type="application/json",
+                content=json.dumps(
+                    receipt, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8"),
+                metadata={"kind": "documentation_source"},
+            )
+            return {
+                "resource_id": plan["resource_id"],
+                "document_path": plan["document_path"],
+                "content": fetched["content"].decode("utf-8", errors="replace"),
+                "content_sha256": receipt["sha256"],
+                "source_artifact_id": artifact.artifact_id,
+            }
         raise ToolBrokerError("Tool is not available.", code="tool_not_allowed")
+
+    def _dependency_plan(
+        self, workspace_id: str, arguments: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        manager = arguments.get("manager")
+        action = arguments.get("action")
+        if arguments == {"manager": "npm", "action": "ci"}:
+            lockfiles = ("package.json", "package-lock.json")
+            argv = ("npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund")
+            domains = ("registry.npmjs.org",)
+            environment = {
+                "npm_config_registry": "https://registry.npmjs.org/",
+                "npm_config_ignore_scripts": "true",
+                "npm_config_audit": "false",
+                "npm_config_fund": "false",
+            }
+        elif arguments == {"manager": "uv", "action": "sync"}:
+            lockfiles = ("pyproject.toml", "uv.lock")
+            argv = ("uv", "sync", "--frozen")
+            domains = ("pypi.org", "files.pythonhosted.org")
+            environment = {
+                "UV_DEFAULT_INDEX": "https://pypi.org/simple",
+                "UV_NO_PROGRESS": "1",
+            }
+        elif arguments == {
+            "manager": "pip",
+            "action": "install",
+            "requirements": "requirements.txt",
+        }:
+            lockfiles = ("requirements.txt",)
+            argv = (
+                "python",
+                "-m",
+                "pip",
+                "install",
+                "--require-hashes",
+                "-r",
+                "requirements.txt",
+            )
+            domains = ("pypi.org", "files.pythonhosted.org")
+            environment = {
+                "PIP_INDEX_URL": "https://pypi.org/simple",
+                "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+                "PIP_NO_INPUT": "1",
+                "PIP_REQUIRE_HASHES": "1",
+            }
+        else:
+            raise ToolBrokerError(
+                "Dependency plan is not frozen.", code="dependency_plan_invalid"
+            )
+        contents: list[bytes] = []
+        for path in lockfiles:
+            try:
+                target = self._target(workspace_id, path)
+                content = target.read_bytes()
+            except (OSError, WorkspaceError) as exc:
+                raise ToolBrokerError(
+                    "Dependency lock input is unavailable.",
+                    code="dependency_plan_invalid",
+                ) from exc
+            if len(content) > 8 * 1024 * 1024:
+                raise ToolBrokerError(
+                    "Dependency lock input is too large.",
+                    code="dependency_plan_invalid",
+                )
+            contents.append(content)
+        if manager == "pip":
+            self._validate_hashed_requirements(contents[0])
+        digest = hashlib.sha256()
+        for path, content in zip(lockfiles, contents, strict=True):
+            digest.update(path.encode("utf-8") + b"\0")
+            digest.update(hashlib.sha256(content).digest())
+        return {
+            "manager": manager,
+            "action": action,
+            "argv": argv,
+            "domains": domains,
+            "environment": environment,
+            "lock_sha256": digest.hexdigest(),
+            "approval_scope": {
+                **dict(arguments),
+                "lock_sha256": digest.hexdigest(),
+            },
+        }
+
+    @staticmethod
+    def _validate_hashed_requirements(content: bytes) -> None:
+        try:
+            text = content.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise ToolBrokerError(
+                "Requirements file is not UTF-8 text.",
+                code="dependency_plan_invalid",
+            ) from exc
+        blocks: list[str] = []
+        current = ""
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            current += (" " if current else "") + line.rstrip("\\").strip()
+            if not line.endswith("\\"):
+                blocks.append(current)
+                current = ""
+        if current or not blocks:
+            raise ToolBrokerError(
+                "Requirements file is not a complete frozen plan.",
+                code="dependency_plan_invalid",
+            )
+        pattern = re.compile(
+            r"^[A-Za-z0-9_.-]+==[^\s;]+(?:\s+--hash=sha256:[a-fA-F0-9]{64})+$"
+        )
+        if any(pattern.fullmatch(block) is None for block in blocks):
+            raise ToolBrokerError(
+                "Every Python requirement must be pinned with SHA-256 hashes.",
+                code="dependency_plan_invalid",
+            )
+
+    def _documentation_plan(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
+        if set(arguments) != {"resource_id", "document_path"}:
+            raise ToolBrokerError(
+                "Documentation query is invalid.", code="tool_input_invalid"
+            )
+        resource_id = arguments.get("resource_id")
+        document_path = arguments.get("document_path")
+        if not isinstance(resource_id, str) or not isinstance(document_path, str):
+            raise ToolBrokerError(
+                "Documentation query is invalid.", code="tool_input_invalid"
+            )
+        base = self.documentation_resources.get(resource_id)
+        path = PurePosixPath(document_path)
+        if (
+            base is None
+            or not document_path
+            or len(document_path) > 1024
+            or path.is_absolute()
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or "?" in document_path
+            or "#" in document_path
+        ):
+            raise ToolBrokerError(
+                "Documentation resource is unavailable.",
+                code="documentation_resource_unavailable",
+            )
+        parsed = urlsplit(base)
+        assert parsed.hostname is not None
+        encoded_path = "/".join(quote(part, safe="-._~") for part in path.parts)
+        url = base.rstrip("/") + "/" + encoded_path
+        return {
+            "resource_id": resource_id,
+            "document_path": path.as_posix(),
+            "url": url,
+            "domains": (parsed.hostname.lower(),),
+            "approval_scope": {
+                "resource_id": resource_id,
+                "document_path": path.as_posix(),
+            },
+        }
+
+    @staticmethod
+    def _validate_documentation_resources(
+        resources: Mapping[str, str]
+    ) -> dict[str, str]:
+        validated: dict[str, str] = {}
+        for resource_id, base in resources.items():
+            parsed = urlsplit(base)
+            if (
+                re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", resource_id)
+                is None
+                or parsed.scheme != "https"
+                or parsed.hostname is None
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.port not in {None, 443}
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError("documentation resource catalog is invalid")
+            validated[resource_id] = base.rstrip("/")
+        return validated
+
+    @staticmethod
+    async def _fetch_documentation(url: str, *, proxy: str) -> dict[str, bytes]:
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        async with httpx.AsyncClient(
+            proxy=proxy,
+            timeout=timeout,
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
+            async with client.stream(
+                "GET",
+                url,
+                headers={
+                    "Accept": "text/html,text/plain,application/json,application/xml",
+                    "User-Agent": "ModelMirror-Coding-Worker/1",
+                },
+            ) as response:
+                content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+                if response.status_code != 200 or not (
+                    content_type.startswith("text/")
+                    or content_type
+                    in {"application/json", "application/xml", "application/xhtml+xml"}
+                ):
+                    raise ToolBrokerError(
+                        "Documentation response is unavailable.",
+                        code="documentation_response_invalid",
+                    )
+                chunks: list[bytes] = []
+                size = 0
+                async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+                    size += len(chunk)
+                    if size > 1024 * 1024:
+                        raise ToolBrokerError(
+                            "Documentation response is too large.",
+                            code="tool_output_too_large",
+                        )
+                    chunks.append(chunk)
+        return {"content": b"".join(chunks)}
 
     async def _run_code_intelligence(
         self,

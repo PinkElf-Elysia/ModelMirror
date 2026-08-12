@@ -694,6 +694,13 @@ async def test_dependency_install_requires_both_exact_leases_and_records_source(
         grant_key=b"g" * 32,
     )
     broker.egress_proxy_url = "http://worker-egress:8080"
+    repository = broker.workspace_broker.repository_path(
+        store.get_task(task_id).workspace_id or ""
+    )
+    repository.joinpath("package.json").write_text("{}", encoding="utf-8")
+    repository.joinpath("package-lock.json").write_text(
+        '{"lockfileVersion":3}', encoding="utf-8"
+    )
     broker._run_process = AsyncMock(
         return_value={"argv": ["npm", "ci"], "exit_code": 0, "output": "installed"}
     )
@@ -727,6 +734,176 @@ async def test_dependency_install_requires_both_exact_leases_and_records_source(
     call = broker._run_process.await_args
     proxy = call.kwargs["environment_overrides"]["HTTPS_PROXY"]
     assert proxy.startswith("http://grant:") and proxy.endswith("@worker-egress:8080")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arguments", "files", "expected_argv"),
+    [
+        (
+            {"manager": "uv", "action": "sync"},
+            {"pyproject.toml": b"[project]\nname='demo'\n", "uv.lock": b"version = 1\n"},
+            ("uv", "sync", "--frozen"),
+        ),
+        (
+            {"manager": "pip", "action": "install", "requirements": "requirements.txt"},
+            {"requirements.txt": b"demo==1.0 --hash=sha256:" + b"a" * 64 + b"\n"},
+            ("python", "-m", "pip", "install", "--require-hashes", "-r", "requirements.txt"),
+        ),
+    ],
+)
+async def test_python_dependency_plans_are_frozen(
+    tmp_path: Path,
+    arguments: dict[str, str],
+    files: dict[str, bytes],
+    expected_argv: tuple[str, ...],
+) -> None:
+    broker, store, task_id, repository = await _broker(
+        tmp_path, profile=PolicyProfile.DEVELOP_NETWORKED
+    )
+    for path, content in files.items():
+        repository.joinpath(path).write_bytes(content)
+    broker.egress_policy = EgressPolicy(
+        enabled=True,
+        allowed_domains={"pypi.org", "files.pythonhosted.org"},
+        grant_key=b"g" * 32,
+    )
+    broker.egress_proxy_url = "http://worker-egress:8080"
+    broker._run_process = AsyncMock(return_value={"exit_code": 0, "output": "ok"})
+    with pytest.raises(ToolBrokerError):
+        await broker.execute(
+            task_id=task_id,
+            operation_id="python-dependencies",
+            tool_name="install_dependencies",
+            arguments=arguments,
+        )
+    approvals = store.list_approvals(task_id)
+    leases = {
+        item.capability: store.decide_approval(item.approval_id, approved=True).lease
+        for item in approvals
+    }
+    store.transition(task_id, TaskState.RUNNING)
+    await broker.execute(
+        task_id=task_id,
+        operation_id="python-dependencies",
+        tool_name="install_dependencies",
+        arguments=arguments,
+        lease_id=leases["dependency_install"].lease_id,
+        network_lease_id=leases["network"].lease_id,
+    )
+    assert broker._run_process.await_args.args[2] == expected_argv
+
+
+@pytest.mark.asyncio
+async def test_unhashed_python_requirements_fail_before_approval(tmp_path: Path) -> None:
+    broker, store, task_id, repository = await _broker(
+        tmp_path, profile=PolicyProfile.DEVELOP_NETWORKED
+    )
+    broker.egress_policy = EgressPolicy(
+        enabled=True,
+        allowed_domains={"pypi.org", "files.pythonhosted.org"},
+        grant_key=b"g" * 32,
+    )
+    repository.joinpath("requirements.txt").write_text("demo==1.0\n", encoding="utf-8")
+    with pytest.raises(ToolBrokerError) as rejected:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="unhashed-requirements",
+            tool_name="install_dependencies",
+            arguments={"manager": "pip", "action": "install", "requirements": "requirements.txt"},
+        )
+    assert rejected.value.code == "dependency_plan_invalid"
+    assert store.list_approvals(task_id) == []
+
+
+@pytest.mark.asyncio
+async def test_dependency_lease_is_invalidated_when_lock_input_changes(
+    tmp_path: Path,
+) -> None:
+    broker, store, task_id, repository = await _broker(
+        tmp_path, profile=PolicyProfile.DEVELOP_NETWORKED
+    )
+    repository.joinpath("package.json").write_text("{}", encoding="utf-8")
+    lockfile = repository.joinpath("package-lock.json")
+    lockfile.write_text('{"lockfileVersion":3}', encoding="utf-8")
+    broker.egress_policy = EgressPolicy(
+        enabled=True,
+        allowed_domains={"registry.npmjs.org"},
+        grant_key=b"g" * 32,
+    )
+    broker.egress_proxy_url = "http://worker-egress:8080"
+    arguments = {"manager": "npm", "action": "ci"}
+    with pytest.raises(ToolBrokerError):
+        await broker.execute(
+            task_id=task_id,
+            operation_id="changed-dependency-lock",
+            tool_name="install_dependencies",
+            arguments=arguments,
+        )
+    leases = {
+        item.capability: store.decide_approval(item.approval_id, approved=True).lease
+        for item in store.list_approvals(task_id)
+    }
+    store.transition(task_id, TaskState.RUNNING)
+    lockfile.write_text('{"lockfileVersion":3,"changed":true}', encoding="utf-8")
+    broker._run_process = AsyncMock()
+    with pytest.raises(ToolBrokerError) as rejected:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="changed-dependency-lock",
+            tool_name="install_dependencies",
+            arguments=arguments,
+            lease_id=leases["dependency_install"].lease_id,
+            network_lease_id=leases["network"].lease_id,
+        )
+    assert rejected.value.code == "lease_scope_mismatch"
+    broker._run_process.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_documentation_query_uses_registered_resource_and_exact_leases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broker, store, task_id, _ = await _broker(
+        tmp_path, profile=PolicyProfile.DEVELOP_NETWORKED
+    )
+    broker.documentation_resources = {"python": "https://docs.python.org/3"}
+    broker.egress_policy = EgressPolicy(
+        enabled=True,
+        allowed_domains={"docs.python.org"},
+        grant_key=b"d" * 32,
+    )
+    broker.egress_proxy_url = "http://worker-egress:8080"
+    broker._fetch_documentation = AsyncMock(return_value={"content": b"asyncio docs"})
+    monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_DOCUMENTATION_EGRESS_ENABLED", "true")
+    arguments = {"resource_id": "python", "document_path": "library/asyncio.html"}
+    with pytest.raises(ToolBrokerError):
+        await broker.execute(
+            task_id=task_id,
+            operation_id="documentation-query",
+            tool_name="query_documentation",
+            arguments=arguments,
+        )
+    approvals = store.list_approvals(task_id)
+    assert {item.capability for item in approvals} == {"documentation_query", "network"}
+    leases = {
+        item.capability: store.decide_approval(item.approval_id, approved=True).lease
+        for item in approvals
+    }
+    store.transition(task_id, TaskState.RUNNING)
+    result = await broker.execute(
+        task_id=task_id,
+        operation_id="documentation-query",
+        tool_name="query_documentation",
+        arguments=arguments,
+        lease_id=leases["documentation_query"].lease_id,
+        network_lease_id=leases["network"].lease_id,
+    )
+    assert result.data["content"] == "asyncio docs"
+    call = broker._fetch_documentation.await_args
+    assert call.args[0] == "https://docs.python.org/3/library/asyncio.html"
+    assert call.kwargs["proxy"].startswith("http://grant:")
 
 
 @pytest.mark.asyncio
