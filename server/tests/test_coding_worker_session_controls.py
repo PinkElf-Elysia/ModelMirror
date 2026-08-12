@@ -292,6 +292,7 @@ def test_session_control_public_routes_are_versioned() -> None:
     app = FastAPI()
     app.include_router(router)
     paths = app.openapi()["paths"]
+    assert "/api/coding-worker/v1/tasks/{task_id}/turns" in paths
     assert "/api/coding-worker/v1/tasks/{task_id}/fork" in paths
     assert "/api/coding-worker/v1/tasks/{task_id}/children" in paths
     assert "/api/coding-worker/v1/tasks/{task_id}/export" in paths
