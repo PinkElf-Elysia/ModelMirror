@@ -119,6 +119,8 @@ const NETWORK_GLOBAL_NAMES = [
   ["send", "Beacon"].join(""),
 ];
 const FETCH_GLOBAL_NAME = NETWORK_GLOBAL_NAMES[0];
+const APPROVED_CREATOR_LOOPBACK_CLIENT_SOURCE =
+  "apps/creator-web/src/prototype-builder.ts";
 const NETWORK_MODULES = new Set([
   "http",
   "http2",
@@ -1039,6 +1041,30 @@ function usesNetworkModule(specifiers) {
 }
 
 function checkRuntimeNetwork(relative, content, specifiers, violations) {
+  if (relative === APPROVED_CREATOR_LOOPBACK_CLIENT_SOURCE) {
+    const approvedRequestCall = `this.#${FETCH_GLOBAL_NAME}(path`;
+    const forbiddenCapability =
+      NETWORK_GLOBAL_NAMES
+        .filter((name) => name !== FETCH_GLOBAL_NAME)
+        .some((name) => new RegExp(`\\b${name}\\b`).test(content)) ||
+      usesNetworkModule(specifiers) ||
+      hasExternalOrProtocolRelativeUrl(content) ||
+      /\bprocess\s*\.\s*env\b/u.test(content) ||
+      !content.includes("!API_PATH.test(path)") ||
+      !content.includes('credentials: "same-origin"') ||
+      !content.includes('redirect: "error"') ||
+      !content.includes('cache: "no-store"') ||
+      !content.includes(approvedRequestCall);
+    if (forbiddenCapability) {
+      addViolation(
+        violations,
+        "creator-prototype-client-network-invalid",
+        relative,
+        "The approved Creator client may call only bounded same-origin prototype-host API paths.",
+      );
+    }
+    return;
+  }
   if (APPROVED_PROVIDER_NETWORK_SOURCES.has(relative)) {
     const forbiddenCapability =
       NETWORK_GLOBAL_NAMES

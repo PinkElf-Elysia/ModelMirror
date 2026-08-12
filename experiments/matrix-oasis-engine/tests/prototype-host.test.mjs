@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -43,6 +44,38 @@ async function startHost(overrides = {}, config = configuration()) {
   await host.start();
   return { host, ...fixture };
 }
+
+async function requestWithHost(pathname, hostHeader) {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest({ host: PROTOTYPE_HOST, port: PROTOTYPE_HOST_PORT, path: pathname,
+      method: "GET", headers: { host: hostHeader, connection: "close" } }, (response) => {
+      response.resume(); response.once("end", () => resolve(response.statusCode));
+    });
+    request.once("error", reject); request.end();
+  });
+}
+
+test("Creator assets are served from the fixed loopback origin with a closed CSP", async (t) => {
+  const fixture = operationFixture();
+  const original = new TextEncoder().encode("<!doctype html><title>R10</title>");
+  const host = createPrototypeHost({ configuration: configuration(), operations: fixture.operations,
+    webAssets: new Map([
+      ["/", { contentType: "text/html; charset=utf-8", bytes: original }],
+      ["/index.html", { contentType: "text/html; charset=utf-8", bytes: original }],
+      ["/assets/app.js", { contentType: "text/javascript; charset=utf-8", bytes: new TextEncoder().encode("export {}") }],
+    ]) });
+  original.fill(0);
+  await host.start(); t.after(() => host.stop());
+  const response = await fetch(`${PROTOTYPE_HOST_ORIGIN}/`, { redirect: "manual" });
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "<!doctype html><title>R10</title>");
+  assert.equal(response.headers.get("content-security-policy"),
+    "default-src 'self'; base-uri 'none'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self'; object-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self'");
+  assert.equal(response.headers.get("access-control-allow-origin"), null);
+  assert.equal((await fetch(`${PROTOTYPE_HOST_ORIGIN}/assets/app.js`, { method: "HEAD" })).status, 200);
+  assert.equal(await requestWithHost("/", "attacker.invalid"), 403);
+  assert.equal((await fetch(`${PROTOTYPE_HOST_ORIGIN}/unknown`)).status, 403);
+});
 
 async function request(pathname, { method = "GET", cookie = null, body, origin = PROTOTYPE_HOST_ORIGIN, contentType = "application/json" } = {}) {
   const headers = { origin, connection: "close" };
@@ -100,6 +133,9 @@ test("model and asset approvals are content-bound and external operations start 
   const { host, calls } = await startHost(); t.after(() => host.stop()); const { cookie } = await session();
   const created = await createRun(cookie); assert.equal(created.status, 201);
   const run = created.body.run; assert.equal(run.status, "awaiting_model_approval"); assert.equal(calls.generate, 0); assert.equal(calls.acquire, 0);
+  const restored = await request("/api/bootstrap");
+  assert.deepEqual(restored.body.runs.map(({ id, status }) => ({ id, status })),
+    [{ id: run.id, status: "awaiting_model_approval" }]);
   const staleModel = await request(`/api/runs/${run.id}/approve-model`, { method: "POST", cookie, body: { approvalHash: `sha256:${"0".repeat(64)}` } });
   assert.equal(staleModel.status, 409); assert.equal(calls.generate, 0);
   const acceptedModel = await request(`/api/runs/${run.id}/approve-model`, { method: "POST", cookie, body: { approvalHash: run.modelApproval.approvalHash } });

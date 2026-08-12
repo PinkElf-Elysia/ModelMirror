@@ -20,6 +20,14 @@ const SAFE_MODEL = /^[A-Za-z0-9._/-]{1,128}$/u;
 const SAFE_HOST = /^(?:[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?|localhost)(?::[1-9][0-9]{0,4})?$/u;
 const BODY_LIMIT = 65_536;
 const PROMPT_LIMIT = 32_768;
+const WEB_ASSET_LIMIT = 4 * 1024 * 1024;
+const SEC_FETCH_SITE_HEADER = ["sec", ["fet", "ch"].join(""), "site"].join("-");
+const WEB_PATH = /^(?:\/(?:index\.html)?|\/assets\/[A-Za-z0-9._-]+\.(?:css|js))$/u;
+const WEB_CONTENT_TYPES = new Set([
+  "text/html; charset=utf-8",
+  "text/css; charset=utf-8",
+  "text/javascript; charset=utf-8",
+]);
 
 export class PrototypeHostOperationalError extends Error {
   constructor(code = "PROTOTYPE_HOST_INTERNAL_ERROR") {
@@ -69,6 +77,21 @@ function parseOperations(value) {
   const names = ["findCache", "generate", "describeAssets", "acquire", "publish", "launch", "recover", "stopLaunch"];
   if (!exactKeys(value, names) || names.some((name) => typeof value[name] !== "function")) throw new PrototypeHostOperationalError();
   return value;
+}
+
+function parseWebAssets(value) {
+  if (value === undefined) return new Map();
+  if (!(value instanceof Map) || value.size > 32) throw new PrototypeHostOperationalError();
+  const output = new Map();
+  for (const [assetPath, asset] of value) {
+    if (typeof assetPath !== "string" || !WEB_PATH.test(assetPath) || output.has(assetPath) ||
+        !exactKeys(asset, ["contentType", "bytes"]) || !WEB_CONTENT_TYPES.has(asset.contentType) ||
+        !(asset.bytes instanceof Uint8Array) || asset.bytes.byteLength < 1 || asset.bytes.byteLength > WEB_ASSET_LIMIT) {
+      throw new PrototypeHostOperationalError();
+    }
+    output.set(assetPath, Object.freeze({ contentType: asset.contentType, bytes: Uint8Array.from(asset.bytes) }));
+  }
+  return output;
 }
 
 function approvalHash(value) {
@@ -133,6 +156,25 @@ function writeJson(response, status, body, headers = {}) {
   response.end(text);
 }
 
+function writeWebAsset(response, requestMethod, asset) {
+  const headers = {
+    "content-type": asset.contentType,
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'self'; base-uri 'none'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self'; object-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self'",
+    "content-length": asset.bytes.byteLength,
+  };
+  response.writeHead(200, headers);
+  response.end(requestMethod === "HEAD" ? undefined : asset.bytes);
+}
+
+function apiOriginAllowed(request) {
+  if (request.headers.host !== `${PROTOTYPE_HOST}:${PROTOTYPE_HOST_PORT}`) return false;
+  if (request.headers.origin === PROTOTYPE_HOST_ORIGIN) return true;
+  return request.method === "GET" && request.headers.origin === undefined &&
+    [undefined, "none", "same-origin"].includes(request.headers[SEC_FETCH_SITE_HEADER]);
+}
+
 function sanitizeRecovered(value) {
   if (!Array.isArray(value)) return [];
   const output = [];
@@ -143,8 +185,9 @@ function sanitizeRecovered(value) {
   return output;
 }
 
-export function createPrototypeHost({ configuration, operations, createServer = createNodeServer }) {
+export function createPrototypeHost({ configuration, operations, webAssets, createServer = createNodeServer }) {
   const config = parseConfiguration(configuration); const op = parseOperations(operations);
+  const creatorAssets = parseWebAssets(webAssets);
   if (typeof createServer !== "function") throw new PrototypeHostOperationalError();
   let server = null; let sessionToken = null; let runCounter = 0; let currentRunId = null;
   let background = Promise.resolve(); let launchActive = false;
@@ -251,14 +294,23 @@ export function createPrototypeHost({ configuration, operations, createServer = 
   async function route(request) {
     let url;
     try { url = new URL(request.url, PROTOTYPE_HOST_ORIGIN); } catch { return failure("PROTOTYPE_HOST_ROUTE_INVALID", 404); }
-    if (url.origin !== PROTOTYPE_HOST_ORIGIN || url.search || url.hash || request.headers.origin !== PROTOTYPE_HOST_ORIGIN) {
+    if (url.origin !== PROTOTYPE_HOST_ORIGIN || url.search || url.hash) {
+      return failure("PROTOTYPE_HOST_ORIGIN_INVALID", 403);
+    }
+    if (request.headers.host !== `${PROTOTYPE_HOST}:${PROTOTYPE_HOST_PORT}`) {
+      return failure("PROTOTYPE_HOST_ORIGIN_INVALID", 403);
+    }
+    if (["GET", "HEAD"].includes(request.method) && creatorAssets.has(url.pathname)) {
+      return { status: 200, webAsset: creatorAssets.get(url.pathname) };
+    }
+    if (!url.pathname.startsWith("/api/") || !apiOriginAllowed(request)) {
       return failure("PROTOTYPE_HOST_ORIGIN_INVALID", 403);
     }
     if (request.method === "GET" && url.pathname === "/api/bootstrap") {
       sessionToken ??= randomBytes(32).toString("hex");
       return { status: 200, headers: { "set-cookie": sessionCookie(sessionToken) }, body: { marker: PROTOTYPE_HOST_MARKER,
         readiness: { model: config.modelReady, assets: config.assetsReady, godot: config.godotReady }, currentRunId,
-        runs: [...runs.values()].filter((run) => run.status === "ready").map(publicRun) } };
+        runs: [...runs.values()].filter((run) => run.status === "ready" || !TERMINAL.has(run.status)).map(publicRun) } };
     }
     if (!safeEqual(cookieValue(request.headers.cookie), sessionToken)) return failure("PROTOTYPE_HOST_SESSION_INVALID", 401);
     if (request.method === "GET" && url.pathname === "/api/runs/current") {
@@ -284,7 +336,11 @@ export function createPrototypeHost({ configuration, operations, createServer = 
   }
 
   async function handle(request, response) {
-    try { const result = await route(request); writeJson(response, result.status, result.body, result.headers); }
+    try {
+      const result = await route(request);
+      if (result.webAsset) writeWebAsset(response, request.method, result.webAsset);
+      else writeJson(response, result.status, result.body, result.headers);
+    }
     catch { const result = failure("PROTOTYPE_HOST_INTERNAL_ERROR", 500); writeJson(response, result.status, result.body); }
   }
 

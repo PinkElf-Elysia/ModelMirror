@@ -28,4 +28,10 @@ run只保存canonical artifacts、重建的脱敏Asset report、已验证Environ
 
 固定状态为`awaiting_model_approval → generating → awaiting_asset_approval → acquiring → normalizing → assembling → ready|failed`。第一道审批绑定当前prompt SHA、模型、最多三次请求与1美元上限；第二道审批绑定Blueprint SHA、Marble环境prompt、最多一次create/180次poll/两次下载，以及按声明顺序的Meshy brief、最多四个任务和60 credits。重复、过期或内容不匹配的审批均不执行外部操作。
 
-宿主启动和缓存命中不读取API Key。只有模型审批后才读取`MATRIX_OASIS_MODEL_*`，只有资产审批后才读取`MATRIX_OASIS_MARBLE_API_KEY`和`MATRIX_OASIS_MESHY_API_KEY`。既有run在命中或重启恢复前会重新检查全部canonical文本、身份、hash、GLB、Scene Pack和report；失败run不会替换`current.json`。R10.4默认把Godot readiness保持为false，实际R10 wrapper和无shell启动在R10.5接通。
+宿主启动和缓存命中不读取API Key。只有模型审批后才读取`MATRIX_OASIS_MODEL_*`，只有资产审批后才读取`MATRIX_OASIS_MARBLE_API_KEY`和`MATRIX_OASIS_MESHY_API_KEY`。既有run在命中或重启恢复前会重新检查全部canonical文本、身份、hash、GLB、Scene Pack和report；失败run不会替换`current.json`。
+
+## R10.5 Creator与Godot wrapper
+
+Creator只通过固定same-origin相对API访问loopback宿主，浏览器不接触供应商凭据。构建资源与API共享`127.0.0.1:43110`；CSP除冻结Ajv Validator所需的同源`unsafe-eval`外保持闭合，禁止外部脚本与连接。
+
+R10 wrapper从同一已复验run读取Runtime Pack、Receipt、Scene Pack和Environment Bundle。panorama通过`Image.load_png_from_buffer`与`PanoramaSkyMaterial`进入天空；环境GLB继续由冻结R7 loader构建静态collider，wrapper只隐藏其Visual节点。任一输入、身份、hash、图片或场景组合失败都在Godot启动前静态拒绝，不修改持久run或宿主current。

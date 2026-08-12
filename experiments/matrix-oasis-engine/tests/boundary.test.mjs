@@ -608,6 +608,16 @@ const negativeCases = [
     },
   },
   {
+    name: "Prototype Builder client without same-origin request guards",
+    expectedRule: "creator-prototype-client-network-invalid",
+    setup: async ({ root }) => {
+      const operation = ["fet", "ch"].join("");
+      const target = path.join(root, "apps", "creator-web", "src", "prototype-builder.ts");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, `export const request = (path) => ${operation}(path);\n`, "utf8");
+    },
+  },
+  {
     name: "root runtime source network call",
     expectedRule: "module-network-forbidden",
     setup: async ({ root }) => {

@@ -1,6 +1,6 @@
 # R10 验收记录
 
-状态：R10.4 已验证，等待本地提交。
+状态：R10.5 已验证，等待本地提交。
 
 固定基线：`09f4cca4f1e02fe275ada17535597437cac3778d`
 
@@ -9,8 +9,8 @@
 - [x] R10.1 治理迁移（`60ce32eb49949f58ea1a67ee0cf8665e4ec588f4`）
 - [x] R10.2 Marble环境Pipeline（`61f293ea3f5c3a3ecc457173d01b45e21162e0fd`）
 - [x] R10.3 自动组装与缓存导入（`2d26d0018e4b83f2b2fc3778f6837d848cdb443b`）
-- [x] R10.4 本地宿主与审批状态机（本批提交；SHA在R10.5记录）
-- [ ] R10.5 Creator与Godot一键预览
+- [x] R10.4 本地宿主与审批状态机（`ebc6c2c396c1271a1e73f5fdc0058760794ab444`）
+- [x] R10.5 Creator与Godot一键预览（本批提交；SHA在R10.6记录）
 - [ ] R10.6 真实资格与验收收口
 
 ## R10.1 证据
@@ -51,6 +51,16 @@
 - `npm.cmd run verify:prototype-host` 13/13、`npm.cmd run verify:prototype-assembly` 15/15、boundary正反74/74通过；真实无配置入口只启动loopback且readiness全false，未读取API Key、未调用模型/Meshy/Marble。
 - 最新12文件树执行完整`npm.cmd run verify`，15/15步骤通过：Node 642/642、Godot R4–R7全门、Creator 247 modules build与HTTP marker smoke均通过；round scope checked=49/changed=40、boundary checked=950/tracked=947。
 - R10.4实际Godot launch有意保持not-ready，留待R10.5 wrapper；普通测试全部使用注入式假操作、loopback和本地合成GLB，无外部费用或共享栈。
+
+## R10.5 证据
+
+- Creator新增默认`Prototype Builder`模式并保留冻结Runtime/Parity实验台；文本只驻留内存，显示32 KiB字节计数、配置readiness、阶段进度、两道内容绑定审批、当前/历史成功run、失败保留说明与稳定marker `MATRIX_OASIS_R10_PROTOTYPE_BUILDER`。
+- 浏览器客户端只调用固定相对`/api/**`路径，使用same-origin cookie、redirect=error和no-store；响应被exact-key重建，额外字段、动态错误正文、超限或非JSON响应均折叠为静态诊断。边界门只对这一精确文件开放该same-origin能力，Creator其他来源继续禁网。
+- 宿主同源提供构建后的Creator静态资源，固定CSP仅允许self；冻结Ajv Validator需要运行时代码生成，因此loopback页面的script-src精确包含`unsafe-eval`，仍禁止外部脚本、外部连接、frame、object和CORS。实际新页面加载控制台零error/warning，冻结Runtime/Parity模式可正常创建初始会话。
+- 新R10 Godot wrapper严格绑定Runtime/Receipt/Scene/Environment四个同run文件；Environment Bundle经canonical、identity、path、hash、PNG 2:1及collider指标复验，使用`PanoramaSkyMaterial`设置天空，只隐藏环境collider的视觉节点并保留冻结R7静态碰撞与Action终端。
+- `npm.cmd run verify:prototype-builder`通过：18/18客户端/宿主测试、Creator 248 modules build、真实Godot 4.6.3离线wrapper smoke输出R7/R10两个唯一readiness marker；未配置或读取模型、Meshy或Marble凭据，未产生外部请求或费用。
+- 浏览器实际检查覆盖默认Builder、等待模型审批、禁用未配置审批、Runtime/Parity回归；1280、640与320像素宽度均无水平溢出，原生控件、焦点、aria-live与静态诊断可见。人工真实缓存、完整审批、Godot图形预览留到R10.6。
+- 最新树上boundary `checked=956/tracked=950`、round/parent scope均通过且`git diff --check`通过；R1–R9冻结范围及父仓无修改。
 
 ## 回退
 
