@@ -122,12 +122,12 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R8 policy", () => {
+test("machine boundary and code expose the same ordered R9 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
-  assert.equal(policy.schemaVersion, 8);
+  assert.equal(policy.schemaVersion, 9);
   assert.equal(policy.activeRound, ACTIVE_ROUND);
   assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
@@ -142,20 +142,26 @@ test("machine boundary and code expose the same ordered R8 policy", () => {
     policy.activeRoundChangePolicy.frozenModulePaths,
     ROUND_FROZEN_MODULE_PATHS,
   );
+  const cli = readFileSync(
+    path.join(committedModuleRoot, "scripts", "check-round-scope.mjs"),
+    "utf8",
+  );
+  assert.match(cli, /policy\.schemaVersion !== 9/);
+  assert.doesNotMatch(cli, /policy\.schemaVersion !== 8/);
 });
 
-test("accepts exact R8 files and prototype package prefixes in every Git status source", (t) => {
+test("accepts exact R9 files and asset package prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-generation-contracts/src/index.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-asset-contracts/src/index.mjs`, "export {};\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-generator/src/index.mjs`, "export {};\n");
-  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-generator/src/index.mjs`]);
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-asset-pipeline/src/index.mjs`, "export {};\n");
+  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-asset-pipeline/src/index.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R8_ACCEPTANCE.md`);
-  write(fixture, `${MODULE_PREFIX}/scripts/generate-prototype.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R9_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/scripts/materialize-prototype-assets.mjs`, "export {};\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
@@ -214,6 +220,8 @@ for (const acceptance of [
   "R4_ACCEPTANCE.md",
   "R5_ACCEPTANCE.md",
   "R6_ACCEPTANCE.md",
+  "R7_ACCEPTANCE.md",
+  "R8_ACCEPTANCE.md",
 ]) {
   test(`rejects byte changes to historical ${acceptance}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
@@ -244,6 +252,13 @@ for (const historicalPath of [
   "docs/GODOT_RUNTIME_THREAT_MODEL.md",
   "docs/GODOT_PLAYABLE_3D.md",
   "docs/GODOT_PLAYABLE_3D_THREAT_MODEL.md",
+  "docs/SCENE_PACK.md",
+  "docs/SCENE_PACK_THREAT_MODEL.md",
+  "docs/PROTOTYPE_GENERATION.md",
+  "docs/PROTOTYPE_GENERATION_THREAT_MODEL.md",
+  "docs/MODEL_CALL_APPROVAL.md",
+  "docs/adr/0008-r7-scene-pack-governance.md",
+  "docs/adr/0009-r8-natural-language-prototype-governance.md",
 ]) {
   test(`rejects byte changes to frozen ${historicalPath}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
@@ -272,8 +287,11 @@ for (const frozenPath of [
   "apps/runtime-godot/addons/gdUnit4/plugin.cfg",
   "third-party/gdunit4.lock.json",
   "third-party/gdunit4/LICENSE",
+  "packages/prototype-generation-contracts/src/index.mjs",
+  "packages/prototype-generator/src/index.mjs",
+  "examples/scene-bundles/kenney-prototype/assets/crate.glb",
 ]) {
-  test(`rejects byte changes to frozen R1-R3 implementation ${frozenPath}`, (t) => {
+  test(`rejects byte changes to frozen R1-R8 implementation ${frozenPath}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
     write(fixture, `${MODULE_PREFIX}/${frozenPath}`, "changed\n");
 
@@ -351,18 +369,22 @@ test("rejects a caller-selected base", (t) => {
   );
 });
 
-test("round path classifier exposes stable R8 guard categories", () => {
+test("round path classifier exposes stable R9 guard categories", () => {
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-generation-contracts/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-asset-contracts/src/index.mjs`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-asset-pipeline/src/index.mjs`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/scripts/materialize-prototype-assets.mjs`),
     null,
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-generator/src/index.mjs`),
-    null,
-  );
-  assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/scripts/generate-prototype.mjs`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/playable/first_person_controller.gd`),

@@ -203,7 +203,7 @@ test("a valid isolated fixture passes", async () => {
   });
 });
 
-test("the exact R8 provider adapter may use fetch without reading process environment", async () => {
+test("the exact frozen R8 provider adapter may use fetch without reading process environment", async () => {
   await withFixture(async ({ root }) => {
     const operation = ["fet", "ch"].join("");
     const providerRoot = path.join(
@@ -215,6 +215,28 @@ test("the exact R8 provider adapter may use fetch without reading process enviro
     await fs.mkdir(providerRoot, { recursive: true });
     await fs.writeFile(
       path.join(providerRoot, "openai-compatible.mjs"),
+      `export const request = (endpoint, options) => ${operation}(endpoint, options);\n`,
+      "utf8",
+    );
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.report.ok, true);
+  });
+});
+
+test("the exact R9 Meshy adapter may use fetch without reading process environment", async () => {
+  await withFixture(async ({ root }) => {
+    const operation = ["fet", "ch"].join("");
+    const providerRoot = path.join(
+      root,
+      "packages",
+      "prototype-asset-pipeline",
+      "src",
+    );
+    await fs.mkdir(providerRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(providerRoot, "meshy-provider.mjs"),
       `export const request = (endpoint, options) => ${operation}(endpoint, options);\n`,
       "utf8",
     );
@@ -251,6 +273,20 @@ const negativeCases = [
     setup: async ({ root }) => {
       const operation = ["fet", "ch"].join("");
       const sourceRoot = path.join(root, "packages", "prototype-generator", "src");
+      await fs.mkdir(sourceRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(sourceRoot, "helper.mjs"),
+        `export const request = (endpoint) => ${operation}(endpoint);\n`,
+        "utf8",
+      );
+    },
+  },
+  {
+    name: "network call in a Meshy helper outside the exact provider adapter",
+    expectedRule: "module-network-forbidden",
+    setup: async ({ root }) => {
+      const operation = ["fet", "ch"].join("");
+      const sourceRoot = path.join(root, "packages", "prototype-asset-pipeline", "src");
       await fs.mkdir(sourceRoot, { recursive: true });
       await fs.writeFile(
         path.join(sourceRoot, "helper.mjs"),
@@ -877,6 +913,20 @@ const negativeCases = [
     setup: async ({ root }) => {
       const policy = boundaryPolicy();
       policy.prototypeGenerationPolicy.providerSchemaFlattensNestedDefinitions = false;
+      await writeJson(path.join(root, "module-boundary.json"), policy);
+    },
+  },
+  {
+    name: "tampered Meshy provider endpoint policy",
+    expectedRule: "boundary-policy-invalid",
+    setup: async ({ root }) => {
+      const policy = boundaryPolicy();
+      policy.prototypeAssetPolicy.providerEndpoint = [
+        "https:",
+        "",
+        "mesh.example.invalid",
+        "v2",
+      ].join("/");
       await writeJson(path.join(root, "module-boundary.json"), policy);
     },
   },

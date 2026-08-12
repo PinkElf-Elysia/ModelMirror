@@ -6,11 +6,11 @@ product
 
 ## Users
 
-矩阵绿洲引擎的开发者、测试者和人工验收者。R8中，他们用纯文本描述一个原型，并检查系统能否在不人工修改JSON的前提下产出严格、可编译、可运行验证的数据。
+矩阵绿洲引擎的开发者、测试者和人工验收者。R9中，他们检查冻结Blueprint能否在逐阶段审批下取得真实道具与静态人物资产，并离线产出严格、可复验的Asset Bundle。
 
 ## Product Purpose
 
-提供一个案例无关、可拆分的AI原生3D游戏引擎实验模块。R8只证明纯文本能够生成合法的Authoring Pack和私有Scene Blueprint，并通过冻结Compiler/Runtime检查；不把资产、Godot或长期AI能力伪装为已完成。
+提供一个案例无关、可拆分的AI原生3D游戏引擎实验模块。R9只证明Blueprint能取得、规范化并验证真实道具/静态人物GLB；环境仍为固定模板，自动布局和一键预览仍未完成。
 
 ## Brand Personality
 

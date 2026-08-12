@@ -1,24 +1,24 @@
 {
-  "schemaVersion": 8,
+  "schemaVersion": 9,
   "moduleId": "matrix-oasis-engine",
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
-  "activeRound": "R8",
-  "activeRoundBaselineSha": "21cbbb8b943b6f9d9799f014c44a6349e6124a63",
+  "activeRound": "R9",
+  "activeRoundBaselineSha": "da5fd0fe39234807ae3c4a1d543b9fd64de66d97",
   "activeRoundChangePolicy": {
     "allowedModuleFiles": [
       "AGENTS.md", "README.md", ".gitattributes", ".gitignore", "module-boundary.json", "package-lock.json", "package.json",
       "docs/ARCHITECTURE.md", "docs/BOUNDARIES.md", "docs/DEPENDENCIES_AND_LICENSES.md", "docs/KNOWN_LIMITATIONS.md",
-      "docs/PRODUCT.md", "docs/V1_CRITICAL_PATH.md", "docs/PROTOTYPE_GENERATION.md", "docs/PROTOTYPE_GENERATION_THREAT_MODEL.md",
-      "docs/MODEL_CALL_APPROVAL.md", "docs/adr/0009-r8-natural-language-prototype-governance.md", "docs/rounds/R8_ACCEPTANCE.md",
-      "scripts/check-round-scope.mjs", "scripts/generate-prototype.mjs", "scripts/plan-prototype-call.mjs", "scripts/qualify-prototype-model.mjs",
-      "scripts/lib/boundary-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/prototype-cli-core.mjs", "scripts/lib/scope-policy.mjs",
+      "docs/PRODUCT.md", "docs/V1_CRITICAL_PATH.md", "docs/PROTOTYPE_ASSET_BUNDLE.md", "docs/PROTOTYPE_ASSET_THREAT_MODEL.md",
+      "docs/MESHY_CALL_APPROVAL.md", "docs/adr/0010-r9-asset-materialization-governance.md", "docs/rounds/R9_ACCEPTANCE.md",
+      "scripts/check-round-scope.mjs", "scripts/plan-prototype-assets.mjs", "scripts/qualify-meshy-asset.mjs", "scripts/materialize-prototype-assets.mjs", "scripts/verify-prototype-assets-godot.mjs",
+      "scripts/lib/boundary-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/prototype-asset-cli-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/prototype-generation-cli.test.mjs", "tests/prototype-model-qualification.test.mjs", "tests/round-scope.test.mjs"
+      "tests/prototype-asset-cli.test.mjs", "tests/prototype-asset-qualification.test.mjs", "tests/prototype-asset-godot.test.mjs", "tests/round-scope.test.mjs"
     ],
     "allowedModulePrefixes": [
-      "packages/prototype-generation-contracts",
-      "packages/prototype-generator"
+      "packages/prototype-asset-contracts",
+      "packages/prototype-asset-pipeline"
     ],
     "frozenModulePaths": [
       "apps", "docs", "examples", "packages", "scripts", "tests", "third-party"
@@ -31,7 +31,7 @@
     "creatorSource": "none",
     "godotFirstPartySource": "none",
     "verificationScripts": "loopback-only",
-    "providerCalls": "openai-compatible-adapter-only",
+    "providerCalls": "openai-compatible-and-meshy-adapters-only",
     "splatQualification": "source-checkout-and-loopback-disposable-only"
   },
   "prototypeGenerationPolicy": {
@@ -55,6 +55,33 @@
     "assetProviderCallsAllowed": false,
     "marbleCallsAllowed": false,
     "meshyCallsAllowed": false,
+    "trackedGeneratedArtifactsAllowed": false
+  },
+  "prototypeAssetPolicy": {
+    "format": "matrix-oasis.prototype-asset-bundle",
+    "formatVersion": "0.1.0",
+    "canonicalization": "matrix-oasis.canonical-json/1",
+    "environmentTemplate": "kenney-prototype-room-v1",
+    "blueprintMaxBytes": 1048576,
+    "manifestMaxBytes": 262144,
+    "rawAssetMaxBytes": 134217728,
+    "normalizedAssetMaxBytes": 33554432,
+    "totalAssetMaxBytes": 134217728,
+    "maxFiles": 16,
+    "visualTriangleMax": 100000,
+    "colliderTriangleMax": 10000,
+    "textureMaxDimension": 2048,
+    "provider": "meshy",
+    "providerEndpoint": "https://api.meshy.ai/openapi/v2/text-to-3d",
+    "providerModel": "meshy-6",
+    "providerNetworkSource": "packages/prototype-asset-pipeline/src/meshy-provider.mjs",
+    "officialDownloadHost": "assets.meshy.ai",
+    "pollMaxAttempts": 120,
+    "pollIntervalMs": 5000,
+    "creatorNetworkAllowed": false,
+    "godotNetworkAllowed": false,
+    "marbleCallsAllowed": false,
+    "meshyCallsRequireHumanApproval": true,
     "trackedGeneratedArtifactsAllowed": false
   },
   "runtimeArtifactInputPolicy": {
@@ -133,6 +160,66 @@
       "scope": "transitive-development-dependency", "approvedOn": "2026-08-06",
       "approvalRecord": "user-approved-during-r0",
       "compliance": "Retain upstream attribution and license notice when distributing dependency materials."
+    }, {
+      "package": "@img/sharp-libvips-darwin-arm64", "version": "1.3.2", "license": "LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-libvips-darwin-x64", "version": "1.3.2", "license": "LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-libvips-linux-arm", "version": "1.3.2", "license": "LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-libvips-linux-arm64", "version": "1.3.2", "license": "LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-libvips-linux-ppc64", "version": "1.3.2", "license": "LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-libvips-linux-riscv64", "version": "1.3.2", "license": "LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-libvips-linux-s390x", "version": "1.3.2", "license": "LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-libvips-linux-x64", "version": "1.3.2", "license": "LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-libvips-linuxmusl-arm64", "version": "1.3.2", "license": "LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-libvips-linuxmusl-x64", "version": "1.3.2", "license": "LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-wasm32", "version": "0.35.3", "license": "Apache-2.0 AND LGPL-3.0-or-later AND MIT",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-win32-arm64", "version": "0.35.3", "license": "Apache-2.0 AND LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-win32-ia32", "version": "0.35.3", "license": "Apache-2.0 AND LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "@img/sharp-win32-x64", "version": "0.35.3", "license": "Apache-2.0 AND LGPL-3.0-or-later",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-sharp-libvips",
+      "compliance": "Dev-only optional platform package; do not vendor binaries or distribute it with Creator, Godot, or runtime artifacts."
+    }, {
+      "package": "tslib", "version": "2.8.1", "license": "0BSD",
+      "scope": "transitive-development-dependency", "approvedOn": "2026-08-11", "approvalRecord": "user-approved-r9-tslib",
+      "compliance": "Dev-only optional transitive helper; retain its license notice when redistributing dependency materials."
     }],
     "otherLicensesRequireHumanApproval": true
   }

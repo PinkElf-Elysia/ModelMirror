@@ -18,6 +18,7 @@ const steps = [
   ["parity", ["run", "verify:parity"]],
   ["scene-pack", ["run", "verify:scene-pack"]],
   ["prototype-generation", ["run", "verify:prototype-generation"]],
+  ["prototype-assets", ["run", "verify:prototype-assets"]],
   ["tests", ["test"]],
   ["creator-build", ["run", "build:creator"]],
   ["creator-smoke", ["run", "smoke:creator"]],

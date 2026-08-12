@@ -11,20 +11,19 @@
 5. 一批只解决一个可验证目标；先验证后提交；失败不得进入下一批。
 6. 回退只使用 `git revert`，不得重置、覆盖或清理用户工作区。
 
-## R8 专属限制
+## R9 专属限制
 
-- R8 只实现纯文本到严格 Generation Proposal、Authoring Pack、私有 Scene Blueprint 和 Runtime 验证；不生成资产、不启动 Godot、不修改 Creator。
-- R1–R7 的 apps、examples、既有 packages、Godot、vendor、历史 ADR/验收和语义测试全部字节冻结；发现问题必须停报并单独申请修复。
-- 只有 `packages/prototype-generator/src/openai-compatible.mjs` 可以使用受控 `fetch`；Creator、Godot、其他 package 与脚本仍禁止外部网络。
-- Provider package 只接受调用方注入的配置，不读取环境；专用环境变量只能由生成 CLI 读取，且不得读取父仓 `LLM_GATEWAY_*` 或其他既有密钥变量。
-- 输入仅允许最大 32 KiB fatal UTF-8 纯文本；禁止图片、全景、视频、3D 文件、目录或父仓数据。
-- 最多一次初始请求与两次修复请求；禁止工具调用、流式输出、自动网络重试和无限 Agent 循环。
-- R8 不得查询或调用 Marble/Meshy，不读取其凭据、额度或任务状态。
-- 真实模型资格验证必须逐次获得用户人工批准；批准前只允许 loopback 假 Provider。
-- 生成物、模型响应和详细日志只放 `C:\tmp` 的新目录；仓内不得提交真实输出或凭据。
-- 每次验证使用固定 R8 基线 `21cbbb8b943b6f9d9799f014c44a6349e6124a63`；committed、staged、unstaged、untracked 一视同仁。
-- 不 push、不创建 PR，直至用户明确回复“R8验收通过，可以创建PR”。
-- 不删除 R0–R8 分支/worktree；不重建共享栈。主线前进时先报告差异，不擅自 rebase。
+- R9 只把冻结的 R8 Scene Blueprint 物化为真实道具/静态人物 GLB、离线规范化结果和私有 Asset Bundle；环境继续使用冻结的 Kenney 模板，不实现 R10 自动布局。
+- R1–R8 的 apps、examples、既有 packages、Godot、vendor、历史 ADR/验收和语义测试全部字节冻结；发现问题必须停报并单独申请修复。
+- 网络例外仅有冻结的 R8 OpenAI 适配器和 `packages/prototype-asset-pipeline/src/meshy-provider.mjs`。Creator、Godot、其他 package 与脚本仍禁止外部网络。
+- Meshy provider 只接受调用方注入配置，不读取环境。只有资格 CLI 可读取 `MATRIX_OASIS_MESHY_API_KEY`，且不得打印、持久化或复制它。
+- Marble 在 R9 继续完全禁用；不得查询额度、创建任务、轮询或下载。不得把 collider GLB 当作环境视觉网格，也不得引入 SPZ/Splat。
+- 真实 Meshy 的 create、poll、download 必须按任务和阶段分别披露并取得一次性人工批准；普通测试仅允许 loopback 假服务且不得产生费用。
+- 原始响应、任务状态、下载 URL、供应商资产和详细日志只放 `C:\tmp`；仓内只提交适配器、离线测试、脱敏说明和不含供应商标识的合同。
+- Sharp/libvips 仅作为模块本地离线开发工具，适用用户批准的 LGPL-3.0-or-later 例外；不得 vendoring 二进制，也不得进入 Creator、Godot 或 runtime 分发。
+- 每次验证使用固定 R9 基线 `da5fd0fe39234807ae3c4a1d543b9fd64de66d97`；committed、staged、unstaged、untracked 一视同仁。
+- 不 push、不创建 PR，直至用户明确回复“R9验收通过，可以创建PR”。
+- 不删除或复用其他分支/worktree，不重建共享栈。主线前进时先报告差异，不擅自 rebase。
 
 ## 提交前检查
 

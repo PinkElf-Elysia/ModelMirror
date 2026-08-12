@@ -1,23 +1,23 @@
 # 架构方向
 
 最后更新：2026-08-11
-状态：R8 自然语言原型生成
+状态：R9 资产物化与规范化
 
 ## 当前系统
 
-R1–R7 的合同、Validator、Compiler、Runtime、Creator、Godot、Scene Pack、资产和验证链均为冻结权威。R8 在它们之前增加纯文本生成层，不修改执行语义或3D入口。
+R1–R8 的合同、Validator、Compiler、Runtime、Creator、Godot、Scene Pack、Blueprint 和验证链均为冻结权威。R9 在 Blueprint 与 Scene Pack 之间增加私有 Asset Bundle，不修改执行语义、Godot 源码或正式 Scene Pack 合同。
 
 ```text
-pure text → Generation Proposal → Authoring + private Scene Blueprint（R8）
-                                      │
-                                      ▼
-Compiler → Runtime Pack + Receipt → deterministic Runtime validation（冻结）
-                                      │
-                                      ▼
-Scene Pack + local GLB → Godot playable pipeline（R7，冻结且R8不启动）
+pure text → Authoring + private Scene Blueprint（R8，冻结）
+                               │
+                               ▼
+Kenney environment + Meshy prop/character → normalized GLB + Asset Bundle（R9）
+                               │
+                               ▼
+fixed qualification layout → Scene Pack + Godot scene lab（冻结入口）
 ```
 
-R8 的 Scene Blueprint 只是供应商无关的生成中间合同：它表达环境、资产需求、逻辑区域和节点可见关系，不含真实资产路径、哈希、3D坐标或供应商任务。生成编排最多执行一次初始请求和两次定向修复，并以冻结 Validator、Compiler 和 Runtime 作为发布前门禁。R9/R10 可以消费 Blueprint，但它不是 Runtime Pack、Scene Pack 或存档格式。
+R9 的 Prototype Asset Bundle 只绑定 Blueprint/Runtime 身份、固定环境模板和规范化 GLB 元数据。它不包含供应商任务 ID、下载 URL、原始响应、用户提示或布局坐标，也不扩展 Runtime Pack、Scene Pack 或存档格式。R10 才负责通用 Blueprint→Scene Pack 布局与一键预览。
 
 ## 独立模块原则
 
@@ -25,8 +25,8 @@ R8 的 Scene Blueprint 只是供应商无关的生成中间合同：它表达环
 - 正式源码只依赖 Godot 标准 API；GdUnit4 是 dev-only vendored 测试框架。
 - 自动门只使用 headless；图形捕获是 PR 前人工硬门。
 - Godot 执行器独立于 JavaScript oracle；差分 harness 只调用冻结包的公开根接口。
-- 唯一网络例外是模块内 OpenAI 兼容适配器；Creator、Godot和既有运行包仍完全离线。
-- R8 不定义资产供应商协议、AI NPC、记忆、任务规划、世界事件、图片输入或运行期AI。
+- 网络例外仅限冻结的 OpenAI 兼容适配器与 R9 Meshy adapter；Creator、Godot和既有运行包仍完全离线。
+- R9 不实现 Marble、环境生成、自动布局、AI NPC、记忆、任务规划、世界事件、图片输入或运行期AI。
 
 ## 决策记录
 
@@ -39,3 +39,4 @@ R8 的 Scene Blueprint 只是供应商无关的生成中间合同：它表达环
 - [ADR-0007：R6 第一人称可玩 3D 骨架治理](./adr/0007-r6-playable-3d-governance.md)
 - [ADR-0008：R7 Scene Pack 与离线资产治理](./adr/0008-r7-scene-pack-governance.md)
 - [ADR-0009：R8 自然语言原型生成治理](./adr/0009-r8-natural-language-prototype-governance.md)
+- [ADR-0010：R9 资产物化治理](./adr/0010-r9-asset-materialization-governance.md)
