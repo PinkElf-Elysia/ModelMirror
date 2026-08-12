@@ -51,6 +51,7 @@ class CodingWorkerRuntime:
         sidecar_uid: int = 65532,
         sidecar_gid: int = 65532,
         route_slots: Mapping[str, Sequence[str]] | None = None,
+        documentation_resources: Mapping[str, str] | None = None,
     ) -> None:
         if (
             set(slot_roots) != set(provider_endpoints)
@@ -81,6 +82,7 @@ class CodingWorkerRuntime:
                 grant_key=network_grant_key,
             ),
             egress_proxy_url=egress_proxy_url,
+            documentation_resources=documentation_resources,
         )
         self.broker_rpc = BrokerRPCServer(self.tool_broker)
         executor_pool = None
@@ -345,7 +347,30 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         egress_proxy_url=os.getenv("CODING_WORKER_EGRESS_PROXY_URL") or None,
         network_grant_key=os.getenv("CODING_WORKER_EGRESS_GRANT_KEY") or None,
         route_slots=route_slots,
+        documentation_resources=_documentation_resources_from_environment(),
     )
+
+
+def _documentation_resources_from_environment() -> dict[str, str]:
+    encoded = os.getenv("CODING_WORKER_DOCUMENTATION_RESOURCES_JSON", "").strip()
+    if not encoded:
+        return {}
+    try:
+        value = json.loads(encoded)
+    except json.JSONDecodeError as exc:
+        raise CodingWorkerRuntimeError(
+            "Documentation resource catalog is invalid.",
+            code="coding_worker_config_invalid",
+        ) from exc
+    if not isinstance(value, dict) or any(
+        not isinstance(key, str) or not isinstance(item, str)
+        for key, item in value.items()
+    ):
+        raise CodingWorkerRuntimeError(
+            "Documentation resource catalog is invalid.",
+            code="coding_worker_config_invalid",
+        )
+    return dict(value)
 
 
 def _route_slots_from_environment(

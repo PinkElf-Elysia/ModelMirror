@@ -41,6 +41,7 @@ PROVIDER_TOOL_NAMES = (
     "run_command",
     "run_shell",
     "install_dependencies",
+    "query_documentation",
     "start_service",
     "service_status",
     "service_input",
@@ -318,6 +319,8 @@ class ProviderCheckpoint(StrictModel):
 def provider_tools_for_policy(policy: PolicyProfile) -> tuple[str, ...]:
     if policy is PolicyProfile.INSPECT:
         return INSPECT_PROVIDER_TOOLS
+    if policy is PolicyProfile.DEVELOP:
+        return tuple(item for item in PROVIDER_TOOL_NAMES if item != "query_documentation")
     return PROVIDER_TOOL_NAMES
 
 
