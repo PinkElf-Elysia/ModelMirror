@@ -185,6 +185,14 @@ def test_service_undo_redo_restores_exact_turn_tree(tmp_path: Path) -> None:
                 "before_tree_oid": before.tree_oid,
                 "after_tree_hash": after.tree_hash,
                 "after_tree_oid": after.tree_oid,
+                "before_public_context": {
+                    "messages": [{"role": "user", "content": "before"}],
+                    "plan": None,
+                },
+                "after_public_context": {
+                    "messages": [{"role": "assistant", "content": "after"}],
+                    "plan": None,
+                },
             },
         )
         store.transition(
@@ -225,6 +233,18 @@ def test_service_undo_redo_restores_exact_turn_tree(tmp_path: Path) -> None:
         reconciled = await service.navigate_turn(task.task_id, "undo")
         assert reconciled.cursor == 0
         assert target.read_bytes() == b"before"
+
+        child = await service.fork_task(task.task_id, "fork-one")
+        assert child.state is TaskState.PAUSED
+        assert child.workspace_id != task.workspace_id
+        assert child.spec.acceptance == task.spec.acceptance
+        assert child.provider_session_id is None
+        assert '"content":"before"' in child.spec.objective
+        assert '"content":"after"' not in child.spec.objective
+        child_target = broker.repository_path(child.workspace_id or "") / "value.txt"
+        assert child_target.read_bytes() == b"before"
+        assert await service.fork_task(task.task_id, "fork-one") == child
+        assert store.list_children(task.task_id) == [child]
 
     asyncio.run(scenario())
 

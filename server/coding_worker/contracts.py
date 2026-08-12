@@ -980,6 +980,12 @@ class WorkerTurnCheckpoint(StrictModel):
     after_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     after_tree_oid: str = Field(pattern=r"^[a-f0-9]{40}$")
     ledger_sequence: int = Field(ge=1)
+    before_public_context: dict[str, Any] = Field(
+        default_factory=dict, exclude=True, repr=False
+    )
+    after_public_context: dict[str, Any] = Field(
+        default_factory=dict, exclude=True, repr=False
+    )
     created_at: float
 
     @field_validator("checkpoint_id", "task_id", "turn_id")

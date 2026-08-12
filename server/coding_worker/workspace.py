@@ -137,7 +137,29 @@ class WorkspaceBroker:
         snapshot = await adapter.acquire(source)
         if snapshot.source != source:
             raise WorkspaceError("Workspace source binding changed.", code="source_changed")
-        normalized = self._validate_snapshot(snapshot.files)
+        return self._materialize(source, snapshot.files, slot_id=slot_id)
+
+    def fork(
+        self, workspace_id: str, *, expected_tree_hash: str
+    ) -> WorkspaceRecord:
+        """Create an isolated synthetic H0 from an exact turn-bound Workspace tree."""
+        record = self.get(workspace_id)
+        snapshot = self.capture_snapshot(workspace_id)
+        if snapshot.tree_hash != expected_tree_hash:
+            raise WorkspaceError(
+                "Workspace changed before fork capture.", code="workspace_changed"
+            )
+        files = self.snapshot_files(workspace_id, snapshot)
+        return self._materialize(record.source, files, slot_id=record.slot_id)
+
+    def _materialize(
+        self,
+        source: WorkspaceSource,
+        files: Sequence[SourceFile],
+        *,
+        slot_id: str | None,
+    ) -> WorkspaceRecord:
+        normalized = self._validate_snapshot(files)
         selected_slot = slot_id or (None if self.dedicated_slots else "default")
         slot_root = self._slot_roots.get(selected_slot or "")
         if slot_root is None:

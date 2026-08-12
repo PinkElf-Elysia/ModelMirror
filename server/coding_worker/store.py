@@ -166,6 +166,118 @@ class CodingWorkerStore:
         with self._connect() as connection:
             return [self._task(row, connection) for row in connection.execute(query, params)]
 
+    def get_fork(self, parent_task_id: str, client_fork_id: str) -> TaskRecord | None:
+        with self._connect() as connection:
+            self._require_task_row(connection, parent_task_id)
+            row = connection.execute(
+                """
+                SELECT child.* FROM worker_task_forks AS fork
+                JOIN worker_tasks AS child ON child.task_id = fork.child_task_id
+                WHERE fork.parent_task_id = ? AND fork.client_fork_id = ?
+                """,
+                (parent_task_id, client_fork_id),
+            ).fetchone()
+            return self._task(row, connection) if row is not None else None
+
+    def list_children(self, parent_task_id: str) -> list[TaskRecord]:
+        with self._connect() as connection:
+            self._require_task_row(connection, parent_task_id)
+            rows = connection.execute(
+                """
+                SELECT child.* FROM worker_task_forks AS fork
+                JOIN worker_tasks AS child ON child.task_id = fork.child_task_id
+                WHERE fork.parent_task_id = ? ORDER BY fork.created_at, child.task_id
+                """,
+                (parent_task_id,),
+            ).fetchall()
+            return [self._task(row, connection) for row in rows]
+
+    def create_fork_task(
+        self,
+        *,
+        parent_task_id: str,
+        client_fork_id: str,
+        spec: TaskSpec,
+        workspace_id: str,
+        parent_cursor: int,
+        parent_tree_hash: str,
+    ) -> TaskRecord:
+        now = self._now()
+        expires_at = now + self.retention_seconds
+        task_id = f"task_{uuid.uuid4().hex}"
+        encrypted_spec = self._codec.encrypt(spec.model_dump(mode="json"))
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_task_row(connection, parent_task_id)
+            existing = connection.execute(
+                """
+                SELECT child.* FROM worker_task_forks AS fork
+                JOIN worker_tasks AS child ON child.task_id = fork.child_task_id
+                WHERE fork.parent_task_id = ? AND fork.client_fork_id = ?
+                """,
+                (parent_task_id, client_fork_id),
+            ).fetchone()
+            if existing is not None:
+                child = self._task(existing, connection)
+                if child.spec != spec:
+                    raise WorkerConflictError(
+                        "Fork id is bound to another public context.",
+                        code="task_fork_conflict",
+                    )
+                return child
+            connection.execute(
+                """
+                INSERT INTO worker_tasks (
+                    task_id, origin_module, origin_object_id, client_task_id,
+                    state, spec_ciphertext, workspace_id, created_at,
+                    updated_at, expires_at, pinned
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                """,
+                (
+                    task_id,
+                    spec.origin.module,
+                    spec.origin.object_id,
+                    spec.client_task_id,
+                    TaskState.PAUSED.value,
+                    encrypted_spec,
+                    workspace_id,
+                    now,
+                    now,
+                    expires_at,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO worker_task_forks (
+                    parent_task_id, client_fork_id, child_task_id,
+                    parent_cursor, parent_tree_hash, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    parent_task_id,
+                    client_fork_id,
+                    task_id,
+                    parent_cursor,
+                    parent_tree_hash,
+                    now,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="task_created",
+                payload={"state": TaskState.PAUSED.value, "forked": True},
+                created_at=now,
+            )
+            self._append_event_locked(
+                connection,
+                task_id=parent_task_id,
+                event_type="task_forked",
+                payload={"child_task_id": task_id, "cursor": parent_cursor},
+                created_at=now,
+            )
+        return self.get_task(task_id)
+
     def list_queued_tasks(self, *, limit: int = 100) -> list[TaskRecord]:
         if not 1 <= limit <= 1000:
             raise ValueError("invalid queued task limit")
@@ -455,7 +567,7 @@ class CodingWorkerStore:
         *,
         turn_id: str,
         result_state: str,
-        turn_checkpoint: dict[str, str] | None = None,
+        turn_checkpoint: dict[str, Any] | None = None,
     ) -> list[WorkerSessionLedgerEntry]:
         if result_state not in {
             "completed",
@@ -533,6 +645,12 @@ class CodingWorkerStore:
                     before_tree_oid=turn_checkpoint["before_tree_oid"],
                     after_tree_hash=turn_checkpoint["after_tree_hash"],
                     after_tree_oid=turn_checkpoint["after_tree_oid"],
+                    before_public_context=turn_checkpoint.get(
+                        "before_public_context", {}
+                    ),
+                    after_public_context=turn_checkpoint.get(
+                        "after_public_context", {}
+                    ),
                     ledger_sequence=finished.sequence,
                     created_at=now,
                 )
@@ -1335,6 +1453,8 @@ class CodingWorkerStore:
         after_tree_hash: str,
         after_tree_oid: str,
         ledger_sequence: int,
+        before_public_context: dict[str, Any] | None = None,
+        after_public_context: dict[str, Any] | None = None,
     ) -> WorkerTurnCheckpoint:
         now = self._now()
         checkpoint_id = f"turn_checkpoint_{uuid.uuid4().hex}"
@@ -1346,7 +1466,7 @@ class CodingWorkerStore:
                 (task_id, turn_id),
             ).fetchone()
             if existing is not None:
-                checkpoint = self._turn_checkpoint(existing)
+                checkpoint = self._turn_checkpoint(existing, connection)
                 if (
                     checkpoint.before_tree_hash != before_tree_hash
                     or checkpoint.before_tree_oid != before_tree_oid
@@ -1369,6 +1489,8 @@ class CodingWorkerStore:
                 after_tree_oid=after_tree_oid,
                 ledger_sequence=ledger_sequence,
                 created_at=now,
+                before_public_context=before_public_context,
+                after_public_context=after_public_context,
                 checkpoint_id=checkpoint_id,
             )
         return created
@@ -1383,10 +1505,13 @@ class CodingWorkerStore:
             state = connection.execute(
                 "SELECT * FROM worker_turn_state WHERE task_id = ?", (task_id,)
             ).fetchone()
+            checkpoints = tuple(
+                self._turn_checkpoint(row, connection) for row in rows
+            )
         return WorkerTurnHistory(
             task_id=task_id,
             cursor=int(state["cursor"]) if state is not None else len(rows),
-            checkpoints=tuple(self._turn_checkpoint(row) for row in rows),
+            checkpoints=checkpoints,
             pending_action=(
                 str(state["pending_action"])
                 if state is not None and state["pending_action"] is not None
@@ -1426,7 +1551,7 @@ class CodingWorkerStore:
                     raise WorkerStoreError(
                         "Turn navigation data is corrupt.", code="worker_data_corrupt"
                     )
-                checkpoint = self._turn_checkpoint(row)
+                checkpoint = self._turn_checkpoint(row, connection)
             else:
                 ordinal = cursor if action == "undo" else cursor + 1
                 if (action == "undo" and cursor == 0) or (
@@ -1451,7 +1576,7 @@ class CodingWorkerStore:
                     raise WorkerStoreError(
                         "Turn history is corrupt.", code="worker_data_corrupt"
                     )
-                checkpoint = self._turn_checkpoint(row)
+                checkpoint = self._turn_checkpoint(row, connection)
                 connection.execute(
                     """
                     UPDATE worker_turn_state
@@ -1534,6 +1659,8 @@ class CodingWorkerStore:
         after_tree_oid: str,
         ledger_sequence: int,
         created_at: float,
+        before_public_context: dict[str, Any] | None = None,
+        after_public_context: dict[str, Any] | None = None,
         checkpoint_id: str | None = None,
     ) -> WorkerTurnCheckpoint:
         existing = connection.execute(
@@ -1541,7 +1668,7 @@ class CodingWorkerStore:
             (task_id, turn_id),
         ).fetchone()
         if existing is not None:
-            checkpoint = self._turn_checkpoint(existing)
+            checkpoint = self._turn_checkpoint(existing, connection)
             if (
                 checkpoint.before_tree_hash != before_tree_hash
                 or checkpoint.before_tree_oid != before_tree_oid
@@ -1598,6 +1725,18 @@ class CodingWorkerStore:
         )
         connection.execute(
             """
+            INSERT INTO worker_turn_contexts (
+                checkpoint_id, before_context_ciphertext, after_context_ciphertext
+            ) VALUES (?, ?, ?)
+            """,
+            (
+                identifier,
+                self._codec.encrypt(before_public_context or {}),
+                self._codec.encrypt(after_public_context or {}),
+            ),
+        )
+        connection.execute(
+            """
             INSERT INTO worker_turn_state (task_id, cursor, updated_at)
             VALUES (?, ?, ?)
             ON CONFLICT(task_id) DO UPDATE SET
@@ -1627,6 +1766,8 @@ class CodingWorkerStore:
             after_tree_hash=after_tree_hash,
             after_tree_oid=after_tree_oid,
             ledger_sequence=ledger_sequence,
+            before_public_context=before_public_context or {},
+            after_public_context=after_public_context or {},
             created_at=created_at,
         )
 
@@ -2086,6 +2227,12 @@ class CodingWorkerStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_worker_turn_checkpoints_task
                     ON worker_turn_checkpoints(task_id, ordinal);
+                CREATE TABLE IF NOT EXISTS worker_turn_contexts (
+                    checkpoint_id TEXT PRIMARY KEY,
+                    before_context_ciphertext TEXT NOT NULL,
+                    after_context_ciphertext TEXT NOT NULL,
+                    FOREIGN KEY(checkpoint_id) REFERENCES worker_turn_checkpoints(checkpoint_id) ON DELETE CASCADE
+                );
                 CREATE TABLE IF NOT EXISTS worker_turn_state (
                     task_id TEXT PRIMARY KEY,
                     cursor INTEGER NOT NULL DEFAULT 0,
@@ -2095,6 +2242,19 @@ class CodingWorkerStore:
                     FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE,
                     FOREIGN KEY(pending_checkpoint_id) REFERENCES worker_turn_checkpoints(checkpoint_id)
                 );
+                CREATE TABLE IF NOT EXISTS worker_task_forks (
+                    parent_task_id TEXT NOT NULL,
+                    client_fork_id TEXT NOT NULL,
+                    child_task_id TEXT NOT NULL UNIQUE,
+                    parent_cursor INTEGER NOT NULL,
+                    parent_tree_hash TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY(parent_task_id, client_fork_id),
+                    FOREIGN KEY(parent_task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE,
+                    FOREIGN KEY(child_task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_worker_task_forks_parent
+                    ON worker_task_forks(parent_task_id, created_at);
                 """
             )
 
@@ -2427,9 +2587,23 @@ class CodingWorkerStore:
             )
         return self._turn_checkpoint(row)
 
-    @staticmethod
-    def _turn_checkpoint(row: sqlite3.Row) -> WorkerTurnCheckpoint:
+    def _turn_checkpoint(
+        self,
+        row: sqlite3.Row,
+        connection: sqlite3.Connection | None = None,
+    ) -> WorkerTurnCheckpoint:
         try:
+            if connection is None:
+                with self._connect() as opened:
+                    context = opened.execute(
+                        "SELECT * FROM worker_turn_contexts WHERE checkpoint_id = ?",
+                        (row["checkpoint_id"],),
+                    ).fetchone()
+            else:
+                context = connection.execute(
+                    "SELECT * FROM worker_turn_contexts WHERE checkpoint_id = ?",
+                    (row["checkpoint_id"],),
+                ).fetchone()
             return WorkerTurnCheckpoint(
                 checkpoint_id=str(row["checkpoint_id"]),
                 task_id=str(row["task_id"]),
@@ -2440,9 +2614,19 @@ class CodingWorkerStore:
                 after_tree_hash=str(row["after_tree_hash"]),
                 after_tree_oid=str(row["after_tree_oid"]),
                 ledger_sequence=int(row["ledger_sequence"]),
+                before_public_context=(
+                    self._decrypt_dict(context["before_context_ciphertext"])
+                    if context is not None
+                    else {}
+                ),
+                after_public_context=(
+                    self._decrypt_dict(context["after_context_ciphertext"])
+                    if context is not None
+                    else {}
+                ),
                 created_at=float(row["created_at"]),
             )
-        except ValueError as exc:
+        except (KeyError, TypeError, WorkerCryptoError, ValueError) as exc:
             raise WorkerStoreError(
                 "Worker turn checkpoint data is corrupt.", code="worker_data_corrupt"
             ) from exc
