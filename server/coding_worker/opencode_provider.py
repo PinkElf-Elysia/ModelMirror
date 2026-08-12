@@ -30,6 +30,7 @@ from .provider import (
     ProviderSession,
     PROVIDER_TOOL_NAMES,
     ProviderUsage,
+    provider_message_with_repository_instructions,
 )
 
 
@@ -208,7 +209,14 @@ class OpenCodeProvider(CodingAgentProvider):
                     },
                     "agent": "modelmirror-worker",
                     "tools": self._prompt_tools(request.tool_allowlist),
-                    "parts": [{"type": "text", "text": text}],
+                    "parts": [
+                        {
+                            "type": "text",
+                            "text": provider_message_with_repository_instructions(
+                                request, text
+                            ),
+                        }
+                    ],
                 },
             )
             prompt.raise_for_status()

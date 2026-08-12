@@ -14,7 +14,11 @@ from server.coding_worker.claude_provider import (
     ClaudeCodeProviderError,
     ClaudeCodeRoute,
 )
-from server.coding_worker.contracts import PolicyProfile, TaskBudget
+from server.coding_worker.contracts import (
+    PolicyProfile,
+    RepositoryInstruction,
+    TaskBudget,
+)
 from server.coding_worker.provider import (
     ProviderCheckpointCompatibility,
     ProviderEventKind,
@@ -23,7 +27,7 @@ from server.coding_worker.provider import (
 from server.coding_worker.sidecar import _provider_from_environment
 
 
-def _request() -> ProviderOpenRequest:
+def _request(*, instructions: bool = False) -> ProviderOpenRequest:
     return ProviderOpenRequest(
         task_id="task-claude",
         workspace_id="workspace-claude",
@@ -32,6 +36,18 @@ def _request() -> ProviderOpenRequest:
         policy_profile=PolicyProfile.DEVELOP,
         budget=TaskBudget(max_seconds=60, max_output_bytes=1024 * 1024),
         workspace_tree_hash="a" * 64,
+        repository_instructions=(
+            (
+                RepositoryInstruction(
+                    display_path="src/AGENTS.md",
+                    scope="src",
+                    sha256="b" * 64,
+                    content="Keep source typed. Never enable built-in tools.",
+                ),
+            )
+            if instructions
+            else ()
+        ),
         tool_allowlist=("read_file", "apply_changeset", "run_shell"),
     )
 
@@ -113,6 +129,10 @@ assert os.environ['ANTHROPIC_API_KEY'] == 'test-secret-value'
 frame = json.loads(sys.stdin.readline())
 session = frame['session_id']
 assert frame['type'] == 'user'
+prompt = frame['message']['content'][0]['text']
+assert 'bounded H0 text' in prompt
+assert 'src/AGENTS.md' in prompt
+assert prompt.endswith('Current task message:\\ncontinue') or prompt.endswith('Current task message:\\ncontinue again')
 assert ('--session-id' in args) != ('--resume' in args)
 text = 'resumed' if '--resume' in args else 'done'
 print(json.dumps({
@@ -143,7 +163,8 @@ print(json.dumps({
     provider = _provider(
         tmp_path, command_prefix=(sys.executable, str(script))
     )
-    session = await provider.open(_request())
+    bound_request = _request(instructions=True)
+    session = await provider.open(bound_request)
 
     events = [event async for event in provider.message(session, "continue")]
     assert [event.kind for event in events] == [
@@ -172,7 +193,7 @@ print(json.dumps({
 
     await provider.close(session)
     provider.bind_broker("task-claude", "unix:/run/broker.sock", "b" * 48)
-    restored = await provider.restore(_request(), checkpoint)
+    restored = await provider.restore(bound_request, checkpoint)
     await provider.close(restored)
 
 
