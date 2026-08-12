@@ -1,9 +1,9 @@
-﻿// Merged with OpenRouter model catalog on 2026-08-12T05:13:30.761Z.
+﻿// Merged with OpenRouter model catalog on 2026-08-12T06:32:56.587Z.
 // Refreshed with entries published through 2026-08-11T22:07:24.000Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
-// Full OpenRouter catalog audit refresh: 2026-08-12. Batch route variants are
-// stored separately and excluded from snapshot totals; the xAI image profile
-// keeps the dedicated image-model contract.
+// Full OpenRouter catalog audit refresh: 2026-08-12. Batch catalog entries are
+// attached to their canonical models as serving variants and excluded from
+// snapshot totals; the xAI image profile keeps the dedicated image-model contract.
 // Image source: https://openrouter.ai/api/v1/images/models
 // Prices are stored as USD per 1M tokens and CNY per 1M tokens.
 export const USD_TO_CNY = 6.77;
@@ -71,15 +71,39 @@ export type CatalogStatus =
   | "live"
   | "curated"
   | "uncertain"
-  | "route_variant"
   | "expired";
 export type Category = string;
 export type SupportedParameter = string;
 export type PricingTier = "free" | "dynamic" | "low" | "medium" | "high";
 export type PricingStatus = "fixed" | "free" | "dynamic";
+export type ModelServingVariantType = "realtime" | "batch";
+export type ModelServingEndpoint =
+  | "synchronous"
+  | "/v1/chat/completions"
+  | "/v1/embeddings";
+
+export interface ModelServingVariant {
+  type: ModelServingVariantType;
+  catalog_id: string;
+  request_model_id: string;
+  endpoint: ModelServingEndpoint;
+  pricing: {
+    input: number;
+    output: number;
+  };
+  price_cny: {
+    input: number;
+    output: number;
+  };
+  input_modalities: InputModality[];
+  output_modalities: OutputModality[];
+  completion_window?: "24h";
+  data_retention_days?: number;
+}
 
 export interface Model {
   id: string;
+  canonical_slug: string;
   name: string;
   provider: Provider;
   model_author: string;
@@ -112,6 +136,7 @@ export interface Model {
   catalog_status: CatalogStatus;
   /** True only for records that belong to the OpenRouter model snapshot. */
   catalog_counted: boolean;
+  serving_variants: ModelServingVariant[];
   active: boolean;
   tags: string[];
   note?: string;
@@ -18309,7 +18334,7 @@ const rawCatalogModels: RawCatalogModel[] = [
   }
 ];
 
-const rawRouteVariantModels: RawCatalogModel[] = [
+const rawBatchServingVariants: RawCatalogModel[] = [
   {
     "id": "anthropic/claude-opus-5:batch",
     "canonical_slug": "anthropic/claude-opus-5-20260723",
@@ -20886,8 +20911,19 @@ function enrichModel(
   const job_capabilities = inferJobCapabilities(raw, capabilities, operations);
   const primary_operation = primaryOperation(operations);
   const interaction = interactionForOperation(primary_operation, raw.id);
+  const realtimeVariant: ModelServingVariant = {
+    type: "realtime",
+    catalog_id: raw.id,
+    request_model_id: raw.id,
+    endpoint: "synchronous",
+    pricing: raw.pricing,
+    price_cny,
+    input_modalities: raw.input_modalities,
+    output_modalities: raw.output_modalities,
+  };
   return {
     id: raw.id,
+    canonical_slug: raw.canonical_slug,
     name: raw.name,
     provider: normalizeProvider(raw.model_author),
     model_author: raw.model_author,
@@ -20919,6 +20955,7 @@ function enrichModel(
     in_region_routing: false,
     catalog_status,
     catalog_counted: options.catalogCounted ?? true,
+    serving_variants: [realtimeVariant],
     active,
     tags: inferTags(
       raw,
@@ -20933,6 +20970,7 @@ function enrichModel(
 
 const worldModelEntry: Model = {
   id: "worldlabs/marble",
+  canonical_slug: "worldlabs/marble",
   name: "World Labs Marble",
   provider: "World Labs",
   model_author: "World Labs",
@@ -20959,6 +20997,7 @@ const worldModelEntry: Model = {
   in_region_routing: false,
   catalog_status: "curated",
   catalog_counted: false,
+  serving_variants: [],
   active: true,
   tags: ["3D", "空间智能", "新"],
   note: "真实 Marble 生成和 PLY 导出可能消耗 World Labs Credits。",
@@ -21014,6 +21053,7 @@ function catalogSort(left: RawCatalogModel, right: RawCatalogModel) {
 const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
   {
     id: "gpt-4o-mini-tts",
+    canonical_slug: "openai/gpt-4o-mini-tts",
     name: "OpenAI: GPT-4o Mini TTS",
     provider: "OpenAI",
     model_author: "OpenAI",
@@ -21040,12 +21080,14 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
     in_region_routing: false,
     catalog_status: "curated",
     catalog_counted: false,
+    serving_variants: [],
     active: true,
     tags: ["新", "音频"],
     note: "需要配置 OpenAI 音频连接；声音克隆仍未开放。",
   },
   {
     id: "gpt-realtime-2.1-mini",
+    canonical_slug: "openai/gpt-realtime-2.1-mini",
     name: "OpenAI: GPT Realtime 2.1 Mini",
     provider: "OpenAI",
     model_author: "OpenAI",
@@ -21072,12 +21114,14 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
     in_region_routing: false,
     catalog_status: "curated",
     catalog_counted: false,
+    serving_variants: [],
     active: true,
     tags: ["新", "音频", "热门"],
     note: "需要配置 OpenAI 音频与实时语音连接。",
   },
   {
     id: "gpt-realtime-2.1",
+    canonical_slug: "openai/gpt-realtime-2.1",
     name: "OpenAI: GPT Realtime 2.1",
     provider: "OpenAI",
     model_author: "OpenAI",
@@ -21104,24 +21148,53 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
     in_region_routing: false,
     catalog_status: "curated",
     catalog_counted: false,
+    serving_variants: [],
     active: true,
     tags: ["新", "音频", "热门"],
     note: "需要配置 OpenAI 音频与实时语音连接。",
   },
 ];
 
+function batchServingVariant(raw: RawCatalogModel): ModelServingVariant {
+  const requestModelId = raw.id.replace(/:batch$/, "");
+  const outputIsEmbedding = raw.output_modalities.includes("embeddings");
+  return {
+    type: "batch",
+    catalog_id: raw.id,
+    request_model_id: requestModelId,
+    endpoint: outputIsEmbedding ? "/v1/embeddings" : "/v1/chat/completions",
+    pricing: raw.pricing,
+    price_cny: {
+      input: toCny(raw.pricing.input),
+      output: toCny(raw.pricing.output),
+    },
+    // OpenRouter currently validates Batch inputs independently of the model
+    // catalog's inherited multimodal architecture. Batch input is text-only.
+    input_modalities: ["text"],
+    output_modalities: outputIsEmbedding ? ["embeddings"] : ["text"],
+    completion_window: "24h",
+    data_retention_days: 30,
+  };
+}
+
+const batchVariantsByModelId = new Map<string, ModelServingVariant[]>();
+for (const raw of rawBatchServingVariants) {
+  const variant = batchServingVariant(raw);
+  const variants = batchVariantsByModelId.get(variant.request_model_id) ?? [];
+  variants.push(variant);
+  batchVariantsByModelId.set(variant.request_model_id, variants);
+}
+
 const sortedCatalogModels = [...rawCatalogModels]
   .sort(catalogSort)
-  .map((raw) => enrichModel(raw));
-
-const routeVariantModels = rawRouteVariantModels.map((raw) =>
-  enrichModel(raw, {
-    catalogStatus: "route_variant",
-    catalogCounted: false,
-    note:
-      "OpenRouter 路由变体：可以进入对应入口，但不计入模型快照数量；独立界面与分类等待后续审计。",
-  }),
-);
+  .map((raw) => enrichModel(raw))
+  .map((model) => ({
+    ...model,
+    serving_variants: [
+      ...model.serving_variants,
+      ...(batchVariantsByModelId.get(model.id) ?? []),
+    ],
+  }));
 
 const SEEDANCE_2_5_MODEL_ID = "bytedance/seedance-2.5";
 const MID_CATALOG_MODEL_IDS = [
@@ -21228,12 +21301,10 @@ const assembledModels: Model[] = [
     LATEST_REFRESH_MIN_INDEX,
   ),
   worldModelEntry,
-  ...routeVariantModels,
 ];
 
 export const models: Model[] = assembledModels.sort((left, right) => {
   const lifecycleRank = (model: Model) => {
-    if (model.catalog_status === "route_variant") return 3;
     if (model.catalog_status === "expired") return 2;
     if (model.catalog_status === "uncertain") return 1;
     return 0;

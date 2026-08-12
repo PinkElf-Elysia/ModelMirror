@@ -3,8 +3,11 @@
   "reviewed_at": "2026-08-12",
   "catalog": {
     "snapshot_total": 527,
-    "route_variant_total": 62,
-    "route_variants_counted_in_snapshot": false,
+    "serving_variant_total": 62,
+    "serving_variants_by_type": {
+      "batch": 62
+    },
+    "serving_variants_counted_in_snapshot": false,
     "live": 470,
     "uncertain": 53,
     "expired": 4,

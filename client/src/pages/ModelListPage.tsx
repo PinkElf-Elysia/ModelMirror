@@ -614,6 +614,13 @@ export default function ModelListPage() {
   const onsiteModels = models.filter(
     (model) => model.catalog_counted,
   );
+  const batchServingVariantCount = onsiteModels.reduce(
+    (count, model) =>
+      count +
+      model.serving_variants.filter((variant) => variant.type === "batch")
+        .length,
+    0,
+  );
   const browseableModels = models.filter(
     (model) => model.catalog_status !== "expired",
   );
@@ -735,7 +742,7 @@ export default function ModelListPage() {
                 </span>
               </div>
               <p className="mt-3 text-xs leading-5 text-slate-500">
-                不含列表底部的路由变体。
+                {batchServingVariantCount} 个 Batch 服务档位已并入对应模型，不重复计数。
               </p>
               <div className="mt-4 grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 text-center text-xs">
                 <div className="rounded-lg bg-white/[0.055] px-2 py-3">
