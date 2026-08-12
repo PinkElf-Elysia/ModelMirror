@@ -8,7 +8,9 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 
 from .contracts import (
+    ApprovalStatus,
     EvidenceStatus,
+    OperationState,
     Origin,
     QuestionStatus,
     TaskCreateRequest,
@@ -20,6 +22,7 @@ from .contracts import (
     WorkerQuestion,
     WorkerQuestionAnswer,
     WorkerQuestionOption,
+    WorkerTurnHistory,
     SessionLedgerKind,
 )
 from .evidence import HarnessRunner
@@ -33,8 +36,9 @@ from .provider import (
     provider_tools_for_policy,
 )
 from .store import CodingWorkerStore, WorkerConflictError
+from .changeset import ChangesetError
 from .tool_broker import ToolBroker, ToolBrokerError
-from .workspace import WorkspaceBroker, WorkspaceError
+from .workspace import WorkspaceBroker, WorkspaceError, WorkspaceSnapshot
 
 
 class CodingWorkerService:
@@ -212,6 +216,192 @@ class CodingWorkerService:
         resolved = self.store.resolve_question(task_id, question_id, answer)
         self._wake.set()
         return resolved
+
+    async def navigate_turn(self, task_id: str, action: str) -> WorkerTurnHistory:
+        task = await self._require_session_control_safe(task_id)
+        assert task.workspace_id is not None
+        checkpoint, cursor, source_hash, target_hash, target_oid = (
+            self.store.begin_turn_navigation(task_id, action)
+        )
+        current_hash = self.workspace_broker.current_tree_hash(task.workspace_id)
+        operation_id = self._turn_navigation_operation_id(
+            task_id, checkpoint.checkpoint_id, action
+        )
+        changesets = self._require_changesets()
+        if changesets.has_transaction(
+            workspace_id=task.workspace_id, operation_id=operation_id
+        ):
+            try:
+                outcome = changesets.reconcile(
+                    task_id=task_id,
+                    workspace_id=task.workspace_id,
+                    operation_id=operation_id,
+                )
+            except ChangesetError as exc:
+                if exc.code != "changeset_rolled_back":
+                    raise WorkerConflictError(str(exc), code=exc.code) from exc
+            else:
+                if outcome.result_tree_hash != target_hash:
+                    raise WorkerConflictError(
+                        "Turn navigation receipt changed.",
+                        code="turn_navigation_conflict",
+                    )
+                changesets.finalize(
+                    task_id=task_id,
+                    workspace_id=task.workspace_id,
+                    operation_id=operation_id,
+                )
+                current_hash = target_hash
+        if current_hash == source_hash:
+            try:
+                outcome = changesets.restore_snapshot(
+                    task_id=task_id,
+                    workspace_id=task.workspace_id,
+                    operation_id=operation_id,
+                    expected_tree_hash=source_hash,
+                    snapshot=WorkspaceSnapshot(
+                        tree_hash=target_hash, tree_oid=target_oid
+                    ),
+                )
+                if outcome.result_tree_hash != target_hash:
+                    raise WorkerConflictError(
+                        "Turn navigation produced another tree.",
+                        code="turn_navigation_conflict",
+                    )
+                changesets.finalize(
+                    task_id=task_id,
+                    workspace_id=task.workspace_id,
+                    operation_id=operation_id,
+                )
+            except ChangesetError as exc:
+                raise WorkerConflictError(str(exc), code=exc.code) from exc
+        elif current_hash != target_hash:
+            raise WorkerConflictError(
+                "Workspace changed outside the selected turn boundary.",
+                code="workspace_tree_changed",
+            )
+        history = self.store.finish_turn_navigation(
+            task_id,
+            action=action,
+            checkpoint_id=checkpoint.checkpoint_id,
+            target_cursor=cursor,
+            workspace_tree_hash=target_hash,
+        )
+        current = self.store.get_task(task_id)
+        if current.state is not TaskState.PAUSED:
+            self.store.transition(
+                task_id,
+                TaskState.PAUSED,
+                reason=f"turn_{action}",
+                expected_state=current.state,
+            )
+        return history
+
+    async def _require_session_control_safe(self, task_id: str) -> TaskRecord:
+        task = self.store.get_task(task_id)
+        if task.workspace_id is None or task.state not in {
+            TaskState.PAUSED,
+            TaskState.INTERRUPTED,
+            TaskState.COMPLETED,
+            TaskState.BLOCKED,
+            TaskState.FAILED,
+            TaskState.BUDGET_LIMITED,
+        }:
+            raise WorkerConflictError(
+                "Task is not at a safe session boundary.",
+                code="session_control_unavailable",
+            )
+        active = self._active.get(task_id)
+        if active is not None and not active.done():
+            raise WorkerConflictError(
+                "Task still owns an active runner.", code="session_control_busy"
+            )
+        operations = self.store.list_operations(task_id)
+        if any(
+            item.state in {
+                OperationState.PREPARED,
+                OperationState.RUNNING,
+                OperationState.UNKNOWN,
+            }
+            for item in operations
+        ):
+            raise WorkerConflictError(
+                "Task has an unsettled tool operation.", code="session_control_busy"
+            )
+        if any(
+            item.status is ApprovalStatus.PENDING
+            for item in self.store.list_approvals(task_id)
+        ) or self.store.has_active_lease(task_id):
+            raise WorkerConflictError(
+                "Task has a pending approval.", code="session_control_busy"
+            )
+        if self.tool_broker is not None and self.tool_broker.process_manager is not None:
+            if any(
+                item.state == "running"
+                for item in self.tool_broker.process_manager.list(task_id)
+            ):
+                raise WorkerConflictError(
+                    "Task has a running service.", code="session_control_busy"
+                )
+        if self.tool_broker is not None and self.tool_broker.executor is not None:
+            stopped_services = {
+                str(operation.result["service_id"])
+                for operation in operations
+                if operation.tool_name == "stop_service"
+                and operation.state is OperationState.COMPLETED
+                and isinstance(operation.result, dict)
+                and isinstance(operation.result.get("service_id"), str)
+            }
+            for operation in operations:
+                if (
+                    operation.tool_name != "start_service"
+                    or operation.state is not OperationState.COMPLETED
+                    or not isinstance(operation.result, dict)
+                ):
+                    continue
+                service_id = operation.result.get("service_id")
+                if not isinstance(service_id, str) or not service_id:
+                    raise WorkerConflictError(
+                        "Task service receipt is incomplete.",
+                        code="session_control_busy",
+                    )
+                if service_id in stopped_services:
+                    continue
+                try:
+                    status = await self.tool_broker.executor.service_status(
+                        task_id=task_id,
+                        workspace_id=task.workspace_id,
+                        service_id=service_id,
+                    )
+                except Exception as exc:
+                    if getattr(exc, "code", None) == "service_not_found":
+                        continue
+                    raise WorkerConflictError(
+                        "Task service state is unknown.",
+                        code="session_control_busy",
+                    ) from exc
+                if status.get("state") == "running":
+                    raise WorkerConflictError(
+                        "Task has a running service.", code="session_control_busy"
+                    )
+        return task
+
+    def _require_changesets(self):
+        if self.tool_broker is None:
+            raise WorkerConflictError(
+                "Session controls require the Tool Broker.",
+                code="session_control_unavailable",
+            )
+        return self.tool_broker.changesets
+
+    @staticmethod
+    def _turn_navigation_operation_id(
+        task_id: str, checkpoint_id: str, action: str
+    ) -> str:
+        suffix = hashlib.sha256(
+            f"{task_id}\0{checkpoint_id}\0{action}".encode("utf-8")
+        ).hexdigest()[:32]
+        return f"operation_{suffix}"
 
     def settle_approval_state(self, task_id: str) -> TaskRecord:
         """Leave a decided approval runnable only while its original runner exists."""
@@ -649,6 +839,12 @@ class CodingWorkerService:
                 )
                 return
             turns += 1
+            workspace_id = self.store.get_task(task_id).workspace_id
+            turn_before = (
+                self.workspace_broker.capture_snapshot(workspace_id)
+                if workspace_id is not None
+                else None
+            )
             turn_id = f"turn_{uuid.uuid4().hex}"
             self.store.append_session_ledger(
                 task_id,
@@ -699,9 +895,23 @@ class CodingWorkerService:
                     task_id, turn_id=turn_id, result_state="interrupted"
                 )
                 raise
-            self.store.finish_session_turn(
-                task_id, turn_id=turn_id, result_state=outcome
-            )
+            if outcome == "completed" and workspace_id is not None and turn_before is not None:
+                turn_after = self.workspace_broker.capture_snapshot(workspace_id)
+                self.store.finish_session_turn(
+                    task_id,
+                    turn_id=turn_id,
+                    result_state=outcome,
+                    turn_checkpoint={
+                        "before_tree_hash": turn_before.tree_hash,
+                        "before_tree_oid": turn_before.tree_oid,
+                        "after_tree_hash": turn_after.tree_hash,
+                        "after_tree_oid": turn_after.tree_oid,
+                    },
+                )
+            else:
+                self.store.finish_session_turn(
+                    task_id, turn_id=turn_id, result_state=outcome
+                )
             if outcome == "waiting_input":
                 if question_data is None:
                     raise WorkerConflictError(
@@ -1187,3 +1397,4 @@ class CodingWorkerService:
         if missing:
             lines.append("\nMissing required artifacts: " + ", ".join(missing))
         return "\n".join(lines)[:16_384]
+    OperationState,

@@ -122,13 +122,19 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
         }
     ),
     TaskState.INTERRUPTED: frozenset(
-        {TaskState.QUEUED, TaskState.CANCELLED, TaskState.EXPIRED}
+        {TaskState.QUEUED, TaskState.PAUSED, TaskState.CANCELLED, TaskState.EXPIRED}
     ),
-    TaskState.COMPLETED: frozenset({TaskState.EXPIRED}),
-    TaskState.BLOCKED: frozenset({TaskState.QUEUED, TaskState.CANCELLED, TaskState.EXPIRED}),
-    TaskState.FAILED: frozenset({TaskState.QUEUED, TaskState.CANCELLED, TaskState.EXPIRED}),
+    TaskState.COMPLETED: frozenset({TaskState.PAUSED, TaskState.EXPIRED}),
+    TaskState.BLOCKED: frozenset(
+        {TaskState.QUEUED, TaskState.PAUSED, TaskState.CANCELLED, TaskState.EXPIRED}
+    ),
+    TaskState.FAILED: frozenset(
+        {TaskState.QUEUED, TaskState.PAUSED, TaskState.CANCELLED, TaskState.EXPIRED}
+    ),
     TaskState.CANCELLED: frozenset({TaskState.EXPIRED}),
-    TaskState.BUDGET_LIMITED: frozenset({TaskState.QUEUED, TaskState.CANCELLED, TaskState.EXPIRED}),
+    TaskState.BUDGET_LIMITED: frozenset(
+        {TaskState.QUEUED, TaskState.PAUSED, TaskState.CANCELLED, TaskState.EXPIRED}
+    ),
     TaskState.EXPIRED: frozenset(),
 }
 

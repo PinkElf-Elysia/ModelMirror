@@ -450,7 +450,12 @@ class CodingWorkerStore:
             )
 
     def finish_session_turn(
-        self, task_id: str, *, turn_id: str, result_state: str
+        self,
+        task_id: str,
+        *,
+        turn_id: str,
+        result_state: str,
+        turn_checkpoint: dict[str, str] | None = None,
     ) -> list[WorkerSessionLedgerEntry]:
         if result_state not in {
             "completed",
@@ -460,6 +465,8 @@ class CodingWorkerStore:
             "waiting_input",
         }:
             raise ValueError("invalid session turn result")
+        if turn_checkpoint is not None and result_state != "completed":
+            raise ValueError("turn checkpoint is only valid for a completed turn")
         now = self._now()
         appended: list[WorkerSessionLedgerEntry] = []
         with self._lock, self._connect() as connection:
@@ -507,17 +514,28 @@ class CodingWorkerStore:
                         created_at=now,
                     )
                 )
-            appended.append(
-                self._append_session_ledger_locked(
+            finished = self._append_session_ledger_locked(
+                connection,
+                task_id=task_id,
+                kind=SessionLedgerKind.TURN_FINISHED,
+                turn_id=turn_id,
+                payload={"result_state": result_state},
+                operation_id=None,
+                created_at=now,
+            )
+            appended.append(finished)
+            if turn_checkpoint is not None:
+                self._insert_turn_checkpoint_locked(
                     connection,
                     task_id=task_id,
-                    kind=SessionLedgerKind.TURN_FINISHED,
                     turn_id=turn_id,
-                    payload={"result_state": result_state},
-                    operation_id=None,
+                    before_tree_hash=turn_checkpoint["before_tree_hash"],
+                    before_tree_oid=turn_checkpoint["before_tree_oid"],
+                    after_tree_hash=turn_checkpoint["after_tree_hash"],
+                    after_tree_oid=turn_checkpoint["after_tree_oid"],
+                    ledger_sequence=finished.sequence,
                     created_at=now,
                 )
-            )
         return appended
 
     def list_session_ledger(
@@ -1018,6 +1036,21 @@ class CodingWorkerStore:
                 operation_limit=remaining + 1,
             )
 
+    def has_active_lease(self, task_id: str) -> bool:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            return (
+                connection.execute(
+                    """
+                    SELECT 1 FROM worker_leases
+                    WHERE task_id = ? AND expires_at > ? AND remaining_operations > 0
+                    LIMIT 1
+                    """,
+                    (task_id, self._now()),
+                ).fetchone()
+                is not None
+            )
+
     def create_operation(
         self,
         *,
@@ -1086,6 +1119,15 @@ class CodingWorkerStore:
         if row is None:
             raise WorkerNotFoundError("Tool operation was not found.", code="operation_not_found")
         return self._operation(row)
+
+    def list_operations(self, task_id: str) -> list[WorkerOperation]:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            rows = connection.execute(
+                "SELECT * FROM worker_operations WHERE task_id = ? ORDER BY created_at, operation_id",
+                (task_id,),
+            ).fetchall()
+        return [self._operation(row) for row in rows]
 
     def transition_operation(
         self,
@@ -1317,70 +1359,19 @@ class CodingWorkerStore:
                         code="turn_checkpoint_conflict",
                     )
                 return checkpoint
-            state = connection.execute(
-                "SELECT * FROM worker_turn_state WHERE task_id = ?", (task_id,)
-            ).fetchone()
-            if state is not None and state["pending_action"] is not None:
-                raise WorkerConflictError(
-                    "Turn navigation is not settled.", code="turn_navigation_pending"
-                )
-            maximum = int(
-                connection.execute(
-                    "SELECT COALESCE(MAX(ordinal), 0) FROM worker_turn_checkpoints WHERE task_id = ?",
-                    (task_id,),
-                ).fetchone()[0]
-            )
-            cursor = int(state["cursor"]) if state is not None else maximum
-            if cursor < maximum:
-                connection.execute(
-                    "DELETE FROM worker_turn_checkpoints WHERE task_id = ? AND ordinal > ?",
-                    (task_id, cursor),
-                )
-                maximum = cursor
-            ordinal = maximum + 1
-            connection.execute(
-                """
-                INSERT INTO worker_turn_checkpoints (
-                    checkpoint_id, task_id, ordinal, turn_id,
-                    before_tree_hash, before_tree_oid, after_tree_hash,
-                    after_tree_oid, ledger_sequence, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    checkpoint_id,
-                    task_id,
-                    ordinal,
-                    turn_id,
-                    before_tree_hash,
-                    before_tree_oid,
-                    after_tree_hash,
-                    after_tree_oid,
-                    ledger_sequence,
-                    now,
-                ),
-            )
-            connection.execute(
-                """
-                INSERT INTO worker_turn_state (task_id, cursor, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(task_id) DO UPDATE SET
-                    cursor = excluded.cursor, pending_action = NULL,
-                    pending_checkpoint_id = NULL, updated_at = excluded.updated_at
-                """,
-                (task_id, ordinal, now),
-            )
-            self._append_event_locked(
+            created = self._insert_turn_checkpoint_locked(
                 connection,
                 task_id=task_id,
-                event_type="turn_checkpoint_created",
-                payload={
-                    "checkpoint_id": checkpoint_id,
-                    "ordinal": ordinal,
-                    "workspace_tree_hash": after_tree_hash,
-                },
+                turn_id=turn_id,
+                before_tree_hash=before_tree_hash,
+                before_tree_oid=before_tree_oid,
+                after_tree_hash=after_tree_hash,
+                after_tree_oid=after_tree_oid,
+                ledger_sequence=ledger_sequence,
                 created_at=now,
+                checkpoint_id=checkpoint_id,
             )
-        return self._turn_checkpoint_by_id(checkpoint_id)
+        return created
 
     def turn_history(self, task_id: str) -> WorkerTurnHistory:
         with self._connect() as connection:
@@ -1511,6 +1502,13 @@ class CodingWorkerStore:
                 """,
                 (target_cursor, now, task_id),
             )
+            connection.execute(
+                "DELETE FROM worker_checkpoints WHERE task_id = ?", (task_id,)
+            )
+            connection.execute(
+                "UPDATE worker_tasks SET provider_session_ciphertext = NULL WHERE task_id = ?",
+                (task_id,),
+            )
             self._append_event_locked(
                 connection,
                 task_id=task_id,
@@ -1523,6 +1521,114 @@ class CodingWorkerStore:
                 created_at=now,
             )
         return self.turn_history(task_id)
+
+    def _insert_turn_checkpoint_locked(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        task_id: str,
+        turn_id: str,
+        before_tree_hash: str,
+        before_tree_oid: str,
+        after_tree_hash: str,
+        after_tree_oid: str,
+        ledger_sequence: int,
+        created_at: float,
+        checkpoint_id: str | None = None,
+    ) -> WorkerTurnCheckpoint:
+        existing = connection.execute(
+            "SELECT * FROM worker_turn_checkpoints WHERE task_id = ? AND turn_id = ?",
+            (task_id, turn_id),
+        ).fetchone()
+        if existing is not None:
+            checkpoint = self._turn_checkpoint(existing)
+            if (
+                checkpoint.before_tree_hash != before_tree_hash
+                or checkpoint.before_tree_oid != before_tree_oid
+                or checkpoint.after_tree_hash != after_tree_hash
+                or checkpoint.after_tree_oid != after_tree_oid
+                or checkpoint.ledger_sequence != ledger_sequence
+            ):
+                raise WorkerConflictError(
+                    "Turn checkpoint binding changed.", code="turn_checkpoint_conflict"
+                )
+            return checkpoint
+        state = connection.execute(
+            "SELECT * FROM worker_turn_state WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        if state is not None and state["pending_action"] is not None:
+            raise WorkerConflictError(
+                "Turn navigation is not settled.", code="turn_navigation_pending"
+            )
+        maximum = int(
+            connection.execute(
+                "SELECT COALESCE(MAX(ordinal), 0) FROM worker_turn_checkpoints WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()[0]
+        )
+        cursor = int(state["cursor"]) if state is not None else maximum
+        if cursor < maximum:
+            connection.execute(
+                "DELETE FROM worker_turn_checkpoints WHERE task_id = ? AND ordinal > ?",
+                (task_id, cursor),
+            )
+            maximum = cursor
+        ordinal = maximum + 1
+        identifier = checkpoint_id or f"turn_checkpoint_{uuid.uuid4().hex}"
+        connection.execute(
+            """
+            INSERT INTO worker_turn_checkpoints (
+                checkpoint_id, task_id, ordinal, turn_id,
+                before_tree_hash, before_tree_oid, after_tree_hash,
+                after_tree_oid, ledger_sequence, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                identifier,
+                task_id,
+                ordinal,
+                turn_id,
+                before_tree_hash,
+                before_tree_oid,
+                after_tree_hash,
+                after_tree_oid,
+                ledger_sequence,
+                created_at,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO worker_turn_state (task_id, cursor, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(task_id) DO UPDATE SET
+                cursor = excluded.cursor, pending_action = NULL,
+                pending_checkpoint_id = NULL, updated_at = excluded.updated_at
+            """,
+            (task_id, ordinal, created_at),
+        )
+        self._append_event_locked(
+            connection,
+            task_id=task_id,
+            event_type="turn_checkpoint_created",
+            payload={
+                "checkpoint_id": identifier,
+                "ordinal": ordinal,
+                "workspace_tree_hash": after_tree_hash,
+            },
+            created_at=created_at,
+        )
+        return WorkerTurnCheckpoint(
+            checkpoint_id=identifier,
+            task_id=task_id,
+            ordinal=ordinal,
+            turn_id=turn_id,
+            before_tree_hash=before_tree_hash,
+            before_tree_oid=before_tree_oid,
+            after_tree_hash=after_tree_hash,
+            after_tree_oid=after_tree_oid,
+            ledger_sequence=ledger_sequence,
+            created_at=created_at,
+        )
 
     def list_artifacts(self, task_id: str) -> list[WorkerArtifact]:
         with self._connect() as connection:

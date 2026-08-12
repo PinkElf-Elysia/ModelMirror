@@ -31,6 +31,7 @@ from .contracts import (
     WorkerPlan,
     WorkerQuestion,
     WorkerQuestionAnswer,
+    WorkerTurnHistory,
     OperationOutputChunk,
 )
 from .service import CodingWorkerService
@@ -123,7 +124,9 @@ def coding_worker_capabilities() -> WorkerCapabilities:
         structured_plan=interaction,
         user_questions=interaction,
         context_compaction=v16,
-        turn_history=False,
+        turn_history=(
+            v16 and _feature_enabled("CODING_WORKER_SESSION_CONTROLS_ENABLED")
+        ),
         subtasks=False,
     )
 
@@ -135,6 +138,16 @@ def _require_interaction_enabled() -> None:
     ):
         raise HTTPException(
             status_code=404, detail="Coding Worker V16 interaction is disabled"
+        )
+
+
+def _require_session_controls_enabled() -> None:
+    if not (
+        _feature_enabled("CODING_WORKER_V16_ENABLED")
+        and _feature_enabled("CODING_WORKER_SESSION_CONTROLS_ENABLED")
+    ):
+        raise HTTPException(
+            status_code=404, detail="Coding Worker V16 session controls are disabled"
         )
 
 
@@ -629,6 +642,24 @@ async def task_artifact(task_id: str, artifact_id: str) -> Response:
 async def pause_task(task_id: str) -> TaskRecord:
     try:
         return await get_coding_worker_service().pause(task_id)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post("/tasks/{task_id}/undo", response_model=WorkerTurnHistory)
+async def undo_task_turn(task_id: str) -> WorkerTurnHistory:
+    _require_session_controls_enabled()
+    try:
+        return await get_coding_worker_service().navigate_turn(task_id, "undo")
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post("/tasks/{task_id}/redo", response_model=WorkerTurnHistory)
+async def redo_task_turn(task_id: str) -> WorkerTurnHistory:
+    _require_session_controls_enabled()
+    try:
+        return await get_coding_worker_service().navigate_turn(task_id, "redo")
     except Exception as exc:
         _raise_worker_error(exc)
 
