@@ -67,7 +67,7 @@ beforeEach(() => {
   Object.values(api).forEach((mock) => "mockReset" in mock && mock.mockReset());
   Object.values(projectApi).forEach((mock) => "mockReset" in mock && mock.mockReset());
   api.codingWorkerArtifactUrl.mockImplementation((taskId: string, artifactId: string) => `/artifact/${taskId}/${artifactId}`);
-  api.getCodingWorkerStatus.mockResolvedValue({ enabled: true, available: true, version: "v1", max_active_tasks: 2, retention_seconds: 604800, network_enabled: false, acceptance_checks: ["python-pytest", "react-build"], reason: null, capabilities: { api_version: "v1", task_runtime: true, professional_file_tools: true, shell: true, operation_output: true, changesets: true, code_intelligence: true } });
+  api.getCodingWorkerStatus.mockResolvedValue({ enabled: true, available: true, version: "v1", max_active_tasks: 2, retention_seconds: 604800, network_enabled: false, acceptance_checks: ["python-pytest", "react-build"], model_routes: ["coding/default", "coding/quality"], reason: null, capabilities: { api_version: "v1", task_runtime: true, professional_file_tools: true, shell: true, operation_output: true, changesets: true, code_intelligence: true } });
   api.listCodingWorkerTasks.mockResolvedValue([task]);
   api.getCodingWorkerTask.mockResolvedValue(task);
   api.listCodingWorkerApprovals.mockResolvedValue([{ approval_id: "approval_1234567890abcdef1234567890abcdef", task_id: task.task_id, operation_id: "operation_1", capability: "command", status: "pending", request: { command: "pytest" }, lease: null, created_at: 1, decided_at: null }]);
@@ -125,12 +125,11 @@ describe("CodingWorkerConsole", () => {
     const user = userEvent.setup();
     render(<CodingWorkerConsole context="coding" />);
 
-    expect((await screen.findAllByText("修复失败测试并生成证据")).length).toBe(2);
+    expect((await screen.findAllByText("修复失败测试并生成证据")).length).toBe(3);
     expect(screen.getByText("宿主写回")).toBeInTheDocument();
     expect(await screen.findByText("src/app.py")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "证据" }));
-    await user.click(await screen.findByRole("button", { name: "批准一次" }));
+    await user.click(await screen.findByRole("button", { name: "批准本次执行" }));
     await waitFor(() => expect(api.decideCodingWorkerApproval).toHaveBeenCalledWith(
       task.task_id,
       "approval_1234567890abcdef1234567890abcdef",
@@ -140,7 +139,7 @@ describe("CodingWorkerConsole", () => {
 
   it("keeps domain writeback controls out of the generic Agent context", async () => {
     render(<CodingWorkerConsole context="agent" />);
-    expect((await screen.findAllByText("修复失败测试并生成证据")).length).toBe(2);
+    expect((await screen.findAllByText("修复失败测试并生成证据")).length).toBe(3);
     expect(screen.queryByText("宿主写回")).not.toBeInTheDocument();
   });
 
@@ -198,6 +197,7 @@ describe("CodingWorkerConsole", () => {
       queueMicrotask(() => {
         handlers.onEvent({ sequence: 1, task_id: task.task_id, type: "provider_event", payload: { kind: "plan", data: { summary: "先复现失败，再修复并复测。" } }, created_at: 1 });
         handlers.onEvent({ sequence: 2, task_id: task.task_id, type: "tool_operation", payload: { operation_id: "operation_shell_1", state: "completed" }, created_at: 2 });
+        handlers.onEvent({ sequence: 3, task_id: task.task_id, type: "provider_event", payload: { kind: "internal_frame" }, created_at: 3 });
       });
       return () => undefined;
     });
@@ -205,10 +205,11 @@ describe("CodingWorkerConsole", () => {
     const user = userEvent.setup();
     render(<CodingWorkerConsole context="agent" />);
 
-    expect(await screen.findByText("先复现失败，再修复并复测。")).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "证据" }));
+    expect((await screen.findAllByText("先复现失败，再修复并复测。")).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("provider event")).not.toBeInTheDocument();
     expect(await screen.findByText("Shell 单次审批")).toBeInTheDocument();
-    expect(screen.getByText("c".repeat(64))).toBeInTheDocument();
+    await user.click(screen.getByText("查看操作绑定"));
+    expect(screen.getByText((content) => content.includes("c".repeat(64)))).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "本任务批准" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "终端" }));
@@ -235,7 +236,7 @@ describe("CodingWorkerConsole", () => {
     const user = userEvent.setup();
     render(<CodingWorkerConsole context="coding" onCodingHandoff={onCodingHandoff} />);
 
-    await user.click(await screen.findByRole("button", { name: "进入 v13 写回确认" }));
+    await user.click(await screen.findByRole("button", { name: "进入写回确认" }));
 
     await waitFor(() => expect(api.handoffCodingWorkerTask).toHaveBeenCalledWith(task.task_id));
     expect(onCodingHandoff).toHaveBeenCalledWith(expect.objectContaining({ revision: 1 }));
@@ -282,15 +283,23 @@ describe("CodingWorkerConsole", () => {
         max_projects: 50,
         projects: [newProject],
       });
+    api.createCodingWorkerTask.mockResolvedValue(task);
 
     const user = userEvent.setup();
     render(<CodingWorkerConsole context="coding" />);
     await user.click(await screen.findByRole("button", { name: "创建任务" }));
     await user.click(screen.getByRole("button", { name: "添加本地项目" }));
 
-    await waitFor(() => expect(screen.getByLabelText("本地项目")).toHaveValue(newProject.id));
+    await waitFor(() => expect(screen.getByLabelText("项目")).toHaveValue(newProject.id));
     expect(screen.getByLabelText("基准 revision")).toHaveValue(newProject.head);
     expect(projectApi.createCodingProjectSelection).toHaveBeenCalledTimes(1);
+
+    await user.selectOptions(screen.getByLabelText("执行方式"), "coding/quality");
+    await user.type(screen.getByLabelText("任务目标"), "修复类型错误并完成复测");
+    await user.click(screen.getByRole("button", { name: "创建并开始" }));
+    await waitFor(() => expect(api.createCodingWorkerTask).toHaveBeenCalledWith(
+      expect.objectContaining({ model_route: "coding/quality" }),
+    ));
   });
 
   it("recovers a project registered after the selection request expires", async () => {
@@ -340,7 +349,7 @@ describe("CodingWorkerConsole", () => {
     await user.click(await screen.findByRole("button", { name: "创建任务" }));
     await user.click(screen.getByRole("button", { name: "添加本地项目" }));
 
-    await waitFor(() => expect(screen.getByLabelText("本地项目")).toHaveValue(lateProject.id));
+    await waitFor(() => expect(screen.getByLabelText("项目")).toHaveValue(lateProject.id));
     expect(screen.getByLabelText("基准 revision")).toHaveValue(lateProject.head);
     expect(screen.queryByText("选择请求已超时", { exact: false })).not.toBeInTheDocument();
   });
