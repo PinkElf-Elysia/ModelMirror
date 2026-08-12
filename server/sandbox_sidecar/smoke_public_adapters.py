@@ -12,13 +12,23 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+if TYPE_CHECKING:
+    from mcp.client.session import ClientSession
+    from mcp.client.stdio import StdioServerParameters
 
 from .public_mcp import ADAPTER_TOOL_NAMES, BUILDERS, PUBLIC_SCHEMA_SHA256
+
+
+def _load_mcp_stdio() -> tuple[Any, Any, Any]:
+    """Load the official SDK only inside isolated runtime smoke paths."""
+
+    from mcp.client.session import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    return ClientSession, StdioServerParameters, stdio_client
 
 
 WAVE16A_ADAPTERS = frozenset(
@@ -201,7 +211,8 @@ async def _call(
 
 
 def _parameters(socket_path: Path, adapter_id: str) -> StdioServerParameters:
-    return StdioServerParameters(
+    _, stdio_parameters_type, _ = _load_mcp_stdio()
+    return stdio_parameters_type(
         command=sys.executable,
         args=[
             "-m",
@@ -236,8 +247,9 @@ async def _blocked_tool_is_denied(
 
 
 async def runtime_adapter(socket_path: Path, adapter_id: str) -> None:
-    async with stdio_client(_parameters(socket_path, adapter_id)) as streams:
-        async with ClientSession(*streams) as session:
+    client_session_type, _, stdio_client_runtime = _load_mcp_stdio()
+    async with stdio_client_runtime(_parameters(socket_path, adapter_id)) as streams:
+        async with client_session_type(*streams) as session:
             await session.initialize()
             listed = await session.list_tools()
             names = {tool.name for tool in listed.tools}
@@ -478,8 +490,9 @@ async def runtime_adapter(socket_path: Path, adapter_id: str) -> None:
 
 async def cancellation_timeout_probe(socket_path: Path, adapter_id: str) -> None:
     tool_name, arguments = TIMEOUT_TOOL_PROBES[adapter_id]
-    async with stdio_client(_parameters(socket_path, adapter_id)) as streams:
-        async with ClientSession(*streams) as session:
+    client_session_type, _, stdio_client_runtime = _load_mcp_stdio()
+    async with stdio_client_runtime(_parameters(socket_path, adapter_id)) as streams:
+        async with client_session_type(*streams) as session:
             await session.initialize()
             try:
                 await asyncio.wait_for(
