@@ -97,6 +97,7 @@ export interface CodingWorkerStatus {
   retention_seconds: number;
   network_enabled: boolean;
   acceptance_checks: string[];
+  model_routes?: string[];
   reason: string | null;
   capabilities: CodingWorkerCapabilities;
 }

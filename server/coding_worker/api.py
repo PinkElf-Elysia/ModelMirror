@@ -188,6 +188,7 @@ async def coding_worker_status() -> dict[str, Any]:
             if _service is not None and _service.tool_broker is not None
             else []
         ),
+        "model_routes": _configured_model_routes(),
         "reason": _startup_error,
         "capabilities": capabilities.model_dump(mode="json"),
     }
@@ -770,12 +771,16 @@ def _task_workspace(task_id: str) -> tuple[CodingWorkerService, TaskRecord]:
     return service, task
 
 
-def _validate_model_route(model_route: str) -> None:
-    configured = {
+def _configured_model_routes() -> list[str]:
+    return sorted({
         value.strip()
         for value in os.getenv("CODING_WORKER_MODEL_ROUTES", "coding/default").split(",")
         if value.strip()
-    }
+    })
+
+
+def _validate_model_route(model_route: str) -> None:
+    configured = set(_configured_model_routes())
     if model_route not in configured:
         raise HTTPException(
             status_code=400,
