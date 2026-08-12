@@ -794,6 +794,119 @@ def scan_skill_trust_receipt(
     return receipt_payload
 
 
+_LOCAL_IMPORT_HARD_BLOCK_CODES = {
+    "trust_archive_blocked",
+    "trust_executable_binary_blocked",
+    "trust_unknown_binary_blocked",
+}
+
+
+def scan_local_skill_trust_receipt(
+    *,
+    import_id: str,
+    import_revision: int,
+    transport_kind: Literal["zip", "folder"],
+    transport_digest: str,
+    entries: Sequence[SkillTrustTreeEntry],
+) -> dict[str, Any]:
+    """Scan an immutable local package without giving it synthetic Git trust.
+
+    The mature byte-tree scanner remains authoritative for content findings.
+    Synthetic Git evidence is used only while executing that scanner and is
+    removed before the local receipt is fingerprinted or persisted.
+    """
+
+    if not re.fullmatch(r"skillimport_[0-9a-f]{32}", import_id):
+        raise ValueError("Local Skill import ID is invalid.")
+    if not isinstance(import_revision, int) or isinstance(import_revision, bool) or import_revision < 1:
+        raise ValueError("Local Skill import revision is invalid.")
+    if transport_kind not in {"zip", "folder"}:
+        raise ValueError("Local Skill import transport kind is invalid.")
+    clean_transport_digest = str(transport_digest or "").casefold()
+    if not re.fullmatch(r"[0-9a-f]{64}", clean_transport_digest):
+        raise ValueError("Local Skill import transport digest is invalid.")
+
+    tree_payload = [
+        {
+            "path": entry.path,
+            "mode": entry.mode,
+            "objectType": entry.object_type,
+            "objectId": entry.object_id,
+            "size": entry.size,
+        }
+        for entry in sorted(
+            entries,
+            key=lambda item: item.path.encode("utf-8", "surrogatepass"),
+        )
+    ]
+    content_tree_digest = sha256_json(tree_payload)
+    synthetic_commit = hashlib.sha1(
+        f"{import_id}:{import_revision}:{clean_transport_digest}".encode("ascii")
+    ).hexdigest()
+    synthetic_tree = hashlib.sha1(content_tree_digest.encode("ascii")).hexdigest()
+    synthetic_root = "local-skill"
+    skill_markdown = next(
+        (
+            entry.content
+            for entry in entries
+            if entry.path == "SKILL.md" and entry.content is not None
+        ),
+        None,
+    )
+    if skill_markdown is not None:
+        try:
+            markdown_text = skill_markdown.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            markdown_text = ""
+        parsed_issues: list[SkillPackageIssue] = []
+        parsed_frontmatter = _parse_skill_frontmatter(markdown_text, parsed_issues)
+        declared_name = (
+            parsed_frontmatter.get("name")
+            if isinstance(parsed_frontmatter, Mapping)
+            else None
+        )
+        if (
+            isinstance(declared_name, str)
+            and re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", declared_name)
+            and len(declared_name) <= 64
+        ):
+            synthetic_root = declared_name
+    receipt = scan_skill_trust_receipt(
+        repo_url="https://local.invalid/modelmirror-skill-import",
+        sub_path=synthetic_root,
+        verified_commit=synthetic_commit,
+        directory_tree_sha=synthetic_tree,
+        entries=entries,
+    )
+
+    source = {
+        "kind": "local_import",
+        "importId": import_id,
+        "importRevision": import_revision,
+        "transportKind": transport_kind,
+        "transportDigest": clean_transport_digest,
+    }
+    receipt["receiptId"] = "trust_local_" + sha256_json(source)[:32]
+    receipt["source"] = source
+    receipt.pop("directoryTreeSha", None)
+    receipt["contentTreeDigest"] = content_tree_digest
+
+    finding_codes = {
+        str(finding.get("code") or "")
+        for finding in receipt.get("findings", ())
+        if isinstance(finding, Mapping)
+    }
+    if finding_codes.intersection(_LOCAL_IMPORT_HARD_BLOCK_CODES):
+        receipt["trustStatus"] = "blocked"
+        receipt["installPolicy"] = "block"
+        receipt["compatibilityStatus"] = "unsupported"
+        receipt["routerEligible"] = False
+
+    receipt.pop("trustFingerprint", None)
+    receipt["trustFingerprint"] = sha256_json(receipt)
+    return receipt
+
+
 def build_skill_trust_index(
     *,
     candidates: Sequence[Mapping[str, Any]],
@@ -931,6 +1044,7 @@ __all__ = [
     "build_skill_trust_summary",
     "catalog_fingerprint_for",
     "receipt_id_for",
+    "scan_local_skill_trust_receipt",
     "scan_skill_trust_receipt",
     "sha256_json",
     "source_key",

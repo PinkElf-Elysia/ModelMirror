@@ -165,6 +165,7 @@ try:
         get_skill_manager,
         router as skills_router,
     )
+    from server.skills.local_import_api import router as skill_local_import_router
     from server.skills.creator_api import (
         configure_skill_creator,
         configure_skill_creator_evaluation,
@@ -227,6 +228,7 @@ try:
     )
 except ModuleNotFoundError:
     from skills.api import get_skill_draft_store, get_skill_manager, router as skills_router
+    from skills.local_import_api import router as skill_local_import_router
     from skills.creator_api import (
         configure_skill_creator,
         configure_skill_creator_evaluation,
@@ -1010,6 +1012,7 @@ app.include_router(rag_router)
 app.include_router(datax_router)
 app.include_router(file_assets_router)
 app.include_router(skills_router)
+app.include_router(skill_local_import_router)
 app.include_router(skill_creator_router)
 app.include_router(agent_workspace_router)
 app.include_router(agent_upstream_router)
