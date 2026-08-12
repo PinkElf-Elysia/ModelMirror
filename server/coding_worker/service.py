@@ -536,7 +536,7 @@ class CodingWorkerService:
             while not driver.done():
                 remaining = (
                     task.spec.budget.max_seconds
-                    - self.store.active_runtime_seconds(task.task_id)
+                    - self.store.budget_usage(task.task_id).active_seconds
                 )
                 if remaining <= 0:
                     driver.cancel()
@@ -578,6 +578,16 @@ class CodingWorkerService:
                     return
                 message = self._restored_context_message(resume_context, feedback)
         while True:
+            durable_usage = self.store.budget_usage(task_id)
+            turns = max(turns, durable_usage.turns_started)
+            if turns >= task.spec.budget.max_turns:
+                self.store.transition(
+                    task_id,
+                    TaskState.BUDGET_LIMITED,
+                    reason="turn_budget_exhausted",
+                    expected_state=TaskState.RUNNING,
+                )
+                return
             turns += 1
             turn_id = f"turn_{uuid.uuid4().hex}"
             self.store.append_session_ledger(
@@ -817,6 +827,7 @@ class CodingWorkerService:
         self, task: TaskRecord, turns: int, *, message_cursor: int
     ) -> tuple[str | None, int]:
         task_id = task.task_id
+        turns = max(turns, self.store.budget_usage(task_id).turns_started)
         self.store.transition(
             task_id, TaskState.TESTING, expected_state=TaskState.RUNNING
         )

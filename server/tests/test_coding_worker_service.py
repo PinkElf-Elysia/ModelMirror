@@ -684,6 +684,91 @@ async def test_active_time_budget_survives_restart_and_excludes_waiting(
     assert restarted.active_runtime_seconds(task.task_id) >= 30
 
 
+def test_tool_call_budget_is_durable_and_idempotent_across_restart(
+    tmp_path: Path,
+) -> None:
+    key = Fernet.generate_key()
+    root = tmp_path / "worker"
+    store = CodingWorkerStore(root, master_key=key)
+    request = _request("durable-tool-budget").model_copy(
+        update={"budget": TaskBudget(max_tool_calls=1)}
+    )
+    task = store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="durable-tool-budget"),
+        )
+    )
+    operation = store.create_operation(
+        task_id=task.task_id,
+        operation_id="operation-01",
+        tool_name="read_file",
+        intent_sha256="a" * 64,
+        request={"arguments": {"path": "main.py"}, "workspace_id": "workspace-01"},
+    )
+
+    restarted = CodingWorkerStore(root, master_key=key)
+    replay = restarted.create_operation(
+        task_id=task.task_id,
+        operation_id="operation-01",
+        tool_name="read_file",
+        intent_sha256="a" * 64,
+        request={"arguments": {"path": "main.py"}, "workspace_id": "workspace-01"},
+    )
+    assert replay == operation
+    assert restarted.budget_usage(task.task_id).tool_calls == 1
+    with pytest.raises(WorkerConflictError) as raised:
+        restarted.create_operation(
+            task_id=task.task_id,
+            operation_id="operation-02",
+            tool_name="read_file",
+            intent_sha256="b" * 64,
+            request={"arguments": {"path": "other.py"}, "workspace_id": "workspace-01"},
+        )
+    assert raised.value.code == "tool_budget_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_interrupted_turn_consumes_durable_turn_budget_before_resume(
+    tmp_path: Path,
+) -> None:
+    provider = _RestoreTrackingProvider()
+    service = _service(tmp_path, provider)
+    request = _request("durable-turn-budget").model_copy(
+        update={"budget": TaskBudget(max_turns=1)}
+    )
+    prepared = await service.workspace_broker.prepare(request.workspace_source)
+    task = service.store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="durable-turn-budget"),
+        )
+    )
+    service.store.transition(task.task_id, TaskState.PREPARING)
+    service.store.transition(
+        task.task_id, TaskState.RUNNING, workspace_id=prepared.workspace_id
+    )
+    service.store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TURN_STARTED,
+        turn_id="turn-interrupted",
+        payload={},
+    )
+    service.store.finish_session_turn(
+        task.task_id, turn_id="turn-interrupted", result_state="interrupted"
+    )
+    service.store.transition(task.task_id, TaskState.INTERRUPTED, reason="provider_restart")
+
+    await service.resume(task.task_id)
+    limited = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.BUDGET_LIMITED
+    )
+    assert limited.reason == "turn_budget_exhausted"
+    assert service.store.budget_usage(task.task_id).turns_started == 1
+    assert provider.message_count == 0
+    await service.shutdown()
+
+
 async def _checkpointed_task(
     service: CodingWorkerService,
     broker: ToolBroker,

@@ -27,6 +27,7 @@ from .contracts import (
     WorkerEvidence,
     WorkerArtifact,
     WorkerApproval,
+    WorkerBudgetUsage,
     WorkerCheckpoint,
     WorkerMessage,
     WorkerOperation,
@@ -317,6 +318,46 @@ class CodingWorkerStore:
             if state in BUDGET_ACTIVE_STATES:
                 total += now - last_at
             return total
+
+    def budget_usage(self, task_id: str) -> WorkerBudgetUsage:
+        active_seconds = self.active_runtime_seconds(task_id)
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            tool_calls = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM worker_operations WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()[0]
+            )
+            ledger_turns = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*) FROM worker_session_ledger
+                    WHERE task_id = ? AND kind = ?
+                    """,
+                    (task_id, SessionLedgerKind.TURN_STARTED.value),
+                ).fetchone()[0]
+            )
+            if ledger_turns:
+                turns_started = ledger_turns
+            else:
+                turns_started = 0
+                rows = connection.execute(
+                    """
+                    SELECT payload_ciphertext FROM worker_events
+                    WHERE task_id = ? AND type = 'provider_event'
+                    ORDER BY sequence
+                    """,
+                    (task_id,),
+                ).fetchall()
+                for row in rows:
+                    if self._decrypt_dict(row["payload_ciphertext"]).get("kind") == "turn_completed":
+                        turns_started += 1
+        return WorkerBudgetUsage(
+            active_seconds=active_seconds,
+            turns_started=turns_started,
+            tool_calls=tool_calls,
+        )
 
     def append_message(self, task_id: str, *, role: str, content: str) -> WorkerMessage:
         if role not in {"user", "assistant", "tool", "system"} or not content.strip():
@@ -691,7 +732,7 @@ class CodingWorkerStore:
         now = self._now()
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            self._require_task_row(connection, task_id)
+            task = self._task(self._require_task_row(connection, task_id), connection)
             existing = connection.execute(
                 "SELECT * FROM worker_operations WHERE operation_id = ?", (operation_id,)
             ).fetchone()
@@ -708,6 +749,17 @@ class CodingWorkerStore:
                         code="operation_intent_conflict",
                     )
                 return operation
+            operation_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM worker_operations WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()[0]
+            )
+            if operation_count >= task.spec.budget.max_tool_calls:
+                raise WorkerConflictError(
+                    "The durable tool call budget is exhausted.",
+                    code="tool_budget_exhausted",
+                )
             connection.execute(
                 """
                 INSERT INTO worker_operations (

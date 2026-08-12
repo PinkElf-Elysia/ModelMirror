@@ -255,6 +255,12 @@ class TaskBudget(StrictModel):
     max_output_bytes: int = Field(default=8 * 1024 * 1024, ge=1024, le=64 * 1024 * 1024)
 
 
+class WorkerBudgetUsage(StrictModel):
+    active_seconds: float = Field(ge=0)
+    turns_started: int = Field(ge=0)
+    tool_calls: int = Field(ge=0)
+
+
 class ContextReference(StrictModel):
     ref_id: str = Field(min_length=1, max_length=128)
     kind: Literal["artifact", "resource", "file", "image"]
