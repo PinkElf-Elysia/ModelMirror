@@ -914,6 +914,13 @@ class ExecutorRPCServer:
         *,
         output_callback: Callable[[str, bytes], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
+        if action == "health":
+            if payload:
+                raise ExecutorRPCError(
+                    "Executor health request is invalid.",
+                    code="executor_request_invalid",
+                )
+            return {"healthy": True}
         task_id = str(payload.get("task_id", ""))
         workspace_id = str(payload.get("workspace_id", ""))
         if action == "bind_task":
@@ -1005,12 +1012,14 @@ class ExecutorSidecarClientPool:
         endpoints: Mapping[str, str],
         tokens: Mapping[str, str],
         workspace_slot_resolver: Callable[[str], str],
+        auto_rebind: bool = False,
     ) -> None:
         if set(endpoints) != set(tokens) or not endpoints:
             raise ValueError("executor sidecar bindings are incomplete")
         self._endpoints = dict(endpoints)
         self._tokens = dict(tokens)
         self._workspace_slot_resolver = workspace_slot_resolver
+        self._auto_rebind = auto_rebind
 
     async def bind_task(self, task_id: str, workspace_id: str) -> None:
         await self._workspace_call(workspace_id, "bind_task", {"task_id": task_id, "workspace_id": workspace_id})
@@ -1091,6 +1100,46 @@ class ExecutorSidecarClientPool:
         )
 
     async def _workspace_stream_call(
+        self,
+        workspace_id: str,
+        action: str,
+        payload: dict[str, Any],
+        *,
+        output_callback: Callable[[str, bytes], Awaitable[None]] | None,
+    ) -> dict[str, Any]:
+        try:
+            return await self._workspace_stream_call_once(
+                workspace_id,
+                action,
+                payload,
+                output_callback=output_callback,
+            )
+        except ExecutorRPCError as exc:
+            task_id = payload.get("task_id")
+            payload_workspace_id = payload.get("workspace_id")
+            if (
+                not self._auto_rebind
+                or exc.code != "executor_binding_invalid"
+                or action in {"bind_task", "close_task", "health"}
+                or not isinstance(task_id, str)
+                or SAFE_ID.fullmatch(task_id) is None
+                or payload_workspace_id != workspace_id
+            ):
+                raise
+            await self._workspace_stream_call_once(
+                workspace_id,
+                "bind_task",
+                {"task_id": task_id, "workspace_id": workspace_id},
+                output_callback=None,
+            )
+            return await self._workspace_stream_call_once(
+                workspace_id,
+                action,
+                payload,
+                output_callback=output_callback,
+            )
+
+    async def _workspace_stream_call_once(
         self,
         workspace_id: str,
         action: str,

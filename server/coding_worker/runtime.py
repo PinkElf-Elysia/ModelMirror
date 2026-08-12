@@ -99,6 +99,7 @@ class CodingWorkerRuntime:
                 endpoints=executor_endpoints,
                 tokens=executor_tokens,
                 workspace_slot_resolver=self.workspace_broker.workspace_slot,
+                auto_rebind=True,
             )
         self.provider = ProviderSidecarClientPool(
             endpoints=provider_endpoints,
@@ -107,7 +108,7 @@ class CodingWorkerRuntime:
             broker_rpc=self.broker_rpc,
             executor_pool=executor_pool,
         )
-        self.tool_broker.executor = self.provider
+        self.tool_broker.executor = executor_pool or self.provider
         self.harness = HarnessRunner(
             store=self.store,
             workspace_broker=self.workspace_broker,
