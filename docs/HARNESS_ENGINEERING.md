@@ -405,3 +405,24 @@ curl http://localhost:5173/models
 49. **共享 Console 必须区分展示与能力。** `/coding` 和 `/agents/workbench` 可复用任务、对话、文件、
     Diff、审批、Evidence、Artifact 与终端组件；只有 Coding 上下文展示 v13 领域动作。开关关闭、Provider
     不可用或 legacy 活动会话存在时必须清晰降级，不能把 Mock/静态状态误报为真实引擎就绪。
+50. **专业文件修改必须以 preimage 与 tree CAS 整批发布。** unified patch、移动、删除和批量修改的每个
+    输入都要绑定旧内容；任一冲突时全部保持旧状态。Shell `mutate` 还必须满足 exit 0 与真实 Workspace
+    tree 未变化，`inspect` 永不发布文件变化；超限或策略外产物只进入 Artifact。
+51. **Shell 没有任务级永久批准。** 每次批准必须精确绑定 operation ID、脚本摘要、相对 cwd、模式、
+    timeout 和网络范围。修改脚本、重复批准、过期批准或把服务/检查租约复用于 Shell 都必须拒绝；未知
+    结果按原 operation ID 对账，不能换 ID 重跑。
+52. **代码智能结果是树版本证据，不是长期事实。** symbols、definition、references、hover 和 diagnostics
+    必须绑定 task、entry ID 与 tree hash。任何 Workspace 变化立即使旧结果失效；LSP 重启只能重新索引，
+    不能恢复旧进程、旧诊断或读取另一个任务的 Workspace。
+53. **Provider 可移植不等于 Provider 可见。** 公共 route 只表达平台质量档；供应商、版本、端口、原始帧、
+    session ID 与凭据只存在于加密私有绑定。任务只允许原 Provider、兼容版本和相同 tree 恢复；不得自动
+    跨引擎迁移或把缺少 Claude secret 扩大为 OpenCode/legacy 故障。
+54. **真实 Provider 内建工具必须保持关闭。** OpenCode 与 Claude 都只能经 ModelMirror Tool Broker 读写、
+    执行或联网。Claude secret 只进入独立 Provider 子进程，Provider 不挂 Workspace，Executor 不接收模型
+    凭据；conformance Mock 或 CLI `--version` 不能替代真实双引擎任务验收。
+55. **模块控制必须持续复核 origin。** SDK 的查询、事件、message、pause、resume 与 cancel 都要匹配
+    `origin(module, business_object)`，不能只在创建时校验。模块可登记来源、上下文和验收适配器，但不能
+    注册 Provider、Shell/LSP 进程、secret 或任意 MCP Server。
+56. **Console 展示的输出必须可补发且有界。** operation output 按序号重连，完整内容从受限 Artifact 获取；
+    大输出、长路径和 diagnostics 不得阻塞主线程或破坏移动端。精确 Shell 批准要可键盘操作、带明确焦点
+    与状态反馈，Coding 领域动作仍只在 Coding 上下文出现。
