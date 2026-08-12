@@ -15,6 +15,7 @@ from server.coding_worker.contracts import (
     AcceptanceContract,
     Origin,
     PolicyProfile,
+    SessionLedgerKind,
     TaskBudget,
     TaskCreateRequest,
     TaskSpec,
@@ -150,6 +151,54 @@ class _SteeringProvider(FakeCodingAgentProvider):
         yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
 
 
+class _LedgerProvider(FakeCodingAgentProvider):
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        yield ProviderEvent(
+            kind=ProviderEventKind.PLAN,
+            data={
+                "explanation": "public plan",
+                "items": [{"step": "run the frozen check", "status": "in_progress"}],
+            },
+        )
+        yield ProviderEvent(
+            kind=ProviderEventKind.TODO,
+            data={
+                "items": [
+                    {
+                        "todo_id": "todo-01",
+                        "content": "inspect evidence",
+                        "status": "pending",
+                    }
+                ]
+            },
+        )
+        yield ProviderEvent(
+            kind=ProviderEventKind.TOOL_STARTED,
+            data={
+                "operation_id": "operation-01",
+                "tool_name": "run_check",
+                "summary": "run a frozen check",
+            },
+        )
+        yield ProviderEvent(
+            kind=ProviderEventKind.TOOL_COMPLETED,
+            data={
+                "operation_id": "operation-01",
+                "tool_name": "run_check",
+                "summary": "frozen check completed",
+                "success": True,
+                "artifact_id": None,
+            },
+        )
+        yield ProviderEvent(
+            kind=ProviderEventKind.MESSAGE,
+            data={"text": "Public assistant result."},
+        )
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+
 def _service_with_harness(
     tmp_path: Path, provider: FakeCodingAgentProvider
 ) -> tuple[CodingWorkerService, ToolBroker]:
@@ -254,6 +303,44 @@ async def test_model_stop_cannot_complete_without_acceptance_runner(tmp_path: Pa
     terminal = await service.wait_for(task.task_id, lambda item: item.state is TaskState.BLOCKED)
     assert terminal.state is not TaskState.COMPLETED
     assert [event.type for event in service.store.list_events(task.task_id)].count("task_state") >= 3
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_provider_events_create_normalized_complete_session_ledger(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path, _LedgerProvider())
+    task = await service.create_task(
+        Origin(module="test", object_id="ledger"), _request("ledger")
+    )
+    terminal = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.BLOCKED
+    )
+    assert terminal.reason == "acceptance_runner_pending"
+    ledger = service.store.list_session_ledger(task.task_id)
+    assert [item.kind for item in ledger] == [
+        SessionLedgerKind.PUBLIC_MESSAGE,
+        SessionLedgerKind.TURN_STARTED,
+        SessionLedgerKind.PLAN,
+        SessionLedgerKind.TODO,
+        SessionLedgerKind.TOOL_STARTED,
+        SessionLedgerKind.TOOL_FINISHED,
+        SessionLedgerKind.PUBLIC_MESSAGE,
+        SessionLedgerKind.TURN_FINISHED,
+    ]
+    tool_entries = [
+        item
+        for item in ledger
+        if item.kind in {SessionLedgerKind.TOOL_STARTED, SessionLedgerKind.TOOL_FINISHED}
+    ]
+    assert {item.operation_id for item in tool_entries} == {"operation-01"}
+    assert tool_entries[1].payload["result_state"] == "succeeded"
+    assert ledger[-1].payload["result_state"] == "completed"
+    assert [message.content for message in service.store.list_messages(task.task_id)] == [
+        "Complete ledger",
+        "Public assistant result.",
+    ]
     await service.shutdown()
 
 

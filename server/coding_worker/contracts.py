@@ -605,6 +605,212 @@ class WorkerMessage(StrictModel):
     created_at: float
 
 
+class SessionLedgerKind(StrEnum):
+    PUBLIC_MESSAGE = "public_message"
+    PLAN = "plan"
+    TODO = "todo"
+    TOOL_STARTED = "tool_started"
+    TOOL_FINISHED = "tool_finished"
+    CHECK_EVIDENCE = "check_evidence"
+    TURN_STARTED = "turn_started"
+    TURN_FINISHED = "turn_finished"
+    QUESTION = "question"
+    COMPACTION = "compaction"
+
+
+_LEDGER_PAYLOAD_KEYS: dict[SessionLedgerKind, frozenset[str]] = {
+    SessionLedgerKind.PUBLIC_MESSAGE: frozenset({"role", "text"}),
+    SessionLedgerKind.PLAN: frozenset({"explanation", "items"}),
+    SessionLedgerKind.TODO: frozenset({"items"}),
+    SessionLedgerKind.TOOL_STARTED: frozenset({"tool_name", "summary"}),
+    SessionLedgerKind.TOOL_FINISHED: frozenset(
+        {"tool_name", "summary", "result_state", "artifact_id"}
+    ),
+    SessionLedgerKind.CHECK_EVIDENCE: frozenset(
+        {
+            "check_id",
+            "evidence_id",
+            "status",
+            "exit_code",
+            "artifact_id",
+            "workspace_tree_hash",
+        }
+    ),
+    SessionLedgerKind.TURN_STARTED: frozenset(),
+    SessionLedgerKind.TURN_FINISHED: frozenset({"result_state"}),
+    SessionLedgerKind.QUESTION: frozenset({"question_id", "prompt", "options"}),
+    SessionLedgerKind.COMPACTION: frozenset({"summary", "boundary_sequence"}),
+}
+_LEDGER_FORBIDDEN_KEYS = frozenset(
+    {
+        "chain_of_thought",
+        "hidden_reasoning",
+        "reasoning",
+        "thinking",
+        "thought",
+        "raw_frame",
+        "provider_frame",
+        "provider_session_id",
+        "endpoint",
+        "port",
+    }
+)
+
+
+class WorkerSessionLedgerEntry(StrictModel):
+    ledger_id: str
+    task_id: str
+    sequence: int = Field(ge=1)
+    kind: SessionLedgerKind
+    turn_id: str | None = None
+    operation_id: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: float
+
+    @field_validator("ledger_id", "task_id", "turn_id", "operation_id")
+    @classmethod
+    def validate_ledger_id(cls, value: str | None) -> str | None:
+        if value is not None and SAFE_ID.fullmatch(value) is None:
+            raise ValueError("session ledger identifier is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_normalized_payload(self) -> "WorkerSessionLedgerEntry":
+        if set(self.payload) != _LEDGER_PAYLOAD_KEYS[self.kind]:
+            raise ValueError("session ledger payload is not canonical")
+        self._reject_hidden_fields(self.payload)
+        if self.kind in {
+            SessionLedgerKind.TURN_STARTED,
+            SessionLedgerKind.TURN_FINISHED,
+            SessionLedgerKind.TOOL_STARTED,
+            SessionLedgerKind.TOOL_FINISHED,
+        } and self.turn_id is None:
+            raise ValueError("session ledger turn binding is required")
+        if self.kind in {
+            SessionLedgerKind.TOOL_STARTED,
+            SessionLedgerKind.TOOL_FINISHED,
+        } and self.operation_id is None:
+            raise ValueError("session ledger operation binding is required")
+        if self.kind not in {
+            SessionLedgerKind.TOOL_STARTED,
+            SessionLedgerKind.TOOL_FINISHED,
+        } and self.operation_id is not None:
+            raise ValueError("session ledger operation binding is unexpected")
+        if self.kind is SessionLedgerKind.PUBLIC_MESSAGE:
+            if self.payload.get("role") not in {"user", "assistant", "tool", "system"}:
+                raise ValueError("session ledger message role is invalid")
+            self._require_text(self.payload.get("text"), 1_048_576)
+        elif self.kind in {SessionLedgerKind.TOOL_STARTED, SessionLedgerKind.TOOL_FINISHED}:
+            tool_name = self.payload.get("tool_name")
+            if not isinstance(tool_name, str) or re.fullmatch(
+                r"[a-z][a-z0-9_]{0,63}", tool_name
+            ) is None:
+                raise ValueError("session ledger tool name is invalid")
+            self._require_text(self.payload.get("summary"), 4096)
+            if self.kind is SessionLedgerKind.TOOL_FINISHED:
+                if self.payload.get("result_state") not in {"succeeded", "failed", "unknown"}:
+                    raise ValueError("session ledger tool result is invalid")
+                artifact_id = self.payload.get("artifact_id")
+                if artifact_id is not None and (
+                    not isinstance(artifact_id, str) or SAFE_ID.fullmatch(artifact_id) is None
+                ):
+                    raise ValueError("session ledger artifact id is invalid")
+        elif self.kind is SessionLedgerKind.TURN_FINISHED:
+            if self.payload.get("result_state") not in {
+                "completed",
+                "cancelled",
+                "failed",
+                "interrupted",
+            }:
+                raise ValueError("session ledger turn result is invalid")
+        elif self.kind is SessionLedgerKind.PLAN:
+            explanation = self.payload.get("explanation")
+            if explanation is not None and (
+                not isinstance(explanation, str) or len(explanation) > 16_384
+            ):
+                raise ValueError("session ledger plan explanation is invalid")
+            items = self.payload.get("items")
+            if not isinstance(items, list) or not 1 <= len(items) <= 128:
+                raise ValueError("session ledger plan is invalid")
+            for item in items:
+                if not isinstance(item, dict) or set(item) != {"step", "status"}:
+                    raise ValueError("session ledger plan item is invalid")
+                self._require_text(item.get("step"), 4096)
+                if item.get("status") not in {"pending", "in_progress", "completed"}:
+                    raise ValueError("session ledger plan status is invalid")
+        elif self.kind is SessionLedgerKind.TODO:
+            items = self.payload.get("items")
+            if not isinstance(items, list) or len(items) > 256:
+                raise ValueError("session ledger todo list is invalid")
+            for item in items:
+                if not isinstance(item, dict) or set(item) != {
+                    "todo_id",
+                    "content",
+                    "status",
+                }:
+                    raise ValueError("session ledger todo item is invalid")
+                todo_id = item.get("todo_id")
+                if not isinstance(todo_id, str) or SAFE_ID.fullmatch(todo_id) is None:
+                    raise ValueError("session ledger todo id is invalid")
+                self._require_text(item.get("content"), 4096)
+                if item.get("status") not in {
+                    "pending",
+                    "in_progress",
+                    "completed",
+                    "cancelled",
+                }:
+                    raise ValueError("session ledger todo status is invalid")
+        elif self.kind is SessionLedgerKind.QUESTION:
+            question_id = self.payload.get("question_id")
+            if not isinstance(question_id, str) or SAFE_ID.fullmatch(question_id) is None:
+                raise ValueError("session ledger question id is invalid")
+            self._require_text(self.payload.get("prompt"), 16_384)
+            options = self.payload.get("options")
+            if not isinstance(options, list) or len(options) > 16:
+                raise ValueError("session ledger question options are invalid")
+            for option in options:
+                if not isinstance(option, dict) or set(option) != {"option_id", "label"}:
+                    raise ValueError("session ledger question option is invalid")
+                option_id = option.get("option_id")
+                if not isinstance(option_id, str) or SAFE_ID.fullmatch(option_id) is None:
+                    raise ValueError("session ledger question option id is invalid")
+                self._require_text(option.get("label"), 200)
+        elif self.kind is SessionLedgerKind.COMPACTION:
+            self._require_text(self.payload.get("summary"), 65_536)
+            boundary = self.payload.get("boundary_sequence")
+            if not isinstance(boundary, int) or isinstance(boundary, bool) or boundary < 1:
+                raise ValueError("session ledger compaction boundary is invalid")
+        elif self.kind is SessionLedgerKind.CHECK_EVIDENCE:
+            if self.payload.get("status") not in {"passed", "failed", "invalidated"}:
+                raise ValueError("session ledger evidence status is invalid")
+            if not isinstance(self.payload.get("exit_code"), int):
+                raise ValueError("session ledger evidence exit code is invalid")
+            tree_hash = self.payload.get("workspace_tree_hash")
+            if not isinstance(tree_hash, str) or re.fullmatch(r"[a-f0-9]{64}", tree_hash) is None:
+                raise ValueError("session ledger evidence tree hash is invalid")
+            for key in ("check_id", "evidence_id", "artifact_id"):
+                value = self.payload.get(key)
+                if not isinstance(value, str) or SAFE_ID.fullmatch(value) is None:
+                    raise ValueError("session ledger evidence binding is invalid")
+        return self
+
+    @classmethod
+    def _reject_hidden_fields(cls, value: Any) -> None:
+        if isinstance(value, dict):
+            if any(str(key).lower() in _LEDGER_FORBIDDEN_KEYS for key in value):
+                raise ValueError("hidden provider data is not allowed in the session ledger")
+            for item in value.values():
+                cls._reject_hidden_fields(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                cls._reject_hidden_fields(item)
+
+    @staticmethod
+    def _require_text(value: Any, maximum: int) -> None:
+        if not isinstance(value, str) or not value or len(value) > maximum:
+            raise ValueError("session ledger text is invalid")
+
+
 class ApprovalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"

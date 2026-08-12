@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 
 from .contracts import (
@@ -13,11 +14,13 @@ from .contracts import (
     TaskState,
     TERMINAL_STATES,
     WorkerEvidence,
+    SessionLedgerKind,
 )
 from .evidence import HarnessRunner
 from .provider import (
     CodingAgentProvider,
     ProviderCheckpoint,
+    ProviderEvent,
     ProviderEventKind,
     ProviderOpenRequest,
     ProviderSession,
@@ -576,25 +579,48 @@ class CodingWorkerService:
                 message = self._restored_context_message(resume_context, feedback)
         while True:
             turns += 1
-            turn_completed = False
-            async for event in self.provider.message(session, message):
-                self.store.append_event(
-                    task_id,
-                    "provider_event",
-                    {"kind": event.kind.value, "data": event.data},
-                )
-                if event.kind is ProviderEventKind.TURN_COMPLETED:
-                    turn_completed = True
-                    break
-                if event.kind is ProviderEventKind.CANCELLED:
-                    self.store.transition(
-                        task_id, TaskState.CANCELLED, reason="provider_cancelled"
+            turn_id = f"turn_{uuid.uuid4().hex}"
+            self.store.append_session_ledger(
+                task_id,
+                kind=SessionLedgerKind.TURN_STARTED,
+                turn_id=turn_id,
+                payload={},
+            )
+            outcome = "interrupted"
+            try:
+                async for event in self.provider.message(session, message):
+                    self.store.append_event(
+                        task_id,
+                        "provider_event",
+                        {"kind": event.kind.value, "data": event.data},
                     )
-                    return
-                if event.kind is ProviderEventKind.FAILED:
-                    self.store.transition(task_id, TaskState.FAILED, reason="provider_failed")
-                    return
-            if not turn_completed:
+                    self._record_provider_session_event(task_id, turn_id, event)
+                    if event.kind is ProviderEventKind.TURN_COMPLETED:
+                        outcome = "completed"
+                        break
+                    if event.kind is ProviderEventKind.CANCELLED:
+                        outcome = "cancelled"
+                        break
+                    if event.kind is ProviderEventKind.FAILED:
+                        outcome = "failed"
+                        break
+            except BaseException:
+                self.store.finish_session_turn(
+                    task_id, turn_id=turn_id, result_state="interrupted"
+                )
+                raise
+            self.store.finish_session_turn(
+                task_id, turn_id=turn_id, result_state=outcome
+            )
+            if outcome == "cancelled":
+                self.store.transition(
+                    task_id, TaskState.CANCELLED, reason="provider_cancelled"
+                )
+                return
+            if outcome == "failed":
+                self.store.transition(task_id, TaskState.FAILED, reason="provider_failed")
+                return
+            if outcome != "completed":
                 current = self.store.get_task(task_id)
                 if current.state not in TERMINAL_STATES:
                     self.store.transition(
@@ -643,6 +669,66 @@ class CodingWorkerService:
             if feedback is None:
                 return
             message = feedback
+
+    def _record_provider_session_event(
+        self, task_id: str, turn_id: str, event: ProviderEvent
+    ) -> None:
+        kind = event.kind
+        data = event.data
+        if kind is ProviderEventKind.MESSAGE:
+            self.store.append_message(task_id, role="assistant", content=str(data["text"]))
+        elif kind is ProviderEventKind.PLAN:
+            self.store.append_session_ledger(
+                task_id,
+                kind=SessionLedgerKind.PLAN,
+                turn_id=turn_id,
+                payload=data,
+            )
+        elif kind is ProviderEventKind.TODO:
+            self.store.append_session_ledger(
+                task_id,
+                kind=SessionLedgerKind.TODO,
+                turn_id=turn_id,
+                payload=data,
+            )
+        elif kind is ProviderEventKind.TOOL_STARTED:
+            self.store.append_session_ledger(
+                task_id,
+                kind=SessionLedgerKind.TOOL_STARTED,
+                turn_id=turn_id,
+                operation_id=str(data["operation_id"]),
+                payload={
+                    "tool_name": data["tool_name"],
+                    "summary": data["summary"],
+                },
+            )
+        elif kind is ProviderEventKind.TOOL_COMPLETED:
+            self.store.append_session_ledger(
+                task_id,
+                kind=SessionLedgerKind.TOOL_FINISHED,
+                turn_id=turn_id,
+                operation_id=str(data["operation_id"]),
+                payload={
+                    "tool_name": data["tool_name"],
+                    "summary": data["summary"],
+                    "result_state": "succeeded" if data["success"] else "failed",
+                    "artifact_id": data["artifact_id"],
+                },
+            )
+        elif kind is ProviderEventKind.QUESTION:
+            self.store.append_session_ledger(
+                task_id,
+                kind=SessionLedgerKind.QUESTION,
+                turn_id=turn_id,
+                payload=data,
+            )
+        elif kind is ProviderEventKind.COMPACTION:
+            self.store.append_session_ledger(
+                task_id,
+                kind=SessionLedgerKind.COMPACTION,
+                turn_id=turn_id,
+                payload=data,
+            )
 
     def _next_steering(
         self, task_id: str, *, after_sequence: int
