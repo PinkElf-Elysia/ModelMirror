@@ -30,6 +30,12 @@ from .contracts import (
     WorkerBudgetUsage,
     WorkerCheckpoint,
     WorkerMessage,
+    WorkerPlan,
+    WorkerPlanItem,
+    WorkerQuestion,
+    WorkerQuestionAnswer,
+    WorkerQuestionOption,
+    QuestionStatus,
     WorkerOperation,
     WorkerSessionLedgerEntry,
     SessionLedgerKind,
@@ -444,7 +450,13 @@ class CodingWorkerStore:
     def finish_session_turn(
         self, task_id: str, *, turn_id: str, result_state: str
     ) -> list[WorkerSessionLedgerEntry]:
-        if result_state not in {"completed", "cancelled", "failed", "interrupted"}:
+        if result_state not in {
+            "completed",
+            "cancelled",
+            "failed",
+            "interrupted",
+            "waiting_input",
+        }:
             raise ValueError("invalid session turn result")
         now = self._now()
         appended: list[WorkerSessionLedgerEntry] = []
@@ -470,7 +482,7 @@ class CodingWorkerStore:
                     SessionLedgerKind.TOOL_STARTED.value,
                 ),
             ).fetchall()
-            if open_tools and result_state == "completed":
+            if open_tools and result_state in {"completed", "waiting_input"}:
                 raise WorkerConflictError(
                     "A completed turn cannot contain an unfinished tool call.",
                     code="session_tool_boundary_incomplete",
@@ -521,6 +533,238 @@ class CodingWorkerStore:
                 (task_id, after, limit),
             ).fetchall()
         return [self._session_ledger_entry(row) for row in rows]
+
+    def latest_plan(self, task_id: str) -> WorkerPlan | None:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            row = connection.execute(
+                """
+                SELECT * FROM worker_session_ledger
+                WHERE task_id = ? AND kind = ? ORDER BY sequence DESC LIMIT 1
+                """,
+                (task_id, SessionLedgerKind.PLAN.value),
+            ).fetchone()
+        if row is None:
+            return None
+        entry = self._session_ledger_entry(row)
+        if entry.turn_id is None:
+            raise WorkerStoreError(
+                "Worker plan data is corrupt.", code="worker_data_corrupt"
+            )
+        return WorkerPlan(
+            task_id=task_id,
+            sequence=entry.sequence,
+            turn_id=entry.turn_id,
+            explanation=entry.payload["explanation"],
+            items=tuple(
+                WorkerPlanItem.model_validate(item) for item in entry.payload["items"]
+            ),
+            updated_at=entry.created_at,
+        )
+
+    def create_question(
+        self,
+        *,
+        task_id: str,
+        question_id: str,
+        turn_id: str,
+        prompt: str,
+        options: tuple[WorkerQuestionOption, ...],
+    ) -> WorkerQuestion:
+        now = self._now()
+        pending = WorkerQuestion(
+            task_id=task_id,
+            question_id=question_id,
+            turn_id=turn_id,
+            status=QuestionStatus.PENDING,
+            prompt=prompt,
+            options=options,
+            created_at=now,
+        )
+        request = {
+            "prompt": pending.prompt,
+            "options": [item.model_dump(mode="json") for item in pending.options],
+        }
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            task_row = self._require_task_row(connection, task_id)
+            if TaskState(task_row["state"]) is not TaskState.RUNNING:
+                raise WorkerConflictError(
+                    "Task is not accepting a provider question.",
+                    code="task_state_conflict",
+                )
+            existing = connection.execute(
+                "SELECT * FROM worker_questions WHERE task_id = ? AND question_id = ?",
+                (task_id, question_id),
+            ).fetchone()
+            if existing is not None:
+                current = self._question(existing)
+                if (
+                    current.turn_id == turn_id
+                    and current.prompt == pending.prompt
+                    and current.options == pending.options
+                ):
+                    return current
+                raise WorkerConflictError(
+                    "Question identifier is already bound to another request.",
+                    code="question_intent_conflict",
+                )
+            connection.execute(
+                """
+                INSERT INTO worker_questions (
+                    task_id, question_id, turn_id, status, request_ciphertext,
+                    answer_ciphertext, created_at, resolved_at
+                ) VALUES (?, ?, ?, ?, ?, NULL, ?, NULL)
+                """,
+                (
+                    task_id,
+                    question_id,
+                    turn_id,
+                    QuestionStatus.PENDING.value,
+                    self._codec.encrypt(request),
+                    now,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="question_requested",
+                payload={
+                    "question_id": question_id,
+                    "prompt": pending.prompt,
+                    "options": request["options"],
+                },
+                created_at=now,
+            )
+        return pending
+
+    def list_questions(self, task_id: str) -> list[WorkerQuestion]:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            rows = connection.execute(
+                """
+                SELECT * FROM worker_questions
+                WHERE task_id = ? ORDER BY created_at, question_id
+                """,
+                (task_id,),
+            ).fetchall()
+        return [self._question(row) for row in rows]
+
+    def resolve_question(
+        self, task_id: str, question_id: str, answer: WorkerQuestionAnswer
+    ) -> WorkerQuestion:
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            task_row = self._require_task_row(connection, task_id)
+            row = connection.execute(
+                "SELECT * FROM worker_questions WHERE task_id = ? AND question_id = ?",
+                (task_id, question_id),
+            ).fetchone()
+            if row is None:
+                raise WorkerNotFoundError(
+                    "Question was not found.", code="question_not_found"
+                )
+            question = self._question(row)
+            if question.status is not QuestionStatus.PENDING:
+                raise WorkerConflictError(
+                    "Question was already resolved.", code="question_already_resolved"
+                )
+            if TaskState(task_row["state"]) is not TaskState.WAITING_INPUT:
+                raise WorkerConflictError(
+                    "Task is not waiting for input.", code="task_state_conflict"
+                )
+            selected = next(
+                (item for item in question.options if item.option_id == answer.option_id),
+                None,
+            )
+            if answer.option_id is not None and selected is None:
+                raise WorkerConflictError(
+                    "Question option is not available.", code="question_option_invalid"
+                )
+            content = (
+                answer.answer
+                if answer.answer is not None
+                else f"{selected.label} [option:{selected.option_id}]"
+            )
+            connection.execute(
+                """
+                UPDATE worker_questions
+                SET status = ?, answer_ciphertext = ?, resolved_at = ?
+                WHERE task_id = ? AND question_id = ?
+                """,
+                (
+                    QuestionStatus.RESOLVED.value,
+                    self._codec.encrypt(answer.model_dump(mode="json")),
+                    now,
+                    task_id,
+                    question_id,
+                ),
+            )
+            next_sequence = int(
+                connection.execute(
+                    """
+                    SELECT COALESCE(MAX(sequence), 0) + 1
+                    FROM worker_messages WHERE task_id = ?
+                    """,
+                    (task_id,),
+                ).fetchone()[0]
+            )
+            provider_message = f"Answer to question {question_id}: {content}"
+            connection.execute(
+                """
+                INSERT INTO worker_messages (
+                    message_id, task_id, sequence, role, content_ciphertext, created_at
+                ) VALUES (?, ?, ?, 'user', ?, ?)
+                """,
+                (
+                    f"message_{uuid.uuid4().hex}",
+                    task_id,
+                    next_sequence,
+                    self._codec.encrypt(provider_message),
+                    now,
+                ),
+            )
+            self._append_session_ledger_locked(
+                connection,
+                task_id=task_id,
+                kind=SessionLedgerKind.PUBLIC_MESSAGE,
+                turn_id=None,
+                operation_id=None,
+                payload={"role": "user", "text": provider_message},
+                created_at=now,
+            )
+            connection.execute(
+                """
+                UPDATE worker_tasks
+                SET state = ?, reason_ciphertext = NULL, updated_at = ?
+                WHERE task_id = ?
+                """,
+                (TaskState.QUEUED.value, now, task_id),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="question_resolved",
+                payload={"question_id": question_id},
+                created_at=now,
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="task_state",
+                payload={
+                    "from": TaskState.WAITING_INPUT.value,
+                    "to": TaskState.QUEUED.value,
+                    "reason": None,
+                },
+                created_at=now,
+            )
+            resolved = connection.execute(
+                "SELECT * FROM worker_questions WHERE task_id = ? AND question_id = ?",
+                (task_id, question_id),
+            ).fetchone()
+        return self._question(resolved)
 
     def set_pinned(self, task_id: str, pinned: bool) -> TaskRecord:
         now = self._now()
@@ -1334,6 +1578,20 @@ class CodingWorkerStore:
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_session_ledger_turn_finish
                     ON worker_session_ledger(task_id, turn_id)
                     WHERE kind = 'turn_finished';
+                CREATE TABLE IF NOT EXISTS worker_questions (
+                    task_id TEXT NOT NULL,
+                    question_id TEXT NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    request_ciphertext TEXT NOT NULL,
+                    answer_ciphertext TEXT,
+                    created_at REAL NOT NULL,
+                    resolved_at REAL,
+                    PRIMARY KEY(task_id, question_id),
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_worker_questions_task
+                    ON worker_questions(task_id, created_at);
                 CREATE TABLE IF NOT EXISTS worker_approvals (
                     approval_id TEXT PRIMARY KEY,
                     task_id TEXT NOT NULL,
@@ -1643,6 +1901,38 @@ class CodingWorkerStore:
         except (WorkerCryptoError, ValueError) as exc:
             raise WorkerStoreError(
                 "Worker session ledger data is corrupt.", code="worker_data_corrupt"
+            ) from exc
+
+    def _question(self, row: sqlite3.Row) -> WorkerQuestion:
+        try:
+            request = self._decrypt_dict(row["request_ciphertext"])
+            answer = (
+                self._decrypt_dict(row["answer_ciphertext"])
+                if row["answer_ciphertext"] is not None
+                else {"answer": None, "option_id": None}
+            )
+            return WorkerQuestion(
+                task_id=str(row["task_id"]),
+                question_id=str(row["question_id"]),
+                turn_id=str(row["turn_id"]),
+                status=QuestionStatus(row["status"]),
+                prompt=request["prompt"],
+                options=tuple(
+                    WorkerQuestionOption.model_validate(item)
+                    for item in request["options"]
+                ),
+                answer=answer.get("answer"),
+                selected_option_id=answer.get("option_id"),
+                created_at=float(row["created_at"]),
+                resolved_at=(
+                    float(row["resolved_at"])
+                    if row["resolved_at"] is not None
+                    else None
+                ),
+            )
+        except (KeyError, TypeError, WorkerCryptoError, ValueError) as exc:
+            raise WorkerStoreError(
+                "Worker question data is corrupt.", code="worker_data_corrupt"
             ) from exc
 
     def _operation(self, row: sqlite3.Row) -> WorkerOperation:

@@ -8,12 +8,16 @@ from collections.abc import Callable, Mapping, Sequence
 from .contracts import (
     EvidenceStatus,
     Origin,
+    QuestionStatus,
     TaskCreateRequest,
     TaskRecord,
     TaskSpec,
     TaskState,
     TERMINAL_STATES,
     WorkerEvidence,
+    WorkerQuestion,
+    WorkerQuestionAnswer,
+    WorkerQuestionOption,
     SessionLedgerKind,
 )
 from .evidence import HarnessRunner
@@ -164,6 +168,7 @@ class CodingWorkerService:
             TaskState.PREPARING,
             TaskState.RUNNING,
             TaskState.WAITING_APPROVAL,
+            TaskState.WAITING_INPUT,
             TaskState.TESTING,
         }:
             raise WorkerConflictError("Task cannot be paused.", code="task_state_conflict")
@@ -198,6 +203,13 @@ class CodingWorkerService:
         self.store.append_message(task_id, role="user", content=text)
         self.store.append_event(task_id, "steering_queued", {})
         return self.store.get_task(task_id)
+
+    async def answer_question(
+        self, task_id: str, question_id: str, answer: WorkerQuestionAnswer
+    ) -> WorkerQuestion:
+        resolved = self.store.resolve_question(task_id, question_id, answer)
+        self._wake.set()
+        return resolved
 
     def settle_approval_state(self, task_id: str) -> TaskRecord:
         """Leave a decided approval runnable only while its original runner exists."""
@@ -369,6 +381,7 @@ class CodingWorkerService:
             )
             resume_phase: str | None = None
             resume_context: dict[str, object] | None = None
+            resume_question_id: str | None = None
             completed_turns = 0
             message_cursor = 0
             checkpoint = self.store.latest_checkpoint(task_id)
@@ -409,11 +422,17 @@ class CodingWorkerService:
                         if not isinstance(raw_context, dict):
                             raise TypeError("context summary is invalid")
                         resume_context = raw_context
+                    if resume_phase == "waiting_input":
+                        resume_question_id = str(checkpoint.payload["question_id"])
                 except (KeyError, TypeError, ValueError) as exc:
                     raise WorkerConflictError(
                         "Checkpoint payload is invalid.", code="checkpoint_invalid"
                     ) from exc
-                if resume_phase != "testing" or completed_turns < 1:
+                if (
+                    resume_phase not in {"testing", "waiting_input"}
+                    or completed_turns < 1
+                    or (resume_phase == "waiting_input" and not resume_question_id)
+                ):
                     raise WorkerConflictError(
                         "Checkpoint phase is invalid.", code="checkpoint_invalid"
                     )
@@ -450,6 +469,7 @@ class CodingWorkerService:
                 session,
                 resume_phase=resume_phase,
                 resume_context=resume_context,
+                resume_question_id=resume_question_id,
                 completed_turns=completed_turns,
                 message_cursor=message_cursor,
             )
@@ -518,6 +538,7 @@ class CodingWorkerService:
         *,
         resume_phase: str | None,
         resume_context: dict[str, object] | None,
+        resume_question_id: str | None = None,
         completed_turns: int,
         message_cursor: int,
     ) -> None:
@@ -527,6 +548,7 @@ class CodingWorkerService:
                 session,
                 resume_phase=resume_phase,
                 resume_context=resume_context,
+                resume_question_id=resume_question_id,
                 completed_turns=completed_turns,
                 message_cursor=message_cursor,
             ),
@@ -558,6 +580,7 @@ class CodingWorkerService:
         *,
         resume_phase: str | None,
         resume_context: dict[str, object] | None,
+        resume_question_id: str | None,
         completed_turns: int,
         message_cursor: int,
     ) -> None:
@@ -577,6 +600,32 @@ class CodingWorkerService:
                 if feedback is None:
                     return
                 message = self._restored_context_message(resume_context, feedback)
+        elif resume_phase == "waiting_input":
+            question = next(
+                (
+                    item
+                    for item in self.store.list_questions(task_id)
+                    if item.question_id == resume_question_id
+                ),
+                None,
+            )
+            answer, message_cursor = self._next_steering(
+                task_id, after_sequence=message_cursor
+            )
+            if (
+                question is None
+                or question.status is not QuestionStatus.RESOLVED
+                or answer is None
+                or f"\n\nAnswer to question {resume_question_id}: " not in answer
+            ):
+                self.store.transition(
+                    task_id,
+                    TaskState.BLOCKED,
+                    reason="question_answer_missing",
+                    expected_state=TaskState.RUNNING,
+                )
+                return
+            message = answer
         while True:
             durable_usage = self.store.budget_usage(task_id)
             turns = max(turns, durable_usage.turns_started)
@@ -597,6 +646,7 @@ class CodingWorkerService:
                 payload={},
             )
             outcome = "interrupted"
+            question_data: dict[str, object] | None = None
             try:
                 async for event in self.provider.message(session, message):
                     self.store.append_event(
@@ -605,6 +655,10 @@ class CodingWorkerService:
                         {"kind": event.kind.value, "data": event.data},
                     )
                     self._record_provider_session_event(task_id, turn_id, event)
+                    if event.kind is ProviderEventKind.QUESTION:
+                        outcome = "waiting_input"
+                        question_data = event.data
+                        break
                     if event.kind is ProviderEventKind.TURN_COMPLETED:
                         outcome = "completed"
                         break
@@ -622,6 +676,61 @@ class CodingWorkerService:
             self.store.finish_session_turn(
                 task_id, turn_id=turn_id, result_state=outcome
             )
+            if outcome == "waiting_input":
+                if question_data is None:
+                    raise WorkerConflictError(
+                        "Provider question payload is missing.",
+                        code="provider_event_invalid",
+                    )
+                try:
+                    question_id = str(question_data["question_id"])
+                    self.store.create_question(
+                        task_id=task_id,
+                        question_id=question_id,
+                        turn_id=turn_id,
+                        prompt=str(question_data["prompt"]),
+                        options=tuple(
+                            WorkerQuestionOption.model_validate(item)
+                            for item in question_data["options"]
+                        ),
+                    )
+                    provider_checkpoint = await self.provider.checkpoint(session)
+                    tree_hash = self.workspace_broker.current_tree_hash(
+                        self.store.get_task(task_id).workspace_id or ""
+                    )
+                    self.store.create_checkpoint(
+                        task_id=task_id,
+                        workspace_tree_hash=tree_hash,
+                        payload={
+                            "phase": "waiting_input",
+                            "question_id": question_id,
+                            "completed_turns": turns,
+                            "message_cursor": message_cursor,
+                            "provider": provider_checkpoint.model_dump(mode="json"),
+                            "context_summary": self._context_summary(
+                                task_id,
+                                tree_hash=tree_hash,
+                                public_output=str(
+                                    provider_checkpoint.payload.get("public_output", "")
+                                ),
+                            ),
+                        },
+                    )
+                except Exception:
+                    self.store.transition(
+                        task_id,
+                        TaskState.BLOCKED,
+                        reason="question_checkpoint_failed",
+                        expected_state=TaskState.RUNNING,
+                    )
+                    return
+                self.store.transition(
+                    task_id,
+                    TaskState.WAITING_INPUT,
+                    reason="user_input_required",
+                    expected_state=TaskState.RUNNING,
+                )
+                return
             if outcome == "cancelled":
                 self.store.transition(
                     task_id, TaskState.CANCELLED, reason="provider_cancelled"
