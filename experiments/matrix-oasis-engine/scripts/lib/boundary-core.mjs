@@ -143,8 +143,18 @@ const NETWORK_MODULES = new Set([
   "undici",
 ]);
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
-const APPROVED_PROVIDER_NETWORK_SOURCE =
-  "packages/prototype-generator/src/openai-compatible.mjs";
+const MESHY_ENDPOINT = [
+  "https:",
+  "",
+  "api.meshy.ai",
+  "openapi",
+  "v2",
+  "text-to-3d",
+].join("/");
+const APPROVED_PROVIDER_NETWORK_SOURCES = new Set([
+  "packages/prototype-generator/src/openai-compatible.mjs",
+  "packages/prototype-asset-pipeline/src/meshy-provider.mjs",
+]);
 const STATIC_SECRET_PATTERNS = [
   /-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----/,
   /\bsk-[A-Za-z0-9_-]{20,}\b/,
@@ -153,7 +163,7 @@ const STATIC_SECRET_PATTERNS = [
 ];
 const ASSIGNED_SECRET = /\b(?:OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|GITHUB_TOKEN|NPM_TOKEN|_authToken|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*(?:"([^"]+)"|'([^']+)'|([^\s#;,]+))/gi;
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 8],
+  [["schemaVersion"], 9],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
@@ -165,7 +175,7 @@ const REQUIRED_POLICY_VALUES = [
   [["networkPolicy", "creatorSource"], "none"],
   [["networkPolicy", "godotFirstPartySource"], "none"],
   [["networkPolicy", "verificationScripts"], "loopback-only"],
-  [["networkPolicy", "providerCalls"], "openai-compatible-adapter-only"],
+  [["networkPolicy", "providerCalls"], "openai-compatible-and-meshy-adapters-only"],
   [["networkPolicy", "splatQualification"], "source-checkout-and-loopback-disposable-only"],
   [["runtimeArtifactInputPolicy", "mode"], "paired-local-files-only"],
   [["runtimeArtifactInputPolicy", "runtimeMaxBytes"], 16 * 1024 * 1024],
@@ -218,6 +228,31 @@ const REQUIRED_POLICY_VALUES = [
   [["prototypeGenerationPolicy", "marbleCallsAllowed"], false],
   [["prototypeGenerationPolicy", "meshyCallsAllowed"], false],
   [["prototypeGenerationPolicy", "trackedGeneratedArtifactsAllowed"], false],
+  [["prototypeAssetPolicy", "format"], "matrix-oasis.prototype-asset-bundle"],
+  [["prototypeAssetPolicy", "formatVersion"], "0.1.0"],
+  [["prototypeAssetPolicy", "canonicalization"], "matrix-oasis.canonical-json/1"],
+  [["prototypeAssetPolicy", "environmentTemplate"], "kenney-prototype-room-v1"],
+  [["prototypeAssetPolicy", "blueprintMaxBytes"], 1024 * 1024],
+  [["prototypeAssetPolicy", "manifestMaxBytes"], 256 * 1024],
+  [["prototypeAssetPolicy", "rawAssetMaxBytes"], 128 * 1024 * 1024],
+  [["prototypeAssetPolicy", "normalizedAssetMaxBytes"], 32 * 1024 * 1024],
+  [["prototypeAssetPolicy", "totalAssetMaxBytes"], 128 * 1024 * 1024],
+  [["prototypeAssetPolicy", "maxFiles"], 16],
+  [["prototypeAssetPolicy", "visualTriangleMax"], 100000],
+  [["prototypeAssetPolicy", "colliderTriangleMax"], 10000],
+  [["prototypeAssetPolicy", "textureMaxDimension"], 2048],
+  [["prototypeAssetPolicy", "provider"], "meshy"],
+  [["prototypeAssetPolicy", "providerEndpoint"], MESHY_ENDPOINT],
+  [["prototypeAssetPolicy", "providerModel"], "meshy-6"],
+  [["prototypeAssetPolicy", "providerNetworkSource"], "packages/prototype-asset-pipeline/src/meshy-provider.mjs"],
+  [["prototypeAssetPolicy", "officialDownloadHost"], "assets.meshy.ai"],
+  [["prototypeAssetPolicy", "pollMaxAttempts"], 120],
+  [["prototypeAssetPolicy", "pollIntervalMs"], 5000],
+  [["prototypeAssetPolicy", "creatorNetworkAllowed"], false],
+  [["prototypeAssetPolicy", "godotNetworkAllowed"], false],
+  [["prototypeAssetPolicy", "marbleCallsAllowed"], false],
+  [["prototypeAssetPolicy", "meshyCallsRequireHumanApproval"], true],
+  [["prototypeAssetPolicy", "trackedGeneratedArtifactsAllowed"], false],
   [["scenePackInputPolicy", "symlinksAllowed"], false],
   [
     ["forbiddenParentRoots"],
@@ -933,7 +968,7 @@ function usesNetworkModule(specifiers) {
 }
 
 function checkRuntimeNetwork(relative, content, specifiers, violations) {
-  if (relative === APPROVED_PROVIDER_NETWORK_SOURCE) {
+  if (APPROVED_PROVIDER_NETWORK_SOURCES.has(relative)) {
     const forbiddenCapability =
       NETWORK_GLOBAL_NAMES
         .filter((name) => name !== FETCH_GLOBAL_NAME)

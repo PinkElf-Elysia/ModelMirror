@@ -1,30 +1,29 @@
 # 模块边界
 
-## R8允许范围
+## R9允许范围
 
 - 只修改 `experiments/matrix-oasis-engine/**`。
-- R1–R7 apps、examples、既有packages、Godot、资产、vendor和历史验收全部冻结。
-- 新代码只允许进入两个R8私有workspace、精确CLI/harness文件和R8文档。
+- R1–R8 apps、examples、既有packages、Godot、资产、vendor和历史验收全部冻结。
+- 新代码只允许进入两个R9私有workspace、精确CLI/harness文件和R9文档。
 - Creator、Godot、父路由、父API、Docker和共享栈不变。
 
 ## 输入、网络与输出
 
-- 输入只允许最大32 KiB、fatal UTF-8纯文本；不读取图片、视频、全景、3D文件或父仓数据。
-- 只有 `packages/prototype-generator/src/openai-compatible.mjs` 可以发起模型请求；它不读取环境变量。
-- CLI可以读取三个R8专用模型环境变量，但不得打印或持久化其值，也不得读取父仓模型变量。
-- endpoint只允许HTTPS，或用于自动测试的loopback HTTP；禁止redirect、stream、tools和自动网络重试。
-- 每次生成最多3个请求：1次初始生成和2次定向修复。
-- prompt必须是 `C:\tmp` 内的普通真实文件；读取前后使用bigint设备/文件身份核对，拒绝symlink、junction、越界、超过32 KiB及非fatal UTF-8输入。
-- 生成物只能事务发布到 `C:\tmp` 的新一级子目录；五个固定文件先以独占FileHandle写入、同步、回读和复验，再通过单次目录rename发布，不覆盖既有目标。
-- 生成成功目录只包含Authoring、Blueprint、Runtime、Receipt和脱敏generation report；不得跟踪真实模型输出、原始HTTP响应或详细日志。
+- R8 Blueprint只从仓外资格目录读取并按canonical/hash/身份复验；不读取父仓数据。
+- 只有冻结的R8 provider与 `packages/prototype-asset-pipeline/src/meshy-provider.mjs` 可以使用受控 `fetch`；后者不读取环境变量。
+- 只有资格CLI可以读取 `MATRIX_OASIS_MESHY_API_KEY`，不得打印、写入报告或持久化其值。
+- Meshy endpoint固定HTTPS且禁止redirect、SSE和自动重建任务；下载只接受 `assets.meshy.ai` 或测试loopback。
+- 真实create、poll、download按任务和阶段分别审批。普通verify不得调用供应商。
+- 原始资产和供应商证据留在 `C:\tmp`；最终Asset Bundle事务发布到仓外新目录，不覆盖已有目标。
+- Asset Bundle只包含 `assets/*.glb`、canonical manifest和脱敏报告；不得包含任务ID、URL、密钥、原始响应或用户提示。
 
 ## 初版防偏离门
 
-R8只消除“人工编写结构化原型”的步骤。图片输入、资产生成、Marble、Meshy、NPC、记忆、任务规划、世界事件、运行期AI和Godot启动均不属于本轮。
+R9只消除“Blueprint中的道具/静态人物没有真实资产”的步骤。环境生成、Marble、自动布局、Creator一键预览、NPC、记忆、任务规划、世界事件和运行期AI均不属于本轮。
 
 ## 自动范围与回退
 
-- schema v8固定 `activeRound=R8` 和基线 `21cbbb8b943b6f9d9799f014c44a6349e6124a63`。
+- schema v9固定 `activeRound=R9` 和基线 `da5fd0fe39234807ae3c4a1d543b9fd64de66d97`。
 - 精确allowlist优先于广义冻结根；未明确放行的旧路径和新路径全部失败关闭。
-- 普通verify只使用loopback假Provider，不产生费用。
-- 每批逆序revert；整体回退恢复完整R7，不涉及数据库、服务或运行数据。
+- 普通verify只使用loopback假Provider与离线GLB夹具，不产生费用。
+- 每批逆序revert；整体回退恢复完整R8，不涉及数据库、服务或运行数据。仓外供应商任务和资产需按资格清单另行处理。
