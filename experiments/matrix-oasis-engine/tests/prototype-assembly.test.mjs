@@ -17,9 +17,12 @@ import {
   assemblePrototypeScene,
 } from "../packages/prototype-assembler/src/index.mjs";
 import {
+  findVerifiedPrototypeRun,
   PrototypeCacheOperationalError,
   importPrototypeCache,
   parsePrototypeCacheArguments,
+  publishPrototypeRun,
+  recoverPrototypeRuns,
 } from "../scripts/lib/prototype-cache-core.mjs";
 
 const hash = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -244,7 +247,7 @@ test("assembler source is offline and independent from provider adapters", async
     "prototype-generator/src", "meshy-provider.mjs", "marble-provider.mjs"]) assert.equal(source.includes(forbidden), false);
 });
 
-const cacheServices = Object.freeze({ lstat, mkdir, mkdtemp, openFile: open, realpath, rename, rm, rmdir });
+const cacheServices = Object.freeze({ lstat, mkdir, mkdtemp, openFile: open, readdir, realpath, rename, rm, rmdir });
 
 async function writeCacheInputs(root, input, runRootOverride = null) {
   const promptFile = path.join(root, "prompt.txt");
@@ -295,7 +298,7 @@ test("cache argument surface is exact and absolute", () => {
   }
 });
 
-test("verified cache publishes one complete run, excludes Kenney, and stores no prompt", async () => {
+test("verified cache publishes one self-validating run, keeps Kenney only as R9 provenance, and stores no prompt", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "matrix-oasis-r10-cache-"));
   try {
     const input = await fixture({ nonEnvironmentKinds: ["prop", "character-placeholder"] });
@@ -312,11 +315,61 @@ test("verified cache publishes one complete run, excludes Kenney, and stores no 
       "prototype-environment-report.json", "run-report.json", "runtime-game-pack.json", "runtime-receipt.json",
       "scene-blueprint.json", "scene-pack.json"]);
     const assetNames = (await readdir(path.join(run, "assets"))).sort();
-    assert.deepEqual(assetNames, ["asset-character-placeholder-1-0.glb", "asset-prop-0-0.glb", "asset-prop-0-1.glb",
-      "environment-collider.glb", "environment-panorama.png"]);
-    assert.equal(assetNames.some((name) => name.includes("floor") || name.includes("wall")), false);
+    assert.deepEqual(assetNames, ["asset-character-placeholder-1-0.glb", "asset-environment-0.glb",
+      "asset-prop-0-0.glb", "asset-prop-0-1.glb", "environment-collider.glb", "environment-panorama.png"]);
+    const scene = JSON.parse(await readFile(path.join(run, "scene-pack.json"), "utf8"));
+    assert.equal(scene.assets.some((asset) => asset.path === "assets/asset-environment-0.glb"), false);
     const allText = (await Promise.all(names.filter((name) => name.endsWith(".json")).map((name) => readFile(path.join(run, name), "utf8")))).join("\n");
     assert.equal(allText.includes(prepared.prompt), false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("memory publication is restart-recoverable and cache hits revalidate every persisted byte", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "matrix-oasis-r10-memory-run-"));
+  const runRoot = path.join(root, "run-root");
+  try {
+    const input = await fixture({ nonEnvironmentKinds: ["prop", "character-placeholder"] });
+    const prototypeArtifacts = {
+      authoringGamePackJson: input.authoringGamePackJson,
+      sceneBlueprintJson: input.sceneBlueprintJson,
+      runtimeGamePackJson: input.runtimeGamePackJson,
+      runtimeReceiptJson: input.runtimeReceiptJson,
+    };
+    const names = [["authoring-game-pack.json", "authoringGamePackJson"], ["scene-blueprint.json", "sceneBlueprintJson"],
+      ["runtime-game-pack.json", "runtimeGamePackJson"], ["runtime-receipt.json", "runtimeReceiptJson"]];
+    prototypeArtifacts.generationReportJson = canonicalizeJsonValue({ artifacts: names.map(([name, key]) => ({
+      byteLength: new TextEncoder().encode(prototypeArtifacts[key]).length, name,
+      sha256: hash(new TextEncoder().encode(prototypeArtifacts[key])),
+    })), format: "matrix-oasis.prototype-generation-report", formatVersion: "0.1.0", model: "qualification-model",
+    requestCount: 1, runtimeCheck: { declaredActionCount: 2, initialAvailableActionCount: 1, status: "ready" }, usage: null });
+    const environmentBundle = JSON.parse(input.environmentBundleJson);
+    const environmentReportJson = canonicalizeJsonValue({
+      bundleSha256: hash(new TextEncoder().encode(input.environmentBundleJson)), counts: { creates: 1, downloads: 2, polls: 1, worldGets: 1 },
+      files: [environmentBundle.assets.panorama, environmentBundle.assets.collider].map(({ path: assetPath }) => {
+        const value = input.environmentFiles.get(assetPath); return { byteLength: value.length, path: assetPath, sha256: hash(value) };
+      }), format: "matrix-oasis.prototype-environment-materialization-report", formatVersion: "0.1.0",
+      provider: { id: "world-labs-marble", model: "marble-1.1" },
+    });
+    const prompt = "Build one neutral room with a console and a static guide.";
+    const published = await publishPrototypeRun({ prompt, prototypeArtifacts,
+      assetMaterialization: { canonicalBundleJson: input.assetBundleJson,
+        files: [...input.assetFiles].map(([assetPath, value]) => ({ path: assetPath, bytes: value })) },
+      environmentMaterialization: { canonicalBundleJson: input.environmentBundleJson, canonicalReportJson: environmentReportJson,
+        files: [...input.environmentFiles].map(([assetPath, value]) => ({ path: assetPath, bytes: value })) },
+      runRoot, temporaryRoot: root, services: cacheServices, source: "live-provider",
+      assemblePrototypeScene, canonicalizeJsonValue });
+    const recovered = await recoverPrototypeRuns({ runRoot, temporaryRoot: root, services: cacheServices,
+      assemblePrototypeScene, canonicalizeJsonValue });
+    assert.equal(recovered.currentRunId, published.runId); assert.deepEqual(recovered.runs.map(({ runId }) => runId), [published.runId]);
+    const found = await findVerifiedPrototypeRun({ promptSha256: hash(new TextEncoder().encode(prompt)), model: "qualification-model",
+      runRoot, temporaryRoot: root, services: cacheServices, assemblePrototypeScene, canonicalizeJsonValue });
+    assert.deepEqual(found, { ok: true, runId: published.runId });
+    const scenePath = path.join(runRoot, "runs", published.runId, "scene-pack.json");
+    await writeFile(scenePath, `${await readFile(scenePath, "utf8")}\n`, "utf8");
+    assert.deepEqual(await findVerifiedPrototypeRun({ promptSha256: hash(new TextEncoder().encode(prompt)), model: "qualification-model",
+      runRoot, temporaryRoot: root, services: cacheServices, assemblePrototypeScene, canonicalizeJsonValue }), { ok: false });
+    assert.deepEqual((await recoverPrototypeRuns({ runRoot, temporaryRoot: root, services: cacheServices,
+      assemblePrototypeScene, canonicalizeJsonValue })).runs, []);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

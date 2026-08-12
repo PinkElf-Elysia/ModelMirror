@@ -16,8 +16,16 @@ Provider使用Node 24原生Fetch与`WLT-Api-Key`，自身不读取环境变量�
 
 ## R10.3自动组装与缓存导入
 
-`@matrix-oasis/prototype-assembler@0.1.0-r10`离线调用冻结的R8 Generation、R9 Asset Bundle、R10 Environment Bundle、R3 Runtime与R7 Scene Pack验证器。固定profile最多四个zone、两个非环境brief、32个逻辑placement且每zone最多八个；30×30m空间按zone声明顺序使用固定4×2槽位。成功Scene Pack只使用Marble collider与Meshy visual/collider，R9中的Kenney环境物化仅作为历史资格输入复验，不复制到run。
+`@matrix-oasis/prototype-assembler@0.1.0-r10`离线调用冻结的R8 Generation、R9 Asset Bundle、R10 Environment Bundle、R3 Runtime与R7 Scene Pack验证器。固定profile最多四个zone、两个非环境brief、32个逻辑placement且每zone最多八个；30×30m空间按zone声明顺序使用固定4×2槽位。成功Scene Pack只引用Marble collider与Meshy visual/collider；R9中的Kenney环境物化只随Asset Bundle作为离线复验证据保留，不进入Scene Pack，也不构成环境回退。
 
 `import:prototype-cache`只接受`C:\tmp`内真实目录和绝对参数。所有输入经fatal UTF-8、canonical、FileHandle、bigint dev/ino及size/mtime/ctime稳定性检查；Assembler引用的两类环境文件和Meshy文件在同父staging中写入、sync、回读并单次rename。`current.json`最后替换，失败不改变既有current；歧义路径不递归清理。cache key绑定prompt SHA、模型、Blueprint、Asset/Environment Bundle和assembler版本，命中缓存不读取供应商凭据。
 
-run只保存canonical artifacts、重建的脱敏Asset report、已验证Environment report、Scene Pack、assembly/run report和被引用资产；原始prompt、Kenney GLB、供应商任务/世界ID、URL、响应与凭据均不写入。
+run只保存canonical artifacts、重建的脱敏Asset report、已验证Environment report、Scene Pack、assembly/run report，以及复验这些合同所需的规范化GLB；原始prompt、供应商任务/世界ID、URL、响应与凭据均不写入。
+
+## R10.4本地宿主与审批状态机
+
+`preview:prototype -- --run-root <C:\tmp直接子目录>`只绑定`127.0.0.1:43110`。API要求exact same-origin、JSON content type和HttpOnly/SameSite=Strict会话cookie，无CORS；body最大64 KiB，prompt最大32 KiB且只驻留内存。一个宿主同时只允许一个非终态run和一个launch操作。
+
+固定状态为`awaiting_model_approval → generating → awaiting_asset_approval → acquiring → normalizing → assembling → ready|failed`。第一道审批绑定当前prompt SHA、模型、最多三次请求与1美元上限；第二道审批绑定Blueprint SHA、Marble环境prompt、最多一次create/180次poll/两次下载，以及按声明顺序的Meshy brief、最多四个任务和60 credits。重复、过期或内容不匹配的审批均不执行外部操作。
+
+宿主启动和缓存命中不读取API Key。只有模型审批后才读取`MATRIX_OASIS_MODEL_*`，只有资产审批后才读取`MATRIX_OASIS_MARBLE_API_KEY`和`MATRIX_OASIS_MESHY_API_KEY`。既有run在命中或重启恢复前会重新检查全部canonical文本、身份、hash、GLB、Scene Pack和report；失败run不会替换`current.json`。R10.4默认把Godot readiness保持为false，实际R10 wrapper和无shell启动在R10.5接通。

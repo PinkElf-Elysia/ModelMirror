@@ -740,6 +740,37 @@ const negativeCases = [
     },
   },
   {
+    name: "prototype host outbound request",
+    expectedRule: "prototype-host-network-invalid",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "prototype-host-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, [
+        'import { createServer } from "node:http";',
+        'export const PROTOTYPE_HOST = "127.0.0.1";',
+        "export const PROTOTYPE_HOST_PORT = 43_110;",
+        "const server = createServer();",
+        "server.listen(PROTOTYPE_HOST_PORT, PROTOTYPE_HOST, () => {});",
+        'fetch("https://example.invalid");',
+      ].join("\n"), "utf8");
+    },
+  },
+  {
+    name: "prototype host wildcard binding",
+    expectedRule: "prototype-host-network-invalid",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "prototype-host-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, [
+        'import { createServer } from "node:http";',
+        'export const PROTOTYPE_HOST = "0.0.0.0";',
+        "export const PROTOTYPE_HOST_PORT = 43_110;",
+        "const server = createServer();",
+        "server.listen(PROTOTYPE_HOST_PORT, PROTOTYPE_HOST, () => {});",
+      ].join("\n"), "utf8");
+    },
+  },
+  {
     name: "smoke script non-loopback host",
     expectedRule: "smoke-host-not-fixed-loopback",
     setup: async ({ root }) => {

@@ -299,39 +299,24 @@ async function publishCurrent(runRoot, runId, services, canonicalize) {
   }
 }
 
-export async function importPrototypeCache({ args, temporaryRoot, services, assemblePrototypeScene, canonicalizeJsonValue }) {
-  const parsed = parsePrototypeCacheArguments(args);
-  const tempReal = path.resolve(await services.realpath(temporaryRoot));
-  const promptRoot = await trustedDirectory(path.dirname(parsed.promptFile), tempReal, services, "PROTOTYPE_CACHE_PROMPT_INVALID");
-  const promptBytes = await readStableFile(promptRoot, path.basename(parsed.promptFile), 32_768, services, "PROTOTYPE_CACHE_PROMPT_INVALID");
-  const prompt = decodeText(promptBytes, "PROTOTYPE_CACHE_PROMPT_INVALID");
-  if (prompt.trim().length < 1) fail("PROTOTYPE_CACHE_PROMPT_INVALID");
-  const prototypeDir = await trustedDirectory(parsed.prototypeDir, tempReal, services, "PROTOTYPE_CACHE_INPUT_INVALID");
-  const assetDir = await trustedDirectory(parsed.assetBundleDir, tempReal, services, "PROTOTYPE_CACHE_INPUT_INVALID");
-  const environmentDir = await trustedDirectory(parsed.environmentBundleDir, tempReal, services, "PROTOTYPE_CACHE_INPUT_INVALID");
-  if (!directChild(tempReal, parsed.runRoot)) fail("PROTOTYPE_CACHE_RUN_ROOT_INVALID");
-  if (!(await exists(parsed.runRoot, services))) await services.mkdir(parsed.runRoot, { recursive: false });
-  const runRoot = await trustedDirectory(parsed.runRoot, tempReal, services, "PROTOTYPE_CACHE_RUN_ROOT_INVALID");
-  const texts = Object.create(null);
-  for (const name of ["authoring-game-pack.json", "scene-blueprint.json", "runtime-game-pack.json", "runtime-receipt.json", "generation-report.json"]) {
-    texts[name] = decodeText(await readStableFile(prototypeDir, name, TEXT_LIMITS[name], services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
-  }
-  const assetText = decodeText(await readStableFile(assetDir, "prototype-asset-bundle.json", TEXT_LIMITS["prototype-asset-bundle.json"], services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
-  const environmentText = decodeText(await readStableFile(environmentDir, "prototype-environment-bundle.json", TEXT_LIMITS["prototype-environment-bundle.json"], services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
-  const environmentReportText = decodeText(await readStableFile(environmentDir, "prototype-environment-report.json", TEXT_LIMITS["prototype-environment-report.json"], services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+async function publishPreparedPrototypeRun({
+  promptBytes,
+  texts,
+  assetText,
+  assetBundle,
+  assetFiles,
+  environmentText,
+  environmentBundle,
+  environmentReportText,
+  environmentFiles,
+  runRoot,
+  source,
+  services,
+  assemblePrototypeScene,
+  canonicalizeJsonValue,
+}) {
   const generationReport = parseCanonical(texts["generation-report.json"], canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
   if (!safeGenerationReport(generationReport, texts)) fail("PROTOTYPE_CACHE_INPUT_INVALID");
-  const assetBundle = parseCanonical(assetText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
-  const environmentBundle = parseCanonical(environmentText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
-  const assetFiles = new Map();
-  for (const asset of assetBundle.materializations?.flatMap((item) => item.assets) ?? []) {
-    assetFiles.set(asset.path, await readStableFile(assetDir, asset.path, 33_554_432, services, "PROTOTYPE_CACHE_INPUT_INVALID"));
-  }
-  const environmentFiles = new Map();
-  for (const asset of [environmentBundle.assets?.panorama, environmentBundle.assets?.collider]) {
-    if (!asset?.path) fail("PROTOTYPE_CACHE_INPUT_INVALID");
-    environmentFiles.set(asset.path, await readStableFile(environmentDir, asset.path, asset.format === "png" ? 67_108_864 : 33_554_432, services, "PROTOTYPE_CACHE_INPUT_INVALID"));
-  }
   const environmentReport = parseCanonical(environmentReportText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
   if (!safeEnvironmentReport(environmentReport, environmentText, environmentFiles)) fail("PROTOTYPE_CACHE_INPUT_INVALID");
   const assembled = await assemblePrototypeScene({ authoringGamePackJson: texts["authoring-game-pack.json"],
@@ -353,7 +338,7 @@ export async function importPrototypeCache({ args, temporaryRoot, services, asse
   const runId = `${blueprintHash}-${bundleHash}`;
   const safeAssetReportText = canonicalizeJsonValue(assetReport(assetText, assetBundle, assetFiles));
   const runReportText = canonicalizeJsonValue({ format: "matrix-oasis.prototype-run-report", formatVersion: "0.1.0",
-    status: "ready", source: "verified-cache", promptSha256, runId,
+    status: "ready", source, promptSha256, runId,
     scenePackSha256: sha256(new TextEncoder().encode(assembled.canonicalScenePackJson)) });
   const artifacts = [
     ...["authoring-game-pack.json", "scene-blueprint.json", "runtime-game-pack.json", "runtime-receipt.json", "generation-report.json"].map((name) => ({ path: name, bytes: new TextEncoder().encode(texts[name]) })),
@@ -366,11 +351,205 @@ export async function importPrototypeCache({ args, temporaryRoot, services, asse
     { path: "run-report.json", bytes: new TextEncoder().encode(runReportText) },
   ];
   for (const reference of assembled.referencedFiles) {
-    const source = reference.source === "prototype-assets" ? assetFiles : environmentFiles;
-    const value = source.get(reference.path); if (!value) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+    const fileSource = reference.source === "prototype-assets" ? assetFiles : environmentFiles;
+    const value = fileSource.get(reference.path); if (!value) fail("PROTOTYPE_CACHE_INPUT_INVALID");
     artifacts.push({ path: reference.path, bytes: value });
+  }
+  const publishedPaths = new Set(artifacts.map(({ path: artifactPath }) => artifactPath));
+  for (const [assetPath, value] of [...assetFiles.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) {
+    if (!publishedPaths.has(assetPath)) { artifacts.push({ path: assetPath, bytes: value }); publishedPaths.add(assetPath); }
   }
   await publishRun(runRoot, runId, artifacts, services);
   await publishCurrent(runRoot, runId, services, canonicalizeJsonValue);
-  return Object.freeze({ runId, cacheHit: true, files: artifacts.length });
+  return Object.freeze({ runId, cacheHit: source === "verified-cache", files: artifacts.length });
+}
+
+export async function publishPrototypeRun({
+  prompt,
+  prototypeArtifacts,
+  assetMaterialization,
+  environmentMaterialization,
+  runRoot: runRootPath,
+  temporaryRoot,
+  source = "live-provider",
+  services,
+  assemblePrototypeScene,
+  canonicalizeJsonValue,
+}) {
+  try {
+    const promptBytes = typeof prompt === "string" ? new TextEncoder().encode(prompt) : null;
+    if (!promptBytes || promptBytes.length > 32_768 || prompt.trim().length < 1 ||
+        new TextDecoder("utf-8", { fatal: true }).decode(promptBytes) !== prompt ||
+        !["live-provider", "verified-cache"].includes(source) || !path.isAbsolute(runRootPath) || !path.isAbsolute(temporaryRoot)) {
+      fail("PROTOTYPE_CACHE_INPUT_INVALID");
+    }
+    const artifactNames = ["authoringGamePackJson", "sceneBlueprintJson", "runtimeGamePackJson", "runtimeReceiptJson", "generationReportJson"];
+    if (!exactKeys(prototypeArtifacts, artifactNames) || artifactNames.some((name) => typeof prototypeArtifacts[name] !== "string") ||
+        !exactKeys(assetMaterialization, ["canonicalBundleJson", "files"]) ||
+        !exactKeys(environmentMaterialization, ["canonicalBundleJson", "canonicalReportJson", "files"]) ||
+        !Array.isArray(assetMaterialization.files) || !Array.isArray(environmentMaterialization.files)) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+    const tempReal = path.resolve(await services.realpath(temporaryRoot));
+    const resolvedRunRoot = path.resolve(runRootPath);
+    if (!directChild(tempReal, resolvedRunRoot)) fail("PROTOTYPE_CACHE_RUN_ROOT_INVALID");
+    if (!(await exists(resolvedRunRoot, services))) await services.mkdir(resolvedRunRoot, { recursive: false });
+    const runRoot = await trustedDirectory(resolvedRunRoot, tempReal, services, "PROTOTYPE_CACHE_RUN_ROOT_INVALID");
+    const texts = {
+      "authoring-game-pack.json": prototypeArtifacts.authoringGamePackJson,
+      "scene-blueprint.json": prototypeArtifacts.sceneBlueprintJson,
+      "runtime-game-pack.json": prototypeArtifacts.runtimeGamePackJson,
+      "runtime-receipt.json": prototypeArtifacts.runtimeReceiptJson,
+      "generation-report.json": prototypeArtifacts.generationReportJson,
+    };
+    for (const [name, text] of Object.entries(texts)) {
+      const limit = TEXT_LIMITS[name]; const encoded = new TextEncoder().encode(text);
+      if (encoded.length < 1 || encoded.length > limit || new TextDecoder("utf-8", { fatal: true }).decode(encoded) !== text) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+    }
+    const assetText = assetMaterialization.canonicalBundleJson;
+    const environmentText = environmentMaterialization.canonicalBundleJson;
+    const environmentReportText = environmentMaterialization.canonicalReportJson;
+    if ([assetText, environmentText, environmentReportText].some((text) => typeof text !== "string")) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+    const assetBundle = parseCanonical(assetText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
+    const environmentBundle = parseCanonical(environmentText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
+    const captureOutputs = (outputs) => {
+      const captured = new Map();
+      for (const output of outputs) {
+        if (!exactKeys(output, ["path", "bytes"]) || typeof output.path !== "string" || !(output.bytes instanceof Uint8Array) || captured.has(output.path)) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+        captured.set(output.path, Uint8Array.prototype.slice.call(output.bytes));
+      }
+      return captured;
+    };
+    const assetFiles = captureOutputs(assetMaterialization.files);
+    const environmentFiles = captureOutputs(environmentMaterialization.files);
+    return await publishPreparedPrototypeRun({ promptBytes, texts, assetText, assetBundle,
+      assetFiles, environmentText, environmentBundle, environmentReportText, environmentFiles, runRoot, source,
+      services, assemblePrototypeScene, canonicalizeJsonValue });
+  } catch (error) {
+    if (error instanceof PrototypeCacheOperationalError) throw error;
+    fail("PROTOTYPE_CACHE_INTERNAL_ERROR");
+  }
+}
+
+async function verifyPublishedRun(directory, runId, services, canonicalizeJsonValue, assemblePrototypeScene) {
+  const texts = Object.create(null);
+  for (const name of ["authoring-game-pack.json", "scene-blueprint.json", "runtime-game-pack.json", "runtime-receipt.json", "generation-report.json"]) {
+    texts[name] = decodeText(await readStableFile(directory, name, TEXT_LIMITS[name], services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+  }
+  const assetText = decodeText(await readStableFile(directory, "prototype-asset-bundle.json", TEXT_LIMITS["prototype-asset-bundle.json"], services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+  const assetReportText = decodeText(await readStableFile(directory, "prototype-asset-report.json", 262_144, services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+  const environmentText = decodeText(await readStableFile(directory, "prototype-environment-bundle.json", TEXT_LIMITS["prototype-environment-bundle.json"], services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+  const environmentReportText = decodeText(await readStableFile(directory, "prototype-environment-report.json", TEXT_LIMITS["prototype-environment-report.json"], services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+  const sceneText = decodeText(await readStableFile(directory, "scene-pack.json", 262_144, services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+  const assemblyReportText = decodeText(await readStableFile(directory, "assembly-report.json", 262_144, services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+  const runReportText = decodeText(await readStableFile(directory, "run-report.json", 65_536, services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+  const generationReport = parseCanonical(texts["generation-report.json"], canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
+  if (!safeGenerationReport(generationReport, texts)) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+  const assetBundle = parseCanonical(assetText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
+  const environmentBundle = parseCanonical(environmentText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
+  const assetFiles = new Map();
+  for (const asset of assetBundle.materializations?.flatMap((item) => item.assets) ?? []) {
+    assetFiles.set(asset.path, await readStableFile(directory, asset.path, 33_554_432, services, "PROTOTYPE_CACHE_INPUT_INVALID"));
+  }
+  const environmentFiles = new Map();
+  for (const asset of [environmentBundle.assets?.panorama, environmentBundle.assets?.collider]) {
+    if (!asset?.path) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+    environmentFiles.set(asset.path, await readStableFile(directory, asset.path, asset.format === "png" ? 67_108_864 : 33_554_432, services, "PROTOTYPE_CACHE_INPUT_INVALID"));
+  }
+  const environmentReport = parseCanonical(environmentReportText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
+  if (!safeEnvironmentReport(environmentReport, environmentText, environmentFiles) ||
+      assetReportText !== canonicalizeJsonValue(assetReport(assetText, assetBundle, assetFiles))) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+  const assembled = await assemblePrototypeScene({ authoringGamePackJson: texts["authoring-game-pack.json"],
+    sceneBlueprintJson: texts["scene-blueprint.json"], runtimeGamePackJson: texts["runtime-game-pack.json"],
+    runtimeReceiptJson: texts["runtime-receipt.json"], assetBundleJson: assetText, assetFiles,
+    environmentBundleJson: environmentText, environmentFiles });
+  if (!assembled?.ok || sceneText !== assembled.canonicalScenePackJson || assemblyReportText !== assembled.canonicalAssemblyReportJson) {
+    fail("PROTOTYPE_CACHE_INPUT_INVALID");
+  }
+  const runReport = parseCanonical(runReportText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
+  if (!exactKeys(runReport, ["format", "formatVersion", "promptSha256", "runId", "scenePackSha256", "source", "status"]) ||
+      runReport.format !== "matrix-oasis.prototype-run-report" || runReport.formatVersion !== "0.1.0" ||
+      runReport.status !== "ready" || !["verified-cache", "live-provider"].includes(runReport.source) ||
+      runReport.runId !== runId || !HASH.test(runReport.promptSha256) ||
+      runReport.scenePackSha256 !== sha256(new TextEncoder().encode(sceneText))) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+  return Object.freeze({ runId, promptSha256: runReport.promptSha256, model: generationReport.model });
+}
+
+async function scanPrototypeRuns({ runRoot: runRootPath, temporaryRoot, services, canonicalizeJsonValue, assemblePrototypeScene }) {
+  const tempReal = path.resolve(await services.realpath(temporaryRoot)); const resolvedRunRoot = path.resolve(runRootPath);
+  if (!directChild(tempReal, resolvedRunRoot) || !(await exists(resolvedRunRoot, services))) return { currentRunId: null, runs: [] };
+  const runRoot = await trustedDirectory(resolvedRunRoot, tempReal, services, "PROTOTYPE_CACHE_RUN_ROOT_INVALID");
+  const runsPath = path.join(runRoot.path, "runs"); if (!(await exists(runsPath, services))) return { currentRunId: null, runs: [] };
+  const runsRoot = await trustedDirectory(runsPath, runRoot.path, services, "PROTOTYPE_CACHE_RUN_ROOT_INVALID");
+  let entries;
+  try { entries = await services.readdir(runsRoot.path, { withFileTypes: true }); }
+  catch { fail("PROTOTYPE_CACHE_RUN_ROOT_INVALID"); }
+  if (!Array.isArray(entries) || entries.length > 200) fail("PROTOTYPE_CACHE_RUN_ROOT_INVALID");
+  const verified = [];
+  for (const entry of entries.filter((item) => SAFE_RUN.test(item.name)).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    try {
+      const directory = await trustedDirectory(path.join(runsRoot.path, entry.name), runsRoot.path, services, "PROTOTYPE_CACHE_INPUT_INVALID");
+      verified.push(await verifyPublishedRun(directory, entry.name, services, canonicalizeJsonValue, assemblePrototypeScene));
+    } catch { /* a corrupt or raced run is not eligible for reuse */ }
+  }
+  let currentRunId = null;
+  const currentPath = path.join(runRoot.path, "current.json");
+  if (await exists(currentPath, services)) {
+    try {
+      const currentText = decodeText(await readStableFile(runRoot, "current.json", 4096, services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+      const current = parseCanonical(currentText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
+      if (exactKeys(current, ["format", "formatVersion", "runId"]) && current.format === "matrix-oasis.prototype-current" &&
+          current.formatVersion === "0.1.0" && verified.some((run) => run.runId === current.runId)) currentRunId = current.runId;
+    } catch { /* an invalid current pointer never invalidates verified historical runs */ }
+  }
+  return Object.freeze({ currentRunId, runs: Object.freeze(verified) });
+}
+
+export async function recoverPrototypeRuns(options) {
+  try { return await scanPrototypeRuns(options); }
+  catch (error) { if (error instanceof PrototypeCacheOperationalError) throw error; fail("PROTOTYPE_CACHE_INTERNAL_ERROR"); }
+}
+
+export async function findVerifiedPrototypeRun({ promptSha256, model, ...options }) {
+  try {
+    if (!HASH.test(promptSha256) || typeof model !== "string" || !/^[A-Za-z0-9._/-]{1,128}$/u.test(model)) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+    const scanned = await scanPrototypeRuns(options);
+    const matched = scanned.runs.find((run) => run.promptSha256 === promptSha256 && run.model === model);
+    return matched ? Object.freeze({ ok: true, runId: matched.runId }) : Object.freeze({ ok: false });
+  } catch (error) { if (error instanceof PrototypeCacheOperationalError) throw error; fail("PROTOTYPE_CACHE_INTERNAL_ERROR"); }
+}
+
+export async function importPrototypeCache({ args, temporaryRoot, services, assemblePrototypeScene, canonicalizeJsonValue }) {
+  const parsed = parsePrototypeCacheArguments(args);
+  const tempReal = path.resolve(await services.realpath(temporaryRoot));
+  const promptRoot = await trustedDirectory(path.dirname(parsed.promptFile), tempReal, services, "PROTOTYPE_CACHE_PROMPT_INVALID");
+  const promptBytes = await readStableFile(promptRoot, path.basename(parsed.promptFile), 32_768, services, "PROTOTYPE_CACHE_PROMPT_INVALID");
+  const prompt = decodeText(promptBytes, "PROTOTYPE_CACHE_PROMPT_INVALID");
+  if (prompt.trim().length < 1) fail("PROTOTYPE_CACHE_PROMPT_INVALID");
+  const prototypeDir = await trustedDirectory(parsed.prototypeDir, tempReal, services, "PROTOTYPE_CACHE_INPUT_INVALID");
+  const assetDir = await trustedDirectory(parsed.assetBundleDir, tempReal, services, "PROTOTYPE_CACHE_INPUT_INVALID");
+  const environmentDir = await trustedDirectory(parsed.environmentBundleDir, tempReal, services, "PROTOTYPE_CACHE_INPUT_INVALID");
+  if (!directChild(tempReal, parsed.runRoot)) fail("PROTOTYPE_CACHE_RUN_ROOT_INVALID");
+  if (!(await exists(parsed.runRoot, services))) await services.mkdir(parsed.runRoot, { recursive: false });
+  const runRoot = await trustedDirectory(parsed.runRoot, tempReal, services, "PROTOTYPE_CACHE_RUN_ROOT_INVALID");
+  const texts = Object.create(null);
+  for (const name of ["authoring-game-pack.json", "scene-blueprint.json", "runtime-game-pack.json", "runtime-receipt.json", "generation-report.json"]) {
+    texts[name] = decodeText(await readStableFile(prototypeDir, name, TEXT_LIMITS[name], services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+  }
+  const assetText = decodeText(await readStableFile(assetDir, "prototype-asset-bundle.json", TEXT_LIMITS["prototype-asset-bundle.json"], services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+  const environmentText = decodeText(await readStableFile(environmentDir, "prototype-environment-bundle.json", TEXT_LIMITS["prototype-environment-bundle.json"], services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+  const environmentReportText = decodeText(await readStableFile(environmentDir, "prototype-environment-report.json", TEXT_LIMITS["prototype-environment-report.json"], services, "PROTOTYPE_CACHE_INPUT_INVALID"), "PROTOTYPE_CACHE_INPUT_INVALID");
+  const assetBundle = parseCanonical(assetText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
+  const environmentBundle = parseCanonical(environmentText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
+  const assetFiles = new Map();
+  for (const asset of assetBundle.materializations?.flatMap((item) => item.assets) ?? []) {
+    assetFiles.set(asset.path, await readStableFile(assetDir, asset.path, 33_554_432, services, "PROTOTYPE_CACHE_INPUT_INVALID"));
+  }
+  const environmentFiles = new Map();
+  for (const asset of [environmentBundle.assets?.panorama, environmentBundle.assets?.collider]) {
+    if (!asset?.path) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+    environmentFiles.set(asset.path, await readStableFile(environmentDir, asset.path, asset.format === "png" ? 67_108_864 : 33_554_432, services, "PROTOTYPE_CACHE_INPUT_INVALID"));
+  }
+  return publishPreparedPrototypeRun({ promptBytes, texts, assetText, assetBundle, assetFiles,
+    environmentText, environmentBundle, environmentReportText, environmentFiles, runRoot,
+    source: "verified-cache", services, assemblePrototypeScene, canonicalizeJsonValue });
 }
