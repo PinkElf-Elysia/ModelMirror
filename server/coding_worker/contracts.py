@@ -217,6 +217,23 @@ class WorkspaceSource(StrictModel):
         return value
 
 
+class RepositoryInstruction(StrictModel):
+    display_path: str = Field(min_length=1, max_length=1024)
+    scope: str = Field(min_length=1, max_length=1024)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    content: str = Field(max_length=16_384)
+
+    @field_validator("display_path")
+    @classmethod
+    def validate_instruction_path(cls, value: str) -> str:
+        return _normalized_workspace_relative(value)
+
+    @field_validator("scope")
+    @classmethod
+    def validate_instruction_scope(cls, value: str) -> str:
+        return _normalized_workspace_relative(value, allow_root=True)
+
+
 class AcceptanceCheck(StrictModel):
     check_id: str = Field(min_length=1, max_length=128)
     label: str = Field(min_length=1, max_length=200)
