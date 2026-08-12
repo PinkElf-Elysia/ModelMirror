@@ -239,6 +239,183 @@ async def test_image_generation_validates_capabilities_and_complete_output(
 
 
 @pytest.mark.asyncio
+async def test_grok_imagine_image_2_uses_dedicated_openrouter_contract(
+    tmp_path: Path,
+) -> None:
+    def catalog_handler(request: Request) -> Response:
+        if request.url.path.endswith(
+            "/images/models/x-ai/grok-imagine-image-2.0/endpoints"
+        ):
+            return Response(
+                200,
+                json={
+                    "id": "x-ai/grok-imagine-image-2.0",
+                    "endpoints": [
+                        {
+                            "provider_name": "SpaceXAI",
+                            "pricing": [
+                                {
+                                    "billable": "input_image",
+                                    "unit": "image",
+                                    "cost_usd": 0.01,
+                                },
+                                {
+                                    "billable": "output_image",
+                                    "unit": "image",
+                                    "cost_usd": 0.04,
+                                    "variant": "low_1k",
+                                },
+                                {
+                                    "billable": "output_image",
+                                    "unit": "image",
+                                    "cost_usd": 0.08,
+                                    "variant": "medium_2k",
+                                },
+                            ],
+                        }
+                    ],
+                },
+            )
+        if request.url.path.endswith("/images/models"):
+            return Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "x-ai/grok-imagine-image-2.0",
+                            "name": "xAI: Grok Imagine Image 2.0",
+                            "architecture": {
+                                "input_modalities": ["text", "image"],
+                                "output_modalities": ["image"],
+                            },
+                            "supported_parameters": {
+                                "resolution": {
+                                    "type": "enum",
+                                    "values": ["1K", "2K"],
+                                },
+                                "aspect_ratio": {
+                                    "type": "enum",
+                                    "values": ["1:1", "16:9", "auto"],
+                                },
+                                "quality": {
+                                    "type": "enum",
+                                    "values": ["low", "medium"],
+                                },
+                                "n": {"type": "range", "min": 1, "max": 1},
+                                "input_references": {
+                                    "type": "range",
+                                    "min": 0,
+                                    "max": 3,
+                                },
+                            },
+                            "supports_streaming": False,
+                        }
+                    ]
+                },
+            )
+        return Response(200, json={"data": []})
+
+    catalog = ImageCatalogService(
+        openrouter_service(tmp_path),
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(catalog_handler)
+        ),
+    )
+    catalog_result = await catalog.get_catalog()
+    profile = next(
+        item
+        for item in catalog_result.profiles
+        if item.model_id == "x-ai/grok-imagine-image-2.0"
+    )
+    assert profile.operation == "generate_image"
+    assert profile.supports_streaming is False
+    assert profile.supported_parameters["quality"].values == ["low", "medium"]
+    assert profile.supported_parameters["n"].max == 1
+    assert profile.supported_parameters["input_references"].max == 3
+    assert [item.model_dump() for item in profile.pricing] == [
+        {
+            "billable": "input_image",
+            "unit": "image",
+            "cost_usd": 0.01,
+            "variant": None,
+        },
+        {
+            "billable": "output_image",
+            "unit": "image",
+            "cost_usd": 0.04,
+            "variant": "low_1k",
+        },
+        {
+            "billable": "output_image",
+            "unit": "image",
+            "cost_usd": 0.08,
+            "variant": "medium_2k",
+        },
+    ]
+
+    submitted: list[tuple[str, dict[str, object]]] = []
+
+    def generation_handler(request: Request) -> Response:
+        submitted.append(
+            (
+                request.url.path,
+                httpx.Response(200, content=request.content).json(),
+            )
+        )
+        return Response(
+            200,
+            headers={"x-request-id": "req_grok_image_2"},
+            json={
+                "model": "x-ai/grok-imagine-image-2.0",
+                "data": [
+                    {"b64_json": base64.b64encode(PNG_BYTES).decode()}
+                ],
+                "usage": {"cost": 0.08},
+            },
+        )
+
+    service = ImageGenerationService(
+        catalog,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(generation_handler)
+        ),
+    )
+    result = await service.generate(
+        model_id="x-ai/grok-imagine-image-2.0",
+        prompt="一座霓虹城市",
+        n=1,
+        resolution="2K",
+        aspect_ratio="16:9",
+        quality="medium",
+        reference_filenames=["one.png", "two.png", "three.png"],
+        reference_content_types=["image/png", "image/png", "image/png"],
+        reference_contents=[PNG_BYTES, PNG_BYTES, PNG_BYTES],
+    )
+
+    assert result.request_id == "req_grok_image_2"
+    assert result.usage.cost_usd == 0.08
+    assert submitted[0][0].endswith("/images")
+    assert submitted[0][1]["model"] == "x-ai/grok-imagine-image-2.0"
+    assert submitted[0][1]["resolution"] == "2K"
+    assert submitted[0][1]["aspect_ratio"] == "16:9"
+    assert submitted[0][1]["quality"] == "medium"
+    assert "stream" not in submitted[0][1]
+    assert len(submitted[0][1]["input_references"]) == 3
+
+    with pytest.raises(MultimodalServiceError) as error:
+        await service.generate(
+            model_id="x-ai/grok-imagine-image-2.0",
+            prompt="测试数量限制",
+            n=2,
+            reference_filenames=[],
+            reference_content_types=[],
+            reference_contents=[],
+        )
+    assert error.value.code == "invalid_image_parameter"
+    assert len(submitted) == 1
+
+
+@pytest.mark.asyncio
 async def test_image_generation_rejects_unsupported_parameter_before_request(
     tmp_path: Path,
 ) -> None:

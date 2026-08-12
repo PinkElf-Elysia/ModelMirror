@@ -7,6 +7,11 @@ import {
 } from "react";
 import { Link } from "react-router-dom";
 import type { Model } from "../data/models";
+import {
+  estimateImageCost,
+  GROK_IMAGINE_IMAGE_2_PRICING,
+  type ImagePricingItem,
+} from "../utils/imageCostEstimate";
 import BrandLogo from "./BrandLogo";
 import ResourceNav from "./ResourceNav";
 
@@ -26,6 +31,7 @@ interface ImageModelProfile {
   operation: "analyze_image" | "generate_image";
   invocable: boolean;
   supported_parameters: Record<string, ParameterProfile>;
+  pricing: ImagePricingItem[];
   interaction_status: "ready" | "planned" | "disabled";
   status_reason: string | null;
 }
@@ -73,6 +79,10 @@ function extensionFor(mediaType: string) {
   return "png";
 }
 
+function formatUsd(value: number) {
+  return `$${value.toFixed(value < 0.01 ? 4 : 2)}`;
+}
+
 export default function ImageGenerationWorkspace({
   model,
 }: ImageGenerationWorkspaceProps) {
@@ -116,6 +126,35 @@ export default function ImageGenerationWorkspace({
     0,
     Number(supported.input_references?.max ?? 0),
   );
+  const costEstimate = useMemo(
+    () => {
+      if (!profile) return null;
+      const pricing = profile.pricing?.length
+        ? profile.pricing
+        : model.id === "x-ai/grok-imagine-image-2.0"
+          ? GROK_IMAGINE_IMAGE_2_PRICING
+          : [];
+      return estimateImageCost(pricing, {
+        outputCount: Number(parameters.n || 1),
+        referenceCount: references.length,
+        resolution: parameters.resolution,
+        quality: parameters.quality,
+      });
+    },
+    [
+      model.id,
+      parameters.n,
+      parameters.quality,
+      parameters.resolution,
+      profile,
+      references.length,
+    ],
+  );
+  const costLabel = costEstimate
+    ? costEstimate.exact
+      ? formatUsd(costEstimate.minUsd)
+      : `${formatUsd(costEstimate.minUsd)}–${formatUsd(costEstimate.maxUsd)}`
+    : null;
 
   function selectValue(key: string, value: string) {
     setParameters((current) => ({ ...current, [key]: value }));
@@ -276,13 +315,41 @@ export default function ImageGenerationWorkspace({
               </div>
             ) : null}
 
+            {costEstimate && costLabel ? (
+              <div
+                aria-live="polite"
+                className="flex flex-wrap items-center justify-between gap-3 border-y border-white/10 py-4"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-white">
+                    预估费用 {costLabel}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                    {costEstimate.inputUsd > 0
+                      ? `已包含 ${references.length} 张参考图 ${formatUsd(costEstimate.inputUsd)}。`
+                      : costEstimate.exact
+                        ? "按当前分辨率、质量和生成数量估算。"
+                        : "选择分辨率和质量后可缩小估算区间。"}
+                    最终费用以 OpenRouter 网关结算为准。
+                  </p>
+                </div>
+                <span className="rounded-full border border-fuchsia-300/25 px-3 py-1.5 text-xs font-semibold text-fuchsia-100">
+                  目录估算
+                </span>
+              </div>
+            ) : null}
+
             {error ? <p className="rounded-lg border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm text-rose-100">{error}</p> : null}
             <button
               className="w-full rounded-lg bg-fuchsia-300 px-4 py-3 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={busy || !prompt.trim() || profile?.interaction_status !== "ready"}
               type="submit"
             >
-              {busy ? "正在生成并校验完整图片…" : "生成图片 · 费用以网关结算为准"}
+              {busy
+                ? "正在生成并校验完整图片…"
+                : costLabel
+                  ? `生成图片 · 预计 ${costLabel}`
+                  : "生成图片 · 费用以网关结算为准"}
             </button>
           </form>
         </section>
