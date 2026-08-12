@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type {
   AgencyDagEvent,
   AgencyDagRun,
@@ -5,6 +6,29 @@ import type {
   AgencyExecutionCapabilities,
   AgencyPlanPreview,
 } from "./AgencyExpertTeamTypes";
+
+interface AgencyDagRunSummary {
+  task_id: string;
+  run_id: string;
+  model_id: string;
+  goal: string;
+  team_name: string;
+  selected_agent_ids: string[];
+  status: AgencyDagRun["status"];
+  sequence: number;
+  final_output_preview: string;
+  quality_status?: string | null;
+  model_calls: number;
+  usage: AgencyDagRun["usage"];
+  error_code?: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+interface AgencyDagRunListResponse {
+  items: AgencyDagRunSummary[];
+  total: number;
+}
 
 function statusLabel(status?: string) {
   const labels: Record<string, string> = {
@@ -30,6 +54,25 @@ function usageLabel(event?: AgencyDagEvent) {
   const input = event?.usage?.input_tokens || 0;
   const output = event?.usage?.output_tokens || 0;
   return input || output ? `${input.toLocaleString()} 入 / ${output.toLocaleString()} 出` : "暂无用量";
+}
+
+function historyHref(taskId: string) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("desk", "team");
+  url.searchParams.set("dag_task", taskId);
+  return `${url.pathname}${url.search}`;
+}
+
+function downloadMarkdown(run: AgencyDagRun) {
+  if (!run.final_output) return;
+  const title = (run.team_name || "专家团成果").replace(/[\\/:*?"<>|]+/g, "-");
+  const body = `# ${run.team_name || "专家团成果"}\n\n${run.final_output}\n`;
+  const href = URL.createObjectURL(new Blob([body], { type: "text/markdown;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = `${title}.md`;
+  anchor.click();
+  URL.revokeObjectURL(href);
 }
 
 interface AgencyDagRunPanelProps {
@@ -63,6 +106,10 @@ export default function AgencyDagRunPanel({
   onDismissConfirm,
   onCancel,
 }: AgencyDagRunPanelProps) {
+  const [history, setHistory] = useState<AgencyDagRunSummary[]>([]);
+  const [historyError, setHistoryError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState("");
   const stepsById = new Map((run?.steps || []).map((event) => [event.task_id, event]));
   const agentsById = new Map(
     [...agentCatalog, ...(preview?.selected_agents || [])].map((agent) => [agent.id, agent]),
@@ -70,6 +117,38 @@ export default function AgencyDagRunPanel({
   const taskDefinitions = preview?.plan.tasks || run?.task_definitions || [];
   const totalInput = run?.usage?.input_tokens || 0;
   const totalOutput = run?.usage?.output_tokens || 0;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/expert-team/dag-runs?limit=12", { signal: controller.signal })
+      .then(async (response) => {
+        const payload = (await response.json()) as AgencyDagRunListResponse & { error?: string };
+        if (!response.ok) throw new Error(payload.error || `请求失败（${response.status}）`);
+        setHistory(payload.items);
+        setHistoryError("");
+      })
+      .catch((caught: unknown) => {
+        if (controller.signal.aborted) return;
+        setHistoryError(caught instanceof Error ? caught.message : "无法读取 DAG 历史任务。");
+      });
+    return () => controller.abort();
+  }, [run?.task_id, run?.status]);
+
+  async function copyFinalOutput() {
+    if (!run?.final_output) return;
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API unavailable");
+      }
+      await navigator.clipboard.writeText(run.final_output);
+      setCopied(true);
+      setCopyError("");
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+      setCopyError("复制失败，请改用 Markdown 下载。");
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -190,7 +269,28 @@ export default function AgencyDagRunPanel({
       </section>
 
       <section className="surface-panel rounded-lg p-5">
-        <h3 className="text-lg font-semibold text-hire-100">最终汇点输出</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-lg font-semibold text-hire-100">最终汇点输出</h3>
+          {run?.final_output ? (
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-white/30"
+                onClick={() => void copyFinalOutput()}
+                type="button"
+              >
+                {copied ? "已复制" : "复制结果"}
+              </button>
+              <button
+                className="rounded-full border border-hire-300/30 px-3 py-1.5 text-xs font-semibold text-hire-100 transition hover:bg-hire-300/10"
+                onClick={() => downloadMarkdown(run)}
+                type="button"
+              >
+                下载 Markdown
+              </button>
+            </div>
+          ) : null}
+          {copyError ? <p className="mt-2 text-xs text-amber-100">{copyError}</p> : null}
+        </div>
         <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-3">
           <p>调用：{run?.model_calls || 0} / {capabilities?.max_model_calls || 10}</p>
           <p>Token：{totalInput.toLocaleString()} 入 / {totalOutput.toLocaleString()} 出</p>
@@ -204,6 +304,42 @@ export default function AgencyDagRunPanel({
         <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-7 text-slate-200">
           {run?.final_output || "执行完成后，最终汇点输出会显示在这里。"}
         </p>
+      </section>
+
+      <section className="surface-panel rounded-lg p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-white">最近 DAG 任务</h3>
+            <p className="mt-1 text-sm text-slate-400">历史来自服务端，清理浏览器缓存后仍可重新打开。</p>
+          </div>
+          <span className="text-xs text-slate-500">最近 {history.length} 项</span>
+        </div>
+        {historyError ? <p className="mt-3 text-sm text-red-200">{historyError}</p> : null}
+        <div className="mt-4 space-y-2">
+          {history.map((item) => (
+            <a
+              className="block rounded-lg border border-white/10 bg-white/[0.035] p-3 transition hover:border-hire-300/30 hover:bg-white/[0.06]"
+              href={historyHref(item.task_id)}
+              key={item.task_id}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-white">{item.team_name || item.goal || "未命名专家团"}</p>
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{item.final_output_preview || item.goal}</p>
+                </div>
+                <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusClasses(item.status)}`}>
+                  {statusLabel(item.status)}
+                </span>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                {new Date(item.updated_at * 1000).toLocaleString()} · {item.model_calls} 次调用
+              </p>
+            </a>
+          ))}
+          {!historyError && history.length === 0 ? (
+            <p className="py-5 text-center text-sm text-slate-500">还没有服务端 DAG 历史。</p>
+          ) : null}
+        </div>
       </section>
     </div>
   );

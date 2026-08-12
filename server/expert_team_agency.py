@@ -34,6 +34,8 @@ class ExpertTeamPlanPreviewRequest(BaseModel):
     pinned_agent_ids: list[str] = Field(default_factory=list, max_length=6)
     max_agents: int = Field(default=5, ge=1, le=6)
     temperature: float = Field(default=0.2, ge=0, le=1)
+    knowledge_base_id: str | None = Field(default=None, min_length=1, max_length=160)
+    allow_knowledge_context: bool = False
 
     @model_validator(mode="after")
     def validate_lineup(self) -> "ExpertTeamPlanPreviewRequest":
@@ -48,6 +50,14 @@ class ExpertTeamPlanPreviewRequest(BaseModel):
             raise ValueError("pinned_agent_ids cannot exceed max_agents")
         if self.mode == "auto" and self.pinned_agent_ids:
             raise ValueError("auto mode cannot set pinned_agent_ids")
+        if self.knowledge_base_id and not self.allow_knowledge_context:
+            raise ValueError(
+                "knowledge_base_id requires explicit allow_knowledge_context consent"
+            )
+        if self.allow_knowledge_context and not self.knowledge_base_id:
+            raise ValueError(
+                "allow_knowledge_context requires knowledge_base_id"
+            )
         return self
 
 
@@ -71,6 +81,7 @@ class ExpertTeamPlanPreviewResponse(BaseModel):
     validation: dict[str, Any]
     selected_agents: list[dict[str, Any]]
     baseline_matches: list[dict[str, Any]]
+    knowledge_context: dict[str, Any] | None = None
     warnings: list[str] = Field(default_factory=list)
     repair_used: bool = False
     capability_snapshot_version: str
