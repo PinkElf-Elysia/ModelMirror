@@ -25,6 +25,7 @@ from server.coding_worker.evidence import HarnessRunner
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
     ProviderEvent,
+    ProviderEventKind,
     ProviderCheckpoint,
     ProviderOpenRequest,
     ProviderSession,
@@ -132,6 +133,23 @@ class _LostTurnReceiptProvider(FakeCodingAgentProvider):
         return await super().checkpoint(session)
 
 
+class _SteeringProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+        self.first_turn_started = asyncio.Event()
+        self.release_first_turn = asyncio.Event()
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        self.messages.append(text)
+        if len(self.messages) == 1:
+            self.first_turn_started.set()
+            await self.release_first_turn.wait()
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+
 def _service_with_harness(
     tmp_path: Path, provider: FakeCodingAgentProvider
 ) -> tuple[CodingWorkerService, ToolBroker]:
@@ -236,6 +254,42 @@ async def test_model_stop_cannot_complete_without_acceptance_runner(tmp_path: Pa
     terminal = await service.wait_for(task.task_id, lambda item: item.state is TaskState.BLOCKED)
     assert terminal.state is not TaskState.COMPLETED
     assert [event.type for event in service.store.list_events(task.task_id)].count("task_state") >= 3
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_running_steering_is_delivered_once_at_next_safe_turn_boundary(
+    tmp_path: Path,
+) -> None:
+    provider = _SteeringProvider()
+    service = _service(tmp_path, provider)
+    task = await service.create_task(
+        Origin(module="test", object_id="steering"), _request("steering")
+    )
+    await asyncio.wait_for(provider.first_turn_started.wait(), timeout=2)
+
+    await service.append_message(task.task_id, "Read calculator.py before retesting.")
+    assert provider.messages == ["Complete steering"]
+    provider.release_first_turn.set()
+
+    terminal = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.BLOCKED
+    )
+    assert terminal.reason == "acceptance_runner_pending"
+    assert provider.messages == [
+        "Complete steering",
+        (
+            "User steering received at a safe tool boundary. Follow it without "
+            "weakening the immutable acceptance contract.\n\n"
+            "Read calculator.py before retesting."
+        ),
+    ]
+    assert [
+        item.content for item in service.store.list_messages(task.task_id)
+    ] == ["Complete steering", "Read calculator.py before retesting."]
+    assert [
+        event.type for event in service.store.list_events(task.task_id)
+    ].count("steering_scheduled") == 1
     await service.shutdown()
 
 
@@ -536,6 +590,7 @@ async def test_active_time_budget_survives_restart_and_excludes_waiting(
                 resume_phase=None,
                 resume_context=None,
                 completed_turns=0,
+                message_cursor=0,
             ),
             timeout=2,
         )
