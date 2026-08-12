@@ -83,6 +83,10 @@ def test_v15_claude_provider_has_a_pinned_private_image_and_secret_only_mount() 
     assert "coding-worker-claude-egress:" in compose
     assert "CODING_WORKER_PROVIDER_NETWORK_DOMAINS: api.anthropic.com" in compose
     assert "CODING_WORKER_PROVIDER_EGRESS_TOKEN" in compose
+    assert (
+        "CODING_WORKER_PROVIDER_ALLOW_DOCKER_DESKTOP_DNS_PROXY: "
+        "${CODING_WORKER_PROVIDER_ALLOW_DOCKER_DESKTOP_DNS_PROXY:-false}"
+    ) in compose
     assert "CODING_WORKER_PROVIDER_PROXY_URL: http://provider:" in provider
     proxy = compose.split("\n  coding-worker-claude-egress:", 1)[1].split(
         "secrets:", 1

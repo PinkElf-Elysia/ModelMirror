@@ -14,12 +14,19 @@ from .network_policy import EgressPolicy, NetworkPolicyError
 
 MAX_HEADER_BYTES = 16 * 1024
 PROVIDER_TOKEN = re.compile(r"^[A-Za-z0-9._~-]{32,256}$")
+DOCKER_DESKTOP_DNS_PROXY_NETWORK = ipaddress.ip_network("198.18.0.0/15")
 
 
 class ProviderEgressPolicy:
     """Authenticates one Provider sidecar to an exact API domain set."""
 
-    def __init__(self, *, token: str, allowed_domains: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        *,
+        token: str,
+        allowed_domains: tuple[str, ...],
+        allow_docker_desktop_dns_proxy: bool = False,
+    ) -> None:
         if PROVIDER_TOKEN.fullmatch(token) is None:
             raise NetworkPolicyError(
                 "Provider proxy token is invalid.", code="network_grant_key_invalid"
@@ -32,6 +39,7 @@ class ProviderEgressPolicy:
             raise NetworkPolicyError(
                 "Provider domains are unavailable.", code="network_domain_not_allowed"
             )
+        self.allow_docker_desktop_dns_proxy = allow_docker_desktop_dns_proxy
 
     def validate(self, token: str, *, domain: str) -> None:
         normalized = EgressPolicy._normalize_domain(domain)
@@ -45,6 +53,20 @@ class ProviderEgressPolicy:
                 "Provider destination is not allowed.",
                 code="network_domain_not_allowed",
             )
+
+    def validate_resolved_address(self, address: str) -> None:
+        candidate = ipaddress.ip_address(address)
+        if candidate.is_global:
+            return
+        if (
+            self.allow_docker_desktop_dns_proxy
+            and candidate.version == 4
+            and candidate in DOCKER_DESKTOP_DNS_PROXY_NETWORK
+        ):
+            return
+        raise NetworkPolicyError(
+            "Private destination is denied.", code="network_private_address_denied"
+        )
 
 
 class EgressProxy:
@@ -104,8 +126,13 @@ class EgressProxy:
             selected: str | None = None
             for _family, _type, _protocol, _name, address in addresses:
                 candidate = str(address[0])
-                if not ipaddress.ip_address(candidate).is_global:
-                    raise NetworkPolicyError("Private destination is denied.", code="network_private_address_denied")
+                if self.provider_policy is not None:
+                    self.provider_policy.validate_resolved_address(candidate)
+                elif not ipaddress.ip_address(candidate).is_global:
+                    raise NetworkPolicyError(
+                        "Private destination is denied.",
+                        code="network_private_address_denied",
+                    )
                 selected = selected or candidate
             if selected is None:
                 raise NetworkPolicyError("Destination could not be resolved.", code="network_resolution_required")
@@ -142,6 +169,14 @@ class EgressProxy:
 async def run() -> None:
     provider_token = os.environ.get("CODING_WORKER_PROVIDER_EGRESS_TOKEN", "")
     if provider_token:
+        allow_dns_proxy = os.environ.get(
+            "CODING_WORKER_PROVIDER_ALLOW_DOCKER_DESKTOP_DNS_PROXY", "false"
+        ).strip().lower()
+        if allow_dns_proxy not in {"true", "false"}:
+            raise NetworkPolicyError(
+                "Provider DNS proxy setting is invalid.",
+                code="network_policy_invalid",
+            )
         domains = tuple(
             item.strip().lower()
             for item in os.environ.get(
@@ -151,7 +186,9 @@ async def run() -> None:
         )
         proxy = EgressProxy(
             provider_policy=ProviderEgressPolicy(
-                token=provider_token, allowed_domains=domains
+                token=provider_token,
+                allowed_domains=domains,
+                allow_docker_desktop_dns_proxy=allow_dns_proxy == "true",
             )
         )
         port = 8081

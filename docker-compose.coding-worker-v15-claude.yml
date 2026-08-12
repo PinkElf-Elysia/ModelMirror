@@ -55,6 +55,7 @@ services:
     environment:
       CODING_WORKER_PROVIDER_EGRESS_TOKEN: ${CODING_WORKER_CLAUDE_PROXY_TOKEN:?set a random URL-safe Claude proxy token}
       CODING_WORKER_PROVIDER_NETWORK_DOMAINS: api.anthropic.com
+      CODING_WORKER_PROVIDER_ALLOW_DOCKER_DESKTOP_DNS_PROXY: ${CODING_WORKER_PROVIDER_ALLOW_DOCKER_DESKTOP_DNS_PROXY:-false}
     restart: unless-stopped
 
 secrets:
