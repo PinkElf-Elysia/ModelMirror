@@ -31,6 +31,7 @@ from .contracts import (
     ShellMode,
     StrictModel,
     SubtaskKind,
+    SubtaskMergeState,
     SubtaskRecord,
     SubtaskRequest,
     TaskState,
@@ -129,6 +130,10 @@ class ToolBroker:
             [str, SubtaskRequest], Awaitable[SubtaskRecord]
         ]
         | None = None,
+        subtask_merge_handler: Callable[
+            [str, str, str], Awaitable[SubtaskRecord]
+        ]
+        | None = None,
     ) -> None:
         if not 1024 <= max_output_bytes <= 16 * 1024 * 1024:
             raise ValueError("tool output limit is invalid")
@@ -144,6 +149,7 @@ class ToolBroker:
             documentation_resources or {}
         )
         self.subtask_handler = subtask_handler
+        self.subtask_merge_handler = subtask_merge_handler
         self.changesets = ChangesetEngine(workspace_broker)
 
     async def execute(
@@ -239,6 +245,13 @@ class ToolBroker:
                         task_id, str(arguments.get("client_subtask_id", ""))
                     )
                     is not None
+                ) or (
+                    tool_name == "merge_subtask"
+                    and self._subtask_merge_is_settled(
+                        task_id,
+                        str(arguments.get("child_task_id", "")),
+                        operation_id,
+                    )
                 )
                 if durable_result:
                     raise ToolBrokerError(
@@ -428,6 +441,33 @@ class ToolBroker:
                     state=resolved.state,
                     data=resolved.result or {},
                 )
+        elif operation.tool_name == "merge_subtask":
+            relation = self.store.subtask_for_child(
+                str(arguments.get("child_task_id", ""))
+            )
+            if (
+                relation is None
+                or relation.parent_task_id != operation.task_id
+                or relation.merge_operation_id != operation_id
+                or relation.merge_state
+                not in {SubtaskMergeState.MERGED, SubtaskMergeState.CONFLICTED}
+            ):
+                raise ToolBrokerError(
+                    "Subtask merge result remains unknown.",
+                    code="operation_result_unknown",
+                )
+            resolved = self.store.transition_operation(
+                operation_id,
+                OperationState.COMPLETED,
+                result={"subtask": relation.model_dump(mode="json")},
+                expected_state=OperationState.UNKNOWN,
+            )
+            return ToolResult(
+                operation_id=operation_id,
+                tool_name=operation.tool_name,
+                state=resolved.state,
+                data=resolved.result or {},
+            )
         raise ToolBrokerError(
             "Tool result is unknown and must not be replayed.",
             code="operation_result_unknown",
@@ -455,7 +495,7 @@ class ToolBroker:
             "code_hover",
             "code_diagnostics",
         }
-        if tool_name == "create_subtask":
+        if tool_name in {"create_subtask", "merge_subtask"}:
             if (
                 os.getenv("CODING_WORKER_V16_ENABLED", "false").strip().lower()
                 not in {"1", "true", "yes", "on"}
@@ -467,21 +507,31 @@ class ToolBroker:
                 raise ToolBrokerError(
                     "Controlled subtasks are disabled.", code="tool_not_allowed"
                 )
-            try:
-                subtask = SubtaskRequest.model_validate(request["arguments"])
-            except ValidationError as exc:
-                raise ToolBrokerError(
-                    "Subtask input is invalid.", code="tool_input_invalid"
-                ) from exc
-            if (
-                subtask.kind is SubtaskKind.IMPLEMENT
-                and profile not in {
+            if tool_name == "create_subtask":
+                try:
+                    subtask = SubtaskRequest.model_validate(request["arguments"])
+                except ValidationError as exc:
+                    raise ToolBrokerError(
+                        "Subtask input is invalid.", code="tool_input_invalid"
+                    ) from exc
+                requires_write = subtask.kind is SubtaskKind.IMPLEMENT
+            else:
+                child_task_id = request["arguments"].get("child_task_id")
+                if (
+                    set(request["arguments"]) != {"child_task_id"}
+                    or not isinstance(child_task_id, str)
+                    or re.fullmatch(r"task_[a-f0-9]{32}", child_task_id) is None
+                ):
+                    raise ToolBrokerError(
+                        "Subtask merge input is invalid.", code="tool_input_invalid"
+                    )
+                requires_write = True
+            if requires_write and profile not in {
                     PolicyProfile.DEVELOP,
                     PolicyProfile.DEVELOP_NETWORKED,
-                }
-            ):
+                }:
                 raise ToolBrokerError(
-                    "Read-only tasks cannot delegate implementation.",
+                    "Read-only tasks cannot modify or merge implementation.",
                     code="task_policy_readonly",
                 )
             return None
@@ -654,6 +704,16 @@ class ToolBroker:
                 raise ToolBrokerError(
                     "Subtask input is invalid.", code="tool_input_invalid"
                 ) from exc
+            return {"subtask": relation.model_dump(mode="json")}
+        if tool_name == "merge_subtask":
+            if self.subtask_merge_handler is None:
+                raise ToolBrokerError(
+                    "Subtask merge scheduler is unavailable.",
+                    code="subtask_unavailable",
+                )
+            relation = await self.subtask_merge_handler(
+                task_id, str(arguments["child_task_id"]), operation_id
+            )
             return {"subtask": relation.model_dump(mode="json")}
         if tool_name == "list_files":
             return {
@@ -1849,6 +1909,18 @@ class ToolBroker:
     @staticmethod
     def _tool_can_publish_changeset(tool_name: str) -> bool:
         return tool_name in {"apply_changeset", "run_shell"}
+
+    def _subtask_merge_is_settled(
+        self, task_id: str, child_task_id: str, operation_id: str
+    ) -> bool:
+        relation = self.store.subtask_for_child(child_task_id)
+        return (
+            relation is not None
+            and relation.parent_task_id == task_id
+            and relation.merge_operation_id == operation_id
+            and relation.merge_state
+            in {SubtaskMergeState.MERGED, SubtaskMergeState.CONFLICTED}
+        )
 
     @staticmethod
     def _result_has_changeset(

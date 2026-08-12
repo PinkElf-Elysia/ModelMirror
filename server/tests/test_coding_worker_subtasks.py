@@ -481,3 +481,101 @@ def test_implement_subtasks_merge_non_overlapping_changes_and_conflict_on_preima
         assert events[-1].type == "changeset_conflicted"
 
     asyncio.run(scenario())
+
+
+def test_merge_subtask_tool_reconciles_lost_receipt_without_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+        monkeypatch.setenv("CODING_WORKER_SUBAGENTS_ENABLED", "true")
+        store = CodingWorkerStore(
+            tmp_path / "worker", master_key=Fernet.generate_key()
+        )
+        adapter = InMemoryWorkspaceSourceAdapter(
+            {("source", "revision"): {"main.py": b"VALUE = 1\n"}}
+        )
+        workspace_broker = WorkspaceBroker(
+            tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
+        )
+        service = CodingWorkerService(
+            store=store,
+            workspace_broker=workspace_broker,
+            provider=FakeCodingAgentProvider(),
+        )
+        broker = ToolBroker(
+            store=store,
+            workspace_broker=workspace_broker,
+            subtask_handler=service.create_subtask,
+            subtask_merge_handler=service.merge_subtask,
+        )
+        service.tool_broker = broker
+        parent = store.create_task(_spec())
+        workspace = await workspace_broker.prepare(parent.spec.workspace_source)
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(
+            parent.task_id,
+            TaskState.RUNNING,
+            workspace_id=workspace.workspace_id,
+        )
+        relation = await service.create_subtask(
+            parent.task_id,
+            SubtaskRequest(
+                client_subtask_id="implementation",
+                kind=SubtaskKind.IMPLEMENT,
+                objective="Update main.py",
+            ),
+        )
+        child = store.get_task(relation.child_task_id)
+        child_repo = workspace_broker.repository_path(child.workspace_id or "")
+        (child_repo / "main.py").write_text("VALUE = 2\n", encoding="utf-8")
+        store.finish_subtask(
+            child.task_id,
+            result_tree_hash=workspace_broker.current_tree_hash(
+                child.workspace_id or ""
+            ),
+            changed_paths=("main.py",),
+            summary="Updated main.py",
+        )
+        store.transition(parent.task_id, TaskState.QUEUED)
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(parent.task_id, TaskState.RUNNING)
+
+        original_transition = store.transition_operation
+        failed_receipt = False
+
+        def fail_first_receipt(*args, **kwargs):
+            nonlocal failed_receipt
+            if (
+                kwargs.get("state") is None
+                and len(args) > 1
+                and args[1].value == "completed"
+                and not failed_receipt
+            ):
+                failed_receipt = True
+                raise OSError("simulated receipt loss")
+            return original_transition(*args, **kwargs)
+
+        monkeypatch.setattr(store, "transition_operation", fail_first_receipt)
+        with pytest.raises(ToolBrokerError) as unknown:
+            await broker.execute(
+                task_id=parent.task_id,
+                operation_id="merge-operation",
+                tool_name="merge_subtask",
+                arguments={"child_task_id": child.task_id},
+            )
+        assert unknown.value.code == "operation_result_unknown"
+        reconciled = await broker.execute(
+            task_id=parent.task_id,
+            operation_id="merge-operation",
+            tool_name="merge_subtask",
+            arguments={"child_task_id": child.task_id},
+        )
+        assert reconciled.data["subtask"]["merge_state"] == "merged"
+        assert (
+            workspace_broker.repository_path(workspace.workspace_id) / "main.py"
+        ).read_text(encoding="utf-8") == "VALUE = 2\n"
+        assert "merge_subtask" in PROVIDER_TOOL_NAMES
+        assert "merge_subtask" not in INSPECT_PROVIDER_TOOLS
+
+    asyncio.run(scenario())
