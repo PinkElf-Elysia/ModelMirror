@@ -36,6 +36,10 @@ DEFAULT_PUBLIC_ADAPTERS = frozenset(
         "aas-ee-open-websearch",
         "mnemox-ai-idea-reality-mcp",
         "idosal-git-mcp",
+        "coinpaprika-dexpaprika-mcp",
+        "pab1it0-chess-mcp",
+        "rishijatia-fantasy-pl-mcp",
+        "yuna0x0-anilist-mcp",
     }
 )
 

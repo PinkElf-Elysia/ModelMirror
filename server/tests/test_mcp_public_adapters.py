@@ -21,19 +21,34 @@ from server.sandbox_sidecar.public_mcp import (
     PUBLIC_SCHEMA_SHA256,
     _airbnb_script_data,
     _biomcp_client,
+    _chess_client,
+    _dexpaprika_client,
+    _fantasy_pl_client,
     _find_airbnb_branch,
     _gitmcp_client,
     _idea_reality_client,
     _open_websearch_client,
+    _reddit_buddy_client,
     _safedep_client,
     airbnb_details_payload,
+    anilist_genres_payload,
+    anilist_get_anime_payload,
+    anilist_search_anime_payload,
     biomcp_get_payload,
     biomcp_search_payload,
+    chess_player_profile_payload,
+    chess_player_stats_payload,
+    dexpaprika_networks_payload,
+    dexpaprika_search_payload,
+    dexpaprika_stats_payload,
     docker_hub_repository_payload,
     docker_hub_search_payload,
     docker_hub_tags_payload,
     duckduckgo_search_payload,
     fetch_payload,
+    fantasy_pl_fixtures_payload,
+    fantasy_pl_player_payload,
+    fantasy_pl_search_players_payload,
     geowire_providers_payload,
     gitmcp_documentation_payload,
     gitmcp_search_code_payload,
@@ -42,6 +57,8 @@ from server.sandbox_sidecar.public_mcp import (
     normalize_github_repository,
     open_websearch_payload,
     quickchart_url,
+    reddit_browse_payload,
+    reddit_search_payload,
     safedep_available_versions_payload,
     safedep_latest_version_payload,
     safedep_malware_payload,
@@ -61,6 +78,8 @@ from server.sandbox_sidecar.smoke_public_adapters import (
     WAVE16A_ADAPTERS,
     WAVE16B_ADAPTERS,
     WAVE17A_ADAPTERS,
+    WAVE25A_ADAPTERS,
+    WAVE25B_ADAPTERS,
     _adapter_ids,
 )
 from server.sandbox_sidecar.safe_http import (
@@ -377,7 +396,10 @@ def test_airbnb_schema_drift_probe_and_input_limits() -> None:
 
 
 def test_public_adapter_contract_and_container_isolation() -> None:
-    assert set(BUILDERS) == set(ADAPTER_TOOL_NAMES) == PROXY_ADAPTERS == ALL_PUBLIC_ADAPTERS
+    assert set(BUILDERS) == set(ADAPTER_TOOL_NAMES) == ALL_PUBLIC_ADAPTERS
+    assert PROXY_ADAPTERS == DEFAULT_PUBLIC_ADAPTERS
+    assert WAVE25A_ADAPTERS.issubset(PROXY_ADAPTERS)
+    assert WAVE25B_ADAPTERS & PROXY_ADAPTERS == {"rishijatia-fantasy-pl-mcp"}
     assert set(TIMEOUT_TOOL_PROBES) == PUBLIC_EXPANSION_ADAPTERS
     assert PUBLIC_ADAPTERS == DEFAULT_PUBLIC_ADAPTERS == {
         "fetch-mcp",
@@ -391,6 +413,10 @@ def test_public_adapter_contract_and_container_isolation() -> None:
         "aas-ee-open-websearch",
         "mnemox-ai-idea-reality-mcp",
         "idosal-git-mcp",
+        "coinpaprika-dexpaprika-mcp",
+        "pab1it0-chess-mcp",
+        "rishijatia-fantasy-pl-mcp",
+        "yuna0x0-anilist-mcp",
     }
     assert ADAPTER_TOOL_NAMES == {
         "fetch-mcp": ("fetch",),
@@ -428,6 +454,18 @@ def test_public_adapter_contract_and_container_isolation() -> None:
             "fetch_repository_documentation",
             "search_repository_documentation",
             "search_repository_code",
+        ),
+        "coinpaprika-dexpaprika-mcp": ("getNetworks", "getStats", "search"),
+        "pab1it0-chess-mcp": (
+            "get_player_profile",
+            "get_player_stats",
+        ),
+        "yuna0x0-anilist-mcp": ("get_genres", "search_anime", "get_anime"),
+        "karanb192-reddit-mcp-buddy": ("browse_subreddit", "search_reddit"),
+        "rishijatia-fantasy-pl-mcp": (
+            "search_fpl_players",
+            "get_player_information",
+            "list_fpl_fixtures",
         ),
     }
     assert geowire_providers_payload()["credentials"] == "none"
@@ -474,6 +512,11 @@ def test_public_adapter_contract_and_container_isolation() -> None:
     assert "aas-ee-open-websearch" in allowlist_line
     assert "mnemox-ai-idea-reality-mcp" in allowlist_line
     assert "idosal-git-mcp" in allowlist_line
+    assert "coinpaprika-dexpaprika-mcp" in allowlist_line
+    assert "pab1it0-chess-mcp" in allowlist_line
+    assert "yuna0x0-anilist-mcp" in allowlist_line
+    assert "karanb192-reddit-mcp-buddy" not in allowlist_line
+    assert "rishijatia-fantasy-pl-mcp" in allowlist_line
     assert "image: modelmirror-mcp-public:wave17a-v1" in public_block
 
 
@@ -490,6 +533,8 @@ def test_wave16_allowlist_is_enabled_after_acceptance_and_exact_when_overridden(
     assert _adapter_ids(",".join(sorted(WAVE16A_ADAPTERS))) == WAVE16A_ADAPTERS
     assert _adapter_ids(",".join(sorted(WAVE16B_ADAPTERS))) == WAVE16B_ADAPTERS
     assert _adapter_ids(",".join(sorted(WAVE17A_ADAPTERS))) == WAVE17A_ADAPTERS
+    assert _adapter_ids(",".join(sorted(WAVE25A_ADAPTERS))) == WAVE25A_ADAPTERS
+    assert _adapter_ids(",".join(sorted(WAVE25B_ADAPTERS))) == WAVE25B_ADAPTERS
     assert (
         _adapter_ids(",".join(sorted(PUBLIC_EXPANSION_ADAPTERS)))
         == PUBLIC_EXPANSION_ADAPTERS
@@ -748,6 +793,372 @@ def test_wave16_and_wave17_tool_schemas_are_frozen_and_exclude_control_fields() 
             )
         )
         assert hashlib.sha256(schema_json.encode()).hexdigest() == PUBLIC_SCHEMA_SHA256[adapter_id]
+
+
+def test_wave25_dexpaprika_contract_projects_bounded_public_metadata() -> None:
+    policy_client = _dexpaprika_client()
+    assert policy_client.allowed_hosts == {"api.dexpaprika.com"}
+    assert policy_client.max_redirects == 0
+    assert policy_client.max_response_bytes == 1024 * 1024
+    requested: list[tuple[str, dict[str, Any]]] = []
+
+    class FakeClient:
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            requested.append((url, kwargs))
+            if url.endswith("/networks"):
+                payload: Any = [
+                    {
+                        "id": "ethereum",
+                        "display_name": "Ethereum",
+                        "volume_usd_24h": 10.5,
+                        "txns_24h": 20,
+                        "pools_count": 30,
+                    }
+                ]
+            elif url.endswith("/stats"):
+                payload = {"chains": 36, "factories": 235, "pools": 10, "tokens": 20}
+            else:
+                payload = {
+                    "tokens": [
+                        {
+                            "id": "0xabc",
+                            "name": "Bitcoin",
+                            "symbol": "BTC",
+                            "chain": "ethereum",
+                            "price_usd": 100,
+                            "liquidity_usd": 200,
+                            "volume_usd": 300,
+                            "price_usd_change": 1.5,
+                            "description": "must not escape",
+                            "website": "https://untrusted.example",
+                        }
+                    ],
+                    "pools": [
+                        {
+                            "id": "0xpool",
+                            "dex_name": "Example DEX",
+                            "chain": "ethereum",
+                            "volume_usd": 50,
+                            "transactions": 5,
+                            "price_usd": 100,
+                            "tokens": [],
+                        }
+                    ],
+                }
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": "application/json"},
+                body=json.dumps(payload).encode(),
+            )
+
+    client = FakeClient()
+    networks = dexpaprika_networks_payload(client=client)
+    stats = dexpaprika_stats_payload(client=client)
+    search = dexpaprika_search_payload("bitcoin", 2, client=client)
+    assert networks["networks"][0]["id"] == "ethereum"
+    assert stats["chains"] == 36
+    assert search["tokens"][0]["symbol"] == "BTC"
+    assert "description" not in search["tokens"][0]
+    assert "website" not in search["tokens"][0]
+    assert requested[-1][0] == "https://api.dexpaprika.com/search?query=bitcoin"
+    assert all(set(kwargs["headers"]) == {"User-Agent"} for _, kwargs in requested)
+    with pytest.raises(ValueError, match="max_results"):
+        dexpaprika_search_payload("bitcoin", 11, client=client)
+
+
+def test_wave25_chess_contract_accepts_only_normalized_public_usernames() -> None:
+    policy_client = _chess_client()
+    assert policy_client.allowed_hosts == {"api.chess.com"}
+    assert policy_client.max_redirects == 0
+    requested: list[str] = []
+
+    class FakeClient:
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            requested.append(url)
+            if url.endswith("/stats"):
+                payload: Any = {
+                    "chess_rapid": {
+                        "last": {"rating": 2800, "date": 1},
+                        "best": {"rating": 2900, "date": 2},
+                        "record": {"win": 10, "loss": 2, "draw": 3},
+                    },
+                    "tactics": {"highest": {"rating": 9999}},
+                }
+            else:
+                payload = {
+                    "username": "hikaru",
+                    "player_id": 15448422,
+                    "name": "Hikaru Nakamura",
+                    "title": "GM",
+                    "country": "https://api.chess.com/pub/country/US",
+                    "status": "premium",
+                    "followers": 100,
+                    "last_online": 1,
+                    "joined": 2,
+                    "is_streamer": True,
+                    "verified": False,
+                    "avatar": "https://images.example/avatar.png",
+                }
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": "application/json"},
+                body=json.dumps(payload).encode(),
+            )
+
+    client = FakeClient()
+    profile = chess_player_profile_payload("Hikaru", client=client)
+    stats = chess_player_stats_payload("hikaru", client=client)
+    assert profile["username"] == "hikaru"
+    assert profile["country_code"] == "US"
+    assert "avatar" not in profile
+    assert set(stats["statistics"]) == {"chess_rapid"}
+    assert requested == [
+        "https://api.chess.com/pub/player/hikaru",
+        "https://api.chess.com/pub/player/hikaru/stats",
+    ]
+    with pytest.raises(ValueError, match="username"):
+        chess_player_profile_payload("../admin", client=client)
+
+
+def test_wave25_anilist_contract_uses_fixed_graphql_documents_without_auth() -> None:
+    requested: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+
+    class FakeClient:
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            body = json.loads(kwargs["body"])
+            requested.append((url, kwargs, body))
+            query = body["query"]
+            if "GenreCollection" in query:
+                data: Any = {"GenreCollection": ["Action", "Adventure"]}
+            elif "ModelMirrorAnimeSearch" in query:
+                data = {
+                    "Page": {
+                        "pageInfo": {"hasNextPage": False},
+                        "media": [
+                            {
+                                "id": 154587,
+                                "idMal": 52991,
+                                "title": {"romaji": "Sousou no Frieren", "english": "Frieren", "native": "葬送のフリーレン"},
+                                "format": "TV",
+                                "status": "FINISHED",
+                                "season": "FALL",
+                                "seasonYear": 2023,
+                                "episodes": 28,
+                                "duration": 24,
+                                "genres": ["Adventure"],
+                                "averageScore": 91,
+                                "popularity": 500000,
+                                "isAdult": False,
+                                "siteUrl": "https://anilist.co/anime/154587",
+                            }
+                        ],
+                    }
+                }
+            else:
+                data = {
+                    "Page": {
+                        "media": [
+                            {
+                                "id": 154587,
+                                "title": {"romaji": "Sousou no Frieren", "english": "Frieren", "native": "葬送のフリーレン"},
+                                "genres": ["Adventure"],
+                                "isAdult": False,
+                            }
+                        ]
+                    }
+                }
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": "application/json"},
+                body=json.dumps({"data": data}).encode(),
+            )
+
+    client = FakeClient()
+    genres = anilist_genres_payload(client=client)
+    search = anilist_search_anime_payload("Frieren", 1, 2, client=client)
+    details = anilist_get_anime_payload(154587, client=client)
+    assert genres["genres"] == ["Action", "Adventure"]
+    assert search["results"][0]["id"] == 154587
+    assert "site_url" not in search["results"][0]
+    assert details["requested_ids"] == [154587]
+    for url, kwargs, body in requested:
+        assert url == "https://graphql.anilist.co"
+        assert kwargs["method"] == "POST"
+        assert "Authorization" not in kwargs["headers"]
+        assert set(body) == {"query", "variables"}
+        assert "mutation" not in body["query"].lower()
+    assert requested[1][2]["variables"] == {
+        "search": "Frieren",
+        "page": 1,
+        "perPage": 2,
+    }
+    with pytest.raises(ValueError, match="between 1 and 5"):
+        anilist_get_anime_payload([], client=client)
+    with pytest.raises(ValueError, match="unique"):
+        anilist_get_anime_payload([154587, 154587], client=client)
+
+
+def test_wave25b_reddit_contract_uses_only_bounded_public_atom_feeds() -> None:
+    policy_client = _reddit_buddy_client()
+    assert policy_client.allowed_hosts == {"www.reddit.com"}
+    assert policy_client.max_redirects == 0
+    assert policy_client.max_response_bytes == 256 * 1024
+    assert policy_client.minimum_intervals == {"www.reddit.com": 5.0}
+    requested: list[tuple[str, dict[str, Any]]] = []
+    feed = """<?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <title>Safe public post</title>
+        <updated>2026-08-11T00:00:00Z</updated>
+        <author><name>/u/example_user</name></author>
+        <link rel="alternate" href="https://www.reddit.com/r/python/comments/abc123/example/" />
+        <content type="html">&lt;p&gt;Bounded public preview&lt;/p&gt;&lt;a href="https://untrusted.example"&gt;external&lt;/a&gt;</content>
+      </entry>
+    </feed>"""
+
+    class FakeClient:
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            requested.append((url, kwargs))
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": "application/atom+xml; charset=UTF-8"},
+                body=feed.encode(),
+            )
+
+    client = FakeClient()
+    browse = reddit_browse_payload("Python", "top", "week", 3, client=client)
+    search = reddit_search_payload("model context protocol", "relevance", "year", 2, client=client)
+    assert browse["data_source"] == "reddit-public-atom"
+    assert browse["posts"][0]["author"] == "example_user"
+    assert browse["posts"][0]["permalink"].startswith("https://www.reddit.com/r/python/")
+    assert "untrusted.example" not in json.dumps(browse)
+    assert requested[0][0] == "https://www.reddit.com/r/python/top/.rss?limit=3&t=week"
+    assert requested[1][0].startswith("https://www.reddit.com/search.rss?")
+    assert all(set(kwargs["headers"]) == {"User-Agent", "Accept"} for _, kwargs in requested)
+    with pytest.raises(ValueError, match="subreddit"):
+        reddit_browse_payload("../private", client=client)
+    with pytest.raises(ValueError, match="limit"):
+        reddit_search_payload("mcp", limit=11, client=client)
+
+
+def test_wave25b_fantasy_pl_contract_projects_official_public_data_only() -> None:
+    policy_client = _fantasy_pl_client()
+    assert policy_client.allowed_hosts == {"fantasy.premierleague.com"}
+    assert policy_client.max_redirects == 0
+    assert policy_client.max_response_bytes == 2 * 1024 * 1024
+    requested: list[tuple[str, dict[str, Any]]] = []
+    bootstrap = {
+        "elements": [
+            {
+                "id": 328,
+                "first_name": "Mohamed",
+                "second_name": "Salah",
+                "web_name": "M.Salah",
+                "team": 12,
+                "element_type": 4,
+                "now_cost": 145,
+                "total_points": 250,
+                "form": "8.1",
+                "points_per_game": "7.2",
+                "selected_by_percent": "45.0",
+                "status": "a",
+                "news": "must not escape",
+            }
+        ],
+        "teams": [{"id": 12, "name": "Liverpool", "code": 14}],
+        "element_types": [{"id": 4, "singular_name_short": "FWD"}],
+    }
+    fixtures = [
+        {
+            "id": 1,
+            "event": 1,
+            "kickoff_time": "2026-08-15T12:00:00Z",
+            "started": False,
+            "finished": False,
+            "team_h": 12,
+            "team_a": 1,
+            "team_h_score": None,
+            "team_a_score": None,
+            "team_h_difficulty": 2,
+            "team_a_difficulty": 4,
+        }
+    ]
+
+    class FakeClient:
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            requested.append((url, kwargs))
+            payload: Any = fixtures if "/fixtures/" in url else bootstrap
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": "application/json"},
+                body=json.dumps(payload).encode(),
+            )
+
+    client = FakeClient()
+    search = fantasy_pl_search_players_payload("salah", "FWD", "Liverpool", 5, client=client)
+    detail = fantasy_pl_player_payload(328, client=client)
+    fixture_result = fantasy_pl_fixtures_payload(1, 12, 5, client=client)
+    assert search["players"][0]["price"] == 14.5
+    assert "news" not in search["players"][0]
+    assert detail["player"]["id"] == 328
+    assert fixture_result["fixtures"][0]["home_team_id"] == 12
+    assert requested == [
+        ("https://fantasy.premierleague.com/api/bootstrap-static/", {"headers": {"User-Agent": "ModelMirror-Fantasy-PL-MCP/0.1.7-compatible (+https://github.com/PinkElf-Elysia/ModelMirror)"}}),
+        ("https://fantasy.premierleague.com/api/bootstrap-static/", {"headers": {"User-Agent": "ModelMirror-Fantasy-PL-MCP/0.1.7-compatible (+https://github.com/PinkElf-Elysia/ModelMirror)"}}),
+        ("https://fantasy.premierleague.com/api/fixtures/?event=1", {"headers": {"User-Agent": "ModelMirror-Fantasy-PL-MCP/0.1.7-compatible (+https://github.com/PinkElf-Elysia/ModelMirror)"}}),
+    ]
+    with pytest.raises(ValueError, match="position"):
+        fantasy_pl_search_players_payload("salah", "ANY", client=client)
+    with pytest.raises(ValueError, match="player_id"):
+        fantasy_pl_player_payload(True, client=client)
+
+
+@pytest.mark.parametrize(
+    ("call", "url"),
+    (
+        (
+            lambda client: dexpaprika_stats_payload(client=client),
+            "https://api.dexpaprika.com/stats",
+        ),
+        (
+            lambda client: chess_player_profile_payload("hikaru", client=client),
+            "https://api.chess.com/pub/player/hikaru",
+        ),
+        (
+            lambda client: anilist_genres_payload(client=client),
+            "https://graphql.anilist.co",
+        ),
+        (
+            lambda client: reddit_browse_payload("python", client=client),
+            "https://www.reddit.com/r/python/hot/.rss?limit=10",
+        ),
+        (
+            lambda client: fantasy_pl_search_players_payload("salah", client=client),
+            "https://fantasy.premierleague.com/api/bootstrap-static/",
+        ),
+    ),
+)
+def test_wave25_public_rate_limits_fail_closed(
+    call: Any,
+    url: str,
+) -> None:
+    class RateLimitedClient:
+        def request(self, requested_url: str, **kwargs: Any) -> SafeHttpResponse:
+            assert requested_url == url
+            return SafeHttpResponse(
+                url=requested_url,
+                status=429,
+                headers={"content-type": "application/json", "retry-after": "60"},
+                body=b'{"error":"fixture-only"}',
+            )
+
+    with pytest.raises(ValueError, match="HTTP 429"):
+        call(RateLimitedClient())
 
 
 def test_biomcp_contract_projects_public_metadata_and_rejects_escape_hatches() -> None:

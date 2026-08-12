@@ -19,7 +19,7 @@ from typing import Iterable, Sequence
 from urllib.parse import unquote, urlsplit
 
 
-SNAPSHOT_DATE = "2026-08-09"
+SNAPSHOT_DATE = "2026-08-11"
 
 
 @dataclass(frozen=True)
@@ -171,8 +171,8 @@ EXCLUDED_TEXT_PATTERNS = (
 
 MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
 HTML_ANCHOR_RE = re.compile(r'<a\s+name="([^"]+)"[^>]*></a>', re.I)
-REPO_NAME_RE = re.compile(r'repoName:\s*"([^"]+)"')
-REPO_URL_RE = re.compile(r'repoUrl:\s*"([^"]+)"')
+REPO_NAME_RE = re.compile(r'["\']?repoName["\']?\s*:\s*"([^"]+)"')
+REPO_URL_RE = re.compile(r'["\']?repoUrl["\']?\s*:\s*"([^"]+)"')
 
 
 @dataclass(frozen=True)
@@ -382,6 +382,13 @@ def current_catalog_keys(catalog_text: str) -> set[str]:
     return keys
 
 
+def current_catalog_keys_many(catalog_texts: Iterable[str]) -> set[str]:
+    keys: set[str] = set()
+    for catalog_text in catalog_texts:
+        keys.update(current_catalog_keys(catalog_text))
+    return keys
+
+
 def merge_candidates(
     candidates: Iterable[Candidate], existing_keys: set[str]
 ) -> list[Candidate]:
@@ -422,7 +429,7 @@ def merge_candidates(
 def build_inventory(
     zh_text: str,
     en_text: str,
-    current_catalog_text: str,
+    current_catalog_text: str | Sequence[str],
     *,
     verify_hashes: bool = True,
 ) -> dict[str, object]:
@@ -434,7 +441,13 @@ def build_inventory(
             verify_hash=verify_hashes,
         ),
     ]
-    candidates = merge_candidates(parsed, current_catalog_keys(current_catalog_text))
+    catalog_texts = (
+        [current_catalog_text]
+        if isinstance(current_catalog_text, str)
+        else list(current_catalog_text)
+    )
+    existing_keys = current_catalog_keys_many(catalog_texts)
+    candidates = merge_candidates(parsed, existing_keys)
     eligible = [item for item in candidates if item.prefilter_status == "eligible"]
     excluded = [item for item in candidates if item.prefilter_status == "excluded"]
     by_source = {
@@ -458,8 +471,15 @@ def build_inventory(
             "excluded_candidates": len(excluded),
             "eligible_by_source": by_source,
         },
-        "existing_catalog_repo_names": sorted(set(REPO_NAME_RE.findall(current_catalog_text)), key=str.lower),
-        "existing_catalog_repo_roots": sorted(current_catalog_keys(current_catalog_text)),
+        "existing_catalog_repo_names": sorted(
+            {
+                repo_name
+                for catalog_text in catalog_texts
+                for repo_name in REPO_NAME_RE.findall(catalog_text)
+            },
+            key=str.lower,
+        ),
+        "existing_catalog_repo_roots": sorted(existing_keys),
         "candidates": [item.to_dict() for item in candidates],
     }
 
@@ -477,7 +497,13 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--awesome-mcp-zh", required=True, type=Path)
     parser.add_argument("--awesome-mcp-servers", required=True, type=Path)
-    parser.add_argument("--current-catalog", required=True, type=Path)
+    parser.add_argument(
+        "--current-catalog",
+        required=True,
+        type=Path,
+        action="append",
+        help="Existing catalog source; repeat to exclude every prior catalog generation.",
+    )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument(
         "--skip-snapshot-hash-check",
@@ -492,7 +518,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     payload = build_inventory(
         args.awesome_mcp_zh.read_text(encoding="utf-8"),
         args.awesome_mcp_servers.read_text(encoding="utf-8"),
-        args.current_catalog.read_text(encoding="utf-8"),
+        [path.read_text(encoding="utf-8") for path in args.current_catalog],
         verify_hashes=not args.skip_snapshot_hash_check,
     )
     write_json(args.output, payload)

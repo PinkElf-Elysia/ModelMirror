@@ -23,8 +23,7 @@ ALLOWED_ADAPTERS = {
     "google-maps-mcp", "grafana-mcp", "graphlit-mcp", "kagi-mcp", "kagisearch-kagimcp",
     "pinecone-assistant-mcp", "shodan-mcp", "virustotal-mcp",
     "terraform-mcp", "livetennisapi-livetennisapi-mcp",
-    "cablate-mcp-google-map", "vectorize-io-vectorize-mcp-server",
-    "comet-ml-opik-mcp", "keboola-keboola-mcp-server",
+    "cablate-mcp-google-map", "comet-ml-opik-mcp", "keboola-keboola-mcp-server",
 }
 SOCKET_PATH = Path(
     os.getenv(

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 
-SNAPSHOT_DATE = dt.date(2026, 8, 9)
+SNAPSHOT_DATE = dt.date(2026, 8, 11)
 ACTIVE_SINCE = SNAPSHOT_DATE - dt.timedelta(days=365)
 TARGET_COUNT = 100
 SOURCE_MINIMUM = 25
@@ -30,6 +30,11 @@ BATCH_SIZE = 40
 
 
 MCP_EVIDENCE_RE = re.compile(r"\b(?:model context protocol|mcp server)\b", re.I)
+MCP_PRODUCT_IDENTITY_RE = re.compile(
+    r"(?:\bmodel context protocol\b|\bmcp(?:[- ]native|[- ]over|[- ]server|[- ]tools?|[- ]endpoint|[- ]integration)?\b|"
+    r"MCP\s*(?:服务器|服务|接入|工具))",
+    re.I,
+)
 INSTALL_EVIDENCE_RE = re.compile(r"\b(?:npx|npm|pipx?|uvx|docker|stdio|streamable|sse)\b", re.I)
 NON_SERVER_METADATA_PATTERNS = (
     re.compile(r"\bmcp\s+(?:aggregator|router)\b", re.I),
@@ -37,6 +42,11 @@ NON_SERVER_METADATA_PATTERNS = (
     re.compile(r"\b(?:testing|test|inspector for)\s+mcp\s+servers\b", re.I),
     re.compile(r"\b(?:install|manage)\s+and\s+manage\s+mcp\s+servers\b", re.I),
     re.compile(r"\bweb\s+ui\s+to\s+(?:install\s+and\s+)?manage\s+mcp\b", re.I),
+    re.compile(r"\b(?:awesome|curated)\s+(?:list|directory)\b", re.I),
+    re.compile(r"\bmcp\s+(?:gateway|multiplexer)\b", re.I),
+    re.compile(r"MCP\s*(?:多路复用器|聚合器)|(?:聚合|接入)\s*\d*\+?\s*(?:个|项)?\s*MCP\s*服务", re.I),
+    re.compile(r"(?:接入|安装|配置).{0,40}(?:多个|多种|\d+\+).{0,16}MCP\s*服务", re.I),
+    re.compile(r"\bdeprecated\b", re.I),
 )
 
 
@@ -141,6 +151,8 @@ def non_server_metadata_reason(candidate: dict[str, object], metadata: object) -
     )
     if any(pattern.search(searchable) for pattern in NON_SERVER_METADATA_PATTERNS):
         return "non-server-entry:aggregator-router-client-or-manager"
+    if not MCP_PRODUCT_IDENTITY_RE.search(searchable):
+        return "non-server-entry:independent-mcp-server-identity-unproven"
     return None
 
 
@@ -354,7 +366,8 @@ def render_review_report(payload: dict[str, object]) -> str:
             f"- 中文源命中：{summary['by_source']['awesome-mcp-zh']}",
             f"- 英文源命中：{summary['by_source']['awesome-mcp-servers']}",
             "",
-            "硬门禁：公开仓库存在，未归档/禁用/私有/派生，许可证 SPDX 明确，且最近 12 个月有推送。"
+            "硬门禁：公开仓库存在，未归档/禁用/私有/派生，许可证 SPDX 明确，最近 12 个月有推送，"
+            "且可证明存在独立 MCP Server 产品身份；目录、客户端、动态网关、聚合器和 deprecated 实现均排除。"
             f" 每个分类最多 {policy['maximum_per_category']} 项，每个仓库最多 "
             f"{policy['maximum_per_repository']} 项。",
             "",
@@ -515,6 +528,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "not archived, disabled, private, or a fork",
                 "license SPDX identifier is known",
                 f"pushed on or after {ACTIVE_SINCE.isoformat()}",
+                "independent MCP Server product identity is evidenced",
+                "not a directory, client, dynamic gateway, aggregator, or deprecated implementation",
             ],
         },
         "summary": {

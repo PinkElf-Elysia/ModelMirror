@@ -1,4 +1,5 @@
 import { mcpCatalogExpansionV2 } from "./mcpCatalogExpansionV2.generated";
+import { mcpCatalogExpansionV3 } from "./mcpCatalogExpansionV3.generated";
 
 export type McpAvailability = "planned" | "adapting" | "ready" | "blocked";
 export type McpConnectionKind =
@@ -849,8 +850,16 @@ function buildAdaptationPlan() {
       limitations: [...project.adaptation.limitations],
     };
   }
-  if (Object.keys(records).length !== 200) {
-    throw new Error(`MCP 适配计划必须包含 200 个条目，当前为 ${Object.keys(records).length}`);
+  for (const project of mcpCatalogExpansionV3) {
+    if (records[project.id]) throw new Error(`重复的 MCP 适配计划：${project.id}`);
+    records[project.id] = {
+      ...project.adaptation,
+      requiredCapabilities: [...project.adaptation.requiredCapabilities],
+      limitations: [...project.adaptation.limitations],
+    };
+  }
+  if (Object.keys(records).length !== 300) {
+    throw new Error(`MCP 适配计划必须包含 300 个条目，当前为 ${Object.keys(records).length}`);
   }
   return records;
 }

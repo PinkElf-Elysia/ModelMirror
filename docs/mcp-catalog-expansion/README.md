@@ -1,7 +1,7 @@
 # MCP 双源目录审计数据
 
 本目录保存第二阶段目录扩充的审查、批准与适配判定快照。100 项候选已经逐项归入
-`ready`、`planned` 或 `blocked`，当前精确为 **23 ready / 17 planned / 60 blocked**。
+`ready`、`planned` 或 `blocked`，当前精确为 **26 ready / 13 planned / 61 blocked**。
 批次 14—15 的五项固定只读子集复用 Token Sidecar；批次 16A 的 DuckDuckGo、shadcn/ui
 与 Docker Hub、批次 16B 的 BioMCP 与 SafeDep Vet、批次 17A 的 open-webSearch、Idea Reality 与
 GitMCP 复用匿名公共读取 sidecar。批次 18A—18B 的六个确定性文件产物/分析兼容层已通过

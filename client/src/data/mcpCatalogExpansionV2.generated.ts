@@ -2333,8 +2333,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "zilliztech/mcp-server-milvus",
     "repoUrl": "https://github.com/zilliztech/mcp-server-milvus",
     "category": "数据库",
-    "description": "Milvus MCP 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
-    "readmeSummary": "zilliztech/mcp-server-milvus 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
+    "description": "Milvus MCP 面向“数据库”场景提供 MCP 能力；当前已通过固定只读运行时与工具契约验收。",
+    "readmeSummary": "zilliztech/mcp-server-milvus 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 ready，原因码 ready-isolated-readonly-graph-data-facade。",
     "stars": 238,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -2344,32 +2344,32 @@ export const mcpCatalogExpansionV2 = [
       "Apache-2.0"
     ],
     "requirements": [
-      "database-credentials",
-      "external-runtime",
-      "system-permission"
+      "database-credentials"
     ],
     "usageExamples": [
       "查看 Milvus MCP 的上游用途和当前适配判定",
-      "根据阻断或规划原因完成后续门槛后再进行连接测试"
+      "保存所需凭据后连接，并仅执行已审核的只读工具"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 13,
-      "availability": "planned",
+      "wave": 23,
+      "availability": "ready",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
       "requiredCapabilities": [
-        "database-read-only-policy",
-        "database-target-validation",
-        "query-limits"
+        "encrypted-credential-binding",
+        "fixed-database-target",
+        "native-read-only-role",
+        "read-only-query-policy",
+        "query-and-output-limits",
+        "schema-drift-recovery"
       ],
       "limitations": [
-        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
-        "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "Milvus MCP Server 0.1.1 的单 collection 只读 facade 已在最新基线重新通过真实 Milvus 2.5.21、原生只读账号、固定 Schema、代表读取、拒写、限流、超时、重启与清理验收；写入、动态 filter、任意输出字段和管理能力保持关闭。",
+        "仅接受结构化 host、port、database、TLS 与 username 配置和服务端加密 password；DSN、URL、Header、环境变量、动态 endpoint、写工具和管理工具均不可提交。"
       ]
     }
   },
@@ -2815,8 +2815,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "neo4j-contrib/mcp-neo4j",
     "repoUrl": "https://github.com/neo4j-contrib/mcp-neo4j",
     "category": "数据库",
-    "description": "Neo4j MCP 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
-    "readmeSummary": "neo4j-contrib/mcp-neo4j 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
+    "description": "Neo4j MCP 面向“数据库”场景提供 MCP 能力；当前已通过固定只读运行时与工具契约验收。",
+    "readmeSummary": "neo4j-contrib/mcp-neo4j 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 ready，原因码 ready-isolated-readonly-graph-data-facade。",
     "stars": 979,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -2826,32 +2826,32 @@ export const mcpCatalogExpansionV2 = [
       "MIT"
     ],
     "requirements": [
-      "database-credentials",
-      "external-runtime",
-      "system-permission"
+      "database-credentials"
     ],
     "usageExamples": [
       "查看 Neo4j MCP 的上游用途和当前适配判定",
-      "根据阻断或规划原因完成后续门槛后再进行连接测试"
+      "保存所需凭据后连接，并仅执行已审核的只读工具"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 13,
-      "availability": "planned",
+      "wave": 23,
+      "availability": "ready",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
       "requiredCapabilities": [
-        "database-read-only-policy",
-        "database-target-validation",
-        "query-limits"
+        "encrypted-credential-binding",
+        "fixed-database-target",
+        "native-read-only-role",
+        "read-only-query-policy",
+        "query-and-output-limits",
+        "schema-drift-recovery"
       ],
       "limitations": [
-        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
-        "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "Neo4j MCP Cypher v0.6.0 的固定 database 只读 facade 已在最新基线重新通过真实 Neo4j Enterprise 5.26.12、原生 reader 角色、固定 Schema、代表读取、拒写、限流、超时、重启与清理验收；写 Cypher、管理和知识图谱记忆工具保持关闭。",
+        "仅接受结构化 host、port、database、TLS 与 username 配置和服务端加密 password；DSN、URL、Header、环境变量、动态 endpoint、写工具和管理工具均不可提交。"
       ]
     }
   },
@@ -3306,8 +3306,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "ArcadeData/arcadedb",
     "repoUrl": "https://github.com/ArcadeData/arcadedb",
     "category": "数据库",
-    "description": "Arcadedb MCP 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
-    "readmeSummary": "ArcadeData/arcadedb 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
+    "description": "Arcadedb MCP 面向“数据库”场景提供 MCP 能力；当前已通过固定只读运行时与工具契约验收。",
+    "readmeSummary": "ArcadeData/arcadedb 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 ready，原因码 ready-isolated-readonly-graph-data-facade。",
     "stars": 1068,
     "language": "Java",
     "verifiedAt": "2026-08-09",
@@ -3317,31 +3317,31 @@ export const mcpCatalogExpansionV2 = [
       "Apache-2.0"
     ],
     "requirements": [
-      "database-credentials",
-      "external-runtime",
-      "system-permission"
+      "database-credentials"
     ],
     "usageExamples": [
       "查看 Arcadedb MCP 的上游用途和当前适配判定",
-      "根据阻断或规划原因完成后续门槛后再进行连接测试"
+      "保存所需凭据后连接，并仅执行已审核的只读工具"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 13,
-      "availability": "planned",
+      "wave": 23,
+      "availability": "ready",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
       "requiredCapabilities": [
-        "database-read-only-policy",
-        "database-target-validation",
-        "query-limits"
+        "encrypted-credential-binding",
+        "fixed-database-target",
+        "native-read-only-role",
+        "read-only-query-policy",
+        "query-and-output-limits",
+        "schema-drift-recovery"
       ],
       "limitations": [
-        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
-        "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "ArcadeDB 26.8.1 的固定 database 只读 facade 已在最新基线重新通过真实 ArcadeDB 26.8.1、原生 readonly 账号、固定 Schema、代表读取、拒写、限流、超时、重启与清理验收；command、写查询和管理能力保持关闭。",
+        "仅接受结构化 host、port、database、TLS 与 username 配置和服务端加密 password；DSN、URL、Header、环境变量、动态 endpoint、写工具和管理工具均不可提交。"
       ]
     }
   },
@@ -3789,7 +3789,7 @@ export const mcpCatalogExpansionV2 = [
     "repoUrl": "https://github.com/vectorize-io/vectorize-mcp-server",
     "category": "搜索与研究",
     "description": "Vectorize MCP Server 面向“搜索与研究”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
-    "readmeSummary": "vectorize-io/vectorize-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-real-account-readonly-preflight-required。",
+    "readmeSummary": "vectorize-io/vectorize-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-license-metadata-conflict。",
     "stars": 110,
     "language": "JavaScript",
     "verifiedAt": "2026-08-09",
@@ -3811,8 +3811,8 @@ export const mcpCatalogExpansionV2 = [
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 17,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "medium",
       "requiredCapabilities": [
@@ -3821,9 +3821,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "Vectorize 0.4.3 的既有 pipeline 检索兼容层、固定出口与 Schema 已冻结；当前缺少真实组织、pipeline 与 Token 代表调用，且标签 LICENSE 与 package metadata 的许可证声明不一致，因此继续保持 planned 且默认关闭。",
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "固定发布物 0.4.3 的仓库 LICENSE 声明 MIT，但 package metadata 声明 ISC；最新官方发布仍未消除冲突，因此停止可执行适配，待上游以一致发布物或明确官方说明闭合许可证边界后再复审。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },

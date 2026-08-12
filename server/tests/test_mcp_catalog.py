@@ -49,6 +49,7 @@ from server.mcp.catalog import (
     MCPCatalogService,
 )
 from server.mcp.catalog_expansion_v2 import CATALOG_EXPANSION_V2_ADAPTERS
+from server.mcp.catalog_expansion_v3 import CATALOG_EXPANSION_V3_ADAPTERS
 from server.sandbox_sidecar.saas_contracts import SAAS_SCHEMA_SHA256
 from server.sandbox_sidecar.public_mcp import BUILDERS as PUBLIC_BUILDERS
 from server.sandbox_sidecar.browser_contracts import (
@@ -321,19 +322,24 @@ def make_service(
     return service, manager, installer, registry
 
 
-def test_catalog_freezes_200_projects_and_maps_all_waves_once() -> None:
+def test_catalog_freezes_300_projects_and_maps_all_waves_once() -> None:
     phased = [project for projects in WAVE_PROJECTS.values() for project in projects]
-    expansion_ids = {item.project_id for item in CATALOG_EXPANSION_V2_ADAPTERS}
+    expansion_v2_ids = {item.project_id for item in CATALOG_EXPANSION_V2_ADAPTERS}
+    expansion_v3_ids = {item.project_id for item in CATALOG_EXPANSION_V3_ADAPTERS}
 
-    assert len(CATALOG_ADAPTERS) == 200
+    assert len(CATALOG_ADAPTERS) == 300
     assert len(LOCAL_STDIO_ADAPTERS) == 7
     assert len(phased) == 93
-    assert len(expansion_ids) == 100
+    assert len(expansion_v2_ids) == 100
+    assert len(expansion_v3_ids) == 100
     assert len(set(phased)) == 93
     assert set(phased).isdisjoint(LOCAL_STDIO_ADAPTERS)
-    assert expansion_ids.isdisjoint(set(phased) | set(LOCAL_STDIO_ADAPTERS))
+    assert expansion_v2_ids.isdisjoint(set(phased) | set(LOCAL_STDIO_ADAPTERS))
+    assert expansion_v3_ids.isdisjoint(
+        set(phased) | set(LOCAL_STDIO_ADAPTERS) | expansion_v2_ids
+    )
     assert set(CATALOG_ADAPTERS) == (
-        set(phased) | set(LOCAL_STDIO_ADAPTERS) | expansion_ids
+        set(phased) | set(LOCAL_STDIO_ADAPTERS) | expansion_v2_ids | expansion_v3_ids
     )
     assert set(WAVE_ONE_ADAPTERS) == set(WAVE_PROJECTS[1])
     assert set(WAVE_TWO_ADAPTERS) == set(WAVE_PROJECTS[2]) - {
@@ -354,6 +360,9 @@ def test_catalog_freezes_200_projects_and_maps_all_waves_once() -> None:
         "pab1it0-prometheus-mcp-server",
         "qdrant-mcp-server-qdrant",
         "cr7258-elasticsearch-mcp-server",
+        "zilliztech-mcp-server-milvus",
+        "neo4j-contrib-mcp-neo4j",
+        "arcadedata-arcadedb",
     }
     assert set(WAVE_SEVEN_ADAPTERS) == {
         "chrome-devtools-mcp",
@@ -362,15 +371,15 @@ def test_catalog_freezes_200_projects_and_maps_all_waves_once() -> None:
     assert sum(
         manifest.availability == "ready"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 68
+    ) == 75
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 31
+    ) == 69
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 101
+    ) == 156
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
@@ -389,15 +398,25 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
     frontend_ids = set(
         re.findall(r'^\s{4}id: "([a-z0-9.-]+)"', seed_source, flags=re.MULTILINE)
     )
-    expansion_source = (
+    expansion_v2_source = (
         PROJECT_ROOT
         / "client"
         / "src"
         / "data"
         / "mcpCatalogExpansionV2.generated.ts"
     ).read_text(encoding="utf-8")
-    expansion_frontend_ids = set(
-        re.findall(r'^\s{4}"id": "([a-z0-9.-]+)"', expansion_source, flags=re.MULTILINE)
+    expansion_v3_source = (
+        PROJECT_ROOT
+        / "client"
+        / "src"
+        / "data"
+        / "mcpCatalogExpansionV3.generated.ts"
+    ).read_text(encoding="utf-8")
+    expansion_v2_frontend_ids = set(
+        re.findall(r'^\s{4}"id": "([a-z0-9.-]+)"', expansion_v2_source, flags=re.MULTILINE)
+    )
+    expansion_v3_frontend_ids = set(
+        re.findall(r'^\s{4}"id": "([a-z0-9.-]+)"', expansion_v3_source, flags=re.MULTILINE)
     )
     card_source = (
         PROJECT_ROOT / "client" / "src" / "components" / "McpServerCard.tsx"
@@ -406,13 +425,18 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
         PROJECT_ROOT / "client" / "src" / "components" / "McpCredentialPanel.tsx"
     ).read_text(encoding="utf-8")
 
-    assert len(expansion_frontend_ids) == 100
-    assert frontend_ids | expansion_frontend_ids == set(CATALOG_ADAPTERS)
-    assert frontend_ids.isdisjoint(expansion_frontend_ids)
+    assert len(expansion_v2_frontend_ids) == 100
+    assert len(expansion_v3_frontend_ids) == 100
+    assert frontend_ids | expansion_v2_frontend_ids | expansion_v3_frontend_ids == set(
+        CATALOG_ADAPTERS
+    )
+    assert frontend_ids.isdisjoint(expansion_v2_frontend_ids | expansion_v3_frontend_ids)
+    assert expansion_v2_frontend_ids.isdisjoint(expansion_v3_frontend_ids)
     assert not re.search(r"^\s+command:", seed_source, flags=re.MULTILINE)
-    assert "server_command" not in expansion_source
-    assert '"endpoint"' not in expansion_source
-    assert expansion_source.count('"availability": "ready"') == 23
+    assert "server_command" not in expansion_v2_source + expansion_v3_source
+    assert '"endpoint"' not in expansion_v2_source + expansion_v3_source
+    assert expansion_v2_source.count('"availability": "ready"') == 26
+    assert expansion_v3_source.count('"availability": "ready"') == 4
     assert 'fetch("/api/mcp/connect"' not in card_source
     assert 'fetch("/api/mcp/install"' not in card_source
     assert not re.search(
@@ -441,6 +465,12 @@ def test_planned_adapter_cannot_be_enabled_by_environment(
 def test_approved_catalog_expansion_freezes_ready_planned_and_blocked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    wave25_public_ids = {
+        "coinpaprika-dexpaprika-mcp",
+        "pab1it0-chess-mcp",
+        "rishijatia-fantasy-pl-mcp",
+        "yuna0x0-anilist-mcp",
+    }
     expansion_ids = {item.project_id for item in CATALOG_EXPANSION_V2_ADAPTERS}
     assert len(expansion_ids) == 100
     by_status = {
@@ -452,15 +482,15 @@ def test_approved_catalog_expansion_freezes_ready_planned_and_blocked(
         for status in ("ready", "planned", "blocked")
     }
     assert {status: len(ids) for status, ids in by_status.items()} == {
-        "ready": 23,
-        "planned": 17,
-        "blocked": 60,
+        "ready": 26,
+        "planned": 13,
+        "blocked": 61,
     }
     assert by_status["ready"] == (
         set(WAVE_THIRTEEN_TOKEN_ADAPTERS)
         | set(WAVE_FOURTEEN_TOKEN_ADAPTERS)
         | set(WAVE_FIFTEEN_TOKEN_ADAPTERS)
-        | set(WAVE_SIXTEEN_PUBLIC_ADAPTERS)
+        | (set(WAVE_SIXTEEN_PUBLIC_ADAPTERS) - wave25_public_ids)
         | set(WAVE_EIGHTEEN_FILE_ADAPTERS)
         | set(WAVE_NINETEEN_DATABASE_ADAPTERS)
         | set(WAVE_TWENTY_FILE_ADAPTERS)
@@ -488,7 +518,12 @@ def test_approved_catalog_expansion_freezes_ready_planned_and_blocked(
         "qdrant-mcp-server-qdrant",
         "cr7258-elasticsearch-mcp-server",
         "ozgurcd-gograph",
+        "zilliztech-mcp-server-milvus",
+        "neo4j-contrib-mcp-neo4j",
+        "arcadedata-arcadedb",
     }
+
+
     ready_manifest = CATALOG_ADAPTERS["brave-brave-search-mcp-server"]
     assert ready_manifest.wave == 13
     assert ready_manifest.availability == "ready"
@@ -589,14 +624,44 @@ def test_approved_catalog_expansion_freezes_ready_planned_and_blocked(
             ("api.github.com",),
             "56a8c84a969a4beaca16bf905be83899bb497d19a4e95cef5135ad4465ef4811",
         ),
+        "coinpaprika-dexpaprika-mcp": (
+            {"getNetworks", "getStats", "search"},
+            ("api.dexpaprika.com",),
+            "b6b6a6ef17aed4544341be76648401fd4ac6a62f4d657d9f5da0f2429429ebc9",
+        ),
+        "pab1it0-chess-mcp": (
+            {"get_player_profile", "get_player_stats"},
+            ("api.chess.com",),
+            "d33380c3a2cd3e271e289c9a021c1c8d67403bb2f74a4c5df6e075b67882cf7d",
+        ),
+        "yuna0x0-anilist-mcp": (
+            {"get_genres", "search_anime", "get_anime"},
+            ("graphql.anilist.co",),
+            "060e2a7e6eb92fd44a945b99ca91adb614eb877e286535516b9ec8c0a7b7e239",
+        ),
+        "rishijatia-fantasy-pl-mcp": (
+            {
+                "search_fpl_players",
+                "get_player_information",
+                "list_fpl_fixtures",
+            },
+            ("fantasy.premierleague.com",),
+            "b9760cc0e80c3c906a96e9090e90c57e31b4443e2f58a622c6769ee8448fe602",
+        ),
     }
     for project_id, (tools, hosts, schema_digest) in expected_public.items():
         manifest = CATALOG_ADAPTERS[project_id]
-        assert manifest.wave == (17 if project_id in {
-            "aas-ee-open-websearch",
-            "mnemox-ai-idea-reality-mcp",
-            "idosal-git-mcp",
-        } else 16)
+        assert manifest.wave == (
+            25
+            if project_id in wave25_public_ids
+            else 17
+            if project_id in {
+                "aas-ee-open-websearch",
+                "mnemox-ai-idea-reality-mcp",
+                "idosal-git-mcp",
+            }
+            else 16
+        )
         assert manifest.availability == "ready"
         assert manifest.enabled_by_default is False
         assert manifest.executable is False
@@ -672,11 +737,11 @@ def test_approved_catalog_expansion_freezes_ready_planned_and_blocked(
         "googleapis-genai-toolbox",
         "anypost-emailmd",
         "ferdousbhai-investor-agent",
+        "vectorize-io-vectorize-mcp-server",
     }
     assert converged_blocked <= by_status["blocked"]
     staged_wave_seventeen = {
         "cablate-mcp-google-map",
-        "vectorize-io-vectorize-mcp-server",
         "comet-ml-opik-mcp",
         "keboola-keboola-mcp-server",
     }
@@ -718,6 +783,50 @@ def test_approved_catalog_expansion_freezes_ready_planned_and_blocked(
         assert manifest.runtime_image == ""
         assert manifest.network_policy.startswith(f"{manifest.availability}:")
         assert manifest.filesystem_policy == f"{manifest.availability}:no-runtime"
+
+
+def test_wave24_catalog_expansion_only_executes_accepted_wave25_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expansion_ids = {item.project_id for item in CATALOG_EXPANSION_V3_ADAPTERS}
+    assert len(expansion_ids) == 100
+    assert {
+        status: sum(item.availability == status for item in CATALOG_EXPANSION_V3_ADAPTERS)
+        for status in ("ready", "planned", "blocked")
+    } == {"ready": 4, "planned": 42, "blocked": 54}
+    ready_ids = {
+        "coinpaprika-dexpaprika-mcp",
+        "pab1it0-chess-mcp",
+        "rishijatia-fantasy-pl-mcp",
+        "yuna0x0-anilist-mcp",
+    }
+    assert {
+        item.project_id
+        for item in CATALOG_EXPANSION_V3_ADAPTERS
+        if item.availability == "ready"
+    } == ready_ids
+    for project_id in ready_ids:
+        manifest = CATALOG_ADAPTERS[project_id]
+        assert manifest.availability == "ready"
+        assert manifest.enabled_by_default is False
+        assert manifest.executable is False
+        assert manifest.server_command[-1] == project_id
+        assert manifest.public_policy is not None
+        assert manifest.credential_slots == ()
+        assert manifest.tool_policies
+        assert all(policy.effect == "read" for policy in manifest.tool_policies.values())
+        monkeypatch.setenv(manifest.feature_flag, "true")
+        assert manifest.executable is True
+    for project_id in expansion_ids - ready_ids:
+        manifest = CATALOG_ADAPTERS[project_id]
+        monkeypatch.setenv(manifest.feature_flag, "true")
+        assert manifest.availability in {"planned", "blocked"}
+        assert manifest.executable is False
+        assert manifest.server_command == ()
+        assert not manifest.endpoint
+        assert manifest.credential_slots == ()
+        assert manifest.tool_policies == {}
+        assert manifest.enabled_by_default is False
 
 
 def test_wave_seven_manifest_freezes_ready_blocked_and_public_policy() -> None:
@@ -1834,10 +1943,10 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             response = await client.get("/api/mcp/catalog/adapters")
             assert response.status_code == 200
             payload = response.json()
-            assert payload["total"] == 200
-            assert payload["ready"] == 68
-            assert payload["planned"] == 31
-            assert payload["blocked"] == 101
+            assert payload["total"] == 300
+            assert payload["ready"] == 75
+            assert payload["planned"] == 69
+            assert payload["blocked"] == 156
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized
@@ -1863,7 +1972,7 @@ async def test_main_app_registers_catalog_status_endpoint() -> None:
         response = await client.get("/api/mcp/catalog/adapters")
 
     assert response.status_code == 200
-    assert response.json()["total"] == 200
+    assert response.json()["total"] == 300
 
 
 @pytest.mark.asyncio

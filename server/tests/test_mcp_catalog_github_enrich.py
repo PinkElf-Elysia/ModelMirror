@@ -60,6 +60,42 @@ def test_metadata_filter_rejects_aggregators_routers_and_clients() -> None:
     assert enrich.non_server_metadata_reason(actual_server, {"description": "Read-only tools"}) is None
 
 
+def test_metadata_filter_requires_independent_server_identity_and_rejects_deprecated() -> None:
+    ordinary_tool = {
+        "name": "Port Forwarder",
+        "description": "Kubernetes port forwarding and local service discovery",
+    }
+    assert enrich.non_server_metadata_reason(ordinary_tool, {"description": "CLI tool"}) == (
+        "non-server-entry:independent-mcp-server-identity-unproven"
+    )
+    server = {
+        "name": "Memory",
+        "description": "MCP tools for a local knowledge graph",
+    }
+    assert enrich.non_server_metadata_reason(server, {"description": "Maintained"}) is None
+    assert enrich.non_server_metadata_reason(
+        server, {"description": "Deprecated MCP server; use the hosted replacement"}
+    ) == "non-server-entry:aggregator-router-client-or-manager"
+
+
+def test_metadata_filter_rejects_catalogs_and_dynamic_mcp_gateways() -> None:
+    assert enrich.non_server_metadata_reason(
+        {"name": "Awesome x402", "description": "Curated directory of MCP servers"},
+        {"description": "Curated list of payment resources"},
+    ) == "non-server-entry:aggregator-router-client-or-manager"
+    assert enrich.non_server_metadata_reason(
+        {"name": "Airis", "description": "MCP 多路复用器，聚合 60+ 工具"},
+        {"description": "MCP gateway"},
+    ) == "non-server-entry:aggregator-router-client-or-manager"
+    assert enrich.non_server_metadata_reason(
+        {
+            "name": "Agent Reach",
+            "description": "通过 mcporter 接入多个 MCP 服务的一键安装 CLI",
+        },
+        {"description": "One CLI for many platforms"},
+    ) == "non-server-entry:aggregator-router-client-or-manager"
+
+
 def test_hard_gates_reject_archived_unlicensed_and_inactive_repositories() -> None:
     baseline = {
         "isPrivate": False,
