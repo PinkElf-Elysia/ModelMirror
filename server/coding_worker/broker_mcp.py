@@ -194,11 +194,32 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         )
 
     @mcp.tool()
-    async def install_dependencies(operation_id: str) -> dict[str, Any]:
-        """Request approval, then run frozen npm-ci through controlled egress."""
+    async def install_dependencies(
+        operation_id: str,
+        manager: str = "npm",
+        action: str = "ci",
+        requirements: str | None = None,
+    ) -> dict[str, Any]:
+        """Run one platform-frozen npm, uv, or hash-locked pip dependency plan."""
+        arguments: dict[str, Any] = {"manager": manager, "action": action}
+        if requirements is not None:
+            arguments["requirements"] = requirements
         return await call(
             "install_dependencies",
-            {"manager": "npm", "action": "ci"},
+            arguments,
+            operation_id=operation_id,
+        )
+
+    @mcp.tool()
+    async def query_documentation(
+        operation_id: str,
+        resource_id: str,
+        document_path: str,
+    ) -> dict[str, Any]:
+        """Fetch one registered official document through exact approval and egress leases."""
+        return await call(
+            "query_documentation",
+            {"resource_id": resource_id, "document_path": document_path},
             operation_id=operation_id,
         )
 
