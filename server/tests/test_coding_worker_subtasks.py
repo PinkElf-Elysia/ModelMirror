@@ -356,6 +356,10 @@ def test_subtask_capability_routes_and_runtime_wiring(
         assert coding_worker_capabilities().subtasks is True
         paths = {route.path for route in router.routes}
         assert "/api/coding-worker/v1/tasks/{task_id}/subtasks" in paths
+        assert (
+            "/api/coding-worker/v1/tasks/{task_id}/subtasks/"
+            "{child_task_id}/merge"
+        ) in paths
         assert "/api/coding-worker/v1/tasks/{task_id}/children" in paths
         assert runtime.tool_broker.subtask_handler is not None
         assert runtime.tool_broker.subtask_handler.__self__ is runtime.service

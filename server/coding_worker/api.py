@@ -57,6 +57,10 @@ class TaskForkRequest(StrictModel):
     client_fork_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 
+class SubtaskMergeRequest(StrictModel):
+    operation_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+
+
 class TaskChildrenResponse(StrictModel):
     tasks: tuple[TaskRecord, ...]
     subtasks: tuple[SubtaskRecord, ...] = ()
@@ -719,6 +723,22 @@ async def create_task_subtask(
     _require_subtasks_enabled()
     try:
         return await get_coding_worker_service().create_subtask(task_id, payload)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post(
+    "/tasks/{task_id}/subtasks/{child_task_id}/merge",
+    response_model=SubtaskRecord,
+)
+async def merge_task_subtask(
+    task_id: str, child_task_id: str, payload: SubtaskMergeRequest
+) -> SubtaskRecord:
+    _require_subtasks_enabled()
+    try:
+        return await get_coding_worker_service().merge_subtask(
+            task_id, child_task_id, payload.operation_id
+        )
     except Exception as exc:
         _raise_worker_error(exc)
 
