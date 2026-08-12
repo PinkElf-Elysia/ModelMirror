@@ -296,7 +296,10 @@ class SkillSearchIndexV1:
             return None
         result_fingerprint = str(result.get("candidateFingerprint") or "")
         if runtime_binding:
-            if candidate.get("runtimeCandidateFingerprint") != result_fingerprint:
+            runtime_fingerprint = str(
+                result.get("runtimeCandidateFingerprint") or result_fingerprint
+            )
+            if candidate.get("runtimeCandidateFingerprint") != runtime_fingerprint:
                 return None
         elif candidate.get("candidateFingerprint") != result_fingerprint:
             return None

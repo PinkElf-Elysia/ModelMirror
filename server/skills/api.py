@@ -21,6 +21,11 @@ from .semantic_rerank import (
     SkillSearchIndexV1,
 )
 from .semantic_rerank_service import SkillSemanticRerankService
+from .rerank_governance import (
+    SkillRerankGovernanceError,
+    SkillRerankGovernanceService,
+    SkillRerankGovernanceStore,
+)
 from .local_import import (
     SkillLocalImportNotFoundError,
     SkillLocalImportStorageError,
@@ -62,6 +67,7 @@ _skill_manager: SkillManager | None = None
 _skill_draft_store: WorkspaceSkillDraftStore | None = None
 _builtin_library: BuiltinSkillLibrary | None = None
 _semantic_rerank_service: SkillSemanticRerankService | None = None
+_rerank_governance_service: SkillRerankGovernanceService | None = None
 
 
 class SkillInstallRequest(BaseModel):
@@ -126,6 +132,34 @@ class SkillSearchRequestPayload(BaseModel):
     query: str = Field(min_length=2, max_length=500)
     limit: int = Field(default=6, ge=1, le=6)
     semantic: bool = False
+
+
+class SkillRerankFeedbackRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
+    query: str = Field(min_length=2, max_length=500)
+    candidate_id: str = Field(min_length=1, max_length=300)
+    candidate_fingerprint: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+    )
+    judgment: Literal["relevant", "not_relevant"]
+    receipt: dict
+
+
+class SkillRerankEvaluationRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
+
+
+class SkillRerankPromotionRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
+    evaluation_id: str = Field(min_length=1, max_length=120)
+    confirmed: bool
+
+
+class SkillRerankRollbackRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
+    confirmed: bool
 
 
 class InstalledSkillsResponse(BaseModel):
@@ -225,19 +259,46 @@ def set_builtin_skill_library_for_tests(
 
 
 def get_skill_semantic_rerank_service() -> SkillSemanticRerankService:
-    global _semantic_rerank_service
+    global _semantic_rerank_service, _rerank_governance_service
     if _semantic_rerank_service is None:
         _semantic_rerank_service = SkillSemanticRerankService(
             search_index=SkillSearchIndexV1()
         )
+    if _rerank_governance_service is None:
+        _rerank_governance_service = SkillRerankGovernanceService(
+            rerank_service=_semantic_rerank_service,
+            store=SkillRerankGovernanceStore(),
+        )
+        _rerank_governance_service.configure_reranker()
     return _semantic_rerank_service
+
+
+def get_skill_rerank_governance_service() -> SkillRerankGovernanceService:
+    get_skill_semantic_rerank_service()
+    assert _rerank_governance_service is not None
+    return _rerank_governance_service
 
 
 def set_skill_semantic_rerank_service_for_tests(
     service: SkillSemanticRerankService | None,
 ) -> None:
-    global _semantic_rerank_service
+    global _semantic_rerank_service, _rerank_governance_service
     _semantic_rerank_service = service
+    _rerank_governance_service = None
+
+
+def set_skill_rerank_governance_service_for_tests(
+    service: SkillRerankGovernanceService | None,
+) -> None:
+    global _rerank_governance_service
+    _rerank_governance_service = service
+
+
+def _raise_rerank_governance_error(exc: SkillRerankGovernanceError) -> None:
+    raise HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": str(exc)},
+    ) from exc
 
 
 def _raise_builtin_error(exc: BuiltinSkillLibraryError) -> None:
@@ -454,13 +515,13 @@ async def get_skill_trust_index():
 
 @router.get("/rerank/status")
 async def get_skill_rerank_status():
-    return get_skill_semantic_rerank_service().status()
+    return get_skill_rerank_governance_service().status()
 
 
 @router.post("/search")
 async def search_skills(payload: SkillSearchRequestPayload):
     try:
-        outcome = await get_skill_semantic_rerank_service().search(
+        outcome = await get_skill_rerank_governance_service().search_market(
             SkillRerankRequest(
                 query=payload.query,
                 scope="market",
@@ -468,7 +529,11 @@ async def search_skills(payload: SkillSearchRequestPayload):
                 semantic=payload.semantic,
             )
         )
-        return outcome.serialize()
+        result = outcome.serialize()
+        result["governanceRevision"] = get_skill_rerank_governance_service().store.summary()[
+            "revision"
+        ]
+        return result
     except SkillSearchIndexError as exc:
         raise HTTPException(
             status_code=503,
@@ -477,6 +542,107 @@ async def search_skills(payload: SkillSearchRequestPayload):
                 "message": str(exc),
             },
         ) from exc
+
+
+@router.post("/rerank/feedback")
+async def create_skill_rerank_feedback(payload: SkillRerankFeedbackRequest):
+    try:
+        feedback = await asyncio.to_thread(
+            get_skill_rerank_governance_service().record_feedback,
+            expected_revision=payload.expected_revision,
+            query=payload.query,
+            candidate_id=payload.candidate_id,
+            candidate_fingerprint=payload.candidate_fingerprint,
+            judgment=payload.judgment,
+            receipt=payload.receipt,
+        )
+        return {
+            "feedback": feedback,
+            "governanceRevision": get_skill_rerank_governance_service().store.summary()[
+                "revision"
+            ],
+        }
+    except SkillRerankGovernanceError as exc:
+        _raise_rerank_governance_error(exc)
+
+
+@router.delete("/rerank/feedback")
+async def delete_skill_rerank_feedback(
+    expected_revision: int = Query(ge=1),
+):
+    try:
+        return await asyncio.to_thread(
+            get_skill_rerank_governance_service().store.clear_feedback,
+            expected_revision=expected_revision,
+        )
+    except SkillRerankGovernanceError as exc:
+        _raise_rerank_governance_error(exc)
+
+
+@router.post("/rerank/evaluations")
+async def create_skill_rerank_evaluation(payload: SkillRerankEvaluationRequest):
+    try:
+        return get_skill_rerank_governance_service().start_evaluation(
+            expected_revision=payload.expected_revision
+        )
+    except SkillRerankGovernanceError as exc:
+        _raise_rerank_governance_error(exc)
+
+
+@router.get("/rerank/evaluations/{evaluation_id}")
+async def get_skill_rerank_evaluation(evaluation_id: str):
+    try:
+        return await asyncio.to_thread(
+            get_skill_rerank_governance_service().store.require_evaluation,
+            evaluation_id,
+        )
+    except SkillRerankGovernanceError as exc:
+        _raise_rerank_governance_error(exc)
+
+
+@router.get("/rerank/policy")
+async def get_skill_rerank_policy():
+    return get_skill_rerank_governance_service().policy()
+
+
+@router.post("/rerank/policy/promote")
+async def promote_skill_rerank_policy(payload: SkillRerankPromotionRequest):
+    try:
+        policy = await asyncio.to_thread(
+            get_skill_rerank_governance_service().promote,
+            evaluation_id=payload.evaluation_id,
+            expected_revision=payload.expected_revision,
+            confirmed=payload.confirmed,
+        )
+        return {
+            "policy": policy,
+            "status": get_skill_rerank_governance_service().status(),
+        }
+    except SkillRerankGovernanceError as exc:
+        _raise_rerank_governance_error(exc)
+
+
+@router.post("/rerank/policy/rollback")
+async def rollback_skill_rerank_policy(payload: SkillRerankRollbackRequest):
+    if not payload.confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "skill_rerank_rollback_confirmation_required",
+                "message": "Skill rerank rollback requires explicit confirmation.",
+            },
+        )
+    try:
+        policy = await asyncio.to_thread(
+            get_skill_rerank_governance_service().rollback,
+            expected_revision=payload.expected_revision,
+        )
+        return {
+            "policy": policy,
+            "status": get_skill_rerank_governance_service().status(),
+        }
+    except SkillRerankGovernanceError as exc:
+        _raise_rerank_governance_error(exc)
 
 
 @router.get("/trust/{receipt_id}")

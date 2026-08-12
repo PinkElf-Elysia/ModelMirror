@@ -24,6 +24,13 @@ import {
 import type { SkillInstallStatus } from "../data/skillCatalogPolicy";
 import type { BuiltinSkill } from "../types/agentWorkspace";
 import { useSkillCreatorStatus } from "../hooks/useSkillCreatorStatus";
+import {
+  saveSkillRerankFeedback,
+  searchSkills,
+  type SkillRankingReceipt,
+  type SkillRankingResult,
+  type SkillRerankStatus,
+} from "../utils/skillRerankApi";
 import SkillTrustPanel, {
   SkillTrustBadge,
   SkillTrustSummaryLine,
@@ -79,6 +86,7 @@ type SkillTab =
 type SkillKindFilter = "all" | SkillProjectKind;
 type SkillAvailabilityFilter = "all" | SkillInstallStatus;
 type NeedSearchStatus = "idle" | "loading" | "ready" | "error";
+type FeedbackStatus = "" | "saving" | "relevant" | "not_relevant" | "error";
 type TrustIndexStatus = "loading" | "ready" | "error";
 type PendingTrustAction =
   | {
@@ -108,6 +116,10 @@ const NEED_EXAMPLES = [
   "为 React 网页编写自动化测试",
   "审计 Postgres 数据库安全",
 ] as const;
+
+function needCandidateId(target: SkillNeedTarget) {
+  return `catalog:${target.targetType}:${target.id}`;
+}
 
 const SkillLocalImportSummaryPanel = lazy(
   () => import("../components/skill-import/SkillLocalImportSummaryPanel"),
@@ -424,6 +436,9 @@ function NeedMatchCard({
   onInspectTrust,
   onLocate,
   onOpenSkillSet,
+  onFeedback,
+  rankingResult,
+  feedbackStatus,
   trustSummary,
 }: {
   gateMode: SkillTrustGateMode;
@@ -435,6 +450,9 @@ function NeedMatchCard({
   onInspectTrust: (title: string, receiptId: string) => void;
   onLocate: (project: SkillProject) => void;
   onOpenSkillSet: (project: SkillProject, memberId?: string) => void;
+  onFeedback?: (judgment: "relevant" | "not_relevant") => void;
+  rankingResult?: SkillRankingResult;
+  feedbackStatus?: FeedbackStatus;
   trustSummary: SkillTrustReceiptSummary | null;
 }) {
   const { project: target, reasons } = match;
@@ -524,6 +542,20 @@ function NeedMatchCard({
         ))}
       </div>
 
+      {rankingResult?.semanticRank ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 font-semibold text-cyan-100">
+            语义第 {rankingResult.semanticRank} 名
+          </span>
+          <span className="text-slate-400">
+            词典第 {rankingResult.lexicalRank ?? "?"} 名
+            {rankingResult.rankDelta
+              ? `，${rankingResult.rankDelta > 0 ? "上升" : "下降"} ${Math.abs(rankingResult.rankDelta)} 位`
+              : "，名次未变"}
+          </span>
+        </div>
+      ) : null}
+
       {!canInstall && !canBrowseMembers ? (
         <p className="mt-3 text-xs leading-5 text-amber-100/80">
           {catalogProject.installNote}
@@ -597,6 +629,36 @@ function NeedMatchCard({
           </button>
         ) : null}
       </div>
+      {onFeedback ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
+          <span className="mr-1 text-xs text-slate-400">这项推荐：</span>
+          <button
+            aria-pressed={feedbackStatus === "relevant"}
+            className="min-h-9 rounded-full border border-white/15 px-3 text-xs font-semibold text-slate-200 transition hover:border-emerald-300/35 hover:bg-emerald-300/10 disabled:opacity-60"
+            disabled={feedbackStatus === "saving" || feedbackStatus === "relevant"}
+            onClick={() => onFeedback("relevant")}
+            type="button"
+          >
+            {feedbackStatus === "relevant" ? "已记为相关" : "相关"}
+          </button>
+          <button
+            aria-pressed={feedbackStatus === "not_relevant"}
+            className="min-h-9 rounded-full border border-white/15 px-3 text-xs font-semibold text-slate-200 transition hover:border-rose-300/35 hover:bg-rose-300/10 disabled:opacity-60"
+            disabled={
+              feedbackStatus === "saving" || feedbackStatus === "not_relevant"
+            }
+            onClick={() => onFeedback("not_relevant")}
+            type="button"
+          >
+            {feedbackStatus === "not_relevant" ? "已记为不相关" : "不相关"}
+          </button>
+          {feedbackStatus === "saving" ? (
+            <span className="text-xs text-slate-400" role="status">正在保存…</span>
+          ) : feedbackStatus === "error" ? (
+            <span className="text-xs text-rose-200">保存失败，请刷新结果后重试。</span>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -1137,6 +1199,18 @@ export default function SkillBrowserPage() {
   const [needSearchStatus, setNeedSearchStatus] =
     useState<NeedSearchStatus>("idle");
   const [needSearchError, setNeedSearchError] = useState("");
+  const [semanticRerankEnabled, setSemanticRerankEnabled] = useState(false);
+  const [semanticConsentOpen, setSemanticConsentOpen] = useState(false);
+  const [rankingStatus, setRankingStatus] = useState<SkillRerankStatus | "">("");
+  const [rankingWarnings, setRankingWarnings] = useState<string[]>([]);
+  const [rankingReceipt, setRankingReceipt] = useState<SkillRankingReceipt | null>(
+    null,
+  );
+  const [rankingResults, setRankingResults] = useState<SkillRankingResult[]>([]);
+  const [governanceRevision, setGovernanceRevision] = useState(1);
+  const [feedbackByCandidate, setFeedbackByCandidate] = useState<
+    Record<string, FeedbackStatus>
+  >({});
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedKind, setSelectedKind] = useState<SkillKindFilter>("all");
   const [selectedAvailability, setSelectedAvailability] =
@@ -1622,15 +1696,50 @@ export default function SkillBrowserPage() {
       setNeedMatches([]);
       setNeedSearchStatus("idle");
       setNeedSearchError("");
+      setRankingStatus("");
+      setRankingWarnings([]);
+      setRankingReceipt(null);
+      setRankingResults([]);
+      setFeedbackByCandidate({});
       return;
     }
     setNeedMatches([]);
     setNeedSearchStatus("loading");
     setNeedSearchError("");
+    setFeedbackByCandidate({});
     try {
       const candidates = await loadSkillNeedCandidates();
       if (needSearchRequestId.current !== requestId) return;
-      setNeedMatches(findSkillsForNeed(normalized, candidates));
+      if (!semanticRerankEnabled) {
+        setNeedMatches(findSkillsForNeed(normalized, candidates));
+        setRankingStatus("lexical");
+        setRankingWarnings([]);
+        setRankingReceipt(null);
+        setRankingResults([]);
+      } else {
+        const outcome = await searchSkills(normalized, true);
+        if (needSearchRequestId.current !== requestId) return;
+        const byId = new Map(
+          candidates.map((candidate) => [needCandidateId(candidate), candidate]),
+        );
+        const matches = outcome.finalResults.flatMap((result) => {
+          const target = byId.get(result.candidateId);
+          if (!target) return [];
+          return [
+            {
+              project: target,
+              score: result.score,
+              reasons: result.reasons,
+            } as SkillNeedMatch<SkillNeedTarget>,
+          ];
+        });
+        setNeedMatches(matches);
+        setRankingStatus(outcome.status);
+        setRankingWarnings(outcome.warnings);
+        setRankingReceipt(outcome.receipt);
+        setRankingResults(outcome.finalResults);
+        setGovernanceRevision(outcome.governanceRevision);
+      }
       setNeedSearchStatus("ready");
     } catch (searchError) {
       if (needSearchRequestId.current !== requestId) return;
@@ -1640,6 +1749,33 @@ export default function SkillBrowserPage() {
           ? searchError.message
           : "完整 Skill 索引加载失败",
       );
+    }
+  }
+
+  async function submitRerankFeedback(
+    target: SkillNeedTarget,
+    judgment: "relevant" | "not_relevant",
+  ) {
+    const candidateId = needCandidateId(target);
+    const result = rankingResults.find((item) => item.candidateId === candidateId);
+    if (!rankingReceipt || !result || !submittedNeed) return;
+    setFeedbackByCandidate((current) => ({ ...current, [candidateId]: "saving" }));
+    try {
+      const response = await saveSkillRerankFeedback({
+        expectedRevision: governanceRevision,
+        query: submittedNeed,
+        candidateId,
+        candidateFingerprint: result.candidateFingerprint,
+        judgment,
+        receipt: rankingReceipt,
+      });
+      setGovernanceRevision(response.governanceRevision);
+      setFeedbackByCandidate((current) => ({
+        ...current,
+        [candidateId]: judgment,
+      }));
+    } catch {
+      setFeedbackByCandidate((current) => ({ ...current, [candidateId]: "error" }));
     }
   }
 
@@ -1828,6 +1964,12 @@ export default function SkillBrowserPage() {
             >
               导入本地 Skill
             </Link>
+            <Link
+              className="inline-flex min-h-10 w-fit items-center rounded-full border border-cyan-300/25 px-4 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/10"
+              to="/skills/rerank"
+            >
+              重排治理
+            </Link>
             {creatorStatus?.enabled ? (
               <Link
                 className="w-fit rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:ring-2 focus-visible:ring-hire-100"
@@ -1898,6 +2040,11 @@ export default function SkillBrowserPage() {
                         setNeedMatches([]);
                         setNeedSearchStatus("idle");
                         setNeedSearchError("");
+                        setRankingStatus("");
+                        setRankingWarnings([]);
+                        setRankingReceipt(null);
+                        setRankingResults([]);
+                        setFeedbackByCandidate({});
                       }}
                       type="button"
                     >
@@ -1924,6 +2071,69 @@ export default function SkillBrowserPage() {
                     </button>
                   ))}
                 </div>
+                <div className="mt-4 border-t border-white/10 pt-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold text-white">语义重排</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">
+                        {semanticRerankEnabled ? "仅对本页后续查询启用" : "默认关闭，刷新后仍关闭"}
+                      </p>
+                    </div>
+                    <button
+                      aria-pressed={semanticRerankEnabled}
+                      className={`min-h-10 rounded-full border px-3 text-xs font-semibold transition ${
+                        semanticRerankEnabled
+                          ? "border-cyan-300/35 bg-cyan-300/15 text-cyan-50"
+                          : "border-white/15 text-slate-300 hover:bg-white/[0.06]"
+                      }`}
+                      onClick={() => {
+                        if (semanticRerankEnabled) {
+                          setSemanticRerankEnabled(false);
+                          setSemanticConsentOpen(false);
+                          setSubmittedNeed("");
+                          setNeedMatches([]);
+                          setNeedSearchStatus("idle");
+                          setRankingStatus("");
+                          setRankingReceipt(null);
+                          setRankingResults([]);
+                          setFeedbackByCandidate({});
+                        } else {
+                          setSemanticConsentOpen(true);
+                        }
+                      }}
+                      type="button"
+                    >
+                      {semanticRerankEnabled ? "已开启" : "开启"}
+                    </button>
+                  </div>
+                  {semanticConsentOpen && !semanticRerankEnabled ? (
+                    <div className="mt-3 rounded-md bg-cyan-300/10 p-3 text-xs leading-5 text-cyan-50">
+                      <p>
+                        开启后会向当前配置的重排服务发送需求文本，以及最多 24 个公共目录候选的名称、标签和能力摘要。
+                        本地导入、Creator、插件、Skill 正文、信任详情和安装记录不会外发。
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          className="min-h-10 rounded-full bg-cyan-200 px-3 font-semibold text-ink-950 transition hover:bg-white"
+                          onClick={() => {
+                            setSemanticRerankEnabled(true);
+                            setSemanticConsentOpen(false);
+                          }}
+                          type="button"
+                        >
+                          开启语义重排
+                        </button>
+                        <button
+                          className="min-h-10 rounded-full border border-white/15 px-3 font-semibold text-slate-200 transition hover:bg-white/[0.06]"
+                          onClick={() => setSemanticConsentOpen(false)}
+                          type="button"
+                        >
+                          保持词典排序
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
 
@@ -1943,9 +2153,18 @@ export default function SkillBrowserPage() {
                           : "当前目录没有可靠匹配"}
                   </p>
                   <p className="text-xs text-slate-500">
-                    覆盖顶层目录与 SkillSet 成员，结果完全在本地排序
+                    {rankingStatus === "semantic"
+                      ? "语义重排，仍保留词典命中理由"
+                      : rankingStatus === "lexical_fallback"
+                        ? "语义服务已降级，当前使用词典排序"
+                        : "词典排序，覆盖顶层目录与 SkillSet 成员"}
                   </p>
                 </div>
+                {rankingStatus === "lexical_fallback" ? (
+                  <p className="mb-4 rounded-md bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+                    重排服务未返回可用结果，已安全回退。{rankingWarnings[0] ? ` 原因：${rankingWarnings[0]}` : ""}
+                  </p>
+                ) : null}
                 {needSearchStatus === "loading" ? (
                   <div
                     aria-label="正在加载 Skill 推荐"
@@ -2003,6 +2222,20 @@ export default function SkillBrowserPage() {
                         }
                         onLocate={locateRecommendedSkill}
                         onOpenSkillSet={openSkillSet}
+                        onFeedback={
+                          semanticRerankEnabled &&
+                          rankingStatus === "semantic" &&
+                          rankingReceipt
+                            ? (judgment) =>
+                                void submitRerankFeedback(match.project, judgment)
+                            : undefined
+                        }
+                        rankingResult={rankingResults.find(
+                          (item) => item.candidateId === needCandidateId(match.project),
+                        )}
+                        feedbackStatus={
+                          feedbackByCandidate[needCandidateId(match.project)] ?? ""
+                        }
                         trustSummary={trustSummaryForCandidate(
                           trustIndex,
                           match.project.targetType === "member"

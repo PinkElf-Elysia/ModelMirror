@@ -6,7 +6,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import httpx
 
@@ -155,7 +155,12 @@ def _parse_ranking_items(value: Any, *, count: int) -> tuple[tuple[int, ...], tu
         if not isinstance(raw, dict):
             continue
         index = raw.get("index")
+        # Dedicated rerank APIs such as Cohere, Jina, and SiliconFlow expose
+        # ``relevance_score``. The LLM fallback uses the narrower internal
+        # ``score`` contract. Accept both without trusting any other fields.
         score = raw.get("score")
+        if score is None:
+            score = raw.get("relevance_score")
         if (
             isinstance(index, bool)
             or not isinstance(index, int)
@@ -202,10 +207,38 @@ class SkillSemanticRerankService:
         search_index: SkillSearchIndexV1 | None = None,
         config: SkillSemanticRerankConfig | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        router_mode_resolver: Callable[[], RouterMode] | None = None,
+        router_identity_validator: Callable[[str, str | None], bool] | None = None,
+        shadow_receipt_sink: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.search_index = search_index or SkillSearchIndexV1()
         self.config = config or SkillSemanticRerankConfig.from_env()
         self.transport = transport
+        self.router_mode_resolver = router_mode_resolver
+        self.router_identity_validator = router_identity_validator
+        self.shadow_receipt_sink = shadow_receipt_sink
+
+    def configure_governance(
+        self,
+        *,
+        router_mode_resolver: Callable[[], RouterMode] | None,
+        router_identity_validator: Callable[[str, str | None], bool] | None = None,
+        shadow_receipt_sink: Callable[[dict[str, Any]], None] | None,
+    ) -> None:
+        self.router_mode_resolver = router_mode_resolver
+        self.router_identity_validator = router_identity_validator
+        self.shadow_receipt_sink = shadow_receipt_sink
+
+    def effective_router_mode(self) -> RouterMode:
+        if self.config.router_mode == "off":
+            return "off"
+        if self.router_mode_resolver is None:
+            return "shadow"
+        try:
+            resolved = self.router_mode_resolver()
+        except Exception:
+            return "shadow"
+        return resolved if resolved in {"off", "shadow", "on"} else "shadow"
 
     def status(self) -> dict[str, Any]:
         api_available = bool(self.config.api_url)
@@ -223,11 +256,8 @@ class SkillSemanticRerankService:
         else:
             provider_available = False
         warnings = list(self.config.warnings)
-        effective_router_mode = self.config.router_mode
-        if effective_router_mode == "on":
-            # PR 2 has no promotion receipt Store. Environment configuration
-            # alone may not grant real Router ordering authority.
-            effective_router_mode = "shadow"
+        effective_router_mode = self.effective_router_mode()
+        if self.config.router_mode != "off" and effective_router_mode == "shadow":
             warnings.append("semantic_router_promotion_required")
         try:
             index_fingerprint = self.search_index.fingerprint
@@ -276,20 +306,24 @@ class SkillSemanticRerankService:
         lexical_results: list[dict[str, Any]] | tuple[dict[str, Any], ...],
         limit: int = MAX_RESULTS,
     ) -> SkillRerankOutcome:
-        if self.config.router_mode == "off":
-            return self._lexical_outcome(
+        effective_mode = self.effective_router_mode()
+        if effective_mode == "off":
+            outcome = self._lexical_outcome(
                 query=query,
                 lexical_results=lexical_results,
                 limit=limit,
                 status="lexical",
             )
-        return await self.rerank_lexical_results(
-            query=query,
-            lexical_results=lexical_results,
-            scope="router",
-            limit=limit,
-            timeout_seconds=ROUTER_TIMEOUT_SECONDS,
-        )
+        else:
+            outcome = await self.rerank_lexical_results(
+                query=query,
+                lexical_results=lexical_results,
+                scope="router",
+                limit=limit,
+                timeout_seconds=ROUTER_TIMEOUT_SECONDS,
+            )
+        self._record_router_receipt(outcome)
+        return outcome
 
     async def rerank_lexical_results(
         self,
@@ -388,7 +422,22 @@ class SkillSemanticRerankService:
         proposed_ids = tuple(str(item["candidateId"]) for item in proposed)
         lexical_ids = tuple(str(item["candidateId"]) for item in lexical)
         semantic_ids = tuple(str(item["candidateId"]) for item in semantic_public)
-        shadow = scope == "router"
+        router_mode = self.effective_router_mode() if scope == "router" else "off"
+        identity_valid = True
+        if (
+            scope == "router"
+            and router_mode == "on"
+            and self.router_identity_validator is not None
+        ):
+            try:
+                identity_valid = self.router_identity_validator(
+                    provider_result.provider, provider_result.model
+                )
+            except Exception:
+                identity_valid = False
+            if not identity_valid:
+                warnings.append("semantic_router_identity_changed")
+        shadow = scope == "router" and (router_mode != "on" or not identity_valid)
         actual = [dict(item) for item in (lexical if shadow else proposed)]
         for rank, item in enumerate(actual, start=1):
             candidate_id = str(item["candidateId"])
@@ -648,6 +697,17 @@ class SkillSemanticRerankService:
                 for candidate_id, fingerprint in pairs
             ]
         )
+
+    def _record_router_receipt(self, outcome: SkillRerankOutcome) -> None:
+        if self.shadow_receipt_sink is None:
+            return
+        payload = outcome.receipt.serialize()
+        payload["status"] = outcome.status
+        try:
+            self.shadow_receipt_sink(payload)
+        except Exception:
+            # Ranking availability must never depend on governance persistence.
+            return
 
 
 __all__ = [

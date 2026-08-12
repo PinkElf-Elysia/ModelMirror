@@ -80,8 +80,8 @@ async def test_market_api_payload_is_bounded_public_and_semantic_reorders() -> N
             json={
                 "model": "rerank-actual-v1",
                 "results": [
-                    {"index": count - 1, "score": 1.0},
-                    {"index": 0, "score": 0.1},
+                    {"index": count - 1, "relevance_score": 1.0},
+                    {"index": 0, "relevance_score": 0.1},
                 ],
             },
         )
