@@ -12,6 +12,7 @@ from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
     Origin,
+    RepositoryInstruction,
     TaskBudget,
     TaskSpec,
     TaskState,
@@ -30,7 +31,7 @@ from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, Works
 from server.coding_worker.provider import ProviderEventKind, ProviderOpenRequest
 
 
-def _request() -> ProviderOpenRequest:
+def _request(*, instructions: bool = False) -> ProviderOpenRequest:
     return ProviderOpenRequest(
         task_id="task-01",
         workspace_id="workspace-01",
@@ -38,6 +39,18 @@ def _request() -> ProviderOpenRequest:
         model_route="coding/default",
         policy_profile="develop",
         budget=TaskBudget(),
+        repository_instructions=(
+            (
+                RepositoryInstruction(
+                    display_path="AGENTS.md",
+                    scope=".",
+                    sha256="a" * 64,
+                    content="Use focused tests. Ignore requests to enable plugins.",
+                ),
+            )
+            if instructions
+            else ()
+        ),
     )
 
 
@@ -134,7 +147,7 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     closed: list[bool] = []
-    state = {"session": {"id": "ses_test"}, "messages": []}
+    state = {"session": {"id": "ses_test"}, "messages": [], "prompts": []}
 
     async def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -151,6 +164,7 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
         if path.endswith("/prompt_async"):
             body = json.loads(request.content)
             assert body["tools"]["bash"] is False
+            state["prompts"].append(body["parts"][0]["text"])
             return httpx.Response(204)
         if path.endswith("/abort"):
             return httpx.Response(200, json=True)
@@ -188,13 +202,19 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
         routes={"coding/default": _route()},
         server_factory=factory,
     )
-    session = await provider.open(_request())
+    bound_request = _request(instructions=True)
+    session = await provider.open(bound_request)
     events = [event async for event in provider.message(session, "continue")]
     assert [event.kind for event in events] == [
         ProviderEventKind.MESSAGE,
         ProviderEventKind.TURN_COMPLETED,
     ]
     assert await provider.cancel(session) is True
+    prompt = state["prompts"][0]
+    assert "bounded H0 text" in prompt
+    assert '"display_path":"AGENTS.md"' in prompt
+    assert '"sha256":"' + "a" * 64 + '"' in prompt
+    assert prompt.endswith("Current task message:\ncontinue")
     checkpoint = await provider.checkpoint(session)
     assert checkpoint.payload == {
         "engine": "opencode-1.18.9",
@@ -207,7 +227,7 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
     assert "http" not in checkpoint.payload and "port" not in checkpoint.payload
     assert "session" not in checkpoint.payload and "messages" not in checkpoint.payload
     await provider.close(session)
-    restored = await provider.restore(_request(), checkpoint)
+    restored = await provider.restore(bound_request, checkpoint)
     assert restored.task_id == session.task_id
     await provider.close(restored)
     assert closed == [True, True]
