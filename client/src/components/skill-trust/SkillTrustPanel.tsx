@@ -108,6 +108,8 @@ export default function SkillTrustPanel({
   const requiredCapabilities = Object.entries(receipt.capabilities)
     .filter(([, required]) => required)
     .map(([capability]) => CAPABILITY_LABELS[capability] ?? capability);
+  const source = receipt.source;
+  const localSource = source.kind === "local_import";
 
   useEffect(() => setConfirmed(false), [receipt.trustFingerprint]);
 
@@ -119,10 +121,12 @@ export default function SkillTrustPanel({
     >
       <div className="flex flex-col gap-3 border-b border-white/10 pb-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-amber-100">第三方 Skill 信任凭据</p>
+          <p className="text-xs font-semibold text-amber-100">
+            {localSource ? "本地导入 Skill 信任凭据" : "第三方 Skill 信任凭据"}
+          </p>
           <h2 className="mt-1 text-xl font-semibold text-white" id="skill-trust-panel-title">{title}</h2>
           <p className="mt-2 text-sm leading-6 text-slate-300">
-            这是固定提交的本地确定性扫描结果，不代表来源获得官方认证，也不会自动授予任何工具权限。
+            这是本机确定性扫描结果，不代表来源获得官方认证，也不会自动授予任何工具权限。
           </p>
         </div>
         <SkillTrustBadge summary={receipt} />
@@ -165,8 +169,18 @@ export default function SkillTrustPanel({
       </div>
 
       <div className="mt-4 rounded-lg border border-white/10 bg-black/15 p-3 text-[11px] leading-5 text-slate-400">
-        <p className="break-all">来源：{receipt.source.repoUrl} / {receipt.source.subPath || "."}</p>
-        <p className="mt-1 break-all font-mono">固定 SHA：{receipt.source.verifiedCommit}</p>
+        {localSource ? (
+          <>
+            <p className="break-all">来源：本地{source.transportKind === "zip" ? " ZIP" : "文件夹"}导入</p>
+            <p className="mt-1 break-all font-mono">导入 ID：{source.importId}</p>
+            <p className="mt-1 break-all font-mono">传输摘要：{source.transportDigest}</p>
+          </>
+        ) : (
+          <>
+            <p className="break-all">来源：{source.repoUrl} / {source.subPath || "."}</p>
+            <p className="mt-1 break-all font-mono">固定 SHA：{source.verifiedCommit}</p>
+          </>
+        )}
         <p className="mt-1 break-all font-mono">凭据：{receipt.trustFingerprint}</p>
       </div>
 

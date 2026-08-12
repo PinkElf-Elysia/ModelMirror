@@ -30,12 +30,22 @@ export interface SkillTrustFinding {
 }
 
 export interface SkillTrustReceipt extends SkillTrustReceiptSummary {
-  source: {
-    repoUrl: string;
-    subPath: string;
-    verifiedCommit: string;
-  };
-  directoryTreeSha: string;
+  source:
+    | {
+        kind?: "catalog_git";
+        repoUrl: string;
+        subPath: string;
+        verifiedCommit: string;
+      }
+    | {
+        kind: "local_import";
+        importId: string;
+        importRevision: number;
+        transportKind: "zip" | "folder";
+        transportDigest: string;
+      };
+  directoryTreeSha?: string;
+  contentTreeDigest?: string;
   packageDigest: string;
   scannerVersion: string;
   scripts: Array<{ path: string; language?: string; executable?: boolean }>;

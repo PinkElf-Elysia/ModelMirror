@@ -473,7 +473,7 @@ class SkillLocalImportStore:
             or default_dir
         ).resolve()
         self.enabled = (
-            str(os.getenv("SKILL_LOCAL_IMPORT_ENABLED", "false")).strip().casefold()
+            str(os.getenv("SKILL_LOCAL_IMPORT_ENABLED", "true")).strip().casefold()
             in {"1", "true", "yes", "on"}
             if enabled is None
             else bool(enabled)
@@ -756,6 +756,24 @@ class SkillLocalImportStore:
                     "Local Skill import was not found.", code="skill_import_not_found"
                 )
             return copy.deepcopy(item)
+
+    def receipt_by_id(self, receipt_id: str) -> dict[str, Any]:
+        """Return a detached local receipt without exposing package bytes."""
+
+        clean_receipt_id = str(receipt_id or "").strip()
+        with self._lock:
+            self._ensure_available()
+            for item in self._records.values():
+                receipt = item.trust_receipt
+                if (
+                    isinstance(receipt, Mapping)
+                    and str(receipt.get("receiptId") or "") == clean_receipt_id
+                ):
+                    return copy.deepcopy(dict(receipt))
+        raise SkillLocalImportNotFoundError(
+            "Local Skill trust receipt was not found.",
+            code="skill_import_not_found",
+        )
 
     def create_from_zip(
         self,

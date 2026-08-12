@@ -116,6 +116,13 @@ def test_zip_upload_detail_preview_rescan_and_delete(app_client) -> None:
     assert detail.status_code == 200
     assert detail.json()["trustReceipt"]["source"]["kind"] == "local_import"
 
+    trust_detail = client.get(
+        f"/api/skills/trust/{created['receiptId']}"
+    )
+    assert trust_detail.status_code == 200, trust_detail.text
+    assert trust_detail.json()["receipt"]["receiptId"] == created["receiptId"]
+    assert trust_detail.json()["receipt"]["source"]["importId"] == import_id
+
     preview = client.get(
         f"/api/skills/imports/{import_id}/file",
         params={"path": "references/guide.md"},

@@ -15,6 +15,10 @@ from .skill_manager import (
     SkillValidationError,
 )
 from .trust_service import SkillRuntimeEnvironment, SkillTrustError
+from .local_import import (
+    SkillLocalImportNotFoundError,
+    SkillLocalImportStorageError,
+)
 from .draft_store import (
     SkillDraftConflictError,
     SkillDraftError,
@@ -421,11 +425,28 @@ async def get_skill_trust_index():
 
 @router.get("/trust/{receipt_id}")
 async def get_skill_trust_receipt(receipt_id: str):
+    manager = get_skill_manager()
     try:
-        service = get_skill_manager().trust_service
+        service = manager.trust_service
         receipt = await asyncio.to_thread(service.receipt_by_id, receipt_id)
         return {"gateMode": service.mode, "receipt": receipt}
     except SkillTrustError as exc:
+        if manager.local_import_store is not None:
+            try:
+                receipt = await asyncio.to_thread(
+                    manager.local_import_store.receipt_by_id, receipt_id
+                )
+                return {"gateMode": service.mode, "receipt": receipt}
+            except SkillLocalImportNotFoundError:
+                pass
+            except SkillLocalImportStorageError as local_exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "code": "skill_import_storage_unavailable",
+                        "message": str(local_exc),
+                    },
+                ) from local_exc
         _raise_trust_error(exc)
 
 

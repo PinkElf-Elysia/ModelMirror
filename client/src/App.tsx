@@ -40,6 +40,12 @@ import AgentConfigPage from "./pages/AgentConfigPage";
 const CodingPage = lazy(() => import("./pages/CodingPage"));
 const SkillCreatorIndexPage = lazy(() => import("./pages/SkillCreatorIndexPage"));
 const SkillCreatorStudioPage = lazy(() => import("./pages/SkillCreatorStudioPage"));
+const SkillLocalImportIndexPage = lazy(
+  () => import("./pages/SkillLocalImportIndexPage"),
+);
+const SkillLocalImportDetailPage = lazy(
+  () => import("./pages/SkillLocalImportDetailPage"),
+);
 
 function CodingPageFallback() {
   return (
@@ -111,6 +117,22 @@ export default function App() {
           </Suspense>
         }
         path="/skills/create/:sessionId"
+      />
+      <Route
+        element={
+          <Suspense fallback={<CodingPageFallback />}>
+            <SkillLocalImportIndexPage />
+          </Suspense>
+        }
+        path="/skills/import"
+      />
+      <Route
+        element={
+          <Suspense fallback={<CodingPageFallback />}>
+            <SkillLocalImportDetailPage />
+          </Suspense>
+        }
+        path="/skills/import/:importId"
       />
       <Route element={<RuntimeOpsPage />} path="/runtime" />
       <Route element={<PromptProfilesPage />} path="/prompts" />

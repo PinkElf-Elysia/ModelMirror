@@ -510,3 +510,25 @@ def test_disabled_store_keeps_status_readable_but_blocks_mutation(tmp_path: Path
     with pytest.raises(SkillLocalImportError) as error:
         store.create_from_zip(_zip({"SKILL.md": _skill_markdown()}))
     assert error.value.code == "skill_import_disabled"
+
+
+def test_local_import_is_enabled_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SKILL_LOCAL_IMPORT_ENABLED", raising=False)
+
+    store = SkillLocalImportStore(tmp_path / "imports")
+
+    assert store.status()["enabled"] is True
+
+
+def test_receipt_lookup_returns_detached_local_receipt(tmp_path: Path) -> None:
+    store = SkillLocalImportStore(tmp_path / "imports", enabled=True)
+    record = store.create_from_folder([("SKILL.md", _skill_markdown())])
+
+    receipt = store.receipt_by_id(record.receipt_id or "")
+    receipt["riskLevel"] = "critical"
+
+    assert store.require(record.import_id).trust_receipt["riskLevel"] == "low"
+    with pytest.raises(local_import.SkillLocalImportNotFoundError):
+        store.receipt_by_id("trust_local_missing")

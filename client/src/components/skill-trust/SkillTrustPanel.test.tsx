@@ -72,4 +72,32 @@ describe("SkillTrustPanel", () => {
     render(<SkillTrustBadge summary={null} />);
     expect(screen.getByText("信任状态未知")).toBeInTheDocument();
   });
+
+  it("renders a local receipt without inventing a Git source", () => {
+    const localReceipt: SkillTrustReceipt = {
+      ...receipt,
+      source: {
+        kind: "local_import",
+        importId: "skillimport_local",
+        importRevision: 2,
+        transportKind: "zip",
+        transportDigest: "e".repeat(64),
+      },
+      contentTreeDigest: "f".repeat(64),
+      directoryTreeSha: undefined,
+    };
+
+    render(
+      <SkillTrustPanel
+        action="inspect"
+        onCancel={vi.fn()}
+        receipt={localReceipt}
+        title="本地报告"
+      />,
+    );
+
+    expect(screen.getByText("本地导入 Skill 信任凭据")).toBeInTheDocument();
+    expect(screen.getByText(/skillimport_local/)).toBeInTheDocument();
+    expect(screen.queryByText(/固定 SHA/)).not.toBeInTheDocument();
+  });
 });
