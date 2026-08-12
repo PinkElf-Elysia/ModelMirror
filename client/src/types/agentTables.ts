@@ -76,4 +76,3 @@ export async function requestAgentTableJson<T>(
   }
   return payload as T;
 }
-

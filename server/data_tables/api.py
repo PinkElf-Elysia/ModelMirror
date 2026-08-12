@@ -84,7 +84,6 @@ def list_tables(
     except Exception as exc:
         raise _error(exc) from exc
 
-
 @router.post("")
 def create_table(request: TableCreateRequest) -> dict[str, Any]:
     try:
@@ -220,4 +219,3 @@ def delete_record(
         )
     except Exception as exc:
         raise _error(exc) from exc
-

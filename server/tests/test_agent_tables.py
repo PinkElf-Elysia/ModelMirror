@@ -228,4 +228,3 @@ def test_agent_table_api_exposes_management_contract_without_paths(tmp_path):
     finally:
         if previous is not None:
             configure_agent_table_store(previous)
-

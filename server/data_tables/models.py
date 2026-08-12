@@ -80,4 +80,3 @@ class AgentTableDetail(BaseModel):
     table: AgentTableDefinition
     schema_versions: list[AgentTableSchemaVersion] = Field(default_factory=list)
     record_count: int = Field(default=0, ge=0)
-
