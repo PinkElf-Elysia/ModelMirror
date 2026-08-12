@@ -66,6 +66,33 @@ interface TeamAgentOutput {
   task: string;
 }
 
+interface KnowledgeBaseSummary {
+  id: string;
+  name: string;
+  document_count: number;
+}
+
+interface AgencyKnowledgeSource {
+  chunk_id: string;
+  document_id: string;
+  document_name: string;
+  score: number;
+  page_number?: number | null;
+  slide?: number | null;
+  sheet?: string | null;
+  row_range?: string | null;
+}
+
+interface AgencyKnowledgeContext {
+  knowledge_base: { id: string; name: string };
+  version_id?: string | null;
+  sources: AgencyKnowledgeSource[];
+}
+
+type AgencyPlanPreviewWithKnowledge = AgencyPlanPreview & {
+  knowledge_context?: AgencyKnowledgeContext | null;
+};
+
 const savedTeamStorageKey = "modelmirror-expert-teams";
 const defaultFusionIds = [
   "openai/gpt-5.6-sol",
@@ -365,10 +392,14 @@ export default function ExpertTeamPage() {
   const [agencyLineupMode, setAgencyLineupMode] =
     useState<"auto" | "pinned">("auto");
   const [agencyMaxAgents, setAgencyMaxAgents] = useState(5);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseSummary[]>([]);
+  const [knowledgeBasesError, setKnowledgeBasesError] = useState("");
+  const [agencyKnowledgeBaseId, setAgencyKnowledgeBaseId] = useState("");
+  const [agencyKnowledgeConsent, setAgencyKnowledgeConsent] = useState(false);
   const [agencyStatus, setAgencyStatus] = useState<RunStatus>("idle");
   const [agencyError, setAgencyError] = useState("");
   const [agencyPreview, setAgencyPreview] =
-    useState<AgencyPlanPreview | null>(null);
+    useState<AgencyPlanPreviewWithKnowledge | null>(null);
   const [agencyValidationStale, setAgencyValidationStale] = useState(false);
   const [agencyAppliedNotice, setAgencyAppliedNotice] = useState(false);
   const [loadedAgencyPlan, setLoadedAgencyPlan] =
@@ -396,6 +427,28 @@ export default function ExpertTeamPage() {
 
   useEffect(() => {
     document.title = "模镜 - 专家团会诊室";
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/rag/knowledge_bases")
+      .then((response) =>
+        responseJson<{ knowledge_bases: KnowledgeBaseSummary[] }>(response),
+      )
+      .then((payload) => {
+        if (!active) return;
+        setKnowledgeBases(payload.knowledge_bases);
+        setKnowledgeBasesError("");
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setKnowledgeBasesError(
+          error instanceof Error ? error.message : "无法读取资料库列表。",
+        );
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -517,6 +570,15 @@ export default function ExpertTeamPage() {
     if (loadedAgencyPlan && value !== loadedAgencyGoal) {
       setLoadedAgencyPlanInvalid(true);
     }
+  }
+
+  function updateAgencyKnowledgeBase(value: string) {
+    setAgencyKnowledgeBaseId(value);
+    setAgencyKnowledgeConsent(false);
+    setAgencyPreview(null);
+    setAgencyValidationStale(false);
+    setAgencyStatus("idle");
+    invalidateLoadedAgencyPlan();
   }
 
   function updateTeamTask(value: string) {
@@ -709,9 +771,12 @@ export default function ExpertTeamPage() {
             agencyLineupMode === "pinned" ? selectedAgentIds : [],
           max_agents: agencyMaxAgents,
           temperature: 0.2,
+          knowledge_base_id: agencyKnowledgeBaseId || null,
+          allow_knowledge_context:
+            Boolean(agencyKnowledgeBaseId) && agencyKnowledgeConsent,
         }),
       });
-      const preview = await responseJson<AgencyPlanPreview>(response);
+      const preview = await responseJson<AgencyPlanPreviewWithKnowledge>(response);
       setAgencyPreview(preview);
       setAgencyStatus("done");
     } catch (error) {
@@ -1305,6 +1370,52 @@ export default function ExpertTeamPage() {
                   placeholder="描述需要拆解并组队的目标"
                   value={routeMessage}
                 />
+                <label className="mt-4 block">
+                  <span className="text-xs font-semibold text-slate-400">
+                    参考资料库（可选）
+                  </span>
+                  <select
+                    className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 text-sm text-white outline-none focus:border-hire-300/70 focus:ring-4 focus:ring-hire-300/10"
+                    onChange={(event) =>
+                      updateAgencyKnowledgeBase(event.target.value)
+                    }
+                    value={agencyKnowledgeBaseId}
+                  >
+                    <option value="">不使用资料库</option>
+                    {knowledgeBases.map((knowledgeBase) => (
+                      <option key={knowledgeBase.id} value={knowledgeBase.id}>
+                        {knowledgeBase.name} · {knowledgeBase.document_count} 个文档
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-2 block text-xs leading-5 text-slate-500">
+                    复用现有 RAG 检索，不创建第二份上传或解析链路。
+                    {" "}
+                    <a className="text-hire-200 hover:text-hire-100" href="/rag">
+                      管理资料库
+                    </a>
+                  </span>
+                </label>
+                {agencyKnowledgeBaseId ? (
+                  <label className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300/20 bg-amber-300/[0.07] p-3 text-xs leading-5 text-amber-50">
+                    <input
+                      checked={agencyKnowledgeConsent}
+                      className="mt-0.5"
+                      onChange={(event) =>
+                        setAgencyKnowledgeConsent(event.target.checked)
+                      }
+                      type="checkbox"
+                    />
+                    <span>
+                      我确认：点击生成后，服务端会检索最多 4 个片段，并可能按现有 RAG 检索配置处理查询与候选片段；最多 12,000 字符的命中原文会发送给当前规划模型及其配置网关。未勾选不会把资料库内容用于本次规划。
+                    </span>
+                  </label>
+                ) : null}
+                {knowledgeBasesError ? (
+                  <p className="mt-2 text-xs leading-5 text-amber-100">
+                    资料库列表读取失败：{knowledgeBasesError}
+                  </p>
+                ) : null}
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <ModelSelector
                     label="规划模型"
@@ -1383,6 +1494,8 @@ export default function ExpertTeamPage() {
                     agencyStatus === "running" ||
                     !agencyCapabilities?.enabled ||
                     !routeMessage.trim() ||
+                    (Boolean(agencyKnowledgeBaseId) &&
+                      !agencyKnowledgeConsent) ||
                     (agencyLineupMode === "pinned" &&
                       selectedAgentIds.length === 0)
                   }
@@ -1431,6 +1544,23 @@ export default function ExpertTeamPage() {
                           .map((agent) => agent.name)
                           .join("、") || "无匹配"}
                       </p>
+                      {agencyPreview.knowledge_context ? (
+                        <div className="mt-4 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.06] p-3">
+                          <p className="text-xs font-semibold text-cyan-100">
+                            已引用 {agencyPreview.knowledge_context.knowledge_base.name} · {agencyPreview.knowledge_context.sources.length} 个片段
+                          </p>
+                          <ul className="mt-2 space-y-1 text-xs leading-5 text-slate-300">
+                            {agencyPreview.knowledge_context.sources.map((source) => (
+                              <li key={`${source.document_id}:${source.chunk_id}`}>
+                                · {source.document_name}
+                                {source.page_number ? ` · 第 ${source.page_number} 页` : ""}
+                                {source.slide ? ` · 第 ${source.slide} 页幻灯片` : ""}
+                                {source.sheet ? ` · ${source.sheet}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="space-y-3">
