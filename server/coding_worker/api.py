@@ -21,7 +21,6 @@ from .contracts import (
     StrictModel,
     TaskCreateRequest,
     TaskRecord,
-    TaskState,
     TERMINAL_STATES,
     WorkerCapabilities,
     WorkerApproval,
@@ -188,6 +187,7 @@ async def coding_worker_status() -> dict[str, Any]:
             if _service is not None and _service.tool_broker is not None
             else []
         ),
+        "model_routes": _configured_model_routes(),
         "reason": _startup_error,
         "capabilities": capabilities.model_dump(mode="json"),
     }
@@ -292,13 +292,7 @@ async def decide_task_approval(
             task_scope=payload.decision == "approve_task",
             ttl_seconds=payload.ttl_seconds,
         )
-        task = service.store.get_task(task_id)
-        if task.state is TaskState.WAITING_APPROVAL:
-            service.store.transition(
-                task_id,
-                TaskState.RUNNING,
-                expected_state=TaskState.WAITING_APPROVAL,
-            )
+        service.settle_approval_state(task_id)
         return decided
     except Exception as exc:
         _raise_worker_error(exc)
@@ -770,12 +764,16 @@ def _task_workspace(task_id: str) -> tuple[CodingWorkerService, TaskRecord]:
     return service, task
 
 
-def _validate_model_route(model_route: str) -> None:
-    configured = {
+def _configured_model_routes() -> list[str]:
+    return sorted({
         value.strip()
         for value in os.getenv("CODING_WORKER_MODEL_ROUTES", "coding/default").split(",")
         if value.strip()
-    }
+    })
+
+
+def _validate_model_route(model_route: str) -> None:
+    configured = set(_configured_model_routes())
     if model_route not in configured:
         raise HTTPException(
             status_code=400,

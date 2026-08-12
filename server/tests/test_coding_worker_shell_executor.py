@@ -168,6 +168,24 @@ async def test_shell_rpc_replays_stream_frames_before_terminal_result(
 
 
 @pytest.mark.asyncio
+async def test_executor_health_probe_is_stateless_while_slot_is_bound(
+    tmp_path: Path,
+) -> None:
+    executor, _, _ = _executor(tmp_path)
+    server = ExecutorRPCServer(executor, token="x" * 48)
+
+    await server._dispatch(
+        "bind_task", {"task_id": "task_one", "workspace_id": "workspace_one"}
+    )
+    assert await server._dispatch("health", {}) == {"healthy": True}
+    assert server._task_id == "task_one"
+    assert server._workspace_id == "workspace_one"
+    await server._dispatch(
+        "close_task", {"task_id": "task_one", "workspace_id": "workspace_one"}
+    )
+
+
+@pytest.mark.asyncio
 async def test_stopping_one_task_interrupts_only_its_shell_process_group(
     tmp_path: Path,
 ) -> None:

@@ -13,9 +13,14 @@ from server.coding_worker.contracts import (
     TaskState,
     WorkspaceSource,
 )
+from server.coding_worker.executor import ExecutorSidecarClientPool
 from server.coding_worker.provider import FakeCodingAgentProvider
 from server.coding_worker.provider_rpc import ProviderRPCServer
-from server.coding_worker.runtime import CodingWorkerRuntime
+from server.coding_worker.runtime import (
+    CodingWorkerRuntime,
+    CodingWorkerRuntimeError,
+    _route_slots_from_environment,
+)
 from server.coding_worker.tool_broker import FrozenCheck
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter
 
@@ -54,6 +59,7 @@ async def test_runtime_connects_two_dedicated_provider_slots(tmp_path: Path) -> 
         sidecar_uid=-1,
         sidecar_gid=-1,
     )
+    assert runtime.tool_broker.executor is runtime.provider
     await runtime.start()
     source = WorkspaceSource(kind="manifest", source_id="source", revision="h0")
     tasks = [
@@ -92,3 +98,44 @@ async def test_runtime_connects_two_dedicated_provider_slots(tmp_path: Path) -> 
     await runtime.close()
     for server in servers.values():
         await server.close()
+
+
+def test_runtime_routes_v15_tools_to_dedicated_executor_pool(
+    tmp_path: Path,
+) -> None:
+    runtime = CodingWorkerRuntime(
+        storage_root=tmp_path / "control",
+        slot_roots={"slot-a": tmp_path / "slot-a"},
+        source_adapters={},
+        frozen_checks={},
+        provider_endpoints={"slot-a": "tcp:127.0.0.1:18001"},
+        provider_tokens={"slot-a": "p" * 48},
+        executor_endpoints={"slot-a": "tcp:127.0.0.1:18002"},
+        executor_tokens={"slot-a": "x" * 48},
+        broker_socket_path=None,
+        sidecar_uid=-1,
+        sidecar_gid=-1,
+    )
+
+    assert isinstance(runtime.tool_broker.executor, ExecutorSidecarClientPool)
+
+
+def test_route_slot_catalog_is_strict_and_provider_neutral(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "CODING_WORKER_ROUTE_SLOTS_JSON",
+        '{"coding/default":["slot-a"],"coding/quality":["slot-b"]}',
+    )
+    assert _route_slots_from_environment(("slot-a", "slot-b")) == {
+        "coding/default": ("slot-a",),
+        "coding/quality": ("slot-b",),
+    }
+
+    monkeypatch.setenv(
+        "CODING_WORKER_ROUTE_SLOTS_JSON",
+        '{"coding/quality":["missing-slot"]}',
+    )
+    with pytest.raises(CodingWorkerRuntimeError) as caught:
+        _route_slots_from_environment(("slot-a", "slot-b"))
+    assert caught.value.code == "coding_worker_config_invalid"

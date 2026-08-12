@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from .broker_rpc import BrokerRPCServer
@@ -49,6 +50,7 @@ class CodingWorkerRuntime:
         network_grant_key: bytes | str | None = None,
         sidecar_uid: int = 65532,
         sidecar_gid: int = 65532,
+        route_slots: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         if (
             set(slot_roots) != set(provider_endpoints)
@@ -97,6 +99,7 @@ class CodingWorkerRuntime:
                 endpoints=executor_endpoints,
                 tokens=executor_tokens,
                 workspace_slot_resolver=self.workspace_broker.workspace_slot,
+                auto_rebind=True,
             )
         self.provider = ProviderSidecarClientPool(
             endpoints=provider_endpoints,
@@ -105,7 +108,7 @@ class CodingWorkerRuntime:
             broker_rpc=self.broker_rpc,
             executor_pool=executor_pool,
         )
-        self.tool_broker.executor = self.provider
+        self.tool_broker.executor = executor_pool or self.provider
         self.harness = HarnessRunner(
             store=self.store,
             workspace_broker=self.workspace_broker,
@@ -118,6 +121,7 @@ class CodingWorkerRuntime:
             harness_runner=self.harness,
             max_active_tasks=max_active_tasks,
             tool_broker=self.tool_broker,
+            route_slots=route_slots,
         )
         self.broker_socket_path = broker_socket_path
         self.sidecar_gid = sidecar_gid
@@ -237,6 +241,7 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         "slot-a": os.getenv("CODING_WORKER_SLOT_A_TOKEN", ""),
         "slot-b": os.getenv("CODING_WORKER_SLOT_B_TOKEN", ""),
     }
+    route_slots = _route_slots_from_environment(tuple(slot_roots))
     executor_endpoints = {
         "slot-a": os.getenv(
             "CODING_WORKER_EXECUTOR_A_ENDPOINT",
@@ -339,4 +344,45 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         network_domains=domains,
         egress_proxy_url=os.getenv("CODING_WORKER_EGRESS_PROXY_URL") or None,
         network_grant_key=os.getenv("CODING_WORKER_EGRESS_GRANT_KEY") or None,
+        route_slots=route_slots,
     )
+
+
+def _route_slots_from_environment(
+    slot_ids: tuple[str, ...]
+) -> dict[str, tuple[str, ...]] | None:
+    encoded = os.getenv("CODING_WORKER_ROUTE_SLOTS_JSON", "").strip()
+    if not encoded:
+        return None
+    try:
+        value = json.loads(encoded)
+    except json.JSONDecodeError as exc:
+        raise CodingWorkerRuntimeError(
+            "Worker route catalog is invalid.", code="coding_worker_config_invalid"
+        ) from exc
+    if not isinstance(value, dict):
+        raise CodingWorkerRuntimeError(
+            "Worker route catalog is invalid.", code="coding_worker_config_invalid"
+        )
+    allowed_slots = set(slot_ids)
+    result: dict[str, tuple[str, ...]] = {}
+    for route_id, raw_slots in value.items():
+        if (
+            not isinstance(route_id, str)
+            or not route_id
+            or not isinstance(raw_slots, list)
+            or not raw_slots
+            or any(not isinstance(slot, str) for slot in raw_slots)
+        ):
+            raise CodingWorkerRuntimeError(
+                "Worker route catalog is invalid.",
+                code="coding_worker_config_invalid",
+            )
+        slots = tuple(dict.fromkeys(raw_slots))
+        if not set(slots).issubset(allowed_slots):
+            raise CodingWorkerRuntimeError(
+                "Worker route catalog is invalid.",
+                code="coding_worker_config_invalid",
+            )
+        result[route_id] = slots
+    return result

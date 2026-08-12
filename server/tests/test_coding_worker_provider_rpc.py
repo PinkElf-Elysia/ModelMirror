@@ -176,6 +176,53 @@ async def test_credential_free_executor_requires_exact_task_workspace_binding(
 
 
 @pytest.mark.asyncio
+async def test_runtime_executor_pool_rebinds_exact_task_after_executor_restart(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "slots" / "workspaces" / "workspace_one" / "repo"
+    repository.mkdir(parents=True)
+    (repository / "main.py").write_text("print('isolated')\n")
+    server = ExecutorRPCServer(
+        SidecarExecutor(
+            lambda workspace_id: (
+                repository if workspace_id == "workspace_one" else tmp_path / "missing"
+            ),
+            runtime_root=tmp_path / "runtime",
+        ),
+        token="e" * 48,
+    )
+    endpoint = await server.start_tcp_for_tests()
+    pool = ExecutorSidecarClientPool(
+        endpoints={"slot-a": endpoint},
+        tokens={"slot-a": "e" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        auto_rebind=True,
+    )
+
+    result = await pool.run_process(
+        task_id="task_one",
+        workspace_id="workspace_one",
+        argv=("python", "main.py"),
+        timeout_seconds=10,
+        isolated=False,
+    )
+    assert result["exit_code"] == 0
+    assert str(result["output"]).splitlines() == ["isolated"]
+
+    with pytest.raises(ExecutorRPCError) as foreign:
+        await pool.run_process(
+            task_id="task_two",
+            workspace_id="workspace_one",
+            argv=("python", "main.py"),
+            timeout_seconds=10,
+            isolated=False,
+        )
+    assert foreign.value.code == "executor_slot_busy"
+    await pool.close_task("task_one", "workspace_one")
+    await server.close()
+
+
+@pytest.mark.asyncio
 async def test_provider_pool_binds_and_closes_separate_executor(tmp_path: Path) -> None:
     store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
     workspace = WorkspaceBroker(tmp_path / "workspace", {}, id_key=b"z" * 32)

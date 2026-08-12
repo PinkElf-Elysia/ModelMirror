@@ -1,9 +1,12 @@
 import type {
   CodingWorkerApproval,
   CodingWorkerArtifact,
+  CodingWorkerChangeset,
+  CodingWorkerDiagnosticsSnapshot,
   CodingWorkerEntry,
   CodingWorkerEvent,
   CodingWorkerEvidence,
+  CodingWorkerOperationOutputChunk,
   CodingWorkerStatus,
   CodingWorkerTask,
   CodingWorkerTaskSpec,
@@ -59,7 +62,7 @@ const taskEventTypes = [
   "approval_requested", "approval_decided", "tool_operation",
   "artifact_created", "evidence_recorded", "evidence_invalidated",
   "checkpoint_created", "acceptance_evaluated", "acceptance_retry",
-  "task_pinned", "task_unpinned",
+  "task_pinned", "task_unpinned", "operation_output",
 ] as const;
 
 export const getCodingWorkerStatus = () => request<CodingWorkerStatus>(API_ROOT);
@@ -129,6 +132,26 @@ export async function listCodingWorkerArtifacts(taskId: string) {
     `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/artifacts`,
   )).artifacts;
 }
+
+export async function listCodingWorkerOperationOutput(
+  taskId: string,
+  operationId: string,
+  after = 0,
+) {
+  return (await request<{ chunks: CodingWorkerOperationOutputChunk[] }>(
+    `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/operations/${encodeURIComponent(operationId)}/output?after=${Math.max(0, after)}`,
+  )).chunks;
+}
+
+export const getCodingWorkerChangeset = (taskId: string, operationId: string) =>
+  request<CodingWorkerChangeset>(
+    `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/changesets/${encodeURIComponent(operationId)}`,
+  );
+
+export const getCodingWorkerDiagnostics = (taskId: string, operationId: string) =>
+  request<CodingWorkerDiagnosticsSnapshot>(
+    `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/diagnostics/${encodeURIComponent(operationId)}`,
+  );
 
 export async function listCodingWorkerTree(taskId: string) {
   return request<{ workspace_id: string; tree_hash: string; entries: CodingWorkerEntry[] }>(

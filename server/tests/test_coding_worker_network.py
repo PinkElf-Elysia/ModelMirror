@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from server.coding_worker.contracts import CapabilityLease
+from server.coding_worker.egress_proxy import ProviderEgressPolicy
 from server.coding_worker.network_policy import EgressPolicy, NetworkPolicyError
 
 
@@ -149,3 +150,48 @@ def test_signed_proxy_grant_is_exact_task_domain_purpose_and_ttl() -> None:
     tampered = token[:-1] + ("a" if token[-1] != "a" else "b")
     with pytest.raises(NetworkPolicyError):
         policy.validate_grant(tampered, domain="registry.npmjs.org")
+
+
+def test_provider_proxy_is_exact_token_and_anthropic_api_domain() -> None:
+    policy = ProviderEgressPolicy(
+        token="p" * 48, allowed_domains=("api.anthropic.com",)
+    )
+    policy.validate("p" * 48, domain="API.ANTHROPIC.COM.")
+
+    with pytest.raises(NetworkPolicyError) as wrong_token:
+        policy.validate("q" * 48, domain="api.anthropic.com")
+    assert wrong_token.value.code == "network_grant_invalid"
+    with pytest.raises(NetworkPolicyError) as wrong_domain:
+        policy.validate("p" * 48, domain="console.anthropic.com")
+    assert wrong_domain.value.code == "network_domain_not_allowed"
+
+
+def test_provider_proxy_dns_exception_is_explicit_and_narrow() -> None:
+    strict = ProviderEgressPolicy(
+        token="p" * 48, allowed_domains=("api.anthropic.com",)
+    )
+    with pytest.raises(NetworkPolicyError) as synthetic:
+        strict.validate_resolved_address("198.18.0.250")
+    assert synthetic.value.code == "network_private_address_denied"
+
+    docker_desktop = ProviderEgressPolicy(
+        token="p" * 48,
+        allowed_domains=("api.anthropic.com",),
+        allow_docker_desktop_dns_proxy=True,
+    )
+    docker_desktop.validate_resolved_address("198.18.0.250")
+    docker_desktop.validate_resolved_address("93.184.216.34")
+    for address in ("10.0.0.8", "127.0.0.1", "169.254.169.254", "::1"):
+        with pytest.raises(NetworkPolicyError) as denied:
+            docker_desktop.validate_resolved_address(address)
+        assert denied.value.code == "network_private_address_denied"
+
+
+@pytest.mark.parametrize(
+    "token",
+    ["short", "p" * 31 + ":" + "p" * 16, "p" * 31 + " " + "p" * 16],
+)
+def test_provider_proxy_token_is_url_safe_and_bounded(token: str) -> None:
+    with pytest.raises(NetworkPolicyError) as invalid:
+        ProviderEgressPolicy(token=token, allowed_domains=("api.anthropic.com",))
+    assert invalid.value.code == "network_grant_key_invalid"

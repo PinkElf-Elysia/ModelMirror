@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from .contracts import (
     EvidenceStatus,
@@ -21,6 +21,7 @@ from .provider import (
     ProviderEventKind,
     ProviderOpenRequest,
     ProviderSession,
+    provider_tools_for_policy,
 )
 from .store import CodingWorkerStore, WorkerConflictError
 from .tool_broker import ToolBroker, ToolBrokerError
@@ -39,6 +40,7 @@ class CodingWorkerService:
         harness_runner: HarnessRunner | None = None,
         max_active_tasks: int = 2,
         tool_broker: ToolBroker | None = None,
+        route_slots: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         if not 1 <= max_active_tasks <= 16:
             raise ValueError("active task capacity is outside the allowed range")
@@ -48,6 +50,23 @@ class CodingWorkerService:
         self.harness_runner = harness_runner
         self.max_active_tasks = max_active_tasks
         self.tool_broker = tool_broker
+        self._route_slots = (
+            {
+                route_id: tuple(dict.fromkeys(slot_ids))
+                for route_id, slot_ids in route_slots.items()
+            }
+            if route_slots is not None
+            else None
+        )
+        if self._route_slots is not None:
+            known_slots = set(self.workspace_broker.slot_ids)
+            if any(
+                not route_id
+                or not slot_ids
+                or not set(slot_ids).issubset(known_slots)
+                for route_id, slot_ids in self._route_slots.items()
+            ):
+                raise ValueError("provider route slot configuration is invalid")
         self._active: dict[str, asyncio.Task[None]] = {}
         self._task_slots: dict[str, str] = {}
         self._sessions: dict[str, ProviderSession] = {}
@@ -96,6 +115,10 @@ class CodingWorkerService:
         self._started = False
 
     async def create_task(self, origin: Origin, request: TaskCreateRequest) -> TaskRecord:
+        if self._route_slots is not None and request.model_route not in self._route_slots:
+            raise WorkerConflictError(
+                "Model route is unavailable.", code="model_route_unavailable"
+            )
         frozen_checks = getattr(self.tool_broker, "frozen_checks", None)
         if isinstance(frozen_checks, Mapping):
             unknown = [
@@ -173,6 +196,25 @@ class CodingWorkerService:
         self.store.append_event(task_id, "steering_queued", {})
         return self.store.get_task(task_id)
 
+    def settle_approval_state(self, task_id: str) -> TaskRecord:
+        """Leave a decided approval runnable only while its original runner exists."""
+        task = self.store.get_task(task_id)
+        if task.state is not TaskState.WAITING_APPROVAL:
+            return task
+        runner = self._active.get(task_id)
+        if runner is not None and not runner.done():
+            return self.store.transition(
+                task_id,
+                TaskState.RUNNING,
+                expected_state=TaskState.WAITING_APPROVAL,
+            )
+        return self.store.transition(
+            task_id,
+            TaskState.INTERRUPTED,
+            reason="approval_resume_required",
+            expected_state=TaskState.WAITING_APPROVAL,
+        )
+
     async def wait_for(
         self,
         task_id: str,
@@ -240,6 +282,16 @@ class CodingWorkerService:
         if not available:
             return None
         for record in queued:
+            route_slots = self._allowed_slots(record.spec.model_route)
+            if route_slots is None:
+                with contextlib.suppress(WorkerConflictError):
+                    self.store.transition(
+                        record.task_id,
+                        TaskState.BLOCKED,
+                        reason="model_route_unavailable",
+                        expected_state=TaskState.QUEUED,
+                    )
+                continue
             required_slot: str | None = None
             if record.workspace_id is not None:
                 try:
@@ -248,12 +300,35 @@ class CodingWorkerService:
                     )
                 except WorkspaceError:
                     # Let the runner persist the precise workspace failure.
-                    required_slot = available[0]
+                    required_slot = next(
+                        (slot for slot in route_slots if slot in available), None
+                    )
+                if required_slot is None:
+                    continue
+                if required_slot not in route_slots:
+                    with contextlib.suppress(WorkerConflictError):
+                        self.store.transition(
+                            record.task_id,
+                            TaskState.BLOCKED,
+                            reason="provider_binding_changed",
+                            expected_state=TaskState.QUEUED,
+                        )
+                    continue
             if required_slot is None:
-                return record, available[0]
+                selected = next(
+                    (slot for slot in route_slots if slot in available), None
+                )
+                if selected is not None:
+                    return record, selected
+                continue
             if required_slot in available:
                 return record, required_slot
         return None
+
+    def _allowed_slots(self, model_route: str) -> tuple[str, ...] | None:
+        if self._route_slots is None:
+            return self.workspace_broker.slot_ids
+        return self._route_slots.get(model_route)
 
     def _task_finished(self, task_id: str, _task: asyncio.Task[None]) -> None:
         self._active.pop(task_id, None)
@@ -284,12 +359,28 @@ class CodingWorkerService:
                 model_route=task.spec.model_route,
                 policy_profile=task.spec.policy_profile,
                 budget=task.spec.budget,
+                workspace_tree_hash=self.workspace_broker.current_tree_hash(
+                    workspace.workspace_id
+                ),
+                tool_allowlist=provider_tools_for_policy(task.spec.policy_profile),
             )
             resume_phase: str | None = None
             resume_context: dict[str, object] | None = None
             completed_turns = 0
+            message_cursor = 0
             checkpoint = self.store.latest_checkpoint(task_id)
-            if checkpoint is not None:
+            uncheckpointed_turns = self._uncheckpointed_completed_turns(task_id)
+            if uncheckpointed_turns:
+                current_tree_hash = self.workspace_broker.current_tree_hash(
+                    workspace.workspace_id
+                )
+                resume_phase = "testing"
+                completed_turns = uncheckpointed_turns
+                resume_context = self._context_summary(
+                    task_id, tree_hash=current_tree_hash, public_output=""
+                )
+                session = await self.provider.open(request)
+            elif checkpoint is not None:
                 current_tree_hash = self.workspace_broker.current_tree_hash(
                     workspace.workspace_id
                 )
@@ -307,6 +398,9 @@ class CodingWorkerService:
                     )
                     resume_phase = str(checkpoint.payload["phase"])
                     completed_turns = int(checkpoint.payload["completed_turns"])
+                    message_cursor = int(checkpoint.payload.get("message_cursor", 0))
+                    if message_cursor < 0:
+                        raise ValueError("message cursor is invalid")
                     raw_context = checkpoint.payload.get("context_summary")
                     if raw_context is not None:
                         if not isinstance(raw_context, dict):
@@ -324,6 +418,23 @@ class CodingWorkerService:
             else:
                 session = await self.provider.open(request)
             self._sessions[task_id] = session
+            messages = self.store.list_messages(task_id)
+            if not messages:
+                objective_message = self.store.append_message(
+                    task_id, role="user", content=task.spec.objective
+                )
+                messages = [objective_message]
+            if message_cursor == 0:
+                objective_message = next(
+                    (
+                        item
+                        for item in messages
+                        if item.role == "user" and item.content == task.spec.objective
+                    ),
+                    None,
+                )
+                if objective_message is not None:
+                    message_cursor = objective_message.sequence
             self.store.transition(
                 task_id,
                 TaskState.RUNNING,
@@ -331,14 +442,13 @@ class CodingWorkerService:
                 provider_session_id=session.session_id,
                 expected_state=TaskState.PREPARING,
             )
-            if not self.store.list_messages(task_id):
-                self.store.append_message(task_id, role="user", content=task.spec.objective)
             await self._drive_session(
                 task,
                 session,
                 resume_phase=resume_phase,
                 resume_context=resume_context,
                 completed_turns=completed_turns,
+                message_cursor=message_cursor,
             )
         except TimeoutError:
             current = self.store.get_task(task_id)
@@ -370,6 +480,34 @@ class CodingWorkerService:
                 with contextlib.suppress(Exception):
                     await self.provider.close(session)
 
+    def _uncheckpointed_completed_turns(self, task_id: str) -> int:
+        cursor = 0
+        completed_turns = 0
+        last_completed_sequence = 0
+        last_checkpoint_sequence = 0
+        while True:
+            events = self.store.list_events(task_id, after=cursor, limit=1000)
+            if not events:
+                break
+            for event in events:
+                if (
+                    event.type == "provider_event"
+                    and event.payload.get("kind")
+                    == ProviderEventKind.TURN_COMPLETED.value
+                ):
+                    completed_turns += 1
+                    last_completed_sequence = event.sequence
+                elif event.type == "checkpoint_created":
+                    last_checkpoint_sequence = event.sequence
+            cursor = events[-1].sequence
+            if len(events) < 1000:
+                break
+        return (
+            completed_turns
+            if last_completed_sequence > last_checkpoint_sequence
+            else 0
+        )
+
     async def _drive_session(
         self,
         task: TaskRecord,
@@ -378,76 +516,157 @@ class CodingWorkerService:
         resume_phase: str | None,
         resume_context: dict[str, object] | None,
         completed_turns: int,
+        message_cursor: int,
+    ) -> None:
+        driver = asyncio.create_task(
+            self._drive_session_steps(
+                task,
+                session,
+                resume_phase=resume_phase,
+                resume_context=resume_context,
+                completed_turns=completed_turns,
+                message_cursor=message_cursor,
+            ),
+            name=f"coding-worker-drive-{task.task_id}",
+        )
+        try:
+            while not driver.done():
+                remaining = (
+                    task.spec.budget.max_seconds
+                    - self.store.active_runtime_seconds(task.task_id)
+                )
+                if remaining <= 0:
+                    driver.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await driver
+                    raise TimeoutError
+                await asyncio.wait({driver}, timeout=min(remaining, 0.25))
+            await driver
+        finally:
+            if not driver.done():
+                driver.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await driver
+
+    async def _drive_session_steps(
+        self,
+        task: TaskRecord,
+        session: ProviderSession,
+        *,
+        resume_phase: str | None,
+        resume_context: dict[str, object] | None,
+        completed_turns: int,
+        message_cursor: int,
     ) -> None:
         task_id = task.task_id
         message = task.spec.objective
         turns = completed_turns
-        async with asyncio.timeout(task.spec.budget.max_seconds):
-            if resume_phase == "testing":
-                feedback = await self._evaluate_acceptance(task, turns)
+        if resume_phase == "testing":
+            steering, message_cursor = self._next_steering(
+                task_id, after_sequence=message_cursor
+            )
+            if steering is not None:
+                message = steering
+            else:
+                feedback, message_cursor = await self._evaluate_acceptance(
+                    task, turns, message_cursor=message_cursor
+                )
                 if feedback is None:
                     return
                 message = self._restored_context_message(resume_context, feedback)
-            while True:
-                turns += 1
-                turn_completed = False
-                async for event in self.provider.message(session, message):
-                    self.store.append_event(
-                        task_id,
-                        "provider_event",
-                        {"kind": event.kind.value, "data": event.data},
-                    )
-                    if event.kind is ProviderEventKind.TURN_COMPLETED:
-                        turn_completed = True
-                        break
-                    if event.kind is ProviderEventKind.CANCELLED:
-                        self.store.transition(
-                            task_id, TaskState.CANCELLED, reason="provider_cancelled"
-                        )
-                        return
-                    if event.kind is ProviderEventKind.FAILED:
-                        self.store.transition(task_id, TaskState.FAILED, reason="provider_failed")
-                        return
-                if not turn_completed:
-                    current = self.store.get_task(task_id)
-                    if current.state not in TERMINAL_STATES:
-                        self.store.transition(
-                            task_id, TaskState.INTERRUPTED, reason="provider_stream_ended"
-                        )
-                    return
-                try:
-                    provider_checkpoint = await self.provider.checkpoint(session)
-                    tree_hash = self.workspace_broker.current_tree_hash(
-                        self.store.get_task(task_id).workspace_id or ""
-                    )
-                    self.store.create_checkpoint(
-                        task_id=task_id,
-                        workspace_tree_hash=tree_hash,
-                        payload={
-                            "phase": "testing",
-                            "completed_turns": turns,
-                            "provider": provider_checkpoint.model_dump(mode="json"),
-                            "context_summary": self._context_summary(
-                                task_id,
-                                tree_hash=tree_hash,
-                                public_output=str(
-                                    provider_checkpoint.payload.get("public_output", "")
-                                ),
-                            ),
-                        },
-                    )
-                except Exception:
+        while True:
+            turns += 1
+            turn_completed = False
+            async for event in self.provider.message(session, message):
+                self.store.append_event(
+                    task_id,
+                    "provider_event",
+                    {"kind": event.kind.value, "data": event.data},
+                )
+                if event.kind is ProviderEventKind.TURN_COMPLETED:
+                    turn_completed = True
+                    break
+                if event.kind is ProviderEventKind.CANCELLED:
                     self.store.transition(
-                        task_id,
-                        TaskState.BLOCKED,
-                        reason="checkpoint_failed",
-                        expected_state=TaskState.RUNNING,
+                        task_id, TaskState.CANCELLED, reason="provider_cancelled"
                     )
                     return
-                feedback = await self._evaluate_acceptance(task, turns)
-                if feedback is None:
+                if event.kind is ProviderEventKind.FAILED:
+                    self.store.transition(task_id, TaskState.FAILED, reason="provider_failed")
                     return
-                message = feedback
+            if not turn_completed:
+                current = self.store.get_task(task_id)
+                if current.state not in TERMINAL_STATES:
+                    self.store.transition(
+                        task_id, TaskState.INTERRUPTED, reason="provider_stream_ended"
+                    )
+                return
+            try:
+                provider_checkpoint = await self.provider.checkpoint(session)
+                tree_hash = self.workspace_broker.current_tree_hash(
+                    self.store.get_task(task_id).workspace_id or ""
+                )
+                self.store.create_checkpoint(
+                    task_id=task_id,
+                    workspace_tree_hash=tree_hash,
+                    payload={
+                        "phase": "testing",
+                        "completed_turns": turns,
+                        "message_cursor": message_cursor,
+                        "provider": provider_checkpoint.model_dump(mode="json"),
+                        "context_summary": self._context_summary(
+                            task_id,
+                            tree_hash=tree_hash,
+                            public_output=str(
+                                provider_checkpoint.payload.get("public_output", "")
+                            ),
+                        ),
+                    },
+                )
+            except Exception:
+                self.store.transition(
+                    task_id,
+                    TaskState.BLOCKED,
+                    reason="checkpoint_failed",
+                    expected_state=TaskState.RUNNING,
+                )
+                return
+            steering, message_cursor = self._next_steering(
+                task_id, after_sequence=message_cursor
+            )
+            if steering is not None:
+                message = steering
+                continue
+            feedback, message_cursor = await self._evaluate_acceptance(
+                task, turns, message_cursor=message_cursor
+            )
+            if feedback is None:
+                return
+            message = feedback
+
+    def _next_steering(
+        self, task_id: str, *, after_sequence: int
+    ) -> tuple[str | None, int]:
+        pending = next(
+            (
+                item
+                for item in self.store.list_messages(task_id)
+                if item.role == "user" and item.sequence > after_sequence
+            ),
+            None,
+        )
+        if pending is None:
+            return None, after_sequence
+        self.store.append_event(
+            task_id,
+            "steering_scheduled",
+            {"message_id": pending.message_id, "sequence": pending.sequence},
+        )
+        return (
+            "User steering received at a safe tool boundary. Follow it without "
+            "weakening the immutable acceptance contract.\n\n" + pending.content,
+            pending.sequence,
+        )
 
     def _context_summary(
         self, task_id: str, *, tree_hash: str, public_output: str
@@ -508,7 +727,9 @@ class CodingWorkerService:
             text += f"Last public provider output:\n{prior}\n"
         return (text + feedback)[:32_768]
 
-    async def _evaluate_acceptance(self, task: TaskRecord, turns: int) -> str | None:
+    async def _evaluate_acceptance(
+        self, task: TaskRecord, turns: int, *, message_cursor: int
+    ) -> tuple[str | None, int]:
         task_id = task.task_id
         self.store.transition(
             task_id, TaskState.TESTING, expected_state=TaskState.RUNNING
@@ -520,7 +741,7 @@ class CodingWorkerService:
                 reason="acceptance_runner_pending",
                 expected_state=TaskState.TESTING,
             )
-            return None
+            return None, message_cursor
         try:
             evidence = await self.harness_runner.run_required_checks(task_id)
         except ToolBrokerError as exc:
@@ -530,7 +751,7 @@ class CodingWorkerService:
                 reason=exc.code,
                 expected_state=TaskState.TESTING,
             )
-            return None
+            return None, message_cursor
         self.store.append_event(
             task_id,
             "acceptance_evaluated",
@@ -546,13 +767,25 @@ class CodingWorkerService:
                 ],
             },
         )
+        steering, message_cursor = self._next_steering(
+            task_id, after_sequence=message_cursor
+        )
         if self.harness_runner.acceptance_satisfied(task_id):
-            self.store.transition(
-                task_id,
-                TaskState.COMPLETED,
-                expected_state=TaskState.TESTING,
-            )
-            return None
+            if steering is None:
+                self.store.transition(
+                    task_id,
+                    TaskState.COMPLETED,
+                    expected_state=TaskState.TESTING,
+                )
+                return None, message_cursor
+            if turns < task.spec.budget.max_turns:
+                self.store.transition(
+                    task_id,
+                    TaskState.RUNNING,
+                    reason="steering_pending",
+                    expected_state=TaskState.TESTING,
+                )
+                return steering, message_cursor
         if turns >= task.spec.budget.max_turns:
             self.store.transition(
                 task_id,
@@ -560,7 +793,7 @@ class CodingWorkerService:
                 reason="turn_budget_exhausted",
                 expected_state=TaskState.TESTING,
             )
-            return None
+            return None, message_cursor
         message = self._acceptance_feedback(task_id, evidence)
         self.store.append_message(task_id, role="system", content=message)
         self.store.append_event(task_id, "acceptance_retry", {"turn": turns + 1})
@@ -570,7 +803,9 @@ class CodingWorkerService:
             reason="acceptance_failed",
             expected_state=TaskState.TESTING,
         )
-        return message
+        if steering is not None:
+            message = steering + "\n\nFrozen acceptance feedback:\n" + message
+        return message, message_cursor
 
     def _acceptance_feedback(
         self, task_id: str, evidence: tuple[WorkerEvidence, ...]
