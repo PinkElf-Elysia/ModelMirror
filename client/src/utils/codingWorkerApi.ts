@@ -2,14 +2,19 @@ import type {
   CodingWorkerApproval,
   CodingWorkerArtifact,
   CodingWorkerChangeset,
+  CodingWorkerChildren,
   CodingWorkerDiagnosticsSnapshot,
   CodingWorkerEntry,
   CodingWorkerEvent,
   CodingWorkerEvidence,
   CodingWorkerOperationOutputChunk,
+  CodingWorkerPlan,
+  CodingWorkerQuestion,
   CodingWorkerStatus,
+  CodingWorkerSubtask,
   CodingWorkerTask,
   CodingWorkerTaskSpec,
+  CodingWorkerTurnHistory,
 } from "../types/codingWorker";
 
 const API_ROOT = "/api/coding-worker/v1";
@@ -63,6 +68,9 @@ const taskEventTypes = [
   "artifact_created", "evidence_recorded", "evidence_invalidated",
   "checkpoint_created", "acceptance_evaluated", "acceptance_retry",
   "task_pinned", "task_unpinned", "operation_output",
+  "plan_updated", "todo_updated", "question_requested", "question_resolved",
+  "context_compacted", "subtask_created", "subtask_completed", "subtask_failed",
+  "changeset_merge_started", "changeset_merged", "changeset_conflicted",
 ] as const;
 
 export const getCodingWorkerStatus = () => request<CodingWorkerStatus>(API_ROOT);
@@ -93,6 +101,66 @@ export const sendCodingWorkerMessage = (taskId: string, message: string) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message }),
   });
+
+export const getCodingWorkerPlan = (taskId: string) =>
+  request<CodingWorkerPlan | null>(
+    `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/plan`,
+  );
+
+export async function listCodingWorkerQuestions(taskId: string) {
+  return (await request<{ questions: CodingWorkerQuestion[] }>(
+    `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/questions`,
+  )).questions;
+}
+
+export const answerCodingWorkerQuestion = (
+  taskId: string,
+  questionId: string,
+  answer: { answer: string } | { option_id: string },
+) => request<CodingWorkerQuestion>(
+  `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/questions/${encodeURIComponent(questionId)}`,
+  {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(answer),
+  },
+);
+
+export const getCodingWorkerTurnHistory = (taskId: string) =>
+  request<CodingWorkerTurnHistory>(
+    `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/turns`,
+  );
+
+export const navigateCodingWorkerTurn = (taskId: string, action: "undo" | "redo") =>
+  request<CodingWorkerTurnHistory>(
+    `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/${action}`,
+    { method: "POST" },
+  );
+
+export const forkCodingWorkerTask = (taskId: string, clientForkId: string) =>
+  request<CodingWorkerTask>(`${API_ROOT}/tasks/${encodeURIComponent(taskId)}/fork`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_fork_id: clientForkId }),
+  });
+
+export const listCodingWorkerChildren = (taskId: string) =>
+  request<CodingWorkerChildren>(
+    `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/children`,
+  );
+
+export const mergeCodingWorkerSubtask = (
+  taskId: string,
+  childTaskId: string,
+  operationId: string,
+) => request<CodingWorkerSubtask>(
+  `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/subtasks/${encodeURIComponent(childTaskId)}/merge`,
+  {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ operation_id: operationId }),
+  },
+);
 
 export const changeCodingWorkerTask = (
   taskId: string,

@@ -28,6 +28,8 @@ export const taskStateCopy: Record<CodingWorkerTaskState, string> = {
   preparing: "准备工作区",
   running: "执行中",
   waiting_approval: "等待审批",
+  waiting_input: "等待回答",
+  waiting_subtasks: "等待子任务",
   paused: "已暂停",
   testing: "执行验收",
   interrupted: "需要恢复",
@@ -40,8 +42,8 @@ export const taskStateCopy: Record<CodingWorkerTaskState, string> = {
 };
 
 export function taskGroup(task: CodingWorkerTask): WorkerTaskGroup {
-  if (["waiting_approval", "interrupted", "blocked"].includes(task.state)) return "attention";
-  if (["preparing", "running", "testing", "paused"].includes(task.state)) return "active";
+  if (["waiting_approval", "waiting_input", "interrupted", "blocked"].includes(task.state)) return "attention";
+  if (["preparing", "running", "waiting_subtasks", "testing", "paused"].includes(task.state)) return "active";
   if (task.state === "queued") return "queued";
   return "history";
 }
@@ -98,6 +100,16 @@ function eventTitle(event: CodingWorkerEvent) {
   }
   if (event.type === "approval_requested") return "需要批准一次工具操作";
   if (event.type === "approval_decided") return "审批已处理";
+  if (event.type === "plan_updated") return "结构化计划已更新";
+  if (event.type === "todo_updated") return "待办状态已更新";
+  if (event.type === "question_requested") return "Worker 正在等待回答";
+  if (event.type === "question_resolved") return "问题已回答";
+  if (event.type === "context_compacted") return "公开上下文已压缩";
+  if (event.type === "subtask_created") return "子任务已创建";
+  if (event.type === "subtask_completed") return "子任务已完成";
+  if (event.type === "subtask_failed") return "子任务执行失败";
+  if (event.type === "changeset_merged") return "子任务变更已合并";
+  if (event.type === "changeset_conflicted") return "子任务变更存在冲突";
   if (event.type === "tool_operation") {
     const state = event.payload.state;
     if (state === "completed") return "工具操作已完成";
