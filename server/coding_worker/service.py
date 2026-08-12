@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import hashlib
 import json
+import re
+import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 
@@ -24,6 +27,7 @@ from .contracts import (
     WorkerQuestionAnswer,
     WorkerQuestionOption,
     WorkerTurnHistory,
+    WorkerTaskExport,
     SessionLedgerKind,
 )
 from .evidence import HarnessRunner
@@ -392,6 +396,104 @@ class CodingWorkerService:
                 code="task_fork_too_large",
             )
         return encoded
+
+    async def export_task(self, task_id: str) -> WorkerTaskExport:
+        task = await self._require_session_control_safe(task_id)
+        assert task.workspace_id is not None
+        history = self.store.turn_history(task_id)
+        if history.checkpoints:
+            checkpoint = (
+                history.checkpoints[0]
+                if history.cursor == 0
+                else history.checkpoints[history.cursor - 1]
+            )
+            public_context = (
+                checkpoint.before_public_context
+                if history.cursor == 0
+                else checkpoint.after_public_context
+            )
+        else:
+            public_context = self._public_session_context(task_id)
+        ledger: list[object] = []
+        cursor = 0
+        while True:
+            page = self.store.list_session_ledger(task_id, after=cursor, limit=1000)
+            ledger.extend(page)
+            if len(ledger) > 4096:
+                raise WorkerConflictError(
+                    "Public session is too large to export.", code="task_export_too_large"
+                )
+            if len(page) < 1000:
+                break
+            cursor = page[-1].sequence
+        diff = self.workspace_broker.diff(task.workspace_id)
+        artifacts = tuple(
+            {
+                "artifact_id": item.artifact_id,
+                "media_type": item.media_type,
+                "sha256": item.sha256,
+                "size": item.size,
+                "metadata": self._sanitize_export_value(item.metadata),
+                "created_at": item.created_at,
+            }
+            for item in self.store.list_artifacts(task_id)
+        )
+        exported = WorkerTaskExport(
+            task=task,
+            public_context=public_context,
+            session_ledger=tuple(ledger),
+            questions=tuple(self.store.list_questions(task_id)),
+            turn_history=history,
+            evidence=tuple(
+                self.store.list_evidence(
+                    task_id,
+                    current_tree_hash=self.workspace_broker.current_tree_hash(
+                        task.workspace_id
+                    ),
+                )
+            ),
+            artifact_index=artifacts,
+            workspace_tree_hash=self.workspace_broker.current_tree_hash(
+                task.workspace_id
+            ),
+            workspace_diff_sha256=hashlib.sha256(diff).hexdigest(),
+            workspace_diff_base64=base64.b64encode(diff).decode("ascii"),
+            created_at=time.time(),
+        )
+        if len(exported.model_dump_json().encode("utf-8")) > 16 * 1024 * 1024:
+            raise WorkerConflictError(
+                "Task export is too large.", code="task_export_too_large"
+            )
+        return exported
+
+    @classmethod
+    def _sanitize_export_value(cls, value: object) -> object:
+        forbidden = {
+            "endpoint",
+            "environment",
+            "physical_path",
+            "provider",
+            "provider_session_id",
+            "remote_url",
+            "secret",
+            "token",
+            "credential",
+        }
+        if isinstance(value, dict):
+            return {
+                str(key): cls._sanitize_export_value(item)
+                for key, item in value.items()
+                if str(key).lower() not in forbidden
+                and not str(key).lower().endswith(("_token", "_secret", "_credential"))
+            }
+        if isinstance(value, (list, tuple)):
+            return [cls._sanitize_export_value(item) for item in value]
+        if isinstance(value, str) and (
+            re.match(r"^[A-Za-z]:[\\/]", value)
+            or value.startswith(("/", "unix:", "http://", "https://"))
+        ):
+            return "[redacted]"
+        return value
 
     async def _require_session_control_safe(self, task_id: str) -> TaskRecord:
         task = self.store.get_task(task_id)

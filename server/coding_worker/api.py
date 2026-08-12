@@ -32,6 +32,7 @@ from .contracts import (
     WorkerQuestion,
     WorkerQuestionAnswer,
     WorkerTurnHistory,
+    WorkerTaskExport,
     OperationOutputChunk,
 )
 from .service import CodingWorkerService
@@ -48,6 +49,10 @@ class ApprovalDecisionRequest(StrictModel):
     approval_id: str = Field(pattern=r"^approval_[a-f0-9]{32}$")
     decision: Literal["approve_once", "approve_task", "reject"]
     ttl_seconds: int = Field(default=900, ge=30, le=3600)
+
+
+class TaskForkRequest(StrictModel):
+    client_fork_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 
 _service: CodingWorkerService | None = None
@@ -660,6 +665,37 @@ async def redo_task_turn(task_id: str) -> WorkerTurnHistory:
     _require_session_controls_enabled()
     try:
         return await get_coding_worker_service().navigate_turn(task_id, "redo")
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post("/tasks/{task_id}/fork", response_model=TaskRecord, status_code=202)
+async def fork_task(task_id: str, payload: TaskForkRequest) -> TaskRecord:
+    _require_session_controls_enabled()
+    try:
+        return await get_coding_worker_service().fork_task(
+            task_id, payload.client_fork_id
+        )
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/children", response_model=dict[str, list[TaskRecord]])
+async def task_children(task_id: str) -> dict[str, list[TaskRecord]]:
+    _require_session_controls_enabled()
+    try:
+        return {
+            "tasks": get_coding_worker_service().store.list_children(task_id)
+        }
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/export", response_model=WorkerTaskExport)
+async def export_task(task_id: str) -> WorkerTaskExport:
+    _require_session_controls_enabled()
+    try:
+        return await get_coding_worker_service().export_task(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 
