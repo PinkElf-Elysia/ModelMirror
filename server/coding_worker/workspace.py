@@ -10,6 +10,7 @@ import stat
 import subprocess
 import tempfile
 import uuid
+import zlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Protocol
@@ -54,6 +55,11 @@ class WorkspaceRecord(StrictModel):
     baseline_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     file_count: int = Field(ge=0)
     total_bytes: int = Field(ge=0)
+
+
+class WorkspaceSnapshot(StrictModel):
+    tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    tree_oid: str = Field(pattern=r"^[a-f0-9]{40}$")
 
 
 class WorkspaceEntry(StrictModel):
@@ -409,6 +415,89 @@ class WorkspaceBroker:
     def current_tree_hash(self, workspace_id: str) -> str:
         return self._tree_hash(self.repository_path(workspace_id))
 
+    def capture_snapshot(self, workspace_id: str) -> WorkspaceSnapshot:
+        """Capture exact working bytes without filters, moving HEAD, or changing index."""
+        repository = self.repository_path(workspace_id)
+        before = self._tree_hash(repository)
+        tree_oid = self._snapshot_tree_oid(repository)
+        after = self._tree_hash(repository)
+        if after != before:
+            raise WorkspaceError(
+                "Workspace changed during snapshot capture.", code="workspace_changed"
+            )
+        return WorkspaceSnapshot(tree_hash=after, tree_oid=tree_oid)
+
+    def snapshot_files(
+        self, workspace_id: str, snapshot: WorkspaceSnapshot
+    ) -> tuple[SourceFile, ...]:
+        """Materialize a bound Git tree as bounded regular-file content."""
+        repository = self.repository_path(workspace_id)
+        env = self._git_env(repository)
+        object_type = self._git(
+            repository, "cat-file", "-t", snapshot.tree_oid, env=env
+        ).strip()
+        if object_type != "tree":
+            raise WorkspaceError(
+                "Workspace snapshot object is invalid.", code="workspace_changed"
+            )
+        raw = self._git(
+            repository,
+            "ls-tree",
+            "-r",
+            "-z",
+            "--full-tree",
+            snapshot.tree_oid,
+            env=env,
+            text=False,
+        )
+        if not isinstance(raw, bytes):
+            raise WorkspaceError(
+                "Workspace snapshot is unavailable.", code="workspace_changed"
+            )
+        files: list[SourceFile] = []
+        for encoded_entry in raw.split(b"\0"):
+            if not encoded_entry:
+                continue
+            try:
+                metadata, encoded_path = encoded_entry.split(b"\t", 1)
+                mode, object_type, object_id = metadata.decode("ascii").split(" ")
+                path = encoded_path.decode("utf-8", errors="strict")
+            except (UnicodeDecodeError, ValueError) as exc:
+                raise WorkspaceError(
+                    "Workspace snapshot metadata is invalid.",
+                    code="workspace_changed",
+                ) from exc
+            if object_type != "blob" or mode not in {"100644", "100755"}:
+                raise WorkspaceError(
+                    "Workspace snapshot contains an unsupported entry.",
+                    code="workspace_changed",
+                )
+            content = self._git(
+                repository, "cat-file", "blob", object_id, env=env, text=False
+            )
+            if not isinstance(content, bytes):
+                raise WorkspaceError(
+                    "Workspace snapshot content is unavailable.",
+                    code="workspace_changed",
+                )
+            files.append(
+                SourceFile(path=path, content=content, executable=mode == "100755")
+            )
+        normalized = self._validate_snapshot(files)
+        materialized = tuple(item for _, item in normalized)
+        digest = hashlib.sha256()
+        for path, item in normalized:
+            rendered = path.as_posix().encode("utf-8")
+            digest.update(len(rendered).to_bytes(4, "big"))
+            digest.update(rendered)
+            digest.update(len(item.content).to_bytes(8, "big"))
+            digest.update(hashlib.sha256(item.content).digest())
+        if digest.hexdigest() != snapshot.tree_hash:
+            raise WorkspaceError(
+                "Workspace snapshot hash changed.", code="workspace_changed"
+            )
+        return materialized
+
     def diff(self, workspace_id: str, *, max_bytes: int = 2 * 1024 * 1024) -> bytes:
         record = self.get(workspace_id)
         repository = self.repository_path(workspace_id)
@@ -514,6 +603,94 @@ class WorkspaceBroker:
         if re.fullmatch(r"[a-f0-9]{40}", head) is None:
             raise WorkspaceError("Synthetic baseline is invalid.", code="workspace_unavailable")
         return head
+
+    def _snapshot_tree_oid(self, repository: Path) -> str:
+        root: dict[str, object] = {}
+        for current, directories, files in os.walk(
+            repository, topdown=True, followlinks=False
+        ):
+            current_path = Path(current)
+            if current_path == repository:
+                directories[:] = [name for name in directories if name != ".git"]
+            directories.sort()
+            for name in directories:
+                if (current_path / name).is_symlink():
+                    raise WorkspaceError(
+                        "Workspace contains a link.", code="workspace_changed"
+                    )
+            for name in sorted(files):
+                path = current_path / name
+                if path.is_symlink() or not path.is_file():
+                    raise WorkspaceError(
+                        "Workspace contains an unsupported entry.",
+                        code="workspace_changed",
+                    )
+                relative = path.relative_to(repository)
+                node = root
+                for part in relative.parts[:-1]:
+                    child = node.setdefault(part, {})
+                    if not isinstance(child, dict):
+                        raise WorkspaceError(
+                            "Workspace paths conflict.", code="workspace_changed"
+                        )
+                    node = child
+                content = path.read_bytes()
+                mode = 0o100755 if path.stat().st_mode & stat.S_IXUSR else 0o100644
+                node[relative.name] = (
+                    mode,
+                    self._write_git_object(repository, "blob", content),
+                )
+
+        def write_tree(node: dict[str, object]) -> str:
+            rendered: list[tuple[bytes, bytes]] = []
+            for name, value in node.items():
+                encoded = name.encode("utf-8")
+                if isinstance(value, dict):
+                    oid = write_tree(value)
+                    rendered.append(
+                        (encoded + b"/", b"40000 " + encoded + b"\0" + bytes.fromhex(oid))
+                    )
+                else:
+                    mode, oid = value
+                    rendered.append(
+                        (
+                            encoded,
+                            f"{mode:o} ".encode("ascii")
+                            + encoded
+                            + b"\0"
+                            + bytes.fromhex(oid),
+                        )
+                    )
+            content = b"".join(item for _, item in sorted(rendered, key=lambda item: item[0]))
+            return self._write_git_object(repository, "tree", content)
+
+        return write_tree(root)
+
+    @staticmethod
+    def _write_git_object(repository: Path, object_type: str, content: bytes) -> str:
+        raw = f"{object_type} {len(content)}\0".encode("ascii") + content
+        oid = hashlib.sha1(raw, usedforsecurity=False).hexdigest()
+        directory = repository / ".git" / "objects" / oid[:2]
+        directory.mkdir(exist_ok=True)
+        target = directory / oid[2:]
+        if target.exists():
+            try:
+                if zlib.decompress(target.read_bytes()) != raw:
+                    raise WorkspaceError(
+                        "Workspace object store is corrupt.", code="workspace_corrupt"
+                    )
+            except (OSError, zlib.error) as exc:
+                raise WorkspaceError(
+                    "Workspace object store is corrupt.", code="workspace_corrupt"
+                ) from exc
+            return oid
+        temporary = directory / f"snapshot-{uuid.uuid4().hex}"
+        try:
+            WorkspaceBroker._write_exclusive(temporary, zlib.compress(raw))
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return oid
 
     @staticmethod
     def _git_env(repository: Path) -> dict[str, str]:

@@ -33,6 +33,8 @@ from .contracts import (
     WorkerPlan,
     WorkerPlanItem,
     WorkerQuestion,
+    WorkerTurnCheckpoint,
+    WorkerTurnHistory,
     WorkerQuestionAnswer,
     WorkerQuestionOption,
     QuestionStatus,
@@ -1281,6 +1283,247 @@ class CodingWorkerStore:
             ).fetchone()
         return self._checkpoint(row) if row is not None else None
 
+    def create_turn_checkpoint(
+        self,
+        *,
+        task_id: str,
+        turn_id: str,
+        before_tree_hash: str,
+        before_tree_oid: str,
+        after_tree_hash: str,
+        after_tree_oid: str,
+        ledger_sequence: int,
+    ) -> WorkerTurnCheckpoint:
+        now = self._now()
+        checkpoint_id = f"turn_checkpoint_{uuid.uuid4().hex}"
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_task_row(connection, task_id)
+            existing = connection.execute(
+                "SELECT * FROM worker_turn_checkpoints WHERE task_id = ? AND turn_id = ?",
+                (task_id, turn_id),
+            ).fetchone()
+            if existing is not None:
+                checkpoint = self._turn_checkpoint(existing)
+                if (
+                    checkpoint.before_tree_hash != before_tree_hash
+                    or checkpoint.before_tree_oid != before_tree_oid
+                    or checkpoint.after_tree_hash != after_tree_hash
+                    or checkpoint.after_tree_oid != after_tree_oid
+                    or checkpoint.ledger_sequence != ledger_sequence
+                ):
+                    raise WorkerConflictError(
+                        "Turn checkpoint binding changed.",
+                        code="turn_checkpoint_conflict",
+                    )
+                return checkpoint
+            state = connection.execute(
+                "SELECT * FROM worker_turn_state WHERE task_id = ?", (task_id,)
+            ).fetchone()
+            if state is not None and state["pending_action"] is not None:
+                raise WorkerConflictError(
+                    "Turn navigation is not settled.", code="turn_navigation_pending"
+                )
+            maximum = int(
+                connection.execute(
+                    "SELECT COALESCE(MAX(ordinal), 0) FROM worker_turn_checkpoints WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()[0]
+            )
+            cursor = int(state["cursor"]) if state is not None else maximum
+            if cursor < maximum:
+                connection.execute(
+                    "DELETE FROM worker_turn_checkpoints WHERE task_id = ? AND ordinal > ?",
+                    (task_id, cursor),
+                )
+                maximum = cursor
+            ordinal = maximum + 1
+            connection.execute(
+                """
+                INSERT INTO worker_turn_checkpoints (
+                    checkpoint_id, task_id, ordinal, turn_id,
+                    before_tree_hash, before_tree_oid, after_tree_hash,
+                    after_tree_oid, ledger_sequence, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    checkpoint_id,
+                    task_id,
+                    ordinal,
+                    turn_id,
+                    before_tree_hash,
+                    before_tree_oid,
+                    after_tree_hash,
+                    after_tree_oid,
+                    ledger_sequence,
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO worker_turn_state (task_id, cursor, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(task_id) DO UPDATE SET
+                    cursor = excluded.cursor, pending_action = NULL,
+                    pending_checkpoint_id = NULL, updated_at = excluded.updated_at
+                """,
+                (task_id, ordinal, now),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="turn_checkpoint_created",
+                payload={
+                    "checkpoint_id": checkpoint_id,
+                    "ordinal": ordinal,
+                    "workspace_tree_hash": after_tree_hash,
+                },
+                created_at=now,
+            )
+        return self._turn_checkpoint_by_id(checkpoint_id)
+
+    def turn_history(self, task_id: str) -> WorkerTurnHistory:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            rows = connection.execute(
+                "SELECT * FROM worker_turn_checkpoints WHERE task_id = ? ORDER BY ordinal",
+                (task_id,),
+            ).fetchall()
+            state = connection.execute(
+                "SELECT * FROM worker_turn_state WHERE task_id = ?", (task_id,)
+            ).fetchone()
+        return WorkerTurnHistory(
+            task_id=task_id,
+            cursor=int(state["cursor"]) if state is not None else len(rows),
+            checkpoints=tuple(self._turn_checkpoint(row) for row in rows),
+            pending_action=(
+                str(state["pending_action"])
+                if state is not None and state["pending_action"] is not None
+                else None
+            ),
+        )
+
+    def begin_turn_navigation(
+        self, task_id: str, action: str
+    ) -> tuple[WorkerTurnCheckpoint, int, str, str, str]:
+        if action not in {"undo", "redo"}:
+            raise ValueError("turn navigation action is invalid")
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_task_row(connection, task_id)
+            state = connection.execute(
+                "SELECT * FROM worker_turn_state WHERE task_id = ?", (task_id,)
+            ).fetchone()
+            if state is None:
+                raise WorkerConflictError(
+                    "Task has no turn checkpoints.", code="turn_history_unavailable"
+                )
+            cursor = int(state["cursor"])
+            pending = state["pending_action"]
+            if pending is not None:
+                if str(pending) != action:
+                    raise WorkerConflictError(
+                        "Another turn navigation is pending.",
+                        code="turn_navigation_pending",
+                    )
+                row = connection.execute(
+                    "SELECT * FROM worker_turn_checkpoints WHERE checkpoint_id = ?",
+                    (state["pending_checkpoint_id"],),
+                ).fetchone()
+                if row is None:
+                    raise WorkerStoreError(
+                        "Turn navigation data is corrupt.", code="worker_data_corrupt"
+                    )
+                checkpoint = self._turn_checkpoint(row)
+            else:
+                ordinal = cursor if action == "undo" else cursor + 1
+                if (action == "undo" and cursor == 0) or (
+                    action == "redo"
+                    and ordinal
+                    > int(
+                        connection.execute(
+                            "SELECT COALESCE(MAX(ordinal), 0) FROM worker_turn_checkpoints WHERE task_id = ?",
+                            (task_id,),
+                        ).fetchone()[0]
+                    )
+                ):
+                    raise WorkerConflictError(
+                        "No turn is available for navigation.",
+                        code="turn_navigation_unavailable",
+                    )
+                row = connection.execute(
+                    "SELECT * FROM worker_turn_checkpoints WHERE task_id = ? AND ordinal = ?",
+                    (task_id, ordinal),
+                ).fetchone()
+                if row is None:
+                    raise WorkerStoreError(
+                        "Turn history is corrupt.", code="worker_data_corrupt"
+                    )
+                checkpoint = self._turn_checkpoint(row)
+                connection.execute(
+                    """
+                    UPDATE worker_turn_state
+                    SET pending_action = ?, pending_checkpoint_id = ?, updated_at = ?
+                    WHERE task_id = ? AND cursor = ? AND pending_action IS NULL
+                    """,
+                    (action, checkpoint.checkpoint_id, now, task_id, cursor),
+                )
+            target_cursor = cursor - 1 if action == "undo" else cursor + 1
+            source_hash = (
+                checkpoint.after_tree_hash if action == "undo" else checkpoint.before_tree_hash
+            )
+            target_hash = (
+                checkpoint.before_tree_hash if action == "undo" else checkpoint.after_tree_hash
+            )
+            target_oid = (
+                checkpoint.before_tree_oid if action == "undo" else checkpoint.after_tree_oid
+            )
+        return checkpoint, target_cursor, source_hash, target_hash, target_oid
+
+    def finish_turn_navigation(
+        self,
+        task_id: str,
+        *,
+        action: str,
+        checkpoint_id: str,
+        target_cursor: int,
+        workspace_tree_hash: str,
+    ) -> WorkerTurnHistory:
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            state = connection.execute(
+                "SELECT * FROM worker_turn_state WHERE task_id = ?", (task_id,)
+            ).fetchone()
+            if (
+                state is None
+                or state["pending_action"] != action
+                or state["pending_checkpoint_id"] != checkpoint_id
+            ):
+                raise WorkerConflictError(
+                    "Turn navigation binding changed.", code="turn_navigation_conflict"
+                )
+            connection.execute(
+                """
+                UPDATE worker_turn_state SET cursor = ?, pending_action = NULL,
+                    pending_checkpoint_id = NULL, updated_at = ? WHERE task_id = ?
+                """,
+                (target_cursor, now, task_id),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type=f"turn_{action}",
+                payload={
+                    "checkpoint_id": checkpoint_id,
+                    "cursor": target_cursor,
+                    "workspace_tree_hash": workspace_tree_hash,
+                },
+                created_at=now,
+            )
+        return self.turn_history(task_id)
+
     def list_artifacts(self, task_id: str) -> list[WorkerArtifact]:
         with self._connect() as connection:
             self._require_task_row(connection, task_id)
@@ -1720,6 +1963,32 @@ class CodingWorkerStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_worker_checkpoints_task
                     ON worker_checkpoints(task_id, created_at);
+                CREATE TABLE IF NOT EXISTS worker_turn_checkpoints (
+                    checkpoint_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    ordinal INTEGER NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    before_tree_hash TEXT NOT NULL,
+                    before_tree_oid TEXT NOT NULL,
+                    after_tree_hash TEXT NOT NULL,
+                    after_tree_oid TEXT NOT NULL,
+                    ledger_sequence INTEGER NOT NULL,
+                    created_at REAL NOT NULL,
+                    UNIQUE(task_id, ordinal),
+                    UNIQUE(task_id, turn_id),
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_worker_turn_checkpoints_task
+                    ON worker_turn_checkpoints(task_id, ordinal);
+                CREATE TABLE IF NOT EXISTS worker_turn_state (
+                    task_id TEXT PRIMARY KEY,
+                    cursor INTEGER NOT NULL DEFAULT 0,
+                    pending_action TEXT,
+                    pending_checkpoint_id TEXT,
+                    updated_at REAL NOT NULL,
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE,
+                    FOREIGN KEY(pending_checkpoint_id) REFERENCES worker_turn_checkpoints(checkpoint_id)
+                );
                 """
             )
 
@@ -2038,6 +2307,38 @@ class CodingWorkerStore:
         except (WorkerCryptoError, ValueError) as exc:
             raise WorkerStoreError(
                 "Worker checkpoint data is corrupt.", code="worker_data_corrupt"
+            ) from exc
+
+    def _turn_checkpoint_by_id(self, checkpoint_id: str) -> WorkerTurnCheckpoint:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM worker_turn_checkpoints WHERE checkpoint_id = ?",
+                (checkpoint_id,),
+            ).fetchone()
+        if row is None:
+            raise WorkerNotFoundError(
+                "Turn checkpoint was not found.", code="turn_checkpoint_not_found"
+            )
+        return self._turn_checkpoint(row)
+
+    @staticmethod
+    def _turn_checkpoint(row: sqlite3.Row) -> WorkerTurnCheckpoint:
+        try:
+            return WorkerTurnCheckpoint(
+                checkpoint_id=str(row["checkpoint_id"]),
+                task_id=str(row["task_id"]),
+                ordinal=int(row["ordinal"]),
+                turn_id=str(row["turn_id"]),
+                before_tree_hash=str(row["before_tree_hash"]),
+                before_tree_oid=str(row["before_tree_oid"]),
+                after_tree_hash=str(row["after_tree_hash"]),
+                after_tree_oid=str(row["after_tree_oid"]),
+                ledger_sequence=int(row["ledger_sequence"]),
+                created_at=float(row["created_at"]),
+            )
+        except ValueError as exc:
+            raise WorkerStoreError(
+                "Worker turn checkpoint data is corrupt.", code="worker_data_corrupt"
             ) from exc
 
     @staticmethod

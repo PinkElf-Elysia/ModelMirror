@@ -22,7 +22,7 @@ from .contracts import (
     WorkerChangeset,
 )
 from .unified_patch import UnifiedPatchError, apply_unified_patch
-from .workspace import WorkspaceBroker
+from .workspace import SourceFile, WorkspaceBroker, WorkspaceSnapshot
 
 
 MAX_CHANGESET_ENTRIES = 128
@@ -222,6 +222,119 @@ class ChangesetEngine:
             except Exception as rollback_error:
                 raise ChangesetError(
                     "Changeset rollback failed.", code="changeset_rollback_failed"
+                ) from rollback_error
+            raise
+
+    def restore_snapshot(
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        operation_id: str,
+        expected_tree_hash: str,
+        snapshot: WorkspaceSnapshot,
+    ) -> WorkerChangeset:
+        """Atomically restore a bounded binary-safe turn snapshot by exact CAS."""
+        if SAFE_ID.fullmatch(operation_id) is None:
+            raise ChangesetError("Operation id is invalid.", code="tool_input_invalid")
+        if self.workspace_broker.current_tree_hash(workspace_id) != expected_tree_hash:
+            raise ChangesetError(
+                "Workspace changed before turn navigation.",
+                code="workspace_tree_changed",
+            )
+        files = self.workspace_broker.snapshot_files(workspace_id, snapshot)
+        desired_content, entries = self._snapshot_changes(
+            workspace_id=workspace_id,
+            operation_id=operation_id,
+            files=files,
+        )
+        now = time.time()
+        if not desired_content:
+            if expected_tree_hash != snapshot.tree_hash:
+                raise ChangesetError(
+                    "Turn snapshot does not match the current tree.",
+                    code="workspace_tree_changed",
+                )
+            return WorkerChangeset(
+                changeset_id=self._changeset_id(operation_id),
+                task_id=task_id,
+                operation_id=operation_id,
+                base_tree_hash=expected_tree_hash,
+                result_tree_hash=snapshot.tree_hash,
+                state=ChangesetState.APPLIED,
+                entries=(),
+                created_at=now,
+                updated_at=now,
+            )
+        transaction = self._transaction_root(
+            self.workspace_broker.repository_path(workspace_id),
+            operation_id,
+            create_parent=True,
+        )
+        if transaction.exists():
+            raise ChangesetError(
+                "Turn navigation transaction already exists.",
+                code="operation_not_replayable",
+            )
+        repository = self.workspace_broker.repository_path(workspace_id)
+        transaction.mkdir(parents=True)
+        (transaction / "new").mkdir()
+        (transaction / "old").mkdir()
+        try:
+            self._write_owner(
+                transaction,
+                _Owner(
+                    operation_id=operation_id,
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    base_tree_hash=expected_tree_hash,
+                ),
+            )
+            manifest = self._prepare_desired(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                operation_id=operation_id,
+                transaction=transaction,
+                base_tree_hash=expected_tree_hash,
+                desired_content=desired_content,
+                entries=entries,
+            )
+            if manifest.result_tree_hash != snapshot.tree_hash:
+                raise ChangesetError(
+                    "Turn snapshot result hash is invalid.", code="workspace_changed"
+                )
+            self._write_manifest(transaction, manifest)
+            applying = manifest.model_copy(
+                update={"state": "applying", "updated_at": time.time()}
+            )
+            self._write_manifest(transaction, applying)
+            self._install(repository, transaction, applying)
+            if self.workspace_broker.current_tree_hash(workspace_id) != snapshot.tree_hash:
+                raise ChangesetError(
+                    "Turn snapshot publication did not match its target.",
+                    code="workspace_tree_changed",
+                )
+            applied = applying.model_copy(
+                update={"state": "applied", "updated_at": time.time()}
+            )
+            self._write_manifest(transaction, applied)
+            return self._outcome(applied)
+        except Exception:
+            try:
+                if (transaction / "manifest.json").is_file():
+                    manifest = self._read_manifest(transaction)
+                    self._rollback(repository, transaction, manifest)
+                    if self.workspace_broker.current_tree_hash(workspace_id) != expected_tree_hash:
+                        raise ChangesetError(
+                            "Turn snapshot rollback could not restore its source tree.",
+                            code="changeset_rollback_failed",
+                        )
+                self._remove_transaction(transaction)
+            except ChangesetError:
+                raise
+            except Exception as rollback_error:
+                raise ChangesetError(
+                    "Turn snapshot rollback failed.", code="changeset_rollback_failed"
                 ) from rollback_error
             raise
 
@@ -483,6 +596,135 @@ class ChangesetEngine:
                         sha256=hashlib.sha256(desired[0]).hexdigest(),
                         size=len(desired[0]),
                         mode=desired[1],
+                        stage=stage_name,
+                    )
+                )
+        result_tree_hash = self._result_tree_hash(
+            workspace_id, {item.path: item for item in desired_files}
+        )
+        now = time.time()
+        return _Manifest(
+            operation_id=operation_id,
+            task_id=task_id,
+            workspace_id=workspace_id,
+            changeset_id=self._changeset_id(operation_id),
+            base_tree_hash=base_tree_hash,
+            result_tree_hash=result_tree_hash,
+            state="prepared",
+            entries=tuple(entries),
+            originals=tuple(originals),
+            desired=tuple(desired_files),
+            created_at=now,
+            updated_at=now,
+        )
+
+    def _snapshot_changes(
+        self,
+        *,
+        workspace_id: str,
+        operation_id: str,
+        files: tuple[SourceFile, ...],
+    ) -> tuple[dict[str, tuple[bytes, int] | None], list[ChangesetEntry]]:
+        repository = self.workspace_broker.repository_path(workspace_id)
+        target = {item.path: item for item in files}
+        current = {
+            item.display_path: item
+            for item in self.workspace_broker.tree(workspace_id)
+            if item.kind == "file"
+        }
+        paths = sorted(set(target) | set(current))
+        if len(paths) > 4096:
+            raise ChangesetError(
+                "Turn snapshot touches too many files.", code="changeset_too_large"
+            )
+        desired: dict[str, tuple[bytes, int] | None] = {}
+        entries: list[ChangesetEntry] = []
+        for path in paths:
+            source = target.get(path)
+            existing = current.get(path)
+            if source is None:
+                assert existing is not None and existing.sha256 is not None
+                desired[path] = None
+                entries.append(
+                    self._entry(
+                        workspace_id,
+                        operation_id,
+                        path,
+                        ChangeKind.DELETE,
+                        existing.sha256,
+                        None,
+                    )
+                )
+                continue
+            digest = hashlib.sha256(source.content).hexdigest()
+            if existing is not None and existing.sha256 == digest:
+                continue
+            desired[path] = (source.content, 0o755 if source.executable else 0o644)
+            entries.append(
+                self._entry(
+                    workspace_id,
+                    operation_id,
+                    path,
+                    ChangeKind.ADD if existing is None else ChangeKind.MODIFY,
+                    existing.sha256 if existing is not None else None,
+                    digest,
+                    binary=b"\0" in source.content,
+                )
+            )
+        if sum(len(item[0]) for item in desired.values() if item is not None) > MAX_CHANGESET_BYTES:
+            raise ChangesetError(
+                "Turn snapshot content is too large.", code="changeset_too_large"
+            )
+        # Resolve every target now so path safety is checked before staging.
+        for path in desired:
+            self._target(repository, path)
+        return desired, entries
+
+    def _prepare_desired(
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        operation_id: str,
+        transaction: Path,
+        base_tree_hash: str,
+        desired_content: Mapping[str, tuple[bytes, int] | None],
+        entries: list[ChangesetEntry],
+    ) -> _Manifest:
+        repository = self.workspace_broker.repository_path(workspace_id)
+        originals: list[_OriginalFile] = []
+        desired_files: list[_DesiredFile] = []
+        for index, path in enumerate(sorted(desired_content)):
+            target = self._target(repository, path)
+            existing = self._read_regular(target, required=False)
+            if existing is None:
+                originals.append(_OriginalFile(path=path, exists=False))
+            else:
+                backup_name = f"old/{index:04d}"
+                self._write_bound(transaction / backup_name, existing[0], existing[1])
+                originals.append(
+                    _OriginalFile(
+                        path=path,
+                        exists=True,
+                        sha256=hashlib.sha256(existing[0]).hexdigest(),
+                        size=len(existing[0]),
+                        mode=existing[1],
+                        backup=backup_name,
+                    )
+                )
+            content = desired_content[path]
+            if content is None:
+                desired_files.append(_DesiredFile(path=path, exists=False))
+            else:
+                stage_name = f"new/{index:04d}"
+                self._write_bound(transaction / stage_name, content[0], content[1])
+                desired_files.append(
+                    _DesiredFile(
+                        path=path,
+                        exists=True,
+                        sha256=hashlib.sha256(content[0]).hexdigest(),
+                        size=len(content[0]),
+                        mode=content[1],
                         stage=stage_name,
                     )
                 )
@@ -808,6 +1050,7 @@ class ChangesetEngine:
         postimage: str | None,
         *,
         destination: str | None = None,
+        binary: bool = False,
     ) -> ChangesetEntry:
         suffix = hashlib.sha256(
             f"{workspace_id}\0{operation_id}\0{path}".encode("utf-8")
@@ -819,6 +1062,7 @@ class ChangesetEngine:
             destination_display_path=destination,
             preimage_sha256=preimage,
             postimage_sha256=postimage,
+            binary=binary,
         )
 
     @staticmethod
