@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from .contracts import (
     EvidenceStatus,
@@ -21,6 +21,7 @@ from .provider import (
     ProviderEventKind,
     ProviderOpenRequest,
     ProviderSession,
+    provider_tools_for_policy,
 )
 from .store import CodingWorkerStore, WorkerConflictError
 from .tool_broker import ToolBroker, ToolBrokerError
@@ -39,6 +40,7 @@ class CodingWorkerService:
         harness_runner: HarnessRunner | None = None,
         max_active_tasks: int = 2,
         tool_broker: ToolBroker | None = None,
+        route_slots: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         if not 1 <= max_active_tasks <= 16:
             raise ValueError("active task capacity is outside the allowed range")
@@ -48,6 +50,23 @@ class CodingWorkerService:
         self.harness_runner = harness_runner
         self.max_active_tasks = max_active_tasks
         self.tool_broker = tool_broker
+        self._route_slots = (
+            {
+                route_id: tuple(dict.fromkeys(slot_ids))
+                for route_id, slot_ids in route_slots.items()
+            }
+            if route_slots is not None
+            else None
+        )
+        if self._route_slots is not None:
+            known_slots = set(self.workspace_broker.slot_ids)
+            if any(
+                not route_id
+                or not slot_ids
+                or not set(slot_ids).issubset(known_slots)
+                for route_id, slot_ids in self._route_slots.items()
+            ):
+                raise ValueError("provider route slot configuration is invalid")
         self._active: dict[str, asyncio.Task[None]] = {}
         self._task_slots: dict[str, str] = {}
         self._sessions: dict[str, ProviderSession] = {}
@@ -96,6 +115,10 @@ class CodingWorkerService:
         self._started = False
 
     async def create_task(self, origin: Origin, request: TaskCreateRequest) -> TaskRecord:
+        if self._route_slots is not None and request.model_route not in self._route_slots:
+            raise WorkerConflictError(
+                "Model route is unavailable.", code="model_route_unavailable"
+            )
         frozen_checks = getattr(self.tool_broker, "frozen_checks", None)
         if isinstance(frozen_checks, Mapping):
             unknown = [
@@ -240,6 +263,16 @@ class CodingWorkerService:
         if not available:
             return None
         for record in queued:
+            route_slots = self._allowed_slots(record.spec.model_route)
+            if route_slots is None:
+                with contextlib.suppress(WorkerConflictError):
+                    self.store.transition(
+                        record.task_id,
+                        TaskState.BLOCKED,
+                        reason="model_route_unavailable",
+                        expected_state=TaskState.QUEUED,
+                    )
+                continue
             required_slot: str | None = None
             if record.workspace_id is not None:
                 try:
@@ -248,12 +281,35 @@ class CodingWorkerService:
                     )
                 except WorkspaceError:
                     # Let the runner persist the precise workspace failure.
-                    required_slot = available[0]
+                    required_slot = next(
+                        (slot for slot in route_slots if slot in available), None
+                    )
+                if required_slot is None:
+                    continue
+                if required_slot not in route_slots:
+                    with contextlib.suppress(WorkerConflictError):
+                        self.store.transition(
+                            record.task_id,
+                            TaskState.BLOCKED,
+                            reason="provider_binding_changed",
+                            expected_state=TaskState.QUEUED,
+                        )
+                    continue
             if required_slot is None:
-                return record, available[0]
+                selected = next(
+                    (slot for slot in route_slots if slot in available), None
+                )
+                if selected is not None:
+                    return record, selected
+                continue
             if required_slot in available:
                 return record, required_slot
         return None
+
+    def _allowed_slots(self, model_route: str) -> tuple[str, ...] | None:
+        if self._route_slots is None:
+            return self.workspace_broker.slot_ids
+        return self._route_slots.get(model_route)
 
     def _task_finished(self, task_id: str, _task: asyncio.Task[None]) -> None:
         self._active.pop(task_id, None)
@@ -284,12 +340,27 @@ class CodingWorkerService:
                 model_route=task.spec.model_route,
                 policy_profile=task.spec.policy_profile,
                 budget=task.spec.budget,
+                workspace_tree_hash=self.workspace_broker.current_tree_hash(
+                    workspace.workspace_id
+                ),
+                tool_allowlist=provider_tools_for_policy(task.spec.policy_profile),
             )
             resume_phase: str | None = None
             resume_context: dict[str, object] | None = None
             completed_turns = 0
             checkpoint = self.store.latest_checkpoint(task_id)
-            if checkpoint is not None:
+            uncheckpointed_turns = self._uncheckpointed_completed_turns(task_id)
+            if uncheckpointed_turns:
+                current_tree_hash = self.workspace_broker.current_tree_hash(
+                    workspace.workspace_id
+                )
+                resume_phase = "testing"
+                completed_turns = uncheckpointed_turns
+                resume_context = self._context_summary(
+                    task_id, tree_hash=current_tree_hash, public_output=""
+                )
+                session = await self.provider.open(request)
+            elif checkpoint is not None:
                 current_tree_hash = self.workspace_broker.current_tree_hash(
                     workspace.workspace_id
                 )
@@ -369,6 +440,34 @@ class CodingWorkerService:
             if session is not None:
                 with contextlib.suppress(Exception):
                     await self.provider.close(session)
+
+    def _uncheckpointed_completed_turns(self, task_id: str) -> int:
+        cursor = 0
+        completed_turns = 0
+        last_completed_sequence = 0
+        last_checkpoint_sequence = 0
+        while True:
+            events = self.store.list_events(task_id, after=cursor, limit=1000)
+            if not events:
+                break
+            for event in events:
+                if (
+                    event.type == "provider_event"
+                    and event.payload.get("kind")
+                    == ProviderEventKind.TURN_COMPLETED.value
+                ):
+                    completed_turns += 1
+                    last_completed_sequence = event.sequence
+                elif event.type == "checkpoint_created":
+                    last_checkpoint_sequence = event.sequence
+            cursor = events[-1].sequence
+            if len(events) < 1000:
+                break
+        return (
+            completed_turns
+            if last_completed_sequence > last_checkpoint_sequence
+            else 0
+        )
 
     async def _drive_session(
         self,

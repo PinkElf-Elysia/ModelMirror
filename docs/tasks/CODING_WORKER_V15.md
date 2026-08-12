@@ -41,7 +41,7 @@
 
 ## 当前进度（2026-08-11）
 
-PR A 的实现与自动门禁已完成，尚未进行真实 Provider/人工验收，也未开始 PR B、PR C：
+PR A 已作为 Draft PR #151 发布；PR B 的实现与自动门禁已完成，尚未进行真实 Provider/人工验收，也未开始 PR C：
 
 - 契约与文件工具：`d0e955b`、`50d933e`、`29c135b`。
 - Shell 执行、审批、changeset 与查询：`ad831ac`、`0a56605`、`45df707`。
@@ -58,6 +58,27 @@ PR A 实际自动验证：
 - `git diff --check` 通过；提交文件数门禁通过。
 
 上述结果只证明 PR A 的自动化边界，不等同于 OpenCode/Claude 双引擎真实任务、逐组件重启或 v13 Host 写回人工验收。PR A 发布后仍须按顺序完成 PR B、PR C，并在人工验收通过前保持 V15 非 Ready。
+
+PR B 实现提交：
+
+- Provider 私有契约 v2 与 route 固定：`59b4bf9`、`ae337ee`。
+- Claude Code Provider 与 Sidecar：`01512d0`、`6544878`。
+- Claude secret、网络和部署隔离：`f6bf8a5`、`23b9fc1`。
+- 完成回执对账与 Fake/OpenCode/Claude conformance：`b70d0e4`、`c040d60`。
+- 以上 8 个实现提交均不超过五个文件；PR B 以 PR A 的 `cdad6da` 为基线。
+
+PR B 实际自动验证：
+
+- Linux 无网络只读源码环境全部 Worker：142 passed、5 skipped、1 条框架告警。
+- Windows 全部 Worker：132 passed、12 skipped、3 项 V14 snapshot reader 的 `mtime_ns` 漂移失败；同样 3 项已在 PR A 工作树精确复现。
+- Agent Workspace：44 passed；Coding：765 passed、14 skipped。
+- 后端全量：2615 passed、27 skipped、6 failed、6 warnings。5 项为 PR A 已记录的 Agency Worker 测试镜像缺少构建产物；另 1 项为当前 `modelmirror-server` 镜像 Node 20 无法直接导入 `.ts`，已在 PR A 基线用相同镜像精确复现。该结果不是全绿，两个基线问题均未在 PR B 跨范围修复。
+- 前端 TypeScript 检查通过；35 个测试文件、169 项测试全部通过；production build 成功，仅有既有大 chunk 告警。
+- 变更 Python 文件 `py_compile` 通过；合并 V14/V15 overlay 的 Compose `config --quiet` 通过。
+- Claude 镜像使用固定包 `@anthropic-ai/claude-code@2.1.89` 及 SHA512 完整性门禁；最终镜像无网络只读探针返回 `2.1.89 (Claude Code)`，运行用户为 `65532`。
+- 有效 Compose 配置确认 Claude Provider 不继承 route key、gateway base URL 或 Workspace 挂载；Provider 只接内部网络和受控 socket/secret，独立代理只允许 `api.anthropic.com:443`。
+
+上述 PR B 证据证明契约、隔离、恢复对账和镜像构造，不等同于使用真实 Anthropic 凭据完成任务。真实 OpenCode/Claude 双任务、逐组件重启和 v13 Host 写回仍属于 PR C 后的人工验收，完成前 V15 保持非 Ready。
 
 ## 开关与回退
 

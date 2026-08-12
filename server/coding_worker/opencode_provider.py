@@ -22,10 +22,13 @@ from .provider import (
     CodingAgentProvider,
     ProviderCapabilities,
     ProviderCheckpoint,
+    ProviderCheckpointCompatibility,
     ProviderEvent,
     ProviderEventKind,
     ProviderOpenRequest,
     ProviderSession,
+    PROVIDER_TOOL_NAMES,
+    ProviderUsage,
 )
 
 
@@ -203,7 +206,7 @@ class OpenCodeProvider(CodingAgentProvider):
                         "modelID": route.model_id,
                     },
                     "agent": "modelmirror-worker",
-                    "tools": self._prompt_tools(),
+                    "tools": self._prompt_tools(request.tool_allowlist),
                     "parts": [{"type": "text", "text": text}],
                 },
             )
@@ -257,6 +260,12 @@ class OpenCodeProvider(CodingAgentProvider):
         public_text = "".join(self._public_context.get(session.session_id, ()))
         return ProviderCheckpoint(
             checkpoint_id=f"checkpoint_{secrets.token_hex(16)}",
+            compatibility=ProviderCheckpointCompatibility(
+                provider_family="opencode",
+                provider_version=OPENCODE_VERSION,
+                task_id=request.task_id,
+                workspace_tree_hash=request.workspace_tree_hash,
+            ),
             payload={
                 "engine": "opencode-1.18.9",
                 "task_id": request.task_id,
@@ -267,10 +276,21 @@ class OpenCodeProvider(CodingAgentProvider):
     async def restore(
         self, request: ProviderOpenRequest, checkpoint: ProviderCheckpoint
     ) -> ProviderSession:
+        compatibility = checkpoint.compatibility
         if (
             checkpoint.payload.get("engine") != "opencode-1.18.9"
             or checkpoint.payload.get("task_id") != request.task_id
             or not isinstance(checkpoint.payload.get("public_output", ""), str)
+            or (
+                compatibility is not None
+                and (
+                    compatibility.provider_family != "opencode"
+                    or compatibility.provider_version != OPENCODE_VERSION
+                    or compatibility.task_id != request.task_id
+                    or compatibility.workspace_tree_hash
+                    != request.workspace_tree_hash
+                )
+            )
         ):
             raise OpenCodeProviderError(
                 "OpenCode checkpoint binding is invalid.", code="checkpoint_invalid"
@@ -289,7 +309,11 @@ class OpenCodeProvider(CodingAgentProvider):
         if handle is not None:
             await handle.close()
 
-    def build_config(self, route: OpenCodeRoute) -> dict[str, Any]:
+    def build_config(
+        self,
+        route: OpenCodeRoute,
+        tool_allowlist: tuple[str, ...] = PROVIDER_TOOL_NAMES,
+    ) -> dict[str, Any]:
         permission: dict[str, str] = {
             "*": "deny",
             "external_directory": "deny",
@@ -298,7 +322,8 @@ class OpenCodeProvider(CodingAgentProvider):
         }
         mcp: dict[str, Any] = {}
         if self._tool_broker_command is not None:
-            permission[f"{TOOL_BROKER_MCP_NAME}_*"] = "allow"
+            for tool_name in tool_allowlist:
+                permission[f"{TOOL_BROKER_MCP_NAME}_{tool_name}"] = "allow"
             mcp[TOOL_BROKER_MCP_NAME] = {
                 "type": "local",
                 "command": list(self._tool_broker_command),
@@ -364,7 +389,9 @@ class OpenCodeProvider(CodingAgentProvider):
             "XDG_STATE_HOME": str(home / ".local/state"),
             "XDG_CACHE_HOME": str(home / ".cache"),
             "OPENCODE_CONFIG_CONTENT": json.dumps(
-                self.build_config(route), ensure_ascii=False, separators=(",", ":")
+                self.build_config(route, request.tool_allowlist),
+                ensure_ascii=False,
+                separators=(",", ":"),
             ),
             "OPENCODE_DISABLE_PROJECT_CONFIG": "1",
             "OPENCODE_PURE": "1",
@@ -475,10 +502,17 @@ class OpenCodeProvider(CodingAgentProvider):
             raise OpenCodeProviderError("Provider session was not found.", code="session_not_found")
         return handle, request
 
-    def _prompt_tools(self) -> dict[str, bool]:
+    def _prompt_tools(
+        self, tool_allowlist: tuple[str, ...] = PROVIDER_TOOL_NAMES
+    ) -> dict[str, bool]:
         tools = {name: False for name in DIRECT_TOOL_NAMES}
         if self._tool_broker_command is not None:
-            tools[f"{TOOL_BROKER_MCP_NAME}_*"] = True
+            tools.update(
+                {
+                    f"{TOOL_BROKER_MCP_NAME}_{tool_name}": True
+                    for tool_name in tool_allowlist
+                }
+            )
         return tools
 
     async def _wait_for_tool_broker(self, handle: OpenCodeServerHandle) -> None:
@@ -531,6 +565,31 @@ class OpenCodeProvider(CodingAgentProvider):
                 text = delta if isinstance(delta, str) else part.get("text")
             if isinstance(text, str) and text:
                 return ProviderEvent(kind=ProviderEventKind.MESSAGE, data={"text": text})
+        if event_type == "message.updated":
+            info = properties.get("info")
+            tokens = info.get("tokens") if isinstance(info, dict) else None
+            if isinstance(tokens, dict):
+                cache = tokens.get("cache")
+                cost = info.get("cost")
+                usage = ProviderUsage(
+                    input_tokens=_nonnegative_int(tokens.get("input")),
+                    output_tokens=_nonnegative_int(tokens.get("output")),
+                    cache_read_tokens=_nonnegative_int(
+                        cache.get("read") if isinstance(cache, dict) else None
+                    ),
+                    cache_write_tokens=_nonnegative_int(
+                        cache.get("write") if isinstance(cache, dict) else None
+                    ),
+                    cost_microusd=(
+                        round(float(cost) * 1_000_000)
+                        if isinstance(cost, (int, float)) and cost >= 0
+                        else None
+                    ),
+                )
+                return ProviderEvent(
+                    kind=ProviderEventKind.USAGE,
+                    data={"usage": usage.model_dump(mode="json")},
+                )
         if event_type in {"permission.asked", "permission.updated"}:
             return ProviderEvent(
                 kind=ProviderEventKind.APPROVAL_REQUIRED,
@@ -543,6 +602,14 @@ class OpenCodeProvider(CodingAgentProvider):
         if event_type in {"session.error", "message.error"}:
             return ProviderEvent(kind=ProviderEventKind.FAILED, data={"error": "provider_failed"})
         return None
+
+
+def _nonnegative_int(value: Any) -> int:
+    return (
+        value
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        else 0
+    )
 
 
 async def _iter_sse_json(response: httpx.Response) -> AsyncIterator[dict[str, Any]]:

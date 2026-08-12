@@ -60,7 +60,8 @@ def test_config_disables_direct_tools_plugins_sharing_and_supplier_surface(tmp_p
     config = provider.build_config(_route())
     permission = config["permission"]
     assert permission["*"] == "deny"
-    assert permission["modelmirror-tool-broker_*"] == "allow"
+    assert "modelmirror-tool-broker_*" not in permission
+    assert permission["modelmirror-tool-broker_read_file"] == "allow"
     assert Path(
         config["mcp"][TOOL_BROKER_MCP_NAME]["environment"]["PYTHONPATH"]
     ).name == "server"
@@ -70,6 +71,7 @@ def test_config_disables_direct_tools_plugins_sharing_and_supplier_surface(tmp_p
         "{env:CODING_WORKER_ROUTE_KEY}"
     )
     assert all(provider._prompt_tools()[name] is False for name in DIRECT_TOOL_NAMES)
+    assert provider._prompt_tools()["modelmirror-tool-broker_read_file"] is True
 
 
 @pytest.mark.asyncio
@@ -199,6 +201,9 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
         "task_id": "task-01",
         "public_output": "done",
     }
+    assert checkpoint.compatibility is not None
+    assert checkpoint.compatibility.provider_family == "opencode"
+    assert checkpoint.compatibility.provider_version == "1.18.9"
     assert "http" not in checkpoint.payload and "port" not in checkpoint.payload
     assert "session" not in checkpoint.payload and "messages" not in checkpoint.payload
     await provider.close(session)
@@ -262,6 +267,37 @@ def test_raw_permission_frame_never_enters_provider_neutral_event() -> None:
     assert event is not None
     assert event.kind is ProviderEventKind.APPROVAL_REQUIRED
     assert event.data == {"capability": "provider_permission"}
+
+
+def test_raw_usage_frame_maps_to_provider_neutral_usage() -> None:
+    event = OpenCodeProvider._map_event(
+        {
+            "type": "message.updated",
+            "properties": {
+                "sessionID": "ses_test",
+                "info": {
+                    "tokens": {
+                        "input": 12,
+                        "output": 7,
+                        "cache": {"read": 4, "write": 2},
+                    },
+                    "cost": 0.00125,
+                    "supplier": "must-not-leak",
+                },
+            },
+        },
+        "ses_test",
+    )
+    assert event is not None and event.kind is ProviderEventKind.USAGE
+    assert event.data == {
+        "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7,
+            "cache_read_tokens": 4,
+            "cache_write_tokens": 2,
+            "cost_microusd": 1250,
+        }
+    }
 
 
 @pytest.mark.asyncio

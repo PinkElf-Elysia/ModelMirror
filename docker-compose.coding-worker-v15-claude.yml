@@ -1,0 +1,69 @@
+services:
+  server:
+    environment:
+      CODING_WORKER_CLAUDE_ENABLED: ${CODING_WORKER_CLAUDE_ENABLED:-false}
+      CODING_WORKER_MODEL_ROUTES: coding/default,coding/quality
+      CODING_WORKER_ROUTE_SLOTS_JSON: '{"coding/default":["slot-a"],"coding/quality":["slot-b"]}'
+
+  coding-worker-provider-b:
+    image: modelmirror-coding-worker-claude-v15:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.claude
+    depends_on: !reset {}
+    networks: !override
+      - coding_worker_claude
+    environment: !override
+      CODING_WORKER_PROVIDER_SOCKET: /run/modelmirror-coding/provider.sock
+      CODING_WORKER_SIDECAR_TOKEN: ${CODING_WORKER_SLOT_B_TOKEN:?set a random V15 slot B token}
+      CODING_WORKER_PROVIDER_KIND: claude-code
+      CODING_WORKER_ROUTE_ID: coding/quality
+      CODING_WORKER_MODEL_ID: ${CODING_WORKER_CLAUDE_MODEL_ID:?set the controlled Claude model id}
+      CODING_WORKER_CLAUDE_SECRET_PATH: /run/secrets/modelmirror_claude_api_key
+      CODING_WORKER_PROVIDER_PROXY_URL: http://provider:${CODING_WORKER_CLAUDE_PROXY_TOKEN:?set a random URL-safe Claude proxy token}@coding-worker-claude-egress:8081
+    volumes: !override
+      - coding_worker_provider_b:/run/modelmirror-coding
+      - coding_worker_broker:/run/modelmirror-coding-broker:ro
+    secrets: !override
+      - source: coding_worker_claude_api_key
+        target: modelmirror_claude_api_key
+        uid: "65532"
+        gid: "65532"
+        mode: 0400
+
+  coding-worker-claude-egress:
+    image: modelmirror-coding-worker-claude-v15:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.claude
+    container_name: modelmirror-coding-worker-claude-egress
+    command: ["python", "-m", "coding_worker.egress_proxy"]
+    networks:
+      - coding_worker_claude
+      - coding_worker_claude_egress
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=8m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_WORKER_PROVIDER_EGRESS_TOKEN: ${CODING_WORKER_CLAUDE_PROXY_TOKEN:?set a random URL-safe Claude proxy token}
+      CODING_WORKER_PROVIDER_NETWORK_DOMAINS: api.anthropic.com
+    restart: unless-stopped
+
+secrets:
+  coding_worker_claude_api_key:
+    file: ${CODING_WORKER_CLAUDE_SECRET_FILE:?set an absolute Claude API key secret file}
+
+networks:
+  coding_worker_claude:
+    driver: bridge
+    internal: true
+  coding_worker_claude_egress:
+    driver: bridge

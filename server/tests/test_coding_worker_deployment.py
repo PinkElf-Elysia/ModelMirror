@@ -47,3 +47,43 @@ def test_v14_sidecar_is_non_root_and_has_no_host_control_mounts() -> None:
     assert "coding-worker-network" in compose
     assert 'command: ["python", "-m", "coding_worker.egress_proxy"]' in compose
     assert "CODING_WORKER_EGRESS_GRANT_KEY: ${CODING_WORKER_EGRESS_GRANT_KEY:-}" in compose
+
+
+def test_v15_claude_provider_has_a_pinned_private_image_and_secret_only_mount() -> None:
+    root = Path(__file__).parents[2]
+    dockerfile = (root / "server/coding_worker/Dockerfile.claude").read_text()
+    compose = (root / "docker-compose.coding-worker-v15-claude.yml").read_text()
+
+    assert "CLAUDE_CODE_VERSION=2.1.89" in dockerfile
+    assert "CLAUDE_CODE_INTEGRITY=sha512-" in dockerfile
+    assert "Claude Code package integrity mismatch" in dockerfile
+    assert 'test "$(claude --version | awk' in dockerfile
+    assert "USER 65532:65532" in dockerfile
+    assert 'CMD ["python", "-m", "coding_worker.sidecar"]' in dockerfile
+    assert "git " not in dockerfile
+    assert "ripgrep" not in dockerfile
+
+    provider = compose.split("coding-worker-provider-b:", 1)[1].split(
+        "secrets:", 1
+    )[0]
+    assert "CODING_WORKER_PROVIDER_KIND: claude-code" in provider
+    assert "CODING_WORKER_ROUTE_ID: coding/quality" in provider
+    assert "CODING_WORKER_CLAUDE_SECRET_PATH: /run/secrets/" in provider
+    assert "coding_worker_provider_b:/run/modelmirror-coding" in provider
+    assert "coding_worker_broker:/run/modelmirror-coding-broker:ro" in provider
+    assert "coding_worker_slot_b:/worker-data" not in provider
+    assert "CODING_WORKER_ROUTE_KEY" not in provider
+    assert "CODING_WORKER_MODEL_BASE_URL" not in provider
+    assert "docker.sock" not in provider
+    assert ".ssh" not in provider
+    assert "internal: true" in compose
+    assert "CODING_WORKER_ROUTE_SLOTS_JSON" in compose
+    assert "coding-worker-claude-egress:" in compose
+    assert "CODING_WORKER_PROVIDER_NETWORK_DOMAINS: api.anthropic.com" in compose
+    assert "CODING_WORKER_PROVIDER_EGRESS_TOKEN" in compose
+    assert "CODING_WORKER_PROVIDER_PROXY_URL: http://provider:" in provider
+    proxy = compose.split("\n  coding-worker-claude-egress:", 1)[1].split(
+        "secrets:", 1
+    )[0]
+    assert "modelmirror_claude_api_key" not in proxy
+    assert "coding_worker_provider_b" not in proxy
