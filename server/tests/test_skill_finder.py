@@ -280,7 +280,16 @@ def test_python_and_typescript_matcher_keep_the_same_golden_order() -> None:
       )));
     """
     completed = subprocess.run(
-        ["node", "--input-type=module", "-e", script, str(INDEX_PATH), json.dumps(queries, ensure_ascii=False)],
+        [
+            "node",
+            "--experimental-loader",
+            str(ROOT / "scripts" / "typescript-module-loader.mjs"),
+            "--input-type=module",
+            "-e",
+            script,
+            str(INDEX_PATH),
+            json.dumps(queries, ensure_ascii=False),
+        ],
         cwd=ROOT,
         check=True,
         capture_output=True,
