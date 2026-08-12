@@ -7,6 +7,14 @@ const api = vi.hoisted(() => ({
   getCodingWorkerStatus: vi.fn(),
   listCodingWorkerTasks: vi.fn(),
   getCodingWorkerTask: vi.fn(),
+  getCodingWorkerPlan: vi.fn(),
+  listCodingWorkerQuestions: vi.fn(),
+  answerCodingWorkerQuestion: vi.fn(),
+  getCodingWorkerTurnHistory: vi.fn(),
+  navigateCodingWorkerTurn: vi.fn(),
+  forkCodingWorkerTask: vi.fn(),
+  listCodingWorkerChildren: vi.fn(),
+  mergeCodingWorkerSubtask: vi.fn(),
   getCodingWorkerChangeset: vi.fn(),
   getCodingWorkerDiagnostics: vi.fn(),
   handoffCodingWorkerTask: vi.fn(),
@@ -67,9 +75,17 @@ beforeEach(() => {
   Object.values(api).forEach((mock) => "mockReset" in mock && mock.mockReset());
   Object.values(projectApi).forEach((mock) => "mockReset" in mock && mock.mockReset());
   api.codingWorkerArtifactUrl.mockImplementation((taskId: string, artifactId: string) => `/artifact/${taskId}/${artifactId}`);
-  api.getCodingWorkerStatus.mockResolvedValue({ enabled: true, available: true, version: "v1", max_active_tasks: 2, retention_seconds: 604800, network_enabled: false, acceptance_checks: ["python-pytest", "react-build"], model_routes: ["coding/default", "coding/quality"], reason: null, capabilities: { api_version: "v1", task_runtime: true, professional_file_tools: true, shell: true, operation_output: true, changesets: true, code_intelligence: true } });
+  api.getCodingWorkerStatus.mockResolvedValue({ enabled: true, available: true, version: "v1", max_active_tasks: 2, retention_seconds: 604800, network_enabled: false, acceptance_checks: ["python-pytest", "react-build"], model_routes: ["coding/default", "coding/quality"], reason: null, capabilities: { api_version: "v1", task_runtime: true, professional_file_tools: true, shell: true, operation_output: true, changesets: true, code_intelligence: true, structured_plan: true, user_questions: true, context_compaction: true, turn_history: true, subtasks: true } });
   api.listCodingWorkerTasks.mockResolvedValue([task]);
   api.getCodingWorkerTask.mockResolvedValue(task);
+  api.getCodingWorkerPlan.mockResolvedValue(null);
+  api.listCodingWorkerQuestions.mockResolvedValue([]);
+  api.answerCodingWorkerQuestion.mockResolvedValue({});
+  api.getCodingWorkerTurnHistory.mockResolvedValue({ task_id: task.task_id, cursor: 0, checkpoints: [], pending_action: null });
+  api.navigateCodingWorkerTurn.mockResolvedValue({ task_id: task.task_id, cursor: 0, checkpoints: [], pending_action: null });
+  api.forkCodingWorkerTask.mockResolvedValue({ ...task, task_id: "task_fork_1234567890abcdef1234567890" });
+  api.listCodingWorkerChildren.mockResolvedValue({ tasks: [], subtasks: [] });
+  api.mergeCodingWorkerSubtask.mockResolvedValue({});
   api.listCodingWorkerApprovals.mockResolvedValue([{ approval_id: "approval_1234567890abcdef1234567890abcdef", task_id: task.task_id, operation_id: "operation_1", capability: "command", status: "pending", request: { command: "pytest" }, lease: null, created_at: 1, decided_at: null }]);
   api.listCodingWorkerEvidence.mockResolvedValue([{ evidence_id: "evidence_1", task_id: task.task_id, check_id: "tests", operation_id: "operation_1", workspace_tree_hash: "a".repeat(64), status: "failed", exit_code: 1, artifact_id: "artifact_1", created_at: 2 }]);
   api.listCodingWorkerArtifacts.mockResolvedValue([]);
@@ -219,6 +235,125 @@ describe("CodingWorkerConsole", () => {
     await user.click(screen.getByRole("tab", { name: "诊断" }));
     expect(await screen.findByText("返回类型不匹配")).toBeInTheDocument();
     expect(screen.getByText("5:3 · reportGeneralTypeIssues")).toBeInTheDocument();
+  });
+
+  it("shows session controls, questions and isolated subtask merge results", async () => {
+    const checkpoint = {
+      checkpoint_id: "checkpoint_1",
+      task_id: task.task_id,
+      ordinal: 1,
+      turn_id: "turn_1",
+      before_tree_hash: "a".repeat(64),
+      before_tree_oid: "a".repeat(40),
+      after_tree_hash: "b".repeat(64),
+      after_tree_oid: "b".repeat(40),
+      ledger_sequence: 4,
+      created_at: 2,
+    };
+    const readyChildId = "task_child_ready_1234567890abcdef1234";
+    const conflictChildId = "task_child_conflict_1234567890abcdef";
+    api.getCodingWorkerPlan.mockResolvedValue({
+      task_id: task.task_id,
+      sequence: 3,
+      turn_id: "turn_1",
+      explanation: "先定位，再修改和复测。",
+      items: [
+        { step: "定位失败测试", status: "completed" },
+        { step: "修复状态逻辑", status: "in_progress" },
+      ],
+      updated_at: 2,
+    });
+    api.listCodingWorkerQuestions.mockResolvedValue([{
+      task_id: task.task_id,
+      question_id: "question_1",
+      turn_id: "turn_1",
+      status: "pending",
+      prompt: "采用哪一种兼容策略？",
+      options: [{ option_id: "strict", label: "采用严格模式" }],
+      answer: null,
+      selected_option_id: null,
+      created_at: 2,
+      resolved_at: null,
+    }]);
+    api.getCodingWorkerTurnHistory.mockResolvedValue({
+      task_id: task.task_id,
+      cursor: 1,
+      checkpoints: [checkpoint],
+      pending_action: null,
+    });
+    api.listCodingWorkerChildren.mockResolvedValue({
+      tasks: [
+        { ...task, task_id: readyChildId, state: "completed" },
+        { ...task, task_id: conflictChildId, state: "completed" },
+      ],
+      subtasks: [
+        {
+          parent_task_id: task.task_id,
+          child_task_id: readyChildId,
+          client_subtask_id: "implementation",
+          kind: "implement",
+          objective: "实现独立修复",
+          base_tree_hash: "a".repeat(64),
+          merge_state: "ready",
+          result_tree_hash: "b".repeat(64),
+          merge_operation_id: null,
+          merged_tree_hash: null,
+          changed_paths: ["src/state.ts"],
+          summary: "修复完成，等待父任务合并。",
+          created_at: 2,
+          updated_at: 3,
+        },
+        {
+          parent_task_id: task.task_id,
+          child_task_id: conflictChildId,
+          client_subtask_id: "conflict",
+          kind: "implement",
+          objective: "修改同一文件",
+          base_tree_hash: "a".repeat(64),
+          merge_state: "conflicted",
+          result_tree_hash: "c".repeat(64),
+          merge_operation_id: "merge_existing",
+          merged_tree_hash: null,
+          changed_paths: ["src/state.ts"],
+          summary: null,
+          created_at: 2,
+          updated_at: 4,
+        },
+      ],
+    });
+    api.connectCodingWorkerEvents.mockImplementation((_taskId, _after, handlers) => {
+      queueMicrotask(() => handlers.onEvent({
+        sequence: 9,
+        task_id: task.task_id,
+        type: "context_compacted",
+        payload: { boundary: "tool_completed" },
+        created_at: 3,
+      }));
+      return () => undefined;
+    });
+
+    const user = userEvent.setup();
+    render(<CodingWorkerConsole context="agent" />);
+    await user.click(await screen.findByRole("tab", { name: "会话" }));
+
+    expect(await screen.findByText("修复状态逻辑")).toBeInTheDocument();
+    expect(screen.getByText("上下文已在完整工具边界压缩", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("父 Workspace 未被覆盖", { exact: false })).toBeInTheDocument();
+    expect(screen.getAllByText("src/state.ts", { exact: false })).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "采用严格模式" }));
+    await waitFor(() => expect(api.answerCodingWorkerQuestion).toHaveBeenCalledWith(
+      task.task_id,
+      "question_1",
+      { option_id: "strict" },
+    ));
+
+    await user.click(screen.getByRole("button", { name: "合并变更" }));
+    await waitFor(() => expect(api.mergeCodingWorkerSubtask).toHaveBeenCalledWith(
+      task.task_id,
+      readyChildId,
+      `merge_${readyChildId.slice(-32)}`,
+    ));
   });
 
   it("hands a completed Host Snapshot task to the v13 confirmation chain", async () => {
