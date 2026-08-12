@@ -191,7 +191,8 @@ const ModelCard = memo(function ModelCard({
   const regionSensitive =
     !domesticFriendly &&
     includesProviderKeyword(identity, restrictedProviderKeywords);
-  const isHistorical = model.catalog_status === "historical";
+  const isUncertain = model.catalog_status === "uncertain";
+  const isRouteVariant = model.catalog_status === "route_variant";
   const generalInvocationAllowed = model.active || catalogInvocable;
   const canChat =
     generalInvocationAllowed &&
@@ -356,9 +357,19 @@ const ModelCard = memo(function ModelCard({
 
       <div className="relative border-b border-hire-300/20 bg-[linear-gradient(90deg,rgba(251,146,60,0.24),rgba(253,186,116,0.10),rgba(36,217,255,0.08))] px-5 py-4">
         <div className="flex items-center justify-between gap-3">
-          <span className="rounded-full border border-hire-200/30 bg-hire-400/15 px-3 py-1 text-xs font-semibold text-hire-100">
-            {isHistorical && !catalogInvocable
+          <span
+            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+              isUncertain
+                ? "border-amber-300/35 bg-amber-300/10 text-amber-100"
+                : isRouteVariant
+                  ? "border-sky-300/35 bg-sky-300/10 text-sky-100"
+                  : "border-hire-200/30 bg-hire-400/15 text-hire-100"
+            }`}
+          >
+            {isUncertain
               ? "可能不可用"
+              : isRouteVariant
+                ? "路由变体"
               : canManuallyVerifyVideo
                 ? "等待人工验收"
               : adaptedAudioUnavailable
@@ -542,7 +553,7 @@ const ModelCard = memo(function ModelCard({
             className="shrink-0 cursor-not-allowed rounded-full border border-white/10 bg-white/[0.045] px-3.5 py-2 text-sm font-semibold text-slate-400"
             disabled
             title={
-              isHistorical && !catalogInvocable
+              isUncertain
                 ? "当前未出现在 OpenRouter 实时目录，其他兼容渠道仍可能支持调用。"
                 : adaptedAudioUnavailable
                 ? audioCapabilityStatus?.reason ?? audioUnavailableLabel
@@ -554,7 +565,7 @@ const ModelCard = memo(function ModelCard({
             }
             type="button"
           >
-            {isHistorical && !catalogInvocable
+            {isUncertain
               ? "可能不可用"
               : adaptedAudioUnavailable
               ? audioUnavailableLabel
@@ -666,9 +677,9 @@ const ModelCard = memo(function ModelCard({
           </span>
         ) : null}
       </div>
-      {isHistorical ? (
+      {isUncertain ? (
         <p className="relative mt-2 px-5 text-xs leading-5 text-amber-100">
-          当前未出现在 OpenRouter 实时目录，其他兼容渠道仍可能支持调用。
+          当前未出现在 OpenRouter 实时目录；入口保留，调用结果以上游实际响应为准。
         </p>
       ) : null}
       {pendingAudioLabels.length > 0 ? (
