@@ -15,6 +15,9 @@ import {
 
 interface ModelCardProps {
   model: Model;
+  compareSelected?: boolean;
+  compareDisabled?: boolean;
+  onCompareChange?: (modelId: string, selected: boolean) => void;
   catalogInvocable?: boolean;
   confirmedAudioOperations?: ModelOperation[];
   adaptedAudioOperations?: ModelOperation[];
@@ -160,6 +163,9 @@ const operationLabels: Record<ModelOperation, string> = {
 
 const ModelCard = memo(function ModelCard({
   model,
+  compareSelected = false,
+  compareDisabled = false,
+  onCompareChange,
   catalogInvocable = false,
   confirmedAudioOperations = [],
   adaptedAudioOperations = [],
@@ -349,6 +355,32 @@ const ModelCard = memo(function ModelCard({
         preferredModelId,
       )}?media=audio&sttModel=${encodeURIComponent(model.id)}`
     : `/chat/${encodeURIComponent(model.id)}`;
+  const operationalStatus = isUncertain
+    ? {
+        label: "可能不可用",
+        className: "border-amber-300/35 bg-amber-300/10 text-amber-100",
+      }
+    : isRouteVariant
+      ? {
+          label: "路由变体",
+          className: "border-sky-300/35 bg-sky-300/10 text-sky-100",
+        }
+      : canManuallyVerifyVideo
+        ? {
+            label: "等待人工验收",
+            className: "border-hire-200/30 bg-hire-400/15 text-hire-100",
+          }
+        : adaptedAudioUnavailable
+          ? {
+              label: audioUnavailableLabel,
+              className: "border-hire-200/30 bg-hire-400/15 text-hire-100",
+            }
+          : !isInteractionReady
+            ? {
+                label: isRealtimeVoiceModel ? "需要配置" : "交互待适配",
+                className: "border-hire-200/30 bg-hire-400/15 text-hire-100",
+              }
+            : null;
 
   return (
     <article className="group relative isolate flex h-full min-h-[340px] flex-col overflow-hidden rounded-lg border border-hire-300/20 bg-ink-950/76 p-0 shadow-prism backdrop-blur-xl transition duration-300 ease-out hover:-translate-y-1 hover:border-hire-300/55 hover:bg-surface-900/90 hover:shadow-[0_0_0_1px_rgba(251,146,60,0.32),0_20px_46px_rgba(124,45,18,0.22)]">
@@ -357,31 +389,25 @@ const ModelCard = memo(function ModelCard({
 
       <div className="relative border-b border-hire-300/20 bg-[linear-gradient(90deg,rgba(251,146,60,0.24),rgba(253,186,116,0.10),rgba(36,217,255,0.08))] px-5 py-4">
         <div className="flex items-center justify-between gap-3">
-          <span
-            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-              isUncertain
-                ? "border-amber-300/35 bg-amber-300/10 text-amber-100"
-                : isRouteVariant
-                  ? "border-sky-300/35 bg-sky-300/10 text-sky-100"
-                  : "border-hire-200/30 bg-hire-400/15 text-hire-100"
-            }`}
-          >
-            {isUncertain
-              ? "可能不可用"
-              : isRouteVariant
-                ? "路由变体"
-              : canManuallyVerifyVideo
-                ? "等待人工验收"
-              : adaptedAudioUnavailable
-              ? audioUnavailableLabel
-              : !isInteractionReady
-              ? isRealtimeVoiceModel
-                ? "需要配置"
-                : "交互待适配"
-              : talentStats.urgent
-                ? "急聘"
-                : "可预约面试"}
-          </span>
+          {operationalStatus ? (
+            <span
+              className={`rounded-full border px-3 py-1 text-xs font-semibold ${operationalStatus.className}`}
+            >
+              {operationalStatus.label}
+            </span>
+          ) : (
+            <button
+              aria-label={`${compareSelected ? "移出" : "加入"} ${model.name} 对比`}
+              aria-pressed={compareSelected}
+              className="min-h-8 rounded-full border border-hire-200/30 bg-hire-400/15 px-3 text-xs font-semibold text-hire-100 transition hover:border-hire-200/60 hover:bg-hire-300/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-200/70 disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={compareDisabled && !compareSelected}
+              onClick={() => onCompareChange?.(model.id, !compareSelected)}
+              title={compareDisabled && !compareSelected ? "最多对比 4 个模型" : undefined}
+              type="button"
+            >
+              {compareSelected ? "已加入对比" : "加入对比"}
+            </button>
+          )}
           <span className="text-xs font-medium text-hire-100">
             人气值 {talentStats.popularity}
           </span>

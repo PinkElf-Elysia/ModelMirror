@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import FederationRouterCard from "../components/FederationRouterCard";
+import ModelCompareTray from "../components/ModelCompareTray";
+import ModelCompareView from "../components/ModelCompareView";
 import ModelCard, {
   type AudioCapabilityStatus,
 } from "../components/ModelCard";
@@ -14,6 +17,10 @@ import {
   fetchFileCapabilities,
   type FileCapabilitiesResponse,
 } from "../data/fileCapabilities";
+import {
+  parseModelCompareState,
+  updateModelCompareParams,
+} from "../data/modelCompareState";
 import {
   models,
   type InputModality,
@@ -169,6 +176,7 @@ interface RuntimeEnvironmentSummary {
 }
 
 export default function ModelListPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] =
     useState<ModelFilterState>(createDefaultFilters);
   const [searchTerm, setSearchTerm] = useState("");
@@ -655,6 +663,29 @@ export default function ModelListPage() {
   ).length;
   const featuredModels = filteredModels.slice(0, 2);
   const galleryModels = filteredModels.slice(featuredModels.length);
+  const compareState = useMemo(
+    () => parseModelCompareState(searchParams),
+    [searchParams],
+  );
+  const selectedCompareModels = useMemo(
+    () => compareState.ids
+      .map((modelId) => models.find((model) => model.id === modelId))
+      .filter((model): model is Model => Boolean(model)),
+    [compareState.ids],
+  );
+
+  function setCompareSelection(ids: string[], active = false) {
+    setSearchParams(updateModelCompareParams(searchParams, ids, active), {
+      replace: true,
+    });
+  }
+
+  function toggleCompare(modelId: string, selected: boolean) {
+    const ids = selected
+      ? [...compareState.ids, modelId].slice(0, 4)
+      : compareState.ids.filter((candidate) => candidate !== modelId);
+    setCompareSelection(ids, compareState.active && ids.length >= 2);
+  }
 
   return (
     <PageContainer
@@ -785,6 +816,14 @@ export default function ModelListPage() {
         </section>
 
         <section className="mt-8">
+          {compareState.active ? (
+            <ModelCompareView
+              models={selectedCompareModels}
+              onBack={() => setCompareSelection(compareState.ids)}
+              onRemove={(modelId) => toggleCompare(modelId, false)}
+            />
+          ) : (
+          <>
           <div className="mb-6 grid gap-4 lg:grid-cols-3">
             <FederationRouterCard />
             {featuredModels.length > 0
@@ -816,6 +855,9 @@ export default function ModelListPage() {
                       }
                       fileSurfaceSummary={fileSurfaceSummary}
                       model={model}
+                      compareDisabled={compareState.ids.length >= 4}
+                      compareSelected={compareState.ids.includes(model.id)}
+                      onCompareChange={toggleCompare}
                       imageCatalogStale={imageCatalog?.stale ?? false}
                       videoCatalogStale={videoCatalog?.stale ?? false}
                     />
@@ -851,6 +893,9 @@ export default function ModelListPage() {
                   fileSurfaceSummary={fileSurfaceSummary}
                   key={model.id}
                   model={model}
+                  compareDisabled={compareState.ids.length >= 4}
+                  compareSelected={compareState.ids.includes(model.id)}
+                  onCompareChange={toggleCompare}
                   imageCatalogStale={imageCatalog?.stale ?? false}
                   videoCatalogStale={videoCatalog?.stale ?? false}
                 />
@@ -878,7 +923,17 @@ export default function ModelListPage() {
               </button>
             </div>
           )}
+          </>
+          )}
         </section>
+        {!compareState.active ? (
+          <ModelCompareTray
+            models={selectedCompareModels}
+            onClear={() => setCompareSelection([])}
+            onCompare={() => setCompareSelection(compareState.ids, true)}
+            onRemove={(modelId) => toggleCompare(modelId, false)}
+          />
+        ) : null}
 
         <footer className="mt-10 border-t border-white/10 py-6 text-sm text-slate-500">
           © 2026 模镜 ModelMirror

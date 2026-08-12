@@ -57,7 +57,7 @@ function AccordionSection({
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <section className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.035]">
+    <section className="h-full overflow-hidden rounded-lg border border-white/10 bg-white/[0.035]">
       <button
         aria-expanded={isOpen}
         className="flex w-full items-center justify-between px-3 py-3 text-left text-sm font-semibold text-slate-100 transition duration-200 hover:bg-white/[0.06]"
@@ -92,6 +92,7 @@ export default function FilterPanel({
 }: FilterPanelProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(true);
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
 
   function update<K extends keyof ModelFilterState>(
     key: K,
@@ -100,9 +101,35 @@ export default function FilterPanel({
     onChange({ ...filters, [key]: value });
   }
 
+  const providerPriority = [
+    "OpenAI",
+    "Anthropic",
+    "深度求索",
+    "Google",
+    "通义千问",
+    "Meta",
+    "Mistral AI",
+    "Microsoft",
+  ];
+  const providerPriorityIndex = (label: string) => {
+    const index = providerPriority.indexOf(label);
+    return index === -1 ? providerPriority.length : index;
+  };
+  const seenProviderLabels = new Set<string>();
+  const prioritizedProviderOptions = [...providerOptions]
+    .sort((left, right) => {
+      const priorityDifference =
+        providerPriorityIndex(left.label) - providerPriorityIndex(right.label);
+      return priorityDifference || left.label.localeCompare(right.label, "zh-CN");
+    })
+    .filter((option) => {
+      if (seenProviderLabels.has(option.label)) return false;
+      seenProviderLabels.add(option.label);
+      return true;
+    });
   const providerRadioOptions = [
     { value: "all" as const, label: "全部" },
-    ...providerOptions,
+    ...prioritizedProviderOptions,
   ];
 
   const panelContent = (onDismiss: () => void) => (
@@ -126,16 +153,7 @@ export default function FilterPanel({
       </div>
 
       <div className="max-h-[72vh] overflow-y-auto px-3 py-3 lg:max-h-[calc(100vh-18rem)]">
-        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-        <AccordionSection defaultOpen title={recruitmentFilterTitles.provider}>
-          <RadioFilter
-            name="providers"
-            onChange={(value) => update("provider", value)}
-            options={providerRadioOptions}
-            value={filters.provider}
-          />
-        </AccordionSection>
-
+        <div className="grid items-stretch gap-3 lg:grid-cols-2 xl:grid-cols-3">
         <AccordionSection defaultOpen title={recruitmentFilterTitles.inputModalities}>
           <TagFilter
             onToggle={(value) =>
@@ -149,7 +167,7 @@ export default function FilterPanel({
           />
         </AccordionSection>
 
-        <AccordionSection title={recruitmentFilterTitles.jobCapabilities}>
+        <AccordionSection defaultOpen title={recruitmentFilterTitles.jobCapabilities}>
           <TagFilter
             onToggle={(value) =>
               update(
@@ -162,7 +180,20 @@ export default function FilterPanel({
           />
         </AccordionSection>
 
-        <AccordionSection defaultOpen title={recruitmentFilterTitles.context}>
+        <AccordionSection defaultOpen title={recruitmentFilterTitles.provider}>
+          <RadioFilter
+            name="providers"
+            onChange={(value) => update("provider", value)}
+            options={providerRadioOptions}
+            value={filters.provider}
+          />
+        </AccordionSection>
+
+        </div>
+
+        <div className="mt-3 grid items-start gap-3 lg:grid-cols-2 xl:grid-cols-3">
+
+        <AccordionSection title={recruitmentFilterTitles.context}>
           <RangeSlider
             formatValue={formatContext}
             max={CONTEXT_RANGE_LIMIT.max}
@@ -174,7 +205,7 @@ export default function FilterPanel({
           />
         </AccordionSection>
 
-        <AccordionSection defaultOpen title={recruitmentFilterTitles.pricing}>
+        <AccordionSection title={recruitmentFilterTitles.pricing}>
           <RangeSlider
             formatValue={formatCny}
             max={PROMPT_PRICE_CNY_LIMIT.max}
@@ -193,7 +224,20 @@ export default function FilterPanel({
             selected={filters.series}
           />
         </AccordionSection>
+        </div>
 
+        <button
+          aria-expanded={moreFiltersOpen}
+          className="mt-3 flex min-h-11 w-full items-center justify-between rounded-lg border border-white/10 bg-white/[0.035] px-3 text-sm font-semibold text-slate-200 transition hover:border-hire-300/30 hover:bg-white/[0.055] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-200/60"
+          onClick={() => setMoreFiltersOpen((current) => !current)}
+          type="button"
+        >
+          <span>{moreFiltersOpen ? "收起更多筛选" : "更多筛选"}</span>
+          <span aria-hidden="true" className={`text-slate-500 transition ${moreFiltersOpen ? "rotate-180 text-hire-200" : ""}`}>⌄</span>
+        </button>
+
+        {moreFiltersOpen ? (
+        <div className="mt-3 grid items-start gap-3 lg:grid-cols-2 xl:grid-cols-3">
         <AccordionSection title={recruitmentFilterTitles.parameters}>
           <CheckboxFilter
             onToggle={(value) =>
@@ -253,6 +297,7 @@ export default function FilterPanel({
           />
         </AccordionSection>
         </div>
+        ) : null}
       </div>
 
       <div className="border-t border-white/10 px-4 py-3 text-xs text-slate-400">
