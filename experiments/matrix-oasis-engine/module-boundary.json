@@ -1,24 +1,28 @@
 {
-  "schemaVersion": 9,
+  "schemaVersion": 10,
   "moduleId": "matrix-oasis-engine",
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
-  "activeRound": "R9",
-  "activeRoundBaselineSha": "da5fd0fe39234807ae3c4a1d543b9fd64de66d97",
+  "activeRound": "R10",
+  "activeRoundBaselineSha": "09f4cca4f1e02fe275ada17535597437cac3778d",
   "activeRoundChangePolicy": {
     "allowedModuleFiles": [
       "AGENTS.md", "README.md", ".gitattributes", ".gitignore", "module-boundary.json", "package-lock.json", "package.json",
       "docs/ARCHITECTURE.md", "docs/BOUNDARIES.md", "docs/DEPENDENCIES_AND_LICENSES.md", "docs/KNOWN_LIMITATIONS.md",
       "docs/PRODUCT.md", "docs/V1_CRITICAL_PATH.md", "docs/PROTOTYPE_ASSET_BUNDLE.md", "docs/PROTOTYPE_ASSET_THREAT_MODEL.md",
-      "docs/MESHY_CALL_APPROVAL.md", "docs/adr/0010-r9-asset-materialization-governance.md", "docs/rounds/R9_ACCEPTANCE.md",
+      "docs/MESHY_CALL_APPROVAL.md", "docs/PROTOTYPE_ENVIRONMENT.md", "docs/PROTOTYPE_BUILDER_THREAT_MODEL.md", "docs/MARBLE_CALL_APPROVAL.md",
+      "docs/adr/0011-r10-prototype-builder-governance.md", "docs/rounds/R10_ACCEPTANCE.md",
+      "apps/creator-web/package.json", "apps/creator-web/src/App.tsx", "apps/creator-web/src/styles.css", "apps/creator-web/src/prototype-builder.ts",
       "scripts/check-round-scope.mjs", "scripts/plan-prototype-assets.mjs", "scripts/qualify-meshy-asset.mjs", "scripts/materialize-prototype-assets.mjs", "scripts/verify-prototype-assets-godot.mjs",
-      "scripts/lib/boundary-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/prototype-asset-cli-core.mjs", "scripts/lib/scope-policy.mjs",
+      "scripts/import-prototype-cache.mjs", "scripts/preview-prototype.mjs", "scripts/qualify-marble-environment.mjs", "scripts/verify-prototype-environment.mjs", "scripts/verify-prototype-assembly.mjs", "scripts/verify-prototype-host.mjs", "scripts/verify-prototype-builder.mjs", "scripts/verify-r10.mjs",
+      "scripts/lib/boundary-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/prototype-asset-cli-core.mjs", "scripts/lib/prototype-cache-core.mjs", "scripts/lib/prototype-host-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/prototype-asset-cli.test.mjs", "tests/prototype-asset-qualification.test.mjs", "tests/prototype-asset-godot.test.mjs", "tests/round-scope.test.mjs"
+      "tests/prototype-asset-cli.test.mjs", "tests/prototype-asset-qualification.test.mjs", "tests/prototype-asset-godot.test.mjs", "tests/prototype-environment.test.mjs", "tests/prototype-assembly.test.mjs", "tests/prototype-host.test.mjs", "tests/prototype-builder.test.mjs", "tests/r10-qualification.test.mjs", "tests/round-scope.test.mjs"
     ],
     "allowedModulePrefixes": [
-      "packages/prototype-asset-contracts",
-      "packages/prototype-asset-pipeline"
+      "packages/prototype-environment-pipeline",
+      "packages/prototype-assembler",
+      "apps/runtime-godot/prototype_builder"
     ],
     "frozenModulePaths": [
       "apps", "docs", "examples", "packages", "scripts", "tests", "third-party"
@@ -31,7 +35,7 @@
     "creatorSource": "none",
     "godotFirstPartySource": "none",
     "verificationScripts": "loopback-only",
-    "providerCalls": "openai-compatible-and-meshy-adapters-only",
+    "providerCalls": "openai-compatible-meshy-and-marble-adapters-only",
     "splatQualification": "source-checkout-and-loopback-disposable-only"
   },
   "prototypeGenerationPolicy": {
@@ -83,6 +87,42 @@
     "marbleCallsAllowed": false,
     "meshyCallsRequireHumanApproval": true,
     "trackedGeneratedArtifactsAllowed": false
+  },
+  "prototypeEnvironmentPolicy": {
+    "format": "matrix-oasis.prototype-environment-bundle",
+    "formatVersion": "0.1.0",
+    "canonicalization": "matrix-oasis.canonical-json/1",
+    "provider": "marble",
+    "providerEndpoint": "https://api.worldlabs.ai/marble/v1",
+    "providerModel": "marble-1.1",
+    "providerNetworkSource": "packages/prototype-environment-pipeline/src/marble-provider.mjs",
+    "panoramaMaxBytes": 67108864,
+    "panoramaMaxWidth": 16384,
+    "panoramaMaxHeight": 8192,
+    "colliderMaxBytes": 33554432,
+    "responseMaxBytes": 1048576,
+    "pollMaxAttempts": 180,
+    "pollIntervalMs": 10000,
+    "creatorNetworkAllowed": false,
+    "godotNetworkAllowed": false,
+    "humanApprovalRequired": true,
+    "spzAllowed": false,
+    "trackedGeneratedArtifactsAllowed": false
+  },
+  "prototypeBuilderPolicy": {
+    "host": "127.0.0.1",
+    "port": 43110,
+    "jsonBodyMaxBytes": 65536,
+    "promptMaxBytes": 32768,
+    "maxZones": 4,
+    "maxNonEnvironmentBriefs": 2,
+    "maxPlacements": 32,
+    "maxPlacementsPerZone": 8,
+    "singleActiveRun": true,
+    "singleGodotProcess": true,
+    "sameOriginOnly": true,
+    "corsAllowed": false,
+    "persistRawPrompt": false
   },
   "runtimeArtifactInputPolicy": {
     "mode": "paired-local-files-only",

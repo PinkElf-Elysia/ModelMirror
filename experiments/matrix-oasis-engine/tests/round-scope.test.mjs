@@ -122,12 +122,12 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R9 policy", () => {
+test("machine boundary and code expose the same ordered R10 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
-  assert.equal(policy.schemaVersion, 9);
+  assert.equal(policy.schemaVersion, 10);
   assert.equal(policy.activeRound, ACTIVE_ROUND);
   assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
@@ -146,22 +146,22 @@ test("machine boundary and code expose the same ordered R9 policy", () => {
     path.join(committedModuleRoot, "scripts", "check-round-scope.mjs"),
     "utf8",
   );
-  assert.match(cli, /policy\.schemaVersion !== 9/);
-  assert.doesNotMatch(cli, /policy\.schemaVersion !== 8/);
+  assert.match(cli, /policy\.schemaVersion !== 10/);
+  assert.doesNotMatch(cli, /policy\.schemaVersion !== 9/);
 });
 
-test("accepts exact R9 files and asset package prefixes in every Git status source", (t) => {
+test("accepts exact R10 files and new package/Godot prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-asset-contracts/src/index.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-environment-pipeline/src/index.mjs`, "export {};\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-asset-pipeline/src/index.mjs`, "export {};\n");
-  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-asset-pipeline/src/index.mjs`]);
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-assembler/src/index.mjs`, "export {};\n");
+  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-assembler/src/index.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R9_ACCEPTANCE.md`);
-  write(fixture, `${MODULE_PREFIX}/scripts/materialize-prototype-assets.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R10_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/prototype_builder/prototype_lab.gd`, "extends Node3D\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
@@ -272,7 +272,7 @@ for (const historicalPath of [
 }
 
 for (const frozenPath of [
-  "apps/creator-web/src/App.tsx",
+  "apps/creator-web/src/pack-loader.ts",
   "packages/game-pack-simulator/src/index.mjs",
   "packages/runtime-pack-simulator/src/index.mjs",
   "scripts/validate-pack.mjs",
@@ -369,17 +369,17 @@ test("rejects a caller-selected base", (t) => {
   );
 });
 
-test("round path classifier exposes stable R9 guard categories", () => {
+test("round path classifier exposes stable R10 guard categories", () => {
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-asset-contracts/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-environment-pipeline/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-asset-pipeline/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-assembler/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/scripts/materialize-prototype-assets.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/prototype_builder/prototype_lab.gd`),
     null,
   );
   assert.equal(
@@ -389,6 +389,10 @@ test("round path classifier exposes stable R9 guard categories", () => {
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/playable/first_person_controller.gd`),
     "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-asset-pipeline/src/index.mjs`),
+      "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/project.godot`),
@@ -404,6 +408,10 @@ test("round path classifier exposes stable R9 guard categories", () => {
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/creator-web/src/App.tsx`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/apps/creator-web/src/pack-loader.ts`),
     "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(

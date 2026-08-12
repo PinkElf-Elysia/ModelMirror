@@ -1,7 +1,7 @@
 export const MODULE_PREFIX = "experiments/matrix-oasis-engine";
-export const ACTIVE_ROUND = "R9";
+export const ACTIVE_ROUND = "R10";
 export const ACTIVE_ROUND_BASELINE_SHA =
-  "da5fd0fe39234807ae3c4a1d543b9fd64de66d97";
+  "09f4cca4f1e02fe275ada17535597437cac3778d";
 
 export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "AGENTS.md",
@@ -20,16 +20,33 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "docs/PROTOTYPE_ASSET_BUNDLE.md",
   "docs/PROTOTYPE_ASSET_THREAT_MODEL.md",
   "docs/MESHY_CALL_APPROVAL.md",
-  "docs/adr/0010-r9-asset-materialization-governance.md",
-  "docs/rounds/R9_ACCEPTANCE.md",
+  "docs/PROTOTYPE_ENVIRONMENT.md",
+  "docs/PROTOTYPE_BUILDER_THREAT_MODEL.md",
+  "docs/MARBLE_CALL_APPROVAL.md",
+  "docs/adr/0011-r10-prototype-builder-governance.md",
+  "docs/rounds/R10_ACCEPTANCE.md",
+  "apps/creator-web/package.json",
+  "apps/creator-web/src/App.tsx",
+  "apps/creator-web/src/styles.css",
+  "apps/creator-web/src/prototype-builder.ts",
   "scripts/check-round-scope.mjs",
   "scripts/plan-prototype-assets.mjs",
   "scripts/qualify-meshy-asset.mjs",
   "scripts/materialize-prototype-assets.mjs",
   "scripts/verify-prototype-assets-godot.mjs",
+  "scripts/import-prototype-cache.mjs",
+  "scripts/preview-prototype.mjs",
+  "scripts/qualify-marble-environment.mjs",
+  "scripts/verify-prototype-environment.mjs",
+  "scripts/verify-prototype-assembly.mjs",
+  "scripts/verify-prototype-host.mjs",
+  "scripts/verify-prototype-builder.mjs",
+  "scripts/verify-r10.mjs",
   "scripts/lib/boundary-core.mjs",
   "scripts/lib/parent-scope-core.mjs",
   "scripts/lib/prototype-asset-cli-core.mjs",
+  "scripts/lib/prototype-cache-core.mjs",
+  "scripts/lib/prototype-host-core.mjs",
   "scripts/lib/scope-policy.mjs",
   "scripts/run-verify.mjs",
   "scripts/verify-extraction.mjs",
@@ -38,16 +55,22 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "tests/prototype-asset-cli.test.mjs",
   "tests/prototype-asset-qualification.test.mjs",
   "tests/prototype-asset-godot.test.mjs",
+  "tests/prototype-environment.test.mjs",
+  "tests/prototype-assembly.test.mjs",
+  "tests/prototype-host.test.mjs",
+  "tests/prototype-builder.test.mjs",
+  "tests/r10-qualification.test.mjs",
   "tests/round-scope.test.mjs",
 ]);
 
 export const ROUND_ALLOWED_MODULE_PREFIXES = Object.freeze([
-  "packages/prototype-asset-contracts",
-  "packages/prototype-asset-pipeline",
+  "packages/prototype-environment-pipeline",
+  "packages/prototype-assembler",
+  "apps/runtime-godot/prototype_builder",
 ]);
 
 // Exact allowlist entries above intentionally override these broad frozen roots.
-// Everything inherited from R1-R8 therefore remains frozen unless R9 names it.
+// Everything inherited from R1-R9 therefore remains frozen unless R10 names it.
 export const ROUND_FROZEN_MODULE_PATHS = Object.freeze([
   "apps",
   "docs",

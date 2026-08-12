@@ -247,6 +247,28 @@ test("the exact R9 Meshy adapter may use fetch without reading process environme
   });
 });
 
+test("the exact R10 Marble adapter may use fetch without reading process environment", async () => {
+  await withFixture(async ({ root }) => {
+    const operation = ["fet", "ch"].join("");
+    const providerRoot = path.join(
+      root,
+      "packages",
+      "prototype-environment-pipeline",
+      "src",
+    );
+    await fs.mkdir(providerRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(providerRoot, "marble-provider.mjs"),
+      `export const request = (endpoint, options) => ${operation}(endpoint, options);\n`,
+      "utf8",
+    );
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.report.ok, true);
+  });
+});
+
 test("secret scanning permits an indirect credential reference but not embedded values", async () => {
   await withFixture(async ({ root }) => {
     await fs.mkdir(path.join(root, "src"), { recursive: true });
