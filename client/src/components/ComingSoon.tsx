@@ -44,7 +44,7 @@ export default function ComingSoon({
               className="rounded-full border border-white/10 bg-white/[0.055] px-5 py-2.5 text-sm font-semibold text-slate-100 transition duration-200 hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-brand-100 active:scale-[0.98]"
               to="/agents"
             >
-              去 AI 人才市场
+              去 Agent人才市场
             </Link>
           </div>
         </div>

@@ -10,7 +10,10 @@ interface PageContainerProps {
   contentClassName?: string;
   hideSidebar?: boolean;
   maxWidthClassName?: string;
+  mobileSidebar?: ReactNode;
   sidebar?: ReactNode;
+  sidebarGridClassName?: string;
+  showSystemCapabilityBar?: boolean;
 }
 
 export default function PageContainer({
@@ -20,17 +23,22 @@ export default function PageContainer({
   contentClassName = "",
   hideSidebar = false,
   maxWidthClassName = "max-w-[1480px]",
+  mobileSidebar,
   sidebar,
+  sidebarGridClassName = "xl:grid-cols-[260px_minmax(0,1fr)]",
+  showSystemCapabilityBar = true,
 }: PageContainerProps) {
   const sidebarContent = (
     <div className="space-y-5">
       {sidebar ? (
         <>
           {sidebar}
-          <div className="border-t border-white/10" />
+          {showSystemCapabilityBar ? (
+            <div className="border-t border-white/10" />
+          ) : null}
         </>
       ) : null}
-      <SystemCapabilityBar />
+      {showSystemCapabilityBar ? <SystemCapabilityBar /> : null}
     </div>
   );
 
@@ -43,16 +51,17 @@ export default function PageContainer({
       <div
         className={`relative mx-auto w-full ${maxWidthClassName} px-4 py-6 sm:px-6 lg:px-8 lg:py-8`}
       >
-        {!hideSidebar ? (
-          <div className="mb-5 xl:hidden">
-            <SystemCapabilityBar compact />
+        {!hideSidebar && (mobileSidebar || showSystemCapabilityBar) ? (
+          <div className="mb-5 space-y-3 xl:hidden">
+            {mobileSidebar}
+            {showSystemCapabilityBar ? <SystemCapabilityBar compact /> : null}
           </div>
         ) : null}
 
         {hideSidebar ? (
           <div className={`min-w-0 ${contentClassName}`}>{children}</div>
         ) : sidebar ? (
-          <div className="grid min-w-0 gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
+          <div className={`grid min-w-0 gap-6 ${sidebarGridClassName}`}>
             <aside className="hidden xl:block">
               <div className="surface-panel sticky top-28 rounded-lg p-4">
                 {sidebarContent}
@@ -63,7 +72,7 @@ export default function PageContainer({
             </div>
           </div>
         ) : (
-          <div className="grid min-w-0 gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
+          <div className={`grid min-w-0 gap-6 ${sidebarGridClassName}`}>
             <aside className="hidden xl:block">
               <div className="surface-panel sticky top-28 rounded-lg p-4">
                 {sidebarContent}
