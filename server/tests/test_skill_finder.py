@@ -282,8 +282,8 @@ def test_python_and_typescript_matcher_keep_the_same_golden_order() -> None:
     completed = subprocess.run(
         [
             "node",
-            "--experimental-loader",
-            str(ROOT / "scripts" / "typescript-module-loader.mjs"),
+            "--import",
+            (ROOT / "scripts" / "typescript-module-register.mjs").as_uri(),
             "--input-type=module",
             "-e",
             script,
