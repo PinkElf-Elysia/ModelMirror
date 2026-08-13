@@ -21,6 +21,10 @@ skills/installed
 skills/installed/**
 skills/tmp
 skills/tmp/**
+skills/imports
+skills/imports/**
+skills/lifecycle
+skills/lifecycle/**
 mcp/installed
 mcp/installed/**
 mcp/sandboxes

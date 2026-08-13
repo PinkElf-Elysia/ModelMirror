@@ -39,6 +39,23 @@ class FakeSkillManager:
         return self.skill.root
 
 
+class VersionedFakeSkillManager(FakeSkillManager):
+    def __init__(self, current_root: Path, version_root: Path) -> None:
+        super().__init__(current_root)
+        self.version_root = version_root
+
+    def get_skill_content(
+        self, skill_id: str, *, version_id: str | None = None
+    ) -> str:
+        root = self.version_root if version_id == "skillver-old" else self.skill.root
+        return (root / "SKILL.md").read_text(encoding="utf-8")
+
+    def get_skill_directory(
+        self, skill_id: str, *, version_id: str | None = None
+    ) -> Path:
+        return self.version_root if version_id == "skillver-old" else self.skill.root
+
+
 def test_server_image_flat_layout_keeps_skill_finder_importable() -> None:
     root = Path(__file__).resolve().parents[2]
     dockerfile = (root / "server/Dockerfile").read_text(encoding="utf-8")
@@ -183,6 +200,45 @@ async def test_toolset_stages_skill_and_publishes_durable_artifact(tmp_path: Pat
     assert store.artifact_path(artifact.artifact_id).read_text(encoding="utf-8") == "# Result"
     reloaded = SandboxWorkspaceStore(tmp_path / "runtime", workspace_root=workspace_root)
     assert reloaded.get_artifact(artifact.artifact_id).sha256 == artifact.sha256
+
+
+@pytest.mark.asyncio
+async def test_toolset_reads_and_stages_the_bound_skill_version(tmp_path: Path) -> None:
+    current = tmp_path / "current"
+    historical = tmp_path / "historical"
+    current.mkdir()
+    historical.mkdir()
+    (current / "SKILL.md").write_text("# current", encoding="utf-8")
+    (historical / "SKILL.md").write_text("# historical", encoding="utf-8")
+    (historical / "old.txt").write_text("old bytes", encoding="utf-8")
+    workspace_root = tmp_path / "workspaces"
+    provider = SandboxToolsetProvider(
+        SandboxWorkspaceStore(tmp_path / "runtime", workspace_root=workspace_root),
+        LocalSandboxClient(SandboxEngine(workspace_root, require_landlock=False)),
+        skill_manager=VersionedFakeSkillManager(current, historical),
+    )
+    metadata = {
+        "task_id": "task-versioned",
+        "run_id": "run-versioned",
+        "node_id": "agent-versioned",
+        "iteration": 1,
+        "skills_config": {"skill_ids": "local-test"},
+        "skill_version_bindings": {"local-test": "skillver-old"},
+        "sandbox_config": {"quota_mb": 16},
+    }
+
+    read = await provider.call_tool(
+        RuntimeToolCall("skill_read", {"skill_id": "local-test"}, metadata)
+    )
+    staged = await provider.call_tool(
+        RuntimeToolCall(
+            "skill_stage", {"skill_id": "local-test"}, {**metadata, "iteration": 2}
+        )
+    )
+
+    assert read.output == "# historical"
+    assert read.metadata["skill_version_id"] == "skillver-old"
+    assert "skills/local-test/old.txt" in staged.output
 
 
 @pytest.mark.asyncio

@@ -44,6 +44,8 @@ volumes
 **/uploads/**
 server/skills/installed
 server/skills/tmp
+server/skills/imports
+server/skills/lifecycle
 server/mcp/installed
 server/workflow_sandboxes
 server/office_host/certs

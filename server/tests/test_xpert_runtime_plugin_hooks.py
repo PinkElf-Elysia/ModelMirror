@@ -19,8 +19,14 @@ from server.xpert_runtime.toolset import RuntimeToolResult
 class FakeSkillManager:
     def __init__(self, root: Path) -> None:
         self.root = root
+        self.directory_calls: list[tuple[str, str | None]] = []
 
-    def get_skill_directory(self, skill_id: str) -> Path:
+    def get_skill_directory(
+        self, skill_id: str, *, version_id: str | None = None
+    ) -> Path:
+        self.directory_calls.append((skill_id, version_id))
+        if version_id:
+            return self.root / version_id / skill_id
         return self.root / skill_id
 
 
@@ -146,3 +152,54 @@ async def test_plugin_hooks_fail_open_or_closed_for_invalid_manifest(tmp_path: P
     )
     with pytest.raises(ValueError, match="event is not supported"):
         await closed_pipeline.before_agent({}, MiddlewareContext(metadata={}))
+
+
+@pytest.mark.asyncio
+async def test_plugin_hooks_use_the_run_bound_skill_version(tmp_path: Path) -> None:
+    skill_id = "bound-hooks"
+    current_dir = tmp_path / skill_id
+    current_dir.mkdir()
+    (current_dir / "modelmirror-hooks.json").write_text(
+        json.dumps(
+            {"hooks": [{"event": "SessionStart", "argv": ["python", "current.py"]}]}
+        ),
+        encoding="utf-8",
+    )
+    version_id = "skillver_123"
+    bound_dir = tmp_path / version_id / skill_id
+    bound_dir.mkdir(parents=True)
+    (bound_dir / "modelmirror-hooks.json").write_text(
+        json.dumps(
+            {"hooks": [{"event": "SessionStart", "argv": ["python", "bound.py"]}]}
+        ),
+        encoding="utf-8",
+    )
+    manager = FakeSkillManager(tmp_path)
+    sandbox = FakeSandboxProvider()
+    pipeline = MiddlewarePipeline(
+        [
+            build_plugin_hooks_middleware(
+                RuntimeMiddlewareSpec(
+                    node_id="hooks",
+                    middleware_id="plugin_hooks",
+                    config={"skill_ids": skill_id, "fail_closed": True},
+                ),
+                skill_manager=manager,
+                sandbox_provider=sandbox,
+            )
+        ]
+    )
+    context = MiddlewareContext(
+        task_id="task-bound",
+        metadata={"skill_version_bindings": {skill_id: version_id}},
+    )
+
+    await pipeline.before_agent({}, context)
+
+    shell_call = next(
+        call for call in sandbox.calls if call.tool_name == "sandbox_shell"
+    )
+    stage_call = next(call for call in sandbox.calls if call.tool_name == "skill_stage")
+    assert shell_call.arguments["argv"] == ["python", "bound.py"]
+    assert stage_call.metadata["skill_version_bindings"] == {skill_id: version_id}
+    assert manager.directory_calls == [(skill_id, version_id)]

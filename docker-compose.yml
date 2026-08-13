@@ -592,6 +592,10 @@ services:
       SKILL_TMP_DIR: /app/skills/tmp
       SKILL_LOCAL_IMPORT_ENABLED: ${SKILL_LOCAL_IMPORT_ENABLED:-true}
       SKILL_LOCAL_IMPORT_STORAGE_DIR: /app/skills/imports
+      SKILL_LIFECYCLE_ENABLED: ${SKILL_LIFECYCLE_ENABLED:-true}
+      SKILL_LIFECYCLE_STORAGE_DIR: /app/skills/lifecycle
+      SKILL_LIFECYCLE_MAX_VERSIONS: ${SKILL_LIFECYCLE_MAX_VERSIONS:-5}
+      SKILL_LIFECYCLE_MAX_BYTES: ${SKILL_LIFECYCLE_MAX_BYTES:-1073741824}
       SKILL_RERANK_STORAGE_DIR: /app/skills/storage
       AGENT_WORKSPACE_ENABLED: ${AGENT_WORKSPACE_ENABLED:-true}
       AGENT_APP_ENGINE_SHADOW_ENABLED: ${AGENT_APP_ENGINE_SHADOW_ENABLED:-false}
@@ -641,6 +645,7 @@ services:
       - ${MODELMIRROR_DATA_ROOT:-.}/server/rag/uploads:/app/rag/uploads
       - ${MODELMIRROR_DATA_ROOT:-.}/server/skills/installed:/app/skills/installed
       - ${MODELMIRROR_DATA_ROOT:-.}/server/skills/imports:/app/skills/imports
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/skills/lifecycle:/app/skills/lifecycle
       - ${MODELMIRROR_DATA_ROOT:-.}/server/skills/storage:/app/skills/storage
       - agent_workspace_data:/data/agent-workspace
       - ${MODELMIRROR_DATA_ROOT:-.}/server/xperts/storage:/app/xperts/storage

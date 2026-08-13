@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 from .draft_store import SkillDraftValidationError, WorkspaceSkillDraftStore
 from .local_import import LocalSkillImport, SkillLocalImportError, SkillLocalImportStore
 from .package_validation import compute_package_digest
+from .trust_scanner import SkillTrustTreeEntry, scan_skill_trust_receipt
 from .trust_service import (
     SkillRuntimeEnvironment,
     SkillTrustError,
@@ -142,6 +143,7 @@ class SkillManager:
         git_timeout_seconds: int = 30,
         trust_service: SkillTrustService | None = None,
         local_import_store: SkillLocalImportStore | None = None,
+        lifecycle_store: Any | None = None,
     ) -> None:
         package_dir = Path(__file__).resolve().parent
         self.installed_dir = Path(
@@ -157,6 +159,7 @@ class SkillManager:
         self.metadata_path = self.installed_dir / "installed.json"
         self.trust_service = trust_service or SkillTrustService()
         self.local_import_store = local_import_store
+        self.lifecycle_store = lifecycle_store
         self._lock = threading.RLock()
         self._trust_reconciled = False
 
@@ -208,6 +211,7 @@ class SkillManager:
 
         with self._lock:
             self._ensure_dirs()
+            self.recover_lifecycle_transaction(skill_id)
             target_dir = self._safe_skill_dir(skill_id)
             tmp_root = Path(
                 tempfile.mkdtemp(prefix=f"{skill_id}-", dir=str(self.tmp_dir))
@@ -216,6 +220,7 @@ class SkillManager:
             staging_dir = self.installed_dir / f".{skill_id}.staging-{uuid.uuid4().hex}"
             backup_dir = self.installed_dir / f".{skill_id}.backup-{uuid.uuid4().hex}"
             committed = False
+            lifecycle_receipt: Any | None = None
             try:
                 self._git_sparse_clone(
                     normalized_repo_url,
@@ -256,19 +261,31 @@ class SkillManager:
                     trust_metadata=trust_metadata,
                 )
                 installed = self._read_metadata()
+                previous_record = installed.get(skill_id)
+                lifecycle_receipt = self._prepare_lifecycle_install(
+                    skill_id=skill_id,
+                    previous_record=previous_record,
+                    target_metadata=metadata,
+                    target_package_dir=staging_dir,
+                )
                 installed[skill_id] = asdict(metadata)
                 try:
+                    self._mark_lifecycle_swapped(lifecycle_receipt)
                     if target_dir.exists():
                         target_dir.rename(backup_dir)
                     staging_dir.rename(target_dir)
                     self._write_metadata(installed)
+                    self._mark_lifecycle_metadata_committed(lifecycle_receipt)
                 except Exception:
                     if target_dir.exists():
                         shutil.rmtree(target_dir, ignore_errors=True)
                     if backup_dir.exists():
                         backup_dir.rename(target_dir)
+                    self._abort_lifecycle_transaction(lifecycle_receipt)
                     raise
                 committed = True
+                if lifecycle_receipt is not None:
+                    self.finalize_lifecycle_transaction(skill_id)
                 if backup_dir.exists():
                     shutil.rmtree(backup_dir, ignore_errors=True)
                 return metadata
@@ -286,6 +303,10 @@ class SkillManager:
         skill_markdown: str,
         files: dict[str, str],
         source_revision: int | None = None,
+        quality_required: bool = False,
+        quality_status: str | None = None,
+        quality_decision_id: str | None = None,
+        quality_run_id: str | None = None,
     ) -> InstalledSkill:
         """Install or explicitly upgrade one reviewed Workspace Skill draft.
 
@@ -369,6 +390,7 @@ class SkillManager:
             package_dir = staging_dir / clean_slug
             metadata: InstalledSkill | None = None
             receipt: SkillInstallReceipt | None = None
+            lifecycle_receipt: Any | None = None
             swapped = False
             metadata_write_attempted = False
             try:
@@ -391,6 +413,19 @@ class SkillManager:
                     content_digest=content_digest,
                     package_subpath=clean_slug,
                 )
+                lifecycle_receipt = self._prepare_lifecycle_install(
+                    skill_id=skill_id,
+                    previous_record=previous_record,
+                    target_metadata=metadata,
+                    target_package_dir=package_dir,
+                    quality_evidence_status=(
+                        "matched" if quality_required else "not_applicable"
+                    ),
+                    quality_required=quality_required,
+                    quality_status=quality_status,
+                    quality_decision_id=quality_decision_id,
+                    quality_run_id=quality_run_id,
+                )
                 receipt = SkillInstallReceipt(
                     version=1,
                     transaction_id=transaction_id,
@@ -412,6 +447,7 @@ class SkillManager:
                     previous_content_digest=previous_content_digest or None,
                 )
                 self._write_install_receipt(receipt)
+                self._mark_lifecycle_swapped(lifecycle_receipt)
                 if target_dir.exists():
                     target_dir.rename(backup_dir)
                 staging_dir.rename(target_dir)
@@ -423,6 +459,7 @@ class SkillManager:
                 self._write_metadata(installed)
                 receipt = replace(receipt, phase="committed")
                 self._write_install_receipt(receipt)
+                self._mark_lifecycle_metadata_committed(lifecycle_receipt)
             except Exception:
                 rollback_error: Exception | None = None
                 try:
@@ -441,6 +478,7 @@ class SkillManager:
                     self._remove_directory_if_present(staging_dir)
                     self._remove_directory_if_present(backup_dir)
                     self._receipt_path(skill_id).unlink(missing_ok=True)
+                    self._abort_lifecycle_transaction(lifecycle_receipt)
                 except Exception as exc:
                     rollback_error = exc
                 if rollback_error is not None:
@@ -611,6 +649,7 @@ class SkillManager:
             backup_dir = self.installed_dir / f".{skill_id}.backup-{transaction_id}"
             metadata: InstalledSkill | None = None
             receipt: SkillInstallReceipt | None = None
+            lifecycle_receipt: Any | None = None
             swapped = False
             metadata_write_attempted = False
             try:
@@ -630,6 +669,12 @@ class SkillManager:
                     source_revision=record.content_revision,
                     content_digest=record.package_digest,
                     trust_metadata=trust_metadata,
+                )
+                lifecycle_receipt = self._prepare_lifecycle_install(
+                    skill_id=skill_id,
+                    previous_record=previous_record,
+                    target_metadata=metadata,
+                    target_package_dir=staging_dir,
                 )
                 receipt = SkillInstallReceipt(
                     version=1,
@@ -651,6 +696,7 @@ class SkillManager:
                     source_kind="local_import",
                 )
                 self._write_install_receipt(receipt)
+                self._mark_lifecycle_swapped(lifecycle_receipt)
                 if target_dir.exists():
                     target_dir.rename(backup_dir)
                 staging_dir.rename(target_dir)
@@ -660,6 +706,7 @@ class SkillManager:
                 metadata_write_attempted = True
                 self._write_metadata(installed)
                 self._write_install_receipt(replace(receipt, phase="committed"))
+                self._mark_lifecycle_metadata_committed(lifecycle_receipt)
             except Exception:
                 rollback_error: Exception | None = None
                 try:
@@ -678,6 +725,7 @@ class SkillManager:
                     self._remove_directory_if_present(staging_dir)
                     self._remove_directory_if_present(backup_dir)
                     self._receipt_path(skill_id).unlink(missing_ok=True)
+                    self._abort_lifecycle_transaction(lifecycle_receipt)
                 except Exception as exc:
                     rollback_error = exc
                 if rollback_error is not None:
@@ -994,12 +1042,305 @@ class SkillManager:
             installed = self._read_metadata()
             if normalized_skill_id not in installed:
                 raise SkillNotFoundError(f"Skill '{normalized_skill_id}' is not installed")
-
+            previous_record = dict(installed[normalized_skill_id])
             target_dir = self._safe_skill_dir(normalized_skill_id)
-            if target_dir.exists():
-                shutil.rmtree(target_dir)
-            installed.pop(normalized_skill_id, None)
-            self._write_metadata(installed)
+            lifecycle_receipt = self._prepare_lifecycle_uninstall(
+                skill_id=normalized_skill_id,
+                previous_record=previous_record,
+            )
+            removed_dir = self.installed_dir / (
+                f".{normalized_skill_id}.uninstall-{uuid.uuid4().hex}"
+            )
+            moved = False
+            try:
+                self._mark_lifecycle_swapped(lifecycle_receipt)
+                if target_dir.exists():
+                    target_dir.rename(removed_dir)
+                    moved = True
+                installed.pop(normalized_skill_id, None)
+                self._write_metadata(installed)
+                self._mark_lifecycle_metadata_committed(lifecycle_receipt)
+            except Exception:
+                if moved and removed_dir.exists() and not target_dir.exists():
+                    removed_dir.rename(target_dir)
+                restored = self._read_metadata()
+                restored[normalized_skill_id] = previous_record
+                self._write_metadata(restored)
+                self._abort_lifecycle_transaction(lifecycle_receipt)
+                raise
+            finally:
+                if removed_dir.exists() and not target_dir.exists():
+                    shutil.rmtree(removed_dir, ignore_errors=True)
+            previous = self._installed_skill_from_record(previous_record)
+            if lifecycle_receipt is not None and previous.source_kind == "git":
+                self.finalize_lifecycle_transaction(normalized_skill_id)
+
+    def rollback_skill_version(
+        self,
+        skill_id: str,
+        version_id: str,
+        *,
+        expected_state_revision: int,
+        expected_current_version_id: str | None,
+        expected_package_digest: str,
+        confirmed: bool,
+    ) -> InstalledSkill:
+        """Atomically switch the installed package to one immutable snapshot."""
+
+        if not self._lifecycle_enabled():
+            raise SkillValidationError(
+                "Skill lifecycle management is disabled.",
+                code="skill_lifecycle_disabled",
+            )
+        if not confirmed:
+            raise SkillValidationError(
+                "Skill rollback requires explicit confirmation.",
+                code="skill_lifecycle_confirmation_required",
+            )
+        normalized_skill_id = self._validate_skill_id(skill_id)
+        clean_digest = str(expected_package_digest or "").strip().casefold()
+        with self._lock:
+            state = self.lifecycle_store.require_state(normalized_skill_id)
+            version = self.lifecycle_store.require_version(version_id)
+            if (
+                state.revision != expected_state_revision
+                or state.current_version_id != expected_current_version_id
+                or version.skill_id != normalized_skill_id
+                or version.package_digest != clean_digest
+            ):
+                raise SkillValidationError(
+                    "Skill lifecycle state changed. Reload before rollback.",
+                    code="skill_lifecycle_version_conflict",
+                )
+            try:
+                pending = self.lifecycle_store.require_transaction(
+                    normalized_skill_id
+                )
+            except Exception as missing:
+                if str(getattr(missing, "code", "")) != "skill_lifecycle_not_found":
+                    raise
+                pending = None
+            if pending is not None:
+                if (
+                    pending.operation != "rollback"
+                    or pending.target_version_id != version.version_id
+                    or pending.phase not in {
+                        "metadata_committed", "source_projected", "lifecycle_committed"
+                    }
+                ):
+                    raise SkillValidationError(
+                        "Another Skill lifecycle transaction is incomplete.",
+                        code="skill_lifecycle_transaction_incomplete",
+                    )
+                current = self.get_installed_skill(normalized_skill_id)
+                if current.content_digest != version.package_digest:
+                    raise SkillValidationError(
+                        "Installed Skill does not match the pending rollback.",
+                        code="skill_lifecycle_package_mismatch",
+                    )
+                return current
+            if state.current_version_id == version.version_id and state.status == "active":
+                return self.get_installed_skill(normalized_skill_id)
+            if version.source_kind == "workspace_draft" and version.quality_required and not (
+                version.quality_evidence_status == "matched"
+                and version.quality_status in {"accepted", "eval_waived"}
+            ):
+                raise SkillValidationError(
+                    "Historical Creator Skill quality evidence is unavailable.",
+                    code="skill_lifecycle_quality_unavailable",
+                )
+            if version.source_kind in {"git", "local_import"}:
+                if (
+                    version.trust_status == "blocked"
+                    or version.trust_compatibility_status == "unsupported"
+                    or not version.trust_receipt_id
+                    or not version.trust_fingerprint
+                    or version.trust_receipt_snapshot is None
+                ):
+                    raise SkillValidationError(
+                        "Historical Skill trust evidence is unavailable.",
+                        code="skill_lifecycle_trust_unavailable",
+                    )
+                frozen_item = self._parse_skill_metadata(
+                    normalized_skill_id,
+                    version.repo_url,
+                    version.sub_path,
+                    Path(self.lifecycle_store.package_directory(version.version_id))
+                    / "SKILL.md",
+                    version.source_ref,
+                    source_kind=version.source_kind,
+                    source_id=version.source_id,
+                    source_revision=version.source_revision,
+                    content_digest=version.package_digest,
+                    package_subpath="",
+                    trust_metadata={
+                        "trust_state": "receipt_matched",
+                        "trust_receipt_id": version.trust_receipt_id,
+                        "trust_fingerprint": version.trust_fingerprint,
+                        "trust_risk_level": version.trust_risk_level,
+                        "trust_status": version.trust_status,
+                        "trust_install_policy": version.trust_install_policy,
+                        "trust_compatibility_status": version.trust_compatibility_status,
+                        "trust_router_eligible": version.trust_router_eligible,
+                        "trust_package_digest": version.package_digest,
+                        "trust_directory_tree_sha": version.trust_directory_tree_sha,
+                    },
+                )
+                try:
+                    self.trust_service.frozen_receipt_activation_decision(
+                        frozen_item,
+                        version.trust_receipt_snapshot,
+                        environment=None,
+                        check_runtime=False,
+                    )
+                except SkillTrustError as exc:
+                    raise SkillValidationError(
+                        str(exc), code=exc.code, details=exc.details
+                    ) from exc
+            current_git_scan: dict[str, Any] | None = None
+            if version.source_kind == "git":
+                current_git_scan = self._scan_historical_git_version(version)
+                if (
+                    current_git_scan.get("installPolicy") == "block"
+                    or current_git_scan.get("trustStatus") == "blocked"
+                    or current_git_scan.get("compatibilityStatus") == "unsupported"
+                ):
+                    raise SkillValidationError(
+                        "Historical Git Skill is blocked by the current offline scanner.",
+                        code="skill_lifecycle_trust_unavailable",
+                    )
+            target_package = Path(
+                self.lifecycle_store.package_directory(version.version_id)
+            )
+            trust_metadata = {
+                "trust_state": (
+                    "receipt_matched"
+                    if version.source_kind in {"git", "local_import"}
+                    else "not_applicable"
+                ),
+                "trust_receipt_id": version.trust_receipt_id,
+                "trust_fingerprint": version.trust_fingerprint,
+                "trust_risk_level": version.trust_risk_level,
+                "trust_status": version.trust_status,
+                "trust_install_policy": version.trust_install_policy,
+                "trust_compatibility_status": version.trust_compatibility_status,
+                "trust_router_eligible": bool(
+                    version.trust_router_eligible
+                    and (
+                        current_git_scan is None
+                        or current_git_scan.get("routerEligible") is True
+                    )
+                ),
+                "trust_package_digest": version.package_digest,
+                "trust_directory_tree_sha": version.trust_directory_tree_sha,
+            }
+            metadata = self._parse_skill_metadata(
+                normalized_skill_id,
+                version.repo_url,
+                version.sub_path,
+                target_package / "SKILL.md",
+                version.source_ref,
+                source_kind=version.source_kind,
+                source_id=version.source_id,
+                source_revision=version.source_revision,
+                content_digest=version.package_digest,
+                package_subpath="",
+                trust_metadata=trust_metadata,
+            )
+            # Older Git metadata predates ``source_id``.  Rollback must preserve
+            # that frozen identity exactly instead of letting the parser invent
+            # the newer ``repo#subpath`` fallback, otherwise the selected
+            # immutable version no longer matches its own installation record.
+            if metadata.source_id != version.source_id:
+                metadata = replace(metadata, source_id=version.source_id)
+            installed = self._read_metadata()
+            previous_record = installed.get(normalized_skill_id)
+            if previous_record is not None:
+                previous = self._installed_skill_from_record(previous_record)
+                if previous.source_kind != version.source_kind:
+                    raise SkillValidationError(
+                        "Rollback cannot cross Skill source kinds.",
+                        code="skill_lifecycle_source_conflict",
+                    )
+            transaction = self._prepare_lifecycle_install(
+                skill_id=normalized_skill_id,
+                previous_record=previous_record,
+                target_metadata=metadata,
+                target_package_dir=target_package,
+                operation="rollback",
+                target_version_id=version.version_id,
+            )
+            target_dir = self._safe_skill_dir(normalized_skill_id)
+            staging_dir = self.installed_dir / (
+                f".{normalized_skill_id}.rollback-{uuid.uuid4().hex}"
+            )
+            backup_dir = self.installed_dir / (
+                f".{normalized_skill_id}.rollback-backup-{uuid.uuid4().hex}"
+            )
+            try:
+                shutil.copytree(target_package, staging_dir)
+                self._mark_lifecycle_swapped(transaction)
+                if target_dir.exists():
+                    target_dir.rename(backup_dir)
+                staging_dir.rename(target_dir)
+                installed[normalized_skill_id] = asdict(metadata)
+                self._write_metadata(installed)
+                self._mark_lifecycle_metadata_committed(transaction)
+            except Exception:
+                self._remove_directory_if_present(target_dir)
+                if backup_dir.exists():
+                    backup_dir.rename(target_dir)
+                restored = self._read_metadata()
+                if previous_record is None:
+                    restored.pop(normalized_skill_id, None)
+                else:
+                    restored[normalized_skill_id] = dict(previous_record)
+                self._write_metadata(restored)
+                self._abort_lifecycle_transaction(transaction)
+                raise
+            finally:
+                self._remove_directory_if_present(staging_dir)
+                self._remove_directory_if_present(backup_dir)
+            if transaction is not None and version.source_kind == "git":
+                self.finalize_lifecycle_transaction(normalized_skill_id)
+            return metadata
+
+    def _scan_historical_git_version(self, version: Any) -> dict[str, Any]:
+        if (
+            not version.repo_url
+            or not version.source_ref
+            or not version.trust_directory_tree_sha
+        ):
+            raise SkillValidationError(
+                "Historical Git Skill scan evidence is unavailable.",
+                code="skill_lifecycle_trust_unavailable",
+            )
+        package_dir = Path(self.lifecycle_store.package_directory(version.version_id))
+        files = self.lifecycle_store.read_directory(package_dir)
+        entries = [
+            SkillTrustTreeEntry(
+                path=path,
+                mode="100644",
+                object_type="blob",
+                object_id=hashlib.sha1(content).hexdigest(),
+                size=len(content),
+                content=content,
+            )
+            for path, content in sorted(files.items())
+        ]
+        receipt = scan_skill_trust_receipt(
+            repo_url=version.repo_url,
+            sub_path=version.sub_path,
+            verified_commit=version.source_ref,
+            directory_tree_sha=version.trust_directory_tree_sha,
+            entries=entries,
+        )
+        if receipt.get("packageDigest") != version.package_digest:
+            raise SkillValidationError(
+                "Historical Git Skill package changed during offline scanning.",
+                code="skill_lifecycle_package_mismatch",
+            )
+        return receipt
 
     def list_installed_skills(self) -> list[InstalledSkill]:
         """Return installed Skill metadata sorted by installation time."""
@@ -1015,34 +1356,331 @@ class SkillManager:
                 )
             ]
 
-    def get_skill_content(self, skill_id: str) -> str:
+    def get_skill_content(
+        self, skill_id: str, *, version_id: str | None = None
+    ) -> str:
         """Read the raw ``SKILL.md`` content for an installed Skill."""
 
         normalized_skill_id = self._validate_skill_id(skill_id)
         with self._lock:
-            self._reconcile_trust_metadata_unlocked()
             installed = self._read_metadata()
-            if normalized_skill_id not in installed:
+            if version_id is None:
+                self._reconcile_trust_metadata_unlocked()
+            if version_id is None and normalized_skill_id not in installed:
                 raise SkillNotFoundError(f"Skill '{normalized_skill_id}' is not installed")
 
-            package_dir = self._resolve_package_directory(
-                normalized_skill_id, installed[normalized_skill_id]
+            package_dir = self._resolve_runtime_package_directory_unlocked(
+                normalized_skill_id,
+                installed.get(normalized_skill_id, {}),
+                version_id=version_id,
             )
             skill_md = package_dir / "SKILL.md"
             return skill_md.read_text(encoding="utf-8", errors="replace")
 
-    def get_skill_directory(self, skill_id: str) -> Path:
+    def get_skill_directory(
+        self, skill_id: str, *, version_id: str | None = None
+    ) -> Path:
         """Return the validated installed directory for Runtime staging."""
 
         normalized_skill_id = self._validate_skill_id(skill_id)
         with self._lock:
-            self._reconcile_trust_metadata_unlocked()
             installed = self._read_metadata()
-            if normalized_skill_id not in installed:
+            if version_id is None:
+                self._reconcile_trust_metadata_unlocked()
+            if version_id is None and normalized_skill_id not in installed:
                 raise SkillNotFoundError(f"Skill '{normalized_skill_id}' is not installed")
-            return self._resolve_package_directory(
-                normalized_skill_id, installed[normalized_skill_id]
+            return self._resolve_runtime_package_directory_unlocked(
+                normalized_skill_id,
+                installed.get(normalized_skill_id, {}),
+                version_id=version_id,
             )
+
+    def bind_skill_versions(self, skill_ids: list[str] | set[str] | tuple[str, ...]) -> dict[str, str]:
+        """Freeze active lifecycle versions for one newly-started run."""
+
+        normalized = sorted(
+            {self._validate_skill_id(str(item)) for item in skill_ids if str(item).strip()}
+        )
+        if not self._lifecycle_enabled():
+            return {}
+        try:
+            with self._lock:
+                installed = self._read_metadata()
+                tracked = [
+                    skill_id
+                    for skill_id in normalized
+                    if skill_id in installed
+                    and str(installed[skill_id].get("source_kind") or "git")
+                    in {"git", "local_import", "workspace_draft"}
+                ]
+            return dict(self.lifecycle_store.bind_current_versions(tracked))
+        except Exception as exc:
+            raise SkillValidationError(
+                str(exc),
+                code=str(getattr(exc, "code", "skill_lifecycle_version_unavailable")),
+                details=getattr(exc, "details", None),
+            ) from exc
+
+    def finalize_lifecycle_transaction(self, skill_id: str) -> None:
+        if not self._lifecycle_enabled():
+            return
+        try:
+            try:
+                receipt = self.lifecycle_store.require_transaction(skill_id)
+            except Exception as missing:
+                if str(getattr(missing, "code", "")) == "skill_lifecycle_not_found":
+                    return
+                raise
+            if receipt.phase == "metadata_committed":
+                receipt = self.lifecycle_store.advance_transaction(
+                    skill_id,
+                    transaction_id=receipt.transaction_id,
+                    expected_phase="metadata_committed",
+                    phase="source_projected",
+                )
+            if receipt.phase == "source_projected":
+                state = self.lifecycle_store.require_state(skill_id)
+                if receipt.operation == "uninstall":
+                    self.lifecycle_store.mark_uninstalled(
+                        skill_id, expected_revision=state.revision
+                    )
+                elif receipt.target_version_id is not None:
+                    event_kind = {
+                        "install": "installed",
+                        "replace": "replaced",
+                        "rollback": "rolled_back",
+                    }[receipt.operation]
+                    self.lifecycle_store.activate_version(
+                        skill_id,
+                        receipt.target_version_id,
+                        expected_revision=state.revision,
+                        event_kind=event_kind,
+                    )
+                receipt = self.lifecycle_store.advance_transaction(
+                    skill_id,
+                    transaction_id=receipt.transaction_id,
+                    expected_phase="source_projected",
+                    phase="lifecycle_committed",
+                )
+            if receipt.phase == "lifecycle_committed":
+                self.lifecycle_store.finish_transaction(
+                    skill_id, transaction_id=receipt.transaction_id
+                )
+        except Exception as exc:
+            raise SkillInstallError(
+                f"Skill lifecycle transaction could not be finalized: {exc}"
+            ) from exc
+
+    def recover_lifecycle_transaction(self, skill_id: str) -> bool:
+        """Finish a provably committed Git transaction after interruption.
+
+        Workspace drafts and local imports own an additional source projection,
+        so their API paths must repair that Store before calling ``finalize``.
+        """
+
+        if not self._lifecycle_enabled():
+            return False
+        normalized_skill_id = self._validate_skill_id(skill_id)
+        with self._lock:
+            try:
+                receipt = self.lifecycle_store.require_transaction(
+                    normalized_skill_id
+                )
+            except Exception as missing:
+                if str(getattr(missing, "code", "")) == "skill_lifecycle_not_found":
+                    return False
+                raise SkillInstallError(
+                    "Skill lifecycle recovery receipt is unavailable."
+                ) from missing
+            if receipt.phase in {"source_projected", "lifecycle_committed"}:
+                self.finalize_lifecycle_transaction(normalized_skill_id)
+                return True
+            if receipt.phase in {"prepared", "archived"}:
+                if not self._lifecycle_installed_state_matches_version_unlocked(
+                    normalized_skill_id, receipt.previous_version_id
+                ):
+                    raise SkillInstallError(
+                        "Skill lifecycle transaction diverged before the package swap."
+                    )
+                self.lifecycle_store.abort_transaction(
+                    normalized_skill_id,
+                    transaction_id=receipt.transaction_id,
+                )
+                return True
+            if receipt.phase == "swapped":
+                self._recover_lifecycle_swapped_unlocked(receipt)
+                receipt = self.lifecycle_store.require_transaction(
+                    normalized_skill_id
+                )
+            if receipt.phase != "metadata_committed":
+                raise SkillInstallError(
+                    "Skill lifecycle transaction is incomplete and cannot be recovered automatically."
+                )
+            version_id = (
+                receipt.previous_version_id
+                if receipt.operation == "uninstall"
+                else receipt.target_version_id
+            )
+            if not version_id:
+                raise SkillInstallError(
+                    "Skill lifecycle recovery receipt is incomplete."
+                )
+            version = self.lifecycle_store.require_version(version_id)
+            if version.source_kind != "git":
+                return False
+            installed = self._read_metadata()
+            if receipt.operation == "uninstall":
+                if normalized_skill_id in installed or self._safe_skill_dir(
+                    normalized_skill_id
+                ).exists():
+                    raise SkillInstallError(
+                        "Git Skill uninstall is not fully committed."
+                    )
+            else:
+                record = installed.get(normalized_skill_id)
+                if record is None:
+                    raise SkillInstallError(
+                        "Git Skill metadata is unavailable during recovery."
+                    )
+                current = self._installed_skill_from_record(record)
+                if (
+                    current.source_kind != "git"
+                    or current.content_digest != version.package_digest
+                    or self._directory_content_digest(
+                        self._resolve_package_directory(normalized_skill_id, record)
+                    )
+                    != version.package_digest
+                ):
+                    raise SkillInstallError(
+                        "Git Skill bytes do not match the pending lifecycle transaction."
+                    )
+            self.finalize_lifecycle_transaction(normalized_skill_id)
+            return True
+
+    def _recover_lifecycle_swapped_unlocked(self, receipt: Any) -> None:
+        """Deterministically finish a swap whose intent was durably recorded."""
+
+        skill_id = receipt.skill_id
+        installed = self._read_metadata()
+        previous_record = installed.get(skill_id)
+        target_dir = self._safe_skill_dir(skill_id)
+        suffix = receipt.transaction_id.removeprefix("skilltxn_")
+        staging_dir = self.installed_dir / f".{skill_id}.lifecycle-recovery-{suffix}"
+        backup_dir = self.installed_dir / (
+            f".{skill_id}.lifecycle-recovery-backup-{suffix}"
+        )
+        if receipt.operation == "uninstall":
+            try:
+                if target_dir.exists() and not backup_dir.exists():
+                    target_dir.rename(backup_dir)
+                installed.pop(skill_id, None)
+                self._write_metadata(installed)
+                self._mark_lifecycle_metadata_committed(receipt)
+            except Exception:
+                if backup_dir.exists() and not target_dir.exists():
+                    backup_dir.rename(target_dir)
+                restored = self._read_metadata()
+                if previous_record is not None:
+                    restored[skill_id] = dict(previous_record)
+                    self._write_metadata(restored)
+                raise
+            finally:
+                if backup_dir.exists() and not target_dir.exists():
+                    self._remove_directory_if_present(backup_dir)
+            return
+        if not receipt.target_version_id:
+            raise SkillInstallError(
+                "Skill lifecycle recovery target is unavailable."
+            )
+        version = self.lifecycle_store.require_version(receipt.target_version_id)
+        target_package = Path(
+            self.lifecycle_store.package_directory(version.version_id)
+        )
+        metadata = self._metadata_from_lifecycle_version(version)
+        try:
+            self._remove_directory_if_present(staging_dir)
+            shutil.copytree(target_package, staging_dir)
+            if target_dir.exists():
+                if backup_dir.exists():
+                    self._remove_directory_if_present(target_dir)
+                else:
+                    target_dir.rename(backup_dir)
+            staging_dir.rename(target_dir)
+            installed[skill_id] = asdict(metadata)
+            self._write_metadata(installed)
+            self._mark_lifecycle_metadata_committed(receipt)
+        except Exception:
+            self._remove_directory_if_present(target_dir)
+            if backup_dir.exists():
+                backup_dir.rename(target_dir)
+            restored = self._read_metadata()
+            if previous_record is None:
+                restored.pop(skill_id, None)
+            else:
+                restored[skill_id] = dict(previous_record)
+            self._write_metadata(restored)
+            raise
+        finally:
+            self._remove_directory_if_present(staging_dir)
+            if target_dir.exists():
+                self._remove_directory_if_present(backup_dir)
+
+    def _lifecycle_installed_state_matches_version_unlocked(
+        self, skill_id: str, version_id: str | None
+    ) -> bool:
+        installed = self._read_metadata()
+        target_dir = self._safe_skill_dir(skill_id)
+        if version_id is None:
+            return skill_id not in installed and not target_dir.exists()
+        record = installed.get(skill_id)
+        if record is None or not target_dir.is_dir():
+            return False
+        version = self.lifecycle_store.require_version(version_id)
+        current = self._installed_skill_from_record(record)
+        try:
+            actual_digest = self._directory_content_digest(
+                self._resolve_package_directory(skill_id, record)
+            )
+        except Exception:
+            return False
+        return (
+            current.source_kind == version.source_kind
+            and current.content_digest == version.package_digest
+            and actual_digest == version.package_digest
+        )
+
+    def _metadata_from_lifecycle_version(self, version: Any) -> InstalledSkill:
+        package_dir = Path(
+            self.lifecycle_store.package_directory(version.version_id)
+        )
+        return self._parse_skill_metadata(
+            version.skill_id,
+            version.repo_url,
+            version.sub_path,
+            package_dir / "SKILL.md",
+            version.source_ref,
+            source_kind=version.source_kind,
+            source_id=version.source_id,
+            source_revision=version.source_revision,
+            content_digest=version.package_digest,
+            package_subpath="",
+            trust_metadata={
+                "trust_state": (
+                    "receipt_matched"
+                    if version.source_kind in {"git", "local_import"}
+                    else "not_applicable"
+                ),
+                "trust_receipt_id": version.trust_receipt_id,
+                "trust_fingerprint": version.trust_fingerprint,
+                "trust_risk_level": version.trust_risk_level,
+                "trust_status": version.trust_status,
+                "trust_install_policy": version.trust_install_policy,
+                "trust_compatibility_status": version.trust_compatibility_status,
+                "trust_router_eligible": version.trust_router_eligible,
+                "trust_package_digest": version.package_digest,
+                "trust_directory_tree_sha": version.trust_directory_tree_sha,
+            },
+        )
 
     def get_installed_skill(self, skill_id: str) -> InstalledSkill:
         """Return one installed Skill after trust metadata reconciliation."""
@@ -1065,29 +1703,96 @@ class SkillManager:
         runtime_environment: SkillRuntimeEnvironment | None = None,
         ephemeral_authorizations: Mapping[str, str] | None = None,
         check_runtime: bool = True,
+        version_id: str | None = None,
     ) -> InstalledSkill:
         """Apply the final server-side third-party activation gate."""
 
         try:
             normalized_skill_id = self._validate_skill_id(skill_id)
             with self._lock:
-                installed = self._read_metadata()
-                record = installed.get(normalized_skill_id)
-                if record is None:
-                    raise SkillNotFoundError(
-                        f"Skill '{normalized_skill_id}' is not installed"
+                if version_id is not None:
+                    if not self._lifecycle_enabled():
+                        raise SkillValidationError(
+                            "Versioned Skill activation requires lifecycle management.",
+                            code="skill_lifecycle_disabled",
+                        )
+                    version = self.lifecycle_store.require_version(version_id)
+                    if version.skill_id != normalized_skill_id:
+                        raise SkillValidationError(
+                            "Skill version belongs to another Skill.",
+                            code="skill_lifecycle_version_conflict",
+                        )
+                    package_dir = Path(
+                        self.lifecycle_store.package_directory(version_id)
                     )
-                if self._reconcile_skill_trust_metadata_unlocked(
-                    normalized_skill_id, record
+                    item = self._parse_skill_metadata(
+                        normalized_skill_id,
+                        version.repo_url,
+                        version.sub_path,
+                        package_dir / "SKILL.md",
+                        version.source_ref,
+                        source_kind=version.source_kind,
+                        source_id=version.source_id,
+                        source_revision=version.source_revision,
+                        content_digest=version.package_digest,
+                        trust_metadata={
+                            "trust_state": (
+                                "receipt_matched"
+                                if version.source_kind in {"git", "local_import"}
+                                else "not_applicable"
+                            ),
+                            "trust_receipt_id": version.trust_receipt_id,
+                            "trust_fingerprint": version.trust_fingerprint,
+                            "trust_risk_level": version.trust_risk_level,
+                            "trust_status": version.trust_status,
+                            "trust_install_policy": version.trust_install_policy,
+                            "trust_compatibility_status": version.trust_compatibility_status,
+                            "trust_router_eligible": version.trust_router_eligible,
+                            "trust_package_digest": version.package_digest,
+                            "trust_directory_tree_sha": version.trust_directory_tree_sha,
+                        },
+                    )
+                else:
+                    installed = self._read_metadata()
+                    record = installed.get(normalized_skill_id)
+                    if record is None:
+                        raise SkillNotFoundError(
+                            f"Skill '{normalized_skill_id}' is not installed"
+                        )
+                    if self._reconcile_skill_trust_metadata_unlocked(
+                        normalized_skill_id, record
+                    ):
+                        self._write_metadata(installed)
+                    item = self._installed_skill_from_record(record)
+                if version_id is not None:
+                    local_receipt = None
+                else:
+                    local_receipt = (
+                        self._resolve_local_import_receipt_unlocked(item)
+                        if item.source_kind == "local_import"
+                        and self.trust_service.mode != "off"
+                        else None
+                    )
+            if version_id is not None and item.source_kind in {"git", "local_import"}:
+                if (
+                    item.trust_status == "blocked"
+                    or item.trust_compatibility_status == "unsupported"
+                    or not item.trust_receipt_id
+                    or not item.trust_fingerprint
+                    or version.trust_receipt_snapshot is None
                 ):
-                    self._write_metadata(installed)
-                item = self._installed_skill_from_record(record)
-                local_receipt = (
-                    self._resolve_local_import_receipt_unlocked(item)
-                    if item.source_kind == "local_import"
-                    and self.trust_service.mode != "off"
-                    else None
+                    raise SkillValidationError(
+                        "Historical Skill trust evidence is not activatable.",
+                        code="skill_lifecycle_trust_unavailable",
+                    )
+                self.trust_service.frozen_receipt_activation_decision(
+                    item,
+                    version.trust_receipt_snapshot,
+                    environment=runtime_environment,
+                    ephemeral_authorizations=ephemeral_authorizations,
+                    check_runtime=check_runtime,
                 )
+                return item
             self.trust_service.activation_decision(
                 item,
                 environment=runtime_environment,
@@ -1350,6 +2055,7 @@ class SkillManager:
         item: InstalledSkill,
         *,
         package_dir: Path | None = None,
+        allow_uninstalled: bool = False,
     ) -> dict[str, Any]:
         if self.local_import_store is None or item.source_kind != "local_import":
             raise SkillTrustError(
@@ -1367,7 +2073,10 @@ class SkillManager:
         if (
             record.content_revision != item.source_revision
             or record.package_digest != item.content_digest
-            or record.installed_skill_id != item.skill_id
+            or (
+                not allow_uninstalled
+                and record.installed_skill_id != item.skill_id
+            )
         ):
             raise SkillTrustError(
                 "Installed local Skill no longer matches its import receipt.",
@@ -1600,9 +2309,371 @@ class SkillManager:
                 self._remove_directory_if_present(target_dir)
                 installed.pop(skill_id, None)
                 self._write_metadata(installed)
+        if self._lifecycle_enabled():
+            try:
+                lifecycle_receipt = self.lifecycle_store.require_transaction(
+                    skill_id
+                )
+            except Exception as missing:
+                if str(getattr(missing, "code", "")) != "skill_lifecycle_not_found":
+                    raise
+                lifecycle_receipt = None
+            if lifecycle_receipt is not None:
+                if target_matches:
+                    if lifecycle_receipt.phase == "archived":
+                        self._mark_lifecycle_swapped(lifecycle_receipt)
+                        lifecycle_receipt = self.lifecycle_store.require_transaction(
+                            skill_id
+                        )
+                    if lifecycle_receipt.phase == "swapped":
+                        self._mark_lifecycle_metadata_committed(
+                            lifecycle_receipt
+                        )
+                    elif lifecycle_receipt.phase not in {
+                        "metadata_committed",
+                        "source_projected",
+                        "lifecycle_committed",
+                    }:
+                        raise SkillInstallError(
+                            "Skill install and lifecycle recovery receipts disagree."
+                        )
+                elif lifecycle_receipt.phase in {
+                    "prepared",
+                    "archived",
+                    "swapped",
+                }:
+                    self._abort_lifecycle_transaction(lifecycle_receipt)
+                else:
+                    raise SkillInstallError(
+                        "Committed Skill lifecycle metadata cannot be rolled back."
+                    )
         self._remove_directory_if_present(staging_dir)
         self._remove_directory_if_present(backup_dir)
         self._receipt_path(skill_id).unlink(missing_ok=True)
+
+    def _lifecycle_enabled(self) -> bool:
+        return bool(
+            self.lifecycle_store is not None
+            and getattr(self.lifecycle_store, "enabled", False)
+        )
+
+    def _resolve_runtime_package_directory_unlocked(
+        self,
+        skill_id: str,
+        record: Mapping[str, object],
+        *,
+        version_id: str | None,
+    ) -> Path:
+        if version_id is None:
+            return self._resolve_package_directory(skill_id, record)
+        if not self._lifecycle_enabled():
+            raise SkillValidationError(
+                "Versioned Skill access requires lifecycle management.",
+                code="skill_lifecycle_disabled",
+            )
+        try:
+            version = self.lifecycle_store.require_version(version_id)
+            if version.skill_id != skill_id:
+                raise SkillValidationError(
+                    "Skill version belongs to another installed Skill.",
+                    code="skill_lifecycle_version_conflict",
+                )
+            return Path(self.lifecycle_store.package_directory(version_id))
+        except SkillValidationError:
+            raise
+        except Exception as exc:
+            raise SkillValidationError(
+                str(exc),
+                code=str(getattr(exc, "code", "skill_lifecycle_version_unavailable")),
+                details=getattr(exc, "details", None),
+            ) from exc
+
+    def _stage_lifecycle_version(
+        self,
+        metadata: InstalledSkill,
+        package_dir: Path,
+        *,
+        event_kind: str,
+        quality_evidence_status: str = "not_applicable",
+        quality_required: bool = False,
+        quality_status: str | None = None,
+        quality_decision_id: str | None = None,
+        quality_run_id: str | None = None,
+    ) -> Any | None:
+        if not self._lifecycle_enabled() or metadata.source_kind not in {
+            "git", "local_import", "workspace_draft"
+        }:
+            return None
+        try:
+            files = self.lifecycle_store.read_directory(package_dir)
+            trust_receipt_snapshot = self._lifecycle_trust_receipt_snapshot(
+                metadata
+            )
+            return self.lifecycle_store.stage_version(
+                installed=metadata,
+                files=files,
+                event_kind=event_kind,
+                quality_evidence_status=quality_evidence_status,
+                quality_required=quality_required,
+                quality_status=quality_status,
+                quality_decision_id=quality_decision_id,
+                quality_run_id=quality_run_id,
+                trust_receipt_snapshot=trust_receipt_snapshot,
+            )
+        except Exception as exc:
+            raise SkillInstallError(
+                f"Skill lifecycle version could not be archived: {exc}"
+            ) from exc
+
+    def _lifecycle_trust_receipt_snapshot(
+        self, metadata: InstalledSkill
+    ) -> dict[str, Any] | None:
+        try:
+            if metadata.source_kind == "git":
+                if not metadata.trust_receipt_id:
+                    return None
+                receipt = self.trust_service.receipt_by_id(
+                    metadata.trust_receipt_id
+                )
+                return self.trust_service.validate_frozen_git_receipt(
+                    receipt,
+                    receipt_id=metadata.trust_receipt_id,
+                    trust_fingerprint=str(metadata.trust_fingerprint or ""),
+                    package_digest=str(metadata.content_digest or ""),
+                    directory_tree_sha=metadata.trust_directory_tree_sha,
+                )
+            if metadata.source_kind == "local_import":
+                if self.local_import_store is None or not metadata.source_id:
+                    return None
+                record = self.local_import_store.require(metadata.source_id)
+                return self.trust_service.validate_local_receipt(
+                    record.trust_receipt,
+                    import_id=metadata.source_id,
+                    import_revision=metadata.source_revision,
+                    package_digest=str(metadata.content_digest or ""),
+                )
+        except (SkillTrustError, SkillLocalImportError):
+            try:
+                for version in self.lifecycle_store.list_versions(
+                    metadata.skill_id
+                ):
+                    if (
+                        version.source_kind == metadata.source_kind
+                        and version.source_id == metadata.source_id
+                        and version.source_revision == metadata.source_revision
+                        and version.source_ref == metadata.source_ref
+                        and version.package_digest == metadata.content_digest
+                        and version.trust_fingerprint == metadata.trust_fingerprint
+                        and version.trust_receipt_snapshot is not None
+                    ):
+                        return dict(version.trust_receipt_snapshot)
+            except Exception:
+                pass
+            raise
+        return None
+
+    def _prepare_lifecycle_install(
+        self,
+        *,
+        skill_id: str,
+        previous_record: Mapping[str, object] | None,
+        target_metadata: InstalledSkill,
+        target_package_dir: Path,
+        operation: Literal["install", "replace", "rollback"] | None = None,
+        target_version_id: str | None = None,
+        quality_evidence_status: str = "not_applicable",
+        quality_required: bool = False,
+        quality_status: str | None = None,
+        quality_decision_id: str | None = None,
+        quality_run_id: str | None = None,
+    ) -> Any | None:
+        if not self._lifecycle_enabled() or target_metadata.source_kind not in {
+            "git", "local_import", "workspace_draft"
+        }:
+            return None
+        previous_version_id: str | None = None
+        if previous_record is not None:
+            previous = self._installed_skill_from_record(previous_record)
+            previous_package = self._resolve_package_directory(skill_id, previous_record)
+            try:
+                state = self.lifecycle_store.require_state(skill_id)
+            except Exception as missing:
+                if str(getattr(missing, "code", "")) != "skill_lifecycle_not_found":
+                    raise
+                state = None
+            previous_version = None
+            if state is not None and state.current_version_id:
+                current_version = self.lifecycle_store.require_version(
+                    state.current_version_id
+                )
+                if (
+                    current_version.package_digest == previous.content_digest
+                    and current_version.source_kind == previous.source_kind
+                    and current_version.source_id == previous.source_id
+                    and current_version.source_revision == previous.source_revision
+                    and current_version.source_ref == previous.source_ref
+                    and self._directory_content_digest(previous_package)
+                    == previous.content_digest
+                ):
+                    previous_version = current_version
+            if previous_version is None:
+                previous_version = self._stage_lifecycle_version(
+                    previous, previous_package, event_kind="version_archived"
+                )
+                state = self.lifecycle_store.require_state(skill_id)
+            assert state is not None
+            if state.current_version_id is None:
+                state = self.lifecycle_store.activate_version(
+                    skill_id,
+                    previous_version.version_id,
+                    expected_revision=state.revision,
+                    event_kind="recovered",
+                )
+            elif state.current_version_id != previous_version.version_id:
+                raise SkillInstallError(
+                    "Installed Skill differs from the lifecycle current version."
+                )
+            previous_version_id = previous_version.version_id
+        if target_version_id is not None:
+            target_version = self.lifecycle_store.require_version(
+                target_version_id
+            )
+            if (
+                target_version.skill_id != skill_id
+                or target_version.package_digest != target_metadata.content_digest
+                or target_version.source_kind != target_metadata.source_kind
+                or target_version.source_id != target_metadata.source_id
+                or target_version.source_revision != target_metadata.source_revision
+                or target_version.source_ref != target_metadata.source_ref
+                or Path(self.lifecycle_store.package_directory(target_version_id))
+                != Path(target_package_dir)
+            ):
+                raise SkillInstallError(
+                    "Historical Skill lifecycle target changed before rollback."
+                )
+        else:
+            target_version = self._stage_lifecycle_version(
+                target_metadata,
+                target_package_dir,
+                event_kind="version_prepared",
+                quality_evidence_status=quality_evidence_status,
+                quality_required=quality_required,
+                quality_status=quality_status,
+                quality_decision_id=quality_decision_id,
+                quality_run_id=quality_run_id,
+            )
+        state = self.lifecycle_store.require_state(skill_id)
+        receipt = self.lifecycle_store.prepare_transaction(
+            skill_id=skill_id,
+            operation=(
+                operation
+                or ("replace" if previous_version_id is not None else "install")
+            ),
+            previous_version_id=previous_version_id,
+            target_version_id=target_version.version_id,
+            expected_state_revision=state.revision,
+        )
+        return self.lifecycle_store.advance_transaction(
+            skill_id,
+            transaction_id=receipt.transaction_id,
+            expected_phase="prepared",
+            phase="archived",
+        )
+
+    def _prepare_lifecycle_uninstall(
+        self,
+        *,
+        skill_id: str,
+        previous_record: Mapping[str, object],
+    ) -> Any | None:
+        if not self._lifecycle_enabled():
+            return None
+        previous = self._installed_skill_from_record(previous_record)
+        if previous.source_kind not in {"git", "local_import", "workspace_draft"}:
+            return None
+        package = self._resolve_package_directory(skill_id, previous_record)
+        try:
+            state = self.lifecycle_store.require_state(skill_id)
+        except Exception as missing:
+            if str(getattr(missing, "code", "")) != "skill_lifecycle_not_found":
+                raise
+            state = None
+        version = None
+        if state is not None and state.current_version_id:
+            current_version = self.lifecycle_store.require_version(
+                state.current_version_id
+            )
+            if (
+                current_version.package_digest == previous.content_digest
+                and current_version.source_kind == previous.source_kind
+                and current_version.source_id == previous.source_id
+                and current_version.source_revision == previous.source_revision
+                and current_version.source_ref == previous.source_ref
+                and self._directory_content_digest(package) == previous.content_digest
+            ):
+                version = current_version
+        if version is None:
+            version = self._stage_lifecycle_version(
+                previous, package, event_kind="version_archived"
+            )
+            state = self.lifecycle_store.require_state(skill_id)
+        assert state is not None
+        if state.current_version_id is None:
+            state = self.lifecycle_store.activate_version(
+                skill_id,
+                version.version_id,
+                expected_revision=state.revision,
+                event_kind="recovered",
+            )
+        elif state.current_version_id != version.version_id:
+            raise SkillInstallError(
+                "Installed Skill differs from the lifecycle current version."
+            )
+        receipt = self.lifecycle_store.prepare_transaction(
+            skill_id=skill_id,
+            operation="uninstall",
+            previous_version_id=version.version_id,
+            target_version_id=None,
+            expected_state_revision=state.revision,
+        )
+        return self.lifecycle_store.advance_transaction(
+            skill_id,
+            transaction_id=receipt.transaction_id,
+            expected_phase="prepared",
+            phase="archived",
+        )
+
+    def _mark_lifecycle_metadata_committed(self, receipt: Any | None) -> None:
+        if receipt is None:
+            return
+        self.lifecycle_store.advance_transaction(
+            receipt.skill_id,
+            transaction_id=receipt.transaction_id,
+            expected_phase="swapped",
+            phase="metadata_committed",
+        )
+
+    def _mark_lifecycle_swapped(self, receipt: Any | None) -> None:
+        if receipt is None:
+            return
+        self.lifecycle_store.advance_transaction(
+            receipt.skill_id,
+            transaction_id=receipt.transaction_id,
+            expected_phase="archived",
+            phase="swapped",
+        )
+
+    def _abort_lifecycle_transaction(self, receipt: Any | None) -> None:
+        if receipt is None:
+            return
+        try:
+            self.lifecycle_store.abort_transaction(
+                receipt.skill_id, transaction_id=receipt.transaction_id
+            )
+        except Exception as exc:
+            raise SkillInstallError(
+                "Skill install failed and lifecycle recovery is incomplete."
+            ) from exc
 
     @staticmethod
     def _remove_directory_if_present(path: Path) -> None:
@@ -1616,17 +2687,30 @@ class SkillManager:
             self._write_metadata({})
 
     def _read_metadata(self) -> dict[str, dict[str, object]]:
-        self._ensure_dirs_for_read()
         try:
+            self._ensure_dirs_for_read()
             raw = json.loads(self.metadata_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SkillInstallError(
+                "Installed Skill metadata is unavailable or corrupt."
+            ) from exc
 
-        if isinstance(raw, dict) and isinstance(raw.get("skills"), dict):
-            return raw["skills"]  # type: ignore[return-value]
-        if isinstance(raw, dict):
+        if isinstance(raw, dict) and "skills" in raw:
+            skills = raw.get("skills")
+            if isinstance(skills, dict) and all(
+                isinstance(key, str) and isinstance(value, dict)
+                for key, value in skills.items()
+            ):
+                return skills  # type: ignore[return-value]
+            raise SkillInstallError(
+                "Installed Skill metadata is unavailable or corrupt."
+            )
+        if isinstance(raw, dict) and all(
+            isinstance(key, str) and isinstance(value, dict)
+            for key, value in raw.items()
+        ):
             return raw  # backward-compatible flat shape
-        return {}
+        raise SkillInstallError("Installed Skill metadata is unavailable or corrupt.")
 
     def _write_metadata(self, skills: dict[str, dict[str, object]]) -> None:
         self.installed_dir.mkdir(parents=True, exist_ok=True)

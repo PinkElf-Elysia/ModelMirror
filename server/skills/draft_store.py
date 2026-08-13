@@ -692,6 +692,57 @@ class WorkspaceSkillDraftStore:
                 raise
             return self._copy(item)
 
+    def mark_lifecycle_version_installed(
+        self,
+        draft_id: str,
+        *,
+        content_revision: int,
+        content_digest: str,
+        skill_id: str,
+    ) -> WorkspaceSkillDraft:
+        """Project a server-verified historical lifecycle version as installed."""
+
+        with self._lock:
+            self._ensure_writable_unlocked()
+            item = self._require_unlocked(draft_id)
+            snapshot = self._revisions.get(draft_id, {}).get(content_revision)
+            if snapshot is None or not self._digests_equal(
+                snapshot.content_digest, content_digest
+            ):
+                raise SkillDraftConflictError(
+                    "Historical Skill draft revision is unavailable."
+                )
+            install_state = (
+                "current"
+                if snapshot.revision == item.content_revision
+                and self._digests_equal(snapshot.content_digest, item.content_digest)
+                else "outdated"
+            )
+            if (
+                item.installed_skill_id == str(skill_id).strip()
+                and item.installed_content_revision == snapshot.revision
+                and self._digests_equal(
+                    item.installed_content_digest or "", snapshot.content_digest
+                )
+                and item.install_state == install_state
+                and item.status == "installed"
+            ):
+                return self._copy(item)
+            previous = self._copy(item)
+            item.installed_skill_id = str(skill_id).strip()
+            item.installed_content_revision = snapshot.revision
+            item.installed_content_digest = snapshot.content_digest
+            item.install_state = install_state
+            item.status = "installed"
+            item.revision += 1
+            item.updated_at = time.time()
+            try:
+                self._save_unlocked()
+            except BaseException:
+                self._items[draft_id] = previous
+                raise
+            return self._copy(item)
+
     def install_current(
         self,
         draft_id: str,

@@ -53,6 +53,7 @@ server/skills/installed/
 server/skills/tmp/
 server/skills/storage/
 server/skills/imports/
+server/skills/lifecycle/
 server/agent_workspace/storage/
 server/xperts/storage/
 server/plugins/storage/

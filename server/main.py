@@ -8742,6 +8742,59 @@ async def _run_workflow_response(
                 for item in (pending_state.get("active_skill_ids") or [])
                 if str(item).strip()
             }
+            skill_version_bindings = {
+                str(skill_id): str(version_id)
+                for skill_id, version_id in dict(
+                    {
+                        **dict(runtime_metadata.get("skill_version_bindings") or {}),
+                        **dict(pending_state.get("skill_version_bindings") or {}),
+                    }
+                ).items()
+                if str(skill_id).strip() and str(version_id).strip()
+            }
+            if include_skills:
+                skills_config_for_bindings = dict(
+                    skills_spec.config if skills_spec is not None else {}
+                )
+                configured_skill_ids = {
+                    item.strip()
+                    for item in re.split(
+                        r"[,\n]+",
+                        str(skills_config_for_bindings.get("skill_ids") or ""),
+                    )
+                    if item.strip()
+                }
+                if workflow_truthy(
+                    skills_config_for_bindings.get("auto_discover", False)
+                ):
+                    configured_skill_ids.update(
+                        item.skill_id
+                        for item in await asyncio.to_thread(
+                            get_skill_manager().list_installed_skills
+                        )
+                    )
+                configured_skill_ids.update(active_skill_ids)
+                missing_bindings = configured_skill_ids - set(skill_version_bindings)
+                if missing_bindings:
+                    skill_version_bindings.update(
+                        await asyncio.to_thread(
+                            get_skill_manager().bind_skill_versions,
+                            missing_bindings,
+                        )
+                    )
+                if skill_version_bindings:
+                    await asyncio.to_thread(
+                        workflow_execution_store.bind_skill_versions,
+                        task_id,
+                        bindings=skill_version_bindings,
+                    )
+                    runtime_metadata["skill_version_bindings"] = dict(
+                        sorted(skill_version_bindings.items())
+                    )
+            if middleware_context is not None:
+                middleware_context.metadata["skill_version_bindings"] = (
+                    skill_version_bindings
+                )
             skill_trust_authorizations = {
                 str(skill_id): str(fingerprint)
                 for skill_id, fingerprint in dict(
@@ -8777,6 +8830,28 @@ async def _run_workflow_response(
                 ).strip()
                 if activated_skill_id:
                     active_skill_ids.add(activated_skill_id)
+                    if activated_skill_id not in skill_version_bindings:
+                        activated_bindings = await asyncio.to_thread(
+                            get_skill_manager().bind_skill_versions,
+                            {activated_skill_id},
+                        )
+                        activated_version_id = str(
+                            activated_bindings.get(activated_skill_id) or ""
+                        ).strip()
+                        if activated_version_id:
+                            skill_version_bindings[activated_skill_id] = (
+                                activated_version_id
+                            )
+                            await asyncio.to_thread(
+                                workflow_execution_store.bind_skill_versions,
+                                task_id,
+                                bindings={
+                                    activated_skill_id: activated_version_id
+                                },
+                            )
+                            runtime_metadata["skill_version_bindings"] = dict(
+                                sorted(skill_version_bindings.items())
+                            )
                 trust_authorization = metadata.get("trust_authorization")
                 if isinstance(trust_authorization, dict):
                     authorized_skill_id = str(
@@ -8914,6 +8989,9 @@ async def _run_workflow_response(
                     "catalog_install_count": catalog_install_count,
                     "skill_trust_authorizations": dict(
                         sorted(skill_trust_authorizations.items())
+                    ),
+                    "skill_version_bindings": dict(
+                        sorted(skill_version_bindings.items())
                     ),
                     "skill_runtime_environment": {
                         "tool_names": sorted(
@@ -9513,6 +9591,9 @@ async def _run_workflow_response(
                             "catalog_install_count": catalog_install_count,
                             "skill_trust_authorizations": dict(
                                 sorted(skill_trust_authorizations.items())
+                            ),
+                            "skill_version_bindings": dict(
+                                sorted(skill_version_bindings.items())
                             ),
                         }
                         raise

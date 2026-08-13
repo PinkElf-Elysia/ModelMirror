@@ -27,8 +27,18 @@ from .rerank_governance import (
     SkillRerankGovernanceStore,
 )
 from .local_import import (
+    SkillLocalImportError,
     SkillLocalImportNotFoundError,
     SkillLocalImportStorageError,
+)
+from .lifecycle import (
+    SkillLifecycleConflictError,
+    SkillLifecycleDisabledError,
+    SkillLifecycleError,
+    SkillLifecycleMigrationService,
+    SkillLifecycleStorageError,
+    SkillLifecycleStore,
+    SkillLifecycleValidationError,
 )
 from .draft_store import (
     SkillDraftConflictError,
@@ -68,6 +78,8 @@ _skill_draft_store: WorkspaceSkillDraftStore | None = None
 _builtin_library: BuiltinSkillLibrary | None = None
 _semantic_rerank_service: SkillSemanticRerankService | None = None
 _rerank_governance_service: SkillRerankGovernanceService | None = None
+_skill_lifecycle_service: SkillLifecycleMigrationService | None = None
+_skill_lifecycle_store: SkillLifecycleStore | None = None
 
 
 class SkillInstallRequest(BaseModel):
@@ -194,6 +206,19 @@ class SkillDraftPatchRequest(BaseModel):
     files: dict[str, str] | None = None
 
 
+class SkillLifecycleMigrationRequest(BaseModel):
+    confirmed: bool
+
+
+class SkillLifecycleRollbackRequest(BaseModel):
+    expected_state_revision: int = Field(ge=1)
+    expected_current_version_id: str | None = Field(default=None, max_length=80)
+    expected_package_digest: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+    confirmed: bool
+
+
 class SkillLibraryResponse(BaseModel):
     skills: list[BuiltinSkill]
     total: int
@@ -218,7 +243,8 @@ def get_skill_manager() -> SkillManager:
         from .local_import_api import get_skill_local_import_store
 
         _skill_manager = SkillManager(
-            local_import_store=get_skill_local_import_store()
+            local_import_store=get_skill_local_import_store(),
+            lifecycle_store=get_skill_lifecycle_store(),
         )
     return _skill_manager
 
@@ -228,6 +254,18 @@ def set_skill_manager_for_tests(manager: SkillManager | None) -> None:
 
     global _skill_manager
     _skill_manager = manager
+
+
+def get_skill_lifecycle_store() -> SkillLifecycleStore:
+    global _skill_lifecycle_store
+    if _skill_lifecycle_store is None:
+        _skill_lifecycle_store = SkillLifecycleStore()
+    return _skill_lifecycle_store
+
+
+def set_skill_lifecycle_store_for_tests(store: SkillLifecycleStore | None) -> None:
+    global _skill_lifecycle_store
+    _skill_lifecycle_store = store
 
 
 def get_skill_draft_store() -> WorkspaceSkillDraftStore:
@@ -242,6 +280,26 @@ def set_skill_draft_store_for_tests(
 ) -> None:
     global _skill_draft_store
     _skill_draft_store = store
+
+
+def get_skill_lifecycle_service() -> SkillLifecycleMigrationService:
+    global _skill_lifecycle_service
+    if _skill_lifecycle_service is None:
+        manager = get_skill_manager()
+        _skill_lifecycle_service = SkillLifecycleMigrationService(
+            store=get_skill_lifecycle_store(),
+            manager=manager,
+            draft_store=get_skill_draft_store(),
+            local_import_store=manager.local_import_store,
+        )
+    return _skill_lifecycle_service
+
+
+def set_skill_lifecycle_service_for_tests(
+    service: SkillLifecycleMigrationService | None,
+) -> None:
+    global _skill_lifecycle_service
+    _skill_lifecycle_service = service
 
 
 def get_builtin_skill_library() -> BuiltinSkillLibrary:
@@ -672,12 +730,188 @@ async def get_skill_trust_receipt(receipt_id: str):
         _raise_trust_error(exc)
 
 
+def _raise_lifecycle_error(exc: SkillLifecycleError) -> None:
+    if isinstance(exc, SkillLifecycleDisabledError):
+        status_code = 404
+    elif isinstance(exc, SkillLifecycleStorageError):
+        status_code = 503
+    elif isinstance(exc, SkillLifecycleConflictError):
+        status_code = 409
+    elif isinstance(exc, SkillLifecycleValidationError):
+        status_code = (
+            409
+            if exc.code in {
+                "skill_lifecycle_confirmation_required",
+                "skill_lifecycle_package_mismatch",
+                "skill_lifecycle_version_conflict",
+            }
+            else 400
+        )
+    else:
+        status_code = 500
+    raise HTTPException(
+        status_code=status_code,
+        detail={
+            "code": exc.code,
+            "message": str(exc),
+            "details": exc.details,
+        },
+    ) from exc
+
+
+@router.get("/lifecycle/status")
+async def get_skill_lifecycle_status():
+    return get_skill_lifecycle_service().status()
+
+
+@router.get("/lifecycle/migration")
+async def audit_skill_lifecycle_migration():
+    try:
+        return await asyncio.to_thread(get_skill_lifecycle_service().audit)
+    except SkillLifecycleError as exc:
+        _raise_lifecycle_error(exc)
+    except SkillManagerError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "skill_lifecycle_installed_metadata_unavailable",
+                "message": str(exc),
+            },
+        ) from exc
+
+
+@router.get("/lifecycle/skills")
+async def list_skill_lifecycle_states():
+    try:
+        store = get_skill_lifecycle_store()
+        states = await asyncio.to_thread(store.list_states)
+        return {
+            "status": store.status(),
+            "items": [store.serialize_state(item) for item in states],
+        }
+    except SkillLifecycleError as exc:
+        _raise_lifecycle_error(exc)
+
+
+@router.post("/lifecycle/migration")
+async def apply_skill_lifecycle_migration(
+    payload: SkillLifecycleMigrationRequest,
+):
+    try:
+        return await asyncio.to_thread(
+            get_skill_lifecycle_service().migrate,
+            confirmed=payload.confirmed,
+        )
+    except SkillLifecycleError as exc:
+        _raise_lifecycle_error(exc)
+    except SkillManagerError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "skill_lifecycle_installed_metadata_unavailable",
+                "message": str(exc),
+            },
+        ) from exc
+
+
+@router.get("/{skill_id}/versions")
+async def list_skill_versions(skill_id: str):
+    try:
+        store = get_skill_lifecycle_store()
+        state = await asyncio.to_thread(store.require_state, skill_id)
+        versions = await asyncio.to_thread(store.list_versions, skill_id)
+        return {
+            "state": store.serialize_state(state),
+            "versions": [store.serialize_version(item) for item in versions],
+        }
+    except SkillLifecycleError as exc:
+        _raise_lifecycle_error(exc)
+
+
+@router.post("/{skill_id}/versions/{version_id}/rollback")
+async def rollback_skill_version(
+    skill_id: str,
+    version_id: str,
+    payload: SkillLifecycleRollbackRequest,
+):
+    try:
+        manager = get_skill_manager()
+        installed = await asyncio.to_thread(
+            manager.rollback_skill_version,
+            skill_id,
+            version_id,
+            expected_state_revision=payload.expected_state_revision,
+            expected_current_version_id=payload.expected_current_version_id,
+            expected_package_digest=payload.expected_package_digest,
+            confirmed=payload.confirmed,
+        )
+        version = await asyncio.to_thread(
+            get_skill_lifecycle_store().require_version, version_id
+        )
+        if version.source_kind == "workspace_draft" and version.source_id:
+            await asyncio.to_thread(
+                get_skill_draft_store().mark_lifecycle_version_installed,
+                version.source_id,
+                content_revision=version.source_revision or 0,
+                content_digest=version.package_digest,
+                skill_id=skill_id,
+            )
+        elif (
+            version.source_kind == "local_import"
+            and version.source_id
+            and manager.local_import_store is not None
+        ):
+            await asyncio.to_thread(
+                manager.local_import_store.mark_lifecycle_version_installed,
+                version.source_id,
+                content_revision=version.source_revision or 0,
+                package_digest=version.package_digest,
+                skill_id=skill_id,
+            )
+        await asyncio.to_thread(manager.finalize_lifecycle_transaction, skill_id)
+        state = await asyncio.to_thread(
+            get_skill_lifecycle_store().require_state, skill_id
+        )
+        return {
+            "installed": _payload_from_skill(installed).model_dump(mode="json"),
+            "state": get_skill_lifecycle_store().serialize_state(state),
+        }
+    except SkillLifecycleError as exc:
+        _raise_lifecycle_error(exc)
+    except SkillValidationError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": exc.code or "skill_lifecycle_version_conflict",
+                "message": str(exc),
+                "details": exc.details,
+            },
+        ) from exc
+    except (SkillDraftError, SkillLocalImportError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": str(getattr(exc, "code", "") or "skill_lifecycle_source_projection_failed"),
+                "message": str(exc),
+            },
+        ) from exc
+
+
 @router.get("/installed", response_model=InstalledSkillsResponse)
 async def list_installed_skills() -> InstalledSkillsResponse:
-    skills = await asyncio.to_thread(get_skill_manager().list_installed_skills)
-    return InstalledSkillsResponse(
-        skills=[_payload_from_skill(skill) for skill in skills]
-    )
+    try:
+        skills = await asyncio.to_thread(get_skill_manager().list_installed_skills)
+        return InstalledSkillsResponse(
+            skills=[_payload_from_skill(skill) for skill in skills]
+        )
+    except SkillManagerError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "skill_installed_metadata_unavailable",
+                "message": str(exc),
+            },
+        ) from exc
 
 
 def _raise_draft_error(exc: Exception) -> None:
@@ -775,12 +1009,17 @@ async def install_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
         manager = get_skill_manager()
 
         def _install_locked(item):
+            decision = item.quality_decision
             return manager.install_workspace_draft(
                 draft_id=item.draft_id,
                 slug=item.slug,
                 skill_markdown=item.skill_markdown,
                 files=item.files,
                 source_revision=item.content_revision,
+                quality_required=item.quality_required,
+                quality_status=item.quality_status,
+                quality_decision_id=(decision.decision_id if decision else None),
+                quality_run_id=(decision.run_id if decision else None),
             )
 
         updated, installed = await asyncio.to_thread(
@@ -789,6 +1028,9 @@ async def install_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
             expected_revision=payload.expected_revision,
             expected_digest=payload.expected_digest,
             installer=_install_locked,
+        )
+        await asyncio.to_thread(
+            manager.finalize_lifecycle_transaction, installed.skill_id
         )
         return {
             "draft": WorkspaceSkillDraftStore.serialize(updated),
@@ -926,6 +1168,10 @@ async def uninstall_skill(skill_id: str) -> dict[str, bool]:
         try:
             await asyncio.to_thread(manager.uninstall_skill, skill_id)
         except SkillNotFoundError:
+            if await asyncio.to_thread(
+                manager.recover_lifecycle_transaction, skill_id
+            ):
+                return {"ok": True}
             # A previous attempt may have removed the global files before the
             # Workspace draft projection could be persisted.  Repair that
             # projection idempotently before deciding this is a true 404.
@@ -941,6 +1187,9 @@ async def uninstall_skill(skill_id: str) -> dict[str, bool]:
                 raise
             if local_repaired:
                 await asyncio.to_thread(manager.trust_service.revoke, skill_id)
+            await asyncio.to_thread(
+                manager.finalize_lifecycle_transaction, skill_id
+            )
             return {"ok": True}
         if installed_before and installed_before.source_kind == "workspace_draft":
             await asyncio.to_thread(
@@ -955,6 +1204,9 @@ async def uninstall_skill(skill_id: str) -> dict[str, bool]:
                 manager.local_import_store.mark_uninstalled_skill, skill_id
             )
             await asyncio.to_thread(manager.trust_service.revoke, skill_id)
+        await asyncio.to_thread(
+            manager.finalize_lifecycle_transaction, skill_id
+        )
         return {"ok": True}
     except SkillNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

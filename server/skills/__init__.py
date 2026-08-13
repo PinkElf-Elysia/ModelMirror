@@ -11,6 +11,14 @@ from .package_validation import (
     scan_skill_package_credentials,
     validate_skill_package,
 )
+from .lifecycle import (
+    SKILL_LIFECYCLE_PROTOCOL_VERSION,
+    SKILL_LIFECYCLE_STORE_VERSION,
+    SkillLifecycleMigrationService,
+    SkillLifecycleState,
+    SkillLifecycleStore,
+    SkillVersionSnapshot,
+)
 
 __all__ = [
     "VALIDATOR_VERSION",
@@ -22,5 +30,10 @@ __all__ = [
     "compute_skill_package_digest",
     "scan_skill_package_credentials",
     "validate_skill_package",
+    "SKILL_LIFECYCLE_PROTOCOL_VERSION",
+    "SKILL_LIFECYCLE_STORE_VERSION",
+    "SkillLifecycleMigrationService",
+    "SkillLifecycleState",
+    "SkillLifecycleStore",
+    "SkillVersionSnapshot",
 ]
-

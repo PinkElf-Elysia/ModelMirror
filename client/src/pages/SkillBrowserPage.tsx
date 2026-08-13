@@ -124,6 +124,9 @@ function needCandidateId(target: SkillNeedTarget) {
 const SkillLocalImportSummaryPanel = lazy(
   () => import("../components/skill-import/SkillLocalImportSummaryPanel"),
 );
+const SkillLifecyclePanel = lazy(
+  () => import("../components/SkillLifecyclePanel"),
+);
 
 const INSTALL_STATUS_DETAILS: Record<
   SkillInstallStatus,
@@ -1038,6 +1041,7 @@ function SkillSetMemberPanel({
 function InstalledSkillCard({
   onAcknowledge,
   onInspectTrust,
+  onManageVersions,
   onRevokeAcknowledgement,
   onUninstall,
   skill,
@@ -1046,6 +1050,7 @@ function InstalledSkillCard({
 }: {
   onAcknowledge: (skill: InstalledSkill) => void;
   onInspectTrust: (title: string, receiptId: string) => void;
+  onManageVersions: (skill: InstalledSkill) => void;
   onRevokeAcknowledgement: (skill: InstalledSkill) => void;
   onUninstall: (skill: InstalledSkill) => void;
   skill: InstalledSkill;
@@ -1130,6 +1135,15 @@ function InstalledSkillCard({
         ) : null}
       </div>
       <div className="mt-5 flex flex-wrap justify-end gap-2">
+        {["git", "local_import", "workspace_draft"].includes(skill.source_kind) ? (
+          <button
+            className="min-h-10 rounded-full border border-hire-300/30 px-4 text-sm font-semibold text-hire-100 transition hover:bg-hire-300/10"
+            onClick={() => onManageVersions(skill)}
+            type="button"
+          >
+            版本与恢复
+          </button>
+        ) : null}
         {isLocalImport && skill.source_id ? (
           <Link
             className="inline-flex min-h-10 items-center rounded-full border border-white/15 px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06]"
@@ -1227,6 +1241,7 @@ export default function SkillBrowserPage() {
   const [trustActionBusy, setTrustActionBusy] = useState(false);
   const [installingId, setInstallingId] = useState("");
   const [uninstallingId, setUninstallingId] = useState("");
+  const [lifecycleFocusSkillId, setLifecycleFocusSkillId] = useState("");
   const [selectedSkillSetId, setSelectedSkillSetId] = useState("");
   const [focusedSkillSetMemberId, setFocusedSkillSetMemberId] = useState("");
   const [skillSetBatchProgress, setSkillSetBatchProgress] =
@@ -1839,6 +1854,16 @@ export default function SkillBrowserPage() {
     } finally {
       setUninstallingId("");
     }
+  }
+
+  function manageSkillVersions(skill: InstalledSkill) {
+    setLifecycleFocusSkillId(skill.skill_id);
+    window.setTimeout(() => {
+      document.getElementById("skill-lifecycle-panel")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 0);
   }
 
   return (
@@ -2510,39 +2535,60 @@ export default function SkillBrowserPage() {
           >
             <SkillLocalImportSummaryPanel />
           </Suspense>
-        ) : activeTab === "installed" && installedSkills.length > 0 ? (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {installedSkills.map((skill) => (
-              <InstalledSkillCard
-                key={skill.skill_id}
-                onAcknowledge={(item) => {
-                  if (!item.trust_receipt_id) {
-                    setError("该 Skill 没有可确认的信任凭据。");
-                    return;
-                  }
-                  void openTrustAction({
-                    kind: "acknowledge",
-                    title: item.name,
-                    receiptId: item.trust_receipt_id,
-                    skill: item,
-                  });
-                }}
-                onInspectTrust={(title, receiptId) =>
-                  void openTrustAction({ kind: "inspect", title, receiptId })
-                }
-                onRevokeAcknowledgement={(item) =>
-                  void revokeTrustAcknowledgement(item)
-                }
-                onUninstall={(item) => void uninstallSkill(item)}
-                skill={skill}
-                trustSummary={
-                  trustIndex?.receipts.find(
-                    (receipt) => receipt.receiptId === skill.trust_receipt_id,
-                  ) ?? null
-                }
-                uninstallingId={uninstallingId}
+        ) : activeTab === "installed" ? (
+          <div className="space-y-5">
+            <Suspense
+              fallback={
+                <div className="h-36 animate-pulse rounded-lg bg-white/[0.05]" />
+              }
+            >
+              <SkillLifecyclePanel
+                focusSkillId={lifecycleFocusSkillId}
+                onChanged={() => void loadInstalledSkills()}
               />
-            ))}
+            </Suspense>
+            {installedSkills.length > 0 ? (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {installedSkills.map((skill) => (
+                  <InstalledSkillCard
+                    key={skill.skill_id}
+                    onAcknowledge={(item) => {
+                      if (!item.trust_receipt_id) {
+                        setError("该 Skill 没有可确认的信任凭据。");
+                        return;
+                      }
+                      void openTrustAction({
+                        kind: "acknowledge",
+                        title: item.name,
+                        receiptId: item.trust_receipt_id,
+                        skill: item,
+                      });
+                    }}
+                    onInspectTrust={(title, receiptId) =>
+                      void openTrustAction({ kind: "inspect", title, receiptId })
+                    }
+                    onManageVersions={manageSkillVersions}
+                    onRevokeAcknowledgement={(item) =>
+                      void revokeTrustAcknowledgement(item)
+                    }
+                    onUninstall={(item) => void uninstallSkill(item)}
+                    skill={skill}
+                    trustSummary={
+                      trustIndex?.receipts.find(
+                        (receipt) => receipt.receiptId === skill.trust_receipt_id,
+                      ) ?? null
+                    }
+                    uninstallingId={uninstallingId}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.04] px-6 py-10 text-center">
+                <p className="text-base font-semibold text-white">当前没有安装中的 Skill</p>
+                <p className="mt-2 text-sm text-slate-400">上方仍会保留可恢复的历史版本。也可以返回市场安装新 Skill。</p>
+                <button className="mt-5 min-h-11 rounded-full bg-hire-300 px-5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200" onClick={() => setActiveTab("market")} type="button">前往 Skill 市场</button>
+              </div>
+            )}
           </div>
         ) : activeTab === "drafts" ? (
           <SkillDraftPanel onInstalled={() => void loadInstalledSkills()} />
