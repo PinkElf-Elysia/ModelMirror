@@ -42,8 +42,8 @@ def test_wave24_review_tracks_only_accepted_runtime_promotions_and_frozen_source
     assert payload["runtime_execution_changed"] is True
     assert payload["approval"] == {
         "status": "approved",
-        "approved_at": "2026-08-12",
-        "scope": "static-catalog-plus-accepted-wave25a-wave25b-runtime",
+        "approved_at": "2026-08-13",
+        "scope": "static-catalog-plus-accepted-wave25-wave30-runtime",
     }
     sources = {source["source_id"]: source for source in payload["source_snapshots"]}
     assert sources["awesome-mcp-zh"]["commit"] == "b29e114d95fa26338b092423fd1ede1e5598e4df"
@@ -121,9 +121,9 @@ def test_wave24_review_has_no_prior_catalog_identity_or_runtime_surface() -> Non
         return set()
 
     assert Counter(item["proposed_availability"] for item in candidates) == {
-        "ready": 5,
-        "planned": 41,
-        "blocked": 54,
+        "ready": 8,
+        "planned": 34,
+        "blocked": 58,
     }
     assert all(
         item["decision"] in {"accepted-ready", "deferred-planned", "blocked"}
@@ -131,7 +131,10 @@ def test_wave24_review_has_no_prior_catalog_identity_or_runtime_surface() -> Non
     )
     assert all(item["decision_reason_code"] for item in candidates)
     assert all(item["decision_reason"] for item in candidates)
-    assert all(item["adaptation_wave"] in {21, 24, 25, 26, 27} for item in candidates)
+    assert all(
+        item["adaptation_wave"] in {21, 24, 25, 26, 27, 28, 29, 30}
+        for item in candidates
+    )
     assert not ({item["canonical_key"] for item in candidates} & old_keys)
     assert not ({item["github"]["nameWithOwner"].lower() for item in candidates} & old_redirects)
     assert all(item["canonical_key"].split("#", 1)[0] not in existing_keys for item in candidates)

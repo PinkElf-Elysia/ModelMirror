@@ -55,6 +55,7 @@ from .database_graph_services import (
     preflight_neo4j,
 )
 from .database_wave27 import build_greptime, preflight_greptime
+from .database_wave29 import build_victoriametrics, preflight_victoriametrics
 
 
 READ_ONLY = ToolAnnotations(
@@ -1066,6 +1067,7 @@ BUILDERS = {
     "neo4j-contrib-mcp-neo4j": build_neo4j,
     "arcadedata-arcadedb": build_arcadedb,
     "greptimeteam-greptimedb-mcp-server": build_greptime,
+    "victoriametrics-community-mcp-victoriametrics": build_victoriametrics,
 }
 
 PREFLIGHTS = {
@@ -1082,6 +1084,7 @@ PREFLIGHTS = {
     "neo4j-contrib-mcp-neo4j": preflight_neo4j,
     "arcadedata-arcadedb": preflight_arcadedb,
     "greptimeteam-greptimedb-mcp-server": preflight_greptime,
+    "victoriametrics-community-mcp-victoriametrics": preflight_victoriametrics,
 }
 
 

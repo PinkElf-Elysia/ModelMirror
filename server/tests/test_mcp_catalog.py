@@ -28,6 +28,7 @@ from server.mcp.catalog import (
     WAVE_FOUR_ADAPTERS,
     WAVE_FIVE_ADAPTERS,
     WAVE_NINETEEN_DATABASE_ADAPTERS,
+    WAVE_TWENTYNINE_DATABASE_ADAPTERS,
     WAVE_SIX_ADAPTERS,
     WAVE_SEVEN_ADAPTERS,
     WAVE_THIRTEEN_TOKEN_ADAPTERS,
@@ -364,6 +365,10 @@ def test_catalog_freezes_300_projects_and_maps_all_waves_once() -> None:
         "neo4j-contrib-mcp-neo4j",
         "arcadedata-arcadedb",
     }
+    assert set(WAVE_TWENTYNINE_DATABASE_ADAPTERS) == {
+        "greptimeteam-greptimedb-mcp-server",
+        "victoriametrics-community-mcp-victoriametrics",
+    }
     assert set(WAVE_SEVEN_ADAPTERS) == {
         "chrome-devtools-mcp",
         "playwright-mcp",
@@ -371,15 +376,15 @@ def test_catalog_freezes_300_projects_and_maps_all_waves_once() -> None:
     assert sum(
         manifest.availability == "ready"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 76
+    ) == 79
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 68
+    ) == 61
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 156
+    ) == 160
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
@@ -436,7 +441,7 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
     assert "server_command" not in expansion_v2_source + expansion_v3_source
     assert '"endpoint"' not in expansion_v2_source + expansion_v3_source
     assert expansion_v2_source.count('"availability": "ready"') == 26
-    assert expansion_v3_source.count('"availability": "ready"') == 5
+    assert expansion_v3_source.count('"availability": "ready"') == 8
     assert 'fetch("/api/mcp/connect"' not in card_source
     assert 'fetch("/api/mcp/install"' not in card_source
     assert not re.search(
@@ -471,6 +476,7 @@ def test_approved_catalog_expansion_freezes_ready_planned_and_blocked(
         "rishijatia-fantasy-pl-mcp",
         "yuna0x0-anilist-mcp",
     }
+    v3_public_ids = {"takashiishida-arxiv-latex-mcp"}
     expansion_ids = {item.project_id for item in CATALOG_EXPANSION_V2_ADAPTERS}
     assert len(expansion_ids) == 100
     by_status = {
@@ -490,7 +496,7 @@ def test_approved_catalog_expansion_freezes_ready_planned_and_blocked(
         set(WAVE_THIRTEEN_TOKEN_ADAPTERS)
         | set(WAVE_FOURTEEN_TOKEN_ADAPTERS)
         | set(WAVE_FIFTEEN_TOKEN_ADAPTERS)
-        | (set(WAVE_SIXTEEN_PUBLIC_ADAPTERS) - wave25_public_ids)
+        | (set(WAVE_SIXTEEN_PUBLIC_ADAPTERS) - wave25_public_ids - v3_public_ids)
         | set(WAVE_EIGHTEEN_FILE_ADAPTERS)
         | set(WAVE_NINETEEN_DATABASE_ADAPTERS)
         | set(WAVE_TWENTY_FILE_ADAPTERS)
@@ -778,7 +784,11 @@ def test_approved_catalog_expansion_freezes_ready_planned_and_blocked(
         assert manifest.endpoint == ""
         assert manifest.install_command == ""
         assert manifest.allowed_settings == ()
-        assert manifest.credential_slots == ()
+        assert manifest.credential_slots == (
+            ("bearer_token",)
+            if project_id == "victoriametrics-community-mcp-victoriametrics"
+            else ()
+        )
         assert manifest.tool_policies == {}
         assert manifest.runtime_image == ""
         assert manifest.network_policy.startswith(f"{manifest.availability}:")
@@ -793,13 +803,16 @@ def test_wave24_catalog_expansion_only_executes_accepted_wave25_ids(
     assert {
         status: sum(item.availability == status for item in CATALOG_EXPANSION_V3_ADAPTERS)
         for status in ("ready", "planned", "blocked")
-    } == {"ready": 5, "planned": 41, "blocked": 54}
+    } == {"ready": 8, "planned": 34, "blocked": 58}
     ready_ids = {
         "coinpaprika-dexpaprika-mcp",
         "pab1it0-chess-mcp",
         "rishijatia-fantasy-pl-mcp",
         "yuna0x0-anilist-mcp",
         "githejie-mcp-server-calculator",
+        "takashiishida-arxiv-latex-mcp",
+        "greptimeteam-greptimedb-mcp-server",
+        "victoriametrics-community-mcp-victoriametrics",
     }
     assert {
         item.project_id
@@ -809,22 +822,31 @@ def test_wave24_catalog_expansion_only_executes_accepted_wave25_ids(
     for project_id in ready_ids:
         manifest = CATALOG_ADAPTERS[project_id]
         assert manifest.availability == "ready"
-        assert manifest.enabled_by_default is (
-            project_id == "githejie-mcp-server-calculator"
-        )
-        assert manifest.executable is (
-            project_id == "githejie-mcp-server-calculator"
-        )
+        assert bool(manifest.server_command)
         assert manifest.server_command[-1] == project_id
-        assert (manifest.public_policy is not None) is (
-            project_id != "githejie-mcp-server-calculator"
-        )
-        assert manifest.credential_slots == ()
+        is_public = project_id in {
+            "coinpaprika-dexpaprika-mcp",
+            "pab1it0-chess-mcp",
+            "rishijatia-fantasy-pl-mcp",
+            "yuna0x0-anilist-mcp",
+            "takashiishida-arxiv-latex-mcp",
+        }
+        assert (manifest.public_policy is not None) == is_public
+        # Public catalog adapters retain the existing explicit feature-flag
+        # gate even after their exact sidecar IDs enter the allowlist. Offline
+        # and database adapters are enabled by default after acceptance.
+        assert manifest.enabled_by_default is (not is_public)
+        assert manifest.executable is (not is_public)
+        expected_credentials = {
+            "greptimeteam-greptimedb-mcp-server": ("password",),
+            "victoriametrics-community-mcp-victoriametrics": ("bearer_token",),
+        }.get(project_id, ())
+        assert manifest.credential_slots == expected_credentials
         assert manifest.tool_policies
-        assert all(policy.effect == "read" for policy in manifest.tool_policies.values())
-        if not manifest.enabled_by_default:
-            monkeypatch.setenv(manifest.feature_flag, "true")
-            assert manifest.executable is True
+        assert all(
+            policy.effect in {"read", "artifact-create"}
+            for policy in manifest.tool_policies.values()
+        )
     for project_id in expansion_ids - ready_ids:
         manifest = CATALOG_ADAPTERS[project_id]
         monkeypatch.setenv(manifest.feature_flag, "true")
@@ -1952,9 +1974,9 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == 300
-            assert payload["ready"] == 76
-            assert payload["planned"] == 68
-            assert payload["blocked"] == 156
+            assert payload["ready"] == 79
+            assert payload["planned"] == 61
+            assert payload["blocked"] == 160
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized

@@ -1,6 +1,6 @@
 # MCP 目录扩充与适配路线
 
-最后更新日期：2026-08-10
+最后更新日期：2026-08-13
 维护人：模镜团队
 
 ## 1. 目标与当前范围
@@ -15,7 +15,9 @@
 - [Awesome-MCP-ZH](https://github.com/yzfly/Awesome-MCP-ZH)
 - [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)
 
-截至 2026-08-12，产品目录为 300 个 MCP 条目、18 个分类。第一阶段原有 100 项保持不变：批次 8 的两个 Python 执行上游均未通过门槛；批次 9 仅 Terraform 公共 Registry 只读子集通过；批次 10 暂缓到多租户主体边界完善后；批次 11 的 13 个桌面/宿主条目因缺少可信本机桥接、实例所有权证明和逐应用授权而全部受阻。第二阶段新增 100 项经批次 13 逐项判定，批次 14—15 提升五项固定只读子集，批次 16A—17A 再提升八项公共研究能力，批次 18A—18B 再提升六项确定性文件产物/分析能力，批次 19A 再提升三项只读数据服务；批次 20 只晋级 GoGraph，并将另外两个代码索引实现收敛为 superseded blocked。Wave 23 将 Vectorize 因持续 MIT/ISC 元数据冲突转为 blocked，并在最新主线复验后晋级 Milvus、Neo4j 与 ArcadeDB。第三阶段 Wave 24 将用户批准的双源固定 100 项先以静态 `planned/blocked` 身份纳入目录；Wave 25A 将通过真实隔离与用户验收的 DexPaprika、Chess、AniList 三项精确晋级，Wave 25B 又晋级 Fantasy PL；MCP-NixOS 因固定匿名后端依赖嵌入凭据转为 blocked，Reddit Buddy 因真实提供方 429 保持 planned。Wave 26A 进一步将断网 Calculator 契约晋级，ImageSorcery 暂不放行；Wave 26B 的 Google News 与 Naver 因尚无真实账号证据维持 staged planned。Wave 27 已完成 GreptimeDB 原生只读账号和隔离 sidecar 验收，但在用户批准晋级前仍保持默认关闭的 planned。该批现为 **5 ready / 41 planned / 54 blocked**，产品目录为 **76 ready / 68 planned / 156 blocked**。
+截至 2026-08-13，产品目录固定为 300 个 MCP 条目、18 个分类。Wave 28 将已通过真实原生只读服务验收的 GreptimeDB 晋级；Wave 29 仅晋级固定 arXiv ID 与官方出口的 LaTeX 只读子集，并因 PyMuPDF/pymupdf4llm 的 AGPL-3.0 或商业许可要求阻断 PDFMux；Wave 30 将固定 VictoriaMetrics 目标与指标的只读子集晋级；Wave 31 将 YFinance、重复 YouTube 实现与许可证漂移条目收敛为 blocked。第三阶段新增 100 项现为 **8 ready / 34 planned / 58 blocked**，产品目录总计 **79 ready / 61 planned / 160 blocked**。Wave 21 状态化资源、Wave 22 多租户/OAuth、任意执行、桌面宿主、云资源写入、账号发布、交易与设备控制继续冻结。
+
+Wave 28—31 的实现、真实验收、许可证阻断与回退边界见 [Wave 28—31 收口](./MCP_ADAPTATION_WAVE28_31.md)。
 
 批次 0—11 的第一阶段交付边界、状态分布、阶段二准入条件和可复现验收命令统一记录在 [MCP 适配第一阶段收口](./MCP_ADAPTER_PHASE_ONE_CLOSEOUT.md)。
 
@@ -39,7 +41,7 @@ Wave 25A 已为 DexPaprika、Chess 与 AniList 完成匿名公共读取兼容层
 
 Wave 25B 已为 Reddit Buddy 与 Fantasy PL 落盘公共只读契约。Fantasy PL 已完成两轮隔离真实调用和用户验收，现已晋级 ready 并加入精确 allowlist；Reddit Buddy 因公共 Atom 端点返回 429 保持 planned。详见 [Wave 25B 公共研究读取](./MCP_WAVE25B_PUBLIC_RESEARCH_READ.md)。
 
-Wave 26A 仅晋级断网 Calculator，ImageSorcery 继续 planned；Wave 26B 为 Google News 与 Naver 冻结 Token 只读契约，但因缺少真实账号代表调用继续 staged planned。Wave 27 仅推进 GreptimeDB：官方 v1.1.4 服务的原生 `ro` 账号、两轮 UDS 代表调用、写拒绝、provider timeout 和精确清理已通过，当前等待用户验收后再决定是否晋级。详见 [Wave 26A 离线文件](./MCP_WAVE26A_OFFLINE_FILES.md)、[Wave 26B Token 只读](./MCP_WAVE26B_TOKEN_READONLY.md) 与 [Wave 27 原生只读数据服务](./MCP_WAVE27_NATIVE_READONLY.md)。
+Wave 26A 仅晋级断网 Calculator，ImageSorcery 继续 planned；Wave 26B 为 Google News 与 Naver 冻结 Token 只读契约，但因缺少真实账号代表调用继续 staged planned。Wave 27 的 GreptimeDB 真实原生只读服务证据已在 Wave 28 获用户批准并晋级。详见 [Wave 26A 离线文件](./MCP_WAVE26A_OFFLINE_FILES.md)、[Wave 26B Token 只读](./MCP_WAVE26B_TOKEN_READONLY.md)、[Wave 27 原生只读数据服务](./MCP_WAVE27_NATIVE_READONLY.md) 与 [Wave 28—31 收口](./MCP_ADAPTATION_WAVE28_31.md)。
 
 第二阶段已完成独立的双源目录审计、人工批准和逐项适配判定，固定解析两个上游清单的服务器实现章节，并对仓库身份、重复项、归档状态、许可证和最近维护时间执行 fail-closed 筛选。[100 项适配判定](./MCP_CATALOG_EXPANSION_REVIEW.md) 已写入前端发现目录与后端 manifest。十三项固定只读子集已经进入 Token Sidecar 或匿名公共读取 sidecar，批次 18A—18B 的六项确定性文件能力进入文件 sidecar，批次 19A 的三项只读数据服务进入数据库 sidecar；批次 17B 的四项仍处于默认关闭 staging，其余条目没有新增执行配置，且 14 个首轮复审条目已从 planned 收敛为 blocked。
 

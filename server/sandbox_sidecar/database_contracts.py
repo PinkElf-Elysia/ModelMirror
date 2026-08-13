@@ -34,6 +34,7 @@ SAFE_USERNAME = re.compile(r"[A-Za-z0-9_$][A-Za-z0-9_$.+@-]{0,253}")
 PROJECT_REF = re.compile(r"[a-z]{20}")
 DATA_SERVICE_RESOURCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
 ELASTIC_SEARCH_FIELD = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
+PROMETHEUS_METRIC = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]{0,254}")
 
 ADMIN_PRIVATE_NETWORKS = (
     ipaddress.ip_network("10.0.0.0/8"),
@@ -55,6 +56,11 @@ WAVE_TWENTYSEVEN_DATA_SERVICE_ADAPTERS = frozenset(
         "greptimeteam-greptimedb-mcp-server",
     }
 )
+WAVE_TWENTYNINE_DATA_SERVICE_ADAPTERS = frozenset(
+    {
+        "victoriametrics-community-mcp-victoriametrics",
+    }
+)
 REMOTE_DATA_SERVICE_ADAPTERS = frozenset(
     {
         "pab1it0-prometheus-mcp-server",
@@ -62,9 +68,10 @@ REMOTE_DATA_SERVICE_ADAPTERS = frozenset(
         "cr7258-elasticsearch-mcp-server",
         *GRAPH_DATA_SERVICE_ADAPTERS,
         *WAVE_TWENTYSEVEN_DATA_SERVICE_ADAPTERS,
+        *WAVE_TWENTYNINE_DATA_SERVICE_ADAPTERS,
     }
 )
-STAGED_DATABASE_ADAPTERS = WAVE_TWENTYSEVEN_DATA_SERVICE_ADAPTERS
+STAGED_DATABASE_ADAPTERS = frozenset()
 FORBIDDEN_CONFIGURATION_KEYS = frozenset(
     {
         "command",
@@ -240,6 +247,14 @@ DATABASE_ADAPTERS: dict[str, DatabaseAdapterContract] = {
         ),
         frozenset(),
         frozenset({"password"}),
+    ),
+    "victoriametrics-community-mcp-victoriametrics": DatabaseAdapterContract(
+        "victoriametrics-community-mcp-victoriametrics",
+        frozenset({"metrics", "labels", "query", "query_range"}),
+        frozenset({"host", "port", "tls_mode", "metric"}),
+        frozenset(),
+        frozenset(),
+        frozenset({"bearer_token"}),
     ),
 }
 
@@ -459,6 +474,12 @@ def validate_configuration(adapter_id: str, configuration: object) -> ValidatedC
         )
         settings["value_column"] = _safe_text(
             raw_settings.get("value_column"), pattern=SAFE_IDENTIFIER, code="invalid_value_column"
+        )
+    elif adapter_id == "victoriametrics-community-mcp-victoriametrics":
+        settings["metric"] = _safe_text(
+            raw_settings.get("metric"),
+            pattern=PROMETHEUS_METRIC,
+            code="invalid_metric",
         )
 
     workspace_raw = str(configuration.get("workspace_id") or "").strip()

@@ -64,12 +64,14 @@ WAVE25B_ADAPTERS = frozenset(
         "rishijatia-fantasy-pl-mcp",
     }
 )
+WAVE29_ADAPTERS = frozenset({"takashiishida-arxiv-latex-mcp"})
 PUBLIC_EXPANSION_ADAPTERS = (
     WAVE16A_ADAPTERS
     | WAVE16B_ADAPTERS
     | WAVE17A_ADAPTERS
     | WAVE25A_ADAPTERS
     | WAVE25B_ADAPTERS
+    | WAVE29_ADAPTERS
 )
 BLOCKED_TOOL_PROBES = {
     "nickclyde-duckduckgo-mcp-server": "fetch_content",
@@ -85,6 +87,7 @@ BLOCKED_TOOL_PROBES = {
     "yuna0x0-anilist-mcp": "favourite_anime",
     "karanb192-reddit-mcp-buddy": "get_post_details",
     "rishijatia-fantasy-pl-mcp": "get_transfer_advice",
+    "takashiishida-arxiv-latex-mcp": "save_paper_source",
 }
 TIMEOUT_TOOL_PROBES: dict[str, tuple[str, dict[str, Any]]] = {
     "nickclyde-duckduckgo-mcp-server": (
@@ -123,6 +126,10 @@ TIMEOUT_TOOL_PROBES: dict[str, tuple[str, dict[str, Any]]] = {
     "rishijatia-fantasy-pl-mcp": (
         "search_fpl_players",
         {"query": "a", "max_results": 1},
+    ),
+    "takashiishida-arxiv-latex-mcp": (
+        "get_paper_abstract",
+        {"arxiv_id": "1706.03762"},
     ),
 }
 MAX_HANDSHAKE_BYTES = 4 * 1024
@@ -628,6 +635,37 @@ async def runtime_adapter(socket_path: Path, adapter_id: str) -> None:
                 print("input.fantasy_pl.query=a")
                 print(f"result.fantasy_pl.player_count={players.get('count', 0)}")
                 print(f"result.fantasy_pl.fixture_count={fixtures.get('count', 0)}")
+            elif adapter_id == "takashiishida-arxiv-latex-mcp":
+                paper_id = "1706.03762"
+                abstract = await _call(
+                    session,
+                    "get_paper_abstract",
+                    {"arxiv_id": paper_id},
+                )
+                sections = await _call(
+                    session,
+                    "list_paper_sections",
+                    {"arxiv_id": paper_id},
+                )
+                if (
+                    abstract.get("arxiv_id") != paper_id
+                    or not abstract.get("title")
+                    or not abstract.get("abstract")
+                    or not isinstance(sections.get("sections"), list)
+                    or not sections["sections"]
+                ):
+                    raise RuntimeError("arxiv_latex_runtime_contract_invalid")
+                first_path = str(sections["sections"][0].get("path") or "")
+                section = await _call(
+                    session,
+                    "get_paper_section",
+                    {"arxiv_id": paper_id, "section_path": first_path},
+                )
+                if section.get("path") != first_path or not section.get("latex"):
+                    raise RuntimeError("arxiv_latex_runtime_contract_invalid")
+                print(f"input.arxiv_latex.paper_id={paper_id}")
+                print(f"result.arxiv_latex.section_count={sections.get('count', 0)}")
+                print(f"result.arxiv_latex.first_section={first_path[:64]}")
             else:
                 raise RuntimeError("public_runtime_adapter_unhandled")
             print(

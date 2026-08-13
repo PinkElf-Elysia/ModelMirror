@@ -1046,6 +1046,32 @@ WAVE_SIXTEEN_PUBLIC_ADAPTERS: dict[
             "登录、经理队伍、联赛、阵容、转会、建议、任意 URL/Header/env 和动态 endpoint 均不可发现。",
         ),
     ),
+    "takashiishida-arxiv-latex-mcp": (
+        "v0.2.2-compatible-native-v1",
+        (
+            "get_paper_prompt",
+            "get_paper_abstract",
+            "list_paper_sections",
+            "get_paper_section",
+        ),
+        CatalogPublicPolicy(
+            provider="arXiv export service",
+            upstream_repository="takashiishida/arxiv-latex-mcp",
+            upstream_version="v0.2.2",
+            upstream_commit="481d8169262dd6f5a6ab04f767da8a8b2e9789bf",
+            upstream_license="MIT",
+            fixed_hosts=("export.arxiv.org",),
+            tool_schema_sha256=(
+                "8d2419dd2e67c7ab136f65037ef515cf69fe5b4a51be1d58249e49e9eb096299"
+            ),
+            rate_limit_per_minute=20,
+            max_results=500,
+        ),
+        (
+            "仅接受规范 arXiv ID，读取官方 Atom 元数据和有界 LaTeX 源包；源包只在内存中解析，不落盘、不解压到文件系统且不执行内容。",
+            "任意 URL、Header、镜像站、文件路径、下载保存、TeX 编译和外部资源加载均不可发现；单源包最多 2 MiB。",
+        ),
+    ),
 }
 
 WAVE_EIGHTEEN_FILE_ADAPTERS: dict[
@@ -1924,6 +1950,106 @@ WAVE_NINETEEN_DATABASE_ADAPTERS: dict[str, WaveFiveAdapterSpec] = {
             "只允许单条 SELECT、MATCH 或 TRAVERSE，最多返回 100 行，并要求原生账号属于 readonly 组。",
         ),
         wave=23,
+    ),
+}
+
+
+WAVE_TWENTYNINE_DATABASE_ADAPTERS: dict[str, WaveFiveAdapterSpec] = {
+    "greptimeteam-greptimedb-mcp-server": WaveFiveAdapterSpec(
+        "v0.5.1-compatible-native-read-only-v1",
+        ("describe_table", "query_range", "health_check"),
+        CatalogDatabasePolicy(
+            mode="remote-read-only",
+            engine="greptimedb",
+            max_rows_default=200,
+            max_rows_hard=200,
+            statement_timeout_seconds=15,
+            preflight_checks=(
+                "dns-policy",
+                "tls-verification",
+                "authentication",
+                "database-table-scope",
+                "native-read-only-user",
+                "server-generated-query",
+            ),
+        ),
+        (_credential("password", "GreptimeDB 只读密码", "仅用于固定数据库和表的原生只读用户。"),),
+        (
+            _database_host(),
+            _database_port(4000),
+            _database_tls(),
+            _database_name(),
+            _database_username(),
+            CatalogSettingPolicy(
+                "table",
+                "GreptimeDB 表",
+                "固定一个既有表，不接受运行时切换。",
+                required=True,
+                pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$",
+            ),
+            CatalogSettingPolicy(
+                "time_column",
+                "时间列",
+                "固定一个时间列用于最多 24 小时的范围读取。",
+                required=True,
+                pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$",
+            ),
+            CatalogSettingPolicy(
+                "value_column",
+                "数值列",
+                "固定一个数值列，不接受运行时表达式。",
+                required=True,
+                pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$",
+            ),
+        ),
+        (
+            "只开放固定表描述、固定时间/数值列范围读取与常量健康查询；SQL、PromQL、DDL、写入、管理和动态资源均不可发现。",
+            "范围最多 24 小时/200 行，查询由 sidecar 生成，并要求原生只读账号和全链路 TLS。",
+        ),
+        wave=28,
+    ),
+    "victoriametrics-community-mcp-victoriametrics": WaveFiveAdapterSpec(
+        "v1.20.2-compatible-fixed-metric-read-only-v1",
+        ("metrics", "labels", "query", "query_range"),
+        CatalogDatabasePolicy(
+            mode="remote-read-only",
+            engine="victoriametrics",
+            max_rows_default=100,
+            max_rows_hard=200,
+            statement_timeout_seconds=15,
+            preflight_checks=(
+                "dns-policy",
+                "tls-verification",
+                "authentication",
+                "fixed-metric-scope",
+                "query-and-output-limits",
+            ),
+        ),
+        (
+            CatalogCredentialSlotPolicy(
+                "bearer_token",
+                "VictoriaMetrics Bearer Token",
+                "可选；仅用于既有只读认证代理。",
+                required=False,
+            ),
+        ),
+        (
+            _database_host(),
+            _database_port(8428),
+            _database_tls(),
+            CatalogSettingPolicy(
+                "metric",
+                "固定指标名",
+                "每个项目只绑定一个既有 Prometheus 指标名。",
+                required=True,
+                pattern=r"^[A-Za-z_:][A-Za-z0-9_:]{0,254}$",
+            ),
+        ),
+        (
+            "仅开放指标名、标签名与一个项目绑定指标的 instant/range 读取；任意 PromQL、租户路径、Header、写入和管理工具不可发现。",
+            "范围最多 24 小时/2000 点/100 序列，HTTP 响应最多 256 KiB，并拒绝重定向和未固定 DNS。",
+        ),
+        wave=30,
     ),
 }
 
@@ -3530,6 +3656,51 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
                 f"duplicate Wave 24 catalog expansion id: {adapter.project_id}"
             )
         if adapter.availability == "ready":
+            database_spec = WAVE_TWENTYNINE_DATABASE_ADAPTERS.get(adapter.project_id)
+            if database_spec is not None:
+                manifests[adapter.project_id] = CatalogAdapterManifest(
+                    project_id=adapter.project_id,
+                    wave=adapter.adaptation_wave,
+                    availability="ready",
+                    connection_kind="sandboxed-stdio",
+                    risk="high",
+                    required_capabilities=adapter.required_capabilities,
+                    limitations=(
+                        *database_spec.limitations,
+                        "当前仅支持部署时固定 tenant/owner 的单租户本地实例；多用户共享部署保持关闭。",
+                    ),
+                    adapter_version=database_spec.adapter_version,
+                    runtime_image="modelmirror-mcp-database:wave5-v1",
+                    network_policy=database_spec.network_policy,
+                    filesystem_policy="read-only-empty-workspace",
+                    resource_limits=(
+                        ("cpu", "1.5 cores / 60 CPU seconds per session process"),
+                        ("memory", "1 GiB sidecar"),
+                        ("processes", "maximum 6 sessions / 128 sidecar PIDs"),
+                        ("statement_timeout", "15 seconds"),
+                        ("operation_timeout", "20 seconds"),
+                        ("tool_output", "256 KiB"),
+                    ),
+                    server_command=(*DATABASE_SANDBOX_PROXY, adapter.project_id),
+                    preparation_kind="bundled",
+                    allowed_settings=tuple(
+                        item.key for item in database_spec.setting_policies
+                    ),
+                    credential_slots=tuple(
+                        item.key for item in database_spec.credential_policies
+                    ),
+                    setting_policies=database_spec.setting_policies,
+                    credential_policies=database_spec.credential_policies,
+                    tool_policies={
+                        name: CatalogToolPolicy(read_only=True, effect="read")
+                        for name in database_spec.tools
+                    },
+                    database_policy=database_spec.database_policy,
+                    enabled_by_default=True,
+                    operation_timeout=20.0,
+                    max_output_bytes=256 * 1024,
+                )
+                continue
             wave26_file_spec = WAVE_TWENTYSIX_FILE_ADAPTERS.get(adapter.project_id)
             if wave26_file_spec is not None:
                 adapter_version, tool_policies, limitations = wave26_file_spec
@@ -3605,7 +3776,9 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
             )
             continue
         if adapter.project_id in (
-            WAVE_SIXTEEN_PUBLIC_ADAPTERS | WAVE_TWENTYSIX_FILE_ADAPTERS
+            WAVE_SIXTEEN_PUBLIC_ADAPTERS
+            | WAVE_TWENTYSIX_FILE_ADAPTERS
+            | WAVE_TWENTYNINE_DATABASE_ADAPTERS
         ):
             raise RuntimeError(
                 f"non-ready Wave 24 expansion has runtime contract: {adapter.project_id}"

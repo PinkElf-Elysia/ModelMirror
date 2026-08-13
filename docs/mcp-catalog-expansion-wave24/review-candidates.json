@@ -621,13 +621,13 @@
           "publishedAt": "2026-08-05T13:53:19Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "可继续评估匿名固定域名的公开搜索或元数据读取；在冻结上游版本、固定 Host、只读工具 Schema、限流与输出上限并完成真实代表调用前保持 planned。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游能力依赖第三方金融数据抓取，无法证明服务条款允许在本产品中稳定转发；为避免把非官方数据源包装成受支持 API，保持 blocked。",
       "catalog_id": "narumiruna-yfinance-mcp",
-      "decision_reason_code": "planned-wave25-anonymous-public-read-contract",
+      "decision_reason_code": "blocked-provider-data-terms",
       "adapter_version": "",
-      "adaptation_wave": 25
+      "adaptation_wave": 29
     },
     {
       "rank": 9,
@@ -907,13 +907,13 @@
           "publishedAt": "2026-03-18T14:18:59Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "可继续评估匿名固定域名的公开搜索或元数据读取；在冻结上游版本、固定 Host、只读工具 Schema、限流与输出上限并完成真实代表调用前保持 planned。",
+      "decision": "accepted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "已冻结 arXiv LaTeX v0.2.2、官方 export.arxiv.org、四项只读 Schema、内存源包解析与硬资源上限，并通过真实代表调用、超时、清理和用户验收。",
       "catalog_id": "takashiishida-arxiv-latex-mcp",
-      "decision_reason_code": "planned-wave25-anonymous-public-read-contract",
+      "decision_reason_code": "ready-wave29-arxiv-public-read",
       "adapter_version": "",
-      "adaptation_wave": 25
+      "adaptation_wave": 29
     },
     {
       "rank": 13,
@@ -1625,13 +1625,13 @@
           "publishedAt": "2025-03-20T17:21:01Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "可继续评估匿名固定域名的公开搜索或元数据读取；在冻结上游版本、固定 Host、只读工具 Schema、限流与输出上限并完成真实代表调用前保持 planned。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "该实现与已存在的受控浏览器、搜索、文件或代码索引能力重复，且不会提供更窄、更可验证的边界；转为 blocked/superseded，不创建第二套运行时。",
       "catalog_id": "anaisbetts-mcp-youtube",
-      "decision_reason_code": "planned-wave25-anonymous-public-read-contract",
+      "decision_reason_code": "blocked-superseded-existing-controlled-capability",
       "adapter_version": "",
-      "adaptation_wave": 25
+      "adaptation_wave": 24
     },
     {
       "rank": 23,
@@ -1835,13 +1835,13 @@
           "publishedAt": "2026-06-17T03:24:04Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "可继续评估固定协议、结构化目标和原生只读账号下的 describe/list/search/read-query 子集；DSN、管理操作、写查询和动态端点保持禁止，真实服务验收前保持 planned。",
+      "decision": "accepted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "已冻结 GreptimeDB v0.5.1、固定数据库/表/列、只读工具 Schema 与服务端生成查询，并通过真实服务代表调用、超时、断开、清理和用户验收。",
       "catalog_id": "greptimeteam-greptimedb-mcp-server",
-      "decision_reason_code": "planned-wave27-native-readonly-data-service",
+      "decision_reason_code": "ready-wave28-greptimedb-readonly",
       "adapter_version": "",
-      "adaptation_wave": 27
+      "adaptation_wave": 28
     },
     {
       "rank": 26,
@@ -4101,13 +4101,13 @@
           "publishedAt": "2026-07-27T17:40:08Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "可继续评估断网、封存输入、确定性处理与服务端复制产物的文件子集；在路径隔离、资源限额、超时、清理和真实镜像验收前保持 planned。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "PDFMux 1.8.7 本身为 MIT，但固定运行依赖 PyMuPDF 与 pymupdf4llm 均要求 AGPL-3.0 或 Artifex 商业许可；当前没有商业许可授权，不能纳入分发镜像。",
       "catalog_id": "nameetp-pdfmux",
-      "decision_reason_code": "planned-wave26-offline-file-or-deterministic-artifact",
+      "decision_reason_code": "blocked-license-runtime-dependency",
       "adapter_version": "",
-      "adaptation_wave": 26
+      "adaptation_wave": 29
     },
     {
       "rank": 60,
@@ -6366,13 +6366,13 @@
           "publishedAt": "2026-04-15T17:25:03Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "可继续评估固定协议、结构化目标和原生只读账号下的 describe/list/search/read-query 子集；DSN、管理操作、写查询和动态端点保持禁止，真实服务验收前保持 planned。",
+      "decision": "accepted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "已冻结 VictoriaMetrics MCP v1.20.2、固定指标只读工具 Schema、固定目标和查询/输出上限，并通过真实服务代表调用、超时、断开、重启、清理与用户验收。",
       "catalog_id": "victoriametrics-community-mcp-victoriametrics",
-      "decision_reason_code": "planned-wave27-native-readonly-data-service",
+      "decision_reason_code": "ready-wave30-victoriametrics-readonly",
       "adapter_version": "",
-      "adaptation_wave": 27
+      "adaptation_wave": 30
     },
     {
       "rank": 93,
@@ -6905,28 +6905,28 @@
         },
         "latestRelease": null
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "可继续评估断网、封存输入、确定性处理与服务端复制产物的文件子集；在路径隔离、资源限额、超时、清理和真实镜像验收前保持 planned。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "固定发布物的许可证元数据与仓库声明不一致，当前无法形成可复现的再分发边界；等待上游统一许可证信息后再重新评估。",
       "catalog_id": "aimino-tech-opendocswork-mcp",
-      "decision_reason_code": "planned-wave26-offline-file-or-deterministic-artifact",
+      "decision_reason_code": "blocked-license-metadata-conflict",
       "adapter_version": "",
-      "adaptation_wave": 26
+      "adaptation_wave": 29
     }
   ],
   "runtime_execution_changed": true,
   "approval": {
     "status": "approved",
-    "approved_at": "2026-08-12",
-    "scope": "static-catalog-plus-accepted-wave25a-wave25b-runtime"
+    "approved_at": "2026-08-13",
+    "scope": "static-catalog-plus-accepted-wave25-wave30-runtime"
   },
   "adaptation": {
-    "classified_at": "2026-08-12",
+    "classified_at": "2026-08-13",
     "classified_count": 100,
     "availability": {
-      "ready": 5,
-      "planned": 41,
-      "blocked": 54
+      "ready": 8,
+      "planned": 34,
+      "blocked": 58
     },
     "ready_boundary": "per-adapter-runtime-evidence-and-user-acceptance",
     "non_ready_boundary": "no-command-endpoint-credential-tool-policy-or-allowlist"

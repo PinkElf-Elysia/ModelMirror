@@ -26,6 +26,7 @@ ALLOWED_ADAPTERS = {
     "pab1it0-chess-mcp",
     "rishijatia-fantasy-pl-mcp",
     "yuna0x0-anilist-mcp",
+    "takashiishida-arxiv-latex-mcp",
 }
 SOCKET_PATH = Path(
     os.getenv(

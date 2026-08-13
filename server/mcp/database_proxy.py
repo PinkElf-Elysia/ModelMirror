@@ -31,6 +31,7 @@ ALLOWED_ADAPTERS = {
     "neo4j-contrib-mcp-neo4j",
     "arcadedata-arcadedb",
     "greptimeteam-greptimedb-mcp-server",
+    "victoriametrics-community-mcp-victoriametrics",
 }
 REMOTE_SOCKET_PATH = Path(
     os.getenv(

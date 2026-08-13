@@ -19,8 +19,10 @@ WORKDIR /opt/modelmirror
 COPY database-requirements.lock ./database-requirements.lock
 RUN pip install --no-cache-dir --retries 5 --timeout 120 -r database-requirements.lock
 
-COPY __init__.py engine.py landlock_exec.py database_contracts.py database_data_services.py database_graph_services.py database_wave27.py database_landlock_exec.py database_mcp.py database_server.py ./sandbox_sidecar/
+COPY __init__.py engine.py landlock_exec.py database_contracts.py database_data_services.py database_graph_services.py database_wave27.py database_wave29.py database_landlock_exec.py database_mcp.py database_server.py smoke_database_wave29.py ./sandbox_sidecar/
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-mcp-database/THIRD_PARTY_NOTICES.md
+
+RUN python -m sandbox_sidecar.smoke_database_wave29 --contract-only
 
 USER 65532:65532
 CMD ["python", "-m", "sandbox_sidecar.database_server"]

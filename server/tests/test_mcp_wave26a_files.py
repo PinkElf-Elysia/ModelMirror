@@ -289,4 +289,6 @@ def test_wave26_dockerfile_and_notices_pin_contract_without_upstream_packages() 
     assert "3dcaedcd58867206627d121092b401728db202da" in notices
     assert "2f77957a0671a5cf30d90285c7024ae229d86917" in notices
     assert "pdfmux" in notices
-    assert "remains planned" in notices
+    assert "PyMuPDF 1.27.2.3" in notices
+    assert "pymupdf4llm 0.3.4" in notices
+    assert "blocked and is not included" in notices
