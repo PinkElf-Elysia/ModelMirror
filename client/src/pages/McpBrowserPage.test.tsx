@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mcpProjects } from "../data/mcpProjects";
-import McpBrowserPage from "./McpBrowserPage";
+import McpBrowserPage, { prioritizeReadyProjects } from "./McpBrowserPage";
 
 vi.mock("../components/McpServerCard", () => ({
   default: ({ project }: { project: { name: string } }) => (
@@ -49,6 +49,26 @@ afterEach(() => {
 });
 
 describe("McpBrowserPage first-screen shell", () => {
+  it("puts ready tools first only in the unfiltered all view", async () => {
+    const projects = [
+      { id: "blocked-a", availability: "blocked" },
+      { id: "ready-a", availability: "ready" },
+      { id: "planned-a", availability: "planned" },
+      { id: "ready-b", availability: "ready" },
+    ];
+
+    expect(
+      prioritizeReadyProjects(projects, (project) => project.availability, true).map(
+        (project) => project.id,
+      ),
+    ).toEqual(["ready-a", "ready-b", "blocked-a", "planned-a"]);
+    expect(
+      prioritizeReadyProjects(projects, (project) => project.availability, false).map(
+        (project) => project.id,
+      ),
+    ).toEqual(projects.map((project) => project.id));
+  });
+
   it("keeps only the approved compact procurement information", async () => {
     renderPage([], [{ session_id: "session-1" }]);
 

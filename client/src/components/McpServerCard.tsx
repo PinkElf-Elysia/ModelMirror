@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Camera,
-  FileText,
-  Globe2,
   Link2,
-  MousePointer2,
   Settings2,
   Star,
   Wrench,
@@ -538,6 +534,44 @@ export default function McpServerCard({
   const needsCatalogConfiguration = Boolean(
     adapterStatus?.credential_fields.length || adapterStatus?.setting_fields.length,
   );
+  const readyCardCopy = useMemo(() => {
+    switch (project.id) {
+      case "playwright-mcp":
+        return {
+          description: "打开网页、读取页面并执行受控点击、填写与截图。",
+          tags: ["打开网页", "读取页面", "点击与填写", "生成截图"],
+          connectionNote: "临时匿名浏览器，不保留登录态；不支持上传和下载。",
+        };
+      case "takashiishida-arxiv-latex-mcp":
+        return {
+          description: "读取 arXiv 论文摘要、章节结构和 LaTeX 正文。",
+          tags: ["论文摘要", "章节目录", "LaTeX 正文", "只读访问"],
+          connectionNote: "仅访问 arXiv 官方公开论文，不编译 TeX 或加载外部资源。",
+        };
+      case "greptimeteam-greptimedb-mcp-server":
+        return {
+          description: "查询固定 GreptimeDB 数据表的结构、时间范围和健康状态。",
+          tags: ["表结构", "时序查询", "健康检查", "只读访问"],
+          connectionNote: "连接固定数据源，只允许服务端生成的只读查询。",
+        };
+      case "victoriametrics-community-mcp-victoriametrics":
+        return {
+          description: "读取 VictoriaMetrics 指标、标签和限定时间范围的监控数据。",
+          tags: ["指标列表", "标签查询", "即时查询", "范围查询"],
+          connectionNote: "连接固定监控目标，查询范围和返回数量均受限制。",
+        };
+      default:
+        return {
+          description: project.description,
+          tags: project.tags.slice(0, 4),
+          connectionNote: workspacePolicy?.required
+            ? "连接前需选择受控工作区"
+            : needsCatalogConfiguration
+              ? "连接前需完成一次配置"
+              : "可直接连接并使用工具",
+        };
+    }
+  }, [needsCatalogConfiguration, project.description, project.id, project.tags, workspacePolicy?.required]);
   const canStartConnection =
     canConnect &&
     (!isBrowserAdapter || Boolean(browserPolicy)) &&
@@ -1220,102 +1254,10 @@ export default function McpServerCard({
         isReadyProductCard ? "min-h-[360px]" : "min-h-[280px]"
       } ${
         isReadyProductCard && isWorkbenchOpen ? "" : "isolate overflow-hidden"
-      } ${
-        isPlaywrightCard
-          ? "border border-cyan-300/25 bg-[linear-gradient(145deg,rgba(9,22,45,0.98),rgba(6,15,31,0.98))] hover:border-cyan-200/45"
-          : "border border-white/10 bg-ink-950/78 hover:border-hire-300/40 hover:bg-surface-900/92"
-      }`}
+      } border border-white/10 bg-ink-950/78 hover:border-hire-300/40 hover:bg-surface-900/92`}
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(251,146,60,0.16),transparent_34%),radial-gradient(circle_at_82%_82%,rgba(36,217,255,0.13),transparent_36%)] opacity-80" />
-      {isPlaywrightCard ? (
-        <>
-          <div className="relative flex items-start justify-between gap-4">
-            <div className="flex min-w-0 items-start gap-3">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08] text-cyan-100 shadow-[0_0_24px_rgba(34,211,238,0.08)]">
-                <MousePointer2 aria-hidden="true" className="h-6 w-6" strokeWidth={1.8} />
-              </span>
-              <div className="min-w-0">
-                <h2 className="text-xl font-semibold leading-7 text-white">Playwright MCP</h2>
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
-                  <a
-                    className="underline-offset-4 transition hover:text-cyan-100 hover:underline"
-                    href={project.repoUrl}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    {project.repoName}
-                  </a>
-                  <span aria-hidden="true">·</span>
-                  <span className="inline-flex items-center gap-1.5 text-slate-300">
-                    <Star aria-hidden="true" className="h-3.5 w-3.5 text-hire-200" strokeWidth={2} />
-                    {formatStars(project.stars)} stars
-                  </span>
-                </div>
-              </div>
-            </div>
-            <span
-              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                isConnected
-                  ? "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-100"
-                  : "border-white/10 bg-white/[0.045] text-slate-300"
-              }`}
-            >
-              <span aria-hidden="true" className={`mr-1.5 inline-block h-2 w-2 rounded-full ${isConnected ? "bg-emerald-300" : "bg-slate-400"}`} />
-              {isConnected ? "已连接" : "尚未连接"}
-            </span>
-          </div>
-
-          <p className="relative mt-5 text-sm leading-6 text-slate-200">
-            打开网页、读取页面并执行受控点击、填写与截图。
-          </p>
-
-          <div className="relative mt-5 border-y border-white/10 py-4">
-            <p className="text-xs font-semibold tracking-wide text-slate-400">可以做什么</p>
-            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-              {[
-                [Globe2, "打开网页"],
-                [FileText, "读取页面"],
-                [MousePointer2, "点击与填写"],
-                [Camera, "生成截图"],
-              ].map(([Icon, label]) => (
-                <div className="flex items-center gap-2 text-sm font-medium text-slate-100" key={label as string}>
-                  <Icon aria-hidden="true" className="h-4 w-4 text-cyan-200" strokeWidth={1.8} />
-                  <span>{label as string}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="relative mt-4 rounded-lg border border-white/10 bg-white/[0.035] px-4 py-3">
-            <p className="text-xs font-semibold text-slate-300">使用边界</p>
-            <p className="mt-1 text-xs leading-5 text-slate-400">
-              临时匿名浏览器，不保留登录态；不支持上传和下载。
-            </p>
-          </div>
-
-          <div className="relative mt-4 flex flex-wrap gap-2">
-            <button
-              className="min-h-11 flex-1 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-45"
-              disabled={!isConnected && (!canConnect || !canStartConnection || state === "connecting")}
-              onClick={() => {
-                if (isConnected) setIsWorkbenchOpen(true);
-                else void connect();
-              }}
-              ref={workbenchTriggerRef}
-              type="button"
-            >
-              {state === "connecting" ? "正在创建会话" : isConnected ? "打开工具台" : "连接 Playwright"}
-            </button>
-            <button
-              className="min-h-11 rounded-full border border-cyan-300/25 bg-cyan-300/[0.06] px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/10"
-              onClick={() => setIsInstallOpen(true)}
-              type="button"
-            >
-              配置与使用
-            </button>
-          </div>
-        </>
-      ) : isReadyProductCard ? (
+      {isReadyProductCard ? (
         <>
           <div className="relative flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
@@ -1358,13 +1300,13 @@ export default function McpServerCard({
           </div>
 
           <p className="relative mt-5 line-clamp-3 text-sm leading-6 text-slate-200">
-            {project.description}
+            {readyCardCopy.description}
           </p>
 
           <div className="relative mt-5 border-y border-white/10 py-4">
             <p className="text-xs font-semibold text-slate-400">主要能力</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              {project.tags.slice(0, 4).map((tag) => (
+              {readyCardCopy.tags.map((tag) => (
                 <span
                   className="rounded-full border border-brand-300/20 bg-brand-300/[0.07] px-3 py-1.5 text-xs font-medium text-brand-50"
                   key={tag}
@@ -1377,13 +1319,7 @@ export default function McpServerCard({
 
           <div className="relative mt-4 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-4 py-3 text-xs text-slate-300">
             <Settings2 aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-100" strokeWidth={1.8} />
-            <span>
-              {workspacePolicy?.required
-                ? "连接前需选择受控工作区"
-                : needsCatalogConfiguration
-                  ? "连接前需完成一次配置"
-                  : "可直接连接并使用工具"}
-            </span>
+            <span>{readyCardCopy.connectionNote}</span>
           </div>
 
           <div className="relative mt-auto flex flex-wrap gap-2 pt-5">
