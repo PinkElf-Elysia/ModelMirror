@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import Field
 
 from .broker_rpc import BrokerRPCServer
-from .contracts import StrictModel
+from .contracts import SAFE_ID, StrictModel
 from .provider import (
     CodingAgentProvider,
     ProviderCapabilities,
@@ -60,6 +60,9 @@ class ProviderRPCServer:
         self._server: asyncio.AbstractServer | None = None
         self.endpoint: str | None = None
         self._active_task_id: str | None = None
+        self._active_session: ProviderSession | None = None
+        self._controller_id: str | None = None
+        self._controller_generation = 0
         self._lock = asyncio.Lock()
         self._connections: dict[asyncio.Task[None], asyncio.StreamWriter] = {}
 
@@ -115,8 +118,16 @@ class ProviderRPCServer:
                     raise ProviderRPCError(
                         "Provider message is invalid.", code="provider_request_invalid"
                     )
-                self._require_active(session.task_id)
+                controller_id, controller_generation = self._controller_binding(
+                    request.payload
+                )
+                self._require_active_session(
+                    session, controller_id, controller_generation
+                )
                 async for event in self.provider.message(session, text):
+                    self._require_active_session(
+                        session, controller_id, controller_generation
+                    )
                     await self._write(writer, {"ok": True, "event": event.model_dump(mode="json")})
                 await self._write(writer, {"ok": True, "done": True})
                 return
@@ -147,8 +158,16 @@ class ProviderRPCServer:
             return (await self.provider.capabilities()).model_dump(mode="json")
         if request.action == "execute_process":
             executor = self._require_executor()
-            self._require_active(str(request.payload.get("task_id", "")))
+            controller_id, controller_generation = self._controller_binding(
+                request.payload
+            )
+            self._require_active(
+                str(request.payload.get("task_id", "")),
+                controller_id,
+                controller_generation,
+            )
             return await executor.run_process(
+                task_id=str(request.payload.get("task_id", "")),
                 workspace_id=str(request.payload.get("workspace_id", "")),
                 argv=tuple(request.payload.get("argv", ())),
                 timeout_seconds=int(request.payload.get("timeout_seconds", 0)),
@@ -157,7 +176,14 @@ class ProviderRPCServer:
             )
         if request.action == "start_service":
             executor = self._require_executor()
-            self._require_active(str(request.payload.get("task_id", "")))
+            controller_id, controller_generation = self._controller_binding(
+                request.payload
+            )
+            self._require_active(
+                str(request.payload.get("task_id", "")),
+                controller_id,
+                controller_generation,
+            )
             return await executor.start_service(
                 task_id=str(request.payload.get("task_id", "")),
                 workspace_id=str(request.payload.get("workspace_id", "")),
@@ -170,13 +196,27 @@ class ProviderRPCServer:
                 ),
             )
         if request.action == "service_status":
-            self._require_active(str(request.payload.get("task_id", "")))
+            controller_id, controller_generation = self._controller_binding(
+                request.payload
+            )
+            self._require_active(
+                str(request.payload.get("task_id", "")),
+                controller_id,
+                controller_generation,
+            )
             return self._require_executor().service_status(
                 task_id=str(request.payload.get("task_id", "")),
                 service_id=str(request.payload.get("service_id", "")),
             )
         if request.action == "service_input":
-            self._require_active(str(request.payload.get("task_id", "")))
+            controller_id, controller_generation = self._controller_binding(
+                request.payload
+            )
+            self._require_active(
+                str(request.payload.get("task_id", "")),
+                controller_id,
+                controller_generation,
+            )
             await self._require_executor().service_input(
                 task_id=str(request.payload.get("task_id", "")),
                 service_id=str(request.payload.get("service_id", "")),
@@ -184,7 +224,14 @@ class ProviderRPCServer:
             )
             return {"accepted": True}
         if request.action == "stop_service":
-            self._require_active(str(request.payload.get("task_id", "")))
+            controller_id, controller_generation = self._controller_binding(
+                request.payload
+            )
+            self._require_active(
+                str(request.payload.get("task_id", "")),
+                controller_id,
+                controller_generation,
+            )
             return await self._require_executor().stop_service(
                 task_id=str(request.payload.get("task_id", "")),
                 service_id=str(request.payload.get("service_id", "")),
@@ -193,15 +240,38 @@ class ProviderRPCServer:
             opened = ProviderOpenRequest.model_validate(request.payload.get("request"))
             broker_endpoint = request.payload.get("broker_endpoint")
             broker_token = request.payload.get("broker_token")
+            controller_id, controller_generation = self._controller_binding(
+                request.payload
+            )
             if not isinstance(broker_endpoint, str) or not isinstance(broker_token, str):
                 raise ProviderRPCError(
                     "Tool Broker binding is missing.", code="tool_broker_unavailable"
                 )
             async with self._lock:
-                if self._active_task_id not in {None, opened.task_id}:
+                if controller_generation < self._controller_generation or (
+                    controller_generation == self._controller_generation
+                    and self._controller_id not in {None, controller_id}
+                ):
                     raise ProviderRPCError(
-                        "Provider slot is busy.", code="provider_slot_busy"
+                        "Provider controller is stale.",
+                        code="provider_controller_stale",
                     )
+                if controller_generation > self._controller_generation:
+                    self._controller_generation = controller_generation
+                    self._controller_id = controller_id
+                    await self._release_active()
+                elif self._active_task_id is not None:
+                    if self._controller_id == controller_id:
+                        raise ProviderRPCError(
+                            "Provider slot is busy.", code="provider_slot_busy"
+                        )
+                    raise ProviderRPCError(
+                        "Provider controller is stale.",
+                        code="provider_controller_stale",
+                    )
+                elif self._controller_id is None:
+                    self._controller_generation = controller_generation
+                    self._controller_id = controller_id
                 if self._bind_broker is not None:
                     self._bind_broker(opened.task_id, broker_endpoint, broker_token)
                 try:
@@ -217,9 +287,13 @@ class ProviderRPCServer:
                         self._unbind_broker(opened.task_id)
                     raise
                 self._active_task_id = opened.task_id
+                self._active_session = session
                 return session.model_dump(mode="json")
         session = ProviderSession.model_validate(request.payload.get("session"))
-        self._require_active(session.task_id)
+        controller_id, controller_generation = self._controller_binding(
+            request.payload
+        )
+        self._require_active_session(session, controller_id, controller_generation)
         if request.action == "cancel":
             return {"cancelled": await self.provider.cancel(session)}
         if request.action == "checkpoint":
@@ -229,8 +303,9 @@ class ProviderRPCServer:
             if self._executor is not None:
                 await self._executor.stop_task(session.task_id)
             async with self._lock:
-                if self._active_task_id == session.task_id:
+                if self._active_session == session:
                     self._active_task_id = None
+                    self._active_session = None
                 if self._unbind_broker is not None:
                     self._unbind_broker(session.task_id)
             return {"closed": True}
@@ -245,11 +320,62 @@ class ProviderRPCServer:
             )
         return self._executor
 
-    def _require_active(self, task_id: str) -> None:
-        if self._active_task_id != task_id:
+    def _require_active(
+        self, task_id: str, controller_id: str, controller_generation: int
+    ) -> None:
+        if (
+            self._active_task_id != task_id
+            or self._controller_id != controller_id
+            or self._controller_generation != controller_generation
+        ):
             raise ProviderRPCError(
                 "Provider session was not found.", code="session_not_found"
             )
+
+    def _require_active_session(
+        self,
+        session: ProviderSession,
+        controller_id: str,
+        controller_generation: int,
+    ) -> None:
+        self._require_active(session.task_id, controller_id, controller_generation)
+        if self._active_session != session:
+            raise ProviderRPCError(
+                "Provider session was not found.", code="session_not_found"
+            )
+
+    async def _release_active(self) -> None:
+        session = self._active_session
+        task_id = self._active_task_id
+        if session is not None:
+            with contextlib.suppress(Exception):
+                await self.provider.cancel(session)
+            with contextlib.suppress(Exception):
+                await self.provider.close(session)
+        if self._executor is not None and task_id is not None:
+            with contextlib.suppress(Exception):
+                await self._executor.stop_task(task_id)
+        if self._unbind_broker is not None and task_id is not None:
+            self._unbind_broker(task_id)
+        self._active_task_id = None
+        self._active_session = None
+
+    @staticmethod
+    def _controller_binding(payload: Mapping[str, Any]) -> tuple[str, int]:
+        controller_id = payload.get("controller_id")
+        generation = payload.get("controller_generation")
+        if (
+            not isinstance(controller_id, str)
+            or SAFE_ID.fullmatch(controller_id) is None
+            or isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or generation < 1
+        ):
+            raise ProviderRPCError(
+                "Provider controller binding is invalid.",
+                code="provider_request_invalid",
+            )
+        return controller_id, generation
 
     async def _read_request(self, reader: asyncio.StreamReader) -> ProviderRPCRequest:
         raw = await reader.readline()
@@ -284,6 +410,8 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         workspace_slot_resolver: Callable[[str], str],
         broker_rpc: BrokerRPCServer,
         executor_pool: ExecutorSidecarClientPool | None = None,
+        controller_id: str = "controller_local",
+        controller_generation: int = 1,
     ) -> None:
         if set(endpoints) != set(tokens) or not endpoints:
             raise ValueError("provider sidecar bindings are incomplete")
@@ -292,6 +420,15 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         self._workspace_slot_resolver = workspace_slot_resolver
         self._broker_rpc = broker_rpc
         self._executor_pool = executor_pool
+        if (
+            SAFE_ID.fullmatch(controller_id) is None
+            or isinstance(controller_generation, bool)
+            or not isinstance(controller_generation, int)
+            or controller_generation < 1
+        ):
+            raise ValueError("provider controller binding is invalid")
+        self._controller_id = controller_id
+        self._controller_generation = controller_generation
         self._sessions: dict[str, tuple[str, str, str]] = {}
 
     async def capabilities(self) -> ProviderCapabilities:
@@ -378,10 +515,12 @@ class ProviderSidecarClientPool(CodingAgentProvider):
             {"session": session.model_dump(mode="json"), "text": text},
             slot_id,
         )
+        completed = False
         try:
             while True:
                 value = await self._read(reader)
                 if value.get("done") is True:
+                    completed = True
                     return
                 event = value.get("event")
                 if not isinstance(event, dict):
@@ -392,6 +531,9 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         finally:
             writer.close()
             await writer.wait_closed()
+            if not completed:
+                with contextlib.suppress(Exception):
+                    await self.cancel(session)
 
     async def cancel(self, session: ProviderSession) -> bool:
         slot_id = self._require_session(session)
@@ -537,8 +679,12 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         payload: dict[str, Any],
         slot_id: str,
     ) -> None:
+        bound_payload = dict(payload)
+        if action != "capabilities":
+            bound_payload["controller_id"] = self._controller_id
+            bound_payload["controller_generation"] = self._controller_generation
         request = ProviderRPCRequest(
-            token=self._tokens[slot_id], action=action, payload=payload
+            token=self._tokens[slot_id], action=action, payload=bound_payload
         )
         encoded = request.model_dump_json().encode("utf-8") + b"\n"
         if len(encoded) > MAX_PROVIDER_RPC_BYTES:
