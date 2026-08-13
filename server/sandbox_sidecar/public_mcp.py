@@ -22,6 +22,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from .safe_http import NetworkPolicyError, SafeHttpClient
+from .public_wave29 import WAVE29_PUBLIC_BUILDERS, WAVE29_PUBLIC_TOOL_NAMES
 
 
 MAX_RESULT_BYTES = 128 * 1024
@@ -3759,6 +3760,7 @@ BUILDERS = {
     "yuna0x0-anilist-mcp": build_anilist,
     "karanb192-reddit-mcp-buddy": build_reddit_buddy,
     "rishijatia-fantasy-pl-mcp": build_fantasy_pl,
+    **WAVE29_PUBLIC_BUILDERS,
 }
 
 ADAPTER_TOOL_NAMES = {
@@ -3810,6 +3812,7 @@ ADAPTER_TOOL_NAMES = {
         "get_player_information",
         "list_fpl_fixtures",
     ),
+    **WAVE29_PUBLIC_TOOL_NAMES,
 }
 
 PUBLIC_SCHEMA_SHA256 = {
@@ -3851,6 +3854,9 @@ PUBLIC_SCHEMA_SHA256 = {
     ),
     "rishijatia-fantasy-pl-mcp": (
         "b9760cc0e80c3c906a96e9090e90c57e31b4443e2f58a622c6769ee8448fe602"
+    ),
+    "takashiishida-arxiv-latex-mcp": (
+        "8d2419dd2e67c7ab136f65037ef515cf69fe5b4a51be1d58249e49e9eb096299"
     ),
 }
 

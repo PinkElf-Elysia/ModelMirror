@@ -86,8 +86,8 @@ services:
       - mcp_public_egress
     environment:
       MCP_PUBLIC_MAX_SESSIONS: "6"
-      # Waves 16A-17A were enabled only after isolated real-upstream acceptance.
-      MCP_PUBLIC_ALLOWED_ADAPTERS: fetch-mcp,quickchart-mcp,geowire-mcp,nickclyde-duckduckgo-mcp-server,jpisnice-shadcn-ui-mcp-server,docker-hub-mcp,genomoncology-biomcp,safedep-vet,aas-ee-open-websearch,mnemox-ai-idea-reality-mcp,idosal-git-mcp,coinpaprika-dexpaprika-mcp,pab1it0-chess-mcp,rishijatia-fantasy-pl-mcp,yuna0x0-anilist-mcp
+      # Public-read adapters are enabled only after isolated real-upstream acceptance.
+      MCP_PUBLIC_ALLOWED_ADAPTERS: fetch-mcp,quickchart-mcp,geowire-mcp,nickclyde-duckduckgo-mcp-server,jpisnice-shadcn-ui-mcp-server,docker-hub-mcp,genomoncology-biomcp,safedep-vet,aas-ee-open-websearch,mnemox-ai-idea-reality-mcp,idosal-git-mcp,coinpaprika-dexpaprika-mcp,pab1it0-chess-mcp,rishijatia-fantasy-pl-mcp,yuna0x0-anilist-mcp,takashiishida-arxiv-latex-mcp
       MCP_PUBLIC_SOCKET_PATH: /run/modelmirror-public-mcp/public-mcp.sock
       MCP_PUBLIC_WORKSPACE_ROOT: /workspaces
       # Docker Desktop/VPN DNS may map public hosts into RFC 2544 Fake-IP space.
@@ -394,7 +394,7 @@ services:
       MCP_DATABASE_MAX_SESSIONS: "6"
       MCP_DATABASE_SOCKET_PATH: /run/modelmirror-database-mcp/database-mcp.sock
       MCP_DATABASE_WORKSPACE_ROOT: /workspaces
-      MCP_DATABASE_ALLOWED_ADAPTERS: dbhub,mongodb-mcp,clickhouse-mcp,redis-mcp,supabase-mcp,pab1it0-prometheus-mcp-server,qdrant-mcp-server-qdrant,cr7258-elasticsearch-mcp-server,zilliztech-mcp-server-milvus,neo4j-contrib-mcp-neo4j,arcadedata-arcadedb
+      MCP_DATABASE_ALLOWED_ADAPTERS: dbhub,mongodb-mcp,clickhouse-mcp,redis-mcp,supabase-mcp,pab1it0-prometheus-mcp-server,qdrant-mcp-server-qdrant,cr7258-elasticsearch-mcp-server,zilliztech-mcp-server-milvus,neo4j-contrib-mcp-neo4j,arcadedata-arcadedb,greptimeteam-greptimedb-mcp-server,victoriametrics-community-mcp-victoriametrics
       MCP_DATABASE_PRIVATE_HOST_ALLOWLIST: ${MCP_DATABASE_PRIVATE_HOST_ALLOWLIST:-}
     user: "65532:65532"
     read_only: true

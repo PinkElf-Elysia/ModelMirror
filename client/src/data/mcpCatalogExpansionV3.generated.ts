@@ -12,7 +12,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "yepcode/mcp-server-js 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-arbitrary-command-code-or-target。",
     "stars": 46,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "TypeScript",
@@ -55,7 +55,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "ergut/mcp-bigquery-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-token-readonly-preflight。",
     "stars": 146,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "数据库",
       "TypeScript",
@@ -101,7 +101,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "executeautomation/mcp-playwright 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-superseded-existing-controlled-capability。",
     "stars": 5633,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "浏览器与网页",
       "TypeScript",
@@ -143,7 +143,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "FradSer/mcp-server-apple-reminders 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 180,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "效率与协作",
       "TypeScript",
@@ -186,7 +186,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "githejie/mcp-server-calculator 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 ready，原因码 ready-wave26a-calculator。",
     "stars": 155,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通用工具",
       "Python",
@@ -227,7 +227,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "modelscope/FunASR 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-offline-file-or-deterministic-artifact。",
     "stars": 19791,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "多媒体",
       "Python",
@@ -271,7 +271,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "Muvon/octocode 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-superseded-existing-controlled-capability。",
     "stars": 446,
     "language": "Rust",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "Rust",
@@ -310,16 +310,18 @@ export const mcpCatalogExpansionV3 = [
     "repoUrl": "https://github.com/narumiruna/yfinance-mcp",
     "category": "金融与市场",
     "description": "narumiruna/yfinance-mcp 🐍 ☁️ - An MCP server that uses yfinance to obtain information from Yahoo Finance.",
-    "readmeSummary": "narumiruna/yfinance-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave25-anonymous-public-read-contract。",
+    "readmeSummary": "narumiruna/yfinance-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-provider-data-terms。",
     "stars": 177,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "金融与市场",
       "Python",
       "MIT"
     ],
-    "requirements": [],
+    "requirements": [
+      "provider-supported-api"
+    ],
     "usageExamples": [
       "查看 Yfinance Mcp 的上游用途和当前适配判定",
       "完成对应安全门槛后再进行隔离连接和代表调用验收"
@@ -329,18 +331,16 @@ export const mcpCatalogExpansionV3 = [
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 25,
-      "availability": "planned",
+      "wave": 29,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
-      "risk": "medium",
+      "risk": "high",
       "requiredCapabilities": [
-        "fixed-egress-policy",
-        "read-only-tool-policy",
-        "schema-drift-recovery",
-        "provider-rate-limit"
+        "data-license-provenance",
+        "provider-terms-review"
       ],
       "limitations": [
-        "可继续评估匿名固定域名的公开搜索或元数据读取；在冻结上游版本、固定 Host、只读工具 Schema、限流与输出上限并完成真实代表调用前保持 planned。",
+        "上游能力依赖第三方金融数据抓取，无法证明服务条款允许在本产品中稳定转发；为避免把非官方数据源包装成受支持 API，保持 blocked。",
         "当前仅登记产品身份与适配判定；没有命令、端点、凭据槽、工具策略、运行镜像或默认 allowlist，任何功能开关都不能使该条目可执行。"
       ]
     }
@@ -355,7 +355,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "PSPDFKit/nutrient-dws-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-token-readonly-preflight。",
     "stars": 68,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "文件与存储",
       "TypeScript",
@@ -401,7 +401,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "rohitg00/kubectl-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 947,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "云平台与运维",
       "Python",
@@ -446,7 +446,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "supermemoryai/supermemory 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave21-stateful-foundation-required。",
     "stars": 28866,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "知识与记忆",
       "TypeScript",
@@ -486,10 +486,10 @@ export const mcpCatalogExpansionV3 = [
     "repoUrl": "https://github.com/takashiishida/arxiv-latex-mcp",
     "category": "搜索与研究",
     "description": "takashiishida/arxiv-latex-mcp 🐍 ☁️ - Get the LaTeX source of arXiv papers to handle mathematical content and equations",
-    "readmeSummary": "takashiishida/arxiv-latex-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave25-anonymous-public-read-contract。",
+    "readmeSummary": "takashiishida/arxiv-latex-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 ready，原因码 ready-wave29-arxiv-public-read。",
     "stars": 142,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "搜索与研究",
       "Python",
@@ -505,19 +505,18 @@ export const mcpCatalogExpansionV3 = [
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 25,
-      "availability": "planned",
+      "wave": 29,
+      "availability": "ready",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
         "fixed-egress-policy",
         "read-only-tool-policy",
         "schema-drift-recovery",
-        "provider-rate-limit"
+        "archive-parser-limits"
       ],
       "limitations": [
-        "可继续评估匿名固定域名的公开搜索或元数据读取；在冻结上游版本、固定 Host、只读工具 Schema、限流与输出上限并完成真实代表调用前保持 planned。",
-        "当前仅登记产品身份与适配判定；没有命令、端点、凭据槽、工具策略、运行镜像或默认 allowlist，任何功能开关都不能使该条目可执行。"
+        "已冻结 arXiv LaTeX v0.2.2、官方 export.arxiv.org、四项只读 Schema、内存源包解析与硬资源上限，并通过真实代表调用、超时、清理和用户验收。"
       ]
     }
   },
@@ -531,7 +530,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "tumf/mcp-shell-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-arbitrary-command-code-or-target。",
     "stars": 184,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "Python",
@@ -574,7 +573,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "zcaceres/fetch-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-arbitrary-command-code-or-target。",
     "stars": 811,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "TypeScript",
@@ -617,7 +616,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "zcaceres/gtasks-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 156,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通讯与协作",
       "TypeScript",
@@ -662,7 +661,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "ChanMeng666/server-google-news 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-token-readonly-preflight。",
     "stars": 126,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "搜索与研究",
       "TypeScript",
@@ -708,7 +707,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "coinpaprika/dexpaprika-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 ready，原因码 ready-wave25-public-read。",
     "stars": 42,
     "language": "JavaScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "金融与市场",
       "JavaScript",
@@ -749,7 +748,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "nkapila6/mcp-local-rag 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave21-stateful-foundation-required。",
     "stars": 133,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "搜索与研究",
       "Python",
@@ -793,7 +792,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "SecretiveShell/MCP-searxng 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-superseded-existing-controlled-capability。",
     "stars": 127,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "搜索与研究",
       "Python",
@@ -835,7 +834,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "weibaohui/k8m 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 870,
     "language": "Go",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "云平台与运维",
       "Go",
@@ -880,7 +879,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "zenml-io/mcp-zenml 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 49,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "Python",
@@ -922,16 +921,18 @@ export const mcpCatalogExpansionV3 = [
     "repoUrl": "https://github.com/anaisbetts/mcp-youtube",
     "category": "多媒体",
     "description": "anaisbetts/mcp-youtube 📇 ☁️ - Fetch YouTube subtitles",
-    "readmeSummary": "anaisbetts/mcp-youtube 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave25-anonymous-public-read-contract。",
+    "readmeSummary": "anaisbetts/mcp-youtube 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-superseded-existing-controlled-capability。",
     "stars": 538,
     "language": "JavaScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "多媒体",
       "JavaScript",
       "MIT"
     ],
-    "requirements": [],
+    "requirements": [
+      "external-runtime"
+    ],
     "usageExamples": [
       "查看 Mcp Youtube 的上游用途和当前适配判定",
       "完成对应安全门槛后再进行隔离连接和代表调用验收"
@@ -941,18 +942,16 @@ export const mcpCatalogExpansionV3 = [
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 25,
-      "availability": "planned",
+      "wave": 24,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
-        "fixed-egress-policy",
-        "read-only-tool-policy",
-        "schema-drift-recovery",
-        "provider-rate-limit"
+        "maintained-upstream-contract",
+        "bounded-runtime-surface"
       ],
       "limitations": [
-        "可继续评估匿名固定域名的公开搜索或元数据读取；在冻结上游版本、固定 Host、只读工具 Schema、限流与输出上限并完成真实代表调用前保持 planned。",
+        "该实现与已存在的受控浏览器、搜索、文件或代码索引能力重复，且不会提供更窄、更可验证的边界；转为 blocked/superseded，不创建第二套运行时。",
         "当前仅登记产品身份与适配判定；没有命令、端点、凭据槽、工具策略、运行镜像或默认 allowlist，任何功能开关都不能使该条目可执行。"
       ]
     }
@@ -967,7 +966,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "apinetwork/piapi-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-paid-generation-transaction-or-wallet。",
     "stars": 73,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "多媒体",
       "TypeScript",
@@ -1012,7 +1011,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "apollographql/apollo-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 301,
     "language": "Rust",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "Rust",
@@ -1053,10 +1052,10 @@ export const mcpCatalogExpansionV3 = [
     "repoUrl": "https://github.com/GreptimeTeam/greptimedb-mcp-server",
     "category": "数据库",
     "description": "GreptimeTeam/greptimedb-mcp-server 🐍 🏠 - MCP Server for querying GreptimeDB.",
-    "readmeSummary": "GreptimeTeam/greptimedb-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave27-native-readonly-data-service。",
+    "readmeSummary": "GreptimeTeam/greptimedb-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 ready，原因码 ready-wave28-greptimedb-readonly。",
     "stars": 29,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "数据库",
       "Python",
@@ -1075,8 +1074,8 @@ export const mcpCatalogExpansionV3 = [
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 27,
-      "availability": "planned",
+      "wave": 28,
+      "availability": "ready",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
       "requiredCapabilities": [
@@ -1086,8 +1085,7 @@ export const mcpCatalogExpansionV3 = [
         "query-and-output-limits"
       ],
       "limitations": [
-        "可继续评估固定协议、结构化目标和原生只读账号下的 describe/list/search/read-query 子集；DSN、管理操作、写查询和动态端点保持禁止，真实服务验收前保持 planned。",
-        "当前仅登记产品身份与适配判定；没有命令、端点、凭据槽、工具策略、运行镜像或默认 allowlist，任何功能开关都不能使该条目可执行。"
+        "已冻结 GreptimeDB v0.5.1、固定数据库/表/列、只读工具 Schema 与服务端生成查询，并通过真实服务代表调用、超时、断开、清理和用户验收。"
       ]
     }
   },
@@ -1101,7 +1099,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "joshuayoes/ios-simulator-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 2132,
     "language": "JavaScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "JavaScript",
@@ -1143,7 +1141,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "utensils/mcp-nixos 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-wave25-public-backend-requires-embedded-credential。",
     "stars": 785,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "Python",
@@ -1185,7 +1183,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "callstackincubator/agent-device 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 4062,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "TypeScript",
@@ -1227,7 +1225,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "dbt-labs/dbt-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave27-native-readonly-data-service。",
     "stars": 595,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "数据分析",
       "Python",
@@ -1271,7 +1269,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "eat-pray-ai/yutu 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 609,
     "language": "Go",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "浏览器与网页",
       "Go",
@@ -1315,7 +1313,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "flytohub/flyto-core 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-arbitrary-command-code-or-target。",
     "stars": 479,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "Python",
@@ -1357,7 +1355,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "freema/openclaw-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 182,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "TypeScript",
@@ -1401,7 +1399,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "Higangssh/homebutler 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 182,
     "language": "Go",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "云平台与运维",
       "Go",
@@ -1443,7 +1441,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "jau123/MeiGen-AI-Design-MCP 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-paid-generation-transaction-or-wallet。",
     "stars": 1692,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "多媒体",
       "TypeScript",
@@ -1487,7 +1485,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "Klavis-AI/klavis 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-dynamic-integration-or-security-control-plane。",
     "stars": 5790,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通用工具",
       "Python",
@@ -1530,7 +1528,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "korotovsky/slack-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 1781,
     "language": "Go",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通讯与协作",
       "Go",
@@ -1574,7 +1572,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "mckinsey/vizro 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-offline-file-or-deterministic-artifact。",
     "stars": 3773,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "数据分析",
       "Python",
@@ -1618,7 +1616,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "MobileReality/mdma 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 59,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "TypeScript",
@@ -1662,7 +1660,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "planetscale/cli 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave27-native-readonly-data-service。",
     "stars": 664,
     "language": "Go",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "数据库",
       "Go",
@@ -1706,7 +1704,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "pydantic/pydantic-ai 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-arbitrary-command-code-or-target。",
     "stars": 19240,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "Python",
@@ -1748,7 +1746,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "repowise-dev/repowise 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-superseded-existing-controlled-capability。",
     "stars": 5134,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "Python",
@@ -1789,7 +1787,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "runapi-ai/mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-paid-generation-transaction-or-wallet。",
     "stars": 54,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "多媒体",
       "TypeScript",
@@ -1833,7 +1831,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "anki-mcp/anki-mcp-desktop 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 432,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通用工具",
       "TypeScript",
@@ -1875,7 +1873,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "bgauryy/octocode-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-superseded-existing-controlled-capability。",
     "stars": 907,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "开发与代码",
       "TypeScript",
@@ -1916,7 +1914,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "childrentime/reactuse 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave25-anonymous-public-read-contract。",
     "stars": 1039,
     "language": "MDX",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "云平台与运维",
       "MDX",
@@ -1957,7 +1955,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "LvcidPsyche/auto-browser 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 760,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "浏览器与网页",
       "Python",
@@ -1999,7 +1997,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "openfate-ai/bazi-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-offline-file-or-deterministic-artifact。",
     "stars": 127,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通用工具",
       "TypeScript",
@@ -2043,7 +2041,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "polygon-io/mcp_polygon 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-token-readonly-preflight。",
     "stars": 378,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "金融与市场",
       "Python",
@@ -2088,7 +2086,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "Scottcjn/rustchain-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-paid-generation-transaction-or-wallet。",
     "stars": 104,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "金融与市场",
       "Python",
@@ -2132,7 +2130,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "tonnode/mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave25-anonymous-public-read-contract。",
     "stars": 38,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "金融与市场",
       "TypeScript",
@@ -2173,7 +2171,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "writerslogic/scrivener-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 43,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "知识与记忆",
       "TypeScript",
@@ -2215,7 +2213,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "gomarble-ai/facebook-ads-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 350,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "社交与内容",
       "Python",
@@ -2259,7 +2257,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "healthchainai/HealthChain 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-offline-file-or-deterministic-artifact。",
     "stars": 221,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "搜索与研究",
       "Python",
@@ -2303,7 +2301,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "isnow890/naver-search-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-token-readonly-preflight。",
     "stars": 81,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "搜索与研究",
       "TypeScript",
@@ -2349,7 +2347,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "karanb192/reddit-mcp-buddy 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave25-anonymous-public-read-contract。",
     "stars": 789,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "社交与内容",
       "TypeScript",
@@ -2390,7 +2388,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "kunwar-shah/claudex 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 92,
     "language": "JavaScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "知识与记忆",
       "JavaScript",
@@ -2432,7 +2430,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "Kzino/vorim-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave21-stateful-foundation-required。",
     "stars": 35,
     "language": "JavaScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "安全分析",
       "JavaScript",
@@ -2475,7 +2473,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "mariocandela/beelzebub 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-dynamic-integration-or-security-control-plane。",
     "stars": 2141,
     "language": "Go",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "安全分析",
       "Go",
@@ -2515,18 +2513,17 @@ export const mcpCatalogExpansionV3 = [
     "repoUrl": "https://github.com/NameetP/pdfmux",
     "category": "搜索与研究",
     "description": "NameetP/pdfmux [](https://glama.ai/mcp/servers/NameetP/pdfmux) 🐍 🏠 - PDF extraction router with built-in MCP server. Classifies each page (digital, scanned, tables) and routes to the best backend (PyMuPDF, Docling, OCR, or optional LLM fallback). Per-page confidence scoring flags low-quality pages and auto-reextracts them — prevents silent RAG failures. Zero config: pip install pdfmux. MIT licensed.",
-    "readmeSummary": "NameetP/pdfmux 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-offline-file-or-deterministic-artifact。",
+    "readmeSummary": "NameetP/pdfmux 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-license-runtime-dependency。",
     "stars": 79,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "搜索与研究",
       "Python",
       "MIT"
     ],
     "requirements": [
-      "sealed-workspace",
-      "external-runtime"
+      "commercial-runtime-license"
     ],
     "usageExamples": [
       "查看 Pdfmux 的上游用途和当前适配判定",
@@ -2536,18 +2533,15 @@ export const mcpCatalogExpansionV3 = [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 26,
-      "availability": "planned",
+      "wave": 29,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
-      "risk": "medium",
+      "risk": "high",
       "requiredCapabilities": [
-        "scoped-filesystem",
-        "network-disabled",
-        "artifact-cleanup",
-        "resource-limits"
+        "redistributable-runtime-dependencies"
       ],
       "limitations": [
-        "可继续评估断网、封存输入、确定性处理与服务端复制产物的文件子集；在路径隔离、资源限额、超时、清理和真实镜像验收前保持 planned。",
+        "PDFMux 1.8.7 本身为 MIT，但固定运行依赖 PyMuPDF 与 pymupdf4llm 均要求 AGPL-3.0 或 Artifex 商业许可；当前没有商业许可授权，不能纳入分发镜像。",
         "当前仅登记产品身份与适配判定；没有命令、端点、凭据槽、工具策略、运行镜像或默认 allowlist，任何功能开关都不能使该条目可执行。"
       ]
     }
@@ -2562,7 +2556,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "openaccountants/openaccountants 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave25-anonymous-public-read-contract。",
     "stars": 316,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "金融与市场",
       "Python",
@@ -2603,7 +2597,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "pab1it0/chess-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 ready，原因码 ready-wave25-public-read。",
     "stars": 82,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通用工具",
       "Python",
@@ -2644,7 +2638,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "rashidazarang/airtable-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 87,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "数据库",
       "TypeScript",
@@ -2689,7 +2683,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "rishijatia/fantasy-pl-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 ready，原因码 ready-wave25-public-read。",
     "stars": 73,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通用工具",
       "Python",
@@ -2730,7 +2724,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "rusiaaman/wcgw 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-arbitrary-command-code-or-target。",
     "stars": 672,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通用工具",
       "Python",
@@ -2773,7 +2767,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "Snowflake-Labs/mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave27-native-readonly-data-service。",
     "stars": 295,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "数据库",
       "Python",
@@ -2817,7 +2811,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "stabgan/openrouter-mcp-multimodal 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-paid-generation-transaction-or-wallet。",
     "stars": 73,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "多媒体",
       "TypeScript",
@@ -2861,7 +2855,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "sunriseapps/imagesorcery-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-offline-file-or-deterministic-artifact。",
     "stars": 326,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "多媒体",
       "Python",
@@ -2905,7 +2899,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "XeroAPI/xero-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 350,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "金融与市场",
       "TypeScript",
@@ -2949,7 +2943,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "yuna0x0/anilist-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 ready，原因码 ready-wave25-public-read。",
     "stars": 84,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通用工具",
       "TypeScript",
@@ -2990,7 +2984,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "agenticmail/agenticmail 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 192,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通讯与协作",
       "TypeScript",
@@ -3034,7 +3028,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "bintocher/mcp-superset 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave27-native-readonly-data-service。",
     "stars": 52,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "数据分析",
       "Python",
@@ -3078,7 +3072,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "CheMiguel23/MemoryMesh 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave21-stateful-foundation-required。",
     "stars": 350,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "知识与记忆",
       "TypeScript",
@@ -3122,7 +3116,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "chroma-core/chroma-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave27-native-readonly-data-service。",
     "stars": 585,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "数据库",
       "Python",
@@ -3167,7 +3161,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "CodeAbra/iai-personal-memory-engine 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave21-stateful-foundation-required。",
     "stars": 491,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "知识与记忆",
       "Python",
@@ -3210,7 +3204,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "confluentinc/mcp-confluent 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave27-native-readonly-data-service。",
     "stars": 164,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "数据库",
       "TypeScript",
@@ -3255,7 +3249,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "FROWNINGdev/django-orm-lens 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-offline-file-or-deterministic-artifact。",
     "stars": 61,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "数据库",
       "Python",
@@ -3299,7 +3293,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "jtang613/GhidrAssistMCP 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 714,
     "language": "Java",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "安全分析",
       "Java",
@@ -3341,7 +3335,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "king-of-the-grackles/reddit-research-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave25-anonymous-public-read-contract。",
     "stars": 225,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "社交与内容",
       "Python",
@@ -3382,7 +3376,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "mark3labs/mcp-filesystem-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-superseded-existing-controlled-capability。",
     "stars": 676,
     "language": "Go",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "文件与存储",
       "Go",
@@ -3424,7 +3418,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "mnemox-ai/tradememory-protocol 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave21-stateful-foundation-required。",
     "stars": 1408,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "金融与市场",
       "Python",
@@ -3467,7 +3461,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "NakaokaRei/swift-mcp-gui 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 62,
     "language": "Swift",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通用工具",
       "Swift",
@@ -3510,7 +3504,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "ndthanhdev/mcp-browser-kit 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 54,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "浏览器与网页",
       "TypeScript",
@@ -3553,7 +3547,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "openMF/mcp-mifosx 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 24,
     "language": "Java",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "金融与市场",
       "Java",
@@ -3598,7 +3592,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "overpod/mcp-telegram 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 25,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通讯与协作",
       "TypeScript",
@@ -3642,7 +3636,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "patsnap/patent-literature-search-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave25-anonymous-public-read-contract。",
     "stars": 185,
     "language": "JavaScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "搜索与研究",
       "JavaScript",
@@ -3683,7 +3677,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "portainer/portainer-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 213,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "云平台与运维",
       "Python",
@@ -3727,7 +3721,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "QuackbackIO/quackback 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 227,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "数据分析",
       "TypeScript",
@@ -3771,7 +3765,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "riponcm/projectmem 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave21-stateful-foundation-required。",
     "stars": 613,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "知识与记忆",
       "Python",
@@ -3814,7 +3808,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "stape-io/google-tag-manager-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 201,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "社交与内容",
       "TypeScript",
@@ -3858,7 +3852,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "the-momentum/apple-health-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-offline-file-or-deterministic-artifact。",
     "stars": 249,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "搜索与研究",
       "Python",
@@ -3902,7 +3896,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "traceloop/opentelemetry-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave27-native-readonly-data-service。",
     "stars": 198,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "金融与市场",
       "Python",
@@ -3943,10 +3937,10 @@ export const mcpCatalogExpansionV3 = [
     "repoUrl": "https://github.com/VictoriaMetrics-Community/mcp-victoriametrics",
     "category": "云平台与运维",
     "description": "VictoriaMetrics-Community/mcp-victoriametrics 🎖️ 🏎️ 🏠 - Provides comprehensive integration with your VictoriaMetrics instance APIs and documentation for monitoring, observability, and debugging tasks related to your VictoriaMetrics instances",
-    "readmeSummary": "VictoriaMetrics-Community/mcp-victoriametrics 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave27-native-readonly-data-service。",
+    "readmeSummary": "VictoriaMetrics-Community/mcp-victoriametrics 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 ready，原因码 ready-wave30-victoriametrics-readonly。",
     "stars": 208,
     "language": "Go",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "云平台与运维",
       "Go",
@@ -3964,8 +3958,8 @@ export const mcpCatalogExpansionV3 = [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 27,
-      "availability": "planned",
+      "wave": 30,
+      "availability": "ready",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
       "requiredCapabilities": [
@@ -3975,8 +3969,7 @@ export const mcpCatalogExpansionV3 = [
         "query-and-output-limits"
       ],
       "limitations": [
-        "可继续评估固定协议、结构化目标和原生只读账号下的 describe/list/search/read-query 子集；DSN、管理操作、写查询和动态端点保持禁止，真实服务验收前保持 planned。",
-        "当前仅登记产品身份与适配判定；没有命令、端点、凭据槽、工具策略、运行镜像或默认 allowlist，任何功能开关都不能使该条目可执行。"
+        "已冻结 VictoriaMetrics MCP v1.20.2、固定指标只读工具 Schema、固定目标和查询/输出上限，并通过真实服务代表调用、超时、断开、重启、清理与用户验收。"
       ]
     }
   },
@@ -3990,7 +3983,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "workopia/workopia-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 239,
     "language": "JavaScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "效率与协作",
       "JavaScript",
@@ -4034,7 +4027,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "yuna0x0/hackmd-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-account-cloud-write-or-management。",
     "stars": 65,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "效率与协作",
       "TypeScript",
@@ -4079,7 +4072,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "yurineko73/Godot-MCP-Native 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 678,
     "language": "GDScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "通用工具",
       "GDScript",
@@ -4121,7 +4114,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "yusufkaraaslan/Skill_Seekers 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-offline-file-or-deterministic-artifact。",
     "stars": 14741,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "知识与记忆",
       "Python",
@@ -4165,7 +4158,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "zinja-coder/apktool-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-offline-file-or-deterministic-artifact。",
     "stars": 626,
     "language": "Python",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "安全分析",
       "Python",
@@ -4209,7 +4202,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "ZubeidHendricks/youtube-mcp-server 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-superseded-existing-controlled-capability。",
     "stars": 561,
     "language": "TypeScript",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "多媒体",
       "TypeScript",
@@ -4250,7 +4243,7 @@ export const mcpCatalogExpansionV3 = [
     "readmeSummary": "AI-XiaoDao/ai-browser-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-desktop-browser-or-device-control。",
     "stars": 41,
     "language": "C++",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "浏览器与网页",
       "C++",
@@ -4289,18 +4282,17 @@ export const mcpCatalogExpansionV3 = [
     "repoUrl": "https://github.com/Aimino-Tech/opendocswork-mcp",
     "category": "文件与存储",
     "description": "Rust 原生、本地优先的 Office 文档处理 MCP 服务器，支持 Excel、Word、PowerPoint，亚毫秒级响应。",
-    "readmeSummary": "Aimino-Tech/opendocswork-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-offline-file-or-deterministic-artifact。",
+    "readmeSummary": "Aimino-Tech/opendocswork-mcp 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 blocked，原因码 blocked-license-metadata-conflict。",
     "stars": 155,
     "language": "Rust",
-    "verifiedAt": "2026-08-12",
+    "verifiedAt": "2026-08-13",
     "tags": [
       "文件与存储",
       "Rust",
       "GPL-3.0"
     ],
     "requirements": [
-      "sealed-workspace",
-      "external-runtime"
+      "license-provenance"
     ],
     "usageExamples": [
       "查看 Opendocswork Mcp 的上游用途和当前适配判定",
@@ -4310,18 +4302,15 @@ export const mcpCatalogExpansionV3 = [
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 26,
-      "availability": "planned",
+      "wave": 29,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
-      "risk": "medium",
+      "risk": "high",
       "requiredCapabilities": [
-        "scoped-filesystem",
-        "network-disabled",
-        "artifact-cleanup",
-        "resource-limits"
+        "consistent-release-license-metadata"
       ],
       "limitations": [
-        "可继续评估断网、封存输入、确定性处理与服务端复制产物的文件子集；在路径隔离、资源限额、超时、清理和真实镜像验收前保持 planned。",
+        "固定发布物的许可证元数据与仓库声明不一致，当前无法形成可复现的再分发边界；等待上游统一许可证信息后再重新评估。",
         "当前仅登记产品身份与适配判定；没有命令、端点、凭据槽、工具策略、运行镜像或默认 allowlist，任何功能开关都不能使该条目可执行。"
       ]
     }

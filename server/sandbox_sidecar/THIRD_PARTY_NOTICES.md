@@ -90,6 +90,15 @@ installed, copied or executed by the image:
   represented. The dynamic GitMCP endpoint, arbitrary URL fetch, clone, token
   and repository writes are absent.
 
+Wave 29 adds an independently implemented arXiv LaTeX v0.2.2 compatibility
+contract after reviewing `takashiishida/arxiv-latex-mcp` commit
+`481d8169262dd6f5a6ab04f767da8a8b2e9789bf` (MIT). The upstream package and
+source are not installed or executed. Only canonical arXiv identifiers and
+four bounded metadata/section read tools are accepted; source archives come
+from `export.arxiv.org`, remain in memory, are size-limited and are never
+compiled or extracted to the filesystem. Arbitrary URLs, mirrors, paths,
+headers, TeX execution and external-resource loading are absent.
+
 Wave-3 file adapters are independently implemented compatibility contracts.
 The sidecar does not install or copy the upstream Basic Memory, Excel MCP,
 Git MCP, MarkItDown MCP, or Manim MCP server packages:
@@ -160,10 +169,11 @@ IDs are present in the production allowlist:
   local rules are represented; LLM, Agent, cloud, SQL and registry inputs are
   absent.
 
-Wave 26A stages two more independently implemented, network-free compatibility
-contracts in the file image. Neither upstream MCP package is installed, copied,
-or executed, and both IDs remain outside the production proxy and Compose
-allowlists until isolated validation and user acceptance:
+Wave 26A adds two independently implemented, network-free compatibility
+contracts to the file image. Neither upstream MCP package is installed, copied,
+or executed. Calculator entered the exact production allowlist after isolated
+validation and user acceptance; ImageSorcery remains outside the production
+proxy and Compose allowlists:
 
 - MCP Server Calculator 0.2.1 (`githejie/mcp-server-calculator`), commit
   `3dcaedcd58867206627d121092b401728db202da`: MIT. The single upstream
@@ -179,11 +189,12 @@ allowlists until isolated validation and user acceptance:
   input/output paths are absent.
 
 pdfmux 1.8.7 (`NameetP/pdfmux`), commit
-`891e34c2d32bcbf1796dc8307e13dea1076bc2cf`, was also reviewed under MIT but
-remains planned and is not included. The reviewed Git tag reports 1.8.7 while
-the latest published PyPI artifact is 1.8.2, and its self-healing product
-identity depends on a version-sensitive multi-engine PyMuPDF extraction stack.
-ModelMirror does not substitute a generic PDF parser for that product identity.
+`891e34c2d32bcbf1796dc8307e13dea1076bc2cf`, was reviewed under MIT but is
+blocked and is not included. Its fixed runtime dependency chain contains
+PyMuPDF 1.27.2.3 and pymupdf4llm 0.3.4, both distributed under AGPL-3.0 or an
+Artifex commercial license. ModelMirror has no commercial-license evidence and
+does not distribute those dependencies or substitute a generic PDF parser for
+the PDFMux product identity.
 
 The `modelmirror-mcp-token:wave4-v1` runtime bundles the following pinned MCP
 packages and their locked transitive npm dependencies. Runtime installation and
@@ -334,7 +345,7 @@ The isolated acceptance services were Milvus 2.5.21, Neo4j Enterprise
 test-only dependencies and are not copied into or distributed with the
 ModelMirror database sidecar image.
 
-The same database image contains one default-disabled Wave 27 compatibility
+The same database image contains one Wave 28 compatibility
 contract after review of GreptimeDB MCP Server v0.5.1
 (`GreptimeTeam/greptimedb-mcp-server`, commit
 `ba3b732fe2113378f41c391da880b9ab75f2d862`), licensed under MIT. The upstream
@@ -342,11 +353,24 @@ package and source are not copied or executed. The facade binds one database,
 table, timestamp column and value column and exposes only table description,
 a server-generated bounded range query and a constant health query. Arbitrary
 SQL/TQL, resource selection, writes, administration and dynamic endpoints are
-absent. This contract remains staged and is excluded from the default runtime
-allowlist until isolated native read-only service acceptance is complete.
+absent. The contract entered the exact default allowlist only after isolated
+native read-only service acceptance and user approval.
 The isolated acceptance service was the official GreptimeDB v1.1.4 image at
 manifest digest
 `sha256:9726587eac95d0360755254cd59a528dbf48abfdf268478aea6a644f62afe44c`;
+that provider image is not copied into or distributed with ModelMirror.
+
+Wave 30 adds an independently implemented VictoriaMetrics MCP v1.20.2
+compatibility contract after reviewing
+`VictoriaMetrics/mcp-victoriametrics` commit
+`28a8c2319a8893d30a8b023b0c62734d31a5fe4e` under Apache-2.0. The upstream
+package and source are not copied or executed. The facade binds one fixed
+VictoriaMetrics target and metric and exposes only metrics, labels, instant
+query and bounded range query operations. Arbitrary PromQL, paths, tenants,
+writes, imports, deletes, administration and dynamic endpoints are absent. The
+isolated acceptance service was the official VictoriaMetrics v1.148.0 image at
+manifest digest
+`sha256:407013e902f9a0ba1d4b2d4c077c47bbaf917c893c52ff39b19efe83a654afda`;
 that provider image is not copied into or distributed with ModelMirror.
 
 The `modelmirror-mcp-files` image also bundles GoGraph v1.5.6

@@ -40,7 +40,10 @@ export type McpRequirement =
   | "database-credentials"
   | "sealed-workspace"
   | "account-binding"
-  | "system-permission";
+  | "system-permission"
+  | "provider-supported-api"
+  | "commercial-runtime-license"
+  | "license-provenance";
 
 export const mcpRequirementLabels: Record<McpRequirement, string> = {
   oauth: "需要 OAuth",
@@ -52,6 +55,9 @@ export const mcpRequirementLabels: Record<McpRequirement, string> = {
   "sealed-workspace": "需要封存工作区",
   "account-binding": "需要账号绑定",
   "system-permission": "需要系统权限",
+  "provider-supported-api": "需要供应商支持的 API",
+  "commercial-runtime-license": "需要商业运行时许可",
+  "license-provenance": "需要许可证来源确认",
 };
 
 export interface McpProject {

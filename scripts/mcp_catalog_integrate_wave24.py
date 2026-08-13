@@ -23,7 +23,7 @@ REPORT_PATH = ROOT / "docs" / "MCP_CATALOG_EXPANSION_WAVE24_REVIEW.md"
 FRONTEND_PATH = ROOT / "client" / "src" / "data" / "mcpCatalogExpansionV3.generated.ts"
 BACKEND_PATH = ROOT / "server" / "mcp" / "catalog_expansion_v3.py"
 
-SNAPSHOT_DATE = "2026-08-12"
+SNAPSHOT_DATE = "2026-08-13"
 NON_EXECUTABLE_LIMITATION = (
     "当前仅登记产品身份与适配判定；没有命令、端点、凭据槽、工具策略、运行镜像或默认 allowlist，"
     "任何功能开关都不能使该条目可执行。"
@@ -94,9 +94,6 @@ DECISION_GROUPS: dict[str, dict[str, Any]] = {
             "provider-rate-limit",
         ),
         ids=(
-            "narumiruna-yfinance-mcp",
-            "takashiishida-arxiv-latex-mcp",
-            "anaisbetts-mcp-youtube",
             "childrentime-reactuse",
             "tonnode-mcp",
             "karanb192-reddit-mcp-buddy",
@@ -104,6 +101,37 @@ DECISION_GROUPS: dict[str, dict[str, Any]] = {
             "king-of-the-grackles-reddit-research-mcp",
             "patsnap-patent-literature-search-mcp",
         ),
+    ),
+    "ready-wave29-arxiv-public-read": _group(
+        availability="ready",
+        wave=29,
+        reason=(
+            "已冻结 arXiv LaTeX v0.2.2、官方 export.arxiv.org、四项只读 Schema、"
+            "内存源包解析与硬资源上限，并通过真实代表调用、超时、清理和用户验收。"
+        ),
+        connection_kind="sandboxed-stdio",
+        risk="medium",
+        requirements=(),
+        capabilities=(
+            "fixed-egress-policy",
+            "read-only-tool-policy",
+            "schema-drift-recovery",
+            "archive-parser-limits",
+        ),
+        ids=("takashiishida-arxiv-latex-mcp",),
+    ),
+    "blocked-provider-data-terms": _group(
+        availability="blocked",
+        wave=29,
+        reason=(
+            "上游能力依赖第三方金融数据抓取，无法证明服务条款允许在本产品中稳定转发；"
+            "为避免把非官方数据源包装成受支持 API，保持 blocked。"
+        ),
+        connection_kind="sandboxed-stdio",
+        risk="high",
+        requirements=("provider-supported-api",),
+        capabilities=("data-license-provenance", "provider-terms-review"),
+        ids=("narumiruna-yfinance-mcp",),
     ),
     "blocked-wave25-public-backend-requires-embedded-credential": _group(
         availability="blocked",
@@ -185,14 +213,38 @@ DECISION_GROUPS: dict[str, dict[str, Any]] = {
             "mckinsey-vizro",
             "openfate-ai-bazi-mcp",
             "healthchainai-healthchain",
-            "nameetp-pdfmux",
             "sunriseapps-imagesorcery-mcp",
             "frowningdev-django-orm-lens",
             "the-momentum-apple-health-mcp-server",
             "yusufkaraaslan-skill-seekers",
             "zinja-coder-apktool-mcp-server",
-            "aimino-tech-opendocswork-mcp",
         ),
+    ),
+    "blocked-license-runtime-dependency": _group(
+        availability="blocked",
+        wave=29,
+        reason=(
+            "PDFMux 1.8.7 本身为 MIT，但固定运行依赖 PyMuPDF 与 pymupdf4llm "
+            "均要求 AGPL-3.0 或 Artifex 商业许可；当前没有商业许可授权，不能纳入分发镜像。"
+        ),
+        connection_kind="sandboxed-stdio",
+        risk="high",
+        requirements=("commercial-runtime-license",),
+        capabilities=("redistributable-runtime-dependencies",),
+        ids=("nameetp-pdfmux",),
+    ),
+    "blocked-license-metadata-conflict": _group(
+        availability="blocked",
+        wave=29,
+        reason=(
+            "固定发布物的许可证元数据与仓库声明不一致，当前无法形成可复现的再分发边界；"
+            "等待上游统一许可证信息后再重新评估。"
+        ),
+        connection_kind="sandboxed-stdio",
+        risk="high",
+        requirements=("license-provenance",),
+        capabilities=("consistent-release-license-metadata",),
+        ids=("aimino-tech-opendocswork-mcp",),
     ),
     "planned-wave27-native-readonly-data-service": _group(
         availability="planned",
@@ -211,7 +263,6 @@ DECISION_GROUPS: dict[str, dict[str, Any]] = {
             "query-and-output-limits",
         ),
         ids=(
-            "greptimeteam-greptimedb-mcp-server",
             "dbt-labs-dbt-mcp",
             "planetscale-cli",
             "snowflake-labs-mcp",
@@ -219,8 +270,43 @@ DECISION_GROUPS: dict[str, dict[str, Any]] = {
             "chroma-core-chroma-mcp",
             "confluentinc-mcp-confluent",
             "traceloop-opentelemetry-mcp-server",
-            "victoriametrics-community-mcp-victoriametrics",
         ),
+    ),
+    "ready-wave28-greptimedb-readonly": _group(
+        availability="ready",
+        wave=28,
+        reason=(
+            "已冻结 GreptimeDB v0.5.1、固定数据库/表/列、只读工具 Schema 与服务端生成查询，"
+            "并通过真实服务代表调用、超时、断开、清理和用户验收。"
+        ),
+        connection_kind="sandboxed-stdio",
+        risk="high",
+        requirements=("database-credentials", "external-runtime"),
+        capabilities=(
+            "fixed-database-target",
+            "native-read-only-role",
+            "read-only-query-policy",
+            "query-and-output-limits",
+        ),
+        ids=("greptimeteam-greptimedb-mcp-server",),
+    ),
+    "ready-wave30-victoriametrics-readonly": _group(
+        availability="ready",
+        wave=30,
+        reason=(
+            "已冻结 VictoriaMetrics MCP v1.20.2、固定指标只读工具 Schema、固定目标和查询/输出上限，"
+            "并通过真实服务代表调用、超时、断开、重启、清理与用户验收。"
+        ),
+        connection_kind="sandboxed-stdio",
+        risk="high",
+        requirements=("database-credentials", "external-runtime"),
+        capabilities=(
+            "fixed-database-target",
+            "native-read-only-role",
+            "read-only-query-policy",
+            "query-and-output-limits",
+        ),
+        ids=("victoriametrics-community-mcp-victoriametrics",),
     ),
     "planned-wave21-stateful-foundation-required": _group(
         availability="planned",
@@ -267,6 +353,7 @@ DECISION_GROUPS: dict[str, dict[str, Any]] = {
             "bgauryy-octocode-mcp",
             "mark3labs-mcp-filesystem-server",
             "zubeidhendricks-youtube-mcp-server",
+            "anaisbetts-mcp-youtube",
         ),
     ),
     "blocked-arbitrary-command-code-or-target": _group(
@@ -455,7 +542,7 @@ def build_approved_payload(source: dict[str, Any]) -> dict[str, Any]:
         status: sum(item["proposed_availability"] == status for item in candidates)
         for status in ("ready", "planned", "blocked")
     }
-    if availability != {"ready": 5, "planned": 41, "blocked": 54}:
+    if availability != {"ready": 8, "planned": 34, "blocked": 58}:
         raise ValueError(f"unexpected Wave 24 classification: {availability}")
     payload.update(
         {
@@ -465,7 +552,7 @@ def build_approved_payload(source: dict[str, Any]) -> dict[str, Any]:
             "approval": {
                 "status": "approved",
                 "approved_at": SNAPSHOT_DATE,
-                "scope": "static-catalog-plus-accepted-wave25a-wave25b-runtime",
+                "scope": "static-catalog-plus-accepted-wave25-wave30-runtime",
             },
             "adaptation": {
                 "classified_at": SNAPSHOT_DATE,
@@ -595,7 +682,7 @@ def render_report(payload: dict[str, Any]) -> str:
         "- 用户已批准本次固定 100 项清单进入静态产品目录。",
         f"- 判定：`{availability['ready']} ready / {availability['planned']} planned / {availability['blocked']} blocked`。",
         "- Wave 24 首次导入不创建 ready；后续只有完成真实运行证据与用户验收的精确 ID 才能晋级。",
-        "- Wave 25A 三项和 Wave 25B Fantasy PL 共四项已晋级；命令、工具策略与 allowlist 仍由服务端显式冻结，不由生成器产生。",
+        "- Wave 25–30 已完成验收的八项已晋级；命令、工具策略与 allowlist 仍由服务端显式冻结，不由生成器产生。",
         "- 与原有 200 项合并后产品目录总数保持 300。",
         "",
         "## 固定来源",
@@ -625,7 +712,7 @@ def render_report(payload: dict[str, Any]) -> str:
             "",
             "## 回退",
             "",
-            "Wave 25A/25B 回退时移除对应精确 allowlist/runtime contract 并将其恢复为 planned；目录导入本身没有数据迁移。",
+            "Wave 25–30 回退时移除对应精确 allowlist/runtime contract 并将其恢复为 planned/blocked；目录导入本身没有数据迁移。",
             "",
         ]
     )

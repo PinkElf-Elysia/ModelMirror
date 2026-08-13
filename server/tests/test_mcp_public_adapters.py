@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import io
 import json
 import socket
 import subprocess
 import sys
+import tarfile
 import textwrap
 from pathlib import Path
 from typing import Any
@@ -72,6 +74,14 @@ from server.sandbox_sidecar.public_server import (
     PUBLIC_ADAPTERS,
     configured_public_adapters,
 )
+from server.sandbox_sidecar.public_wave29 import (
+    ARXIV_LATEX_ADAPTER_ID,
+    MAX_ARCHIVE_BYTES,
+    _client as arxiv_client,
+    canonical_arxiv_id,
+    parse_abstract_feed,
+    parse_source_archive,
+)
 from server.sandbox_sidecar.smoke_public_adapters import (
     PUBLIC_EXPANSION_ADAPTERS,
     TIMEOUT_TOOL_PROBES,
@@ -80,6 +90,7 @@ from server.sandbox_sidecar.smoke_public_adapters import (
     WAVE17A_ADAPTERS,
     WAVE25A_ADAPTERS,
     WAVE25B_ADAPTERS,
+    WAVE29_ADAPTERS,
     _adapter_ids,
 )
 from server.sandbox_sidecar.safe_http import (
@@ -417,6 +428,7 @@ def test_public_adapter_contract_and_container_isolation() -> None:
         "pab1it0-chess-mcp",
         "rishijatia-fantasy-pl-mcp",
         "yuna0x0-anilist-mcp",
+        "takashiishida-arxiv-latex-mcp",
     }
     assert ADAPTER_TOOL_NAMES == {
         "fetch-mcp": ("fetch",),
@@ -466,6 +478,12 @@ def test_public_adapter_contract_and_container_isolation() -> None:
             "search_fpl_players",
             "get_player_information",
             "list_fpl_fixtures",
+        ),
+        "takashiishida-arxiv-latex-mcp": (
+            "get_paper_prompt",
+            "get_paper_abstract",
+            "list_paper_sections",
+            "get_paper_section",
         ),
     }
     assert geowire_providers_payload()["credentials"] == "none"
@@ -517,6 +535,7 @@ def test_public_adapter_contract_and_container_isolation() -> None:
     assert "yuna0x0-anilist-mcp" in allowlist_line
     assert "karanb192-reddit-mcp-buddy" not in allowlist_line
     assert "rishijatia-fantasy-pl-mcp" in allowlist_line
+    assert "takashiishida-arxiv-latex-mcp" in allowlist_line
     assert "image: modelmirror-mcp-public:wave17a-v1" in public_block
 
 
@@ -535,12 +554,82 @@ def test_wave16_allowlist_is_enabled_after_acceptance_and_exact_when_overridden(
     assert _adapter_ids(",".join(sorted(WAVE17A_ADAPTERS))) == WAVE17A_ADAPTERS
     assert _adapter_ids(",".join(sorted(WAVE25A_ADAPTERS))) == WAVE25A_ADAPTERS
     assert _adapter_ids(",".join(sorted(WAVE25B_ADAPTERS))) == WAVE25B_ADAPTERS
+    assert _adapter_ids(",".join(sorted(WAVE29_ADAPTERS))) == WAVE29_ADAPTERS
     assert (
         _adapter_ids(",".join(sorted(PUBLIC_EXPANSION_ADAPTERS)))
         == PUBLIC_EXPANSION_ADAPTERS
     )
     with pytest.raises(RuntimeError, match="public_smoke_adapter_selection_invalid"):
         _adapter_ids("fetch-mcp")
+
+
+def test_wave29_arxiv_latex_accepts_only_canonical_ids_and_safe_bounded_sources() -> None:
+    assert ARXIV_LATEX_ADAPTER_ID in BUILDERS
+    assert canonical_arxiv_id("arXiv:1706.03762v7") == "1706.03762v7"
+    assert canonical_arxiv_id("hep-th/9901001") == "hep-th/9901001"
+    for denied in (
+        "https://arxiv.org/abs/1706.03762",
+        "1706.03762?download=1",
+        "../1706.03762",
+        "",
+    ):
+        with pytest.raises(ValueError, match="arxiv_id_invalid"):
+            canonical_arxiv_id(denied)
+
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode="w:gz") as archive:
+        directory = tarfile.TarInfo("paper")
+        directory.type = tarfile.DIRTYPE
+        archive.addfile(directory)
+        content = b"\\section{Introduction}\nSafe source\n\\subsection{Method}\nBounded"
+        member = tarfile.TarInfo("paper/main.tex")
+        member.size = len(content)
+        archive.addfile(member, io.BytesIO(content))
+    source = parse_source_archive(stream.getvalue())
+    assert "\\section{Introduction}" in source
+    assert "Safe source" in source
+
+    traversal = io.BytesIO()
+    with tarfile.open(fileobj=traversal, mode="w") as archive:
+        content = b"denied"
+        member = tarfile.TarInfo("../escape.tex")
+        member.size = len(content)
+        archive.addfile(member, io.BytesIO(content))
+    with pytest.raises(ValueError, match="arxiv_source_archive_denied"):
+        parse_source_archive(traversal.getvalue())
+    with pytest.raises(ValueError, match="arxiv_source_size_exceeded"):
+        parse_source_archive(b"x" * (MAX_ARCHIVE_BYTES + 1))
+
+
+def test_wave29_arxiv_abstract_parser_is_single_entry_and_bounded() -> None:
+    fixture = b"""<?xml version='1.0' encoding='UTF-8'?>
+    <feed xmlns='http://www.w3.org/2005/Atom'>
+      <entry>
+        <id>http://arxiv.org/abs/1706.03762v7</id>
+        <updated>2023-08-02T15:11:59Z</updated>
+        <published>2017-06-12T17:57:34Z</published>
+        <title>Attention Is All You Need</title>
+        <summary>A bounded abstract.</summary>
+        <author><name>A. Researcher</name></author>
+      </entry>
+    </feed>"""
+    parsed = parse_abstract_feed(fixture, "1706.03762")
+    assert parsed == {
+        "arxiv_id": "1706.03762",
+        "title": "Attention Is All You Need",
+        "abstract": "A bounded abstract.",
+        "authors": ["A. Researcher"],
+        "published": "2017-06-12T17:57:34Z",
+        "updated": "2023-08-02T15:11:59Z",
+    }
+    with pytest.raises(ValueError, match="arxiv_paper_unavailable"):
+        parse_abstract_feed(b"<feed xmlns='http://www.w3.org/2005/Atom'/>", "1706.03762")
+
+
+def test_wave29_arxiv_allows_only_one_same_host_canonical_redirect() -> None:
+    client = arxiv_client()
+    assert client.allowed_hosts == frozenset({"export.arxiv.org"})
+    assert client.max_redirects == 1
 
 
 def test_duckduckgo_contract_uses_fixed_post_strict_search_and_bounded_results(

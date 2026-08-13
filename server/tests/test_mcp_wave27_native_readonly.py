@@ -52,30 +52,30 @@ def _context() -> SimpleNamespace:
 
 
 @pytest.mark.asyncio
-async def test_wave27_is_compiled_but_staged_and_not_catalog_executable() -> None:
+async def test_wave28_promotes_the_accepted_readonly_greptime_adapter() -> None:
     assert WAVE_TWENTYSEVEN_DATA_SERVICE_ADAPTERS == {ADAPTER_ID}
-    assert STAGED_DATABASE_ADAPTERS == {ADAPTER_ID}
+    assert STAGED_DATABASE_ADAPTERS == frozenset()
     assert ADAPTER_ID in DATABASE_ADAPTERS
     assert ADAPTER_ID in database_proxy.ALLOWED_ADAPTERS
     assert ADAPTER_ID in BUILDERS
     assert ADAPTER_ID in PREFLIGHTS
-    assert ADAPTER_ID not in database_server.ALLOWED_ADAPTERS
+    assert ADAPTER_ID in database_server.ALLOWED_ADAPTERS
     manifest = CATALOG_ADAPTERS[ADAPTER_ID]
-    assert manifest.availability == "planned"
-    assert manifest.executable is False
-    assert manifest.server_command == ()
-    assert manifest.tool_policies == {}
+    assert manifest.wave == 28
+    assert manifest.availability == "ready"
+    assert manifest.executable is True
+    assert manifest.server_command[-1] == ADAPTER_ID
+    assert set(manifest.tool_policies) == EXPECTED_TOOLS
 
     catalog = {item.project_id: item for item in CATALOG_EXPANSION_V3_ADAPTERS}
-    assert catalog[ADAPTER_ID].availability == "planned"
-    assert catalog[ADAPTER_ID].decision_reason_code == "planned-wave27-native-readonly-data-service"
+    assert catalog[ADAPTER_ID].availability == "ready"
+    assert catalog[ADAPTER_ID].decision_reason_code == "ready-wave28-greptimedb-readonly"
 
     compose = Path("docker-compose.yml").read_text(encoding="utf-8")
-    assert f"MCP_DATABASE_ALLOWED_ADAPTERS: {ADAPTER_ID}" not in compose
     allowlist_line = next(
         line for line in compose.splitlines() if "MCP_DATABASE_ALLOWED_ADAPTERS:" in line
     )
-    assert ADAPTER_ID not in allowlist_line
+    assert ADAPTER_ID in allowlist_line
 
 
 @pytest.mark.asyncio
