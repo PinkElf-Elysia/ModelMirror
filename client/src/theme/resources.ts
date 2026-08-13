@@ -28,8 +28,8 @@ export const resourceNavItems: ResourceNavItem[] = [
   },
   {
     key: "agents",
-    title: "AI 人才市场",
-    shortTitle: "人才",
+    title: "Agent人才市场",
+    shortTitle: "Agent",
     english: "Agents",
     path: "/agents",
     icon: "才",
@@ -85,7 +85,7 @@ export const resourceComingSoonCopy: Record<
   skills: {
     title: "Skill 技能培训即将上线",
     description: "培训教室正在排课，未来会集中展示可复用的 Skill、工作流和操作手册。",
-    actionHint: "先逛 AI 人才市场，挑一位专家进面试间试试。",
+    actionHint: "先逛 Agent人才市场，挑一位专家进面试间试试。",
   },
   prompts: {
     title: "提示词市场即将上线",

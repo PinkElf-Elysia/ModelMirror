@@ -1,3 +1,17 @@
+import {
+  AppWindow,
+  Bot,
+  CalendarClock,
+  ChartPie,
+  ChevronRight,
+  Layers3,
+  Rocket,
+  Settings2,
+  UsersRound,
+  Workflow,
+  type LucideIcon,
+} from "lucide-react";
+
 export interface PlatformCapability {
   id: string;
   icon: string;
@@ -6,51 +20,128 @@ export interface PlatformCapability {
   detail: string;
   tag: string;
   eta: string;
+  statusLabel?: string;
+  actionLabel?: string;
 }
 
 interface PlatformCapabilityCardProps {
   capability: PlatformCapability;
+  featured?: boolean;
   onOpen: (capability: PlatformCapability) => void;
+}
+
+const capabilityIcons: Record<string, LucideIcon> = {
+  "agent-workspace": AppWindow,
+  "conversation-goals": CalendarClock,
+  datax: ChartPie,
+  "expert-squad": UsersRound,
+  "meta-agent": Workflow,
+  "xpert-automations": Settings2,
+  "xpert-studio": Layers3,
+};
+
+function CapabilityIcon({
+  capability,
+  featured,
+}: {
+  capability: PlatformCapability;
+  featured: boolean;
+}) {
+  const Icon = capabilityIcons[capability.id] ?? Bot;
+
+  if (featured) {
+    return (
+      <span className="relative flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-2xl border border-hire-200/45 bg-[linear-gradient(145deg,rgba(251,146,60,0.22),rgba(8,17,36,0.86))] text-hire-100 shadow-[0_16px_38px_rgba(3,8,22,0.36)]">
+        <Layers3 aria-hidden="true" size={42} strokeWidth={1.7} />
+        <span className="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-lg border border-hire-100/35 bg-ink-950 text-hire-100 shadow-lg">
+          <Rocket aria-hidden="true" size={18} strokeWidth={1.8} />
+        </span>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-cyan-200/25 bg-[linear-gradient(145deg,rgba(34,211,238,0.14),rgba(9,21,43,0.98))] text-cyan-100 shadow-[0_10px_26px_rgba(2,8,23,0.34)]"
+    >
+      <Icon aria-hidden="true" size={30} strokeWidth={1.7} />
+    </span>
+  );
 }
 
 export default function PlatformCapabilityCard({
   capability,
+  featured = false,
   onOpen,
 }: PlatformCapabilityCardProps) {
-  return (
-    <article className="group relative isolate flex h-full min-h-[260px] flex-col overflow-hidden rounded-lg border border-hire-300/25 bg-[linear-gradient(145deg,rgba(67,20,7,0.62),rgba(6,9,22,0.9)_52%,rgba(17,24,39,0.84))] p-5 shadow-prism transition duration-300 hover:-translate-y-1 hover:border-hire-300/55 hover:bg-surface-900/95">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(251,146,60,0.18),transparent_36%),radial-gradient(circle_at_80%_80%,rgba(196,181,253,0.12),transparent_34%)]" />
-      <div className="relative flex items-start justify-between gap-3">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-hire-300/35 bg-hire-300/10 text-lg font-bold text-hire-100 shadow-[0_0_24px_rgba(251,146,60,0.14)]">
-          {capability.icon}
-        </span>
-        <span className="rounded-full border border-white/10 bg-white/[0.055] px-2.5 py-1 text-xs font-semibold text-slate-200">
-          平台能力
-        </span>
-      </div>
+  if (featured) {
+    return (
+      <article className="group relative isolate flex h-full min-h-[316px] flex-col overflow-hidden rounded-xl border border-hire-300/45 bg-[linear-gradient(135deg,rgba(74,31,18,0.72),rgba(6,12,28,0.96)_58%)] p-6">
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-2/5 opacity-35 [background-image:linear-gradient(rgba(251,146,60,0.25)_1px,transparent_1px),linear-gradient(90deg,rgba(251,146,60,0.25)_1px,transparent_1px)] [background-size:32px_32px] [mask-image:linear-gradient(to_left,black,transparent)]" />
+        <CapabilityIcon capability={capability} featured />
 
-      <h2 className="relative mt-5 text-lg font-semibold text-white">
-        {capability.title}
-      </h2>
-      <p className="relative mt-3 text-sm leading-6 text-slate-300">
-        {capability.summary}
-      </p>
+        <h3 className="relative mt-6 text-2xl font-semibold text-white">
+          {capability.title}
+        </h3>
+        <p className="relative mt-3 max-w-[34ch] text-sm leading-6 text-slate-300">
+          {capability.summary}
+        </p>
 
-      <div className="relative mt-5 flex flex-wrap gap-2">
-        <span className="rounded-full border border-hire-300/30 bg-hire-300/10 px-2.5 py-1 text-xs font-semibold text-hire-100">
+        <span className="relative mt-4 w-fit rounded-md border border-emerald-300/20 bg-emerald-300/10 px-2.5 py-1 text-xs font-semibold text-emerald-100">
           {capability.tag}
         </span>
-        <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2.5 py-1 text-xs font-semibold text-emerald-100">
-          求职状态：排队入场
-        </span>
+
+        <button
+          className="relative mt-auto flex min-h-11 w-fit items-center gap-3 rounded-lg bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 active:scale-[0.98]"
+          onClick={() => onOpen(capability)}
+          type="button"
+        >
+          {capability.actionLabel ?? "打开工作台"}
+          <ChevronRight aria-hidden="true" size={16} />
+        </button>
+      </article>
+    );
+  }
+
+  return (
+    <article className="group relative flex min-h-[104px] items-center gap-4 overflow-hidden rounded-xl border border-slate-400/15 bg-[linear-gradient(135deg,rgba(7,17,36,0.98),rgba(5,11,27,0.99))] px-4 py-3 shadow-[0_14px_30px_rgba(2,6,18,0.2)] transition duration-200 hover:border-cyan-300/30 hover:bg-[linear-gradient(135deg,rgba(9,25,48,0.99),rgba(6,13,30,1))]">
+      <span className="pointer-events-none absolute inset-y-0 left-0 w-28 bg-cyan-300/[0.025] [mask-image:linear-gradient(to_right,black,transparent)]" />
+      <CapabilityIcon capability={capability} featured={false} />
+
+      <div className="relative min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-sm font-semibold text-white sm:text-base">
+            {capability.title}
+          </h3>
+          <span
+            className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${
+              capability.tag === "可用"
+                ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
+                : "border-violet-300/20 bg-violet-300/10 text-violet-200"
+            }`}
+          >
+            {capability.tag}
+          </span>
+        </div>
+        <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-300/80 sm:text-sm">
+          {capability.summary}
+        </p>
       </div>
 
       <button
-        className="relative mt-auto w-fit rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-slate-100 transition duration-200 hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100 active:scale-[0.98]"
+        aria-label={`${capability.actionLabel ?? "打开"}${capability.title}`}
+        className="relative flex min-h-11 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-semibold text-hire-100 transition hover:bg-hire-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 sm:px-3 sm:text-sm"
         onClick={() => onOpen(capability)}
         type="button"
       >
-        了解更多
+        <span className="hidden sm:inline">
+          {capability.actionLabel ?? "打开"}
+        </span>
+        <ChevronRight
+          aria-hidden="true"
+          className="transition-transform group-hover:translate-x-0.5"
+          size={16}
+        />
       </button>
     </article>
   );

@@ -1344,7 +1344,7 @@ function ChatConversationPage() {
     return {
       agentId: agentId ?? "url-agent",
       agentName: searchParams.get("agentName") ?? "AI 专家",
-      department: searchParams.get("agentDepartment") ?? "AI 人才市场",
+      department: searchParams.get("agentDepartment") ?? "Agent人才市场",
       expertise: searchParams.get("agentExpertise") ?? "按指定角色进入面试",
       prompt: agentPrompt,
       sourceUrl: "",

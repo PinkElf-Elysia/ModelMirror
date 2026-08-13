@@ -6,6 +6,7 @@ import ModelCompareView from "../components/ModelCompareView";
 import ModelCard, {
   type AudioCapabilityStatus,
 } from "../components/ModelCard";
+import ModelWorkbenchSidebar from "../components/ModelWorkbenchSidebar";
 import PageContainer from "../components/PageContainer";
 import FilterPanel from "../components/filters/FilterPanel";
 import {
@@ -656,33 +657,6 @@ export default function ModelListPage() {
     (model) =>
       model.catalog_counted && model.catalog_status !== "expired",
   );
-  const adaptedFilteredCount = onsiteFilteredModels.filter(
-    (model) => {
-      const audioStatus = audioCapabilityStatuses.get(model.id);
-      const primaryAudioOperation =
-        model.primary_operation === "transcribe" ||
-        model.primary_operation === "synthesize_speech" ||
-        model.primary_operation === "generate_audio" ||
-        model.primary_operation === "realtime_voice";
-      if (primaryAudioOperation && audioStatus) {
-        return Boolean(adaptedAudioOperations.get(model.id)?.length);
-      }
-      return (
-        model.interaction_status === "ready" ||
-        Boolean(confirmedAudioOperations.get(model.id)?.length) ||
-        Boolean(confirmedImageOperations.get(model.id)?.length) ||
-        Boolean(
-          confirmedVideoOperations
-            .get(model.id)
-            ?.some(
-              (operation) =>
-                operation === "analyze_video" ||
-                operation === "generate_video",
-            ),
-        )
-      );
-    },
-  ).length;
   const usableFilteredCount = onsiteFilteredModels.filter(
     (model) =>
       invocableModelIds.has(model.id) ||
@@ -731,23 +705,10 @@ export default function ModelListPage() {
   return (
     <PageContainer
       activeResource="models"
-      sidebar={
-        <div>
-          <p className="text-sm font-semibold text-white">资源分区</p>
-          <p className="mt-2 text-sm leading-6 text-slate-400">
-            浏览模型能力，并进入当前已适配的对话或资料库入口。
-          </p>
-          <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">已完成适配</p>
-            <p className="mt-1 text-sm font-semibold text-hire-100">
-              {adaptedFilteredCount} / {onsiteFilteredModels.length}
-            </p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              是否已启用，请以模型卡片状态为准。
-            </p>
-          </div>
-        </div>
-      }
+      mobileSidebar={<ModelWorkbenchSidebar compact />}
+      showSystemCapabilityBar={false}
+      sidebar={<ModelWorkbenchSidebar />}
+      sidebarGridClassName="xl:grid-cols-[230px_minmax(0,1fr)] xl:gap-x-[54px]"
     >
         <ModelMarketHero
           onsiteCount={onsiteModels.length}
