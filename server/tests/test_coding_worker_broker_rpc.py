@@ -8,7 +8,13 @@ import pytest
 from cryptography.fernet import Fernet
 
 from server.coding_worker.broker_rpc import BrokerRPCClient, BrokerRPCError, BrokerRPCServer
-from server.coding_worker.broker_mcp import build_server
+from server.coding_worker.broker_mcp import (
+    BrokerReplaceChange,
+    _replace_change_as_write,
+    _workspace_relative_cwd,
+    _workspace_relative_shell_script,
+    build_server,
+)
 from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
@@ -125,6 +131,7 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
         "search_text",
         "search_regex",
         "workspace_diff",
+        "read_operation_output",
         "code_symbols",
         "code_definition",
         "code_references",
@@ -156,6 +163,20 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
         "changes",
     }
     assert "provider" not in changeset.inputSchema["properties"]
+    change_schema = changeset.inputSchema["properties"]["changes"]["items"]
+    assert change_schema["discriminator"]["propertyName"] == "kind"
+    assert set(change_schema["discriminator"]["mapping"]) == {
+        "write",
+        "delete",
+        "move",
+        "patch",
+        "replace",
+    }
+    operation_output = next(
+        tool for tool in tools if tool.name == "read_operation_output"
+    )
+    assert set(operation_output.inputSchema["required"]) == {"operation_id"}
+    assert "task_id" not in operation_output.inputSchema["properties"]
     command = next(tool for tool in tools if tool.name == "run_command")
     assert set(command.inputSchema["required"]) == {"operation_id", "argv"}
     assert "lease_id" not in command.inputSchema["properties"]
@@ -220,6 +241,133 @@ async def test_mcp_computes_write_digest_inside_trusted_adapter() -> None:
             "network_lease_id": None,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_mcp_changeset_schema_computes_content_and_patch_digests() -> None:
+    calls: list[dict[str, object]] = []
+
+    class RecordingClient:
+        async def call(self, **kwargs: object) -> dict[str, object]:
+            calls.append(kwargs)
+            return {"ok": True}
+
+    patch = "--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n"
+    content = "created\n"
+    await build_server(RecordingClient()).call_tool(
+        "apply_changeset",
+        {
+            "operation_id": "structured-change",
+            "base_tree_hash": "a" * 64,
+            "changes": [
+                {
+                    "kind": "patch",
+                    "path": "app.py",
+                    "expected_sha256": "b" * 64,
+                    "patch": patch,
+                },
+                {
+                    "kind": "write",
+                    "path": "new.py",
+                    "expected_absent": True,
+                    "content": content,
+                },
+            ],
+        },
+    )
+
+    arguments = calls[0]["arguments"]
+    assert isinstance(arguments, dict)
+    assert arguments["changes"] == [
+        {
+            "kind": "patch",
+            "path": "app.py",
+            "expected_sha256": "b" * 64,
+            "patch": patch,
+            "patch_sha256": hashlib.sha256(patch.encode()).hexdigest(),
+        },
+        {
+            "kind": "write",
+            "path": "new.py",
+            "expected_absent": True,
+            "content": content,
+            "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
+        },
+    ]
+
+
+def test_replace_change_preserves_unrelated_bytes_and_final_newline(
+    tmp_path: Path,
+) -> None:
+    source = "before\nold value\nafter\n"
+    target = tmp_path / "app.py"
+    target.write_text(source, encoding="utf-8", newline="")
+    expected_sha256 = hashlib.sha256(source.encode()).hexdigest()
+
+    encoded = _replace_change_as_write(
+        BrokerReplaceChange(
+            kind="replace",
+            path="app.py",
+            expected_sha256=expected_sha256,
+            old_text="old value",
+            new_text="new value",
+        ),
+        workspace=tmp_path,
+    )
+
+    assert encoded == {
+        "kind": "write",
+        "path": "app.py",
+        "expected_sha256": expected_sha256,
+        "expected_absent": False,
+        "content": "before\nnew value\nafter\n",
+        "content_sha256": hashlib.sha256(
+            b"before\nnew value\nafter\n"
+        ).hexdigest(),
+    }
+    assert target.read_bytes() == source.encode()
+
+
+def test_replace_change_requires_one_exact_preimage_match(tmp_path: Path) -> None:
+    content = "same\nsame\n"
+    (tmp_path / "app.py").write_text(content, encoding="utf-8", newline="")
+    change = BrokerReplaceChange(
+        kind="replace",
+        path="app.py",
+        expected_sha256=hashlib.sha256(content.encode()).hexdigest(),
+        old_text="same",
+        new_text="different",
+    )
+    with pytest.raises(ValueError, match="exactly once"):
+        _replace_change_as_write(change, workspace=tmp_path)
+
+
+def test_shell_adapter_canonicalizes_only_current_workspace_references(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "task" / "repo"
+    workspace.mkdir(parents=True)
+    root = workspace.resolve().as_posix()
+    script = (
+        f"cd '{root}' && python {root}/tests/test_app.py\n"
+        f"printf '%s\\n' '{root}-other'\n"
+        "cat /outside/project/file.txt\n"
+    )
+
+    normalized = _workspace_relative_shell_script(script, workspace=workspace)
+
+    assert normalized == (
+        "cd '.' && python ./tests/test_app.py\n"
+        f"printf '%s\\n' '{root}-other'\n"
+        "cat /outside/project/file.txt\n"
+    )
+    assert _workspace_relative_cwd(root, workspace=workspace) == "."
+    assert (
+        _workspace_relative_cwd(f"{root}/src", workspace=workspace) == "src"
+    )
+    assert _workspace_relative_cwd("/outside/project", workspace=workspace) == (
+        "/outside/project"
+    )
 
 
 @pytest.mark.asyncio
@@ -300,6 +448,46 @@ async def test_rpc_waits_for_exact_approval_and_executes_same_operation_once(
     assert result["state"] == "completed"
     assert result["data"]["output"] == "approved\n"
     assert executor.calls == [("python", "-m", "pytest")]
+    await server.close()
+
+
+@pytest.mark.asyncio
+async def test_rpc_reads_only_task_bound_streamed_operation_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
+    server, task_id, endpoint, _executor = await _rpc(tmp_path)
+    client = BrokerRPCClient(
+        endpoint, token=server.register_task(task_id), task_id=task_id
+    )
+    request = {"workspace_id": "workspace", "arguments": {}}
+    operation = server.broker.store.create_operation(
+        task_id=task_id,
+        operation_id="shell-output",
+        tool_name="run_shell",
+        intent_sha256=hashlib.sha256(
+            b'{"arguments":{},"workspace_id":"workspace"}'
+        ).hexdigest(),
+        request=request,
+    )
+    server.broker.store.append_event(
+        task_id,
+        "operation_output",
+        {
+            "operation_id": operation.operation_id,
+            "stream": "stdout",
+            "text": "failure details\n",
+            "truncated": False,
+        },
+    )
+    result = await client.call(
+        operation_id="inspect-output",
+        tool_name="read_operation_output",
+        arguments={"operation_id": operation.operation_id, "after": 0},
+    )
+    assert result["data"]["chunks"][0]["text"] == "failure details\n"
+    assert result["data"]["next_after"] > 0
     await server.close()
 
 
