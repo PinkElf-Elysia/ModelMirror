@@ -40,7 +40,9 @@ def build_plugin_hooks_middleware(
                     context.metadata,
                     check_runtime=False,
                 )
-                manifest = _load_manifest(skill_manager, skill_id)
+                manifest = _load_manifest(
+                    skill_manager, skill_id, metadata=context.metadata
+                )
                 hook_commands = {
                     str(hook.get("argv", [""])[0]).strip()
                     for hook in manifest.get("hooks", [])
@@ -123,8 +125,23 @@ def build_plugin_hooks_middleware(
     )
 
 
-def _load_manifest(skill_manager: Any, skill_id: str) -> dict[str, Any]:
-    root = Path(skill_manager.get_skill_directory(skill_id)).resolve()
+def _load_manifest(
+    skill_manager: Any,
+    skill_id: str,
+    *,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    bindings = (metadata or {}).get("skill_version_bindings")
+    version_id = (
+        str(bindings.get(skill_id) or "").strip()
+        if isinstance(bindings, dict)
+        else ""
+    )
+    root = Path(
+        skill_manager.get_skill_directory(skill_id, version_id=version_id)
+        if version_id
+        else skill_manager.get_skill_directory(skill_id)
+    ).resolve()
     path = (root / "modelmirror-hooks.json").resolve()
     if root not in path.parents or not path.is_file() or path.is_symlink():
         return {"hooks": []}
@@ -159,14 +176,22 @@ def _require_plugin_skill_trust(
         desktop_control_available=False,
     )
     authorizations = metadata.get("skill_trust_authorizations")
-    require_activation(
-        skill_id,
-        runtime_environment=environment,
-        ephemeral_authorizations=(
+    bindings = metadata.get("skill_version_bindings")
+    kwargs: dict[str, Any] = {
+        "runtime_environment": environment,
+        "ephemeral_authorizations": (
             authorizations if isinstance(authorizations, dict) else None
         ),
-        check_runtime=check_runtime,
+        "check_runtime": check_runtime,
+    }
+    version_id = (
+        str(bindings.get(skill_id) or "").strip()
+        if isinstance(bindings, dict)
+        else ""
     )
+    if version_id:
+        kwargs["version_id"] = version_id
+    require_activation(skill_id, **kwargs)
 
 
 def _csv(value: Any) -> list[str]:

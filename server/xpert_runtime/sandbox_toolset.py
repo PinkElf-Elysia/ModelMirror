@@ -594,8 +594,13 @@ class SandboxToolsetProvider:
                 },
             )
         self._require_enabled_skill(call, skill_id)
-        content = self.skill_manager.get_skill_content(skill_id)
-        return RuntimeToolResult(output=content[:50_000], metadata={"content_types": ["text"], "skill_id": skill_id, "truncated": len(content) > 50_000})
+        version_id = self._skill_version_id(call, skill_id)
+        content = (
+            self.skill_manager.get_skill_content(skill_id, version_id=version_id)
+            if version_id
+            else self.skill_manager.get_skill_content(skill_id)
+        )
+        return RuntimeToolResult(output=content[:50_000], metadata={"content_types": ["text"], "skill_id": skill_id, "skill_version_id": version_id, "truncated": len(content) > 50_000})
 
     def _skill_find(
         self, call: RuntimeToolCall, *, recall: bool = False
@@ -885,7 +890,12 @@ class SandboxToolsetProvider:
                 },
             )
         self._require_enabled_skill(call, skill_id)
-        root = self.skill_manager.get_skill_directory(skill_id)
+        version_id = self._skill_version_id(call, skill_id)
+        root = (
+            self.skill_manager.get_skill_directory(skill_id, version_id=version_id)
+            if version_id
+            else self.skill_manager.get_skill_directory(skill_id)
+        )
         operation_base = self._operation_id(call)
         package_files: list[tuple[Path, Path, bytes]] = []
         total = 0
@@ -1004,7 +1014,13 @@ class SandboxToolsetProvider:
         auto_discover = str(config.get("auto_discover", False)).lower() in {"true", "1", "yes"}
         installed = {item.skill_id for item in self.skill_manager.list_installed_skills()}
         active = self._active_skill_ids(call)
-        return (installed if auto_discover else configured & installed) | (active & installed)
+        bindings = call.metadata.get("skill_version_bindings")
+        bound = set(bindings) if isinstance(bindings, dict) else set()
+        return (
+            (installed if auto_discover else configured & installed)
+            | (active & installed)
+            | bound
+        )
 
     def _resolve_candidate(self, call: RuntimeToolCall) -> dict[str, Any]:
         candidate_id = str(call.arguments.get("candidate_id") or "").strip()
@@ -1066,6 +1082,14 @@ class SandboxToolsetProvider:
         return {str(item) for item in value} if isinstance(value, list) else set()
 
     @staticmethod
+    def _skill_version_id(call: RuntimeToolCall, skill_id: str) -> str | None:
+        value = call.metadata.get("skill_version_bindings")
+        if not isinstance(value, dict):
+            return None
+        version_id = str(value.get(skill_id) or "").strip()
+        return version_id or None
+
+    @staticmethod
     def _denied_candidate_ids(call: RuntimeToolCall) -> set[str]:
         value = call.metadata.get("denied_skill_candidate_ids")
         return {str(item) for item in value} if isinstance(value, list) else set()
@@ -1123,11 +1147,14 @@ class SandboxToolsetProvider:
         if not callable(require_activation):
             return
         try:
-            require_activation(
-                skill_id,
-                runtime_environment=self._trust_environment(call),
-                ephemeral_authorizations=self._trust_authorizations(call),
-            )
+            activation_kwargs: dict[str, Any] = {
+                "runtime_environment": self._trust_environment(call),
+                "ephemeral_authorizations": self._trust_authorizations(call),
+            }
+            version_id = self._skill_version_id(call, skill_id)
+            if version_id:
+                activation_kwargs["version_id"] = version_id
+            require_activation(skill_id, **activation_kwargs)
         except Exception as exc:
             code = str(getattr(exc, "code", "") or "skill_trust_receipt_missing")
             raise RuntimeToolError(

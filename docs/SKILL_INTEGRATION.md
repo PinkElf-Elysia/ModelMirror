@@ -75,7 +75,9 @@ VoltAgent 仓库自身不包含 `SKILL.md`，不能把仓库根目录当成 Skil
 
 `SkillLifecycleStore` 是与实时安装目录分离的不可变历史 Store。它按原始字节 package digest 去重保存文件树，并将版本绑定到来源 revision、Git 固定提交、信任凭据或 Creator 质量证据。首批支持 Git、`local_import` 和 Workspace Creator；插件仍以版本化 Skill ID 管理，内置 Skill 仍跟随镜像。
 
-`SKILL_LIFECYCLE_ENABLED=false` 是第一阶段默认值。此时 `GET /api/skills/lifecycle/status` 与只读迁移审计可用，但迁移写入关闭；显式开启后，`POST /api/skills/lifecycle/migration` 仍要求 `confirmed=true`。迁移只复制已验证的当前版本到独立历史区，不改变安装目录、激活、Router 或卸载行为。无法证明来源、摘要或目录完整性的既有安装保留查看和卸载能力，并在生命周期 Store 中标记 `migration_blocked`。默认容量为当前版本加 5 个非当前版本、全局 1 GiB；版本切换、恢复点、运行绑定和永久清理在后续串行 PR 接入。
+`SKILL_LIFECYCLE_ENABLED=false` 在第二阶段仍是默认值。此时 `GET /api/skills/lifecycle/status` 与只读迁移审计可用，但生命周期写入关闭；显式开启后，`POST /api/skills/lifecycle/migration` 仍要求 `confirmed=true`。完成迁移的 Git、`local_import` 和 Workspace 草稿随后使用统一事务记录安装、替换、卸载恢复点与回滚。新运行持久化不可变版本绑定，历史 `skill_read`/`skill_stage` 不受之后全局版本切换影响；已有运行没有绑定时保持兼容读取当前版本。
+
+版本列表由 `GET /api/skills/{skill_id}/versions` 返回；回滚接口要求 Lifecycle revision、当前版本 ID、目标 package digest 和 `confirmed=true` 全部匹配。Creator 质量凭据与第三方信任凭据均随版本冻结，回滚不会自动扩大长期授权。无法证明来源、摘要或目录完整性的既有安装仍保留查看和卸载能力，并在 Lifecycle Store 标记 `migration_blocked`。默认容量为当前版本加 5 个非当前版本、全局 1 GiB；容量满时失败关闭，不自动删除历史。永久清理和完整治理 UI 留给后续阶段。
 
 ## 2. 如何添加新的 Skill 到市场
 

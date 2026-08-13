@@ -11,7 +11,7 @@ import threading
 import time
 import unicodedata
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Mapping
 
@@ -41,6 +41,14 @@ SKILL_LIFECYCLE_MAX_INDEX_BYTES = 16 * 1024 * 1024
 
 LifecycleSourceKind = Literal["git", "local_import", "workspace_draft"]
 LifecycleStateStatus = Literal["active", "uninstalled", "migration_blocked"]
+LifecycleTransactionPhase = Literal[
+    "prepared",
+    "archived",
+    "swapped",
+    "metadata_committed",
+    "source_projected",
+    "lifecycle_committed",
+]
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -107,11 +115,14 @@ class SkillVersionSnapshot:
     source_ref: str | None
     trust_receipt_id: str | None
     trust_fingerprint: str | None
+    trust_directory_tree_sha: str | None
+    trust_receipt_snapshot: dict[str, Any] | None
     trust_risk_level: str | None
     trust_status: str | None
     trust_install_policy: str | None
     trust_compatibility_status: str | None
     trust_router_eligible: bool
+    quality_required: bool
     quality_evidence_status: str
     quality_status: str | None
     quality_decision_id: str | None
@@ -130,6 +141,19 @@ class SkillLifecycleState:
     version_ids: tuple[str, ...]
     migration_code: str | None
     events: tuple[SkillLifecycleEvent, ...]
+    created_at: float
+    updated_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class SkillLifecycleTransaction:
+    transaction_id: str
+    skill_id: str
+    operation: Literal["install", "replace", "rollback", "uninstall"]
+    phase: LifecycleTransactionPhase
+    previous_version_id: str | None
+    target_version_id: str | None
+    expected_state_revision: int
     created_at: float
     updated_at: float
 
@@ -156,6 +180,30 @@ def _configured_int(value: int | str | None, default: int) -> int:
     except (TypeError, ValueError):
         return int(default)
     return parsed
+
+
+def _version_identity(
+    installed: InstalledSkill,
+    package_digest: str,
+    *,
+    quality_required: bool,
+    quality_decision_id: str | None,
+) -> dict[str, Any]:
+    """Bind immutable bytes to the exact trust or quality evidence edition."""
+
+    identity: dict[str, Any] = {
+        "skillId": installed.skill_id,
+        "sourceKind": installed.source_kind,
+        "sourceId": installed.source_id,
+        "sourceRevision": installed.source_revision,
+        "sourceRef": installed.source_ref,
+        "packageDigest": package_digest,
+    }
+    if installed.source_kind in {"git", "local_import"}:
+        identity["trustFingerprint"] = installed.trust_fingerprint
+    if quality_required:
+        identity["qualityDecisionId"] = quality_decision_id
+    return identity
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -266,6 +314,7 @@ class SkillLifecycleStore:
         self.index_path = self.root / "skill_lifecycle.json"
         self.packages_root = self.root / "packages"
         self.tmp_root = self.root / "tmp"
+        self.transactions_root = self.root / "transactions"
         self._lock = threading.RLock()
         self._states: dict[str, SkillLifecycleState] = {}
         self._versions: dict[str, SkillVersionSnapshot] = {}
@@ -282,6 +331,11 @@ class SkillLifecycleStore:
     def status(self) -> dict[str, Any]:
         with self._lock:
             package_digests = {item.package_digest for item in self._versions.values()}
+            transaction_count = 0
+            if self.transactions_root.is_dir() and not self.transactions_root.is_symlink():
+                transaction_count = sum(
+                    1 for path in self.transactions_root.iterdir() if path.suffix == ".json"
+                )
             return {
                 "enabled": self.enabled,
                 "available": self._load_error is None,
@@ -305,6 +359,7 @@ class SkillLifecycleStore:
                     ),
                 },
                 "storageBytes": self._storage_bytes_unlocked(),
+                "pendingTransactions": transaction_count,
                 "errorCode": self._load_error,
             }
 
@@ -338,15 +393,500 @@ class SkillLifecycleStore:
             self._verify_package_unlocked(item.package_digest)
             return copy.deepcopy(item)
 
+    def list_versions(self, skill_id: str) -> list[SkillVersionSnapshot]:
+        state = self.require_state(skill_id)
+        with self._lock:
+            return [
+                copy.deepcopy(self._versions[version_id])
+                for version_id in reversed(state.version_ids)
+            ]
+
+    def package_directory(self, version_id: str) -> Path:
+        item = self.require_version(version_id)
+        return self.packages_root / item.package_digest
+
+    def bind_current_versions(self, skill_ids: list[str] | set[str] | tuple[str, ...]) -> dict[str, str]:
+        bindings: dict[str, str] = {}
+        with self._lock:
+            self._ensure_available()
+            for raw_skill_id in sorted({str(item).strip() for item in skill_ids if str(item).strip()}):
+                skill_id = _validate_id(raw_skill_id, "skill ID")
+                transaction = self._read_transaction_unlocked(skill_id, missing_ok=True)
+                if transaction is not None and transaction.phase != "lifecycle_committed":
+                    raise SkillLifecycleConflictError(
+                        "Skill lifecycle transaction is incomplete.",
+                        code="skill_lifecycle_transaction_incomplete",
+                        details={"skillId": skill_id, "phase": transaction.phase},
+                    )
+                state = self._states.get(skill_id)
+                if (
+                    state is None
+                    or state.status != "active"
+                    or state.current_version_id is None
+                ):
+                    raise SkillLifecycleConflictError(
+                        "Installed Skill does not have an active immutable version.",
+                        code="skill_lifecycle_version_unavailable",
+                        details={"skillId": skill_id},
+                    )
+                self._verify_package_unlocked(
+                    self._versions[state.current_version_id].package_digest
+                )
+                bindings[skill_id] = state.current_version_id
+        return bindings
+
+    def stage_version(
+        self,
+        *,
+        installed: InstalledSkill,
+        files: Mapping[str, bytes],
+        quality_evidence_status: str = "not_applicable",
+        quality_required: bool = False,
+        quality_status: str | None = None,
+        quality_decision_id: str | None = None,
+        quality_run_id: str | None = None,
+        trust_receipt_snapshot: Mapping[str, Any] | None = None,
+        actor_kind: Literal["system_migration", "local_console"] = "local_console",
+        event_kind: str = "version_archived",
+    ) -> SkillVersionSnapshot:
+        """Persist one immutable package without changing the active pointer."""
+
+        if installed.source_kind not in {"git", "local_import", "workspace_draft"}:
+            raise SkillLifecycleValidationError(
+                "This Skill source is outside the lifecycle scope.",
+                code="skill_lifecycle_source_unsupported",
+            )
+        normalized, digest, total_bytes = self._normalize_files(files)
+        if digest != installed.content_digest:
+            raise SkillLifecycleConflictError(
+                "Installed Skill bytes changed while creating lifecycle history.",
+                code="skill_lifecycle_package_mismatch",
+            )
+        skill_id = _validate_id(installed.skill_id, "skill ID")
+        identity = _version_identity(
+            installed,
+            digest,
+            quality_required=quality_required,
+            quality_decision_id=quality_decision_id,
+        )
+        version_id = "skillver_" + hashlib.sha256(_canonical_json(identity)).hexdigest()[:32]
+        with self._lock:
+            self._ensure_available(mutation=True)
+            existing_version = self._versions.get(version_id)
+            if existing_version is None:
+                existing_version = self._matching_version_unlocked(
+                    installed,
+                    digest,
+                    quality_required=quality_required,
+                    quality_decision_id=quality_decision_id,
+                )
+                if existing_version is not None:
+                    version_id = existing_version.version_id
+            if existing_version is not None:
+                if existing_version.skill_id != skill_id or existing_version.package_digest != digest:
+                    raise SkillLifecycleConflictError(
+                        "Skill lifecycle version identity is inconsistent.",
+                        code="skill_lifecycle_version_conflict",
+                    )
+                self._verify_package_unlocked(digest)
+                existing_version = self._enrich_trust_snapshot_unlocked(
+                    existing_version,
+                    installed=installed,
+                    receipt=trust_receipt_snapshot,
+                )
+                return copy.deepcopy(existing_version)
+            existing_state = self._states.get(skill_id)
+            version_ids = list(existing_state.version_ids if existing_state else ())
+            non_current = [
+                item
+                for item in version_ids
+                if item != (existing_state.current_version_id if existing_state else None)
+            ]
+            if len(non_current) >= self.max_versions:
+                raise SkillLifecycleStorageError(
+                    "Skill lifecycle retention is full and protected versions cannot be pruned.",
+                    code="skill_lifecycle_retention_full",
+                )
+            now = time.time()
+            frozen_receipt = self._normalize_trust_snapshot(
+                installed, trust_receipt_snapshot, digest
+            )
+            version = SkillVersionSnapshot(
+                version_id=version_id,
+                skill_id=skill_id,
+                ordinal=max(
+                    [self._versions[item].ordinal for item in version_ids if item in self._versions]
+                    or [0]
+                ) + 1,
+                package_digest=digest,
+                file_count=len(normalized),
+                total_bytes=total_bytes,
+                source_kind=installed.source_kind,  # type: ignore[arg-type]
+                source_id=installed.source_id,
+                source_revision=installed.source_revision,
+                repo_url=installed.repo_url,
+                sub_path=installed.sub_path,
+                source_ref=installed.source_ref,
+                trust_receipt_id=installed.trust_receipt_id,
+                trust_fingerprint=installed.trust_fingerprint,
+                trust_directory_tree_sha=installed.trust_directory_tree_sha,
+                trust_receipt_snapshot=frozen_receipt,
+                trust_risk_level=installed.trust_risk_level,
+                trust_status=installed.trust_status,
+                trust_install_policy=installed.trust_install_policy,
+                trust_compatibility_status=installed.trust_compatibility_status,
+                trust_router_eligible=installed.trust_router_eligible,
+                quality_required=bool(quality_required),
+                quality_evidence_status=str(quality_evidence_status or "not_applicable"),
+                quality_status=quality_status,
+                quality_decision_id=quality_decision_id,
+                quality_run_id=quality_run_id,
+                created_at=now,
+            )
+            version_ids.append(version_id)
+            event = SkillLifecycleEvent(
+                event_id="skillevent_" + uuid.uuid4().hex,
+                kind=str(event_kind or "version_archived")[:80],
+                version_id=version_id,
+                reason_code=None,
+                actor_kind=actor_kind,
+                created_at=now,
+            )
+            state = SkillLifecycleState(
+                skill_id=skill_id,
+                revision=(existing_state.revision + 1 if existing_state else 1),
+                status=(existing_state.status if existing_state else "uninstalled"),
+                current_version_id=(existing_state.current_version_id if existing_state else None),
+                recovery_version_id=(existing_state.recovery_version_id if existing_state else None),
+                protected_version_ids=(existing_state.protected_version_ids if existing_state else ()),
+                version_ids=tuple(version_ids),
+                migration_code=(existing_state.migration_code if existing_state else None),
+                events=self._append_event(existing_state, event),
+                created_at=(existing_state.created_at if existing_state else now),
+                updated_at=now,
+            )
+            versions = dict(self._versions)
+            versions[version_id] = version
+            states = dict(self._states)
+            states[skill_id] = state
+            created_package = self._persist_package_unlocked(digest, normalized)
+            try:
+                self._save_unlocked(states, versions, self._quarantine)
+            except BaseException:
+                if created_package and not any(
+                    item.package_digest == digest for item in self._versions.values()
+                ):
+                    shutil.rmtree(self.packages_root / digest, ignore_errors=True)
+                raise
+            self._versions = versions
+            self._states = states
+            return copy.deepcopy(version)
+
+    def activate_version(
+        self,
+        skill_id: str,
+        version_id: str,
+        *,
+        expected_revision: int,
+        event_kind: Literal["installed", "replaced", "rolled_back", "recovered"] = "installed",
+    ) -> SkillLifecycleState:
+        clean_skill_id = _validate_id(skill_id, "skill ID")
+        clean_version_id = _validate_id(version_id, "version ID")
+        with self._lock:
+            self._ensure_available(mutation=True)
+            state = self._states.get(clean_skill_id)
+            version = self._versions.get(clean_version_id)
+            if state is None or version is None or version.skill_id != clean_skill_id:
+                raise SkillLifecycleValidationError(
+                    "Skill lifecycle version was not found.",
+                    code="skill_lifecycle_not_found",
+                )
+            if state.revision != expected_revision:
+                raise SkillLifecycleConflictError(
+                    "Skill lifecycle state changed. Reload before switching versions.",
+                    code="skill_lifecycle_version_conflict",
+                )
+            if state.status == "active" and state.current_version_id == clean_version_id:
+                return copy.deepcopy(state)
+            now = time.time()
+            event = SkillLifecycleEvent(
+                event_id="skillevent_" + uuid.uuid4().hex,
+                kind=event_kind,
+                version_id=clean_version_id,
+                reason_code=None,
+                actor_kind="local_console",
+                created_at=now,
+            )
+            updated = SkillLifecycleState(
+                **{
+                    **asdict(state),
+                    "revision": state.revision + 1,
+                    "status": "active",
+                    "current_version_id": clean_version_id,
+                    "recovery_version_id": (
+                        state.current_version_id
+                        if state.current_version_id != clean_version_id
+                        else state.recovery_version_id
+                    ),
+                    "migration_code": None,
+                    "events": self._append_event(state, event),
+                    "updated_at": now,
+                }
+            )
+            states = dict(self._states)
+            states[clean_skill_id] = updated
+            self._save_unlocked(states, self._versions, self._quarantine)
+            self._states = states
+            return copy.deepcopy(updated)
+
+    def mark_uninstalled(
+        self,
+        skill_id: str,
+        *,
+        expected_revision: int,
+    ) -> SkillLifecycleState:
+        clean = _validate_id(skill_id, "skill ID")
+        with self._lock:
+            self._ensure_available(mutation=True)
+            state = self._states.get(clean)
+            if state is None:
+                raise SkillLifecycleValidationError(
+                    "Skill lifecycle state was not found.", code="skill_lifecycle_not_found"
+                )
+            if state.revision != expected_revision:
+                raise SkillLifecycleConflictError(
+                    "Skill lifecycle state changed. Reload before uninstalling.",
+                    code="skill_lifecycle_version_conflict",
+                )
+            if state.status == "uninstalled" and state.current_version_id is None:
+                return copy.deepcopy(state)
+            now = time.time()
+            event = SkillLifecycleEvent(
+                event_id="skillevent_" + uuid.uuid4().hex,
+                kind="uninstalled",
+                version_id=state.current_version_id,
+                reason_code=None,
+                actor_kind="local_console",
+                created_at=now,
+            )
+            updated = SkillLifecycleState(
+                **{
+                    **asdict(state),
+                    "revision": state.revision + 1,
+                    "status": "uninstalled",
+                    "current_version_id": None,
+                    "recovery_version_id": state.current_version_id or state.recovery_version_id,
+                    "events": self._append_event(state, event),
+                    "updated_at": now,
+                }
+            )
+            states = dict(self._states)
+            states[clean] = updated
+            self._save_unlocked(states, self._versions, self._quarantine)
+            self._states = states
+            return copy.deepcopy(updated)
+
+    def prepare_transaction(
+        self,
+        *,
+        skill_id: str,
+        operation: Literal["install", "replace", "rollback", "uninstall"],
+        previous_version_id: str | None,
+        target_version_id: str | None,
+        expected_state_revision: int,
+    ) -> SkillLifecycleTransaction:
+        clean_skill_id = _validate_id(skill_id, "skill ID")
+        with self._lock:
+            self._ensure_available(mutation=True)
+            state = self._states.get(clean_skill_id)
+            if state is None or state.revision != expected_state_revision:
+                raise SkillLifecycleConflictError(
+                    "Skill lifecycle state changed before the transaction started.",
+                    code="skill_lifecycle_version_conflict",
+                )
+            if previous_version_id is not None and previous_version_id not in state.version_ids:
+                raise SkillLifecycleConflictError(
+                    "Previous lifecycle version is no longer available.",
+                    code="skill_lifecycle_version_conflict",
+                )
+            if target_version_id is not None and target_version_id not in state.version_ids:
+                raise SkillLifecycleConflictError(
+                    "Target lifecycle version is no longer available.",
+                    code="skill_lifecycle_version_conflict",
+                )
+            existing = self._read_transaction_unlocked(clean_skill_id, missing_ok=True)
+            if existing is not None:
+                if (
+                    existing.operation == operation
+                    and existing.previous_version_id == previous_version_id
+                    and existing.target_version_id == target_version_id
+                    and existing.expected_state_revision == expected_state_revision
+                ):
+                    return existing
+                raise SkillLifecycleConflictError(
+                    "Another Skill lifecycle transaction is incomplete.",
+                    code="skill_lifecycle_transaction_incomplete",
+                    details={"phase": existing.phase},
+                )
+            now = time.time()
+            receipt = SkillLifecycleTransaction(
+                transaction_id="skilltxn_" + uuid.uuid4().hex,
+                skill_id=clean_skill_id,
+                operation=operation,
+                phase="prepared",
+                previous_version_id=previous_version_id,
+                target_version_id=target_version_id,
+                expected_state_revision=expected_state_revision,
+                created_at=now,
+                updated_at=now,
+            )
+            self._write_transaction_unlocked(receipt)
+            return receipt
+
+    def advance_transaction(
+        self,
+        skill_id: str,
+        *,
+        transaction_id: str,
+        expected_phase: LifecycleTransactionPhase,
+        phase: LifecycleTransactionPhase,
+    ) -> SkillLifecycleTransaction:
+        order: tuple[LifecycleTransactionPhase, ...] = (
+            "prepared",
+            "archived",
+            "swapped",
+            "metadata_committed",
+            "source_projected",
+            "lifecycle_committed",
+        )
+        if order.index(phase) != order.index(expected_phase) + 1:
+            raise SkillLifecycleValidationError(
+                "Skill lifecycle transaction phase transition is invalid.",
+                code="skill_lifecycle_transaction_invalid",
+            )
+        clean_skill_id = _validate_id(skill_id, "skill ID")
+        with self._lock:
+            self._ensure_available(mutation=True)
+            current = self._read_transaction_unlocked(clean_skill_id)
+            if current.transaction_id != transaction_id:
+                raise SkillLifecycleConflictError(
+                    "Skill lifecycle transaction changed.",
+                    code="skill_lifecycle_version_conflict",
+                )
+            if current.phase == phase:
+                return current
+            if current.phase != expected_phase:
+                raise SkillLifecycleConflictError(
+                    "Skill lifecycle transaction phase changed.",
+                    code="skill_lifecycle_transaction_incomplete",
+                    details={"phase": current.phase},
+                )
+            updated = SkillLifecycleTransaction(
+                **{**asdict(current), "phase": phase, "updated_at": time.time()}
+            )
+            self._write_transaction_unlocked(updated)
+            return updated
+
+    def require_transaction(self, skill_id: str) -> SkillLifecycleTransaction:
+        clean = _validate_id(skill_id, "skill ID")
+        with self._lock:
+            self._ensure_available()
+            return self._read_transaction_unlocked(clean)
+
+    def finish_transaction(self, skill_id: str, *, transaction_id: str) -> None:
+        clean = _validate_id(skill_id, "skill ID")
+        with self._lock:
+            self._ensure_available(mutation=True)
+            receipt = self._read_transaction_unlocked(clean)
+            if receipt.transaction_id != transaction_id or receipt.phase != "lifecycle_committed":
+                raise SkillLifecycleConflictError(
+                    "Skill lifecycle transaction is not fully committed.",
+                    code="skill_lifecycle_transaction_incomplete",
+                )
+            self._transaction_path(clean).unlink(missing_ok=True)
+
+    def abort_transaction(self, skill_id: str, *, transaction_id: str) -> None:
+        """Discard a transaction that did not commit installed metadata."""
+
+        clean = _validate_id(skill_id, "skill ID")
+        with self._lock:
+            self._ensure_available(mutation=True)
+            receipt = self._read_transaction_unlocked(clean)
+            if receipt.transaction_id != transaction_id or receipt.phase not in {
+                "prepared", "archived", "swapped"
+            }:
+                raise SkillLifecycleConflictError(
+                    "Committed Skill lifecycle transactions cannot be aborted.",
+                    code="skill_lifecycle_transaction_incomplete",
+                )
+            self._transaction_path(clean).unlink(missing_ok=True)
+
+    def _transaction_path(self, skill_id: str) -> Path:
+        return self.transactions_root / f"{_validate_id(skill_id, 'skill ID')}.json"
+
+    def _write_transaction_unlocked(self, receipt: SkillLifecycleTransaction) -> None:
+        self._ensure_storage_paths_unlocked()
+        self.transactions_root.mkdir(parents=True, exist_ok=True)
+        path = self._transaction_path(receipt.skill_id)
+        temporary = self.transactions_root / f".{path.name}.{uuid.uuid4().hex}.tmp"
+        encoded = json.dumps(asdict(receipt), ensure_ascii=False, sort_keys=True).encode("utf-8")
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        except OSError as exc:
+            raise SkillLifecycleStorageError(
+                "Skill lifecycle transaction could not be persisted.",
+                code="skill_lifecycle_storage_unavailable",
+            ) from exc
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _read_transaction_unlocked(
+        self, skill_id: str, *, missing_ok: bool = False
+    ) -> SkillLifecycleTransaction | None:
+        path = self._transaction_path(skill_id)
+        if not path.exists():
+            if missing_ok:
+                return None
+            raise SkillLifecycleValidationError(
+                "Skill lifecycle transaction was not found.",
+                code="skill_lifecycle_not_found",
+            )
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            receipt = SkillLifecycleTransaction(**raw)
+            if (
+                receipt.skill_id != skill_id
+                or receipt.operation not in {"install", "replace", "rollback", "uninstall"}
+                or receipt.phase not in {
+                    "prepared", "archived", "swapped", "metadata_committed",
+                    "source_projected", "lifecycle_committed",
+                }
+                or not receipt.transaction_id.startswith("skilltxn_")
+                or receipt.expected_state_revision < 1
+            ):
+                raise ValueError("invalid transaction")
+            return receipt
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise SkillLifecycleStorageError(
+                "Skill lifecycle transaction is corrupt.",
+                code="skill_lifecycle_storage_unavailable",
+            ) from exc
+
     def record_migrated_current(
         self,
         *,
         installed: InstalledSkill,
         files: Mapping[str, bytes],
         quality_evidence_status: str = "not_applicable",
+        quality_required: bool = False,
         quality_status: str | None = None,
         quality_decision_id: str | None = None,
         quality_run_id: str | None = None,
+        trust_receipt_snapshot: Mapping[str, Any] | None = None,
     ) -> SkillLifecycleState:
         if installed.source_kind not in {"git", "local_import", "workspace_draft"}:
             raise SkillLifecycleValidationError(
@@ -360,18 +900,25 @@ class SkillLifecycleStore:
                 code="skill_lifecycle_package_mismatch",
             )
         skill_id = _validate_id(installed.skill_id, "skill ID")
-        identity = {
-            "skillId": skill_id,
-            "sourceKind": installed.source_kind,
-            "sourceId": installed.source_id,
-            "sourceRevision": installed.source_revision,
-            "sourceRef": installed.source_ref,
-            "packageDigest": digest,
-        }
+        identity = _version_identity(
+            installed,
+            digest,
+            quality_required=quality_required,
+            quality_decision_id=quality_decision_id,
+        )
         version_id = "skillver_" + hashlib.sha256(_canonical_json(identity)).hexdigest()[:32]
         with self._lock:
             self._ensure_available(mutation=True)
             existing_version = self._versions.get(version_id)
+            if existing_version is None:
+                existing_version = self._matching_version_unlocked(
+                    installed,
+                    digest,
+                    quality_required=quality_required,
+                    quality_decision_id=quality_decision_id,
+                )
+                if existing_version is not None:
+                    version_id = existing_version.version_id
             existing_state = self._states.get(skill_id)
             if existing_version is not None:
                 if (
@@ -382,6 +929,11 @@ class SkillLifecycleStore:
                         "Skill lifecycle version identity is inconsistent.",
                         code="skill_lifecycle_version_conflict",
                     )
+                existing_version = self._enrich_trust_snapshot_unlocked(
+                    existing_version,
+                    installed=installed,
+                    receipt=trust_receipt_snapshot,
+                )
                 if (
                     existing_state is not None
                     and existing_state.current_version_id == version_id
@@ -403,6 +955,9 @@ class SkillLifecycleStore:
                     )
                 current_versions.append(version_id)
             now = time.time()
+            frozen_receipt = self._normalize_trust_snapshot(
+                installed, trust_receipt_snapshot, digest
+            )
             version = existing_version or SkillVersionSnapshot(
                 version_id=version_id,
                 skill_id=skill_id,
@@ -426,11 +981,14 @@ class SkillLifecycleStore:
                 source_ref=installed.source_ref,
                 trust_receipt_id=installed.trust_receipt_id,
                 trust_fingerprint=installed.trust_fingerprint,
+                trust_directory_tree_sha=installed.trust_directory_tree_sha,
+                trust_receipt_snapshot=frozen_receipt,
                 trust_risk_level=installed.trust_risk_level,
                 trust_status=installed.trust_status,
                 trust_install_policy=installed.trust_install_policy,
                 trust_compatibility_status=installed.trust_compatibility_status,
                 trust_router_eligible=installed.trust_router_eligible,
+                quality_required=bool(quality_required),
                 quality_evidence_status=str(quality_evidence_status or "not_applicable"),
                 quality_status=quality_status,
                 quality_decision_id=quality_decision_id,
@@ -536,7 +1094,90 @@ class SkillLifecycleStore:
 
     @staticmethod
     def serialize_version(item: SkillVersionSnapshot) -> dict[str, Any]:
-        return asdict(item)
+        payload = asdict(item)
+        payload.pop("trust_receipt_snapshot", None)
+        payload["trust_evidence_frozen"] = item.trust_receipt_snapshot is not None
+        return payload
+
+    @staticmethod
+    def _normalize_trust_snapshot(
+        installed: InstalledSkill,
+        receipt: Mapping[str, Any] | None,
+        package_digest: str,
+    ) -> dict[str, Any] | None:
+        if receipt is None:
+            return None
+        if not isinstance(receipt, Mapping):
+            raise SkillLifecycleValidationError(
+                "Skill lifecycle trust receipt snapshot is invalid.",
+                code="skill_lifecycle_source_unverified",
+            )
+        clean = json.loads(json.dumps(dict(receipt), ensure_ascii=False))
+        fingerprint = str(clean.get("trustFingerprint") or "")
+        payload = {key: value for key, value in clean.items() if key != "trustFingerprint"}
+        if (
+            not _DIGEST_RE.fullmatch(fingerprint)
+            or hashlib.sha256(_canonical_json(payload)).hexdigest() != fingerprint
+            or clean.get("receiptId") != installed.trust_receipt_id
+            or fingerprint != installed.trust_fingerprint
+            or clean.get("packageDigest") != package_digest
+        ):
+            raise SkillLifecycleValidationError(
+                "Skill lifecycle trust receipt snapshot is invalid.",
+                code="skill_lifecycle_source_unverified",
+            )
+        return clean
+
+    def _enrich_trust_snapshot_unlocked(
+        self,
+        version: SkillVersionSnapshot,
+        *,
+        installed: InstalledSkill,
+        receipt: Mapping[str, Any] | None,
+    ) -> SkillVersionSnapshot:
+        if version.trust_receipt_snapshot is not None or receipt is None:
+            return version
+        frozen = self._normalize_trust_snapshot(
+            installed, receipt, version.package_digest
+        )
+        updated = replace(
+            version,
+            trust_directory_tree_sha=(
+                installed.trust_directory_tree_sha
+                or version.trust_directory_tree_sha
+            ),
+            trust_receipt_snapshot=frozen,
+        )
+        versions = dict(self._versions)
+        versions[version.version_id] = updated
+        self._save_unlocked(self._states, versions, self._quarantine)
+        self._versions = versions
+        return updated
+
+    def _matching_version_unlocked(
+        self,
+        installed: InstalledSkill,
+        package_digest: str,
+        *,
+        quality_required: bool,
+        quality_decision_id: str | None,
+    ) -> SkillVersionSnapshot | None:
+        """Reuse legacy PR1 IDs only when their frozen evidence is identical."""
+
+        for version in self._versions.values():
+            if (
+                version.skill_id == installed.skill_id
+                and version.package_digest == package_digest
+                and version.source_kind == installed.source_kind
+                and version.source_id == installed.source_id
+                and version.source_revision == installed.source_revision
+                and version.source_ref == installed.source_ref
+                and version.trust_fingerprint == installed.trust_fingerprint
+                and version.quality_required == bool(quality_required)
+                and version.quality_decision_id == quality_decision_id
+            ):
+                return version
+        return None
 
     @staticmethod
     def _append_event(
@@ -799,8 +1440,40 @@ class SkillLifecycleStore:
             value = payload.get(key)
             if value is not None and not _DIGEST_RE.fullmatch(str(value)):
                 raise ValueError(f"invalid {key}")
+        tree_sha = payload.get("trust_directory_tree_sha")
+        if tree_sha is not None and not _COMMIT_RE.fullmatch(str(tree_sha)):
+            raise ValueError("invalid trust directory tree SHA")
+        snapshot = payload.get("trust_receipt_snapshot")
+        if snapshot is not None:
+            if not isinstance(snapshot, Mapping):
+                raise ValueError("invalid trust receipt snapshot")
+            snapshot = json.loads(json.dumps(dict(snapshot), ensure_ascii=False))
+            if len(_canonical_json(snapshot)) > 2_000_000:
+                raise ValueError("trust receipt snapshot is too large")
+            if (
+                snapshot.get("receiptId") != payload.get("trust_receipt_id")
+                or snapshot.get("trustFingerprint") != payload.get("trust_fingerprint")
+                or snapshot.get("packageDigest") != payload.get("package_digest")
+                or hashlib.sha256(
+                    _canonical_json(
+                        {
+                            key: value
+                            for key, value in snapshot.items()
+                            if key != "trustFingerprint"
+                        }
+                    )
+                ).hexdigest()
+                != snapshot.get("trustFingerprint")
+            ):
+                raise ValueError("trust receipt snapshot identity mismatch")
+            payload["trust_receipt_snapshot"] = snapshot
+        payload.setdefault("trust_directory_tree_sha", None)
+        payload.setdefault("trust_receipt_snapshot", None)
         if not isinstance(payload.get("trust_router_eligible"), bool):
             raise ValueError("invalid Router eligibility")
+        payload.setdefault("quality_required", False)
+        if not isinstance(payload.get("quality_required"), bool):
+            raise ValueError("invalid quality requirement")
         if payload.get("quality_evidence_status") not in {
             "not_applicable",
             "matched",
@@ -814,7 +1487,7 @@ class SkillLifecycleStore:
             or created_at <= 0
         ):
             raise ValueError("invalid version timestamp")
-        identity = {
+        legacy_identity = {
             "skillId": payload["skill_id"],
             "sourceKind": source_kind,
             "sourceId": payload.get("source_id"),
@@ -822,10 +1495,19 @@ class SkillLifecycleStore:
             "sourceRef": source_ref,
             "packageDigest": payload["package_digest"],
         }
-        expected_version_id = (
-            "skillver_" + hashlib.sha256(_canonical_json(identity)).hexdigest()[:32]
-        )
-        if payload["version_id"] != expected_version_id:
+        evidence_identity = dict(legacy_identity)
+        if source_kind in {"git", "local_import"}:
+            evidence_identity["trustFingerprint"] = payload.get("trust_fingerprint")
+        if payload.get("quality_required"):
+            evidence_identity["qualityDecisionId"] = payload.get(
+                "quality_decision_id"
+            )
+        accepted_version_ids = {
+            "skillver_"
+            + hashlib.sha256(_canonical_json(identity)).hexdigest()[:32]
+            for identity in (legacy_identity, evidence_identity)
+        }
+        if payload["version_id"] not in accepted_version_ids:
             raise ValueError("version identity mismatch")
         return SkillVersionSnapshot(**payload)
 
@@ -956,7 +1638,11 @@ class SkillLifecycleStore:
 
     def _recover_temp_unlocked(self) -> None:
         try:
-            if self.tmp_root.is_symlink() or self.packages_root.is_symlink():
+            if (
+                self.tmp_root.is_symlink()
+                or self.packages_root.is_symlink()
+                or self.transactions_root.is_symlink()
+            ):
                 raise OSError("linked lifecycle storage")
             if self.tmp_root.exists():
                 for child in self.tmp_root.iterdir():
@@ -972,11 +1658,20 @@ class SkillLifecycleStore:
                         or not _DIGEST_RE.fullmatch(child.name)
                     ):
                         raise OSError("unsafe lifecycle package entry")
+            if self.transactions_root.exists():
+                for child in self.transactions_root.iterdir():
+                    if child.is_symlink() or not child.is_file() or child.suffix != ".json":
+                        raise OSError("unsafe lifecycle transaction entry")
         except OSError:
             self._load_error = "skill_lifecycle_storage_unavailable"
 
     def _ensure_storage_paths_unlocked(self) -> None:
-        for path in (self.root, self.packages_root, self.tmp_root):
+        for path in (
+            self.root,
+            self.packages_root,
+            self.tmp_root,
+            self.transactions_root,
+        ):
             if path.exists() and (path.is_symlink() or not path.is_dir()):
                 raise SkillLifecycleStorageError(
                     "Skill lifecycle storage contains an unsafe path.",
@@ -1248,7 +1943,10 @@ class SkillLifecycleMigrationService:
                     "Installed Git Skill does not match its published trust receipt.",
                     code="skill_lifecycle_source_unverified",
                 )
-            return {"quality_evidence_status": "not_applicable"}
+            return {
+                "quality_evidence_status": "not_applicable",
+                "trust_receipt_snapshot": receipt,
+            }
         if installed.source_kind == "local_import":
             if self.local_import_store is None or not installed.source_id:
                 raise SkillLifecycleValidationError(
@@ -1273,7 +1971,22 @@ class SkillLifecycleMigrationService:
                     "Installed local Skill does not match its immutable import.",
                     code="skill_lifecycle_source_unverified",
                 )
-            return {"quality_evidence_status": "not_applicable"}
+            try:
+                receipt = self.manager.trust_service.validate_local_receipt(
+                    source.trust_receipt,
+                    import_id=source.import_id,
+                    import_revision=source.content_revision,
+                    package_digest=actual_digest,
+                )
+            except SkillTrustError as exc:
+                raise SkillLifecycleValidationError(
+                    "Local import trust receipt is unavailable.",
+                    code="skill_lifecycle_source_unverified",
+                ) from exc
+            return {
+                "quality_evidence_status": "not_applicable",
+                "trust_receipt_snapshot": receipt,
+            }
         if self.draft_store is None or not installed.source_id or not installed.source_revision:
             raise SkillLifecycleValidationError(
                 "Workspace draft source is unavailable.",
@@ -1306,6 +2019,11 @@ class SkillLifecycleMigrationService:
                 code="skill_lifecycle_source_unverified",
             )
         decision = draft.quality_decision
+        if not draft.quality_required:
+            return {
+                "quality_required": False,
+                "quality_evidence_status": "not_applicable",
+            }
         if (
             decision is not None
             and decision.content_revision == installed.source_revision
@@ -1313,12 +2031,14 @@ class SkillLifecycleMigrationService:
             and decision.status in {"accepted", "eval_waived"}
         ):
             return {
+                "quality_required": True,
                 "quality_evidence_status": "matched",
                 "quality_status": decision.status,
                 "quality_decision_id": decision.decision_id,
                 "quality_run_id": decision.run_id,
             }
         return {
+            "quality_required": True,
             "quality_evidence_status": "legacy_unavailable",
             "quality_status": None,
             "quality_decision_id": None,

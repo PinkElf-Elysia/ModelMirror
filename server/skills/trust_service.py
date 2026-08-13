@@ -511,6 +511,95 @@ class SkillTrustService:
             )
         return json.loads(json.dumps(receipt, ensure_ascii=False))
 
+    @staticmethod
+    def validate_frozen_git_receipt(
+        receipt: Mapping[str, Any] | None,
+        *,
+        receipt_id: str,
+        trust_fingerprint: str,
+        package_digest: str,
+        directory_tree_sha: str | None,
+    ) -> dict[str, Any]:
+        """Validate a detached catalog receipt frozen with lifecycle history."""
+
+        if not isinstance(receipt, Mapping):
+            raise SkillTrustError(
+                "Historical Skill trust receipt is unavailable.",
+                code="skill_trust_receipt_missing",
+            )
+        clean = json.loads(json.dumps(dict(receipt), ensure_ascii=False))
+        payload = {
+            "version": SKILL_TRUST_INDEX_VERSION,
+            "catalogFingerprint": "0" * 64,
+            "receipts": [clean],
+            "candidateReceipts": {},
+        }
+        payload["fingerprint"] = sha256_json(payload)
+        try:
+            by_id, _by_source = SkillTrustService._validate_index(payload)
+            validated = by_id[receipt_id]
+            if (
+                validated.get("trustFingerprint") != trust_fingerprint
+                or validated.get("packageDigest") != package_digest
+                or validated.get("directoryTreeSha") != directory_tree_sha
+            ):
+                raise ValueError("frozen receipt identity mismatch")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise SkillTrustError(
+                "Historical Skill trust receipt is invalid.",
+                code="skill_trust_receipt_missing",
+            ) from exc
+        return json.loads(json.dumps(validated, ensure_ascii=False))
+
+    def frozen_receipt_activation_decision(
+        self,
+        installed_skill: Any,
+        receipt: Mapping[str, Any] | None,
+        *,
+        environment: SkillRuntimeEnvironment | None,
+        ephemeral_authorizations: Mapping[str, str] | None = None,
+        check_runtime: bool = True,
+    ) -> SkillTrustDecision:
+        """Apply the normal trust/runtime gate to an immutable receipt snapshot."""
+
+        source_kind = str(getattr(installed_skill, "source_kind", "git"))
+        if source_kind == "local_import":
+            clean = self.validate_local_receipt(
+                receipt,
+                import_id=str(getattr(installed_skill, "source_id", "") or ""),
+                import_revision=getattr(installed_skill, "source_revision", None),
+                package_digest=str(
+                    getattr(installed_skill, "content_digest", "") or ""
+                ),
+            )
+        elif source_kind == "git":
+            clean = self.validate_frozen_git_receipt(
+                receipt,
+                receipt_id=str(getattr(installed_skill, "trust_receipt_id", "") or ""),
+                trust_fingerprint=str(
+                    getattr(installed_skill, "trust_fingerprint", "") or ""
+                ),
+                package_digest=str(
+                    getattr(installed_skill, "content_digest", "") or ""
+                ),
+                directory_tree_sha=getattr(
+                    installed_skill, "trust_directory_tree_sha", None
+                ),
+            )
+        else:
+            return self._off_decision(trust_status="not_applicable")
+        skill_id = str(getattr(installed_skill, "skill_id", "") or "")
+        ephemeral = dict(ephemeral_authorizations or {}).get(skill_id)
+        decision = self._evaluate_receipt(
+            clean,
+            skill_id=skill_id,
+            ephemeral_trust_fingerprint=ephemeral,
+            allow_pending_confirmation=False,
+            environment=environment if check_runtime else None,
+        )
+        self._raise_if_denied(decision)
+        return decision
+
     def summary_index(self) -> dict[str, Any]:
         """Return the deterministic compact index used by the Skill shelf."""
 

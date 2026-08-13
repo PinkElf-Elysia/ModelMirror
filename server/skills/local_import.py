@@ -1221,6 +1221,67 @@ class SkillLocalImportStore:
                 self._records = records
             return changed
 
+    def mark_lifecycle_version_installed(
+        self,
+        import_id: str,
+        *,
+        content_revision: int,
+        package_digest: str,
+        skill_id: str,
+    ) -> LocalSkillImport:
+        """Project one immutable imported package selected by lifecycle rollback."""
+
+        clean_skill_id = _validate_local_skill_id(skill_id)
+        if clean_skill_id is None:
+            raise SkillLocalImportConflictError(
+                "Installed local Skill ID is invalid.", code="skill_import_stale"
+            )
+        clean_digest = str(package_digest or "").strip().casefold()
+        with self._lock:
+            self._ensure_available(mutation=True)
+            current = self._records.get(str(import_id))
+            if (
+                current is None
+                or current.content_revision != content_revision
+                or current.package_digest != clean_digest
+            ):
+                raise SkillLocalImportConflictError(
+                    "Historical local import receipt is unavailable.",
+                    code="skill_import_stale",
+                )
+            has_other_install = any(
+                other_id != current.import_id
+                and other.installed_skill_id == clean_skill_id
+                for other_id, other in self._records.items()
+            )
+            if (
+                current.state == "installed"
+                and current.installed_skill_id == clean_skill_id
+                and not has_other_install
+            ):
+                return copy.deepcopy(current)
+            records = dict(self._records)
+            now = time.time()
+            for other_id, other in list(records.items()):
+                if other_id == current.import_id or other.installed_skill_id != clean_skill_id:
+                    continue
+                superseded = copy.deepcopy(other)
+                superseded.revision += 1
+                superseded.state = "superseded"
+                superseded.installed_skill_id = None
+                superseded.updated_at = now
+                records[other_id] = superseded
+            updated = copy.deepcopy(current)
+            updated.revision += 1
+            updated.state = "installed"
+            updated.installed_skill_id = clean_skill_id
+            updated.error_code = None
+            updated.updated_at = now
+            records[updated.import_id] = updated
+            self._save_records_unlocked(records)
+            self._records = records
+            return copy.deepcopy(updated)
+
     def preview_file(self, import_id: str, path: str) -> str:
         clean_path = _normalize_path(path)
         if PurePosixPath(clean_path).suffix.casefold() in _ACTIVE_PREVIEW_SUFFIXES:

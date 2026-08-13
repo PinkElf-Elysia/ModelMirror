@@ -313,6 +313,47 @@ class WorkflowExecutionStore:
             self._persist_unlocked()
             return item
 
+    def bind_skill_versions(
+        self,
+        task_id: str,
+        *,
+        bindings: dict[str, str],
+    ) -> WorkflowExecution:
+        """Persist immutable Skill version bindings for restart-safe execution."""
+
+        clean = {
+            str(skill_id).strip(): str(version_id).strip()
+            for skill_id, version_id in dict(bindings or {}).items()
+            if str(skill_id).strip() and str(version_id).strip()
+        }
+        if len(clean) > 200 or any(
+            len(skill_id) > 200 or len(version_id) > 80
+            for skill_id, version_id in clean.items()
+        ):
+            raise WorkflowExecutionConflictError(
+                "Skill version bindings are invalid."
+            )
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            current = item.runtime_metadata.get("skill_version_bindings")
+            current = dict(current) if isinstance(current, dict) else {}
+            for skill_id, version_id in clean.items():
+                existing = str(current.get(skill_id) or "").strip()
+                if existing and existing != version_id:
+                    raise WorkflowExecutionConflictError(
+                        "A running workflow cannot change its bound Skill version."
+                    )
+                current[skill_id] = version_id
+            if item.runtime_metadata.get("skill_version_bindings") == current:
+                return item
+            item.runtime_metadata["skill_version_bindings"] = dict(
+                sorted(current.items())
+            )
+            item.updated_at = time.time()
+            item.revision += 1
+            self._persist_unlocked()
+            return item
+
     def complete(self, task_id: str, *, result: str) -> WorkflowExecution:
         return self._finish(task_id, status="completed", result=result)
 

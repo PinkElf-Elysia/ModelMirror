@@ -357,6 +357,9 @@ async def install_local_import(
             confirmed=payload.confirmed,
             expected_installed_digest=payload.expected_installed_digest,
         )
+        await asyncio.to_thread(
+            manager.finalize_lifecycle_transaction, installed.skill_id
+        )
         if str((updated.trust_receipt or {}).get("installPolicy") or "") == "confirm":
             installed = await asyncio.to_thread(
                 manager.acknowledge_trust,

@@ -17,6 +17,7 @@ from server.skills.lifecycle import (
 from server.skills.local_import import SkillLocalImportStore
 from server.skills.package_validation import compute_package_digest
 from server.skills.skill_manager import InstalledSkill, SkillInstallError, SkillManager
+from server.skills.trust_scanner import sha256_json
 
 
 SKILL_MARKDOWN = b"""---
@@ -98,9 +99,8 @@ def _materialize_installed(
 def _publish_test_git_receipt(
     manager: SkillManager, installed: InstalledSkill
 ) -> None:
-    receipt = {
+    receipt_payload = {
         "receiptId": installed.trust_receipt_id,
-        "trustFingerprint": installed.trust_fingerprint,
         "packageDigest": installed.trust_package_digest,
         "directoryTreeSha": installed.trust_directory_tree_sha,
         "source": {
@@ -109,6 +109,13 @@ def _publish_test_git_receipt(
             "verifiedCommit": installed.source_ref,
         },
     }
+    receipt = {
+        **receipt_payload,
+        "trustFingerprint": sha256_json(receipt_payload),
+    }
+    metadata = manager._read_metadata()
+    metadata[installed.skill_id]["trust_fingerprint"] = receipt["trustFingerprint"]
+    manager._write_metadata(metadata)
     manager.trust_service.receipt_by_id = lambda _receipt_id: receipt  # type: ignore[method-assign]
 
 
@@ -137,6 +144,78 @@ def test_store_archives_exact_bytes_deduplicates_and_is_idempotent(tmp_path: Pat
     reloaded = SkillLifecycleStore(tmp_path / "lifecycle", enabled=True)
     assert reloaded.require_state(installed.skill_id) == first
     assert reloaded.require_version(version.version_id) == version
+
+
+def test_trust_receipt_change_creates_a_new_version_without_copying_bytes(
+    tmp_path: Path,
+) -> None:
+    files = _package()
+    installed = _installed(digest=_digest(files))
+    store = SkillLifecycleStore(tmp_path / "lifecycle", enabled=True)
+    first = store.record_migrated_current(installed=installed, files=files)
+    updated_receipt = InstalledSkill(
+        **{
+            **asdict(installed),
+            "trust_receipt_id": "receipt-2",
+            "trust_fingerprint": "d" * 64,
+        }
+    )
+
+    second = store.record_migrated_current(installed=updated_receipt, files=files)
+
+    assert first.current_version_id != second.current_version_id
+    assert len(second.version_ids) == 2
+    assert store.status()["counts"]["packages"] == 1
+    assert (
+        store.require_version(second.current_version_id or "").trust_fingerprint
+        == "d" * 64
+    )
+    reloaded = SkillLifecycleStore(tmp_path / "lifecycle", enabled=True)
+    assert reloaded.require_state(installed.skill_id) == second
+
+
+def test_store_still_loads_pr1_version_ids_without_evidence_fingerprint(
+    tmp_path: Path,
+) -> None:
+    files = _package()
+    installed = _installed(digest=_digest(files))
+    root = tmp_path / "lifecycle"
+    store = SkillLifecycleStore(root, enabled=True)
+    state = store.record_migrated_current(installed=installed, files=files)
+    payload = json.loads(store.index_path.read_text(encoding="utf-8"))
+    legacy_identity = {
+        "skillId": installed.skill_id,
+        "sourceKind": installed.source_kind,
+        "sourceId": installed.source_id,
+        "sourceRevision": installed.source_revision,
+        "sourceRef": installed.source_ref,
+        "packageDigest": installed.content_digest,
+    }
+    legacy_version_id = "skillver_" + sha256_json(legacy_identity)[:32]
+    current_version_id = state.current_version_id or ""
+    payload["versions"][0]["version_id"] = legacy_version_id
+    for raw_state in payload["states"]:
+        raw_state["version_ids"] = [
+            legacy_version_id if item == current_version_id else item
+            for item in raw_state["version_ids"]
+        ]
+        if raw_state.get("current_version_id") == current_version_id:
+            raw_state["current_version_id"] = legacy_version_id
+        for event in raw_state.get("events", []):
+            if event.get("version_id") == current_version_id:
+                event["version_id"] = legacy_version_id
+    store.index_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    reloaded = SkillLifecycleStore(root, enabled=True)
+
+    assert reloaded.require_state(installed.skill_id).current_version_id == legacy_version_id
+    assert reloaded.require_version(legacy_version_id).package_digest == installed.content_digest
+    assert reloaded.status()["counts"]["quarantinedRecords"] == 0
+    replay = reloaded.record_migrated_current(installed=installed, files=files)
+    assert replay.current_version_id == legacy_version_id
+    assert len(replay.version_ids) == 1
 
 
 def test_store_preserves_raw_line_endings_and_detects_package_tampering(tmp_path: Path) -> None:
@@ -473,7 +552,8 @@ def test_migration_verifies_local_import_and_workspace_revision(tmp_path: Path) 
     version = workspace_lifecycle.require_version(
         workspace_lifecycle.require_state("lifecycle-sample").current_version_id or ""
     )
-    assert version.quality_evidence_status == "legacy_unavailable"
+    assert version.quality_required is False
+    assert version.quality_evidence_status == "not_applicable"
 
 
 def test_migration_explicitly_ignores_plugin_source(tmp_path: Path) -> None:
