@@ -470,18 +470,54 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     void refreshTaskPanels(selectedTaskId).catch((caught) => {
       if (active) setError(errorMessage(caught, "任务详情加载失败"));
     });
-    const disconnect = connectCodingWorkerEvents(selectedTaskId, cursor, {
+    if (selectedTask && terminalTaskStates.has(selectedTask.state)) {
+      return () => {
+        active = false;
+        if (refreshTimerRef.current !== null) {
+          window.clearTimeout(refreshTimerRef.current);
+          refreshTimerRef.current = null;
+        }
+      };
+    }
+    let disconnect: () => void = () => undefined;
+    disconnect = connectCodingWorkerEvents(selectedTaskId, cursor, {
       onEvent: (event) => {
         if (!active || event.sequence <= cursor) return;
         cursor = event.sequence;
         setEvents((current) => [...current, event].slice(-400));
         setTransportWarning(false);
+        const nextState = event.type === "task_state" && typeof event.payload.to === "string"
+          ? event.payload.to as CodingWorkerTask["state"]
+          : null;
+        if (nextState && terminalTaskStates.has(nextState)) {
+          disconnect();
+          void refreshTaskPanels(selectedTaskId).catch(() => {
+            if (active) setTransportWarning(true);
+          });
+          return;
+        }
         if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = window.setTimeout(() => {
           void refreshTaskPanels(selectedTaskId).catch(() => setTransportWarning(true));
         }, 350);
       },
-      onTransportError: () => { if (active) setTransportWarning(true); },
+      onTransportError: () => {
+        if (!active) return;
+        void getCodingWorkerTask(selectedTaskId)
+          .then((task) => {
+            if (!active) return;
+            setTasks((current) => current.map((item) => item.task_id === task.task_id ? task : item));
+            if (terminalTaskStates.has(task.state)) {
+              disconnect();
+              setTransportWarning(false);
+              return;
+            }
+            setTransportWarning(true);
+          })
+          .catch(() => {
+            if (active) setTransportWarning(true);
+          });
+      },
     });
     return () => {
       active = false;
