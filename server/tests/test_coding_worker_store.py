@@ -10,9 +10,11 @@ from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
     Origin,
+    SessionLedgerKind,
     TaskSpec,
     TaskState,
     WorkspaceSource,
+    WorkerSessionLedgerEntry,
 )
 from server.coding_worker.crypto import WorkerCryptoError
 from server.coding_worker.store import CodingWorkerStore, WorkerConflictError
@@ -150,3 +152,144 @@ def test_ciphertext_tampering_is_rejected(tmp_path: Path) -> None:
         )
     with pytest.raises(Exception, match="corrupt"):
         store.get_task(task.task_id)
+
+
+def test_session_ledger_is_encrypted_and_restart_closes_unknown_boundaries(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "worker"
+    key = Fernet.generate_key()
+    store = CodingWorkerStore(root, master_key=key)
+    task = store.create_task(_spec(client_task_id="ledger-restart"))
+    store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TURN_STARTED,
+        turn_id="turn-01",
+        payload={},
+    )
+    store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TOOL_STARTED,
+        turn_id="turn-01",
+        operation_id="operation-01",
+        payload={"tool_name": "run_check", "summary": "private tool summary"},
+    )
+
+    assert b"private tool summary" not in store.database_path.read_bytes()
+    restarted = CodingWorkerStore(root, master_key=key)
+    ledger = restarted.list_session_ledger(task.task_id)
+    assert [entry.kind for entry in ledger] == [
+        SessionLedgerKind.TURN_STARTED,
+        SessionLedgerKind.TOOL_STARTED,
+        SessionLedgerKind.TOOL_FINISHED,
+        SessionLedgerKind.TURN_FINISHED,
+    ]
+    assert ledger[-2].operation_id == "operation-01"
+    assert ledger[-2].payload["result_state"] == "unknown"
+    assert ledger[-1].payload["result_state"] == "interrupted"
+
+
+def test_session_ledger_rejects_hidden_provider_fields_and_unpaired_completion(
+    tmp_path: Path,
+) -> None:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    task = store.create_task(_spec(client_task_id="ledger-reject"))
+    store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TURN_STARTED,
+        turn_id="turn-01",
+        payload={},
+    )
+    with pytest.raises(ValueError, match="canonical"):
+        WorkerSessionLedgerEntry(
+            ledger_id="ledger-01",
+            task_id=task.task_id,
+            sequence=1,
+            kind=SessionLedgerKind.COMPACTION,
+            turn_id="turn-01",
+            payload={
+                "summary": "public summary",
+                "boundary_sequence": 1,
+                "raw_frame": {"hidden_reasoning": "do not store"},
+            },
+            created_at=1,
+        )
+    with pytest.raises(WorkerConflictError) as raised:
+        store.append_session_ledger(
+            task.task_id,
+            kind=SessionLedgerKind.TOOL_FINISHED,
+            turn_id="turn-01",
+            operation_id="missing-operation",
+            payload={
+                "tool_name": "run_check",
+                "summary": "unbound result",
+                "result_state": "succeeded",
+                "artifact_id": None,
+            },
+        )
+    assert raised.value.code == "session_tool_boundary_conflict"
+
+
+def test_session_ledger_tool_boundaries_are_exactly_idempotent(tmp_path: Path) -> None:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    task = store.create_task(_spec(client_task_id="ledger-idempotent"))
+    store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TURN_STARTED,
+        turn_id="turn-01",
+        payload={},
+    )
+    start = store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TOOL_STARTED,
+        turn_id="turn-01",
+        operation_id="operation-01",
+        payload={"tool_name": "run_check", "summary": "run check"},
+    )
+    replayed_start = store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TOOL_STARTED,
+        turn_id="turn-01",
+        operation_id="operation-01",
+        payload={"tool_name": "run_check", "summary": "run check"},
+    )
+    assert replayed_start == start
+    finish = store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TOOL_FINISHED,
+        turn_id="turn-01",
+        operation_id="operation-01",
+        payload={
+            "tool_name": "run_check",
+            "summary": "check complete",
+            "result_state": "succeeded",
+            "artifact_id": None,
+        },
+    )
+    replayed_finish = store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TOOL_FINISHED,
+        turn_id="turn-01",
+        operation_id="operation-01",
+        payload={
+            "tool_name": "run_check",
+            "summary": "check complete",
+            "result_state": "succeeded",
+            "artifact_id": None,
+        },
+    )
+    assert replayed_finish == finish
+    with pytest.raises(WorkerConflictError):
+        store.append_session_ledger(
+            task.task_id,
+            kind=SessionLedgerKind.TOOL_FINISHED,
+            turn_id="turn-01",
+            operation_id="operation-01",
+            payload={
+                "tool_name": "run_check",
+                "summary": "different result",
+                "result_state": "failed",
+                "artifact_id": None,
+            },
+        )
+    assert len(store.list_session_ledger(task.task_id)) == 3

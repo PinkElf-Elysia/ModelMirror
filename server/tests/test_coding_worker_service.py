@@ -15,6 +15,7 @@ from server.coding_worker.contracts import (
     AcceptanceContract,
     Origin,
     PolicyProfile,
+    SessionLedgerKind,
     TaskBudget,
     TaskCreateRequest,
     TaskSpec,
@@ -150,6 +151,54 @@ class _SteeringProvider(FakeCodingAgentProvider):
         yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
 
 
+class _LedgerProvider(FakeCodingAgentProvider):
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        yield ProviderEvent(
+            kind=ProviderEventKind.PLAN,
+            data={
+                "explanation": "public plan",
+                "items": [{"step": "run the frozen check", "status": "in_progress"}],
+            },
+        )
+        yield ProviderEvent(
+            kind=ProviderEventKind.TODO,
+            data={
+                "items": [
+                    {
+                        "todo_id": "todo-01",
+                        "content": "inspect evidence",
+                        "status": "pending",
+                    }
+                ]
+            },
+        )
+        yield ProviderEvent(
+            kind=ProviderEventKind.TOOL_STARTED,
+            data={
+                "operation_id": "operation-01",
+                "tool_name": "run_check",
+                "summary": "run a frozen check",
+            },
+        )
+        yield ProviderEvent(
+            kind=ProviderEventKind.TOOL_COMPLETED,
+            data={
+                "operation_id": "operation-01",
+                "tool_name": "run_check",
+                "summary": "frozen check completed",
+                "success": True,
+                "artifact_id": None,
+            },
+        )
+        yield ProviderEvent(
+            kind=ProviderEventKind.MESSAGE,
+            data={"text": "Public assistant result."},
+        )
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+
 def _service_with_harness(
     tmp_path: Path, provider: FakeCodingAgentProvider
 ) -> tuple[CodingWorkerService, ToolBroker]:
@@ -254,6 +303,44 @@ async def test_model_stop_cannot_complete_without_acceptance_runner(tmp_path: Pa
     terminal = await service.wait_for(task.task_id, lambda item: item.state is TaskState.BLOCKED)
     assert terminal.state is not TaskState.COMPLETED
     assert [event.type for event in service.store.list_events(task.task_id)].count("task_state") >= 3
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_provider_events_create_normalized_complete_session_ledger(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path, _LedgerProvider())
+    task = await service.create_task(
+        Origin(module="test", object_id="ledger"), _request("ledger")
+    )
+    terminal = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.BLOCKED
+    )
+    assert terminal.reason == "acceptance_runner_pending"
+    ledger = service.store.list_session_ledger(task.task_id)
+    assert [item.kind for item in ledger] == [
+        SessionLedgerKind.PUBLIC_MESSAGE,
+        SessionLedgerKind.TURN_STARTED,
+        SessionLedgerKind.PLAN,
+        SessionLedgerKind.TODO,
+        SessionLedgerKind.TOOL_STARTED,
+        SessionLedgerKind.TOOL_FINISHED,
+        SessionLedgerKind.PUBLIC_MESSAGE,
+        SessionLedgerKind.TURN_FINISHED,
+    ]
+    tool_entries = [
+        item
+        for item in ledger
+        if item.kind in {SessionLedgerKind.TOOL_STARTED, SessionLedgerKind.TOOL_FINISHED}
+    ]
+    assert {item.operation_id for item in tool_entries} == {"operation-01"}
+    assert tool_entries[1].payload["result_state"] == "succeeded"
+    assert ledger[-1].payload["result_state"] == "completed"
+    assert [message.content for message in service.store.list_messages(task.task_id)] == [
+        "Complete ledger",
+        "Public assistant result.",
+    ]
     await service.shutdown()
 
 
@@ -595,6 +682,91 @@ async def test_active_time_budget_survives_restart_and_excludes_waiting(
             timeout=2,
         )
     assert restarted.active_runtime_seconds(task.task_id) >= 30
+
+
+def test_tool_call_budget_is_durable_and_idempotent_across_restart(
+    tmp_path: Path,
+) -> None:
+    key = Fernet.generate_key()
+    root = tmp_path / "worker"
+    store = CodingWorkerStore(root, master_key=key)
+    request = _request("durable-tool-budget").model_copy(
+        update={"budget": TaskBudget(max_tool_calls=1)}
+    )
+    task = store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="durable-tool-budget"),
+        )
+    )
+    operation = store.create_operation(
+        task_id=task.task_id,
+        operation_id="operation-01",
+        tool_name="read_file",
+        intent_sha256="a" * 64,
+        request={"arguments": {"path": "main.py"}, "workspace_id": "workspace-01"},
+    )
+
+    restarted = CodingWorkerStore(root, master_key=key)
+    replay = restarted.create_operation(
+        task_id=task.task_id,
+        operation_id="operation-01",
+        tool_name="read_file",
+        intent_sha256="a" * 64,
+        request={"arguments": {"path": "main.py"}, "workspace_id": "workspace-01"},
+    )
+    assert replay == operation
+    assert restarted.budget_usage(task.task_id).tool_calls == 1
+    with pytest.raises(WorkerConflictError) as raised:
+        restarted.create_operation(
+            task_id=task.task_id,
+            operation_id="operation-02",
+            tool_name="read_file",
+            intent_sha256="b" * 64,
+            request={"arguments": {"path": "other.py"}, "workspace_id": "workspace-01"},
+        )
+    assert raised.value.code == "tool_budget_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_interrupted_turn_consumes_durable_turn_budget_before_resume(
+    tmp_path: Path,
+) -> None:
+    provider = _RestoreTrackingProvider()
+    service = _service(tmp_path, provider)
+    request = _request("durable-turn-budget").model_copy(
+        update={"budget": TaskBudget(max_turns=1)}
+    )
+    prepared = await service.workspace_broker.prepare(request.workspace_source)
+    task = service.store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="durable-turn-budget"),
+        )
+    )
+    service.store.transition(task.task_id, TaskState.PREPARING)
+    service.store.transition(
+        task.task_id, TaskState.RUNNING, workspace_id=prepared.workspace_id
+    )
+    service.store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TURN_STARTED,
+        turn_id="turn-interrupted",
+        payload={},
+    )
+    service.store.finish_session_turn(
+        task.task_id, turn_id="turn-interrupted", result_state="interrupted"
+    )
+    service.store.transition(task.task_id, TaskState.INTERRUPTED, reason="provider_restart")
+
+    await service.resume(task.task_id)
+    limited = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.BUDGET_LIMITED
+    )
+    assert limited.reason == "turn_budget_exhausted"
+    assert service.store.budget_usage(task.task_id).turns_started == 1
+    assert provider.message_count == 0
+    await service.shutdown()
 
 
 async def _checkpointed_task(

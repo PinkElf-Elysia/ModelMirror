@@ -6,12 +6,12 @@ from collections.abc import AsyncIterator, Sequence
 from enum import StrEnum
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from .contracts import PolicyProfile, SAFE_ID, StrictModel, TaskBudget
 
 
-PROVIDER_CONTRACT_VERSION = 2
+PROVIDER_CONTRACT_VERSION = 3
 PROVIDER_CHECKPOINT_FORMAT_VERSION = 2
 PROVIDER_TOOL_NAMES = (
     "list_files",
@@ -48,9 +48,14 @@ class ProviderEventKind(StrEnum):
     SESSION_OPENED = "session_opened"
     MESSAGE = "message"
     PLAN = "plan"
-    TOOL_REQUEST = "tool_request"
-    TOOL_RESULT = "tool_result"
+    TODO = "todo"
+    TOOL_STARTED = "tool_started"
+    TOOL_COMPLETED = "tool_completed"
+    TOOL_REQUEST = "tool_started"
+    TOOL_RESULT = "tool_completed"
     APPROVAL_REQUIRED = "approval_required"
+    QUESTION = "question"
+    COMPACTION = "compaction"
     CHECKPOINT = "checkpoint"
     TURN_COMPLETED = "turn_completed"
     CANCELLED = "cancelled"
@@ -76,6 +81,111 @@ class ProviderUsage(StrictModel):
     cost_microusd: int | None = Field(default=None, ge=0)
 
 
+class ProviderUsageEventData(StrictModel):
+    usage: ProviderUsage
+
+
+class ProviderPlanItem(StrictModel):
+    step: str = Field(min_length=1, max_length=4096)
+    status: str = Field(pattern=r"^(pending|in_progress|completed)$")
+
+
+class ProviderPlanEventData(StrictModel):
+    explanation: str | None = Field(default=None, max_length=16_384)
+    items: tuple[ProviderPlanItem, ...] = Field(min_length=1, max_length=128)
+
+
+class ProviderTodoItem(StrictModel):
+    todo_id: str
+    content: str = Field(min_length=1, max_length=4096)
+    status: str = Field(pattern=r"^(pending|in_progress|completed|cancelled)$")
+
+    @field_validator("todo_id")
+    @classmethod
+    def validate_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("todo id is invalid")
+        return value
+
+
+class ProviderTodoEventData(StrictModel):
+    items: tuple[ProviderTodoItem, ...] = Field(max_length=256)
+
+
+class ProviderToolStartedData(StrictModel):
+    operation_id: str
+    tool_name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    summary: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("operation_id")
+    @classmethod
+    def validate_operation_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("operation id is invalid")
+        return value
+
+
+class ProviderToolCompletedData(StrictModel):
+    operation_id: str
+    tool_name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    summary: str = Field(min_length=1, max_length=4096)
+    success: bool
+    artifact_id: str | None = None
+
+    @field_validator("operation_id", "artifact_id")
+    @classmethod
+    def validate_optional_id(cls, value: str | None) -> str | None:
+        if value is not None and SAFE_ID.fullmatch(value) is None:
+            raise ValueError("tool event id is invalid")
+        return value
+
+
+class ProviderQuestionOption(StrictModel):
+    option_id: str
+    label: str = Field(min_length=1, max_length=200)
+
+    @field_validator("option_id")
+    @classmethod
+    def validate_option_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("question option id is invalid")
+        return value
+
+
+class ProviderQuestionEventData(StrictModel):
+    question_id: str
+    prompt: str = Field(min_length=1, max_length=16_384)
+    options: tuple[ProviderQuestionOption, ...] = Field(default=(), max_length=16)
+
+    @field_validator("question_id")
+    @classmethod
+    def validate_question_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("question id is invalid")
+        return value
+
+
+class ProviderCompactionEventData(StrictModel):
+    summary: str = Field(min_length=1, max_length=65_536)
+    boundary_sequence: int = Field(ge=1)
+
+
+class ProviderFailureEventData(StrictModel):
+    failure_kind: ProviderFailureKind
+
+
+_EVENT_DATA_MODELS: dict[ProviderEventKind, type[StrictModel]] = {
+    ProviderEventKind.PLAN: ProviderPlanEventData,
+    ProviderEventKind.TODO: ProviderTodoEventData,
+    ProviderEventKind.TOOL_STARTED: ProviderToolStartedData,
+    ProviderEventKind.TOOL_COMPLETED: ProviderToolCompletedData,
+    ProviderEventKind.QUESTION: ProviderQuestionEventData,
+    ProviderEventKind.COMPACTION: ProviderCompactionEventData,
+    ProviderEventKind.USAGE: ProviderUsageEventData,
+    ProviderEventKind.FAILED: ProviderFailureEventData,
+}
+
+
 class ProviderCheckpointCompatibility(StrictModel):
     contract_version: int = PROVIDER_CONTRACT_VERSION
     format_version: int = PROVIDER_CHECKPOINT_FORMAT_VERSION
@@ -95,6 +205,11 @@ class ProviderCapabilities(StrictModel):
     supports_restore: bool = False
     supports_steering: bool = True
     supports_usage: bool = True
+    supports_structured_plan: bool = True
+    supports_todo: bool = True
+    supports_questions: bool = True
+    supports_compaction: bool = True
+    supports_tool_boundaries: bool = True
     tool_names: tuple[str, ...] = PROVIDER_TOOL_NAMES
 
 
@@ -131,6 +246,35 @@ class ProviderSession(StrictModel):
 class ProviderEvent(StrictModel):
     kind: ProviderEventKind
     data: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_normalized_data(self) -> "ProviderEvent":
+        model = _EVENT_DATA_MODELS.get(self.kind)
+        if model is None:
+            if self.kind in {
+                ProviderEventKind.SESSION_OPENED,
+                ProviderEventKind.TURN_COMPLETED,
+                ProviderEventKind.CANCELLED,
+                ProviderEventKind.CHECKPOINT,
+            } and self.data:
+                raise ValueError("boundary event data must be empty")
+            if self.kind is ProviderEventKind.MESSAGE:
+                text = self.data.get("text")
+                if set(self.data) != {"text"} or not isinstance(text, str) or not text:
+                    raise ValueError("message event data is invalid")
+            if self.kind is ProviderEventKind.APPROVAL_REQUIRED:
+                capability = self.data.get("capability")
+                if (
+                    set(self.data) != {"capability"}
+                    or not isinstance(capability, str)
+                    or SAFE_ID.fullmatch(capability) is None
+                ):
+                    raise ValueError("approval event data is invalid")
+            return self
+        normalized = model.model_validate(self.data).model_dump(mode="json")
+        if normalized != self.data:
+            raise ValueError("provider event data is not canonical")
+        return self
 
 
 class ProviderCheckpoint(StrictModel):
@@ -176,7 +320,10 @@ class FakeCodingAgentProvider:
         self._script = tuple(
             script
             or (
-                ProviderEvent(kind=ProviderEventKind.PLAN, data={"summary": "inspect"}),
+                ProviderEvent(
+                    kind=ProviderEventKind.PLAN,
+                    data={"explanation": None, "items": [{"step": "inspect", "status": "in_progress"}]},
+                ),
                 ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED),
             )
         )

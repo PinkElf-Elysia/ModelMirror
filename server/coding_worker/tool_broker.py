@@ -152,13 +152,16 @@ class ToolBroker:
             "workspace_id": task.workspace_id,
         }
         intent_sha256 = self._intent_sha256(tool_name, request)
-        operation = self.store.create_operation(
-            task_id=task_id,
-            operation_id=operation_id,
-            tool_name=tool_name,
-            intent_sha256=intent_sha256,
-            request=request,
-        )
+        try:
+            operation = self.store.create_operation(
+                task_id=task_id,
+                operation_id=operation_id,
+                tool_name=tool_name,
+                intent_sha256=intent_sha256,
+                request=request,
+            )
+        except WorkerConflictError as exc:
+            raise ToolBrokerError("Tool operation was rejected.", code=exc.code) from exc
         if operation.state is OperationState.COMPLETED:
             if self._result_has_changeset(operation.tool_name, operation.result):
                 self.changesets.finalize(

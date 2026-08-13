@@ -27,9 +27,12 @@ from .contracts import (
     WorkerEvidence,
     WorkerArtifact,
     WorkerApproval,
+    WorkerBudgetUsage,
     WorkerCheckpoint,
     WorkerMessage,
     WorkerOperation,
+    WorkerSessionLedgerEntry,
+    SessionLedgerKind,
     require_transition,
 )
 from .crypto import WorkerCryptoError, WorkerEncryptedCodec
@@ -86,6 +89,7 @@ class CodingWorkerStore:
         self._codec = WorkerEncryptedCodec(self.root, master_key=master_key)
         self.workspaces_root.mkdir(parents=True, exist_ok=True)
         self._initialize()
+        self.mark_open_session_boundaries_interrupted()
         self.mark_inflight_interrupted()
         self.mark_inflight_operations_unknown()
 
@@ -315,6 +319,46 @@ class CodingWorkerStore:
                 total += now - last_at
             return total
 
+    def budget_usage(self, task_id: str) -> WorkerBudgetUsage:
+        active_seconds = self.active_runtime_seconds(task_id)
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            tool_calls = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM worker_operations WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()[0]
+            )
+            ledger_turns = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*) FROM worker_session_ledger
+                    WHERE task_id = ? AND kind = ?
+                    """,
+                    (task_id, SessionLedgerKind.TURN_STARTED.value),
+                ).fetchone()[0]
+            )
+            if ledger_turns:
+                turns_started = ledger_turns
+            else:
+                turns_started = 0
+                rows = connection.execute(
+                    """
+                    SELECT payload_ciphertext FROM worker_events
+                    WHERE task_id = ? AND type = 'provider_event'
+                    ORDER BY sequence
+                    """,
+                    (task_id,),
+                ).fetchall()
+                for row in rows:
+                    if self._decrypt_dict(row["payload_ciphertext"]).get("kind") == "turn_completed":
+                        turns_started += 1
+        return WorkerBudgetUsage(
+            active_seconds=active_seconds,
+            turns_started=turns_started,
+            tool_calls=tool_calls,
+        )
+
     def append_message(self, task_id: str, *, role: str, content: str) -> WorkerMessage:
         if role not in {"user", "assistant", "tool", "system"} or not content.strip():
             raise ValueError("invalid worker message")
@@ -336,6 +380,15 @@ class CodingWorkerStore:
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (message_id, task_id, next_sequence, role, self._codec.encrypt(content), now),
+            )
+            self._append_session_ledger_locked(
+                connection,
+                task_id=task_id,
+                kind=SessionLedgerKind.PUBLIC_MESSAGE,
+                turn_id=None,
+                operation_id=None,
+                payload={"role": role, "text": content},
+                created_at=now,
             )
         return WorkerMessage(
             message_id=message_id,
@@ -364,6 +417,110 @@ class CodingWorkerStore:
             )
             for row in rows
         ]
+
+    def append_session_ledger(
+        self,
+        task_id: str,
+        *,
+        kind: SessionLedgerKind,
+        payload: dict[str, Any],
+        turn_id: str | None = None,
+        operation_id: str | None = None,
+    ) -> WorkerSessionLedgerEntry:
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_task_row(connection, task_id)
+            return self._append_session_ledger_locked(
+                connection,
+                task_id=task_id,
+                kind=kind,
+                payload=payload,
+                turn_id=turn_id,
+                operation_id=operation_id,
+                created_at=now,
+            )
+
+    def finish_session_turn(
+        self, task_id: str, *, turn_id: str, result_state: str
+    ) -> list[WorkerSessionLedgerEntry]:
+        if result_state not in {"completed", "cancelled", "failed", "interrupted"}:
+            raise ValueError("invalid session turn result")
+        now = self._now()
+        appended: list[WorkerSessionLedgerEntry] = []
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_open_turn(connection, task_id, turn_id)
+            open_tools = connection.execute(
+                """
+                SELECT started.operation_id, started.payload_ciphertext
+                FROM worker_session_ledger AS started
+                LEFT JOIN worker_session_ledger AS finished
+                  ON finished.task_id = started.task_id
+                 AND finished.operation_id = started.operation_id
+                 AND finished.kind = ?
+                WHERE started.task_id = ? AND started.turn_id = ?
+                  AND started.kind = ? AND finished.ledger_id IS NULL
+                ORDER BY started.sequence
+                """,
+                (
+                    SessionLedgerKind.TOOL_FINISHED.value,
+                    task_id,
+                    turn_id,
+                    SessionLedgerKind.TOOL_STARTED.value,
+                ),
+            ).fetchall()
+            if open_tools and result_state == "completed":
+                raise WorkerConflictError(
+                    "A completed turn cannot contain an unfinished tool call.",
+                    code="session_tool_boundary_incomplete",
+                )
+            for row in open_tools:
+                started = self._decrypt_dict(row["payload_ciphertext"])
+                appended.append(
+                    self._append_session_ledger_locked(
+                        connection,
+                        task_id=task_id,
+                        kind=SessionLedgerKind.TOOL_FINISHED,
+                        turn_id=turn_id,
+                        operation_id=str(row["operation_id"]),
+                        payload={
+                            "tool_name": started["tool_name"],
+                            "summary": "Completion receipt was not observed before interruption.",
+                            "result_state": "unknown",
+                            "artifact_id": None,
+                        },
+                        created_at=now,
+                    )
+                )
+            appended.append(
+                self._append_session_ledger_locked(
+                    connection,
+                    task_id=task_id,
+                    kind=SessionLedgerKind.TURN_FINISHED,
+                    turn_id=turn_id,
+                    payload={"result_state": result_state},
+                    operation_id=None,
+                    created_at=now,
+                )
+            )
+        return appended
+
+    def list_session_ledger(
+        self, task_id: str, *, after: int = 0, limit: int = 500
+    ) -> list[WorkerSessionLedgerEntry]:
+        if after < 0 or not 1 <= limit <= 1000:
+            raise ValueError("invalid session ledger replay window")
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            rows = connection.execute(
+                """
+                SELECT * FROM worker_session_ledger
+                WHERE task_id = ? AND sequence > ? ORDER BY sequence LIMIT ?
+                """,
+                (task_id, after, limit),
+            ).fetchall()
+        return [self._session_ledger_entry(row) for row in rows]
 
     def set_pinned(self, task_id: str, pinned: bool) -> TaskRecord:
         now = self._now()
@@ -575,7 +732,7 @@ class CodingWorkerStore:
         now = self._now()
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            self._require_task_row(connection, task_id)
+            task = self._task(self._require_task_row(connection, task_id), connection)
             existing = connection.execute(
                 "SELECT * FROM worker_operations WHERE operation_id = ?", (operation_id,)
             ).fetchone()
@@ -592,6 +749,17 @@ class CodingWorkerStore:
                         code="operation_intent_conflict",
                     )
                 return operation
+            operation_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM worker_operations WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()[0]
+            )
+            if operation_count >= task.spec.budget.max_tool_calls:
+                raise WorkerConflictError(
+                    "The durable tool call budget is exhausted.",
+                    code="tool_budget_exhausted",
+                )
             connection.execute(
                 """
                 INSERT INTO worker_operations (
@@ -910,6 +1078,22 @@ class CodingWorkerStore:
                 },
                 created_at=now,
             )
+            self._append_session_ledger_locked(
+                connection,
+                task_id=task_id,
+                kind=SessionLedgerKind.CHECK_EVIDENCE,
+                turn_id=None,
+                operation_id=None,
+                payload={
+                    "check_id": check_id,
+                    "evidence_id": evidence_id,
+                    "status": status.value,
+                    "exit_code": exit_code,
+                    "artifact_id": artifact_id,
+                    "workspace_tree_hash": workspace_tree_hash,
+                },
+                created_at=now,
+            )
         return self.get_evidence(evidence_id)
 
     def get_evidence(self, evidence_id: str) -> WorkerEvidence:
@@ -1001,6 +1185,78 @@ class CodingWorkerStore:
                 count += 1
         return count
 
+    def mark_open_session_boundaries_interrupted(self) -> int:
+        """Close only unreceipted ledger boundaries; never infer tool success."""
+        now = self._now()
+        count = 0
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                """
+                SELECT started.task_id, started.turn_id
+                FROM worker_session_ledger AS started
+                LEFT JOIN worker_session_ledger AS finished
+                  ON finished.task_id = started.task_id
+                 AND finished.turn_id = started.turn_id
+                 AND finished.kind = ?
+                WHERE started.kind = ? AND finished.ledger_id IS NULL
+                ORDER BY started.task_id, started.sequence
+                """,
+                (
+                    SessionLedgerKind.TURN_FINISHED.value,
+                    SessionLedgerKind.TURN_STARTED.value,
+                ),
+            ).fetchall()
+            for row in rows:
+                task_id = str(row["task_id"])
+                turn_id = str(row["turn_id"])
+                open_tools = connection.execute(
+                    """
+                    SELECT started.operation_id, started.payload_ciphertext
+                    FROM worker_session_ledger AS started
+                    LEFT JOIN worker_session_ledger AS finished
+                      ON finished.task_id = started.task_id
+                     AND finished.operation_id = started.operation_id
+                     AND finished.kind = ?
+                    WHERE started.task_id = ? AND started.turn_id = ?
+                      AND started.kind = ? AND finished.ledger_id IS NULL
+                    ORDER BY started.sequence
+                    """,
+                    (
+                        SessionLedgerKind.TOOL_FINISHED.value,
+                        task_id,
+                        turn_id,
+                        SessionLedgerKind.TOOL_STARTED.value,
+                    ),
+                ).fetchall()
+                for tool in open_tools:
+                    started = self._decrypt_dict(tool["payload_ciphertext"])
+                    self._append_session_ledger_locked(
+                        connection,
+                        task_id=task_id,
+                        kind=SessionLedgerKind.TOOL_FINISHED,
+                        turn_id=turn_id,
+                        operation_id=str(tool["operation_id"]),
+                        payload={
+                            "tool_name": started["tool_name"],
+                            "summary": "Completion receipt was not observed before restart.",
+                            "result_state": "unknown",
+                            "artifact_id": None,
+                        },
+                        created_at=now,
+                    )
+                self._append_session_ledger_locked(
+                    connection,
+                    task_id=task_id,
+                    kind=SessionLedgerKind.TURN_FINISHED,
+                    turn_id=turn_id,
+                    operation_id=None,
+                    payload={"result_state": "interrupted"},
+                    created_at=now,
+                )
+                count += 1
+        return count
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=15)
         connection.row_factory = sqlite3.Row
@@ -1052,6 +1308,32 @@ class CodingWorkerStore:
                     UNIQUE(task_id, sequence),
                     FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS worker_session_ledger (
+                    ledger_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    turn_id TEXT,
+                    operation_id TEXT,
+                    payload_ciphertext TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    UNIQUE(task_id, sequence),
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_worker_session_ledger_task
+                    ON worker_session_ledger(task_id, sequence);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_session_ledger_tool_start
+                    ON worker_session_ledger(task_id, operation_id)
+                    WHERE kind = 'tool_started';
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_session_ledger_tool_finish
+                    ON worker_session_ledger(task_id, operation_id)
+                    WHERE kind = 'tool_finished';
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_session_ledger_turn_start
+                    ON worker_session_ledger(task_id, turn_id)
+                    WHERE kind = 'turn_started';
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_session_ledger_turn_finish
+                    ON worker_session_ledger(task_id, turn_id)
+                    WHERE kind = 'turn_finished';
                 CREATE TABLE IF NOT EXISTS worker_approvals (
                     approval_id TEXT PRIMARY KEY,
                     task_id TEXT NOT NULL,
@@ -1183,6 +1465,139 @@ class CodingWorkerStore:
         )
         return int(cursor.lastrowid)
 
+    def _append_session_ledger_locked(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        task_id: str,
+        kind: SessionLedgerKind,
+        payload: dict[str, Any],
+        turn_id: str | None,
+        operation_id: str | None,
+        created_at: float,
+    ) -> WorkerSessionLedgerEntry:
+        if kind in {
+            SessionLedgerKind.TURN_STARTED,
+            SessionLedgerKind.TURN_FINISHED,
+            SessionLedgerKind.TOOL_STARTED,
+            SessionLedgerKind.TOOL_FINISHED,
+        }:
+            if turn_id is None:
+                raise ValueError("session ledger turn binding is required")
+        if kind is not SessionLedgerKind.TURN_STARTED and turn_id is not None:
+            self._require_open_turn(connection, task_id, turn_id)
+        if kind is SessionLedgerKind.TOOL_STARTED:
+            existing = connection.execute(
+                """
+                SELECT * FROM worker_session_ledger
+                WHERE task_id = ? AND operation_id = ? AND kind = ?
+                """,
+                (task_id, operation_id, SessionLedgerKind.TOOL_STARTED.value),
+            ).fetchone()
+            if existing is not None:
+                existing_entry = self._session_ledger_entry(existing)
+                if existing_entry.turn_id == turn_id and existing_entry.payload == payload:
+                    return existing_entry
+                raise WorkerConflictError(
+                    "The tool operation already has a ledger boundary.",
+                    code="session_tool_boundary_conflict",
+                )
+        elif kind is SessionLedgerKind.TOOL_FINISHED:
+            started = connection.execute(
+                """
+                SELECT turn_id, payload_ciphertext FROM worker_session_ledger
+                WHERE task_id = ? AND operation_id = ? AND kind = ?
+                """,
+                (task_id, operation_id, SessionLedgerKind.TOOL_STARTED.value),
+            ).fetchone()
+            if started is None or str(started["turn_id"]) != turn_id:
+                raise WorkerConflictError(
+                    "The tool completion is not bound to its start boundary.",
+                    code="session_tool_boundary_conflict",
+                )
+            started_payload = self._decrypt_dict(started["payload_ciphertext"])
+            if payload.get("tool_name") != started_payload.get("tool_name"):
+                raise WorkerConflictError(
+                    "The tool completion name does not match its start boundary.",
+                    code="session_tool_boundary_conflict",
+                )
+            duplicate = connection.execute(
+                """
+                SELECT * FROM worker_session_ledger
+                WHERE task_id = ? AND operation_id = ? AND kind = ?
+                """,
+                (task_id, operation_id, SessionLedgerKind.TOOL_FINISHED.value),
+            ).fetchone()
+            if duplicate is not None:
+                existing_entry = self._session_ledger_entry(duplicate)
+                if existing_entry.turn_id == turn_id and existing_entry.payload == payload:
+                    return existing_entry
+                raise WorkerConflictError(
+                    "The tool completion was already recorded.",
+                    code="session_tool_boundary_conflict",
+                )
+        sequence = int(
+            connection.execute(
+                """
+                SELECT COALESCE(MAX(sequence), 0) + 1
+                FROM worker_session_ledger WHERE task_id = ?
+                """,
+                (task_id,),
+            ).fetchone()[0]
+        )
+        entry = WorkerSessionLedgerEntry(
+            ledger_id=f"ledger_{uuid.uuid4().hex}",
+            task_id=task_id,
+            sequence=sequence,
+            kind=kind,
+            turn_id=turn_id,
+            operation_id=operation_id,
+            payload=payload,
+            created_at=created_at,
+        )
+        connection.execute(
+            """
+            INSERT INTO worker_session_ledger (
+                ledger_id, task_id, sequence, kind, turn_id, operation_id,
+                payload_ciphertext, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entry.ledger_id,
+                task_id,
+                sequence,
+                kind.value,
+                turn_id,
+                operation_id,
+                self._codec.encrypt(payload),
+                created_at,
+            ),
+        )
+        return entry
+
+    @staticmethod
+    def _require_open_turn(
+        connection: sqlite3.Connection, task_id: str, turn_id: str
+    ) -> None:
+        started = connection.execute(
+            """
+            SELECT 1 FROM worker_session_ledger
+            WHERE task_id = ? AND turn_id = ? AND kind = ?
+            """,
+            (task_id, turn_id, SessionLedgerKind.TURN_STARTED.value),
+        ).fetchone()
+        finished = connection.execute(
+            """
+            SELECT 1 FROM worker_session_ledger
+            WHERE task_id = ? AND turn_id = ? AND kind = ?
+            """,
+            (task_id, turn_id, SessionLedgerKind.TURN_FINISHED.value),
+        ).fetchone()
+        if started is None or finished is not None:
+            raise WorkerConflictError(
+                "The session turn is not open.", code="session_turn_boundary_conflict"
+            )
+
     def _approval(self, row: sqlite3.Row) -> WorkerApproval:
         try:
             lease_value = (
@@ -1207,6 +1622,27 @@ class CodingWorkerStore:
         except (WorkerCryptoError, ValueError) as exc:
             raise WorkerStoreError(
                 "Worker approval data is corrupt.", code="worker_data_corrupt"
+            ) from exc
+
+    def _session_ledger_entry(self, row: sqlite3.Row) -> WorkerSessionLedgerEntry:
+        try:
+            return WorkerSessionLedgerEntry(
+                ledger_id=str(row["ledger_id"]),
+                task_id=str(row["task_id"]),
+                sequence=int(row["sequence"]),
+                kind=SessionLedgerKind(row["kind"]),
+                turn_id=(str(row["turn_id"]) if row["turn_id"] is not None else None),
+                operation_id=(
+                    str(row["operation_id"])
+                    if row["operation_id"] is not None
+                    else None
+                ),
+                payload=self._decrypt_dict(row["payload_ciphertext"]),
+                created_at=float(row["created_at"]),
+            )
+        except (WorkerCryptoError, ValueError) as exc:
+            raise WorkerStoreError(
+                "Worker session ledger data is corrupt.", code="worker_data_corrupt"
             ) from exc
 
     def _operation(self, row: sqlite3.Row) -> WorkerOperation:
