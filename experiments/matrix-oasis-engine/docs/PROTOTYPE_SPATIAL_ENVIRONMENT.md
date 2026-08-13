@@ -12,3 +12,5 @@ R11私有中间产物绑定Marble SPZ来源、deterministic compressed PLY、col
 - 不保存prompt、operation/world ID、下载URL、密钥、原始响应或本机路径。
 
 Bundle只用于R11/R10宿主的私有组合流程；跨版本兼容、签名、信任与正式发布均未定义。
+
+物化入口先调用冻结的R10 Environment Bundle验证器，因此collider仍由既有R7/R10 GLB安全门负责；独立Spatial Bundle验证器只重新核对输出文件身份、哈希、长度和转换统计，不复制Scene Pack或GLB合同。Godot集成前还必须再次执行冻结Scene Pack与GLB门禁。
