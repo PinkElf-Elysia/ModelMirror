@@ -6,8 +6,8 @@
 
 ## 批次
 
-- [x] R12.1 治理与初版声明门（已验证，等待本地提交；SHA在R12.2记录）
-- [ ] R12.2 通用候选验收与修复
+- [x] R12.1 治理与初版声明门（`a0085fc7`）
+- [x] R12.2 通用候选验收与修复（已验证，等待本地提交；SHA在R12.3记录）
 - [ ] R12.3 六资产组装与宿主扩容
 - [ ] R12.4 Marble SPZ自动空间化
 - [ ] R12.5 离线端到端与泛化复验
@@ -23,6 +23,16 @@
 - 新增`docs/MVP_STATUS.json`及`check:mvp-claim`，当前固定`pending-r12-qualification / claimAllowed=false`；测试证明旧R10完成叙事、状态漂移和缺失R12验收证据均会fail closed。公开状态文档已改为只有R12全部硬门通过后才能声明初版完成。
 - 最新树完整`npm.cmd run verify`为20/20步骤，Node 691/691；Godot 4.6.3的R4–R11 import/runtime/parity/3D/Scene/splat、Creator 248 modules build与HTTP smoke全部通过。
 - 本批未调用模型、Marble或Meshy，未读取供应商凭据，未生成或提交真实资产，未启动父服务、Docker或共享栈。回退为单独revert R12.1提交，不影响仓外缓存或远程任务。
+
+## R12.2证据
+
+- `generatePrototype(request, provider, { acceptanceProfile })`新增可选、闭合的`Prototype Acceptance Profile 0.1.0`；旧两参数调用和包根三个运行时导出保持不变。Profile仅包含node、ending、action、zone、prop、character-placeholder数量范围，以及结构可达循环、全部ending结构可达和非环境brief实体/placement绑定，不含案例ID、题材文案或条件执行特判。
+- 合法Generation Proposal若不满足Profile，会进入既有定向修复协议；修复请求仍只含上一候选及静态code/path，初始加修复总请求严格不超过3。Profile自身畸形在Provider访问前以`PROTOTYPE_ACCEPTANCE_PROFILE_INVALID`拒绝。
+- 图检查改为显式栈，避免4096 node上递归耗尽；诊断顺序固定，结果与诊断深冻结，生成过程不修改Profile、Proposal或Provider输入。
+- `npm.cmd run test:prototype-generator`为15/15，覆盖一次接受、Profile修复、三次耗尽、六类数量诊断、循环、ending可达、实体绑定、输入不变、冻结结果、无题材分支和公开面不扩张；显式`GODOT_BIN`环境下完整`npm.cmd test`为697/697。
+- `check:round-scope`与`check:parent-scope -- --base 6a88c648...`均通过，`check:boundary`通过，`git diff --check`通过；R1–R11冻结路径和父仓未修改。
+- 最终树完整`npm.cmd run verify`为20/20步骤，Node 697/697、Godot 4.6.3全回归、Creator 248 modules build及HTTP smoke均通过。首次沙箱内全量测试仅因既有测试无法在`C:\tmp`建立夹具而失败；授权同命令后仅缺`GODOT_BIN`的doctor失败，显式使用已核验Godot路径后7/7及最终697/697通过，未以替代测试掩盖失败。
+- 本批仍未调用外部模型、Marble或Meshy，未读取任何供应商凭据，也未进入R12.6资格调用。回退为单独revert R12.2提交，R8原两参数生成行为继续可用。
 
 ## 最终硬门
 

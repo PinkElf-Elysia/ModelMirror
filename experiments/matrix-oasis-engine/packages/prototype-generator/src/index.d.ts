@@ -51,6 +51,29 @@ export interface GeneratePrototypeRequest {
   readonly prompt: string;
 }
 
+export interface PrototypeAcceptanceRange {
+  readonly min: number;
+  readonly max: number;
+}
+
+export interface PrototypeAcceptanceProfile {
+  readonly format: "matrix-oasis.prototype-acceptance-profile";
+  readonly formatVersion: "0.1.0";
+  readonly nodes: PrototypeAcceptanceRange;
+  readonly endings: PrototypeAcceptanceRange;
+  readonly actions: PrototypeAcceptanceRange;
+  readonly zones: PrototypeAcceptanceRange;
+  readonly props: PrototypeAcceptanceRange;
+  readonly characterPlaceholders: PrototypeAcceptanceRange;
+  readonly requireReachableCycle: boolean;
+  readonly requireAllEndingsReachable: boolean;
+  readonly requireAllNonEnvironmentBriefsBound: boolean;
+}
+
+export interface GeneratePrototypeOptions {
+  readonly acceptanceProfile: PrototypeAcceptanceProfile;
+}
+
 export interface GeneratePrototypeSuccess {
   readonly ok: true;
   readonly artifacts: Readonly<{
@@ -70,5 +93,6 @@ export interface GeneratePrototypeFailure {
 export declare function generatePrototype(
   request: GeneratePrototypeRequest,
   provider: PrototypeGenerationProvider,
+  options?: GeneratePrototypeOptions,
 ): Promise<GeneratePrototypeSuccess | GeneratePrototypeFailure>;
 import type { PrototypeGenerationDiagnostic } from "@matrix-oasis/prototype-generation-contracts";
