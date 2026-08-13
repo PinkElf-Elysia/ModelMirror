@@ -117,24 +117,56 @@ export function shouldShowFeaturedRecommendations(
   filters: ModelFilterState,
   searchTerm: string,
 ) {
+  const isDefaultRange = (
+    selected: { min: number; max: number },
+    baseline: { min: number; max: number },
+  ) => selected.min === baseline.min && selected.max === baseline.max;
+  const hasDefaultMetricRanges = <T extends string>(
+    selected: Record<T, { min: number; max: number }>,
+    baseline: Record<T, { min: number; max: number }>,
+  ) =>
+    Object.entries(baseline).every(([metric, range]) => {
+      const selectedRange = selected[metric as T];
+      const baselineRange = range as { min: number; max: number };
+      return selectedRange && isDefaultRange(selectedRange, baselineRange);
+    });
+
   return (
     searchTerm.trim() === "" &&
     filters.inputModalities.length === 0 &&
     filters.series.length === 0 &&
     filters.jobCapabilities.length === 0 &&
+    filters.openRouterCategories.length === 0 &&
     filters.supportedParameters.length === 0 &&
+    filters.providers.length === 0 &&
     filters.modelAuthors.length === 0 &&
-    !filters.distillable &&
-    !filters.zeroDataRetention &&
-    !filters.inRegionRouting &&
-    filters.provider === defaultFilterState.provider &&
+    filters.regions.length === 0 &&
+    filters.discounted === defaultFilterState.discounted &&
+    filters.distillable === defaultFilterState.distillable &&
+    filters.zeroDataRetention === defaultFilterState.zeroDataRetention &&
+    filters.minContextLength === defaultFilterState.minContextLength &&
+    filters.minToolSuccessRate === defaultFilterState.minToolSuccessRate &&
     filters.showInactive === defaultFilterState.showInactive &&
-    filters.contextRange.min === defaultFilterState.contextRange.min &&
-    filters.contextRange.max === defaultFilterState.contextRange.max &&
-    filters.promptPriceCnyRange.min ===
-      defaultFilterState.promptPriceCnyRange.min &&
-    filters.promptPriceCnyRange.max ===
-      defaultFilterState.promptPriceCnyRange.max
+    isDefaultRange(
+      filters.promptPriceUsdRange,
+      defaultFilterState.promptPriceUsdRange,
+    ) &&
+    isDefaultRange(
+      filters.outputPriceUsdRange,
+      defaultFilterState.outputPriceUsdRange,
+    ) &&
+    isDefaultRange(
+      filters.modelAgeDaysRange,
+      defaultFilterState.modelAgeDaysRange,
+    ) &&
+    hasDefaultMetricRanges(
+      filters.artificialAnalysisRanges,
+      defaultFilterState.artificialAnalysisRanges,
+    ) &&
+    hasDefaultMetricRanges(
+      filters.designArenaRanges,
+      defaultFilterState.designArenaRanges,
+    )
   );
 }
 

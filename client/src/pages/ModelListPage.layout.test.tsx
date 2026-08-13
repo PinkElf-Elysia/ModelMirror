@@ -66,6 +66,12 @@ describe("model market recommendation layout", () => {
       ),
     ).toBe(false);
     expect(
+      shouldShowFeaturedRecommendations(
+        { ...defaultFilterState, providers: ["OpenAI"] },
+        "",
+      ),
+    ).toBe(false);
+    expect(
       shouldShowFeaturedRecommendations(defaultFilterState, "Lyria 3"),
     ).toBe(false);
   });
