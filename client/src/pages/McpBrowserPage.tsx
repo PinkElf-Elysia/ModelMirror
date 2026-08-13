@@ -33,6 +33,22 @@ interface RegistryTool {
 }
 
 type CatalogCategory = "全部类别" | McpCategory;
+
+export function prioritizeReadyProjects<T>(
+  projects: readonly T[],
+  getAvailability: (project: T) => string,
+  enabled: boolean,
+): T[] {
+  if (!enabled) return [...projects];
+  return projects
+    .map((project, index) => ({ project, index }))
+    .sort((left, right) => {
+      const leftReady = getAvailability(left.project) === "ready";
+      const rightReady = getAvailability(right.project) === "ready";
+      return Number(rightReady) - Number(leftReady) || left.index - right.index;
+    })
+    .map(({ project }) => project);
+}
 type AvailabilityFilter = "all" | "ready" | "in_progress" | "blocked";
 
 const INITIAL_VISIBLE_COUNT = 18;
@@ -163,7 +179,7 @@ export default function McpBrowserPage() {
   );
   const filteredProjects = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
-    return mcpProjects.filter((project) => {
+    const matches = mcpProjects.filter((project) => {
       if (
         selectedCategory !== "全部类别" &&
         project.category !== selectedCategory
@@ -194,6 +210,11 @@ export default function McpBrowserPage() {
         .toLocaleLowerCase("zh-CN");
       return searchableText.includes(normalizedQuery);
     });
+    return prioritizeReadyProjects(
+      matches,
+      (project) => effectiveAvailability(project.id),
+      availabilityFilter === "all" && selectedCategory === "全部类别",
+    );
   }, [availabilityFilter, effectiveAvailability, query, selectedCategory]);
   const visibleProjects = useMemo(
     () => filteredProjects.slice(0, visibleCount),
