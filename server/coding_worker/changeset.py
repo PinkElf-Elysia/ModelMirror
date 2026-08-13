@@ -840,8 +840,27 @@ class ChangesetEngine:
                 entries[path] = (item.size, item.sha256)
             else:
                 entries.pop(path, None)
+        files_by_directory: dict[tuple[str, ...], list[str]] = {}
+        child_directories: dict[tuple[str, ...], set[str]] = {}
+        for path in entries:
+            parts = PurePosixPath(path).parts
+            parent: tuple[str, ...] = ()
+            for directory in parts[:-1]:
+                child_directories.setdefault(parent, set()).add(directory)
+                parent = (*parent, directory)
+            files_by_directory.setdefault(parent, []).append(path)
+
+        def ordered_paths(parent: tuple[str, ...] = ()) -> Any:
+            for path in sorted(
+                files_by_directory.get(parent, ()),
+                key=lambda value: PurePosixPath(value).name,
+            ):
+                yield path
+            for directory in sorted(child_directories.get(parent, ())):
+                yield from ordered_paths((*parent, directory))
+
         digest = hashlib.sha256()
-        for path in sorted(entries):
+        for path in ordered_paths():
             size, content_sha256 = entries[path]
             assert content_sha256 is not None
             encoded_path = path.encode("utf-8")

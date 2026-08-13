@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -98,6 +99,51 @@ def test_workspace_snapshot_does_not_apply_gitattributes_filters(tmp_path: Path)
     snapshot = broker.capture_snapshot(workspace.workspace_id)
     files = {item.path: item.content for item in broker.snapshot_files(workspace.workspace_id, snapshot)}
     assert files["value.txt"] == b"one\r\ntwo\r\n"
+
+
+def test_changeset_result_hash_matches_nested_workspace_order(tmp_path: Path) -> None:
+    import asyncio
+
+    original = b"return value\n"
+    changed = b"return max(value, 0)\n"
+    broker = WorkspaceBroker(
+        tmp_path / "nested",
+        {
+            "builtin": InMemoryWorkspaceSourceAdapter(
+                {
+                    ("source_session", "r1"): {
+                        "README.md": b"root file\n",
+                        "orders/normalize.py": original,
+                    }
+                }
+            )
+        },
+        id_key=b"n" * 32,
+    )
+    workspace = asyncio.run(broker.prepare(_spec().workspace_source))
+    engine = ChangesetEngine(broker)
+    result = engine.apply(
+        task_id="task_" + "a" * 32,
+        workspace_id=workspace.workspace_id,
+        operation_id="operation_nested_hash",
+        arguments={
+            "base_tree_hash": broker.current_tree_hash(workspace.workspace_id),
+            "changes": [
+                {
+                    "kind": "write",
+                    "path": "orders/normalize.py",
+                    "expected_sha256": hashlib.sha256(original).hexdigest(),
+                    "content": changed.decode(),
+                    "content_sha256": hashlib.sha256(changed).hexdigest(),
+                }
+            ],
+        },
+    )
+
+    assert result.result_tree_hash == broker.current_tree_hash(workspace.workspace_id)
+    assert (
+        broker.repository_path(workspace.workspace_id) / "orders" / "normalize.py"
+    ).read_bytes() == changed
 
 
 def test_turn_navigation_intent_is_durable_and_exact(tmp_path: Path) -> None:
