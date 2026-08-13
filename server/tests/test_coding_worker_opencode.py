@@ -12,6 +12,7 @@ from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
     Origin,
+    PolicyProfile,
     RepositoryInstruction,
     TaskBudget,
     TaskSpec,
@@ -23,12 +24,18 @@ from server.coding_worker.opencode_provider import (
     OpenCodeProvider,
     OpenCodeRoute,
     OpenCodeServerHandle,
+    OPENCODE_SECURITY_ENVIRONMENT,
     TOOL_BROKER_MCP_NAME,
 )
 from server.coding_worker.store import CodingWorkerStore
 from server.coding_worker.tool_broker import ToolBroker
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
-from server.coding_worker.provider import ProviderEventKind, ProviderOpenRequest
+from server.coding_worker.provider import (
+    ProviderEventKind,
+    ProviderOpenRequest,
+    provider_message_with_repository_instructions,
+    provider_tools_for_policy,
+)
 
 
 def _request(*, instructions: bool = False) -> ProviderOpenRequest:
@@ -83,8 +90,29 @@ def test_config_disables_direct_tools_plugins_sharing_and_supplier_surface(tmp_p
     assert config["provider"]["modelmirror"]["options"]["apiKey"] == (
         "{env:CODING_WORKER_ROUTE_KEY}"
     )
+    assert config["provider"]["modelmirror"]["models"]["test-model"]["limit"] == {
+        "context": 128_000,
+        "output": 8_192,
+    }
     assert all(provider._prompt_tools()[name] is False for name in DIRECT_TOOL_NAMES)
     assert provider._prompt_tools()["modelmirror-tool-broker_read_file"] is True
+    assert OPENCODE_SECURITY_ENVIRONMENT == {
+        "OPENCODE_DISABLE_DEFAULT_PLUGINS": "1",
+        "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1",
+        "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1",
+        "OPENCODE_DISABLE_LSP_DOWNLOAD": "1",
+        "OPENCODE_DISABLE_SHARE": "1",
+    }
+
+
+def test_develop_provider_uses_atomic_changesets_not_legacy_file_writes() -> None:
+    develop = provider_tools_for_policy(PolicyProfile.DEVELOP)
+    networked = provider_tools_for_policy(PolicyProfile.DEVELOP_NETWORKED)
+    assert "apply_changeset" in develop and "apply_changeset" in networked
+    assert "write_file" not in develop and "delete_file" not in develop
+    assert "write_file" not in networked and "delete_file" not in networked
+    assert "query_documentation" not in develop
+    assert "query_documentation" in networked
 
 
 @pytest.mark.asyncio
@@ -147,7 +175,12 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     closed: list[bool] = []
-    state = {"session": {"id": "ses_test"}, "messages": [], "prompts": []}
+    state = {
+        "session": {"id": "ses_test"},
+        "messages": [],
+        "prompts": [],
+        "expected_prompt": "",
+    }
 
     async def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -156,7 +189,19 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
             assert body["model"] == {"providerID": "modelmirror", "id": "test-model"}
             return httpx.Response(200, json=state["session"])
         if path == "/event":
+            echoed_prompt = state["expected_prompt"]
             content = (
+                "data: "
+                + json.dumps(
+                    {
+                        "type": "message.part.updated",
+                        "properties": {
+                            "sessionID": "ses_test",
+                            "part": {"type": "text", "text": echoed_prompt},
+                        },
+                    }
+                )
+                + "\n\n"
                 'data: {"type":"message.part.updated","properties":{"sessionID":"ses_test","part":{"type":"text","text":"done"}}}\n\n'
                 'data: {"type":"session.idle","properties":{"sessionID":"ses_test"}}\n\n'
             )
@@ -203,6 +248,9 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
         server_factory=factory,
     )
     bound_request = _request(instructions=True)
+    state["expected_prompt"] = provider_message_with_repository_instructions(
+        bound_request, "continue"
+    )
     session = await provider.open(bound_request)
     events = [event async for event in provider.message(session, "continue")]
     assert [event.kind for event in events] == [
@@ -211,6 +259,16 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
     ]
     assert await provider.cancel(session) is True
     prompt = state["prompts"][0]
+    assert "exact tool names shown in the current provider tool list" in prompt
+    assert "Every file path, cwd" in prompt
+    assert "new operation_id for every distinct side-effect intent" in prompt
+    assert "Prefer preimage-bound atomic changesets" in prompt
+    assert "Use a replace change" in prompt
+    assert "Refresh the workspace tree hash" in prompt
+    assert "the file's final newline" in prompt
+    assert "run_shell mode is exactly inspect or mutate" in prompt
+    assert "read_operation_output" in prompt
+    assert "Never add ad-hoc debug" in prompt
     assert "bounded H0 text" in prompt
     assert '"display_path":"AGENTS.md"' in prompt
     assert '"sha256":"' + "a" * 64 + '"' in prompt
