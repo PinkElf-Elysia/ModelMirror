@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "package": "gdgs",
+  "upstream": "https://github.com/ReconWorldLab/godot-gaussian-splatting",
+  "tag": "v3.3.0",
+  "tagObject": "70996511607a886dac9fdd5fc59a0445308eb3db",
+  "commit": "d9de8db86a63e8bf9067c869dcdbd0614922fd1e",
+  "sourceTreeSha1": "06d1bb2a71e8fc0abf5a2bca8f2cd7effdbaed17",
+  "license": "MIT",
+  "runtimeDependency": true,
+  "devOnly": false,
+  "modified": false,
+  "includedPath": "addons/gdgs",
+  "vendorPath": "apps/runtime-godot/addons/gdgs",
+  "licensePath": "third-party/godot-gaussian-splatting/LICENSE",
+  "licenseSha256": "5f6105df7c9d6af2a32867c350781b500d378c9b3e8966bba900c1ed5d40f6cc",
+  "tree": {
+    "profile": "matrix-oasis.vendor-tree/1",
+    "fileCount": 73,
+    "byteLength": 429070,
+    "sha256": "9b50fbd348408d9d9acce99d4a189fe468ee09a46921c73df4436fe3a7afbd82"
+  }
+}

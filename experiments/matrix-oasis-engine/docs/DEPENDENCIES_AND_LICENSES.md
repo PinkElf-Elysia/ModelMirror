@@ -130,6 +130,8 @@ R11.2新增私有`@matrix-oasis/prototype-spatial-environment@0.1.0-r11`，固�
 
 实际lock还包含`splat-transform`的`playcanvas@2.21.3` peer（MIT）、`webgpu@0.4.0`（MIT）、`@webgpu/types@0.1.71`（BSD-3-Clause）和`@types/webxr@0.5.24`（MIT）；`webgpu`携带多平台Dawn预编译文件，但R11转换路径不调用GPU API，且这些文件只存在于未跟踪的`node_modules`。不得vendoring或把它们打入Creator/Godot/任何运行产物。`debug@4.4.3`与`ms@2.1.3`均为MIT，并因`webgpu`成为普通传递依赖。全部许可证均在既有准入列表内，无新增人工例外。
 
+R11.3原样vendoring `ReconWorldLab/godot-gaussian-splatting`的`addons/gdgs/**`（MIT）作为Godot运行时依赖。上游`v3.3.0`的签注tag object为`70996511607a886dac9fdd5fc59a0445308eb3db`，peeled commit为`d9de8db86a63e8bf9067c869dcdbd0614922fd1e`；两种Git身份、73个文件、429,070 bytes、逐路径目录树hash和MIT许可证均由`third-party/godot-gaussian-splatting.lock.json`锁定。vendored源码未修改，正式预览只允许Forward+ Compute；Raster fallback不构成可接受结果。
+
 新增或升级依赖时必须：
 
 1. 记录精确版本、直接/间接用途和许可证；

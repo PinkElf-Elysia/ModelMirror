@@ -40,7 +40,10 @@ function isContained(root, candidate) {
 function collectScripts(root = godotRoot) {
   const scripts = [];
   const stack = [root];
-  const excludedVendor = path.resolve(root, "addons", "gdUnit4");
+  const excludedVendors = new Set([
+    path.resolve(root, "addons", "gdUnit4"),
+    path.resolve(root, "addons", "gdgs"),
+  ]);
   while (stack.length > 0) {
     const current = stack.pop();
     const entries = fs.readdirSync(current, { withFileTypes: true });
@@ -51,7 +54,7 @@ function collectScripts(root = godotRoot) {
         throw new GodotBoundaryError("GODOT_FIRST_PARTY_SYMLINK");
       }
       if (entry.isDirectory()) {
-        if (path.resolve(absolute) !== excludedVendor && entry.name !== ".godot") {
+        if (!excludedVendors.has(path.resolve(absolute)) && entry.name !== ".godot") {
           stack.push(absolute);
         }
         continue;

@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { auditGodotBoundary } from "../scripts/check-godot-boundary.mjs";
 
-function fixture(source, { vendorSource } = {}) {
+function fixture(source, { vendorSource, splatVendorSource, unknownAddonSource } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "matrix-oasis-godot-boundary-"));
   fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
   fs.writeFileSync(path.join(root, "scripts", "case.gd"), source, "utf8");
@@ -13,6 +13,16 @@ function fixture(source, { vendorSource } = {}) {
     const vendor = path.join(root, "addons", "gdUnit4");
     fs.mkdirSync(vendor, { recursive: true });
     fs.writeFileSync(path.join(vendor, "upstream.gd"), vendorSource, "utf8");
+  }
+  if (splatVendorSource) {
+    const vendor = path.join(root, "addons", "gdgs");
+    fs.mkdirSync(vendor, { recursive: true });
+    fs.writeFileSync(path.join(vendor, "upstream.gd"), splatVendorSource, "utf8");
+  }
+  if (unknownAddonSource) {
+    const vendor = path.join(root, "addons", "unknown");
+    fs.mkdirSync(vendor, { recursive: true });
+    fs.writeFileSync(path.join(vendor, "upstream.gd"), unknownAddonSource, "utf8");
   }
   return root;
 }
@@ -27,13 +37,27 @@ test("the committed first-party Godot source satisfies the active round boundary
   assert.equal(report.checked >= 2, true);
 });
 
-test("approved static res reads pass and vendored source is excluded", (context) => {
+test("approved static res reads pass and only the two hash-locked vendor roots are excluded", (context) => {
   const root = fixture(
     "extends Node\nvar file = FileAccess.open(\"res://fixture.txt\", FileAccess.READ)\nvar scene = preload(\"res://fixture.tscn\")\n",
-    { vendorSource: ["HTTP", "Client.new()"].join("") },
+    {
+      vendorSource: ["HTTP", "Client.new()"].join(""),
+      splatVendorSource: ["ResourceSaver", ".save(Resource.new(), \"res://fixture.tres\")"].join(""),
+    },
   );
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));
   assert.deepEqual(auditGodotBoundary({ root }), { ok: true, checked: 1, violations: [] });
+});
+
+test("an unknown addon remains first-party and cannot bypass the source rules", (context) => {
+  const root = fixture("extends Node\n", {
+    unknownAddonSource: ["HTTP", "Client.new()"].join(""),
+  });
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const report = auditGodotBoundary({ root });
+  assert.equal(report.ok, false);
+  assert.equal(codes(report).includes("GODOT_FIRST_PARTY_NETWORK"), true);
+  assert.equal(report.violations[0].path, "addons/unknown/upstream.gd");
 });
 
 test("fixed runtime diagnostic pointers pass without allowing arbitrary absolute paths", (context) => {
