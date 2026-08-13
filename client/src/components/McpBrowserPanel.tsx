@@ -30,6 +30,7 @@ interface McpBrowserArtifact {
 
 interface McpBrowserPanelProps {
   availability: McpAvailability;
+  compact?: boolean;
   connected: boolean;
   policy: McpBrowserPolicy | null;
   preflightStatus: McpDatabasePreflightStatus;
@@ -122,6 +123,7 @@ async function readError(response: Response) {
 
 export default function McpBrowserPanel({
   availability,
+  compact = false,
   connected,
   policy,
   preflightStatus,
@@ -251,19 +253,19 @@ export default function McpBrowserPanel({
 
   return (
     <section
-      aria-label="临时浏览器安全与会话状态"
+      aria-label={compact ? "Playwright 会话与截图" : "临时浏览器安全与会话状态"}
       className="relative mt-3 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.05] p-3 text-xs"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-semibold text-cyan-100">临时浏览器安全状态</h3>
-        <div className="flex flex-wrap gap-2">
+        <h3 className="font-semibold text-cyan-100">{compact ? "会话与截图" : "临时浏览器安全状态"}</h3>
+        {!compact ? <div className="flex flex-wrap gap-2">
           <span className="rounded-full border border-cyan-300/25 bg-cyan-300/[0.08] px-2.5 py-1 font-semibold text-cyan-100">
             匿名临时会话
           </span>
           <span className="rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-2.5 py-1 font-semibold text-emerald-100">
             仅截图产物
           </span>
-        </div>
+        </div> : null}
       </div>
 
       <dl className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -273,12 +275,12 @@ export default function McpBrowserPanel({
             {loading && !session ? "正在读取状态" : sessionCopy[status].label}
           </dd>
         </div>
-        <div className="rounded-lg bg-black/15 p-2.5">
+        {!compact ? <div className="rounded-lg bg-black/15 p-2.5">
           <dt className="text-slate-400">浏览器预检</dt>
           <dd aria-live="polite" className={`mt-1 font-semibold ${preflightCopy[preflightStatus].className}`}>
             {preflightCopy[preflightStatus].label}
           </dd>
-        </div>
+        </div> : null}
         <div className="rounded-lg bg-black/15 p-2.5">
           <dt className="text-slate-400">操作额度</dt>
           <dd className="mt-1 font-semibold text-white">{actionCount} / {maxActions}</dd>
@@ -297,18 +299,18 @@ export default function McpBrowserPanel({
           <p className="mt-1 break-all font-medium text-slate-100">
             {session?.current_origin || "尚未导航"}
           </p>
-          <p className="mt-1 text-slate-400">
+          {!compact ? <p className="mt-1 text-slate-400">
             页面版本 {session?.page_revision ?? 0}；跨域后旧审批自动失效。
-          </p>
+          </p> : null}
         </div>
         <div className="rounded-lg bg-black/15 p-2.5">
           <p className="text-slate-400">会话有效期</p>
           <p className="mt-1 font-medium text-slate-100">
             {status === "active" ? `最晚 ${formatDate(session?.expires_at)} 结束` : "连接后开始计时"}
           </p>
-          <p className="mt-1 text-slate-400">
+          {!compact ? <p className="mt-1 text-slate-400">
             最长 {formatDuration(policy.session_ttl_seconds)}；闲置 {formatDuration(policy.idle_ttl_seconds)} 自动清理。
-          </p>
+          </p> : null}
         </div>
       </div>
 
@@ -325,7 +327,7 @@ export default function McpBrowserPanel({
         </div>
       ) : null}
 
-      <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.035] p-3 text-slate-300">
+      {!compact ? <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.035] p-3 text-slate-300">
         <p className="font-semibold text-white">固定边界</p>
         <p className="mt-1 leading-5">
           仅允许公网 {policy.allowed_schemes.map((item) => item.toUpperCase()).join("/")} 与端口 {policy.allowed_ports.join("、")}；DNS 固定后连接，跨 origin 请求与重定向直接拒绝。最多 {policy.max_pages} 个页面，全局最多 {policy.max_concurrent_sessions} 个并发会话。
@@ -342,15 +344,15 @@ export default function McpBrowserPanel({
         <p className="mt-2 leading-5 text-amber-100">
           页面仍可能自行呈现登录界面；本批不会把它作为可用能力，也不会采集、继承或保存登录态。请勿输入账号、密码、OTP 或其他认证信息。
         </p>
-      </div>
+      </div> : null}
 
       <div className="mt-3 border-t border-white/10 pt-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="font-semibold text-white">截图产物</p>
-            <p className="mt-1 text-slate-400">
+            {!compact ? <p className="mt-1 text-slate-400">
               单张最多 {formatBytes(policy.max_artifact_bytes)}；每项目最多 {policy.max_artifacts_per_project} 张 / {formatBytes(policy.max_artifact_storage_bytes)}，默认保留 {formatDuration(policy.artifact_ttl_seconds)}。
-            </p>
+            </p> : null}
           </div>
           <button
             className="min-h-11 rounded-full border border-cyan-300/20 px-3 py-2 font-semibold text-cyan-100 transition hover:border-cyan-300/35 hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
@@ -376,9 +378,9 @@ export default function McpBrowserPanel({
                     <p className="mt-1 text-slate-400">
                       {formatBytes(artifact.size_bytes)} · {artifact.mime_type} · 到期 {formatDate(artifact.expires_at)}
                     </p>
-                    <p className="mt-1 truncate font-mono text-[11px] text-slate-400">
+                    {!compact ? <p className="mt-1 truncate font-mono text-[11px] text-slate-400">
                       SHA-256 {artifact.sha256.slice(0, 16)}…
-                    </p>
+                    </p> : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {safeDownloadUrl(artifact.download_url, projectId) ? (
