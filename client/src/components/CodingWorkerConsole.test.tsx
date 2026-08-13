@@ -159,6 +159,56 @@ describe("CodingWorkerConsole", () => {
     expect(screen.queryByText("宿主写回")).not.toBeInTheDocument();
   });
 
+  it("does not open an event stream for a task that is already terminal", async () => {
+    const completedTask = { ...task, state: "completed", reason: null } as const;
+    api.listCodingWorkerTasks.mockResolvedValue([completedTask]);
+    api.getCodingWorkerTask.mockResolvedValue(completedTask);
+
+    render(<CodingWorkerConsole context="agent" />);
+
+    await waitFor(() => expect(api.getCodingWorkerTask).toHaveBeenCalledWith(task.task_id));
+    expect(api.connectCodingWorkerEvents).not.toHaveBeenCalled();
+  });
+
+  it("closes an active event stream when a terminal task state arrives", async () => {
+    const disconnect = vi.fn();
+    api.getCodingWorkerTask
+      .mockResolvedValueOnce(task)
+      .mockResolvedValue({ ...task, state: "completed", reason: null });
+    api.connectCodingWorkerEvents.mockImplementation((_taskId, _after, handlers) => {
+      queueMicrotask(() => {
+        handlers.onEvent({
+          sequence: 2,
+          task_id: task.task_id,
+          type: "task_state",
+          payload: { from: "testing", to: "completed", reason: null },
+          created_at: 3,
+        });
+      });
+      return disconnect;
+    });
+
+    render(<CodingWorkerConsole context="agent" />);
+
+    await waitFor(() => expect(disconnect).toHaveBeenCalledTimes(1));
+  });
+
+  it("reconciles a terminal task after EventSource reports normal EOF", async () => {
+    const disconnect = vi.fn();
+    api.getCodingWorkerTask
+      .mockResolvedValueOnce(task)
+      .mockResolvedValue({ ...task, state: "completed", reason: null });
+    api.connectCodingWorkerEvents.mockImplementation((_taskId, _after, handlers) => {
+      queueMicrotask(() => handlers.onTransportError());
+      return disconnect;
+    });
+
+    render(<CodingWorkerConsole context="agent" />);
+
+    await waitFor(() => expect(disconnect).toHaveBeenCalledTimes(1));
+    expect(api.getCodingWorkerTask).toHaveBeenCalledTimes(2);
+  });
+
   it("shows public plans, exact shell approval, replayed output, changesets and diagnostics", async () => {
     api.listCodingWorkerApprovals.mockResolvedValue([{
       approval_id: "approval_1234567890abcdef1234567890abcdef",
