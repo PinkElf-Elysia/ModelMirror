@@ -8,8 +8,8 @@
 
 - [x] R12.1 治理与初版声明门（`a0085fc7`）
 - [x] R12.2 通用候选验收与修复（`21a45323`）
-- [x] R12.3 六资产组装与宿主扩容（已验证，等待本地提交；SHA在R12.4记录）
-- [ ] R12.4 Marble SPZ自动空间化
+- [x] R12.3 六资产组装与宿主扩容（`4e8fee93`）
+- [x] R12.4 Marble SPZ自动空间化（已验证，等待本地提交；SHA在R12.5记录）
 - [ ] R12.5 离线端到端与泛化复验
 - [ ] R12.6 末班地铁真实资格链
 - [ ] R12.7 验收与初版收口
@@ -43,6 +43,17 @@
 - 定向`node --test tests/prototype-assembly.test.mjs tests/prototype-host.test.mjs tests/prototype-builder.test.mjs`为37/37，Creator TypeScript/Vite build为248 modules。最终完整`npm.cmd test`为701/701；首次完整运行仅冻结R8 loopback超时用例在全套负载下计数0/1而失败，该用例单独复跑1/1且未改冻结代码，第二次同一完整命令稳定701/701。
 - 最终树完整`npm.cmd run verify`为20/20步骤：Node 701/701，Godot 4.6.3的R4–R11 source/import/runtime/parity/3D/Scene/splat全回归，Creator 248 modules build及HTTP smoke通过；round scope为checked=43/changed=39、parent scope相同、boundary为1079/1079、`git diff --check`通过。
 - 本批未修改R1–R11冻结实现、Godot、examples或父仓，未调用模型、Marble或Meshy，也未读取供应商凭据。回退为单独revert R12.3提交；v1默认路径和既有缓存继续可用。
+
+## R12.4证据
+
+- 环境Pipeline保留原R10 panorama+collider双下载API和字节行为，并新增显式`materializePrototypeEnvironmentWithSpatialSource`。新路径只从同一次`marble-1.1` world取得panorama、collider及`spz_urls.full_res`各一次，并读取`semantics_metadata.metric_scale_factor`与`ground_plane_offset`；审批精确绑定一次create、最多180次poll、一次Get World、三次下载、1600 credits和1.50美元上限。缺失、畸形或未批准的尺度/URL在发布前静态拒绝。
+- 新增私有canonical`Prototype Spatial Source Bundle 0.1.0`，将同一Environment Bundle、collider、full-res SPZ以及`metricScaleMicros=round(metric×1,000,000)`、`groundPlaneOffsetMm=round(offset×1,000)`绑定。Bundle和脱敏report不含prompt、world/operation ID、下载URL、凭据或原始响应；它只证明本地字节完整性，不宣称供应商真实性。R12专用loopback回归精确锁定一条7请求链、审批前零请求、URL/metadata fail closed和动态凭据不泄漏。
+- `materializePrototypeSpatialEnvironmentFromSource`先复验Environment与Spatial Source两份bundle和文件身份，再调用既有R11转换器生成确定性640k compressed PLY；尺度仅取已量化官方字段，Godot平移/旋转固定为零，不存在人工常量回退。定向测试锁定同一source重复转换、bundle/file漂移及旧显式校准API兼容。
+- `assemblePrototypeSpatialScene`保留默认v1不变，并新增闭合v2选择，只接受prototype assembly v2。v2从通用walkable envelope扣除墙体与1m安全余量，按Scene Pack声明顺序生成固定4×2槽位，最多六个非环境placement；窄于8×4m或七项固定返回`PROTOTYPE_SPATIAL_ASSEMBLY_SAFE_LAYOUT_UNAVAILABLE`。六槽位、0/7边界及20次canonical确定性已验证，不含案例坐标或题材分支。
+- R11空间overlay恢复器现在从已复验的源assembly report精确选择v1/v2重算；未知profile fail closed。实际事务导入/恢复测试证明v1缓存语义不变、v2 overlay可重启恢复。Godot strict loader兼容可选layout；wrapper在空间root坐标内应用X/Z槽位，再继续以每个Mesh的全局AABB完成Y轴落地，环境visual仍隐藏、collider与panorama禁用策略不变。
+- 定向门：prototype environment 9/9、spatial environment 10/10、spatial assembly 10/10、spatial builder 10/10、Godot 4.6.3 headless import通过。完整`npm.cmd test`最终为707/707；首次仅冻结R9 loopback超时计数用例在全套高并发负载下得到0/1，该原用例单独复现1/1，未改冻结代码，随后同一完整命令稳定707/707。
+- 最终树完整`npm.cmd run verify`为20/20步骤，Node 707/707、Godot 4.6.3的R4–R11 source/import/runtime/parity/3D/Scene/splat回归、Creator build与HTTP smoke均通过；boundary为checked=1080/tracked=1079，round/parent scope均通过，`git diff --check`通过。
+- 本批只使用官方文档确认字段形状并以loopback假服务验证；未调用真实Marble、模型或Meshy，未读取供应商凭据，未创建远程world或下载真实资产。回退为单独revert R12.4提交；原R10双资产API、R11显式校准和v1 spatial overlay继续可用。
 
 ## 最终硬门
 

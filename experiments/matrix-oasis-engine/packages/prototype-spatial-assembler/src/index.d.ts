@@ -103,6 +103,10 @@ export interface PrototypeSpatialAssembly {
       adjacentBins: 2;
     }>;
     placementGroundTargetMm: 150;
+    placementLayout?: readonly Readonly<{
+      placementId: string;
+      positionMm: readonly [number, 0, number];
+    }>[];
   }>;
 }
 
@@ -137,4 +141,5 @@ export declare function validatePrototypeSpatialAssemblyJson(text: string): Read
 
 export declare function assemblePrototypeSpatialScene(
   request: PrototypeSpatialAssemblyRequest,
+  options?: Readonly<{ profile: "matrix-oasis.prototype-spatial-assembly/2" }>,
 ): Promise<PrototypeSpatialAssemblyResult>;

@@ -249,6 +249,32 @@ async function fixture() {
   };
 }
 
+async function multiAssetFixture(count = 6) {
+  const input = await fixture();
+  const scene = JSON.parse(input.scenePackJson);
+  const added = Array.from({ length: count }, (_, index) => ({
+    id: `placement-item-${index}`,
+    visualAssetId: "environment-collider",
+    colliderAssetId: null,
+    entityId: null,
+    transform: {
+      positionMm: [index * 100, 0, index * 100],
+      rotationMilliDegrees: [0, 0, 0],
+      scalePermille: [1000, 1000, 1000],
+    },
+  }));
+  scene.placements.push(...added);
+  for (const binding of scene.nodeBindings) {
+    binding.visiblePlacementIds.push(...added.map((placement) => placement.id));
+  }
+  input.scenePackJson = canonicalizeJsonValue(scene);
+  const report = JSON.parse(input.assemblyReportJson);
+  report.profile = "matrix-oasis.prototype-assembly/2";
+  report.output.scenePackSha256 = hash(input.scenePackJson);
+  input.assemblyReportJson = canonicalizeJsonValue(report);
+  return input;
+}
+
 test("exports one exact private assembly surface", async () => {
   const exports = await import("../src/index.mjs");
   assert.deepEqual(Object.keys(exports).sort(), [
@@ -379,6 +405,47 @@ test("keeps the same world layout when source metric units are scaled", async ()
     peakThresholdPermille: 5,
     adjacentBins: 2,
   });
+});
+
+test("v2 derives six ordered safe slots inside the walkable envelope and fails closed without capacity", async () => {
+  const input = await multiAssetFixture(6);
+  const result = await assemblePrototypeSpatialScene(input, {
+    profile: "matrix-oasis.prototype-spatial-assembly/2",
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.assembly.transforms.placementLayout.map((entry) => entry.placementId),
+    Array.from({ length: 6 }, (_, index) => `placement-item-${index}`));
+  assert.equal(new Set(result.assembly.transforms.placementLayout.map((entry) => entry.positionMm.join(","))).size, 6);
+  for (const entry of result.assembly.transforms.placementLayout) {
+    assert.equal(entry.positionMm[0] >= -4300 && entry.positionMm[0] <= 4050, true);
+    assert.equal(entry.positionMm[1], 0);
+    assert.equal(entry.positionMm[2] >= -13800 && entry.positionMm[2] <= 7800, true);
+  }
+  assert.equal(validatePrototypeSpatialAssemblyJson(result.canonicalSpatialAssemblyJson).valid, true);
+  const report = JSON.parse(result.canonicalSpatialAssemblyReportJson);
+  assert.equal(report.profile, "matrix-oasis.prototype-spatial-assembly/2");
+  assert.equal(report.alignment.placementLayoutProfile, "walkable-envelope-grid-4x2-v1");
+  assert.equal(report.alignment.placementLayoutCount, 6);
+  const outputs = await Promise.all(Array.from({ length: 20 }, () =>
+    assemblePrototypeSpatialScene(input, { profile: "matrix-oasis.prototype-spatial-assembly/2" })));
+  assert.equal(new Set(outputs.map((entry) => entry.canonicalSpatialAssemblyJson)).size, 1);
+
+  const tooMany = await assemblePrototypeSpatialScene(await multiAssetFixture(7), {
+    profile: "matrix-oasis.prototype-spatial-assembly/2",
+  });
+  assert.equal(tooMany.diagnostics[0].code, "PROTOTYPE_SPATIAL_ASSEMBLY_SAFE_LAYOUT_UNAVAILABLE");
+  const narrowInput = await multiAssetFixture(2);
+  const spatial = JSON.parse(narrowInput.spatialEnvironmentBundleJson);
+  spatial.statistics.sourceInteriorEnvelope.minimumMm = [-2000, 0, -2000];
+  spatial.statistics.sourceInteriorEnvelope.maximumMm = [2000, 4000, 2000];
+  narrowInput.spatialEnvironmentBundleJson = canonicalizeJsonValue(spatial);
+  const narrow = await assemblePrototypeSpatialScene(narrowInput, {
+    profile: "matrix-oasis.prototype-spatial-assembly/2",
+  });
+  assert.equal(narrow.diagnostics[0].code, "PROTOTYPE_SPATIAL_ASSEMBLY_SAFE_LAYOUT_UNAVAILABLE");
+  assert.equal((await assemblePrototypeSpatialScene(input, {
+    profile: "matrix-oasis.prototype-spatial-assembly/1",
+  })).diagnostics[0].code, "PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_UNSUPPORTED");
 });
 
 test("is byte deterministic twenty times and leaves caller bytes unchanged", async () => {

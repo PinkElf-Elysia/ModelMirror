@@ -138,7 +138,13 @@ static func _valid_splat_derivation(value: Variant, runtime_count: int) -> bool:
 
 
 static func _valid_transforms(value: Variant) -> bool:
-	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["alignment", "collider", "coordinateTransform", "eulerOrder", "placementGroundTargetMm", "root", "splat", "walkableEnvelope"]) or value["coordinateTransform"] != "spz-raw-ply-to-godot-v1" or value["eulerOrder"] != "YXZ" or value["placementGroundTargetMm"] != 150:
+	if typeof(value) != TYPE_DICTIONARY:
+		return false
+	var keys := ["alignment", "collider", "coordinateTransform", "eulerOrder", "placementGroundTargetMm", "root", "splat", "walkableEnvelope"]
+	var has_layout: bool = value.has("placementLayout")
+	if has_layout:
+		keys.append("placementLayout")
+	if not _exact(value, keys) or value["coordinateTransform"] != "spz-raw-ply-to-godot-v1" or value["eulerOrder"] != "YXZ" or value["placementGroundTargetMm"] != 150:
 		return false
 	if not _valid_alignment(value["alignment"]):
 		return false
@@ -151,7 +157,18 @@ static func _valid_transforms(value: Variant) -> bool:
 		return false
 	if typeof(collider) != TYPE_DICTIONARY or not _exact(collider, ["localTranslationMm", "scaleMicros"]) or not _vector(collider["localTranslationMm"], -2000000, 2000000) or not _bounded_integer(collider["scaleMicros"], 1, 100000000):
 		return false
-	return _valid_walkable_envelope(value["walkableEnvelope"])
+	return _valid_walkable_envelope(value["walkableEnvelope"]) and (not has_layout or _valid_placement_layout(value["placementLayout"]))
+
+
+static func _valid_placement_layout(value: Variant) -> bool:
+	if typeof(value) != TYPE_ARRAY or value.size() > 6:
+		return false
+	var ids: Dictionary = {}
+	for entry: Variant in value:
+		if typeof(entry) != TYPE_DICTIONARY or not _exact(entry, ["placementId", "positionMm"]) or not _id(entry["placementId"]) or not _vector(entry["positionMm"], -2000000, 2000000) or entry["positionMm"][1] != 0 or ids.has(entry["placementId"]):
+			return false
+		ids[entry["placementId"]] = true
+	return true
 
 
 static func _valid_walkable_envelope(value: Variant) -> bool:
@@ -208,6 +225,24 @@ static func _hash(value: Variant) -> bool:
 		var code: int = value.unicode_at(index)
 		if not (code >= 0x30 and code <= 0x39) and not (code >= 0x61 and code <= 0x66):
 			return false
+	return true
+
+
+static func _id(value: Variant) -> bool:
+	if typeof(value) != TYPE_STRING or value.length() < 1 or value.length() > 96:
+		return false
+	var first: int = value.unicode_at(0)
+	if first < 0x61 or first > 0x7a or value.ends_with("-"):
+		return false
+	var previous_hyphen := false
+	for index in range(value.length()):
+		var code: int = value.unicode_at(index)
+		var hyphen := code == 0x2d
+		if not hyphen and not (code >= 0x61 and code <= 0x7a) and not (code >= 0x30 and code <= 0x39):
+			return false
+		if hyphen and previous_hyphen:
+			return false
+		previous_hyphen = hyphen
 	return true
 
 

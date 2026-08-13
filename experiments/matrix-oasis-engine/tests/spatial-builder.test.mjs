@@ -151,7 +151,7 @@ async function writeBytes(root, relative, bytes) {
   await writeFile(candidate, bytes);
 }
 
-async function fixture() {
+async function fixture(options = {}) {
   const root = await mkdtemp(path.join(TEMP_ROOT, "matrix-oasis-r11-builder-"));
   const prototypeRunRoot = path.join(root, "prototype-runs");
   const spatialEnvironmentDir = path.join(root, "spatial-source");
@@ -195,7 +195,8 @@ async function fixture() {
     spzBytes: spz(), calibration: { coordinateTransform: "spz-raw-ply-to-godot-v1", metricScaleMicros: 1_000_000,
       groundPlaneOffsetMm: 0, godotTranslationMm: [0, 0, 0], godotRotationMilliDegrees: [0, 0, 0] } });
   assert.equal(spatial.ok, true);
-  const assemblyReportText = canonicalizeJsonValue({ reportVersion: 1, profile: "matrix-oasis.prototype-assembly/1",
+  const assemblyReportText = canonicalizeJsonValue({ reportVersion: 1,
+    profile: options.assemblyProfile ?? "matrix-oasis.prototype-assembly/1",
     inputs: { sceneBlueprintSha256: hash(blueprintText), prototypeEnvironmentBundleSha256: hash(environmentText) },
     environment: { colliderSha256: colliderHash }, output: { scenePackSha256: hash(sceneText) } });
   const texts = new Map([
@@ -288,6 +289,26 @@ test("imports an isolated spatial overlay and rejects drift without modifying th
     const drifted = await recoverSpatialPrototypeRuns({ runRoot: value.spatialRunRoot,
       prototypeRunRoot: value.prototypeRunRoot, ...value.dependencies });
     assert.deepEqual(drifted, { currentRunId: null, runs: [] });
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("imports and recovers a v2 spatial overlay without changing v1 cache semantics", async () => {
+  const value = await fixture({ assemblyProfile: "matrix-oasis.prototype-assembly/2" });
+  try {
+    const imported = await importSpatialPrototypeCache({ args: importArgs(value), ...value.dependencies });
+    assert.deepEqual(imported, { runId: RUN_ID, cacheHit: true, files: 6 });
+    const overlayRoot = path.join(value.spatialRunRoot, "spatial-runs", RUN_ID);
+    const report = JSON.parse(await readFile(path.join(overlayRoot, "spatial-assembly-report.json"), "utf8"));
+    const assembly = JSON.parse(await readFile(path.join(overlayRoot, "spatial-assembly.json"), "utf8"));
+    assert.equal(report.profile, "matrix-oasis.prototype-spatial-assembly/2");
+    assert.equal(report.alignment.placementLayoutProfile, "walkable-envelope-grid-4x2-v1");
+    assert.deepEqual(assembly.transforms.placementLayout, []);
+    const recovered = await recoverSpatialPrototypeRuns({ runRoot: value.spatialRunRoot,
+      prototypeRunRoot: value.prototypeRunRoot, ...value.dependencies });
+    assert.equal(recovered.currentRunId, RUN_ID);
+    assert.deepEqual(recovered.runs.map((run) => run.runId), [RUN_ID]);
   } finally {
     await rm(value.root, { recursive: true, force: true });
   }

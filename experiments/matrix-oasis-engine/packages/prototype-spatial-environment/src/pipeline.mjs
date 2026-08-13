@@ -3,7 +3,10 @@ import {
   CANONICAL_JSON_PROFILE,
   canonicalizeJsonValue,
 } from "@matrix-oasis/runtime-pack-contracts";
-import { validatePrototypeEnvironmentBundleJson } from "@matrix-oasis/prototype-environment-pipeline";
+import {
+  validatePrototypeEnvironmentBundleJson,
+  validatePrototypeSpatialSourceBundleJson,
+} from "@matrix-oasis/prototype-environment-pipeline";
 import { convertSpzToCompressedPly, inspectCompressedPly } from "./convert.mjs";
 import { diagnostic, failure, report } from "./diagnostics.mjs";
 import { PrototypeSpatialEnvironmentOperationalError } from "./operational.mjs";
@@ -438,6 +441,62 @@ export async function materializePrototypeSpatialEnvironment(request) {
       toolchain: bundle.toolchain,
     }));
     return Object.freeze({ ok: true, bundle, canonicalBundleJson, canonicalReportJson, files });
+  } catch (error) {
+    if (error instanceof PrototypeSpatialEnvironmentOperationalError) throw error;
+    throw new PrototypeSpatialEnvironmentOperationalError();
+  }
+}
+
+export async function materializePrototypeSpatialEnvironmentFromSource(request) {
+  try {
+    const captured = captureRecord(request, [
+      "environmentBundleJson",
+      "environmentFiles",
+      "spatialSourceBundleJson",
+      "spatialSourceFiles",
+    ]);
+    if (!captured || typeof captured.environmentBundleJson !== "string" ||
+        typeof captured.spatialSourceBundleJson !== "string") {
+      return failure("PROTOTYPE_SPATIAL_ENVIRONMENT_SOURCE_REQUEST_INVALID");
+    }
+    const environmentFiles = copyFiles(captured.environmentFiles);
+    const sourceFiles = copyFiles(captured.spatialSourceFiles);
+    if (!environmentFiles || !sourceFiles) {
+      return failure("PROTOTYPE_SPATIAL_ENVIRONMENT_SOURCE_REQUEST_INVALID");
+    }
+    const environmentValidation = validatePrototypeEnvironmentBundleJson(
+      captured.environmentBundleJson,
+      environmentFiles,
+    );
+    const sourceValidation = validatePrototypeSpatialSourceBundleJson(
+      captured.spatialSourceBundleJson,
+      sourceFiles,
+      captured.environmentBundleJson,
+    );
+    if (!environmentValidation.valid || !sourceValidation.valid) {
+      return failure("PROTOTYPE_SPATIAL_ENVIRONMENT_SOURCE_BUNDLE_INVALID", "integrity", "/spatialSourceBundle");
+    }
+    const source = parseCanonical(
+      captured.spatialSourceBundleJson,
+      PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS.manifestBytes,
+      canonicalizeJsonValue,
+    );
+    const spzBytes = sourceFiles.get("assets/environment.spz");
+    if (!source || !(spzBytes instanceof Uint8Array)) {
+      return failure("PROTOTYPE_SPATIAL_ENVIRONMENT_SOURCE_BUNDLE_INVALID", "integrity", "/spatialSourceBundle/source");
+    }
+    return await materializePrototypeSpatialEnvironment({
+      environmentBundleJson: captured.environmentBundleJson,
+      environmentFiles,
+      spzBytes,
+      calibration: {
+        coordinateTransform: "spz-raw-ply-to-godot-v1",
+        metricScaleMicros: source.scale.metricScaleMicros,
+        groundPlaneOffsetMm: source.scale.groundPlaneOffsetMm,
+        godotTranslationMm: [0, 0, 0],
+        godotRotationMilliDegrees: [0, 0, 0],
+      },
+    });
   } catch (error) {
     if (error instanceof PrototypeSpatialEnvironmentOperationalError) throw error;
     throw new PrototypeSpatialEnvironmentOperationalError();

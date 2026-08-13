@@ -123,6 +123,9 @@ func _install_spatial_environment(scene_lab: MatrixOasisSceneLab, assembly: Dict
 	root.name = "R11SpatialEnvironment"
 	scene_world.add_child(root)
 	_apply_root_transform(root, assembly["transforms"]["root"], assembly["transforms"]["eulerOrder"])
+	if assembly["transforms"].has("placementLayout") and not _apply_placement_layout(scene_lab, placement_id, root, assembly["transforms"]["placementLayout"]):
+		root.queue_free()
+		return false
 	if not _apply_placement_ground_target(scene_lab, placement_id, root, assembly["transforms"]["placementGroundTargetMm"]):
 		root.queue_free()
 		return false
@@ -193,6 +196,29 @@ func _apply_placement_ground_target(scene_lab: MatrixOasisSceneLab, environment_
 			placement.global_position.y += target_global_y - minimum_y
 			adjusted += 1
 	return adjusted >= 1
+
+
+func _apply_placement_layout(scene_lab: MatrixOasisSceneLab, environment_placement_id: String, spatial_root: Node3D, layout: Array) -> bool:
+	var placements := scene_lab.get_node_or_null("SceneWorld/ScenePlacements") as Node3D
+	if placements == null or spatial_root == null:
+		return false
+	var expected: Dictionary = {}
+	for child in placements.get_children():
+		if child is Node3D and child.name != environment_placement_id:
+			expected[String(child.name)] = child
+	if expected.size() != layout.size():
+		return false
+	for entry: Dictionary in layout:
+		var placement_id: String = entry["placementId"]
+		var placement := expected.get(placement_id) as Node3D
+		if placement == null:
+			return false
+		var local_target := _millimeters(entry["positionMm"])
+		var global_target := spatial_root.to_global(local_target)
+		placement.global_position.x = global_target.x
+		placement.global_position.z = global_target.z
+		expected.erase(placement_id)
+	return expected.is_empty()
 
 
 func _mesh_minimum_global_y(root: Node3D) -> float:

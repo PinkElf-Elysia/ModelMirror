@@ -8,6 +8,7 @@ export const MARBLE_PROVIDER_LIMITS = Object.freeze({
   responseBytes: 1024 * 1024,
   panoramaBytes: 64 * 1024 * 1024,
   colliderBytes: 32 * 1024 * 1024,
+  spzBytes: 64 * 1024 * 1024,
   pollAttempts: 180,
   pollIntervalMs: 10_000,
   promptCharacters: 2000,
@@ -227,14 +228,22 @@ function assetUrl(state, value) {
   return loopback || official ? url : null;
 }
 
-function worldResult(state, value, expectedWorldId) {
+function worldResult(state, value, expectedWorldId, includeSpatialSource) {
   const world = value?.world && typeof value.world === "object" && !Array.isArray(value.world) ? value.world : value;
   if (!world || typeof world !== "object" || Array.isArray(world)) return failure("MARBLE_PROVIDER_RESPONSE_INVALID");
   const worldId = remoteId(world.world_id ?? world.id);
   const panoramaUrl = assetUrl(state, world.assets?.imagery?.pano_url);
   const colliderUrl = assetUrl(state, world.assets?.mesh?.collider_mesh_url);
   if (worldId !== expectedWorldId || world.model !== MARBLE_PROVIDER_MODEL || !panoramaUrl || !colliderUrl) return failure("MARBLE_PROVIDER_ASSET_URL_INVALID");
-  return { ok: true, panoramaUrl, colliderUrl };
+  if (!includeSpatialSource) return { ok: true, panoramaUrl, colliderUrl };
+  const spzUrl = assetUrl(state, world.assets?.splats?.spz_urls?.full_res);
+  const metricScaleFactor = world.assets?.splats?.semantics_metadata?.metric_scale_factor;
+  const groundPlaneOffset = world.assets?.splats?.semantics_metadata?.ground_plane_offset;
+  if (!spzUrl || typeof metricScaleFactor !== "number" || !Number.isFinite(metricScaleFactor) || metricScaleFactor <= 0 ||
+      typeof groundPlaneOffset !== "number" || !Number.isFinite(groundPlaneOffset)) {
+    return failure("MARBLE_PROVIDER_SPATIAL_SOURCE_INVALID");
+  }
+  return { ok: true, panoramaUrl, colliderUrl, spzUrl, metricScaleFactor, groundPlaneOffset };
 }
 
 async function download(state, url, maximum) {
@@ -253,7 +262,7 @@ export function createMarbleWorldProvider(config) {
   return provider;
 }
 
-export async function acquireMarbleEnvironment(provider, prompt) {
+async function acquireMarble(provider, prompt, includeSpatialSource) {
   const state = providerStates.get(provider);
   if (!state || !wellFormedText(prompt) || prompt.length < 1 || prompt.length > MARBLE_PROVIDER_LIMITS.promptCharacters || !/\S/u.test(prompt)) {
     return failure("MARBLE_PROVIDER_REQUEST_INVALID");
@@ -291,16 +300,33 @@ export async function acquireMarbleEnvironment(provider, prompt) {
   const worldUrl = new URL(`${state.endpoint.url.pathname}/worlds/${worldId}`, state.endpoint.url);
   const fetchedWorld = await requestJson(state, worldUrl, { method: "GET", headers: { "WLT-Api-Key": state.apiKey, accept: "application/json" } });
   if (!fetchedWorld.ok) return fetchedWorld;
-  const world = worldResult(state, fetchedWorld.value, worldId);
+  const world = worldResult(state, fetchedWorld.value, worldId, includeSpatialSource);
   if (!world.ok) return world;
   const panorama = await download(state, world.panoramaUrl, MARBLE_PROVIDER_LIMITS.panoramaBytes);
   if (!panorama.ok) return panorama;
   const collider = await download(state, world.colliderUrl, MARBLE_PROVIDER_LIMITS.colliderBytes);
   if (!collider.ok) return collider;
+  const spz = includeSpatialSource
+    ? await download(state, world.spzUrl, MARBLE_PROVIDER_LIMITS.spzBytes)
+    : null;
+  if (includeSpatialSource && !spz.ok) return spz;
   return Object.freeze({
     ok: true,
     panoramaBytes: panorama.bytes,
     colliderBytes: collider.bytes,
-    counts: Object.freeze({ creates: 1, polls, worldGets: 1, downloads: 2 }),
+    ...(includeSpatialSource ? {
+      spzBytes: spz.bytes,
+      metricScaleFactor: world.metricScaleFactor,
+      groundPlaneOffset: world.groundPlaneOffset,
+    } : {}),
+    counts: Object.freeze({ creates: 1, polls, worldGets: 1, downloads: includeSpatialSource ? 3 : 2 }),
   });
+}
+
+export async function acquireMarbleEnvironment(provider, prompt) {
+  return await acquireMarble(provider, prompt, false);
+}
+
+export async function acquireMarbleEnvironmentWithSpatialSource(provider, prompt) {
+  return await acquireMarble(provider, prompt, true);
 }

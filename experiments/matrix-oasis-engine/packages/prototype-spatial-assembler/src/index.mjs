@@ -20,6 +20,11 @@ export const PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE = Object.freeze({
   id: "matrix-oasis.prototype-spatial-assembly/1",
   panoramaVisible: false,
 });
+const PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2 = Object.freeze({
+  id: "matrix-oasis.prototype-spatial-assembly/2",
+  panoramaVisible: false,
+  maxNonEnvironmentPlacements: 6,
+});
 
 const REQUEST_KEYS = Object.freeze([
   "assemblyReportJson",
@@ -108,6 +113,20 @@ function captureRequest(value) {
   }
   for (const key of REQUEST_KEYS.slice(0, 5)) if (typeof output[key] !== "string") return null;
   return output;
+}
+
+function captureProfile(value) {
+  if (value === undefined) return PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE;
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+      Object.getPrototypeOf(value) !== Object.prototype) return null;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const keys = Reflect.ownKeys(descriptors);
+  const profile = descriptors.profile;
+  return keys.length === 1 && keys[0] === "profile" && profile?.enumerable &&
+    profile.get === undefined && profile.set === undefined &&
+    Object.hasOwn(profile, "value") && profile.value === PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.id
+    ? PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2
+    : null;
 }
 
 function copyFileMap(value) {
@@ -200,6 +219,15 @@ function validWalkableEnvelope(value) {
     value.adjacentBins === 2;
 }
 
+function validPlacementLayout(value) {
+  if (!Array.isArray(value) || value.length > 6) return false;
+  const ids = new Set();
+  return value.every((entry) => exactRecord(entry, ["placementId", "positionMm"]) &&
+    typeof entry.placementId === "string" && ID_PATTERN.test(entry.placementId) &&
+    !ids.has(entry.placementId) && ids.add(entry.placementId) &&
+    safeVector(entry.positionMm, -2_000_000, 2_000_000) && entry.positionMm[1] === 0);
+}
+
 function validRenderer(value) {
   return exactRecord(value, [
     "profile", "depthBiasMicros", "depthTestMinAlphaPermille",
@@ -278,9 +306,11 @@ function validAssemblyShape(value) {
       !["assetId", "placementId"].every((key) =>
         typeof value.environment.collider[key] === "string" &&
         ID_PATTERN.test(value.environment.collider[key])) ||
-      !exactRecord(value.transforms, [
+      !(exactRecord(value.transforms, [
         "coordinateTransform", "eulerOrder", "alignment", "root", "splat", "collider", "walkableEnvelope", "placementGroundTargetMm",
-      ]) ||
+      ]) || exactRecord(value.transforms, [
+        "coordinateTransform", "eulerOrder", "alignment", "root", "splat", "collider", "walkableEnvelope", "placementGroundTargetMm", "placementLayout",
+      ])) ||
       value.transforms.coordinateTransform !== "spz-raw-ply-to-godot-v1" ||
       value.transforms.eulerOrder !== "YXZ" ||
       !validColliderAlignment(value.transforms.alignment) ||
@@ -301,6 +331,7 @@ function validAssemblyShape(value) {
       value.transforms.collider.scaleMicros < 1 ||
       value.transforms.collider.scaleMicros > 100_000_000 ||
       !validWalkableEnvelope(value.transforms.walkableEnvelope) ||
+      (Object.hasOwn(value.transforms, "placementLayout") && !validPlacementLayout(value.transforms.placementLayout)) ||
       value.transforms.placementGroundTargetMm !== 150) {
     return false;
   }
@@ -378,9 +409,12 @@ function findEnvironmentBinding(scenePack, spatial) {
   return { asset, placement };
 }
 
-function parseAssemblyReport(value) {
+function parseAssemblyReport(value, profile) {
+  const expectedSourceProfile = profile.id === PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.id
+    ? "matrix-oasis.prototype-assembly/2"
+    : "matrix-oasis.prototype-assembly/1";
   if (value?.reportVersion !== 1 ||
-      value.profile !== "matrix-oasis.prototype-assembly/1" ||
+      value.profile !== expectedSourceProfile ||
       !validHash(value.inputs?.sceneBlueprintSha256) ||
       !validHash(value.inputs?.prototypeEnvironmentBundleSha256) ||
       !validHash(value.environment?.colliderSha256) ||
@@ -409,6 +443,28 @@ function alignedRootTranslation(translation, offset, playerSpawn) {
     value >= -2_000_000 && value <= 2_000_000) ? output : null;
 }
 
+function derivePlacementLayout(scenePack, environmentPlacementId, walkableEnvelope) {
+  const placements = scenePack.placements.filter((placement) => placement.id !== environmentPlacementId);
+  if (placements.length > PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.maxNonEnvironmentPlacements) return null;
+  const clearance = walkableEnvelope.wallThicknessMm + 1_000;
+  const minimumX = walkableEnvelope.minimumMm[0] + clearance;
+  const maximumX = walkableEnvelope.maximumMm[0] - clearance;
+  const minimumZ = walkableEnvelope.minimumMm[2] + clearance;
+  const maximumZ = walkableEnvelope.maximumMm[2] - clearance;
+  const width = maximumX - minimumX;
+  const depth = maximumZ - minimumZ;
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(depth) ||
+      width < 8_000 || depth < 4_000) return null;
+  const layout = placements.map((placement, index) => {
+    const column = index % 4;
+    const row = Math.floor(index / 4);
+    const x = Math.round(minimumX + width * (column * 2 + 1) / 8);
+    const z = Math.round(minimumZ + depth * (row * 2 + 1) / 4);
+    return { placementId: placement.id, positionMm: [x, 0, z] };
+  });
+  return validPlacementLayout(layout) ? layout : null;
+}
+
 function buildAssembly({
   assemblyReportText,
   assemblyReport,
@@ -421,6 +477,8 @@ function buildAssembly({
   alignment,
   splatAlignment,
   walkableEnvelope,
+  profile,
+  placementLayout,
 }) {
   const playerSpawn = entryPlayerSpawn(scenePack, runtimePack);
   if (!playerSpawn) return null;
@@ -514,6 +572,7 @@ function buildAssembly({
         adjacentBins: walkableEnvelope.adjacentBins,
       },
       placementGroundTargetMm: 150,
+      ...(placementLayout === undefined ? {} : { placementLayout }),
     },
   };
 }
@@ -523,10 +582,11 @@ function buildAssemblyReport({
   canonicalAssemblyJson,
   entryPlayerSpawnMm,
   spatialMetricScaleMicros,
+  profile,
 }) {
   return {
     reportVersion: 1,
-    profile: PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE.id,
+    profile: profile.id,
     inputs: { ...assembly.sources },
     alignment: {
       coordinateTransform: assembly.transforms.coordinateTransform,
@@ -557,6 +617,10 @@ function buildAssemblyReport({
       rendererProfile: assembly.environment.renderer.profile,
       rendererDepthBiasMicros: assembly.environment.renderer.depthBiasMicros,
       placementGroundTargetMm: assembly.transforms.placementGroundTargetMm,
+      ...(Object.hasOwn(assembly.transforms, "placementLayout") ? {
+        placementLayoutProfile: "walkable-envelope-grid-4x2-v1",
+        placementLayoutCount: assembly.transforms.placementLayout.length,
+      } : {}),
     },
     output: {
       spatialAssemblySha256: sha256(canonicalAssemblyJson),
@@ -568,7 +632,7 @@ function buildAssemblyReport({
   };
 }
 
-async function assemble(request) {
+async function assemble(request, profile) {
   const captured = captureRequest(request);
   if (!captured) return failure("PROTOTYPE_SPATIAL_ASSEMBLY_INPUT_INVALID");
   const files = copyFileMap(captured.spatialEnvironmentFiles);
@@ -576,7 +640,7 @@ async function assemble(request) {
   const assemblyReport = parseAssemblyReport(canonicalObject(
     captured.assemblyReportJson,
     LIMITS.assemblyReportBytes,
-  ));
+  ), profile);
   if (!assemblyReport) {
     return failure(
       "PROTOTYPE_SPATIAL_ASSEMBLY_SOURCE_REPORT_INVALID",
@@ -660,6 +724,16 @@ async function assemble(request) {
       "semantic",
     );
   }
+  const placementLayout = profile.id === PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.id
+    ? derivePlacementLayout(scenePack, binding.placement.id, walkableEnvelope)
+    : undefined;
+  if (profile.id === PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.id && placementLayout === null) {
+    return failure(
+      "PROTOTYPE_SPATIAL_ASSEMBLY_SAFE_LAYOUT_UNAVAILABLE",
+      "/spatialEnvironmentBundle/statistics/sourceInteriorEnvelope",
+      "semantic",
+    );
+  }
   const assembly = buildAssembly({
     assemblyReportText: captured.assemblyReportJson,
     assemblyReport,
@@ -672,6 +746,8 @@ async function assemble(request) {
     alignment,
     splatAlignment,
     walkableEnvelope,
+    profile,
+    placementLayout,
   });
   if (!assembly) {
     return failure(
@@ -690,6 +766,7 @@ async function assemble(request) {
       canonicalAssemblyJson: canonicalSpatialAssemblyJson,
       entryPlayerSpawnMm: playerSpawn,
       spatialMetricScaleMicros: spatial.calibration.metricScaleMicros,
+      profile,
     }),
   );
   const referencedFiles = [
@@ -705,9 +782,11 @@ async function assemble(request) {
   });
 }
 
-export async function assemblePrototypeSpatialScene(request) {
+export async function assemblePrototypeSpatialScene(request, options) {
   try {
-    return await assemble(request);
+    const profile = captureProfile(options);
+    if (!profile) return failure("PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_UNSUPPORTED", "/profile");
+    return await assemble(request, profile);
   } catch (error) {
     if (error instanceof PrototypeSpatialAssemblerOperationalError) throw error;
     throw new PrototypeSpatialAssemblerOperationalError();

@@ -175,6 +175,14 @@ function canonical(text, canonicalizeJsonValue, code) {
   }
 }
 
+function spatialAssemblyOptions(assemblyReport, code) {
+  if (assemblyReport?.profile === "matrix-oasis.prototype-assembly/1") return undefined;
+  if (assemblyReport?.profile === "matrix-oasis.prototype-assembly/2") {
+    return Object.freeze({ profile: "matrix-oasis.prototype-spatial-assembly/2" });
+  }
+  fail(code);
+}
+
 function validSpatialReport(value, bundleText, bundle, files, canonicalizeJsonValue) {
   if (!exactRecord(value, ["format", "formatVersion", "bundleSha256", "source", "splat", "collider", "calibration", "statistics", "toolchain"]) ||
       value.format !== "matrix-oasis.prototype-spatial-environment-materialization-report" ||
@@ -217,7 +225,12 @@ async function readSourceRun({ root, runId, services, canonicalizeJsonValue }) {
     await readStableFile(directory, "assembly-report.json", TEXT_LIMITS["prototype-assembly-report.json"], services, "SPATIAL_CACHE_SOURCE_INVALID"),
     "SPATIAL_CACHE_SOURCE_INVALID",
   );
-  canonical(texts["prototype-assembly-report.json"], canonicalizeJsonValue, "SPATIAL_CACHE_SOURCE_INVALID");
+  const prototypeAssemblyReport = canonical(
+    texts["prototype-assembly-report.json"], canonicalizeJsonValue, "SPATIAL_CACHE_SOURCE_INVALID",
+  );
+  const prototypeSpatialAssemblyOptions = spatialAssemblyOptions(
+    prototypeAssemblyReport, "SPATIAL_CACHE_SOURCE_INVALID",
+  );
   const runReportText = decode(await readStableFile(directory, "run-report.json", 65_536, services, "SPATIAL_CACHE_SOURCE_INVALID"), "SPATIAL_CACHE_SOURCE_INVALID");
   const runReport = canonical(runReportText, canonicalizeJsonValue, "SPATIAL_CACHE_SOURCE_INVALID");
   const generation = canonical(texts["generation-report.json"], canonicalizeJsonValue, "SPATIAL_CACHE_SOURCE_INVALID");
@@ -238,7 +251,10 @@ async function readSourceRun({ root, runId, services, canonicalizeJsonValue }) {
     if (bytes.length !== asset.byteLength || sha256(bytes).slice(7) !== asset.sha256) fail("SPATIAL_CACHE_SOURCE_INVALID");
     sceneFiles.set(asset.path, bytes);
   }
-  return { directory, texts, runReport, model: generation.model, sceneFiles };
+  return {
+    directory, texts, runReport, model: generation.model, sceneFiles,
+    prototypeAssemblyReport, prototypeSpatialAssemblyOptions,
+  };
 }
 
 async function readSpatialSource({ directory, services, canonicalizeJsonValue }) {
@@ -381,7 +397,7 @@ async function buildSpatialRun({ source, spatial, assemblePrototypeSpatialScene,
     runtimeReceiptJson: source.texts["runtime-receipt.json"],
     spatialEnvironmentBundleJson: spatial.bundleText,
     spatialEnvironmentFiles: spatial.files,
-  });
+  }, source.prototypeSpatialAssemblyOptions);
   if (!assembled?.ok) fail("SPATIAL_CACHE_ASSEMBLY_REJECTED");
   const sceneHash = sha256(encode(source.texts["scene-pack.json"])).slice(7);
   const assemblyHash = sha256(encode(assembled.canonicalSpatialAssemblyJson)).slice(7);
@@ -471,7 +487,7 @@ async function verifySpatialOverlay(directory, runId, source, services, assemble
     assemblyReportJson: source.texts["prototype-assembly-report.json"], scenePackJson: source.texts["scene-pack.json"],
     runtimeGamePackJson: source.texts["runtime-game-pack.json"], runtimeReceiptJson: source.texts["runtime-receipt.json"],
     spatialEnvironmentBundleJson: texts["prototype-spatial-environment-bundle.json"], spatialEnvironmentFiles: spatialFiles,
-  });
+  }, source.prototypeSpatialAssemblyOptions);
   if (!assembled?.ok || texts["spatial-assembly.json"] !== assembled.canonicalSpatialAssemblyJson ||
       texts["spatial-assembly-report.json"] !== assembled.canonicalSpatialAssemblyReportJson) fail("SPATIAL_CACHE_INPUT_INVALID");
   const report = canonical(texts["run-report.json"], canonicalizeJsonValue, "SPATIAL_CACHE_INPUT_INVALID");
