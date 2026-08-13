@@ -1,6 +1,6 @@
 # R11验收记录
 
-状态：R11.3已验证，等待本地提交
+状态：R11.4已验证，等待本地提交
 
 固定基线：`da2a914a2ff131507750a0afb8d8881180530f62`
 
@@ -8,8 +8,8 @@
 
 - [x] R11.1 治理与空间环境边界（`e9b88dd3`）
 - [x] R11.2 SPZ转换与Spatial Environment合同（`07e80872`）
-- [x] R11.3 Godot gdgs Compute导入底座（本批提交；SHA在R11.4记录）
-- [ ] R11.4 米制空间自动组装
+- [x] R11.3 Godot gdgs Compute导入底座（`987f4f9e`）
+- [x] R11.4 米制空间自动组装（本批提交；SHA在R11.5记录）
 - [ ] R11.5 一键空间预览
 - [ ] R11.6 standalone、性能与人工验收收口
 
@@ -40,6 +40,16 @@
 - 最新树完整`npm.cmd run verify`为17/17步骤，Node 675/675，Godot R4–R10与R11 gdgs导入、Creator 248 modules build和HTTP 200 smoke全绿；`check:round-scope`、`check:parent-scope`、`check:boundary`及`git diff --check`均通过。
 - 本批headless证据只证明精确Compute配置、插件加载、导入器和资源读取链路；headless环境没有证明GPU Compute实际渲染、full-resolution 1.92M splat画面、视差或FPS，这些继续作为R11.5/R11.6人工硬门，不把配置证据表述为图形验收。
 - R1–R10冻结实现与验收、Creator既有实现、Godot既有场景、examples及父仓相对固定BASE均零差异；未读取凭据、未调用模型/Meshy/Marble、未写入真实SPZ转换物，也未启动父服务、Docker或共享栈。本批可单独revert，回退不会删除仓外供应商资产。
+
+## R11.4证据
+
+- 本批11个模块内文件：新增私有`@matrix-oasis/prototype-spatial-assembler@0.1.0-r11`、包内与顶层集成测试，并同步根manifest/lock、verify编排、空间环境文档和本验收记录；R1–R10冻结路径、Creator、既有Godot场景、examples及父仓相对固定BASE均零差异。
+- 包公开面固定为6个导出。组装器复用冻结的R7 Scene Pack校验与R11 Spatial Environment合同，绑定R10 assembly report、Runtime/Receipt、Scene Pack、Spatial Bundle及文件哈希；成功输出canonical spatial assembly和report，失败只返回静态诊断，输入输出深冻结且调用不修改输入。
+- 组装结果显式固定米制空间关系：根节点应用整数毫米平移与旋转，splat子节点应用gdgs中心补偿，splat与collider共享`metricScaleMicros`，collider局部平移为零，并固定`panoramaVisible:false`；没有修改冻结Scene Pack格式或R10 panorama实现。
+- `npm.cmd run verify:spatial-assembly`为8/8；覆盖成功绑定、20次字节确定性、输入不变、canonical/身份/文件漂移、环境placement约束、孤立代理项、descriptor/Proxy安全、精确依赖和源码无网络/凭据/全景回退。
+- 最新树完整`npm.cmd run verify`为18/18步骤，Node 683/683，Godot R4–R11.3、Creator 248 modules build与HTTP smoke全绿；`check:round-scope`、`check:parent-scope`、`check:boundary`分别通过并报告checked=122、122和1058/tracked=1052，changed均为117，`git diff --check`通过。
+- 锁文件使用既有离线依赖完成更新，`npm.cmd ci --offline --ignore-scripts --no-audit --no-fund`安装120个锁定包；`npm.cmd prefix`和`npm.cmd ls --all --depth=0`退出0。默认受限沙箱中的一次预检仅因`C:\\tmp`临时目录`EPERM`产生28项环境失败；在获准的模块本地环境重跑完整verify后683/683通过，不把该预检记为源码失败。
+- 本批未调用模型、Meshy或Marble，未读取供应商凭据，未生成或提交真实SPZ/compressed PLY/collider资产，未启动父服务、Docker或共享栈。本批可单独revert，回退不会删除仓外缓存、run或供应商资产。
 
 ## 最终人工门
 

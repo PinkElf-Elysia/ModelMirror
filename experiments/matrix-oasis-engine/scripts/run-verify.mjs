@@ -20,6 +20,7 @@ const steps = [
   ["prototype-generation", ["run", "verify:prototype-generation"]],
   ["prototype-assets", ["run", "verify:prototype-assets"]],
   ["spatial-environment", ["run", "verify:spatial-environment"]],
+  ["spatial-assembly", ["run", "verify:spatial-assembly"]],
   ["prototype-builder", ["run", "verify:prototype-builder"]],
   ["tests", ["test"]],
   ["creator-build", ["run", "build:creator"]],

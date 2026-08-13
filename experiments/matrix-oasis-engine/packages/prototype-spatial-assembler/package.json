@@ -1,0 +1,21 @@
+{
+  "name": "@matrix-oasis/prototype-spatial-assembler",
+  "version": "0.1.0-r11",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs"
+    }
+  },
+  "scripts": {
+    "test": "node --test tests/spatial-assembler.test.mjs"
+  },
+  "dependencies": {
+    "@matrix-oasis/prototype-spatial-environment": "0.1.0-r11",
+    "@matrix-oasis/runtime-pack-contracts": "0.1.0-r3",
+    "@matrix-oasis/scene-pack-validator": "0.1.0-r7"
+  }
+}

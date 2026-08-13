@@ -14,3 +14,9 @@ R11私有中间产物绑定Marble SPZ来源、deterministic compressed PLY、col
 Bundle只用于R11/R10宿主的私有组合流程；跨版本兼容、签名、信任与正式发布均未定义。
 
 物化入口先调用冻结的R10 Environment Bundle验证器，因此collider仍由既有R7/R10 GLB安全门负责；独立Spatial Bundle验证器只重新核对输出文件身份、哈希、长度和转换统计，不复制Scene Pack或GLB合同。Godot集成前还必须再次执行冻结Scene Pack与GLB门禁。
+
+## Spatial Assembly
+
+R11.4新增私有matrix-oasis.prototype-spatial-assembly/0.1.0，它不修改Scene Pack。组合器重新验证R10 assembly report、Scene Pack/Runtime身份和Spatial Environment Bundle，并要求Scene Pack中唯一环境placement绑定同一collider且在每个node可见。
+
+组合结果显式记录共同root平移/旋转、splat局部中心补偿、splat/collider相同米制scale及panoramaVisible=false。root的Y平移等于声明的Godot平移加ground offset；不得在Godot wrapper中增加未记录的试摆常量。
