@@ -314,7 +314,7 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
 
     assert result.status == "online"
     assert result.catalog_version == (
-            "modelmirror-audio-contracts-2026-08-06-c1"
+        "modelmirror-audio-contracts-2026-08-13-c1"
     )
     assert by_id["openai/gpt-audio"].provider == "openrouter"
     assert by_id["openai/gpt-audio"].operations == ["analyze_audio"]
@@ -659,7 +659,7 @@ async def test_audio_catalog_endpoint_does_not_expose_credentials(
     assert response.status_code == 200
     assert response.json()["profiles"]
     assert response.json()["catalog_version"] == (
-            "modelmirror-audio-contracts-2026-08-06-c1"
+        "modelmirror-audio-contracts-2026-08-13-c1"
     )
     assert response.json()["microphone_enabled"] is True
     assert "audio-catalog-secret" not in response.text

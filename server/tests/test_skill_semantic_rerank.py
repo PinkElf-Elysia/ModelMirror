@@ -164,8 +164,8 @@ def test_python_and_typescript_keep_the_same_market_recall_order() -> None:
     completed = subprocess.run(
         [
             "node",
-            "--experimental-loader",
-            str(ROOT / "scripts" / "typescript-module-loader.mjs"),
+            "--import",
+            (ROOT / "scripts" / "typescript-module-register.mjs").as_uri(),
             "--input-type=module",
             "-e",
             script,
@@ -210,8 +210,8 @@ def test_generated_search_index_is_reproducible() -> None:
     completed = subprocess.run(
         [
             "node",
-            "--experimental-loader",
-            str(ROOT / "scripts" / "typescript-module-loader.mjs"),
+            "--import",
+            (ROOT / "scripts" / "typescript-module-register.mjs").as_uri(),
             "--input-type=module",
             "-e",
             script,
