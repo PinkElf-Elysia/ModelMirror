@@ -21,6 +21,21 @@ def _required_environment(name: str) -> str:
     return value
 
 
+def _bounded_environment_integer(
+    name: str, *, default: int, minimum: int, maximum: int
+) -> int:
+    encoded = os.getenv(name)
+    if encoded is None or not encoded.strip():
+        return default
+    try:
+        value = int(encoded)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} is invalid") from exc
+    if isinstance(value, bool) or not minimum <= value <= maximum:
+        raise RuntimeError(f"{name} is invalid")
+    return value
+
+
 def _workspace_resolver(root: Path):
     resolved_root = root.resolve()
 
@@ -96,6 +111,12 @@ def _provider_from_environment(
         model_id=model_id,
         base_url=_required_environment("CODING_WORKER_MODEL_BASE_URL"),
         api_key=_required_environment("CODING_WORKER_ROUTE_KEY"),
+        output_tokens=_bounded_environment_integer(
+            "CODING_WORKER_MODEL_OUTPUT_TOKENS",
+            default=8_192,
+            minimum=1_024,
+            maximum=262_144,
+        ),
     )
     return OpenCodeProvider(
         workspace_resolver=_workspace_resolver(workspace_root),

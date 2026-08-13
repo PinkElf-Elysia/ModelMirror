@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -85,6 +86,8 @@ class CodingWorkerRuntime:
             documentation_resources=documentation_resources,
         )
         self.broker_rpc = BrokerRPCServer(self.tool_broker)
+        controller_id = f"controller_{uuid.uuid4().hex}"
+        controller_generation = self.store.allocate_controller_generation()
         executor_pool = None
         if executor_endpoints is not None or executor_tokens is not None:
             if (
@@ -102,6 +105,8 @@ class CodingWorkerRuntime:
                 tokens=executor_tokens,
                 workspace_slot_resolver=self.workspace_broker.workspace_slot,
                 auto_rebind=True,
+                controller_id=controller_id,
+                controller_generation=controller_generation,
             )
         self.provider = ProviderSidecarClientPool(
             endpoints=provider_endpoints,
@@ -109,6 +114,8 @@ class CodingWorkerRuntime:
             workspace_slot_resolver=self.workspace_broker.workspace_slot,
             broker_rpc=self.broker_rpc,
             executor_pool=executor_pool,
+            controller_id=controller_id,
+            controller_generation=controller_generation,
         )
         self.tool_broker.executor = executor_pool or self.provider
         self.harness = HarnessRunner(

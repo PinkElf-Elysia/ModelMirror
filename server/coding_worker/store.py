@@ -104,6 +104,26 @@ class CodingWorkerStore:
         self.mark_inflight_interrupted()
         self.mark_inflight_operations_unknown()
 
+    def allocate_controller_generation(self) -> int:
+        """Allocate one durable, monotonic Server-to-sidecar fencing generation."""
+
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT generation FROM worker_controller_state WHERE singleton = 1"
+            ).fetchone()
+            if row is None:
+                raise WorkerStoreError(
+                    "Worker controller state is unavailable.",
+                    code="controller_state_unavailable",
+                )
+            generation = int(row["generation"]) + 1
+            connection.execute(
+                "UPDATE worker_controller_state SET generation = ? WHERE singleton = 1",
+                (generation,),
+            )
+            return generation
+
     def create_task(self, spec: TaskSpec) -> TaskRecord:
         now = self._now()
         expires_at = now + self.retention_seconds
@@ -935,7 +955,9 @@ class CodingWorkerStore:
             "cancelled",
             "failed",
             "interrupted",
+            "waiting_approval",
             "waiting_input",
+            "waiting_subtasks",
         }:
             raise ValueError("invalid session turn result")
         if turn_checkpoint is not None and result_state != "completed":
@@ -964,7 +986,11 @@ class CodingWorkerStore:
                     SessionLedgerKind.TOOL_STARTED.value,
                 ),
             ).fetchall()
-            if open_tools and result_state in {"completed", "waiting_input"}:
+            if open_tools and result_state in {
+                "completed",
+                "waiting_input",
+                "waiting_subtasks",
+            }:
                 raise WorkerConflictError(
                     "A completed turn cannot contain an unfinished tool call.",
                     code="session_tool_boundary_incomplete",
@@ -2637,6 +2663,12 @@ class CodingWorkerStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_worker_subtasks_parent
                     ON worker_subtasks(parent_task_id, created_at);
+                CREATE TABLE IF NOT EXISTS worker_controller_state (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    generation INTEGER NOT NULL CHECK (generation >= 0)
+                );
+                INSERT OR IGNORE INTO worker_controller_state(singleton, generation)
+                    VALUES (1, 0);
                 """
             )
             subtask_columns = {

@@ -77,6 +77,7 @@ class SidecarExecutor:
         self._max_output_bytes = max_output_bytes
         self._max_services_per_task = max_services_per_task
         self._services: dict[str, _Service] = {}
+        self._processes: dict[str, set[asyncio.subprocess.Process]] = {}
         self._shells: dict[str, _ShellProcess] = {}
         self._shell_reservations: set[str] = set()
         self._intelligence_reservations: set[str] = set()
@@ -87,15 +88,21 @@ class SidecarExecutor:
     async def run_process(
         self,
         *,
+        task_id: str,
         workspace_id: str,
         argv: Sequence[str],
         timeout_seconds: int,
         isolated: bool,
         environment_overrides: Mapping[str, str] | None = None,
     ) -> dict[str, object]:
+        if SAFE_ID.fullmatch(task_id) is None:
+            raise SidecarExecutionError(
+                "Command task binding is invalid.", code="executor_binding_invalid"
+            )
         repository = self._workspace_resolver(workspace_id)
         execution_root: Path | None = None
         execution_repository = repository
+        process: asyncio.subprocess.Process | None = None
         try:
             if isolated:
                 execution_root = self._runtime_root / "checks" / f"run_{uuid.uuid4().hex}"
@@ -111,6 +118,8 @@ class SidecarExecutor:
                 stderr=asyncio.subprocess.STDOUT,
                 start_new_session=os.name != "nt",
             )
+            async with self._lock:
+                self._processes.setdefault(task_id, set()).add(process)
             try:
                 output = await asyncio.wait_for(
                     self._collect(process), timeout=timeout_seconds
@@ -129,6 +138,15 @@ class SidecarExecutor:
                 "output": output.decode("utf-8", errors="replace"),
             }
         finally:
+            if process is not None:
+                if process.returncode is None:
+                    await self._interrupt(process)
+                async with self._lock:
+                    processes = self._processes.get(task_id)
+                    if processes is not None:
+                        processes.discard(process)
+                        if not processes:
+                            self._processes.pop(task_id, None)
             if execution_root is not None:
                 shutil.rmtree(execution_root, ignore_errors=True)
 
@@ -340,6 +358,8 @@ class SidecarExecutor:
             }
         finally:
             if process is not None:
+                if process.returncode is None:
+                    await self._interrupt(process)
                 async with self._lock:
                     self._shells.pop(operation_id, None)
             if shell_process is not None:
@@ -510,9 +530,13 @@ class SidecarExecutor:
             service.reason = "task_closed"
             await self._interrupt(service.process)
         shells = [item for item in self._shells.values() if item.task_id == task_id]
+        processes = tuple(self._processes.get(task_id, ()))
         for shell in shells:
             shell.reason = "task_closed"
             shell.stop_requested.set()
+        for process in processes:
+            if process.returncode is None:
+                await self._interrupt(process)
         await asyncio.gather(
             *(shell.finished.wait() for shell in shells),
             return_exceptions=True,
@@ -520,6 +544,9 @@ class SidecarExecutor:
         await asyncio.gather(
             *(service.monitor for service in services if service.monitor is not None),
             return_exceptions=True,
+        )
+        await asyncio.gather(
+            *(process.wait() for process in processes), return_exceptions=True
         )
 
     @classmethod
@@ -567,8 +594,27 @@ class SidecarExecutor:
 
     @staticmethod
     def _snapshot_hash(snapshot: Mapping[str, tuple[bytes, int]]) -> str:
+        files_by_directory: dict[tuple[str, ...], list[str]] = {}
+        child_directories: dict[tuple[str, ...], set[str]] = {}
+        for path in snapshot:
+            parts = PurePosixPath(path).parts
+            parent: tuple[str, ...] = ()
+            for directory in parts[:-1]:
+                child_directories.setdefault(parent, set()).add(directory)
+                parent = (*parent, directory)
+            files_by_directory.setdefault(parent, []).append(path)
+
+        def ordered_paths(parent: tuple[str, ...] = ()) -> Any:
+            for path in sorted(
+                files_by_directory.get(parent, ()),
+                key=lambda value: PurePosixPath(value).name,
+            ):
+                yield path
+            for directory in sorted(child_directories.get(parent, ())):
+                yield from ordered_paths((*parent, directory))
+
         digest = hashlib.sha256()
-        for path in sorted(snapshot):
+        for path in ordered_paths():
             content = snapshot[path][0]
             relative = path.encode("utf-8")
             digest.update(len(relative).to_bytes(4, "big"))
@@ -819,6 +865,10 @@ class ExecutorRPCServer:
         self.endpoint: str | None = None
         self._task_id: str | None = None
         self._workspace_id: str | None = None
+        self._controller_id: str | None = None
+        self._controller_generation = 0
+        self._binding_lock = asyncio.Lock()
+        self._active_requests: dict[asyncio.Task[Any], int] = {}
 
     async def start_unix(self, socket_path: Path) -> str:
         socket_path = Path(socket_path)
@@ -849,6 +899,9 @@ class ExecutorRPCServer:
         self.endpoint = None
         self._task_id = None
         self._workspace_id = None
+        self._controller_id = None
+        self._controller_generation = 0
+        self._active_requests.clear()
 
     async def _handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -882,6 +935,14 @@ class ExecutorRPCServer:
                 output_callback=send_output if action == "run_shell" else None,
             )
             response = {"ok": True, "result": result}
+        except asyncio.CancelledError:
+            response = {
+                "ok": False,
+                "error": {
+                    "code": "executor_controller_stale",
+                    "message": "Executor controller was superseded.",
+                },
+            }
         except Exception as exc:
             response = {
                 "ok": False,
@@ -923,84 +984,224 @@ class ExecutorRPCServer:
             return {"healthy": True}
         task_id = str(payload.get("task_id", ""))
         workspace_id = str(payload.get("workspace_id", ""))
+        controller_id, controller_generation = self._controller_binding(payload)
         if action == "bind_task":
-            if SAFE_ID.fullmatch(task_id) is None or SAFE_ID.fullmatch(workspace_id) is None:
+            if (
+                SAFE_ID.fullmatch(task_id) is None
+                or SAFE_ID.fullmatch(workspace_id) is None
+            ):
                 raise ExecutorRPCError("Executor binding is invalid.", code="executor_binding_invalid")
-            if self._task_id not in {None, task_id} or self._workspace_id not in {
-                None,
-                workspace_id,
-            }:
-                raise ExecutorRPCError("Executor slot is busy.", code="executor_slot_busy")
-            self.executor._workspace_resolver(workspace_id)
-            self._task_id, self._workspace_id = task_id, workspace_id
-            return {"bound": True}
+            return await self._bind_task(
+                task_id, workspace_id, controller_id, controller_generation
+            )
         if action == "close_task":
-            self._require_binding(task_id, workspace_id)
-            await self.executor.stop_task(task_id)
-            self._task_id = self._workspace_id = None
-            return {"closed": True}
-        self._require_binding(task_id, workspace_id)
-        if action == "execute_process":
-            return await self.executor.run_process(
-                workspace_id=workspace_id,
-                argv=tuple(payload.get("argv", ())),
-                timeout_seconds=int(payload.get("timeout_seconds", 0)),
-                isolated=payload.get("isolated") is True,
-                environment_overrides=payload.get("environment_overrides"),
+            return await self._close_task_binding(
+                task_id, workspace_id, controller_id, controller_generation
             )
-        if action == "run_shell":
-            return await self.executor.run_shell(
-                task_id=task_id,
-                workspace_id=workspace_id,
-                operation_id=str(payload.get("operation_id", "")),
-                script=str(payload.get("script", "")),
-                cwd=str(payload.get("cwd", "")),
-                mode=str(payload.get("mode", "")),
-                timeout_seconds=int(payload.get("timeout_seconds", 0)),
-                output_callback=output_callback,
-            )
-        if action == "code_intelligence":
-            return await self.executor.code_intelligence(
-                task_id=task_id,
-                workspace_id=workspace_id,
-                operation_id=str(payload.get("operation_id", "")),
-                operation=str(payload.get("operation", "")),
-                path=str(payload.get("path", "")),
-                line=int(payload.get("line", 0)),
-                character=int(payload.get("character", 0)),
-            )
-        if action == "start_service":
-            return await self.executor.start_service(
-                task_id=task_id,
-                workspace_id=workspace_id,
-                argv=tuple(payload.get("argv", ())),
-                ttl_seconds=int(payload.get("ttl_seconds", 0)),
-                preview_port=(
-                    int(payload["preview_port"])
-                    if payload.get("preview_port") is not None
-                    else None
-                ),
-            )
-        if action == "service_status":
-            return self.executor.service_status(
-                task_id=task_id, service_id=str(payload.get("service_id", ""))
-            )
-        if action == "service_input":
-            await self.executor.service_input(
-                task_id=task_id,
-                service_id=str(payload.get("service_id", "")),
-                data=str(payload.get("data", "")),
-            )
-            return {"accepted": True}
-        if action == "stop_service":
-            return await self.executor.stop_service(
-                task_id=task_id, service_id=str(payload.get("service_id", ""))
-            )
-        raise ExecutorRPCError("Executor action is invalid.", code="executor_request_invalid")
+        await self._begin_bound_request(
+            task_id, workspace_id, controller_id, controller_generation
+        )
+        try:
+            if action == "execute_process":
+                return await self.executor.run_process(
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    argv=tuple(payload.get("argv", ())),
+                    timeout_seconds=int(payload.get("timeout_seconds", 0)),
+                    isolated=payload.get("isolated") is True,
+                    environment_overrides=payload.get("environment_overrides"),
+                )
+            if action == "run_shell":
+                return await self.executor.run_shell(
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    operation_id=str(payload.get("operation_id", "")),
+                    script=str(payload.get("script", "")),
+                    cwd=str(payload.get("cwd", "")),
+                    mode=str(payload.get("mode", "")),
+                    timeout_seconds=int(payload.get("timeout_seconds", 0)),
+                    output_callback=output_callback,
+                )
+            if action == "code_intelligence":
+                return await self.executor.code_intelligence(
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    operation_id=str(payload.get("operation_id", "")),
+                    operation=str(payload.get("operation", "")),
+                    path=str(payload.get("path", "")),
+                    line=int(payload.get("line", 0)),
+                    character=int(payload.get("character", 0)),
+                )
+            if action == "start_service":
+                return await self.executor.start_service(
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    argv=tuple(payload.get("argv", ())),
+                    ttl_seconds=int(payload.get("ttl_seconds", 0)),
+                    preview_port=(
+                        int(payload["preview_port"])
+                        if payload.get("preview_port") is not None
+                        else None
+                    ),
+                )
+            if action == "service_status":
+                return self.executor.service_status(
+                    task_id=task_id, service_id=str(payload.get("service_id", ""))
+                )
+            if action == "service_input":
+                await self.executor.service_input(
+                    task_id=task_id,
+                    service_id=str(payload.get("service_id", "")),
+                    data=str(payload.get("data", "")),
+                )
+                return {"accepted": True}
+            if action == "stop_service":
+                return await self.executor.stop_service(
+                    task_id=task_id, service_id=str(payload.get("service_id", ""))
+                )
+            raise ExecutorRPCError("Executor action is invalid.", code="executor_request_invalid")
+        finally:
+            await self._finish_bound_request()
 
-    def _require_binding(self, task_id: str, workspace_id: str) -> None:
-        if self._task_id != task_id or self._workspace_id != workspace_id:
+    def _require_binding(
+        self,
+        task_id: str,
+        workspace_id: str,
+        controller_id: str,
+        controller_generation: int,
+    ) -> None:
+        if (
+            self._task_id != task_id
+            or self._workspace_id != workspace_id
+            or self._controller_id != controller_id
+            or self._controller_generation != controller_generation
+        ):
             raise ExecutorRPCError("Executor task is not bound.", code="executor_binding_invalid")
+
+    @staticmethod
+    def _controller_binding(payload: Mapping[str, Any]) -> tuple[str, int]:
+        controller_id = payload.get("controller_id")
+        generation = payload.get("controller_generation")
+        if (
+            not isinstance(controller_id, str)
+            or SAFE_ID.fullmatch(controller_id) is None
+            or isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or generation < 1
+        ):
+            raise ExecutorRPCError(
+                "Executor controller binding is invalid.",
+                code="executor_binding_invalid",
+            )
+        return controller_id, generation
+
+    async def _bind_task(
+        self,
+        task_id: str,
+        workspace_id: str,
+        controller_id: str,
+        controller_generation: int,
+    ) -> dict[str, bool]:
+        old_task_id: str | None = None
+        interrupted: tuple[asyncio.Task[Any], ...] = ()
+        async with self._binding_lock:
+            if controller_generation < self._controller_generation or (
+                controller_generation == self._controller_generation
+                and self._controller_id not in {None, controller_id}
+            ):
+                raise ExecutorRPCError(
+                    "Executor controller is stale.", code="executor_controller_stale"
+                )
+            if controller_generation > self._controller_generation:
+                old_task_id = self._task_id
+                self._controller_generation = controller_generation
+                self._controller_id = controller_id
+                self._task_id = self._workspace_id = None
+                interrupted = tuple(
+                    request
+                    for request, generation in self._active_requests.items()
+                    if generation < controller_generation
+                )
+            elif self._task_id is not None:
+                if self._task_id == task_id and self._workspace_id == workspace_id:
+                    return {"bound": True}
+                raise ExecutorRPCError(
+                    "Executor slot is busy.", code="executor_slot_busy"
+                )
+            elif self._controller_id is None:
+                self._controller_generation = controller_generation
+                self._controller_id = controller_id
+        for request in interrupted:
+            request.cancel()
+        if interrupted:
+            await asyncio.gather(*interrupted, return_exceptions=True)
+        if old_task_id is not None:
+            await self.executor.stop_task(old_task_id)
+        self.executor._workspace_resolver(workspace_id)
+        async with self._binding_lock:
+            if (
+                self._controller_generation != controller_generation
+                or self._controller_id != controller_id
+            ):
+                raise ExecutorRPCError(
+                    "Executor controller is stale.", code="executor_controller_stale"
+                )
+            if self._task_id is not None and (
+                self._task_id != task_id or self._workspace_id != workspace_id
+            ):
+                raise ExecutorRPCError(
+                    "Executor slot is busy.", code="executor_slot_busy"
+                )
+            self._task_id, self._workspace_id = task_id, workspace_id
+        return {"bound": True}
+
+    async def _begin_bound_request(
+        self,
+        task_id: str,
+        workspace_id: str,
+        controller_id: str,
+        controller_generation: int,
+    ) -> None:
+        current = asyncio.current_task()
+        if current is None:
+            raise ExecutorRPCError(
+                "Executor request is unavailable.", code="executor_request_invalid"
+            )
+        async with self._binding_lock:
+            self._require_binding(
+                task_id, workspace_id, controller_id, controller_generation
+            )
+            self._active_requests[current] = controller_generation
+
+    async def _finish_bound_request(self) -> None:
+        current = asyncio.current_task()
+        if current is not None:
+            async with self._binding_lock:
+                self._active_requests.pop(current, None)
+
+    async def _close_task_binding(
+        self,
+        task_id: str,
+        workspace_id: str,
+        controller_id: str,
+        controller_generation: int,
+    ) -> dict[str, bool]:
+        await self._begin_bound_request(
+            task_id, workspace_id, controller_id, controller_generation
+        )
+        try:
+            await self.executor.stop_task(task_id)
+            async with self._binding_lock:
+                if (
+                    self._controller_generation == controller_generation
+                    and self._controller_id == controller_id
+                    and self._task_id == task_id
+                    and self._workspace_id == workspace_id
+                ):
+                    self._task_id = self._workspace_id = None
+            return {"closed": True}
+        finally:
+            await self._finish_bound_request()
 
 
 class ExecutorSidecarClientPool:
@@ -1013,6 +1214,8 @@ class ExecutorSidecarClientPool:
         tokens: Mapping[str, str],
         workspace_slot_resolver: Callable[[str], str],
         auto_rebind: bool = False,
+        controller_id: str = "controller_local",
+        controller_generation: int = 1,
     ) -> None:
         if set(endpoints) != set(tokens) or not endpoints:
             raise ValueError("executor sidecar bindings are incomplete")
@@ -1020,6 +1223,15 @@ class ExecutorSidecarClientPool:
         self._tokens = dict(tokens)
         self._workspace_slot_resolver = workspace_slot_resolver
         self._auto_rebind = auto_rebind
+        if (
+            SAFE_ID.fullmatch(controller_id) is None
+            or isinstance(controller_generation, bool)
+            or not isinstance(controller_generation, int)
+            or controller_generation < 1
+        ):
+            raise ValueError("executor controller binding is invalid")
+        self._controller_id = controller_id
+        self._controller_generation = controller_generation
 
     async def bind_task(self, task_id: str, workspace_id: str) -> None:
         await self._workspace_call(workspace_id, "bind_task", {"task_id": task_id, "workspace_id": workspace_id})
@@ -1107,16 +1319,20 @@ class ExecutorSidecarClientPool:
         *,
         output_callback: Callable[[str, bytes], Awaitable[None]] | None,
     ) -> dict[str, Any]:
+        bound_payload = dict(payload)
+        if action != "health":
+            bound_payload["controller_id"] = self._controller_id
+            bound_payload["controller_generation"] = self._controller_generation
         try:
             return await self._workspace_stream_call_once(
                 workspace_id,
                 action,
-                payload,
+                bound_payload,
                 output_callback=output_callback,
             )
         except ExecutorRPCError as exc:
-            task_id = payload.get("task_id")
-            payload_workspace_id = payload.get("workspace_id")
+            task_id = bound_payload.get("task_id")
+            payload_workspace_id = bound_payload.get("workspace_id")
             if (
                 not self._auto_rebind
                 or exc.code != "executor_binding_invalid"
@@ -1129,13 +1345,18 @@ class ExecutorSidecarClientPool:
             await self._workspace_stream_call_once(
                 workspace_id,
                 "bind_task",
-                {"task_id": task_id, "workspace_id": workspace_id},
+                {
+                    "task_id": task_id,
+                    "workspace_id": workspace_id,
+                    "controller_id": self._controller_id,
+                    "controller_generation": self._controller_generation,
+                },
                 output_callback=None,
             )
             return await self._workspace_stream_call_once(
                 workspace_id,
                 action,
-                payload,
+                bound_payload,
                 output_callback=output_callback,
             )
 
