@@ -1,6 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ModelMarketHero } from "./ModelListPage";
+import { defaultFilterState } from "../data/filterState";
+import {
+  ModelMarketHero,
+  shouldShowFeaturedRecommendations,
+} from "./ModelListPage";
 
 describe("ModelMarketHero", () => {
   it("keeps the brand, concise status, and search as the first-screen hierarchy", () => {
@@ -49,5 +53,26 @@ describe("ModelMarketHero", () => {
     const status = screen.getByLabelText("模型市场状态");
     expect(status).toHaveTextContent("可调用数待确认");
     expect(status).not.toHaveTextContent("0 可直接调用");
+  });
+});
+
+describe("model market recommendation layout", () => {
+  it("reserves router and flagship cards for the unfiltered landing view", () => {
+    expect(shouldShowFeaturedRecommendations(defaultFilterState, "")).toBe(true);
+    expect(
+      shouldShowFeaturedRecommendations(
+        { ...defaultFilterState, jobCapabilities: ["video_generation"] },
+        "",
+      ),
+    ).toBe(false);
+    expect(
+      shouldShowFeaturedRecommendations(
+        { ...defaultFilterState, providers: ["OpenAI"] },
+        "",
+      ),
+    ).toBe(false);
+    expect(
+      shouldShowFeaturedRecommendations(defaultFilterState, "Lyria 3"),
+    ).toBe(false);
   });
 });

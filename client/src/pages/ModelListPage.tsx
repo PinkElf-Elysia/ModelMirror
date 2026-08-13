@@ -113,6 +113,63 @@ function createDefaultFilters(): ModelFilterState {
   };
 }
 
+export function shouldShowFeaturedRecommendations(
+  filters: ModelFilterState,
+  searchTerm: string,
+) {
+  const isDefaultRange = (
+    selected: { min: number; max: number },
+    baseline: { min: number; max: number },
+  ) => selected.min === baseline.min && selected.max === baseline.max;
+  const hasDefaultMetricRanges = <T extends string>(
+    selected: Record<T, { min: number; max: number }>,
+    baseline: Record<T, { min: number; max: number }>,
+  ) =>
+    Object.entries(baseline).every(([metric, range]) => {
+      const selectedRange = selected[metric as T];
+      const baselineRange = range as { min: number; max: number };
+      return selectedRange && isDefaultRange(selectedRange, baselineRange);
+    });
+
+  return (
+    searchTerm.trim() === "" &&
+    filters.inputModalities.length === 0 &&
+    filters.series.length === 0 &&
+    filters.jobCapabilities.length === 0 &&
+    filters.openRouterCategories.length === 0 &&
+    filters.supportedParameters.length === 0 &&
+    filters.providers.length === 0 &&
+    filters.modelAuthors.length === 0 &&
+    filters.regions.length === 0 &&
+    filters.discounted === defaultFilterState.discounted &&
+    filters.distillable === defaultFilterState.distillable &&
+    filters.zeroDataRetention === defaultFilterState.zeroDataRetention &&
+    filters.minContextLength === defaultFilterState.minContextLength &&
+    filters.minToolSuccessRate === defaultFilterState.minToolSuccessRate &&
+    filters.showInactive === defaultFilterState.showInactive &&
+    isDefaultRange(
+      filters.promptPriceUsdRange,
+      defaultFilterState.promptPriceUsdRange,
+    ) &&
+    isDefaultRange(
+      filters.outputPriceUsdRange,
+      defaultFilterState.outputPriceUsdRange,
+    ) &&
+    isDefaultRange(
+      filters.modelAgeDaysRange,
+      defaultFilterState.modelAgeDaysRange,
+    ) &&
+    hasDefaultMetricRanges(
+      filters.artificialAnalysisRanges,
+      defaultFilterState.artificialAnalysisRanges,
+    ) &&
+    hasDefaultMetricRanges(
+      filters.designArenaRanges,
+      defaultFilterState.designArenaRanges,
+    )
+  );
+}
+
 interface VideoModelProfile {
   model_id: string;
   operation: "analyze_video" | "generate_video";
@@ -276,6 +333,7 @@ export default function ModelListPage() {
     useState<VideoCatalogPayload | null>(null);
   const [audioCatalog, setAudioCatalog] =
     useState<AudioCatalogPayload | null>(null);
+  const [audioCatalogLoading, setAudioCatalogLoading] = useState(true);
   const [imageCatalog, setImageCatalog] =
     useState<ImageCatalogPayload | null>(null);
   const [generalCatalog, setGeneralCatalog] =
@@ -324,11 +382,13 @@ export default function ModelListPage() {
       .then((payload) => {
         if (!controller.signal.aborted) {
           setAudioCatalog(payload);
+          setAudioCatalogLoading(false);
         }
       })
       .catch(() => {
         if (!controller.signal.aborted) {
           setAudioCatalog(null);
+          setAudioCatalogLoading(false);
         }
       });
 
@@ -769,8 +829,16 @@ export default function ModelListPage() {
     videoCatalog !== null ||
     audioCatalog !== null ||
     imageCatalog !== null;
-  const featuredModels = filteredModels.slice(0, 2);
-  const galleryModels = filteredModels.slice(featuredModels.length);
+  const showFeaturedRecommendations = shouldShowFeaturedRecommendations(
+    filters,
+    searchTerm,
+  );
+  const featuredModels = showFeaturedRecommendations
+    ? filteredModels.slice(0, 2)
+    : [];
+  const galleryModels = showFeaturedRecommendations
+    ? filteredModels.slice(featuredModels.length)
+    : filteredModels;
   const compareState = useMemo(
     () => parseModelCompareState(searchParams),
     [searchParams],
@@ -829,16 +897,24 @@ export default function ModelListPage() {
             />
           ) : (
           <>
-          <div className="mb-6 grid gap-4 lg:grid-cols-3">
-            <FederationRouterCard />
-            {featuredModels.length > 0
-              ? featuredModels.map((model) => (
+          {showFeaturedRecommendations ? (
+            <div className="mb-6 grid gap-4 lg:grid-cols-3">
+              <FederationRouterCard />
+              {featuredModels.length > 0
+                ? featuredModels.map((model) => (
                   <div
                     className="animate-soft-rise"
                     key={`featured-${model.id}`}
                   >
                     <ModelCard
                       audioCatalogStale={audioCatalog?.stale ?? false}
+                      audioCatalogState={
+                        audioCatalogLoading
+                          ? "loading"
+                          : audioCatalog
+                            ? "available"
+                            : "unavailable"
+                      }
                       audioCapabilityStatus={
                         audioCapabilityStatuses.get(model.id)
                       }
@@ -868,15 +944,23 @@ export default function ModelListPage() {
                       videoCatalogStale={videoCatalog?.stale ?? false}
                     />
                   </div>
-                ))
-              : null}
-          </div>
+                  ))
+                : null}
+            </div>
+          ) : null}
 
           {filteredModels.length > 0 ? (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {galleryModels.map((model) => (
                 <ModelCard
                   audioCatalogStale={audioCatalog?.stale ?? false}
+                  audioCatalogState={
+                    audioCatalogLoading
+                      ? "loading"
+                      : audioCatalog
+                        ? "available"
+                        : "unavailable"
+                  }
                   audioCapabilityStatus={
                     audioCapabilityStatuses.get(model.id)
                   }

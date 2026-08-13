@@ -28,6 +28,7 @@ interface ModelCardProps {
   confirmedVideoOperations?: ModelOperation[];
   verificationVideoOperations?: ModelOperation[];
   audioCapabilityStatus?: AudioCapabilityStatus;
+  audioCatalogState?: "loading" | "available" | "unavailable";
   audioCatalogStale?: boolean;
   imageCatalogStale?: boolean;
   videoCatalogStale?: boolean;
@@ -138,6 +139,7 @@ const ModelCard = memo(function ModelCard({
   confirmedVideoOperations = [],
   verificationVideoOperations = [],
   audioCapabilityStatus,
+  audioCatalogState = "available",
   audioCatalogStale = false,
   imageCatalogStale = false,
   videoCatalogStale = false,
@@ -264,15 +266,23 @@ const ModelCard = memo(function ModelCard({
     (operation) => operationLabels[operation],
   );
   const pendingAudioStateLabel =
-    audioCapabilityStatus?.availabilityStatus === "needs_configuration"
+    !audioCapabilityStatus && audioCatalogState === "loading"
+      ? "状态确认中"
+      : !audioCapabilityStatus && audioCatalogState === "unavailable"
+        ? "状态待确认"
+    : audioCapabilityStatus?.availabilityStatus === "needs_configuration"
       ? "需要配置"
       : audioCapabilityStatus?.availabilityStatus === "upstream_unavailable"
         ? "上游暂不可用"
       : audioCapabilityStatus?.status === "disabled"
-      ? "当前未启用"
+      ? "开关未开启"
       : "待适配";
   const pendingAudioReason =
-    audioCapabilityStatus?.reason ??
+    (!audioCapabilityStatus && audioCatalogState === "loading"
+      ? "正在读取实时能力目录。"
+      : !audioCapabilityStatus && audioCatalogState === "unavailable"
+        ? "暂时无法读取实时能力目录，本卡不会宣称该能力可用。"
+        : audioCapabilityStatus?.reason) ??
     (
       pendingAudioLabels.length > 0
         ? isRealtimeVoiceModel
@@ -310,7 +320,7 @@ const ModelCard = memo(function ModelCard({
       ? "已适配 · 需配置"
       : audioCapabilityStatus?.availabilityStatus === "upstream_unavailable"
         ? "上游暂不可用"
-        : "已适配 · 当前未启用";
+        : "已适配 · 开关未开启";
   const showGeneralChatAction =
     canChat &&
     model.primary_operation !== "synthesize_speech" &&
@@ -337,7 +347,12 @@ const ModelCard = memo(function ModelCard({
             }
           : !isInteractionReady
             ? {
-                label: isRealtimeVoiceModel ? "需要配置" : "交互待适配",
+                label:
+                  pendingAudioLabels.length > 0
+                    ? `${pendingAudioLabels.join("、")}${pendingAudioStateLabel}`
+                    : isRealtimeVoiceModel
+                      ? "需要配置"
+                      : "交互待适配",
                 className: "border-hire-200/30 bg-hire-400/15 text-hire-100",
               }
             : null;
@@ -752,13 +767,15 @@ const ModelCard = memo(function ModelCard({
           {adaptedAudioUnavailable
             ? audioCapabilityStatus?.availabilityStatus === "needs_configuration"
               ? " · 需配置"
-              : " · 当前未启用"
+              : " · 开关未开启"
             : !isInteractionReady
             ? canManuallyVerifyVideo
               ? " · 人工核验"
               : isRealtimeVoiceModel
               ? " · 需要连接"
-              : " · 待适配"
+              : pendingAudioLabels.length > 0
+                ? ` · ${pendingAudioStateLabel}`
+                : " · 待适配"
             : ""}
         </span>
         {confirmedVideoLabels.map((label) => (
@@ -812,7 +829,7 @@ const ModelCard = memo(function ModelCard({
               {audioCapabilityStatus?.availabilityStatus ===
               "needs_configuration"
                 ? " · 需配置"
-                : " · 当前未启用"}
+                : " · 开关未开启"}
             </span>
           ))}
         {batchVariant ? (

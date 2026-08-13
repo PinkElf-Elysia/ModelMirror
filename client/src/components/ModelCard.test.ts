@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { ModelPreferenceProvider } from "../context/ModelPreferenceContext";
-import { models } from "../data/models";
+import { models, type Model } from "../data/models";
 import ModelCard, { deriveDocumentInputPresentation } from "./ModelCard";
 import type { FileSurfaceSummary } from "../data/fileCapabilities";
 
@@ -142,5 +142,121 @@ describe("ModelCard decision-first layout", () => {
     expect(screen.getByText("文件")).toBeInTheDocument();
     expect(screen.queryByText(/当前地区|国内可用优先/)).not.toBeInTheDocument();
     expect(screen.queryByText(/人气值|已录用/)).not.toBeInTheDocument();
+  });
+
+  it("uses realtime audio readiness for previously static planned models", () => {
+    const baseModel = models.find((candidate) => candidate.id === "openai/gpt-5.6-sol");
+    expect(baseModel).toBeDefined();
+    const model: Model = {
+      ...baseModel!,
+      id: "openai/gpt-4o-mini-tts",
+      name: "OpenAI: GPT-4o Mini TTS",
+      primary_operation: "synthesize_speech",
+      operations: ["synthesize_speech"],
+      interaction_status: "planned",
+      ui_entrypoint: "planned",
+    };
+
+    render(
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          ModelPreferenceProvider,
+          null,
+          createElement(ModelCard, {
+            adaptedAudioOperations: ["synthesize_speech"],
+            audioCapabilityStatus: {
+              status: "ready",
+              operations: ["synthesize_speech"],
+              adaptedOperations: ["synthesize_speech"],
+              availabilityStatus: "available",
+              reason: null,
+              pricePerGenerationUsd: null,
+              fixedDurationSeconds: null,
+            },
+            confirmedAudioOperations: ["synthesize_speech"],
+            model,
+          }),
+        ),
+      ),
+    );
+
+    expect(screen.getByRole("link", { name: "生成语音" })).toBeInTheDocument();
+    expect(screen.queryByText("交互待适配")).not.toBeInTheDocument();
+  });
+
+  it("distinguishes a disabled feature switch from an unadapted model", () => {
+    const baseModel = models.find((candidate) => candidate.id === "openai/gpt-5.6-sol");
+    expect(baseModel).toBeDefined();
+    const model: Model = {
+      ...baseModel!,
+      id: "google/lyria-3-pro-preview",
+      name: "Google: Lyria 3 Pro Preview",
+      primary_operation: "generate_audio",
+      operations: ["generate_audio"],
+      interaction_status: "planned",
+      ui_entrypoint: "planned",
+    };
+
+    render(
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          ModelPreferenceProvider,
+          null,
+          createElement(ModelCard, {
+            adaptedAudioOperations: ["generate_audio"],
+            audioCapabilityStatus: {
+              status: "disabled",
+              operations: ["generate_audio"],
+              adaptedOperations: ["generate_audio"],
+              availabilityStatus: "disabled",
+              reason: "音频生成开关未开启",
+              pricePerGenerationUsd: null,
+              fixedDurationSeconds: null,
+            },
+            model,
+          }),
+        ),
+      ),
+    );
+
+    expect(screen.getAllByText("已适配 · 开关未开启").length).toBeGreaterThan(0);
+    expect(screen.queryByText("交互待适配")).not.toBeInTheDocument();
+  });
+
+  it("does not mislabel a static audio model while realtime status is loading", () => {
+    const baseModel = models.find((candidate) => candidate.id === "openai/gpt-5.6-sol");
+    expect(baseModel).toBeDefined();
+    const model: Model = {
+      ...baseModel!,
+      id: "fish-audio/s1",
+      name: "Fish Audio: S1",
+      primary_operation: "synthesize_speech",
+      operations: ["synthesize_speech"],
+      interaction_status: "planned",
+      ui_entrypoint: "planned",
+    };
+
+    render(
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          ModelPreferenceProvider,
+          null,
+          createElement(ModelCard, {
+            audioCatalogState: "loading",
+            model,
+          }),
+        ),
+      ),
+    );
+
+    expect(screen.getAllByText("文字转语音状态确认中").length).toBeGreaterThan(0);
+    expect(screen.getByText("正在读取实时能力目录。")).toBeInTheDocument();
+    expect(screen.queryByText(/待适配/)).not.toBeInTheDocument();
   });
 });
