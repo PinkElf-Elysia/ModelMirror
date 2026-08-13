@@ -7,6 +7,7 @@ import time
 from typing import Any, Callable
 
 try:
+    from server.workflow_native.node_contracts import node_policy_service
     from server.workflow_native.schemas import NativeWorkflowDefinition
     from server.xperts.models import (
         XpertDefinition,
@@ -15,6 +16,7 @@ try:
     )
     from server.xperts.validation import validate_xpert_workflow_graph
 except ModuleNotFoundError:
+    from workflow_native.node_contracts import node_policy_service
     from workflow_native.schemas import NativeWorkflowDefinition
     from xperts.models import XpertDefinition, XpertDraft, XpertVersion
     from xperts.validation import validate_xpert_workflow_graph
@@ -26,15 +28,6 @@ from .store import (
 )
 
 
-UNSAFE_NODE_KINDS = {
-    "agent_handoff",
-    "handoff_router",
-    "human_intervention",
-    "data_table_query",
-    "data_table_insert",
-    "data_table_update",
-    "data_table_delete",
-}
 UNSAFE_MIDDLEWARE_IDS = {
     "human_in_the_loop",
     "todo_planner",
@@ -571,11 +564,13 @@ class XpertEvaluationService:
         for node in workflow.nodes:
             data = node.data if isinstance(node.data, dict) else {}
             kind = str(data.get("kind") or node.type or "")
-            if kind in UNSAFE_NODE_KINDS:
+            policy = node_policy_service.decision(kind, "evaluation")
+            if not policy.allowed:
                 issues.append(
                     {
-                        "code": "evaluation_unsafe_node",
-                        "message": f"Evaluation does not allow node kind: {kind}.",
+                        "code": policy.code or "evaluation_unsafe_node",
+                        "message": policy.message
+                        or f"Evaluation does not allow node kind: {kind}.",
                         "node_id": node.id,
                     }
                 )

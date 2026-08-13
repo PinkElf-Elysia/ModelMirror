@@ -849,8 +849,22 @@ These nodes must not regress to title/description-only cards or require hand
 editing workflow JSON.
 
 These nodes remain private-only and are excluded from Evaluator and Xpert App
-execution. They are also marked `planner_enabled=false`: the former
+execution. They are also marked `planner_enabled=false`. The former
 `EVOAGENTX-META-PLANNER-DATA-04` round was removed from this delivery route and
 must return as a standalone Planner closed loop. Knowledge pipeline stages
 remain owned by `/rag`; workflows continue to consume them through knowledge
-bindings and retrieval/citation nodes.
+resource bindings and deterministic retrieval nodes.
+
+## NodeContract V3 compatibility layer
+
+Classic workflow now has one exhaustive `NodeContractRegistry` for every
+`NativeNodeKind`. Contracts describe JSON-safe values, ports, edge modes,
+execution and side-effect semantics, entrypoint availability, resources, and
+Planner adapter state. Existing node-specific validation and classic execution
+remain authoritative during migration; V3 adds common fail-closed checks and
+does not rewrite scheduling or SSE.
+
+The Workflow Registry is a safe UI projection of these contracts. Resource
+bindings remain non-control edges. Annotation remains metadata-only. Nodes with
+`contract_status=compatibility` continue existing runtime behavior but cannot
+enter Meta Planner by default. See `docs/NODE_CONTRACT_V3.md`.

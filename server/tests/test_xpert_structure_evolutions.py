@@ -19,6 +19,7 @@ from server.evolutions.store import EvolutionStateError, XpertEvolutionStore
 from server.meta_agent.schemas import MetaPlannerCapabilitySnapshot, MetaPlannerScope
 from server.prompts.store import PromptProfileStore
 from server.xpert_runtime.authoring_store import AuthoringProposalStore
+from server.xpert_runtime.workflow_node_registry import workflow_node_registry
 from server.xperts import XpertStore
 
 
@@ -73,46 +74,23 @@ class _EvaluationService:
 
 
 def _snapshot() -> MetaPlannerCapabilitySnapshot:
+    registry_payload = workflow_node_registry.to_payload()
     nodes = [
-        {
-            "kind": "workflow_agent",
-            "title": "Workflow Agent",
-            "description": "Agent",
-            "planner": {"enabled": True, "default_data": {}},
-        },
-        {
-            "kind": "condition",
-            "title": "Condition",
-            "description": "Branch",
-            "planner": {"enabled": True, "default_data": {}},
-        },
-        {
-            "kind": "template_transform",
-            "title": "Template",
-            "description": "Transform",
-            "planner": {"enabled": True, "default_data": {}},
-        },
-        {
-            "kind": "list_operation",
-            "title": "List Operation",
-            "description": "List",
-            "planner": {"enabled": True, "default_data": {}},
-        },
-        {
-            "kind": "input",
-            "title": "Input",
-            "description": "Input",
-            "planner": {"enabled": True, "default_data": {}},
-        },
-        {
-            "kind": "output",
-            "title": "Output",
-            "description": "Output",
-            "planner": {"enabled": True, "default_data": {}},
-        },
+        copy.deepcopy(item)
+        for section in registry_payload["sections"]
+        for item in section["items"]
+        if item.get("enabled") and item.get("planner", {}).get("enabled")
     ]
+    nodes.extend(
+        copy.deepcopy(item)
+        for item in registry_payload["knowledge_pipeline"]["items"]
+        if item.get("enabled") and item.get("planner", {}).get("enabled")
+    )
     return MetaPlannerCapabilitySnapshot(
-        version="snapshot-v1",
+        version="evoagentx-meta-planner-capabilities-v3",
+        ir_version=2,
+        contract_version=registry_payload["contract_version"],
+        contract_checksum=registry_payload["contract_checksum"],
         snapshot_hash="snapshot-hash",
         generated_at=1,
         node_registry_version="registry-v1",
@@ -181,12 +159,7 @@ def _compiler(seed: str = "seed") -> StructureMutationCompiler:
     return StructureMutationCompiler(
         snapshot=_snapshot(),
         scope=EvolutionStructureScope(
-            allowed_node_kinds=[
-                "workflow_agent",
-                "condition",
-                "template_transform",
-                "list_operation",
-            ],
+            allowed_node_kinds=["workflow_agent"],
             external_xpert_ids=["specialist"],
             knowledge_base_ids=["kb-one"],
             toolset_ids=["toolset-one"],
@@ -285,7 +258,7 @@ def test_invalid_control_cycle_is_rejected_before_evaluation(tmp_path: Path) -> 
         )
 
 
-def test_control_add_replace_remove_and_edge_mutations(tmp_path: Path) -> None:
+def test_control_add_remove_edges_and_reject_agent_replacement(tmp_path: Path) -> None:
     baseline = _xpert(tmp_path)
     added, added_diff = _compiler("add").apply(
         baseline,
@@ -294,7 +267,7 @@ def test_control_add_replace_remove_and_edge_mutations(tmp_path: Path) -> None:
             StructureMutation(
                 op="add_control_node",
                 ref="format",
-                kind="template_transform",
+                kind="workflow_agent",
             ),
             StructureMutation(
                 op="add_control_edge",
@@ -309,30 +282,30 @@ def test_control_add_replace_remove_and_edge_mutations(tmp_path: Path) -> None:
         ],
     )
     added_node_id = added_diff["added_nodes"][0]["node_id"]
-    replaced, replaced_diff = _compiler("replace").apply(
-        added,
-        [
-            StructureMutation(
-                op="replace_control_node",
-                node_id=added_node_id,
-                kind="list_operation",
-            )
-        ],
-    )
-    assert replaced_diff["replaced_nodes"][0]["to_kind"] == "list_operation"
+    with pytest.raises(EvolutionStateError, match="cannot be replaced"):
+        _compiler("replace").apply(
+            added,
+            [
+                StructureMutation(
+                    op="replace_control_node",
+                    node_id=added_node_id,
+                    kind="workflow_agent",
+                )
+            ],
+        )
 
     incoming = next(
         edge
-        for edge in replaced.draft.workflow.edges
+        for edge in added.draft.workflow.edges
         if edge.target == added_node_id
     )
     outgoing = next(
         edge
-        for edge in replaced.draft.workflow.edges
+        for edge in added.draft.workflow.edges
         if edge.source == added_node_id
     )
     removed, removed_diff = _compiler("remove").apply(
-        replaced,
+        added,
         [
             StructureMutation(op="remove_control_edge", edge_id=incoming.id),
             StructureMutation(op="remove_control_edge", edge_id=outgoing.id),

@@ -246,7 +246,11 @@ def test_data_table_nodes_are_runtime_enabled_but_planner_deferred() -> None:
         "data_table_delete",
     }
     assert all(item.enabled is True for item in items.values())
-    assert all(item.planner_enabled is False for item in items.values())
+    assert all(item.to_payload()["planner"]["enabled"] is False for item in items.values())
+    assert all(
+        item.to_payload()["contract"]["contract_status"] == "complete"
+        for item in items.values()
+    )
 
 
 @pytest.mark.asyncio

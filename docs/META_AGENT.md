@@ -123,13 +123,26 @@ curl http://localhost:5173/agents/meta-agent
 2. 能力编译：从实时 Capability Snapshot 中选择真实节点、资源和中间件。
 3. 定向修复：本地确定性门禁失败时，最多调用模型修复一次。
 
+### NodeContract V3 能力门禁
+
+Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V3
+只暴露满足以下全部条件的节点：契约状态完整、Planner 显式启用、编译模式真实存在、
+Adapter 版本一致，并且契约与 Adapter 的 compiler checksum 匹配。UI Registry 中出现
+节点不等于 Planner 可以生成该节点。
+
+当前开放范围仍严格保持为 `input`、`output`、`workflow_agent`、
+`external_xpert`、`knowledge_base`、`toolset_resource` 和 `plugin_resource`。
+NodeContract V3 与 Typed IR 独立演进，本轮 Capability Snapshot 升级为 V3，
+`ir_version` 仍为 2。旧 V2 Snapshot 保持可读，详见
+[NODE_CONTRACT_V3.md](./NODE_CONTRACT_V3.md)。
+
 ### Typed IR V2 编译边界
 
 能力编译阶段现在输出 `MetaPlannerTypedBlueprintV2`，显式声明节点引用、任务覆盖、
 类型化输入/输出变量、控制边、资源/中间件目标和唯一最终输出。任务和 Agent 不再
 强制一一对应：一个 Agent 可以覆盖多个任务，一个任务也可以由多个节点共同完成。
 
-Capability Snapshot v2 只暴露当前存在编译适配器的能力。首轮可执行 IR 节点只有
+Capability Snapshot V3 只暴露当前存在且与 NodeContract 校验一致的编译能力。首轮可执行 IR 节点只有
 `workflow_agent`；`input/output` 由编译器管理，外部 Xpert、知识库、Toolset 和
 Plugin 通过绑定记录编译。JSON、Agent Table、知识检索和视觉理解尚无 Planner
 适配器，因此不会进入授权快照，也不会被模型生成。

@@ -115,6 +115,19 @@ Meta Planner V2 必须：
 - 迁移 EvoAgentX Provider、RAG、Memory、HITL、Storage 或 Tool Runtime。
 - GraphRAG、企业权限、多租户、远程插件市场和 Xpert UI 像素对齐。
 
+## NodeContract V3 收口
+
+ModelMirror 已将节点配置、端口、边、资源、执行安全和入口可用性统一到
+`NodeContractRegistry`。该契约内核是 ModelMirror 自有实现，只适配 EvoAgentX
+参数 Schema 与分层验证思想，不复制或引入 EvoAgentX Runtime。
+
+Capability Snapshot 已升级为 V3，但 Typed IR 继续保持 V2。Structure Evolution
+必须消费生产 Registry 生成的 Snapshot，不能在测试或运行时伪造可生成节点集合。
+完整契约不自动授予 Planner 权限；只有拥有有效 Adapter 且 checksum 一致的能力才能
+进入 Snapshot。当前可生成节点仍为既有七类，其他完整契约用于后续轮次的安全准备。
+
+详细契约、迁移边界和策略矩阵见 [NODE_CONTRACT_V3.md](./NODE_CONTRACT_V3.md)。
+
 ## 验收标准
 
 - 所有移植文件都有官方 commit、相对路径、SHA-256、许可证和本地测试映射。

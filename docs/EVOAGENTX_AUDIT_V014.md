@@ -257,3 +257,20 @@ selection 与 early-stop 的分层概念，判定为 `adapt`。
 
 对应实现位于 `server/evolutions/mutations.py`、`service.py` 和 `executor.py`；
 测试位于 `server/tests/test_xpert_structure_evolutions.py`。逐文件源码复用数量仍为零。
+
+## 15. NodeContract V3 契约适配记录
+
+本轮只参考 EvoAgentX `v0.1.4@aad19b9` 中参数 JSON Schema 与分层验证的
+概念，判定为 `adapt/rewrite`：
+
+- ModelMirror 使用自有 `NodeContractRegistry` 描述类型、端口、边、执行策略、
+  入口许可、资源和 Planner Adapter 状态。
+- Workflow Registry、Capability Snapshot、发布预检、Evaluator、App 与 Evolution
+  消费同一安全投影或 `NodePolicyService` 决策。
+- Typed IR 继续保持 V2；NodeContract V3 不引入 EvoAgentX Workflow、Agent、
+  Provider、Storage 或 Runtime。
+- 现有逐节点 Validator 与 classic runner 在迁移期保持行为权威，V3 只增加通用
+  fail-closed 契约检查。
+
+对应实现位于 `server/workflow_native/node_contracts.py`，测试位于
+`server/tests/test_workflow_node_contracts.py`。逐文件源码复用数量仍为零。
