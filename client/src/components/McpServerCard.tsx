@@ -1,4 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Link2,
+  Settings2,
+  Star,
+  Wrench,
+  X,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import McpWorkspacePanel, {
@@ -10,16 +17,13 @@ import McpApprovalDialog, {
 } from "./McpApprovalDialog";
 import McpBrowserPanel from "./McpBrowserPanel";
 import {
-  mcpCatalogSources,
   mcpRequirementLabels,
   type McpProject,
 } from "../data/mcpProjects";
 import {
-  formatMcpCapability,
   formatMcpIsolation,
   mcpAvailabilityLabels,
   mcpConnectionKindLabels,
-  mcpRiskLabels,
   type McpCatalogAdapterStatus,
 } from "../data/mcpAdaptationPlan";
 
@@ -185,6 +189,43 @@ function formatStars(stars: number) {
   if (stars <= 0) return "官方包";
   if (stars >= 1000) return `${(stars / 1000).toFixed(1)}k`;
   return stars.toLocaleString("zh-CN");
+}
+
+function compactUnavailableReason(
+  availability: McpProject["availability"],
+  limitations: string[],
+  requirements: McpProject["requirements"],
+) {
+  const evidence = limitations.join(" ");
+  if (/归档|archiv/i.test(evidence)) return "上游项目已归档，暂不接入。";
+  if (/许可|license/i.test(evidence)) return "许可证信息尚未完成核验。";
+  if (/任意.*代码|代码执行|shell/i.test(evidence)) {
+    return "需要执行代码，当前安全沙箱尚未开放。";
+  }
+  if (/Docker Socket|docker.*权限/i.test(evidence)) {
+    return "需要 Docker 管理权限，当前不会开放。";
+  }
+  if (/登录态|浏览器扩展|本机浏览器/i.test(evidence)) {
+    return "依赖浏览器登录态，当前不会继承用户会话。";
+  }
+  if (/schema 漂移|上游.*契约|契约漂移/i.test(evidence)) {
+    return "上游接口不稳定，恢复兼容后再开放。";
+  }
+  if (requirements.includes("desktop-host")) {
+    return "需要桌面宿主，当前运行环境不支持。";
+  }
+  if (requirements.includes("system-permission")) {
+    return "需要高权限运行，当前安全边界不允许。";
+  }
+  if (requirements.includes("oauth") || requirements.includes("account-binding")) {
+    return "账号授权与权限边界尚未完成验证。";
+  }
+  if (requirements.includes("external-runtime")) {
+    return "所需运行环境尚未纳入受控部署。";
+  }
+  if (availability === "adapting") return "正在完成连接、权限和回退验证。";
+  if (availability === "blocked") return "当前接入方式尚未满足安全要求。";
+  return "已进入适配计划，完成验证后开放。";
 }
 
 function schemaType(property: JsonSchemaProperty) {
@@ -457,18 +498,28 @@ export default function McpServerCard({
   const [installState, setInstallState] = useState<InstallState>("checking");
   const [installError, setInstallError] = useState("");
   const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
+  const [isWorkbenchOpen, setIsWorkbenchOpen] = useState(false);
   const [browserRefOptions, setBrowserRefOptions] = useState<BrowserElementOption[]>([]);
   const ignoredRestoredSessionRef = useRef<string | null>(null);
+  const workbenchTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const workbenchDialogRef = useRef<HTMLDivElement | null>(null);
+  const workbenchCloseRef = useRef<HTMLButtonElement | null>(null);
 
   const availability = adapterStatus?.availability ?? project.availability;
   const connectionKind = adapterStatus?.connection_kind ?? project.connectionKind;
-  const risk = adapterStatus?.risk ?? project.risk;
   const wave = adapterStatus?.wave ?? project.adaptationWave;
-  const requiredCapabilities =
-    adapterStatus?.required_capabilities ?? project.requiredCapabilities;
   const limitations = adapterStatus?.limitations ?? project.adaptationLimitations;
   const isStatefulSaas = wave === 6;
   const isBrowserAdapter = wave === 7;
+  const isPlaywrightCard = project.id === "playwright-mcp";
+  const isReadyProductCard = availability === "ready";
+  const isConnected = state === "connected" || adapterStatus?.connected === true;
+  const unavailableStatusLabel = availability === "adapting" ? "适配中" : "未适配";
+  const unavailableReason = compactUnavailableReason(
+    availability,
+    limitations,
+    project.requirements,
+  );
   const statefulSaasGateEnabled =
     !isStatefulSaas || adapterStatus?.stateful_saas_gate_enabled === true;
   const canConnect =
@@ -483,6 +534,44 @@ export default function McpServerCard({
   const needsCatalogConfiguration = Boolean(
     adapterStatus?.credential_fields.length || adapterStatus?.setting_fields.length,
   );
+  const readyCardCopy = useMemo(() => {
+    switch (project.id) {
+      case "playwright-mcp":
+        return {
+          description: "打开网页、读取页面并执行受控点击、填写与截图。",
+          tags: ["打开网页", "读取页面", "点击与填写", "生成截图"],
+          connectionNote: "临时匿名浏览器，不保留登录态；不支持上传和下载。",
+        };
+      case "takashiishida-arxiv-latex-mcp":
+        return {
+          description: "读取 arXiv 论文摘要、章节结构和 LaTeX 正文。",
+          tags: ["论文摘要", "章节目录", "LaTeX 正文", "只读访问"],
+          connectionNote: "仅访问 arXiv 官方公开论文，不编译 TeX 或加载外部资源。",
+        };
+      case "greptimeteam-greptimedb-mcp-server":
+        return {
+          description: "查询固定 GreptimeDB 数据表的结构、时间范围和健康状态。",
+          tags: ["表结构", "时序查询", "健康检查", "只读访问"],
+          connectionNote: "连接固定数据源，只允许服务端生成的只读查询。",
+        };
+      case "victoriametrics-community-mcp-victoriametrics":
+        return {
+          description: "读取 VictoriaMetrics 指标、标签和限定时间范围的监控数据。",
+          tags: ["指标列表", "标签查询", "即时查询", "范围查询"],
+          connectionNote: "连接固定监控目标，查询范围和返回数量均受限制。",
+        };
+      default:
+        return {
+          description: project.description,
+          tags: project.tags.slice(0, 4),
+          connectionNote: workspacePolicy?.required
+            ? "连接前需选择受控工作区"
+            : needsCatalogConfiguration
+              ? "连接前需完成一次配置"
+              : "可直接连接并使用工具",
+        };
+    }
+  }, [needsCatalogConfiguration, project.description, project.id, project.tags, workspacePolicy?.required]);
   const canStartConnection =
     canConnect &&
     (!isBrowserAdapter || Boolean(browserPolicy)) &&
@@ -496,15 +585,46 @@ export default function McpServerCard({
         : `第 ${wave} 批 · ${mcpConnectionKindLabels[connectionKind]} · ${limitations[0] ?? "等待生产级验收"}`,
     [canConnect, connectionKind, limitations, wave],
   );
-  const sourceNames = useMemo(
-    () =>
-      project.sources
-        .map((sourceId) =>
-          mcpCatalogSources.find((source) => source.id === sourceId)?.name,
-        )
-        .filter((name) => name !== undefined),
-    [project.sources],
-  );
+  useEffect(() => {
+    if (!isWorkbenchOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    workbenchCloseRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsWorkbenchOpen(false);
+        workbenchTriggerRef.current?.focus();
+      }
+      if (event.key === "Tab") {
+        const focusable = Array.from(
+          workbenchDialogRef.current?.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ) ?? [],
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isWorkbenchOpen]);
+
+  function closeWorkbench() {
+    setIsWorkbenchOpen(false);
+    workbenchTriggerRef.current?.focus();
+  }
 
   useEffect(() => {
     setCatalogConfigured(adapterStatus?.configured ?? false);
@@ -611,6 +731,7 @@ export default function McpServerCard({
       await fetchTools();
       setState("connected");
       setBrowserRefreshKey((current) => current + 1);
+      if (isPlaywrightCard) setIsWorkbenchOpen(true);
       onConnectionChange?.();
     } catch (exc) {
       setState("error");
@@ -1128,8 +1249,100 @@ export default function McpServerCard({
   }
 
   return (
-    <article className="group relative isolate flex min-h-[360px] flex-col overflow-hidden rounded-lg border border-white/10 bg-ink-950/78 p-5 shadow-prism transition duration-200 hover:border-hire-300/40 hover:bg-surface-900/92">
+    <article
+      className={`group relative flex h-full w-full flex-col rounded-lg p-5 shadow-prism transition duration-200 ${
+        isReadyProductCard ? "min-h-[360px]" : "min-h-[280px]"
+      } ${
+        isReadyProductCard && isWorkbenchOpen ? "" : "isolate overflow-hidden"
+      } border border-white/10 bg-ink-950/78 hover:border-hire-300/40 hover:bg-surface-900/92`}
+    >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(251,146,60,0.16),transparent_34%),radial-gradient(circle_at_82%_82%,rgba(36,217,255,0.13),transparent_36%)] opacity-80" />
+      {isReadyProductCard ? (
+        <>
+          <div className="relative flex items-start justify-between gap-4">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-brand-300/20 bg-brand-300/[0.07] text-lg font-semibold text-brand-100">
+                {project.category.slice(0, 1)}
+              </span>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-brand-300/25 bg-brand-300/[0.08] px-2.5 py-1 text-xs font-semibold text-brand-100">
+                    {project.category}
+                  </span>
+                  <span className="rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-2.5 py-1 text-xs font-semibold text-emerald-100">
+                    {isConnected ? "已连接" : "可用"}
+                  </span>
+                </div>
+                <h2 className="mt-3 line-clamp-2 text-xl font-semibold leading-7 text-white">
+                  {project.name}
+                </h2>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
+                  <a
+                    className="underline-offset-4 transition hover:text-brand-100 hover:underline"
+                    href={project.repoUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {project.repoName}
+                  </a>
+                  {project.stars > 0 ? (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span className="inline-flex items-center gap-1.5 text-slate-300">
+                        <Star aria-hidden="true" className="h-3.5 w-3.5 text-hire-200" strokeWidth={2} />
+                        {formatStars(project.stars)} stars
+                      </span>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p className="relative mt-5 line-clamp-3 text-sm leading-6 text-slate-200">
+            {readyCardCopy.description}
+          </p>
+
+          <div className="relative mt-5 border-y border-white/10 py-4">
+            <p className="text-xs font-semibold text-slate-400">主要能力</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {readyCardCopy.tags.map((tag) => (
+                <span
+                  className="rounded-full border border-brand-300/20 bg-brand-300/[0.07] px-3 py-1.5 text-xs font-medium text-brand-50"
+                  key={tag}
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="relative mt-4 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-4 py-3 text-xs text-slate-300">
+            <Settings2 aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-100" strokeWidth={1.8} />
+            <span>{readyCardCopy.connectionNote}</span>
+          </div>
+
+          <div className="relative mt-auto flex flex-wrap gap-2 pt-5">
+            <button
+              className="min-h-11 flex-1 rounded-full bg-brand-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-brand-200"
+              onClick={() => setIsWorkbenchOpen(true)}
+              ref={workbenchTriggerRef}
+              type="button"
+            >
+              <Wrench aria-hidden="true" className="mr-2 inline h-4 w-4" strokeWidth={2} />
+              打开工具台
+            </button>
+            <button
+              className="min-h-11 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/30 hover:bg-hire-300/[0.08] hover:text-hire-100"
+              onClick={() => setIsInstallOpen(true)}
+              type="button"
+            >
+              配置与使用
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
       <div className="relative flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-lg font-semibold text-white">
@@ -1142,16 +1355,12 @@ export default function McpServerCard({
               </span>
               <span
                 className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                  availability === "ready"
-                    ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
-                    : availability === "adapting"
-                      ? "border-cyan-300/25 bg-cyan-300/10 text-cyan-100"
-                      : availability === "blocked"
-                        ? "border-rose-300/25 bg-rose-300/10 text-rose-100"
+                  availability === "adapting"
+                    ? "border-cyan-300/25 bg-cyan-300/10 text-cyan-100"
                     : "border-amber-300/25 bg-amber-300/10 text-amber-100"
                 }`}
               >
-                {mcpAvailabilityLabels[availability]}
+                {unavailableStatusLabel}
               </span>
             </div>
             <h2 className="mt-3 line-clamp-2 text-xl font-semibold leading-7 text-white">
@@ -1165,9 +1374,6 @@ export default function McpServerCard({
             >
               {project.repoName}
             </a>
-            <p className="mt-1 text-[11px] leading-4 text-slate-500">
-              清单来源：{sourceNames.join(" / ")}
-            </p>
           </div>
         </div>
         {project.stars > 0 ? (
@@ -1175,114 +1381,96 @@ export default function McpServerCard({
             {formatStars(project.stars)} stars
           </span>
         ) : (
-          <span className="rounded-full border border-white/10 bg-white/[0.055] px-2.5 py-1 text-xs font-semibold text-slate-300">
-            已核验
-          </span>
+          null
         )}
       </div>
 
-      <p className="relative mt-5 text-sm leading-6 text-slate-300">
+      <p className="relative mt-4 line-clamp-2 text-sm leading-6 text-slate-300">
         {project.description}
       </p>
 
-      <div className="relative mt-5 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-        <p className="text-xs font-semibold text-slate-200">README 摘要</p>
-        <p className="mt-2 line-clamp-4 text-xs leading-5 text-slate-400">
-          {project.readmeSummary}
-        </p>
-      </div>
-
-      <div className="relative mt-4 grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-lg border border-white/10 bg-white/[0.045] p-3">
-          <p className="text-xs text-slate-400">主要语言</p>
-          <p className="mt-1 font-semibold text-white">{project.language}</p>
-        </div>
-        <div className="rounded-lg border border-white/10 bg-white/[0.045] p-3">
-          <p className="text-xs text-slate-400">资料核验</p>
-          <p className="mt-1 font-semibold text-white">{project.verifiedAt}</p>
-        </div>
-      </div>
-
-      <div className="relative mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
-        <div className="rounded-lg border border-white/10 bg-white/[0.035] p-2.5">
-          <p className="text-slate-500">适配批次</p>
-          <p className="mt-1 font-semibold text-white">{wave === 0 ? "基线" : `第 ${wave} 批`}</p>
-        </div>
-        <div className="rounded-lg border border-white/10 bg-white/[0.035] p-2.5">
-          <p className="text-slate-500">连接方式</p>
-          <p className="mt-1 font-semibold text-brand-100">
-            {mcpConnectionKindLabels[connectionKind]}
-          </p>
-        </div>
-        <div className="rounded-lg border border-white/10 bg-white/[0.035] p-2.5">
-          <p className="text-slate-500">风险等级</p>
-          <p className="mt-1 font-semibold text-hire-100">{mcpRiskLabels[risk]}</p>
-        </div>
-      </div>
-
-      <div className="relative mt-4 flex flex-wrap gap-2">
-        {project.tags.map((tag) => (
-          <span
-            className="rounded-full border border-white/10 bg-white/[0.055] px-2.5 py-1 text-xs font-medium text-slate-300"
-            key={tag}
-          >
-            {tag}
-          </span>
-        ))}
-      </div>
-
-      {project.requirements.length > 0 ? (
-        <div className="relative mt-4 rounded-lg border border-amber-300/20 bg-amber-300/[0.07] p-3">
-          <p className="text-xs font-semibold text-amber-100">当前接入条件</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {project.requirements.map((requirement) => (
+      <div
+        className={`relative mt-4 rounded-lg border px-4 py-3 ${
+          availability === "adapting"
+            ? "border-cyan-300/20 bg-cyan-300/[0.06]"
+            : "border-amber-300/20 bg-amber-300/[0.06]"
+        }`}
+      >
+        <p className="text-xs font-semibold text-slate-200">{unavailableStatusLabel}</p>
+        <p className="mt-1 text-xs leading-5 text-slate-400">{unavailableReason}</p>
+        {project.requirements.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {project.requirements.slice(0, 3).map((requirement) => (
               <span
-                className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-50"
+                className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-slate-300"
                 key={requirement}
               >
                 {mcpRequirementLabels[requirement]}
               </span>
             ))}
           </div>
-        </div>
-      ) : (
-        <div className="relative mt-4 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.07] p-3 text-xs leading-5 text-emerald-50">
-          {wave === 2
-            ? "不需要 OAuth、Token 或用户安装运行时；由独立公网 sidecar 通过固定出口策略提供隔离 stdio 会话。"
-            : wave === 3
-              ? "不需要 OAuth、Token、桌面宿主或外部运行时；文件只进入断网受控工作区。"
-            : wave === 4
-              ? "需要在当前卡片的“加密凭据”区域保存 Token；凭据仅绑定当前 MCP，并通过固定出口的只读 sidecar 建立隔离 stdio 会话。"
-            : wave === 5
-              ? project.id === "duckdb-mcp"
-                ? "无需 Token 或远程数据库凭据；只读取当前卡片中上传、封存并绑定的本地 DuckDB 文件。"
-                : "数据库连接按只读策略运行；连接字段与加密凭据均在当前卡片独立配置，不接受完整连接串。"
-            : wave === 7
-              ? "无需 Token、OAuth、桌面宿主或本机浏览器；连接会创建匿名临时会话，不支持外站登录流程，也不会继承或保存登录状态。"
-            : "不需要 OAuth、Token、额外运行时或桌面宿主，可由当前模镜后端以本地 stdio 启动。"}
-        </div>
-      )}
-
-      <div className="relative mt-3 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.05] p-3">
-        <p className="text-xs font-semibold text-cyan-100">本批生产验收门槛</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {requiredCapabilities.map((capability) => (
-            <span
-              className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs text-cyan-50"
-              key={capability}
-            >
-              {formatMcpCapability(capability)}
-            </span>
-          ))}
-        </div>
-        {limitations.map((limitation) => (
-          <p className="mt-2 text-xs leading-5 text-slate-400" key={limitation}>
-            {limitation}
-          </p>
-        ))}
+        ) : null}
       </div>
 
-      {wave === 5 ? (
+      <button
+        className="relative mt-auto min-h-11 w-full cursor-not-allowed rounded-full border border-white/10 bg-white/[0.035] px-4 py-2 text-sm font-semibold text-slate-500"
+        disabled
+        type="button"
+      >
+        {unavailableStatusLabel}
+      </button>
+        </>
+      )}
+
+      {isReadyProductCard && isWorkbenchOpen ? (
+        <div
+          aria-labelledby={isReadyProductCard ? `mcp-workbench-${project.id}` : undefined}
+          aria-modal={isReadyProductCard ? "true" : undefined}
+          className={
+            isReadyProductCard
+              ? "fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/80 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+              : "contents"
+          }
+          onMouseDown={(event) => {
+            if (isReadyProductCard && event.target === event.currentTarget) closeWorkbench();
+          }}
+          role={isReadyProductCard ? "dialog" : undefined}
+          ref={isReadyProductCard ? workbenchDialogRef : undefined}
+        >
+          <section
+            className={
+              isReadyProductCard
+                ? "flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-t-xl border border-white/10 bg-ink-950 sm:rounded-xl"
+                : "contents"
+            }
+            onMouseDown={(event) => {
+              if (isReadyProductCard) event.stopPropagation();
+            }}
+          >
+            {isReadyProductCard ? (
+              <header className="flex shrink-0 items-start justify-between gap-4 border-b border-white/10 bg-surface-900/95 px-4 py-4 sm:px-6">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-brand-100">MCP 工具台</p>
+                  <h2 className="mt-1 truncate text-xl font-semibold text-white" id={`mcp-workbench-${project.id}`}>
+                    {project.name}
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {isConnected ? "连接已建立，可选择工具执行" : "完成配置并建立连接后即可使用工具"}
+                  </p>
+                </div>
+                <button
+                  aria-label="关闭工具台"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-slate-200 transition hover:bg-white/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200"
+                  onClick={closeWorkbench}
+                  ref={workbenchCloseRef}
+                  type="button"
+                >
+                  <X aria-hidden="true" className="h-5 w-5" />
+                </button>
+              </header>
+            ) : null}
+            <div className={isReadyProductCard ? "min-h-0 flex-1 overflow-y-auto px-4 pb-6 sm:px-6" : "contents"}>
+      {!isReadyProductCard && wave === 5 ? (
         <section
           aria-label="数据库安全与验证状态"
           className="relative mt-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.055] p-3 text-xs"
@@ -1342,7 +1530,7 @@ export default function McpServerCard({
         </section>
       ) : null}
 
-      {wave === 6 ? (
+      {!isReadyProductCard && wave === 6 ? (
         <section
           aria-label="有状态 SaaS 账号与工具策略"
           className="relative mt-3 rounded-lg border border-violet-300/20 bg-violet-300/[0.055] p-3 text-xs"
@@ -1418,6 +1606,7 @@ export default function McpServerCard({
       {wave === 7 ? (
         <McpBrowserPanel
           availability={availability}
+          compact={isReadyProductCard}
           connected={state === "connected" || adapterStatus?.connected === true}
           policy={browserPolicy}
           preflightStatus={databasePreflight}
@@ -1426,7 +1615,7 @@ export default function McpServerCard({
         />
       ) : null}
 
-      {adapterStatus?.executable && adapterStatus.runtime_image ? (
+      {!isReadyProductCard && adapterStatus?.executable && adapterStatus.runtime_image ? (
         <div className="relative mt-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] p-3 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="font-semibold text-emerald-100">已验证运行隔离</p>
@@ -1482,7 +1671,11 @@ export default function McpServerCard({
       <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-5">
         {canConnect ? (
           <button
-            className="min-h-11 rounded-full bg-brand-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_24px_rgba(34,211,238,0.18)] transition duration-200 hover:bg-brand-200 disabled:cursor-not-allowed disabled:opacity-45"
+            className={`min-h-11 rounded-full px-4 py-2 text-sm font-semibold text-ink-950 transition duration-200 disabled:cursor-not-allowed disabled:opacity-45 ${
+              isPlaywrightCard
+                ? "bg-hire-300 hover:bg-hire-200"
+                : "bg-brand-300 shadow-[0_0_24px_rgba(34,211,238,0.18)] hover:bg-brand-200"
+            }`}
             disabled={
               state === "connecting" ||
               state === "connected" ||
@@ -1491,6 +1684,9 @@ export default function McpServerCard({
             onClick={() => void connect()}
             type="button"
           >
+            {isPlaywrightCard && state !== "connecting" && state !== "connected" ? (
+              <Link2 aria-hidden="true" className="mr-2 inline h-4 w-4" strokeWidth={2} />
+            ) : null}
             {state === "connecting"
               ? isBrowserAdapter ? "正在创建临时会话" : "连接中..."
               : state === "connected"
@@ -1499,7 +1695,9 @@ export default function McpServerCard({
                   ? "先绑定工作区"
                   : needsCatalogConfiguration && !catalogConfigured
                     ? "先保存连接配置"
-                  : isBrowserAdapter ? "连接临时浏览器" : "连接 Server"}
+                  : isPlaywrightCard
+                    ? "连接 Playwright"
+                    : isBrowserAdapter ? "连接临时浏览器" : "连接 Server"}
           </button>
         ) : (
           <button
@@ -1507,17 +1705,13 @@ export default function McpServerCard({
             disabled
             type="button"
           >
-            {!adapterStatus && availability === "ready"
+            {!adapterStatus
               ? "同步服务端状态..."
-              : isStatefulSaas && availability === "ready" && !statefulSaasGateEnabled
+              : isStatefulSaas && !statefulSaasGateEnabled
                 ? "SaaS 门禁未开启"
-              : adapterStatus && availability === "ready" && !adapterStatus.feature_enabled
+              : !adapterStatus.feature_enabled
                 ? "项目开关未开启"
-              : availability === "adapting"
-                ? "正在适配"
-                : availability === "blocked"
-                  ? "适配受阻"
-                  : "等待安全适配"}
+                : "暂不可连接"}
           </button>
         )}
         {state === "connected" ? (
@@ -1529,7 +1723,7 @@ export default function McpServerCard({
             {isBrowserAdapter ? "结束临时会话" : "断开连接"}
           </button>
         ) : null}
-        {canInstall ? (
+        {canInstall && !isPlaywrightCard ? (
           <button
             className={`min-h-11 rounded-full border px-4 py-2 text-sm font-semibold transition duration-200 disabled:cursor-not-allowed disabled:opacity-60 ${
               installState === "installed"
@@ -1554,14 +1748,19 @@ export default function McpServerCard({
           </button>
         ) : null}
         <button
-          className="min-h-11 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-300 transition duration-200 hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100"
+          className={`min-h-11 rounded-full border px-3 py-2 text-xs font-semibold transition duration-200 ${
+            isPlaywrightCard
+              ? "border-cyan-300/25 bg-cyan-300/[0.06] text-cyan-100 hover:bg-cyan-300/10"
+              : "border-white/10 bg-white/[0.04] text-slate-300 hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100"
+          }`}
           onClick={() => setIsInstallOpen(true)}
           type="button"
         >
-          中文配置与使用
+          {isPlaywrightCard ? "配置与使用" : "中文配置与使用"}
         </button>
       </div>
 
+      {!isReadyProductCard ? (
       <div className="relative mt-4 rounded-lg border border-white/10 bg-slate-950/55 p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -1583,6 +1782,7 @@ export default function McpServerCard({
           ) : null}
         </div>
       </div>
+      ) : null}
 
       {installError ? (
         <div className="relative mt-4 rounded-lg border border-amber-300/25 bg-amber-300/10 p-3 text-sm leading-6 text-amber-50">
@@ -1730,6 +1930,10 @@ export default function McpServerCard({
           )}
         </div>
       ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {pendingApproval ? (
         <McpApprovalDialog
@@ -1751,7 +1955,7 @@ export default function McpServerCard({
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold text-hire-100">
-                  中文配置与使用指引
+                  {isPlaywrightCard ? "配置与使用" : "中文配置与使用指引"}
                 </p>
                 <h2
                   className="mt-2 text-2xl font-semibold text-white"
@@ -1769,7 +1973,14 @@ export default function McpServerCard({
                 关闭
               </button>
             </div>
-            <div
+            {isPlaywrightCard ? (
+              <div className="mt-5 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.06] p-4">
+                <p className="text-sm font-semibold text-cyan-100">临时匿名浏览器</p>
+                <p className="mt-2 text-sm leading-6 text-slate-300">
+                  连接后即可打开公开网页、读取页面并执行受控点击、填写与截图。会话结束后登录状态不会保留。
+                </p>
+              </div>
+            ) : <div
               className={`mt-5 rounded-lg border p-4 ${
                 canConnect
                   ? "border-emerald-300/25 bg-emerald-300/[0.08]"
@@ -1793,9 +2004,9 @@ export default function McpServerCard({
                   本页不会要求输入 Token，也不会跳转到 OAuth 或外站登录页面。
                 </p>
               ) : null}
-            </div>
+            </div>}
 
-            {project.requirements.length > 0 ? (
+            {!isPlaywrightCard && project.requirements.length > 0 ? (
               <section className="mt-5">
                 <h3 className="text-sm font-semibold text-white">接入条件</h3>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -1814,7 +2025,13 @@ export default function McpServerCard({
             <section className="mt-5">
               <h3 className="text-sm font-semibold text-white">配置步骤</h3>
               <ol className="mt-3 space-y-3">
-                {project.configGuide.map((step, index) => (
+                {(isPlaywrightCard
+                  ? [
+                      "点击“连接 Playwright”创建临时浏览器会话。",
+                      "选择浏览器工具，填写公开网页地址或页面操作参数。",
+                      "截图会显示在会话与截图区域，可下载或清理。",
+                    ]
+                  : project.configGuide).map((step, index) => (
                   <li
                     className="flex gap-3 text-sm leading-6 text-slate-300"
                     key={step}
@@ -1831,7 +2048,9 @@ export default function McpServerCard({
             <section className="mt-5 rounded-lg border border-white/10 bg-white/[0.04] p-4">
               <h3 className="text-sm font-semibold text-white">可以怎么用</h3>
               <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
-                {project.usageExamples.map((example) => (
+                {(isPlaywrightCard
+                  ? ["核对公开页面的标题、链接和关键文案", "在逐次确认后点击、填写并生成截图"]
+                  : project.usageExamples).map((example) => (
                   <li className="flex gap-2" key={example}>
                     <span aria-hidden="true" className="text-brand-100">
                       •
@@ -1842,7 +2061,7 @@ export default function McpServerCard({
               </ul>
             </section>
 
-            {canConnect ? (
+            {canConnect && !isPlaywrightCard ? (
               <section className="mt-5 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.07] p-4">
                 <h3 className="text-sm font-semibold text-emerald-100">
                   服务端受控适配器
