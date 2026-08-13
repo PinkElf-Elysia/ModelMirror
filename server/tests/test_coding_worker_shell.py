@@ -109,6 +109,11 @@ async def _approve(
         approval.approval_id, approved=True, task_scope=False
     ).lease
     assert lease is not None and lease.operation_limit == 1
+    store.transition(
+        task_id,
+        TaskState.RUNNING,
+        expected_state=TaskState.WAITING_APPROVAL,
+    )
     return lease.lease_id
 
 

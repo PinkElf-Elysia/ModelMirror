@@ -275,6 +275,33 @@ class _BlockingCompactionProvider(FakeCodingAgentProvider):
         yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
 
 
+class _ApprovalParkingProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.store: CodingWorkerStore | None = None
+        self.stream_closed = asyncio.Event()
+        self.resume_requested = asyncio.Event()
+        self.messages: list[str] = []
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        assert self.store is not None
+        self.messages.append(text)
+        if len(self.messages) == 1:
+            self.store.transition(session.task_id, TaskState.WAITING_APPROVAL)
+            try:
+                yield ProviderEvent(
+                    kind=ProviderEventKind.MESSAGE,
+                    data={"text": "Waiting for the exact command approval."},
+                )
+            finally:
+                self.stream_closed.set()
+            return
+        self.resume_requested.set()
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+
 class _CompactionRestoreProvider(_RestoreTrackingProvider):
     def __init__(self) -> None:
         super().__init__()
@@ -324,6 +351,35 @@ def _service_with_harness(
         ),
         broker,
     )
+
+
+@pytest.mark.asyncio
+async def test_provider_stream_parks_while_exact_approval_is_pending(
+    tmp_path: Path,
+) -> None:
+    provider = _ApprovalParkingProvider()
+    service = _service(tmp_path, provider)
+    provider.store = service.store
+    task = await service.create_task(
+        Origin(module="test", object_id="approval-parking"),
+        _request("approval-parking"),
+    )
+
+    await service.wait_for(
+        task.task_id,
+        lambda item: item.state is TaskState.WAITING_APPROVAL,
+    )
+    await asyncio.wait_for(provider.stream_closed.wait(), timeout=1)
+    assert len(provider.messages) == 1
+
+    service.store.transition(
+        task.task_id,
+        TaskState.RUNNING,
+        expected_state=TaskState.WAITING_APPROVAL,
+    )
+    await asyncio.wait_for(provider.resume_requested.wait(), timeout=1)
+    assert "exact pending tool operation" in provider.messages[1]
+    await service.shutdown()
 
 
 @pytest.mark.asyncio

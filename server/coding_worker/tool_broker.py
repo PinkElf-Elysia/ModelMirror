@@ -20,6 +20,7 @@ import httpx
 from pydantic import Field, ValidationError
 
 from .contracts import (
+    ApprovalStatus,
     CapabilityLease,
     CapabilityName,
     CodeLocation,
@@ -172,6 +173,16 @@ class ToolBroker:
             "workspace_id": task.workspace_id,
         }
         intent_sha256 = self._intent_sha256(tool_name, request)
+        if task.state is TaskState.WAITING_APPROVAL:
+            existing_operation_ids = {
+                operation.operation_id
+                for operation in self.store.list_operations(task_id)
+            }
+            if operation_id not in existing_operation_ids:
+                raise ToolBrokerError(
+                    "Task is parked for another exact approval.",
+                    code="task_state_conflict",
+                )
         try:
             operation = self.store.create_operation(
                 task_id=task_id,
@@ -181,7 +192,14 @@ class ToolBroker:
                 request=request,
             )
         except WorkerConflictError as exc:
-            raise ToolBrokerError("Tool operation was rejected.", code=exc.code) from exc
+            message = "Tool operation was rejected."
+            if exc.code == "operation_intent_conflict":
+                message = (
+                    "This operation_id is already bound to different tool input. "
+                    "Use a new operation_id for the changed intent; reuse the old id "
+                    "only with the exact original tool and arguments."
+                )
+            raise ToolBrokerError(message, code=exc.code) from exc
         if operation.state is OperationState.COMPLETED:
             if self._result_has_changeset(operation.tool_name, operation.result):
                 self.changesets.finalize(
@@ -202,6 +220,45 @@ class ToolBroker:
                 "Tool operation cannot be replayed.", code="operation_not_replayable"
             )
         try:
+            task_state = self.store.get_task(task_id).state
+            if task_state is TaskState.WAITING_SUBTASKS:
+                raise ToolBrokerError(
+                    "Task is parked while controlled subtasks run.",
+                    code="task_state_conflict",
+                )
+            if task_state is TaskState.WAITING_APPROVAL:
+                pending_approvals = tuple(
+                    approval
+                    for approval in self.store.list_approvals(task_id)
+                    if approval.status is ApprovalStatus.PENDING
+                )
+                if pending_approvals and not any(
+                    approval.operation_id == operation_id
+                    for approval in pending_approvals
+                ):
+                    raise ToolBrokerError(
+                        "Task is parked for another exact approval.",
+                        code="task_state_conflict",
+                    )
+            ready_implementation = any(
+                relation.kind is SubtaskKind.IMPLEMENT
+                and relation.merge_state is SubtaskMergeState.READY
+                for relation in self.store.list_subtasks(task_id)
+            )
+            direct_workspace_mutation = tool_name in {
+                "write_file",
+                "delete_file",
+                "apply_changeset",
+            } or (
+                tool_name == "run_shell"
+                and request["arguments"].get("mode") == ShellMode.MUTATE.value
+            )
+            if ready_implementation and direct_workspace_mutation:
+                raise ToolBrokerError(
+                    "Merge or resolve the ready implementation subtask before "
+                    "modifying the parent Workspace.",
+                    code="subtask_merge_required",
+                )
             network_lease = self._authorize(
                 task.spec.policy_profile,
                 tool_name,
@@ -487,6 +544,7 @@ class ToolBroker:
             "read_file_range",
             "glob_files",
             "search_regex",
+            "read_operation_output",
             "apply_changeset",
             "run_shell",
             "code_symbols",
@@ -569,6 +627,7 @@ class ToolBroker:
             "search_text",
             "search_regex",
             "diff",
+            "read_operation_output",
             "list_acceptance_checks",
             "service_status",
             "code_symbols",
@@ -717,6 +776,7 @@ class ToolBroker:
             return {"subtask": relation.model_dump(mode="json")}
         if tool_name == "list_files":
             return {
+                "tree_hash": self.workspace_broker.current_tree_hash(workspace_id),
                 "entries": [
                     entry.model_dump(mode="json")
                     for entry in self.workspace_broker.tree(workspace_id)
@@ -735,8 +795,15 @@ class ToolBroker:
                     "binary": True,
                     "size": len(content),
                     "sha256": hashlib.sha256(content).hexdigest(),
+                    "tree_hash": self.workspace_broker.current_tree_hash(workspace_id),
                 }
-            return {"path": str(arguments["path"]), "binary": False, "content": text}
+            return {
+                "path": str(arguments["path"]),
+                "binary": False,
+                "content": text,
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "tree_hash": self.workspace_broker.current_tree_hash(workspace_id),
+            }
         if tool_name == "read_file_range":
             return self._read_file_range(workspace_id, arguments)
         if tool_name == "glob_files":
@@ -764,7 +831,12 @@ class ToolBroker:
             return self._search_regex(workspace_id, arguments)
         if tool_name == "diff":
             value = self.workspace_broker.diff(workspace_id, max_bytes=self.max_output_bytes)
-            return {"diff": value.decode("utf-8", errors="replace")}
+            return {
+                "diff": value.decode("utf-8", errors="replace"),
+                "tree_hash": self.workspace_broker.current_tree_hash(workspace_id),
+            }
+        if tool_name == "read_operation_output":
+            return self._read_operation_output(task_id, arguments)
         if tool_name == "list_acceptance_checks":
             task = self.store.get_task(task_id)
             return {
@@ -839,7 +911,17 @@ class ToolBroker:
                 raise ToolBrokerError("Command argv is invalid.", code="tool_input_invalid")
             if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 1800:
                 raise ToolBrokerError("Command timeout is invalid.", code="tool_input_invalid")
-            return await self._run_process(task_id, workspace_id, tuple(argv), timeout)
+            # Commands are observational compatibility tools. Execute them in a
+            # disposable clone so test caches, formatter output, or failed
+            # commands cannot mutate the authoritative Workspace outside the
+            # atomic changeset path.
+            return await self._run_process(
+                task_id,
+                workspace_id,
+                tuple(argv),
+                timeout,
+                isolated=True,
+            )
         if tool_name == "start_service":
             argv = arguments.get("argv")
             ttl = arguments.get("ttl_seconds", 900)
@@ -2002,6 +2084,77 @@ class ToolBroker:
             "total_lines": len(lines),
             "content": selected,
             "sha256": hashlib.sha256(content).hexdigest(),
+        }
+
+    def _read_operation_output(
+        self, task_id: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        operation_id = arguments.get("operation_id")
+        after = arguments.get("after", 0)
+        if (
+            not isinstance(operation_id, str)
+            or not operation_id
+            or len(operation_id) > 128
+            or isinstance(after, bool)
+            or not isinstance(after, int)
+            or after < 0
+        ):
+            raise ToolBrokerError(
+                "Operation output input is invalid.", code="tool_input_invalid"
+            )
+        try:
+            operation = self.store.get_operation(operation_id)
+        except Exception as exc:
+            raise ToolBrokerError(
+                "Operation output was not found.", code="operation_not_found"
+            ) from exc
+        if operation.task_id != task_id:
+            raise ToolBrokerError(
+                "Operation output was not found.", code="operation_not_found"
+            )
+        chunks: list[dict[str, Any]] = []
+        cursor = after
+        scanned = 0
+        output_size = 0
+        truncated = False
+        while len(chunks) < 256 and scanned < 10_000:
+            events = self.store.list_events(task_id, after=cursor, limit=1000)
+            if not events:
+                break
+            cursor = events[-1].sequence
+            scanned += len(events)
+            for event in events:
+                if (
+                    event.type != "operation_output"
+                    or event.payload.get("operation_id") != operation_id
+                ):
+                    continue
+                text = event.payload.get("text")
+                stream = event.payload.get("stream")
+                if not isinstance(text, str) or stream not in {"stdout", "stderr"}:
+                    continue
+                encoded_size = len(text.encode("utf-8"))
+                if output_size + encoded_size > self.max_output_bytes:
+                    truncated = True
+                    break
+                output_size += encoded_size
+                chunks.append(
+                    {
+                        "sequence": event.sequence,
+                        "stream": stream,
+                        "text": text,
+                    }
+                )
+                if len(chunks) >= 256:
+                    truncated = True
+                    break
+            if truncated or len(events) < 1000:
+                break
+        return {
+            "operation_id": operation_id,
+            "chunks": chunks,
+            "next_after": chunks[-1]["sequence"] if chunks else after,
+            "truncated": truncated,
         }
 
     def _glob_files(
