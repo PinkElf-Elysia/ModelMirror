@@ -33,7 +33,7 @@ function publicStatus(run: EngineShadowRun): string {
 
 export default function EngineShadowPanel() {
   const [objective, setObjective] = useState("");
-  const [modelBaseId, setModelBaseId] = useState("deepseek-v4-flash-0731");
+  const [modelBaseId, setModelBaseId] = useState("deepseek-v4-pro-0813");
   const [thinkingLevel, setThinkingLevel] =
     useState<AgentThinkingLevel>("medium");
   const [tokenBudget, setTokenBudget] = useState(750_000);

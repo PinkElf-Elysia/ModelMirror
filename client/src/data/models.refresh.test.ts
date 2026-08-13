@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  DEFAULT_AGENT_BUILDER_MODEL_ID,
+  DEFAULT_WORKFLOW_AGENT_MODEL_ID,
+} from "./modelOptions";
 import { models } from "./models";
 
 const middleModelIds = [
@@ -8,7 +12,24 @@ const middleModelIds = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 
-describe("OpenRouter 2026-08-11 model refresh", () => {
+const august13ModelIds = [
+  "x-ai/grok-4.6",
+  "bytedance-seed/seedream-5-0-pro",
+  "deepgram/flux-tts:free",
+  "qwen/qwen3.8-2.4t-a95b",
+  "bytedance-seed/seed-2-1-turbo",
+  "bytedance-seed/seed-2.0-code",
+  "deepseek/deepseek-v4-pro-0813",
+  "bytedance/seedance-2.0-mini",
+];
+
+describe("OpenRouter 2026-08-13 model refresh", () => {
+  it("places V4 Pro, the former Flash default, and Seedream in their requested rows", () => {
+    expect(models[2]?.id).toBe("deepseek/deepseek-v4-pro-0813");
+    expect(models[5]?.id).toBe("deepseek/deepseek-v4-flash-0731");
+    expect(models[8]?.id).toBe("bytedance-seed/seedream-5-0-pro");
+  });
+
   it("places Seedance 2.5 at the former GPT-4o Mini TTS slot", () => {
     expect(models[11]?.id).toBe("bytedance/seedance-2.5");
     expect(models[12]?.id).toBe("gpt-4o-mini-tts");
@@ -28,16 +49,59 @@ describe("OpenRouter 2026-08-11 model refresh", () => {
     }
   });
 
-  it("adds Seed 2.0 Code as a counted live model below the sixth row", () => {
-    const index = models.findIndex(
-      (model) => model.id === "bytedance-seed/seed-2.0-code",
-    );
-    const model = models[index];
+  it("adds all eight live counted snapshots exactly once", () => {
+    for (const modelId of august13ModelIds) {
+      const matches = models.filter((model) => model.id === modelId);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]).toMatchObject({
+        catalog_status: "live",
+        catalog_counted: true,
+        active: true,
+      });
+    }
+  });
 
-    expect(index).toBeGreaterThanOrEqual(2 + 6 * 3);
-    expect(model?.catalog_status).toBe("live");
-    expect(model?.catalog_counted).toBe(true);
-    expect(model?.active).toBe(true);
+  it("scatters non-positioned refresh cards below the sixth row", () => {
+    for (const modelId of [
+      "x-ai/grok-4.6",
+      "deepgram/flux-tts:free",
+      "qwen/qwen3.8-2.4t-a95b",
+      "bytedance-seed/seed-2-1-turbo",
+      "bytedance-seed/seed-2.0-code",
+      "bytedance/seedance-2.0-mini",
+    ]) {
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
+        2 + 6 * 3,
+      );
+    }
+  });
+
+  it("routes the three media snapshots to their dedicated workspaces", () => {
+    expect(
+      models.find((model) => model.id === "bytedance-seed/seedream-5-0-pro"),
+    ).toMatchObject({
+      primary_operation: "generate_image",
+      output_modalities: ["image"],
+    });
+    expect(
+      models.find((model) => model.id === "deepgram/flux-tts:free"),
+    ).toMatchObject({
+      primary_operation: "synthesize_speech",
+      interaction_status: "ready",
+      output_modalities: ["speech"],
+    });
+    expect(
+      models.find((model) => model.id === "bytedance/seedance-2.0-mini"),
+    ).toMatchObject({
+      primary_operation: "generate_video",
+      interaction_status: "ready",
+      output_modalities: ["video"],
+    });
+  });
+
+  it("uses V4 Pro for agent builder and workflow-agent defaults", () => {
+    expect(DEFAULT_AGENT_BUILDER_MODEL_ID).toBe("deepseek/deepseek-v4-pro-0813");
+    expect(DEFAULT_WORKFLOW_AGENT_MODEL_ID).toBe("deepseek/deepseek-v4-pro-0813");
   });
 
   it("restores GPT-5.2 Chat as live", () => {

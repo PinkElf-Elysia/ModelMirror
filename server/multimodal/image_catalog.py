@@ -22,7 +22,10 @@ from .readiness import OperationReadiness
 IMAGE_CATALOG_TTL_SECONDS = 300.0
 IMAGE_CATALOG_STALE_SECONDS = 1_800.0
 IMAGE_PRICING_DETAIL_MODEL_IDS = frozenset(
-    {"x-ai/grok-imagine-image-2.0"}
+    {
+        "bytedance-seed/seedream-5-0-pro",
+        "x-ai/grok-imagine-image-2.0",
+    }
 )
 
 

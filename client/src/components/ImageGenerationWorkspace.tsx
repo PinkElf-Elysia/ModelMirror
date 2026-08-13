@@ -10,6 +10,7 @@ import type { Model } from "../data/models";
 import {
   estimateImageCost,
   GROK_IMAGINE_IMAGE_2_PRICING,
+  SEEDREAM_5_PRO_PRICING,
   type ImagePricingItem,
 } from "../utils/imageCostEstimate";
 import BrandLogo from "./BrandLogo";
@@ -133,6 +134,8 @@ export default function ImageGenerationWorkspace({
         ? profile.pricing
         : model.id === "x-ai/grok-imagine-image-2.0"
           ? GROK_IMAGINE_IMAGE_2_PRICING
+          : model.id === "bytedance-seed/seedream-5-0-pro"
+            ? SEEDREAM_5_PRO_PRICING
           : [];
       return estimateImageCost(pricing, {
         outputCount: Number(parameters.n || 1),
@@ -279,6 +282,20 @@ export default function ImageGenerationWorkspace({
                     onChange={(event) => selectValue("n", event.target.value)}
                     type="number"
                     value={parameters.n ?? "1"}
+                  />
+                </label>
+              ) : null}
+              {supported.seed ? (
+                <label className="block">
+                  <span className="text-xs font-semibold text-slate-300">随机种子</span>
+                  <input
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2.5 text-sm"
+                    min={0}
+                    onChange={(event) => selectValue("seed", event.target.value)}
+                    placeholder="模型默认"
+                    step={1}
+                    type="number"
+                    value={parameters.seed ?? ""}
                   />
                 </label>
               ) : null}

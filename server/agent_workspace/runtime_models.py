@@ -9,7 +9,7 @@ from .models import AGENT_ID_PATTERN, SKILL_ID_PATTERN, StrictModel
 
 ApprovalMode = Literal["always-ask", "read-only", "allow-all", "deny-all"]
 ThinkingLevel = Literal["low", "medium", "high", "xhigh"]
-DEFAULT_AGENT_BUILDER_MODEL_ID = "deepseek/deepseek-v4-flash-0731"
+DEFAULT_AGENT_BUILDER_MODEL_ID = "deepseek/deepseek-v4-pro-0813"
 SessionStatus = Literal["idle", "running", "waiting_approval", "failed"]
 TaskStatus = Literal[
     "pending",

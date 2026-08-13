@@ -46,7 +46,7 @@
 
 - Given：用户提交一句中文 Agent 需求。
 - When：General Agent 在隔离 staging Workspace 生成候选描述。
-- Then：默认使用 `deepseek/deepseek-v4-flash-0731` Builder，初稿必须经过第二次
+- Then：默认使用 `deepseek/deepseek-v4-pro-0813` Builder，初稿必须经过第二次
   工具化领域复审，并通过语言、领域章节、可操作项、知识边界和高风险证据门禁后才
   原子创建完整 Agent State；中文“工作流”等常见标题不会被词法误拒；初稿与二审
   各自使用独立的有界修复预算；冲突或无效候选不覆盖现有 Agent。

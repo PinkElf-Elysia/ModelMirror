@@ -2,9 +2,9 @@ import { models } from "./models";
 
 export const DEFAULT_CHAT_MODEL_ID = "openai/gpt-5.6-sol";
 export const DEFAULT_AGENT_BUILDER_MODEL_ID =
-  "deepseek/deepseek-v4-flash-0731";
+  "deepseek/deepseek-v4-pro-0813";
 export const DEFAULT_WORKFLOW_AGENT_MODEL_ID =
-  "deepseek/deepseek-v4-flash-0731";
+  "deepseek/deepseek-v4-pro-0813";
 export const DEFAULT_EMBEDDING_MODEL_ID = "text-embedding-3-small";
 
 export const chatModelOptions = models.filter(

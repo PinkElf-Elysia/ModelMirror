@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   estimateImageCost,
   GROK_IMAGINE_IMAGE_2_PRICING,
+  SEEDREAM_5_PRO_PRICING,
 } from "./imageCostEstimate";
 
 describe("estimateImageCost", () => {
@@ -44,5 +45,20 @@ describe("estimateImageCost", () => {
         quality: "low",
       }),
     ).toBeNull();
+  });
+
+  it("uses Seedream's high-resolution output rate at 2K", () => {
+    expect(
+      estimateImageCost(SEEDREAM_5_PRO_PRICING, {
+        outputCount: 1,
+        referenceCount: 2,
+        resolution: "2K",
+      }),
+    ).toEqual({
+      minUsd: 0.096,
+      maxUsd: 0.096,
+      inputUsd: 0.006,
+      exact: true,
+    });
   });
 });

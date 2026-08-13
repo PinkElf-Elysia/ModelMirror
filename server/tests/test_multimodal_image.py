@@ -239,6 +239,115 @@ async def test_image_generation_validates_capabilities_and_complete_output(
 
 
 @pytest.mark.asyncio
+async def test_seedream_5_pro_uses_the_dedicated_images_contract(
+    tmp_path: Path,
+) -> None:
+    model_id = "bytedance-seed/seedream-5-0-pro"
+
+    def handler(request: Request) -> Response:
+        if request.url.path.endswith(f"/images/models/{model_id}/endpoints"):
+            return Response(
+                200,
+                json={
+                    "id": model_id,
+                    "endpoints": [
+                        {
+                            "pricing": [
+                                {
+                                    "billable": "output_image",
+                                    "unit": "image",
+                                    "cost_usd": 0.045,
+                                },
+                                {
+                                    "billable": "output_image",
+                                    "unit": "image",
+                                    "cost_usd": 0.09,
+                                    "variant": "high_resolution",
+                                },
+                                {
+                                    "billable": "input_image",
+                                    "unit": "image",
+                                    "cost_usd": 0.003,
+                                },
+                            ]
+                        }
+                    ],
+                },
+            )
+        if request.url.path.endswith("/images/models"):
+            return Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": model_id,
+                            "name": "ByteDance Seed: Seedream 5.0 Pro",
+                            "architecture": {
+                                "input_modalities": ["text", "image"],
+                                "output_modalities": ["image"],
+                            },
+                            "supported_parameters": {
+                                "resolution": {
+                                    "type": "enum",
+                                    "values": ["1K", "2K"],
+                                },
+                                "aspect_ratio": {
+                                    "type": "enum",
+                                    "values": ["1:1", "16:9", "auto"],
+                                },
+                                "n": {"type": "range", "min": 1, "max": 1},
+                                "input_references": {
+                                    "type": "range",
+                                    "min": 0,
+                                    "max": 14,
+                                },
+                                "seed": {"type": "boolean"},
+                            },
+                            "supports_streaming": False,
+                        }
+                    ]
+                },
+            )
+        return Response(200, json={"data": []})
+
+    catalog = ImageCatalogService(
+        openrouter_service(tmp_path),
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(handler)
+        ),
+    )
+    result = await catalog.get_catalog()
+    profile = next(item for item in result.profiles if item.model_id == model_id)
+
+    assert profile.operation == "generate_image"
+    assert profile.interaction_status == "ready"
+    assert profile.supports_streaming is False
+    assert profile.supported_parameters["resolution"].values == ["1K", "2K"]
+    assert profile.supported_parameters["n"].max == 1
+    assert profile.supported_parameters["input_references"].max == 14
+    assert [item.model_dump() for item in profile.pricing] == [
+        {
+            "billable": "output_image",
+            "unit": "image",
+            "cost_usd": 0.045,
+            "variant": None,
+        },
+        {
+            "billable": "output_image",
+            "unit": "image",
+            "cost_usd": 0.09,
+            "variant": "high_resolution",
+        },
+        {
+            "billable": "input_image",
+            "unit": "image",
+            "cost_usd": 0.003,
+            "variant": None,
+        },
+    ]
+
+
+@pytest.mark.asyncio
 async def test_grok_imagine_image_2_uses_dedicated_openrouter_contract(
     tmp_path: Path,
 ) -> None:

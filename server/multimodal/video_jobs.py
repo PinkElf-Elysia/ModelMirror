@@ -740,6 +740,21 @@ class VideoJobService:
                 "所选模型不支持这个画面比例，请使用模型提供的比例选项。",
                 status_code=422,
             )
+        if (
+            resolution
+            and aspect_ratio
+            and profile.supported_sizes
+            and not VideoJobService._supports_size_combination(
+                profile,
+                resolution=resolution,
+                aspect_ratio=aspect_ratio,
+            )
+        ):
+            raise MultimodalServiceError(
+                "unsupported_video_size",
+                "所选模型不支持这个分辨率与画面比例组合，请使用目录提供的尺寸。",
+                status_code=422,
+            )
         if has_first_frame and (
             "first_frame" not in profile.supported_frame_types
             and not profile.supports_first_frame
@@ -783,6 +798,39 @@ class VideoJobService:
                 "所选模型不支持随机种子，请清空该参数。",
                 status_code=422,
             )
+
+    @staticmethod
+    def _supports_size_combination(
+        profile: VideoModelProfile,
+        *,
+        resolution: str,
+        aspect_ratio: str,
+    ) -> bool:
+        resolution_match = re.fullmatch(r"(\d+)p", resolution.strip().lower())
+        ratio_match = re.fullmatch(
+            r"(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)",
+            aspect_ratio.strip(),
+        )
+        if not resolution_match or not ratio_match:
+            return True
+        short_edge = int(resolution_match.group(1))
+        ratio = float(ratio_match.group(1)) / float(ratio_match.group(2))
+        for supported_size in profile.supported_sizes:
+            size_match = re.fullmatch(
+                r"(\d+)x(\d+)",
+                supported_size.strip().lower(),
+            )
+            if not size_match:
+                continue
+            width, height = map(int, size_match.groups())
+            if (
+                width > 0
+                and height > 0
+                and min(width, height) == short_edge
+                and abs(width / height - ratio) <= 0.02
+            ):
+                return True
+        return False
 
     @staticmethod
     def _estimated_cost_usd(

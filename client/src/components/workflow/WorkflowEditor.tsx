@@ -18,7 +18,6 @@ import "@xyflow/react/dist/style.css";
 import { Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { DEFAULT_CHAT_MODEL_ID } from "../../context/ModelPreferenceContext";
 import { DEFAULT_WORKFLOW_AGENT_MODEL_ID } from "../../data/modelOptions";
 import { models } from "../../data/models";
 import {
@@ -178,7 +177,7 @@ function createNodeData(
       kind,
       title: "模型工位",
       description: "调用模型，把上游变量加工成新结果。",
-      modelId: DEFAULT_CHAT_MODEL_ID,
+      modelId: DEFAULT_WORKFLOW_AGENT_MODEL_ID,
       prompt: "请基于以下输入给出清晰回答：\n\n{{user_input}}",
       outputVariable: "llm_output",
     };
@@ -248,7 +247,7 @@ function createNodeData(
       description: "调用模型从文本中抽取字段，返回 JSON 字符串。",
       inputVariable: "user_input",
       schema: "name: 姓名\nemail_address: 邮箱地址",
-      modelId: DEFAULT_CHAT_MODEL_ID,
+      modelId: DEFAULT_WORKFLOW_AGENT_MODEL_ID,
       outputVariable: "parameters_json",
     };
   }
@@ -2404,7 +2403,7 @@ function NodeConfig({
             <select
               className={textInputClass()}
               onChange={(event) => update({ modelId: event.target.value })}
-              value={data.modelId ?? DEFAULT_CHAT_MODEL_ID}
+              value={data.modelId ?? DEFAULT_WORKFLOW_AGENT_MODEL_ID}
             >
               {models.map((model) => (
                 <option
@@ -2641,7 +2640,7 @@ function NodeConfig({
             <select
               className={textInputClass()}
               onChange={(event) => update({ modelId: event.target.value })}
-              value={data.modelId ?? DEFAULT_CHAT_MODEL_ID}
+              value={data.modelId ?? DEFAULT_WORKFLOW_AGENT_MODEL_ID}
             >
               {models.map((model) => (
                 <option

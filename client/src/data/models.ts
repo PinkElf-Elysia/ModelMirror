@@ -1,10 +1,14 @@
 ﻿// Merged with OpenRouter model catalog on 2026-08-12T06:32:56.587Z.
-// Refreshed with entries published through 2026-08-11T22:07:24.000Z.
+// Current OpenRouter refresh verified on 2026-08-13 against the live all-modalities catalog.
+// Refreshed with entries published through 2026-08-13.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
-// Full OpenRouter catalog audit refresh: 2026-08-12. Batch catalog entries are
+// Full OpenRouter catalog audit refresh: 2026-08-13. Batch catalog entries are
 // attached to their canonical models as serving variants and excluded from
-// snapshot totals; the xAI image profile keeps the dedicated image-model contract.
+// snapshot totals; media-only records are cross-checked against their dedicated
+// Images, Speech, and Video API catalogs instead of the text-only model list.
 // Image source: https://openrouter.ai/api/v1/images/models
+// Speech source: https://openrouter.ai/api/v1/models?output_modalities=speech
+// Video source: https://openrouter.ai/api/v1/videos/models
 // Prices are stored as USD per 1M tokens and CNY per 1M tokens.
 export const USD_TO_CNY = 6.77;
 
@@ -162,6 +166,203 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "bytedance-seed/seedream-5-0-pro",
+    "canonical_slug": "bytedance-seed/seedream-5-0-pro-20260812",
+    "name": "ByteDance Seed: Seedream 5.0 Pro",
+    "raw_description": "Seedream 5.0 Pro is ByteDance Seed's professional image generation and editing model for natural, lifelike commercial visuals and precise edits. It accepts text and up to 14 image references and returns one image per request.",
+    "context_length": 0,
+    "pricing": { "input": -1, "output": -1 },
+    "input_modalities": ["text", "image"],
+    "output_modalities": ["image"],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "n",
+      "input_references",
+      "seed"
+    ],
+    "created": 1786578139,
+    "expiration_date": null,
+    "model_author": "ByteDance Seed",
+    "note": "OpenRouter 专用 Images API：支持 1K/2K、18 种宽高比、单次 1 张输出、最多 14 张参考图和 seed；参考图 $0.003/张，输出约 $0.045/张，高分辨率约 $0.09/张。"
+  },
+  {
+    "id": "deepgram/flux-tts:free",
+    "canonical_slug": "deepgram/flux-tts-20260812",
+    "name": "Deepgram: Flux TTS (free)",
+    "raw_description": "Flux TTS is Deepgram's free text-to-speech model for English voice synthesis. It exposes 36 Flux voices through OpenRouter's dedicated speech endpoint and returns binary audio rather than chat-completion text.",
+    "context_length": 0,
+    "pricing": { "input": 0, "output": 0 },
+    "input_modalities": ["text"],
+    "output_modalities": ["speech"],
+    "tokenizer": "Other",
+    "supported_parameters": ["voice", "response_format", "speed"],
+    "created": 1786574888,
+    "expiration_date": null,
+    "model_author": "Deepgram",
+    "note": "通过 OpenRouter /api/v1/audio/speech 调用；当前目录价格为免费，提供 36 个英文 Flux 音色，响应为原始音频字节。"
+  },
+  {
+    "id": "bytedance/seedance-2.0-mini",
+    "canonical_slug": "bytedance/seedance-2.0-mini-20260811",
+    "name": "ByteDance: Seedance 2.0 Mini",
+    "raw_description": "Seedance 2.0 Mini is a compact ByteDance video generation model supporting text, image, video, and audio guidance. It supports first- and last-frame control, optional generated audio, and 4–15 second video jobs at 480p or 720p.",
+    "context_length": 0,
+    "pricing": { "input": -1, "output": -1 },
+    "input_modalities": ["text", "image", "video", "audio"],
+    "output_modalities": ["video"],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "duration",
+      "frame_images",
+      "input_references",
+      "generate_audio",
+      "seed"
+    ],
+    "created": 1786552600,
+    "expiration_date": null,
+    "model_author": "ByteDance",
+    "note": "通过 OpenRouter 异步 Video API 提交并轮询；支持 480p/720p、4–15 秒、首尾帧与生成音频。价格按视频 token 与输入类型动态结算。"
+  },
+  {
+    "id": "bytedance-seed/seed-2-1-turbo",
+    "canonical_slug": "bytedance-seed/seed-2-1-turbo-20260810",
+    "name": "ByteDance Seed: Seed 2.1 Turbo",
+    "raw_description": "Seed 2.1 Turbo is ByteDance Seed's fast multimodal reasoning model for coding, long-horizon agent workflows, and visual or video understanding. It accepts text, image, and video input and supports tool calling and structured output.",
+    "context_length": 262144,
+    "pricing": { "input": 0.5, "output": 2.5 },
+    "input_modalities": ["text", "image", "video"],
+    "output_modalities": ["text"],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1786552176,
+    "expiration_date": null,
+    "model_author": "ByteDance Seed"
+  },
+  {
+    "id": "qwen/qwen3.8-2.4t-a95b",
+    "canonical_slug": "qwen/qwen3.8-2.4t-a95b-20260812",
+    "name": "Qwen: Qwen3.8 2.4T A95B",
+    "raw_description": "Qwen3.8 2.4T A95B is Qwen's open-weight sparse mixture-of-experts flagship, with 2.4 trillion total parameters and 95 billion active parameters. It is designed for advanced reasoning, coding, and agentic tool use.",
+    "context_length": 262144,
+    "pricing": { "input": 2, "output": 6 },
+    "input_modalities": ["text"],
+    "output_modalities": ["text"],
+    "tokenizer": "Qwen",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1786551702,
+    "expiration_date": null,
+    "model_author": "Qwen"
+  },
+  {
+    "id": "deepseek/deepseek-v4-pro-0813",
+    "canonical_slug": "deepseek/deepseek-v4-pro-20260813",
+    "name": "DeepSeek: DeepSeek V4 Pro 0813",
+    "raw_description": "DeepSeek V4 Pro 0813 is the generally available DeepSeek V4 Pro release. It provides a 1M-token context window and up to 384K output tokens for complex reasoning, coding, and long-horizon agent workflows.",
+    "context_length": 1048576,
+    "pricing": { "input": 0.435, "output": 0.87 },
+    "input_modalities": ["text"],
+    "output_modalities": ["text"],
+    "tokenizer": "DeepSeek",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1786549364,
+    "expiration_date": null,
+    "model_author": "DeepSeek"
+  },
+  {
+    "id": "x-ai/grok-4.6",
+    "canonical_slug": "x-ai/grok-4.6-20260810",
+    "name": "SpaceXAI: Grok 4.6",
+    "raw_description": "Grok 4.6 is SpaceXAI's frontier reasoning model for coding, knowledge, and STEM workloads. It accepts text, images, and files, provides a 500K-token context window, and supports tool use and structured output.",
+    "context_length": 500000,
+    "pricing": { "input": 2, "output": 6 },
+    "input_modalities": ["text", "image", "file"],
+    "output_modalities": ["text"],
+    "tokenizer": "Grok",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1786548957,
+    "expiration_date": null,
+    "model_author": "SpaceXAI",
+    "note": "基础价格为输入 $2、输出 $6 / 百万 token；上下文达到 200K tokens 后进入长上下文阶梯价，输入 $4、输出 $12 / 百万 token。"
+  },
   {
     "id": "x-ai/grok-imagine-image-2.0",
     "canonical_slug": "x-ai/grok-imagine-image-2.0",
@@ -803,7 +1004,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tools",
       "top_p"
     ],
-    "created": 1785451719,
+    "created": 1786550701,
     "expiration_date": null,
     "model_author": "ByteDance Seed"
   },
@@ -20731,6 +20932,7 @@ function describeCategories(categories: Category[]) {
 }
 
 const VERIFIED_SPEECH_MODEL_IDS = new Set([
+  "deepgram/flux-tts:free",
   "fish-audio/s1",
   "fish-audio/s2-pro",
   "fish-audio/s2.1-pro-free:free",
@@ -20740,6 +20942,7 @@ const VERIFIED_SPEECH_MODEL_IDS = new Set([
 
 const VERIFIED_VIDEO_MODEL_IDS = new Set([
   "bytedance/seedance-2.0",
+  "bytedance/seedance-2.0-mini",
   "bytedance/seedance-2.5",
   "runway/aleph-2",
   "runway/gen-4.5",
@@ -21007,7 +21210,7 @@ const worldModelEntry: Model = {
 const FEATURED_MODEL_IDS = [
   "openai/gpt-5.6-sol",
   "anthropic/claude-opus-5",
-  "deepseek/deepseek-v4-flash-0731",
+  "deepseek/deepseek-v4-pro-0813",
   "anthropic/claude-fable-5",
   "moonshotai/kimi-k3",
   "anthropic/claude-opus-5-fast",
@@ -21197,6 +21400,9 @@ const sortedCatalogModels = [...rawCatalogModels]
   }));
 
 const SEEDANCE_2_5_MODEL_ID = "bytedance/seedance-2.5";
+const DEEPSEEK_V4_PRO_MODEL_ID = "deepseek/deepseek-v4-pro-0813";
+const DEEPSEEK_V4_FLASH_MODEL_ID = "deepseek/deepseek-v4-flash-0731";
+const SEEDREAM_5_PRO_MODEL_ID = "bytedance-seed/seedream-5-0-pro";
 const MID_CATALOG_MODEL_IDS = [
   "sakana/sakana-namazu",
   "upstage/solar-pro4",
@@ -21208,15 +21414,32 @@ const LATEST_REFRESH_MODEL_IDS = [
   "liquid/lfm-2.5-2.6b:free",
   "nvidia/nemotron-3.5-lightning",
   "nvidia/nemotron-3.5-lightning:free",
+  "x-ai/grok-4.6",
+  "deepgram/flux-tts:free",
+  "qwen/qwen3.8-2.4t-a95b",
+  "bytedance-seed/seed-2-1-turbo",
   "bytedance-seed/seed-2.0-code",
+  "bytedance/seedance-2.0-mini",
 ];
 const reservedCatalogModelIds = new Set([
   SEEDANCE_2_5_MODEL_ID,
+  DEEPSEEK_V4_PRO_MODEL_ID,
+  DEEPSEEK_V4_FLASH_MODEL_ID,
+  SEEDREAM_5_PRO_MODEL_ID,
   ...MID_CATALOG_MODEL_IDS,
   ...LATEST_REFRESH_MODEL_IDS,
 ]);
 const seedance25Model = sortedCatalogModels.find(
   (model) => model.id === SEEDANCE_2_5_MODEL_ID,
+);
+const deepseekV4ProModel = sortedCatalogModels.find(
+  (model) => model.id === DEEPSEEK_V4_PRO_MODEL_ID,
+);
+const deepseekV4FlashModel = sortedCatalogModels.find(
+  (model) => model.id === DEEPSEEK_V4_FLASH_MODEL_ID,
+);
+const seedream5ProModel = sortedCatalogModels.find(
+  (model) => model.id === SEEDREAM_5_PRO_MODEL_ID,
 );
 const midCatalogModels = MID_CATALOG_MODEL_IDS.map((modelId) =>
   sortedCatalogModels.find((model) => model.id === modelId),
@@ -21228,15 +21451,20 @@ const normallyOrderedCatalogModels = sortedCatalogModels.filter(
   (model) => !reservedCatalogModelIds.has(model.id),
 );
 
-// The homepage reserves two spotlight cards plus three desktop gallery rows for
-// broadly useful catalog models before showing direct OpenAI audio models.
-const REALTIME_MODEL_INSERT_INDEX = 11;
-
+// The list has one router card followed by two model cards in its first row.
+// Keep V4 Pro at row 2 column 1, move the former Flash default back exactly one
+// row, and reserve row 4 column 1 for Seedream 5 Pro.
 const primaryCatalogModels: Model[] = [
-  ...normallyOrderedCatalogModels.slice(0, REALTIME_MODEL_INSERT_INDEX),
+  ...normallyOrderedCatalogModels.slice(0, 2),
+  ...(deepseekV4ProModel ? [deepseekV4ProModel] : []),
+  ...normallyOrderedCatalogModels.slice(2, 4),
+  ...(deepseekV4FlashModel ? [deepseekV4FlashModel] : []),
+  ...normallyOrderedCatalogModels.slice(4, 6),
+  ...(seedream5ProModel ? [seedream5ProModel] : []),
+  ...normallyOrderedCatalogModels.slice(6, 8),
   ...(seedance25Model ? [seedance25Model] : []),
   ...DIRECT_OPENAI_AUDIO_MODELS,
-  ...normallyOrderedCatalogModels.slice(REALTIME_MODEL_INSERT_INDEX),
+  ...normallyOrderedCatalogModels.slice(8),
 ];
 const catalogMidpoint = Math.floor(primaryCatalogModels.length / 2);
 

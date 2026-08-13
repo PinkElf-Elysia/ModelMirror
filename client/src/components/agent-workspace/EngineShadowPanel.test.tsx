@@ -31,8 +31,8 @@ const candidate: EngineShadowRun = {
   session_id: "upstream-session-1",
   status: "candidate_ready",
   objective: "构建离线单文件应用",
-  model_base_id: "deepseek-v4-flash-0731",
-  resolved_model_id: "deepseek/deepseek-v4-flash-0731",
+  model_base_id: "deepseek-v4-pro-0813",
+  resolved_model_id: "deepseek/deepseek-v4-pro-0813",
   thinking_level: "medium",
   token_budget: 750_000,
   max_goal_rounds: 12,
@@ -105,7 +105,7 @@ describe("EngineShadowPanel", () => {
     await waitFor(() => {
       expect(api.create).toHaveBeenCalledWith({
         objective: "构建一个记忆卡片游戏",
-        model_base_id: "deepseek-v4-flash-0731",
+        model_base_id: "deepseek-v4-pro-0813",
         thinking_level: "medium",
         token_budget: 750_000,
       });

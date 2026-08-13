@@ -110,7 +110,7 @@ General Agent 快照中。现有外部 Skill 安装 API 保持不变。
   `system_config.yaml`、`AGENTS.md` 和 `manifest.json`。单次写文件或普通聊天不能
   触发提升。
 - 一句话创建的 Builder 默认模型独立固定为
-  `deepseek/deepseek-v4-flash-0731`，不跟随普通会话的全局模型偏好；界面允许用户
+  `deepseek/deepseek-v4-pro-0813`，不跟随普通会话的全局模型偏好；界面允许用户
   显式改选。服务端请求模型字段缺省时也采用同一默认值。
 - 初稿通过结构校验后必须进入第二次工具化领域复审：重新读取生成上下文、AGENTS.md
   与 manifest，重写并回读 AGENTS.md，随后才允许提升。后端质量契约验证语言一致性、
