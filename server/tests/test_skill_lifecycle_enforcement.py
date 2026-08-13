@@ -198,6 +198,43 @@ def test_uninstall_keeps_recovery_package_and_old_binding_readable(
     )
 
 
+def test_uninstalled_workspace_skill_can_restore_the_exact_recovery_version(
+    tmp_path: Path,
+) -> None:
+    lifecycle, drafts, manager, draft = _setup(tmp_path)
+    _, installed = _install_current(drafts, manager, draft.draft_id)
+    version_id = lifecycle.require_state(installed.skill_id).current_version_id or ""
+
+    manager.uninstall_skill(installed.skill_id)
+    drafts.mark_uninstalled_skill(installed.skill_id)
+    manager.finalize_lifecycle_transaction(installed.skill_id)
+    before = lifecycle.require_state(installed.skill_id)
+    version = lifecycle.require_version(version_id)
+
+    restored = manager.rollback_skill_version(
+        installed.skill_id,
+        version_id,
+        expected_state_revision=before.revision,
+        expected_current_version_id=None,
+        expected_package_digest=version.package_digest,
+        confirmed=True,
+    )
+    drafts.mark_lifecycle_version_installed(
+        draft.draft_id,
+        content_revision=version.source_revision or 0,
+        content_digest=version.package_digest,
+        skill_id=installed.skill_id,
+    )
+    manager.finalize_lifecycle_transaction(installed.skill_id)
+
+    after = lifecycle.require_state(installed.skill_id)
+    assert after.status == "active"
+    assert after.current_version_id == version_id
+    assert restored.content_digest == version.package_digest
+    assert "version-one" in manager.get_skill_content(installed.skill_id)
+    assert drafts.require(draft.draft_id).installed_skill_id == installed.skill_id
+
+
 def test_rollback_requires_exact_state_and_switches_after_source_projection(
     tmp_path: Path,
 ) -> None:

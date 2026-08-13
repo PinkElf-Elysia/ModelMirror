@@ -280,7 +280,7 @@ class SkillLifecycleStore:
             or package_dir / "lifecycle"
         ).resolve()
         self.enabled = (
-            _env_enabled("SKILL_LIFECYCLE_ENABLED")
+            _env_enabled("SKILL_LIFECYCLE_ENABLED", default="true")
             if enabled is None
             else bool(enabled)
         )

@@ -780,6 +780,19 @@ async def audit_skill_lifecycle_migration():
         ) from exc
 
 
+@router.get("/lifecycle/skills")
+async def list_skill_lifecycle_states():
+    try:
+        store = get_skill_lifecycle_store()
+        states = await asyncio.to_thread(store.list_states)
+        return {
+            "status": store.status(),
+            "items": [store.serialize_state(item) for item in states],
+        }
+    except SkillLifecycleError as exc:
+        _raise_lifecycle_error(exc)
+
+
 @router.post("/lifecycle/migration")
 async def apply_skill_lifecycle_migration(
     payload: SkillLifecycleMigrationRequest,

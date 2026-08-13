@@ -313,6 +313,16 @@ def test_disabled_store_allows_status_but_rejects_mutations(tmp_path: Path) -> N
         )
 
 
+def test_lifecycle_is_enabled_by_default_for_private_console(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SKILL_LIFECYCLE_ENABLED", raising=False)
+
+    store = SkillLifecycleStore(tmp_path / "lifecycle-default")
+
+    assert store.status()["enabled"] is True
+
+
 def test_invalid_limit_environment_uses_safe_defaults(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

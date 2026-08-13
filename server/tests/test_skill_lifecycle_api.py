@@ -133,6 +133,41 @@ def test_versions_endpoint_returns_current_immutable_snapshot(tmp_path: Path) ->
     assert response.json()["versions"][0]["trust_evidence_frozen"] is False
 
 
+def test_lifecycle_states_include_uninstalled_recovery_history(tmp_path: Path) -> None:
+    client, store = _client(tmp_path, enabled=True)
+    files = {
+        "SKILL.md": b"---\nname: recovery-skill\ndescription: Recover one Skill version.\n---\n\n# Recovery\n",
+    }
+    digest = compute_package_digest(files["SKILL.md"], {})
+    installed = InstalledSkill(
+        skill_id="recovery-skill",
+        name="recovery-skill",
+        description="Recover one Skill version.",
+        repo_url="workspace://draft/recovery",
+        sub_path="",
+        installed_at=1.0,
+        source_kind="workspace_draft",
+        source_id="draft-recovery",
+        source_revision=1,
+        content_digest=digest,
+    )
+    active = store.record_migrated_current(installed=installed, files=files)
+    state = store.mark_uninstalled(
+        "recovery-skill", expected_revision=active.revision
+    )
+
+    response = client.get("/api/skills/lifecycle/skills")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"]["enabled"] is True
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["skill_id"] == "recovery-skill"
+    assert payload["items"][0]["status"] == "uninstalled"
+    assert payload["items"][0]["current_version_id"] is None
+    assert payload["items"][0]["recovery_version_id"] == state.recovery_version_id
+
+
 def test_rollback_endpoint_switches_one_exact_git_version(tmp_path: Path) -> None:
     client, store = _client(tmp_path, enabled=True)
     manager = SkillManager(

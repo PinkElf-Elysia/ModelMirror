@@ -162,7 +162,7 @@ node scripts/audit-skill-experience.mjs
 
 生命周期基础层使用独立的 `SkillLifecycleStore` 保存不可变版本元数据和按 package digest 去重的原始字节文件树。首批只覆盖固定 SHA 的 Git Skill、`local_import` 与 Workspace Creator 草稿；插件继续使用版本化 Skill ID，内置 Skill 跟随镜像版本。迁移会重新读取实际安装目录，并分别核对 Git 信任凭据、本地 Import receipt 或 Creator 不可变 revision。来源、摘要、路径或扫描完整性不匹配时只记录结构化 `migration_blocked`，不删除或改写现有安装。
 
-PR 2 仍默认保持 `SKILL_LIFECYCLE_ENABLED=false`。显式开启并完成迁移后，Git、`local_import` 与 Workspace 草稿的安装/替换统一写入 `prepared → archived → swapped → metadata_committed → source_projected → lifecycle_committed` 事务凭据；卸载保留不可变恢复版本。新启动的 Workflow/Router 运行把 `skill_id → version_id` 绑定持久化到执行记录，`skill_read`、`skill_stage` 与插件 Hook 都从同一历史包解析，因此安装升级或回滚只影响后续运行。`GET /api/skills/{skill_id}/versions` 提供历史投影，显式回滚同时绑定 Lifecycle revision、当前版本 ID、目标 digest 与人工确认；Creator 历史版本继续复核冻结的质量证据，中高风险第三方版本不会因回滚自动获得长期信任授权。
+Creator V1 的生命周期闭环默认启用 `SKILL_LIFECYCLE_ENABLED=true`。Git、`local_import` 与 Workspace 草稿的安装/替换统一写入 `prepared → archived → swapped → metadata_committed → source_projected → lifecycle_committed` 事务凭据；卸载保留不可变恢复版本。新启动的 Workflow/Router 运行把 `skill_id → version_id` 绑定持久化到执行记录，`skill_read`、`skill_stage` 与插件 Hook 都从同一历史包解析，因此安装升级或回滚只影响后续运行。`/skills` 的“已安装”页提供迁移审计、全局容量、已卸载恢复点、冻结凭据和版本切换；显式回滚同时绑定 Lifecycle revision、当前版本 ID、目标 digest 与人工确认。Creator 历史版本继续复核冻结的质量证据，中高风险第三方版本不会因回滚自动获得长期信任授权。设置开关为 `false` 并重启可即时回退到旧的 current-only 路径。
 
 Store 顶层损坏时失败关闭且不覆盖原文件，单条损坏记录只隔离摘要与大小，不保留原记录内容。默认容量仍为当前版本加最多 5 个非当前版本、全局 1 GiB；容量满时阻止新增历史，不自动删除。不可逆的永久清理以及完整版本治理界面不在 PR 2 开放范围。
 
