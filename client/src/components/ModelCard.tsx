@@ -12,6 +12,7 @@ import {
   deriveProviderFromModel,
   getFriendlyJobCapabilityLabel,
 } from "../utils/userFriendlyText";
+import { formatPricingOverridesCny } from "../utils/tokenPricing";
 import FeaturedModelCard from "./FeaturedModelCard";
 
 interface ModelCardProps {
@@ -145,6 +146,13 @@ const ModelCard = memo(function ModelCard({
   const { preferredModelId, setPreferredModelId } = useModelPreference();
   const isFree = model.pricing_status === "free";
   const isDynamicPricing = model.pricing_status === "dynamic";
+  const nonTokenPricingLabel =
+    model.pricing_basis === "media"
+      ? "按媒体计费"
+      : model.pricing_basis === "request"
+        ? "按请求计费"
+        : "动态";
+  const tieredPricingLabel = formatPricingOverridesCny(model);
   const audioGenerationPriceUsd =
     model.primary_operation === "generate_audio"
       ? (audioCapabilityStatus?.pricePerGenerationUsd ?? null)
@@ -359,10 +367,10 @@ const ModelCard = memo(function ModelCard({
     );
     const featuredName = model.name.replace(/^[^:：]+[:：]\s*/, "");
     const featuredPriceLabel = isDynamicPricing
-      ? "动态计费"
+      ? nonTokenPricingLabel
       : isFree
         ? "免费"
-        : `${formatCnyPrice(model.price_cny.input)} / 1M tokens`;
+        : `${model.pricing_overrides.length ? "起 " : ""}${formatCnyPrice(model.price_cny.input)} / 1M tokens`;
     const featuredTasks = model.job_capabilities.slice(0, 5);
     const featuredInputLabels = model.input_modalities
       .slice(0, 5)
@@ -673,7 +681,7 @@ const ModelCard = memo(function ModelCard({
             disabled
             title={
               isUncertain
-                ? "当前未出现在 OpenRouter 实时目录，其他兼容渠道仍可能支持调用。"
+                ? "当前未出现在实时模型目录，其他兼容渠道仍可能支持调用。"
                 : adaptedAudioUnavailable
                 ? audioCapabilityStatus?.reason ?? audioUnavailableLabel
                 : pendingAudioLabels.length > 0
@@ -815,7 +823,7 @@ const ModelCard = memo(function ModelCard({
       </div>
       {isUncertain ? (
         <p className="relative mt-2 px-5 text-xs leading-5 text-amber-100">
-          当前未出现在 OpenRouter 实时目录；入口保留，调用结果以上游实际响应为准。
+          当前未出现在实时模型目录；入口保留，调用结果以上游实际响应为准。
         </p>
       ) : null}
       {pendingAudioLabels.length > 0 ? (
@@ -831,13 +839,17 @@ const ModelCard = memo(function ModelCard({
         <div className="grid grid-cols-3 gap-3">
           <div>
             <p className="text-[11px] text-slate-400">
-              {hasAudioGenerationPrice ? "目录估算" : "输入薪资"}
+              {hasAudioGenerationPrice
+                ? "目录估算"
+                : model.pricing_overrides.length
+                  ? "起始输入薪资"
+                  : "输入薪资"}
             </p>
             <p className="mt-1 text-sm font-semibold text-slate-100">
               {hasAudioGenerationPrice
                 ? `$${audioGenerationPriceUsd.toFixed(2)}`
                 : isDynamicPricing
-                ? "动态"
+                ? nonTokenPricingLabel
                 : isFree
                   ? "免费"
                   : formatCnyPrice(model.price_cny.input)}
@@ -845,7 +857,11 @@ const ModelCard = memo(function ModelCard({
           </div>
           <div>
             <p className="text-[11px] text-slate-400">
-              {hasAudioGenerationPrice ? "作品时长" : "输出薪资"}
+              {hasAudioGenerationPrice
+                ? "作品时长"
+                : model.pricing_overrides.length
+                  ? "起始输出薪资"
+                  : "输出薪资"}
             </p>
             <p className="mt-1 text-sm font-semibold text-slate-100">
               {hasAudioGenerationPrice
@@ -853,7 +869,7 @@ const ModelCard = memo(function ModelCard({
                   ? `约 ${audioCapabilityStatus.fixedDurationSeconds} 秒`
                   : "模型决定"
                 : isDynamicPricing
-                ? "动态"
+                ? nonTokenPricingLabel
                 : isFree
                   ? "免费"
                   : formatCnyPrice(model.price_cny.output)}
@@ -877,6 +893,12 @@ const ModelCard = memo(function ModelCard({
           </div>
         </div>
       </div>
+
+      {tieredPricingLabel ? (
+        <p className="relative mx-5 mb-5 rounded-lg border border-sky-300/20 bg-sky-300/[0.07] px-3 py-2 text-xs leading-5 text-sky-100">
+          分段价格：{tieredPricingLabel}
+        </p>
+      ) : null}
 
       {model.note ? (
         <p className="relative mx-5 mb-5 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">

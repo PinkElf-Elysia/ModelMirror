@@ -46,6 +46,21 @@ def test_verified_transcription_profiles_cover_common_formats_and_providers() ->
         assert profile.smoke_languages == ("zh", "en")
 
 
+def test_qwen3_asr_snapshots_are_adapted_for_manual_verification() -> None:
+    expected_models = {
+        "qwen/qwen3-asr-0.6b",
+        "qwen/qwen3-asr-1.7b",
+    }
+
+    assert expected_models <= MANUAL_TRANSCRIPTION_PROFILES.keys()
+    assert not expected_models & VERIFIED_TRANSCRIPTION_PROFILES.keys()
+    for profile in MANUAL_TRANSCRIPTION_PROFILES.values():
+        assert {"mp3", "wav", "m4a", "webm"} <= set(
+            profile.input_formats
+        )
+        assert profile.smoke_languages == ("zh", "en")
+
+
 def test_gpt_transcribe_is_in_verified_registry() -> None:
     model_id = "openai/gpt-transcribe"
     assert model_id in VERIFIED_TRANSCRIPTION_PROFILES

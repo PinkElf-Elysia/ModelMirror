@@ -7,6 +7,11 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { defaultFilterState } from "../../data/filterState";
+import {
+  modelAuthorOptions,
+  providerOptions,
+  seriesOptions,
+} from "../../data/filterOptions";
 import FilterPanel from "./FilterPanel";
 
 function renderPanel(onChange = vi.fn()) {
@@ -23,7 +28,7 @@ function renderPanel(onChange = vi.fn()) {
       modelAuthorOptions={[]}
       onChange={onChange}
       onClear={vi.fn()}
-      seriesOptions={[]}
+      seriesOptions={seriesOptions}
     />,
   );
   return onChange;
@@ -46,7 +51,7 @@ describe("FilterPanel", () => {
     expect(screen.queryByRole("button", { name: "文档理解" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "文字对话" })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "更多筛选" })).not.toBeInTheDocument();
-    expect(screen.queryByText("搜索用人单位")).not.toBeInTheDocument();
+    expect(screen.queryByText("搜索服务提供商")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "文本" }));
     expect(onChange).toHaveBeenCalledWith(
@@ -70,28 +75,105 @@ describe("FilterPanel", () => {
     expect(screen.getByRole("button", { name: "查看全部" })).toHaveFocus();
   });
 
-  it("opens an anchored advanced panel with prioritized providers", () => {
+  it("opens an anchored advanced panel with the current market facets", () => {
     renderPanel();
     fireEvent.click(screen.getByRole("button", { name: /更多筛选/ }));
 
     const dialog = screen.getByRole("dialog", { name: "更多筛选" });
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-      "用人单位",
+      "提供商与模型商",
       "价格与上下文",
       "模型系列",
-      "高级条件",
+      "应用分类",
+      "参数与状态",
+      "基准指标",
+      "可完成任务",
     ]);
-    expect(
-      within(dialog)
-        .getAllByRole("radio")
-        .slice(0, 4)
-        .map((radio) => radio.closest("label")?.textContent),
-    ).toEqual(["全部", "OpenAI", "Anthropic", "深度求索"]);
+    expect(within(dialog).getByPlaceholderText("搜索服务提供商")).toBeInTheDocument();
+    expect(within(dialog).getByText("服务提供商")).toBeInTheDocument();
+    expect(within(dialog).getByText("模型商")).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("tab", { name: "价格与上下文" }));
-    expect(within(dialog).getByText("工作年限/经验值")).toBeInTheDocument();
-    expect(within(dialog).getByText("期望薪资")).toBeInTheDocument();
+    expect(within(dialog).getByText("上下文长度")).toBeInTheDocument();
+    expect(within(dialog).getByText("输入价格")).toBeInTheDocument();
+    expect(within(dialog).getByText("输出价格")).toBeInTheDocument();
+    expect(within(dialog).getByText("模型年龄")).toBeInTheDocument();
+  });
+
+  it("presents the category facet as product-facing Chinese copy", () => {
+    const onChange = renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /更多筛选/ }));
+
+    const dialog = screen.getByRole("dialog", { name: "更多筛选" });
+    fireEvent.click(within(dialog).getByRole("tab", { name: "应用分类" }));
+    expect(within(dialog).getAllByText("应用分类")).toHaveLength(2);
+    expect(
+      within(dialog).getByText("按模型适用的领域筛选。"),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText(/OpenRouter|\?category=/)).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "编程" }));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ openRouterCategories: ["programming"] }),
+    );
+  });
+
+  it("shows exact series, parameter, region and benchmark option groups", () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /更多筛选/ }));
+    const dialog = screen.getByRole("dialog", { name: "更多筛选" });
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: "模型系列" }));
+    expect(within(dialog).getByRole("button", { name: "GPT" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "PaLM" })).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: "参数与状态" }));
+    expect(within(dialog).getByText("支持参数")).toBeInTheDocument();
+    expect(within(dialog).getByText("预测内容（prediction）")).toBeInTheDocument();
+    expect(within(dialog).queryByText("tool_choice")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "欧盟" })).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: "基准指标" }));
+    expect(within(dialog).getByText("综合能力评测")).toBeInTheDocument();
+    expect(within(dialog).getByText("设计能力评测")).toBeInTheDocument();
+  });
+
+  it("prioritizes common brands and localizes Chinese model companies", () => {
+    expect(providerOptions.slice(0, 7).map((option) => option.value)).toEqual([
+      "OpenAI",
+      "Anthropic",
+      "DeepSeek",
+      "Google",
+      "Google AI Studio",
+      "xAI",
+      "Alibaba",
+    ]);
+    expect(providerOptions.find((option) => option.value === "DeepSeek")?.label).toBe(
+      "深度求索",
+    );
+    expect(modelAuthorOptions.slice(0, 8).map((option) => option.value)).toEqual([
+      "openai",
+      "anthropic",
+      "deepseek",
+      "deepseek-ai",
+      "google",
+      "x-ai",
+      "moonshotai",
+      "qwen",
+    ]);
+    expect(modelAuthorOptions.find((option) => option.value === "moonshotai")?.label).toBe(
+      "Kimi（月之暗面）",
+    );
+    expect(seriesOptions.slice(0, 7).map((option) => option.value)).toEqual([
+      "GPT",
+      "Claude",
+      "DeepSeek",
+      "Gemini",
+      "Grok",
+      "Qwen",
+      "Qwen3",
+    ]);
   });
 
   it("closes on Escape or outside press and restores focus", async () => {

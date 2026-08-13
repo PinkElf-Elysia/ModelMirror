@@ -64,7 +64,6 @@ export const recruitmentJobCapabilityLabels: Record<string, string> = {
   video_generation: "视频生成",
   embedding: "资料向量化",
   rerank: "检索重排",
-  translation: "翻译",
   safety: "安全审核",
   world_generation: "3D 世界生成",
 };

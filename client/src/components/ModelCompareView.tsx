@@ -3,6 +3,7 @@ import {
   deriveProviderFromModel,
   getFriendlyJobCapabilityLabel,
 } from "../utils/userFriendlyText";
+import { formatPricingOverridesCny } from "../utils/tokenPricing";
 
 interface ModelCompareViewProps {
   models: Model[];
@@ -18,8 +19,10 @@ function formatContext(value: number) {
 
 function formatPrice(model: Model, side: "input" | "output") {
   if (model.pricing_status === "free") return "免费";
+  if (model.pricing_basis === "media") return "按媒体计费";
+  if (model.pricing_basis === "request") return "按请求计费";
   if (model.pricing_status === "dynamic") return "动态";
-  return `¥${model.price_cny[side].toFixed(2)}/M`;
+  return `${model.pricing_overrides.length ? "起 " : ""}¥${model.price_cny[side].toFixed(2)}/M`;
 }
 
 export default function ModelCompareView({
@@ -51,6 +54,10 @@ export default function ModelCompareView({
     { label: "上下文", value: (model: Model) => formatContext(model.context_length) },
     { label: "输入价格", value: (model: Model) => formatPrice(model, "input") },
     { label: "输出价格", value: (model: Model) => formatPrice(model, "output") },
+    {
+      label: "分段价格",
+      value: (model: Model) => formatPricingOverridesCny(model) || "—",
+    },
     {
       label: "地区路由",
       value: (model: Model) => (model.in_region_routing ? "支持" : "未声明"),

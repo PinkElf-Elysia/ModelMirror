@@ -13,11 +13,12 @@ import {
 import { useAgencyDagRun } from "../components/useAgencyDagRun";
 import { DEFAULT_CHAT_MODEL_ID } from "../context/ModelPreferenceContext";
 import { agents, agentDepartments, type AgentProfile } from "../data/agents";
-import { models } from "../data/models";
+import { models, USD_TO_CNY } from "../data/models";
 import {
   fetchJsonEventStream,
   type JsonStreamEvent,
 } from "../utils/fetchJsonEventStream";
+import { tokenPricingForPrompt } from "../utils/tokenPricing";
 
 type ExpertDesk = "fusion" | "route" | "team";
 type RunStatus = "idle" | "running" | "done" | "error";
@@ -507,9 +508,10 @@ export default function ExpertTeamPage() {
     if (!model || model.pricing_status === "dynamic") return null;
     const inputTokens = agencyDag.run.usage.input_tokens || 0;
     const outputTokens = agencyDag.run.usage.output_tokens || 0;
+    const pricing = tokenPricingForPrompt(model, inputTokens);
     return (
-      (inputTokens / 1_000_000) * model.price_cny.input +
-      (outputTokens / 1_000_000) * model.price_cny.output
+      (inputTokens / 1_000_000) * pricing.input * USD_TO_CNY +
+      (outputTokens / 1_000_000) * pricing.output * USD_TO_CNY
     );
   }, [agencyDag.run, sharedModelId]);
 

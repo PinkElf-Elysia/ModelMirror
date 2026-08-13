@@ -21,6 +21,9 @@ const ALLOWED_INPUT_MODALITIES = new Set([
 ]);
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "bytedance-seed/seedream-5-0-pro",
+  "bytedance/seedance-2.0-mini",
+  "deepgram/flux-tts:free",
   "x-ai/grok-imagine-image-2.0",
 ]);
 
@@ -71,6 +74,32 @@ function parseExpirationDate(value) {
 function pricePerMillion(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed * 1_000_000 : 0;
+}
+
+function pricingOverrides(pricing) {
+  if (!Array.isArray(pricing?.overrides)) return [];
+  return pricing.overrides
+    .filter(
+      (override) =>
+        override &&
+        Number.isFinite(Number(override.min_prompt_tokens)) &&
+        Number(override.min_prompt_tokens) >= 0,
+    )
+    .map((override) => ({
+      min_prompt_tokens: Number(override.min_prompt_tokens),
+      input: pricePerMillion(override.prompt),
+      output: pricePerMillion(override.completion),
+    }))
+    .sort((left, right) => left.min_prompt_tokens - right.min_prompt_tokens);
+}
+
+function compactStoredModel(model) {
+  const overrides = Array.isArray(model.pricing?.overrides)
+    ? model.pricing.overrides
+    : [];
+  if (overrides.length) return model;
+  const { overrides: _ignored, ...pricing } = model.pricing ?? {};
+  return { ...model, pricing };
 }
 
 async function loadCatalog() {
@@ -136,6 +165,7 @@ function normalizeModel(model, existingAuthors) {
   const outputModalities = Array.isArray(model.architecture?.output_modalities)
     ? model.architecture.output_modalities.map((value) => String(value))
     : [];
+  const overrides = pricingOverrides(model.pricing);
 
   return {
     id: String(model.id),
@@ -146,6 +176,7 @@ function normalizeModel(model, existingAuthors) {
     pricing: {
       input: pricePerMillion(model.pricing?.prompt),
       output: pricePerMillion(model.pricing?.completion),
+      ...(overrides.length ? { overrides } : {}),
     },
     input_modalities: inputModalities,
     output_modalities: outputModalities,
@@ -160,6 +191,7 @@ function normalizeModel(model, existingAuthors) {
       existingAuthors.get(slug) ||
       fallbackAuthorName(slug) ||
       "Unknown",
+    ...(model.reasoning ? { reasoning_declared: true } : {}),
   };
 }
 
@@ -171,7 +203,7 @@ async function main() {
     throw new Error("OpenRouter catalog response is missing data[]");
   }
 
-  const currentModels = parseCatalogModels(source);
+  const currentModels = parseCatalogModels(source).map(compactStoredModel);
   const currentModelsById = new Map(
     currentModels.map((model) => [model.id, model]),
   );

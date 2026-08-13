@@ -1,5 +1,7 @@
 # 模镜全模态与常用格式缺口审计
 
+> 2026-08-13 的 OpenRouter 全模态目录、价格与分类复核已迁移到 [`OPENROUTER_CATALOG_AUDIT_2026-08-13.md`](./OPENROUTER_CATALOG_AUDIT_2026-08-13.md)。下列 2026-08-06 目录数量保留为历史批次证据，不再代表当前快照。
+
 > 审计基线：多模态与音频闭环批次 A–I，以及未验证模型收尾批次 A–H；实时模型目录复核日期 2026-08-06。OpenRouter 快照为 517 个模型（462 个实时条目 + 52 个可能不可用的保留条目 + 3 个到期条目），另有直接 OpenAI 精选档案。
 > 本文描述的是当前真实能力和分阶段交付边界，不代表一次性承诺支持所有格式。
 > 文件输入 A–H 的发布门禁、回退与验收证据见 [`FILE_INPUT_CLOSURE_ACCEPTANCE.md`](./FILE_INPUT_CLOSURE_ACCEPTANCE.md)。

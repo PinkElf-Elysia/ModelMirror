@@ -1,0 +1,402 @@
+{
+  "schema_version": 1,
+  "audited_at": "2026-08-13T08:17:35.223Z",
+  "source": {
+    "models_url": "https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000",
+    "images_url": "https://openrouter.ai/api/v1/images/models",
+    "videos_url": "https://openrouter.ai/api/v1/videos/models",
+    "general_entries": 539,
+    "batch_serving_variants": 62,
+    "non_batch_entries": 477,
+    "canonical_entities": 467,
+    "dedicated_image_models": 42,
+    "dedicated_video_models": 23,
+    "declared_expired_but_still_listed": [],
+    "input_modality_model_counts": {
+      "text": 461,
+      "audio": 49,
+      "image": 247,
+      "video": 63,
+      "file": 104
+    },
+    "output_modality_model_counts": {
+      "rerank": 7,
+      "transcription": 16,
+      "image": 44,
+      "speech": 18,
+      "video": 23,
+      "text": 349,
+      "embeddings": 31,
+      "audio": 4
+    }
+  },
+  "coverage": {
+    "local_catalog_entries_compared": 477,
+    "source_models_missing_locally": [],
+    "local_counted_entries_absent_upstream": {
+      "count": 60,
+      "by_catalog_status": {
+        "uncertain": 55,
+        "expired": 5
+      },
+      "model_ids": [
+        "aion-labs/aion-1.0",
+        "aion-labs/aion-1.0-mini",
+        "anthropic/claude-3.5-haiku",
+        "anthropic/claude-opus-4.6-fast",
+        "arcee-ai/coder-large",
+        "arcee-ai/maestro-reasoning",
+        "arcee-ai/trinity-mini",
+        "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+        "deepseek/deepseek-r1-distill-qwen-32b",
+        "essentialai/rnj-1-instruct",
+        "google/gemini-2.5-flash-lite-preview-09-2025",
+        "inclusionai/ling-3.0-flash:free",
+        "inclusionai/ling-3.0-tiny:free",
+        "inflection/inflection-3-pi",
+        "inflection/inflection-3-productivity",
+        "liquid/lfm-2-24b-a2b",
+        "liquid/lfm-2.5-1.2b-instruct:free",
+        "liquid/lfm-2.5-1.2b-thinking:free",
+        "meta-llama/llama-3-70b-instruct",
+        "meta-llama/llama-3-8b-instruct",
+        "meta-llama/llama-3.2-11b-vision-instruct",
+        "meta-llama/llama-3.2-3b-instruct:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "meta-llama/llama-guard-3-8b",
+        "microsoft/phi-4-mini-instruct",
+        "mistralai/devstral-2512",
+        "moonshotai/kimi-k2.6:free",
+        "nex-agi/deepseek-v3.1-nex-n1",
+        "nousresearch/hermes-3-llama-3.1-405b:free",
+        "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+        "nvidia/nemotron-nano-9b-v2",
+        "openai/gpt-4o-mini-search-preview",
+        "openai/gpt-4o-search-preview",
+        "openai/gpt-5-chat",
+        "openai/gpt-5-codex",
+        "openai/gpt-5.1-chat",
+        "openai/gpt-5.3-chat",
+        "openai/gpt-oss-120b:free",
+        "openai/o3-deep-research",
+        "openai/o4-mini-deep-research",
+        "openrouter/owl-alpha",
+        "poolside/laguna-m.1",
+        "poolside/laguna-m.1:free",
+        "poolside/laguna-xs.2:free",
+        "prime-intellect/intellect-3",
+        "qwen/qwen3-coder:free",
+        "qwen/qwen3-next-80b-a3b-instruct:free",
+        "sao10k/l3.1-70b-hanami-x1",
+        "sourceful/riverflow-v2-fast-preview",
+        "sourceful/riverflow-v2-max-preview",
+        "sourceful/riverflow-v2-standard-preview",
+        "sourceful/riverflow-v2.5-fast:free",
+        "sourceful/riverflow-v2.5-pro:free",
+        "switchpoint/router",
+        "tencent/hy3:free",
+        "xiaomi/mimo-v2-flash",
+        "z-ai/glm-4-32b",
+        "z-ai/glm-4.5-air:free",
+        "zyphra/zonos-v0.1-hybrid",
+        "zyphra/zonos-v0.1-transformer"
+      ]
+    },
+    "unexpected_locally_live_entries_absent_upstream": []
+  },
+  "authoritative_classification": {
+    "operation_mismatches": [],
+    "job_capability_mismatches": [],
+    "local_operation_counts": {
+      "chat": 349,
+      "analyze_image": 186,
+      "analyze_document": 102,
+      "analyze_video": 54,
+      "generate_image": 42,
+      "embed": 31,
+      "analyze_audio": 26,
+      "generate_video": 23,
+      "synthesize_speech": 18,
+      "transcribe": 16,
+      "rerank": 7,
+      "generate_audio": 4
+    },
+    "local_authoritative_job_counts": {
+      "text_chat": 349,
+      "tool_use": 283,
+      "image_understanding": 186,
+      "document_understanding": 102,
+      "video_understanding": 54,
+      "image_generation": 42,
+      "embedding": 31,
+      "audio_understanding": 26,
+      "video_generation": 23,
+      "speech_synthesis": 18,
+      "transcription": 16,
+      "rerank": 7,
+      "music_generation": 4
+    }
+  },
+  "semantic_taxonomy": {
+    "authority": "local_heuristic_only",
+    "category_counts": {
+      "coding": 42,
+      "reasoning": 231,
+      "safety": 3,
+      "long_context": 230
+    },
+    "reasoning_without_structured_api_signal": {
+      "count": 0,
+      "models": []
+    },
+    "reasoning_only_from_loose_o3_o4_substring": {
+      "count": 0,
+      "models": []
+    },
+    "translation_without_text_output": {
+      "count": 0,
+      "models": []
+    },
+    "coding_without_text_output": {
+      "count": 0,
+      "models": []
+    },
+    "reasoning_models_copy_math_or_analysis": []
+  },
+  "openrouter_models_sidebar": {
+    "authority": "https://openrouter.ai/api/frontend/v1/models/find?active=true&fmt=cards",
+    "source_service_records": 540,
+    "source_model_snapshots": 479,
+    "compared_models": 477,
+    "snapshot_mismatches": [],
+    "discrete_options": {
+      "series": [
+        "GPT",
+        "Claude",
+        "DeepSeek",
+        "Gemini",
+        "Grok",
+        "Qwen",
+        "Qwen3",
+        "Llama4",
+        "Llama3",
+        "Mistral",
+        "Gemma",
+        "Media",
+        "Yi",
+        "Router",
+        "Other",
+        "Cohere",
+        "Llama2",
+        "Nova",
+        "PaLM",
+        "RWKV"
+      ],
+      "categories": [
+        "programming",
+        "roleplay",
+        "marketing",
+        "marketing/seo",
+        "technology",
+        "science",
+        "translation",
+        "legal",
+        "finance",
+        "health",
+        "trivia",
+        "academia"
+      ],
+      "supported_parameters": [
+        "tools",
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "top_a",
+        "frequency_penalty",
+        "presence_penalty",
+        "repetition_penalty",
+        "max_tokens",
+        "max_completion_tokens",
+        "logit_bias",
+        "logprobs",
+        "top_logprobs",
+        "prediction",
+        "seed",
+        "response_format",
+        "structured_outputs",
+        "stop",
+        "parallel_tool_calls",
+        "include_reasoning",
+        "reasoning",
+        "reasoning_effort",
+        "web_search_options",
+        "verbosity"
+      ]
+    },
+    "expected_discrete_options": {
+      "series": [
+        "GPT",
+        "Claude",
+        "Gemini",
+        "Gemma",
+        "Grok",
+        "Cohere",
+        "Nova",
+        "Qwen",
+        "Yi",
+        "DeepSeek",
+        "Mistral",
+        "Llama2",
+        "Llama3",
+        "Llama4",
+        "RWKV",
+        "Qwen3",
+        "Router",
+        "Media",
+        "Other",
+        "PaLM"
+      ],
+      "categories": [
+        "programming",
+        "roleplay",
+        "marketing",
+        "marketing/seo",
+        "technology",
+        "science",
+        "translation",
+        "legal",
+        "finance",
+        "health",
+        "trivia",
+        "academia"
+      ],
+      "supported_parameters": [
+        "tools",
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "top_a",
+        "frequency_penalty",
+        "presence_penalty",
+        "repetition_penalty",
+        "max_tokens",
+        "max_completion_tokens",
+        "logit_bias",
+        "logprobs",
+        "top_logprobs",
+        "prediction",
+        "seed",
+        "response_format",
+        "structured_outputs",
+        "stop",
+        "parallel_tool_calls",
+        "include_reasoning",
+        "reasoning",
+        "reasoning_effort",
+        "web_search_options",
+        "verbosity"
+      ]
+    },
+    "discrete_option_set_match": {
+      "series": true,
+      "categories": true,
+      "supported_parameters": true
+    },
+    "category_reference": {
+      "source": "Optional singular ?category= responses",
+      "scope": "Cross-reference for the Categories facet only; not ranking or capability authority.",
+      "gating": false,
+      "response_counts": {
+        "programming": 20,
+        "roleplay": 20,
+        "marketing": 20,
+        "marketing/seo": 20,
+        "technology": 20,
+        "science": 20,
+        "translation": 20,
+        "legal": 20,
+        "finance": 20,
+        "health": 20,
+        "trivia": 20,
+        "academia": 20
+      },
+      "missing_from_market_category_placements": [
+        {
+          "model_id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "category": "roleplay"
+        },
+        {
+          "model_id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "category": "technology"
+        },
+        {
+          "model_id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "category": "science"
+        },
+        {
+          "model_id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "category": "finance"
+        },
+        {
+          "model_id": "poolside/laguna-s-2.1:free",
+          "category": "technology"
+        },
+        {
+          "model_id": "poolside/laguna-s-2.1:free",
+          "category": "science"
+        }
+      ]
+    }
+  },
+  "pricing_taxonomy": {
+    "pricing_basis_counts": {
+      "token": 331,
+      "media": 87,
+      "request": 35,
+      "free": 21,
+      "dynamic": 3
+    },
+    "non_explicit_models_marked_free": {
+      "count": 0,
+      "model_ids": []
+    },
+    "zero_token_media_with_wrong_basis": {
+      "count": 0,
+      "model_ids": []
+    },
+    "zero_token_request_with_wrong_basis": {
+      "count": 0,
+      "model_ids": []
+    },
+    "media_models_with_zero_token_price_marked_free": {
+      "count": 2,
+      "model_ids": [
+        "fish-audio/s2.1-pro-free:free",
+        "deepgram/flux-tts:free"
+      ]
+    },
+    "dedicated_paid_video_models_marked_free": {
+      "count": 0,
+      "model_ids": []
+    },
+    "image_models_requiring_endpoint_pricing_but_marked_free": {
+      "count": 0,
+      "model_ids": []
+    }
+  },
+  "filter_and_provider_sync": {
+    "produced_job_capabilities_missing_option": [],
+    "options_without_any_model": [],
+    "provider_other": {
+      "count": 0,
+      "share": 0,
+      "distinct_model_authors": 0
+    },
+    "series_count": 17,
+    "provider_endpoint_count": 64,
+    "author_count": 71,
+    "note": "Provider/author options come from the market snapshot. Series, Categories and Supported Parameters must preserve the exact sidebar option sets; display order may prioritize commonly used brands."
+  }
+}

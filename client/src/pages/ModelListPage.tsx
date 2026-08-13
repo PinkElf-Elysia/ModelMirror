@@ -14,6 +14,15 @@ import {
   type ModelFilterState,
 } from "../data/filterState";
 import {
+  ARTIFICIAL_ANALYSIS_RANGE_LIMIT,
+  DESIGN_ARENA_RANGE_LIMIT,
+  MODEL_AGE_DAYS_LIMIT,
+  OUTPUT_PRICE_USD_LIMIT,
+  PROMPT_PRICE_USD_LIMIT,
+  modelAuthorOptions,
+  seriesOptions as openRouterSeriesOptions,
+} from "../data/filterOptions";
+import {
   deriveFileSurfaceSummary,
   fetchFileCapabilities,
   type FileCapabilitiesResponse,
@@ -28,10 +37,13 @@ import {
   type Model,
   type ModelOperation,
 } from "../data/models";
+import {
+  OPENROUTER_ARTIFICIAL_ANALYSIS_METRICS,
+  OPENROUTER_DESIGN_ARENA_METRICS,
+} from "../data/openRouterMarket";
 import { recruitmentTheme } from "../theme/recruitmentTheme";
 import {
   deriveProviderFromModel,
-  providerFilterMatches,
 } from "../utils/userFriendlyText";
 
 function includesEvery<T>(values: T[], selected: T[]) {
@@ -51,16 +63,53 @@ function matchesAny<T>(value: T, selected: T[]) {
   return selected.length === 0 || selected.includes(value);
 }
 
+function matchesFacet<T>(values: T[], selected: T[]) {
+  return selected.length === 0 || selected.some((value) => values.includes(value));
+}
+
+function isExplicitRange(
+  value: { min: number; max: number },
+  limit: { min: number; max: number },
+) {
+  return value.min !== limit.min || value.max !== limit.max;
+}
+
+function matchesRange(
+  value: number | null | undefined,
+  selected: { min: number; max: number },
+  limit: { min: number; max: number },
+) {
+  if (!isExplicitRange(selected, limit)) return true;
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return false;
+  }
+  if (value < selected.min) return false;
+  return selected.max >= limit.max || value <= selected.max;
+}
+
 function createDefaultFilters(): ModelFilterState {
   return {
     ...defaultFilterState,
     inputModalities: [],
-    contextRange: { ...defaultFilterState.contextRange },
-    promptPriceCnyRange: { ...defaultFilterState.promptPriceCnyRange },
+    promptPriceUsdRange: { ...defaultFilterState.promptPriceUsdRange },
+    outputPriceUsdRange: { ...defaultFilterState.outputPriceUsdRange },
+    modelAgeDaysRange: { ...defaultFilterState.modelAgeDaysRange },
     series: [],
     jobCapabilities: [],
+    openRouterCategories: [],
     supportedParameters: [],
+    providers: [],
     modelAuthors: [],
+    artificialAnalysisRanges: Object.fromEntries(
+      Object.entries(defaultFilterState.artificialAnalysisRanges).map(
+        ([metric, range]) => [metric, { ...range }],
+      ),
+    ) as ModelFilterState["artificialAnalysisRanges"],
+    designArenaRanges: Object.fromEntries(
+      Object.entries(defaultFilterState.designArenaRanges).map(
+        ([metric, range]) => [metric, { ...range }],
+      ),
+    ) as ModelFilterState["designArenaRanges"],
   };
 }
 
@@ -536,24 +585,6 @@ export default function ModelListPage() {
     return result;
   }, [generalCatalog]);
 
-  const seriesOptions = useMemo(
-    () =>
-      Array.from(new Set(models.map((model) => model.series)))
-        .filter((series) => series.length > 0)
-        .sort((left, right) => left.localeCompare(right, "zh-CN"))
-        .map((series) => ({ value: series, label: series })),
-    [],
-  );
-
-  const modelAuthorOptions = useMemo(
-    () =>
-      Array.from(new Set(models.map((model) => model.model_author)))
-        .filter((author) => author.length > 0)
-        .sort((left, right) => left.localeCompare(right, "zh-CN"))
-        .map((author) => ({ value: author, label: author })),
-    [],
-  );
-
   const filteredModels = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
@@ -567,8 +598,12 @@ export default function ModelListPage() {
           deriveProviderFromModel(model),
           model.model_author,
           model.series,
+          model.openrouter_market.series,
+          model.openrouter_market.author,
           model.description,
           ...model.tags,
+          ...model.openrouter_market.providers,
+          ...model.openrouter_market.categories,
         ]
           .join(" ")
           .toLowerCase()
@@ -584,17 +619,22 @@ export default function ModelListPage() {
       ) {
         return false;
       }
-      if (!providerFilterMatches(model, filters.provider)) {
-        return false;
-      }
       if (!matchesWorkSkills(model, filters.inputModalities)) {
         return false;
       }
-      if (!matchesAny(model.series, filters.series)) return false;
+      if (!matchesAny(model.openrouter_market.series, filters.series)) {
+        return false;
+      }
       if (
         !includesEvery(
           model.job_capabilities,
           filters.jobCapabilities,
+        )
+      ) return false;
+      if (
+        !matchesFacet(
+          model.openrouter_market.categories,
+          filters.openRouterCategories,
         )
       ) return false;
       if (
@@ -607,38 +647,91 @@ export default function ModelListPage() {
       }
       if (
         filters.modelAuthors.length > 0 &&
-        !filters.modelAuthors.includes(model.model_author)
+        !filters.modelAuthors.includes(model.openrouter_market.author)
       ) {
         return false;
       }
-      if (filters.distillable && !model.distillable) return false;
-      if (filters.zeroDataRetention && !model.zero_data_retention) return false;
-      if (filters.inRegionRouting && !model.in_region_routing) return false;
-      if (model.context_length < filters.contextRange.min) return false;
       if (
-        filters.contextRange.max < defaultFilterState.contextRange.max &&
-        model.context_length > filters.contextRange.max
+        !matchesFacet(model.openrouter_market.providers, filters.providers)
       ) {
+        return false;
+      }
+      if (filters.discounted && !model.openrouter_market.discounted) {
+        return false;
+      }
+      if (
+        filters.distillable === "yes" &&
+        !model.openrouter_market.distillable
+      ) {
+        return false;
+      }
+      if (
+        filters.distillable === "no" &&
+        model.openrouter_market.distillable
+      ) {
+        return false;
+      }
+      if (
+        filters.zeroDataRetention &&
+        !model.openrouter_market.zero_data_retention
+      ) return false;
+      if (!matchesFacet(model.openrouter_market.regions, filters.regions)) {
+        return false;
+      }
+      if (model.context_length < filters.minContextLength) return false;
+
+      if (
+        isExplicitRange(filters.promptPriceUsdRange, PROMPT_PRICE_USD_LIMIT) ||
+        isExplicitRange(filters.outputPriceUsdRange, OUTPUT_PRICE_USD_LIMIT)
+      ) {
+        if (model.pricing_status === "dynamic") return false;
+        if (
+          !matchesRange(
+            model.pricing.input,
+            filters.promptPriceUsdRange,
+            PROMPT_PRICE_USD_LIMIT,
+          ) ||
+          !matchesRange(
+            model.pricing.output,
+            filters.outputPriceUsdRange,
+            OUTPUT_PRICE_USD_LIMIT,
+          )
+        ) return false;
+      }
+
+      const createdAt = model.openrouter_market.created_at;
+      const ageDays =
+        createdAt === null
+          ? null
+          : Math.max(0, (Date.now() / 1000 - createdAt) / 86_400);
+      if (!matchesRange(ageDays, filters.modelAgeDaysRange, MODEL_AGE_DAYS_LIMIT)) {
         return false;
       }
 
-      const usesExplicitPriceFilter =
-        filters.promptPriceCnyRange.min !==
-          defaultFilterState.promptPriceCnyRange.min ||
-        filters.promptPriceCnyRange.max !==
-          defaultFilterState.promptPriceCnyRange.max;
-      if (model.pricing_status === "dynamic") {
-        if (usesExplicitPriceFilter) return false;
-      } else {
-        const inputPriceCny = model.price_cny.input;
-        if (inputPriceCny < filters.promptPriceCnyRange.min) return false;
-        if (
-          filters.promptPriceCnyRange.max <
-            defaultFilterState.promptPriceCnyRange.max &&
-          inputPriceCny > filters.promptPriceCnyRange.max
-        ) {
+      if (filters.minToolSuccessRate > 0) {
+        const successRate = model.openrouter_market.tool_call_success_rate;
+        if (successRate === null || successRate < filters.minToolSuccessRate) {
           return false;
         }
+      }
+
+      for (const metric of OPENROUTER_ARTIFICIAL_ANALYSIS_METRICS) {
+        if (
+          !matchesRange(
+            model.openrouter_market.artificial_analysis[metric],
+            filters.artificialAnalysisRanges[metric],
+            ARTIFICIAL_ANALYSIS_RANGE_LIMIT,
+          )
+        ) return false;
+      }
+      for (const metric of OPENROUTER_DESIGN_ARENA_METRICS) {
+        if (
+          !matchesRange(
+            model.openrouter_market.design_arena[metric],
+            filters.designArenaRanges[metric],
+            DESIGN_ARENA_RANGE_LIMIT,
+          )
+        ) return false;
       }
 
       return true;
@@ -723,7 +816,7 @@ export default function ModelListPage() {
             modelAuthorOptions={modelAuthorOptions}
             onChange={setFilters}
             onClear={clearFilters}
-            seriesOptions={seriesOptions}
+            seriesOptions={openRouterSeriesOptions}
           />
         </section>
 
