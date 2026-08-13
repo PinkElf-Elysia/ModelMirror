@@ -113,6 +113,31 @@ function createDefaultFilters(): ModelFilterState {
   };
 }
 
+export function shouldShowFeaturedRecommendations(
+  filters: ModelFilterState,
+  searchTerm: string,
+) {
+  return (
+    searchTerm.trim() === "" &&
+    filters.inputModalities.length === 0 &&
+    filters.series.length === 0 &&
+    filters.jobCapabilities.length === 0 &&
+    filters.supportedParameters.length === 0 &&
+    filters.modelAuthors.length === 0 &&
+    !filters.distillable &&
+    !filters.zeroDataRetention &&
+    !filters.inRegionRouting &&
+    filters.provider === defaultFilterState.provider &&
+    filters.showInactive === defaultFilterState.showInactive &&
+    filters.contextRange.min === defaultFilterState.contextRange.min &&
+    filters.contextRange.max === defaultFilterState.contextRange.max &&
+    filters.promptPriceCnyRange.min ===
+      defaultFilterState.promptPriceCnyRange.min &&
+    filters.promptPriceCnyRange.max ===
+      defaultFilterState.promptPriceCnyRange.max
+  );
+}
+
 interface VideoModelProfile {
   model_id: string;
   operation: "analyze_video" | "generate_video";
@@ -276,6 +301,7 @@ export default function ModelListPage() {
     useState<VideoCatalogPayload | null>(null);
   const [audioCatalog, setAudioCatalog] =
     useState<AudioCatalogPayload | null>(null);
+  const [audioCatalogLoading, setAudioCatalogLoading] = useState(true);
   const [imageCatalog, setImageCatalog] =
     useState<ImageCatalogPayload | null>(null);
   const [generalCatalog, setGeneralCatalog] =
@@ -324,11 +350,13 @@ export default function ModelListPage() {
       .then((payload) => {
         if (!controller.signal.aborted) {
           setAudioCatalog(payload);
+          setAudioCatalogLoading(false);
         }
       })
       .catch(() => {
         if (!controller.signal.aborted) {
           setAudioCatalog(null);
+          setAudioCatalogLoading(false);
         }
       });
 
@@ -769,8 +797,16 @@ export default function ModelListPage() {
     videoCatalog !== null ||
     audioCatalog !== null ||
     imageCatalog !== null;
-  const featuredModels = filteredModels.slice(0, 2);
-  const galleryModels = filteredModels.slice(featuredModels.length);
+  const showFeaturedRecommendations = shouldShowFeaturedRecommendations(
+    filters,
+    searchTerm,
+  );
+  const featuredModels = showFeaturedRecommendations
+    ? filteredModels.slice(0, 2)
+    : [];
+  const galleryModels = showFeaturedRecommendations
+    ? filteredModels.slice(featuredModels.length)
+    : filteredModels;
   const compareState = useMemo(
     () => parseModelCompareState(searchParams),
     [searchParams],
@@ -829,16 +865,24 @@ export default function ModelListPage() {
             />
           ) : (
           <>
-          <div className="mb-6 grid gap-4 lg:grid-cols-3">
-            <FederationRouterCard />
-            {featuredModels.length > 0
-              ? featuredModels.map((model) => (
+          {showFeaturedRecommendations ? (
+            <div className="mb-6 grid gap-4 lg:grid-cols-3">
+              <FederationRouterCard />
+              {featuredModels.length > 0
+                ? featuredModels.map((model) => (
                   <div
                     className="animate-soft-rise"
                     key={`featured-${model.id}`}
                   >
                     <ModelCard
                       audioCatalogStale={audioCatalog?.stale ?? false}
+                      audioCatalogState={
+                        audioCatalogLoading
+                          ? "loading"
+                          : audioCatalog
+                            ? "available"
+                            : "unavailable"
+                      }
                       audioCapabilityStatus={
                         audioCapabilityStatuses.get(model.id)
                       }
@@ -868,15 +912,23 @@ export default function ModelListPage() {
                       videoCatalogStale={videoCatalog?.stale ?? false}
                     />
                   </div>
-                ))
-              : null}
-          </div>
+                  ))
+                : null}
+            </div>
+          ) : null}
 
           {filteredModels.length > 0 ? (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {galleryModels.map((model) => (
                 <ModelCard
                   audioCatalogStale={audioCatalog?.stale ?? false}
+                  audioCatalogState={
+                    audioCatalogLoading
+                      ? "loading"
+                      : audioCatalog
+                        ? "available"
+                        : "unavailable"
+                  }
                   audioCapabilityStatus={
                     audioCapabilityStatuses.get(model.id)
                   }

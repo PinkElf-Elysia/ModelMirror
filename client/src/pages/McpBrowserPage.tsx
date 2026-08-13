@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Boxes,
+  CheckCircle2,
+  ChevronDown,
+  Grid2X2,
+  Plug,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import McpServerCard, {
   type McpSessionSummary,
 } from "../components/McpServerCard";
+import ModelWorkbenchSidebar from "../components/ModelWorkbenchSidebar";
 import PageContainer from "../components/PageContainer";
 import {
-  mcpCatalogSources,
   mcpCategories,
   mcpProjects,
   type McpCategory,
 } from "../data/mcpProjects";
 import {
-  mcpAvailabilityLabels,
   type McpAvailability,
   type McpCatalogAdapterStatus,
 } from "../data/mcpAdaptationPlan";
@@ -24,10 +32,22 @@ interface RegistryTool {
   registered_at: number;
 }
 
-type CatalogCategory = "全部" | McpCategory;
-type AvailabilityFilter = "all" | McpAvailability;
+type CatalogCategory = "全部类别" | McpCategory;
+type AvailabilityFilter = "all" | "ready" | "in_progress" | "blocked";
 
 const INITIAL_VISIBLE_COUNT = 18;
+const PRIMARY_CATEGORY_COUNT = 3;
+
+function matchesAvailability(
+  availability: McpAvailability,
+  filter: AvailabilityFilter,
+) {
+  if (filter === "all") return true;
+  if (filter === "in_progress") {
+    return availability === "planned" || availability === "adapting";
+  }
+  return availability === filter;
+}
 
 export default function McpBrowserPage() {
   const [sessions, setSessions] = useState<McpSessionSummary[]>([]);
@@ -35,9 +55,10 @@ export default function McpBrowserPage() {
   const [activeView, setActiveView] = useState<"servers" | "registry">("servers");
   const [query, setQuery] = useState("");
   const [selectedCategory, setSelectedCategory] =
-    useState<CatalogCategory>("全部");
+    useState<CatalogCategory>("全部类别");
   const [availabilityFilter, setAvailabilityFilter] =
     useState<AvailabilityFilter>("all");
+  const [categoriesExpanded, setCategoriesExpanded] = useState(false);
   const [adapterStatuses, setAdapterStatuses] = useState<
     McpCatalogAdapterStatus[]
   >([]);
@@ -117,15 +138,43 @@ export default function McpBrowserPage() {
     }
     return counts;
   }, []);
+  const rankedCategories = useMemo(
+    () =>
+      [...mcpCategories].sort((left, right) => {
+        const countDelta =
+          (categoryCounts.get(right) ?? 0) - (categoryCounts.get(left) ?? 0);
+        return countDelta || mcpCategories.indexOf(left) - mcpCategories.indexOf(right);
+      }),
+    [categoryCounts],
+  );
+  const primaryCategories = useMemo(() => {
+    const primary = rankedCategories.slice(0, PRIMARY_CATEGORY_COUNT);
+    if (
+      selectedCategory !== "全部类别" &&
+      !primary.includes(selectedCategory)
+    ) {
+      return [...primary.slice(0, PRIMARY_CATEGORY_COUNT - 1), selectedCategory];
+    }
+    return primary;
+  }, [rankedCategories, selectedCategory]);
+  const remainingCategories = useMemo(
+    () => rankedCategories.filter((category) => !primaryCategories.includes(category)),
+    [primaryCategories, rankedCategories],
+  );
   const filteredProjects = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
     return mcpProjects.filter((project) => {
-      if (selectedCategory !== "全部" && project.category !== selectedCategory) {
+      if (
+        selectedCategory !== "全部类别" &&
+        project.category !== selectedCategory
+      ) {
         return false;
       }
       if (
-        availabilityFilter !== "all" &&
-        effectiveAvailability(project.id) !== availabilityFilter
+        !matchesAvailability(
+          effectiveAvailability(project.id),
+          availabilityFilter,
+        )
       ) {
         return false;
       }
@@ -157,252 +206,185 @@ export default function McpBrowserPage() {
   return (
     <PageContainer
       activeResource="mcps"
-      sidebar={
-        <div>
-          <p className="text-sm font-semibold text-white">工具采购清单</p>
-          <p className="mt-2 text-sm leading-6 text-slate-400">
-            汇集两个社区清单，并按生产验收状态、适配批次和风险等级展示。
-          </p>
-          <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">已上架工具</p>
-            <p className="mt-1 text-sm font-semibold text-hire-100">
-              {mcpProjects.length} 个
-            </p>
-          </div>
-          <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">覆盖分类</p>
-            <p className="mt-1 text-sm font-semibold text-brand-100">
-              {mcpCategories.length} 类
-            </p>
-          </div>
-          <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">生产级可用</p>
-            <p className="mt-1 text-sm font-semibold text-emerald-100">
-              {readyCount} 个
-            </p>
-          </div>
-          <button
-            className="mt-4 min-h-11 w-full rounded-full border border-brand-300/25 bg-brand-300/10 px-4 py-2 text-sm font-semibold text-brand-100 transition hover:bg-brand-300/15"
-            onClick={() => void refreshRuntime()}
-            type="button"
-          >
-            刷新连接状态
-          </button>
-        </div>
-      }
+      maxWidthClassName="max-w-[1500px]"
+      mobileSidebar={<ModelWorkbenchSidebar compact />}
+      showSystemCapabilityBar={false}
+      sidebar={<ModelWorkbenchSidebar />}
+      sidebarGridClassName="xl:grid-cols-[230px_minmax(0,1fr)] xl:gap-x-[54px]"
     >
-      <header className="relative overflow-hidden border-y border-hire-300/20 py-8 sm:py-10 lg:py-12">
-        <div className="absolute inset-x-6 top-0 h-16 rounded-b-[50%] border-x border-b border-hire-300/30 bg-[linear-gradient(180deg,rgba(251,146,60,0.18),transparent)]" />
-        <div className="absolute left-0 top-0 h-px w-full bg-[linear-gradient(90deg,transparent,rgba(251,146,60,0.82),rgba(253,186,116,0.72),transparent)]" />
-        <div className="relative grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-end">
-          <div>
-            <p className="text-sm font-semibold text-hire-200">
-              中文 MCP 工具目录
-            </p>
-            <h1 className="mt-3 max-w-4xl text-4xl font-semibold tracking-normal text-white sm:text-6xl">
+      <header className="relative overflow-hidden rounded-xl border border-hire-300/25 bg-ink-900/65 px-4 py-5 sm:px-6">
+        <div className="pointer-events-none absolute right-4 top-3 hidden h-16 w-44 opacity-55 lg:block">
+          <span className="absolute right-1 top-2 h-1.5 w-1.5 rounded-full bg-hire-200" />
+          <span className="absolute right-14 top-9 h-1 w-1 rounded-full bg-cyan-200" />
+          <span className="absolute right-28 top-4 h-1 w-1 rounded-full bg-hire-300" />
+          <span className="absolute right-3 top-4 h-px w-28 -rotate-[14deg] bg-hire-200/40" />
+          <span className="absolute right-10 top-8 h-px w-24 rotate-[16deg] bg-cyan-200/30" />
+        </div>
+        <div className="relative grid gap-5 lg:grid-cols-[minmax(250px,0.8fr)_minmax(560px,1.2fr)] lg:items-center">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-semibold tracking-[-0.025em] text-white sm:text-4xl">
               MCP 工具采购
             </h1>
-            <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
-              从 {mcpProjects.length} 个中文化条目中按场景、批次与生产验收状态筛选。当前已有 {readyCount} 个项目通过验收，其余 {plannedCount + adaptingCount + blockedCount} 个仍需逐批通过安全门槛。
+            <p className="mt-2 text-sm leading-6 text-slate-300 sm:text-base">
+              安装 MCP 服务，为 AI 扩展更多工具能力
             </p>
           </div>
-
-          <div className="surface-card rounded-lg p-4">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <span className="text-sm text-slate-400">采购台状态</span>
-              <span className="text-2xl font-semibold text-white">
-                {mcpProjects.length}
-              </span>
-            </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="rounded-lg bg-white/[0.055] px-2 py-3">
-                <p className="text-lg font-semibold text-hire-100">
-                  {mcpCategories.length}
-                </p>
-                <p className="mt-1 truncate text-slate-400">工具分类</p>
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-4 lg:pr-32">
+            {([
+              [Boxes, mcpProjects.length, "个工具", "text-hire-100"],
+              [CheckCircle2, readyCount, "可用", "text-emerald-100"],
+              [Grid2X2, mcpCategories.length, "分类", "text-hire-100"],
+              [Plug, sessions.length, "已连接", "text-cyan-100"],
+            ] as const).map(([Icon, value, label, tone]) => (
+              <div className="flex min-w-0 items-center gap-2.5" key={label}>
+                <Icon aria-hidden="true" className={tone} size={20} strokeWidth={1.8} />
+                <div className="min-w-0">
+                  <dt className="text-xs text-slate-400">{label}</dt>
+                  <dd className={`text-xl font-semibold tabular-nums ${tone}`}>{value}</dd>
+                </div>
               </div>
-              <div className="rounded-lg bg-white/[0.055] px-2 py-3">
-                <p className="text-lg font-semibold text-brand-100">
-                  {plannedCount}
-                </p>
-                <p className="mt-1 truncate text-slate-400">待适配</p>
-              </div>
-              <div className="rounded-lg bg-white/[0.055] px-2 py-3">
-                <p className="text-lg font-semibold text-emerald-100">
-                  {readyCount}
-                </p>
-                <p className="mt-1 truncate text-slate-400">可连接</p>
-              </div>
-            </div>
-          </div>
+            ))}
+          </dl>
         </div>
       </header>
 
-      <section className="mt-8">
-        <div className="mb-5 grid gap-3 md:grid-cols-3">
-          <div className="rounded-lg border border-white/10 bg-white/[0.045] p-4">
-            <p className="text-xs text-slate-400">已连接 Server</p>
-            <p className="mt-2 text-2xl font-semibold text-white">
-              {sessions.length}
-            </p>
-          </div>
-          <div className="rounded-lg border border-white/10 bg-white/[0.045] p-4">
-            <p className="text-xs text-slate-400">全局工具数</p>
-            <p className="mt-2 text-2xl font-semibold text-brand-100">
-              {registryTools.length}
-            </p>
-          </div>
-          <div className="rounded-lg border border-white/10 bg-white/[0.045] p-4">
-            <p className="text-xs text-slate-400">运行态</p>
-            <p className="mt-2 text-sm font-semibold text-emerald-100">
-              {isLoadingRuntime ? "同步中..." : "已同步"}
-            </p>
-          </div>
-        </div>
+      <section className="mt-4">
 
         {runtimeError ? (
-          <div className="mb-5 rounded-lg border border-rose-300/25 bg-rose-300/10 p-4 text-sm text-rose-100">
+          <div className="mb-3 rounded-lg border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm text-rose-100" role="status">
             {runtimeError}
           </div>
         ) : null}
 
-        <div className="mb-5 flex flex-wrap gap-2">
-          <button
-            className={`min-h-11 rounded-full px-4 py-2 text-sm font-semibold transition ${
-              activeView === "servers"
-                ? "bg-hire-300 text-ink-950"
-                : "border border-white/10 bg-white/[0.055] text-slate-200 hover:border-hire-300/30"
-            }`}
-            onClick={() => setActiveView("servers")}
-            type="button"
-          >
-            工具货架
-          </button>
-          <button
-            className={`min-h-11 rounded-full px-4 py-2 text-sm font-semibold transition ${
-              activeView === "registry"
-                ? "bg-brand-300 text-ink-950"
-                : "border border-white/10 bg-white/[0.055] text-slate-200 hover:border-brand-300/30"
-            }`}
-            onClick={() => {
-              setActiveView("registry");
-              void refreshRuntime();
-            }}
-            type="button"
-          >
-            全局工具注册表
-          </button>
+        <div className="rounded-xl border border-white/10 bg-ink-900/55 p-3 sm:p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 rounded-lg border border-white/10 bg-ink-950/55 p-1" role="tablist" aria-label="MCP 工具视图">
+              <button
+                aria-selected={activeView === "servers"}
+                className={`min-h-10 rounded-md px-4 py-2 text-sm font-semibold transition ${
+                  activeView === "servers"
+                    ? "bg-hire-300 text-ink-950"
+                    : "text-slate-300 hover:bg-white/[0.055] hover:text-white"
+                }`}
+                onClick={() => setActiveView("servers")}
+                role="tab"
+                type="button"
+              >
+                工具货架
+              </button>
+              <button
+                aria-selected={activeView === "registry"}
+                className={`min-h-10 rounded-md px-4 py-2 text-sm font-semibold transition ${
+                  activeView === "registry"
+                    ? "bg-hire-300 text-ink-950"
+                    : "text-slate-300 hover:bg-white/[0.055] hover:text-white"
+                }`}
+                onClick={() => {
+                  setActiveView("registry");
+                  void refreshRuntime();
+                }}
+                role="tab"
+                type="button"
+              >
+                已连接注册表
+              </button>
+            </div>
+            <button
+              className="flex min-h-10 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/35 hover:text-hire-100 disabled:cursor-wait disabled:opacity-60"
+              disabled={isLoadingRuntime}
+              onClick={() => void refreshRuntime()}
+              type="button"
+            >
+              <RefreshCw aria-hidden="true" className={isLoadingRuntime ? "motion-safe:animate-spin" : ""} size={16} />
+              {isLoadingRuntime ? "正在刷新" : "刷新连接状态"}
+            </button>
+          </div>
+
+          {activeView === "servers" ? (
+            <div className="relative mt-3">
+              <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <label className="sr-only" htmlFor="mcp-search">搜索 MCP 工具</label>
+              <input
+                className="min-h-11 w-full rounded-lg border border-white/10 bg-ink-950/70 py-2.5 pl-10 pr-28 text-sm text-white outline-none placeholder:text-slate-400 focus:border-hire-300/55 focus:ring-2 focus:ring-hire-300/15"
+                id="mcp-search"
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索名称、用途或标签"
+                type="search"
+                value={query}
+              />
+              {query || selectedCategory !== "全部类别" || availabilityFilter !== "all" ? (
+                <button
+                  className="absolute right-2 top-1/2 min-h-9 -translate-y-1/2 rounded-md px-3 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
+                  onClick={() => {
+                    setQuery("");
+                    setSelectedCategory("全部类别");
+                    setAvailabilityFilter("all");
+                  }}
+                  type="button"
+                >
+                  清除筛选
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         {activeView === "servers" ? (
-          <div className="mb-5 space-y-4">
-            <div className="rounded-lg border border-brand-300/20 bg-brand-300/[0.07] p-4 text-sm">
-              <p className="max-w-4xl leading-6 text-slate-300">
-                条目整理自{" "}
-                {mcpCatalogSources.map((source, index) => (
-                  <span key={source.id}>
-                    {index > 0 ? " 与 " : null}
-                    <a
-                      className="font-semibold text-brand-100 underline-offset-4 hover:underline"
-                      href={source.url}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      {source.name}
-                    </a>
-                  </span>
-                ))}
-                ，并按模镜的受控适配器边界重新分类、翻译和核验。
-              </p>
-              <p className="mt-2 text-xs leading-5 text-slate-400">
-                第 1 批核验日期 2026-08-05 · 目录数量冻结 · 当前不提供自定义连接、MCP Builder 或外站认证入口
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-amber-300/25 bg-amber-300/[0.08] p-4 text-sm leading-6 text-amber-50">
-              “待适配”不代表上游项目不可用，而是尚未通过模镜的安装、权限、Smoke 与回退验收。每个条目已归入固定批次；服务端未放行前，按钮始终不可连接。
-            </div>
-
-            <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
-              <label className="block text-sm font-semibold text-slate-200" htmlFor="mcp-search">
-                搜索工具
-              </label>
-              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                <input
-                  className="min-h-11 min-w-0 flex-1 rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-400 focus:border-brand-300/60"
-                  id="mcp-search"
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="搜索名称、仓库、用途或标签"
-                  type="search"
-                  value={query}
-                />
-                {query || selectedCategory !== "全部" || availabilityFilter !== "all" ? (
-                  <button
-                    className="min-h-11 rounded-lg border border-white/10 bg-white/[0.055] px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-brand-300/35 hover:text-brand-100"
-                    onClick={() => {
-                      setQuery("");
-                      setSelectedCategory("全部");
-                      setAvailabilityFilter("all");
-                    }}
-                    type="button"
-                  >
-                    清除筛选
-                  </button>
-                ) : null}
-              </div>
-              <div className="mt-4 border-t border-white/10 pt-4">
-                <p className="text-xs font-semibold text-slate-300">按当前适配状态</p>
-                <div
-                  aria-label="按 MCP 适配状态筛选"
-                  className="mt-2 flex flex-wrap gap-2"
-                  role="group"
-                >
-                  {([
-                    ["all", "全部状态", mcpProjects.length],
-                    ["ready", mcpAvailabilityLabels.ready, readyCount],
-                    ["planned", mcpAvailabilityLabels.planned, plannedCount],
-                    ["adapting", mcpAvailabilityLabels.adapting, adaptingCount],
-                    ["blocked", mcpAvailabilityLabels.blocked, blockedCount],
-                  ] as const).map(([value, label, count]) => {
-                    const isSelected = availabilityFilter === value;
-                    return (
-                      <button
-                        aria-pressed={isSelected}
-                        className={`min-h-11 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                          isSelected
-                            ? value === "planned" || value === "blocked"
-                              ? "border-amber-300/60 bg-amber-300 text-ink-950"
-                              : "border-emerald-300/60 bg-emerald-300 text-ink-950"
-                            : "border-white/10 bg-white/[0.045] text-slate-300 hover:border-brand-300/35 hover:text-brand-100"
-                        }`}
-                        key={value}
-                        onClick={() => setAvailabilityFilter(value)}
-                        type="button"
-                      >
-                        {label} · {count}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div
-                aria-label="按 MCP 场景筛选"
-                className="mt-3 flex flex-wrap gap-2"
-                role="group"
+          <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2.5 sm:px-4">
+            <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+              <button
+                aria-pressed={availabilityFilter === "all" && selectedCategory === "全部类别"}
+                className={`min-h-9 whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
+                  availabilityFilter === "all" && selectedCategory === "全部类别"
+                    ? "border-hire-300/55 bg-hire-300 text-ink-950"
+                    : "border-white/10 bg-white/[0.035] text-slate-300 hover:border-hire-300/30 hover:text-white"
+                }`}
+                onClick={() => {
+                  setAvailabilityFilter("all");
+                  setSelectedCategory("全部类别");
+                }}
+                type="button"
               >
-                {(["全部", ...mcpCategories] as const).map((category) => {
-                  const isSelected = selectedCategory === category;
-                  const count =
-                    category === "全部"
-                      ? mcpProjects.length
-                      : (categoryCounts.get(category) ?? 0);
+                全部 · {mcpProjects.length}
+              </button>
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-label="按 MCP 适配状态筛选">
+                <span className="whitespace-nowrap text-xs font-semibold text-slate-300">按适配状态</span>
+                {([
+                  ["ready", "可用", readyCount],
+                  ["in_progress", "适配中", plannedCount + adaptingCount],
+                  ["blocked", "未适配", blockedCount],
+                ] as const).map(([value, label, count]) => {
+                  const isSelected = availabilityFilter === value;
                   return (
                     <button
                       aria-pressed={isSelected}
-                      className={`min-h-11 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                      className={`min-h-9 whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
                         isSelected
-                          ? "border-hire-300/60 bg-hire-300 text-ink-950"
-                          : "border-white/10 bg-white/[0.045] text-slate-300 hover:border-hire-300/35 hover:text-hire-100"
+                          ? "border-hire-300/55 bg-hire-300 text-ink-950"
+                          : "border-white/10 bg-white/[0.035] text-slate-300 hover:border-hire-300/30 hover:text-white"
+                      }`}
+                      key={value}
+                      onClick={() => setAvailabilityFilter(value)}
+                      type="button"
+                    >
+                      {label} · {count}
+                    </button>
+                  );
+                })}
+              </div>
+              <span aria-hidden="true" className="hidden h-7 w-px shrink-0 bg-white/10 sm:block" />
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-label="按工具类别筛选">
+                <span className="whitespace-nowrap text-xs font-semibold text-slate-300">按工具类别</span>
+                {primaryCategories.map((category) => {
+                  const isSelected = selectedCategory === category;
+                  const count = categoryCounts.get(category) ?? 0;
+                  return (
+                    <button
+                      aria-pressed={isSelected}
+                      className={`min-h-9 whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
+                        isSelected
+                          ? "border-hire-300/55 bg-hire-300 text-ink-950"
+                          : "border-white/10 bg-white/[0.035] text-slate-300 hover:border-hire-300/30 hover:text-white"
                       }`}
                       key={category}
                       onClick={() => setSelectedCategory(category)}
@@ -412,26 +394,50 @@ export default function McpBrowserPage() {
                     </button>
                   );
                 })}
+                <button
+                  aria-expanded={categoriesExpanded}
+                  className="flex min-h-9 items-center gap-1 whitespace-nowrap rounded-md border border-hire-300/30 bg-hire-300/[0.07] px-3 py-1.5 text-xs font-semibold text-hire-100 transition hover:bg-hire-300/[0.12]"
+                  onClick={() => setCategoriesExpanded((expanded) => !expanded)}
+                  type="button"
+                >
+                  {categoriesExpanded ? "收起分类" : "更多分类"}
+                  <ChevronDown aria-hidden="true" className={`transition-transform ${categoriesExpanded ? "rotate-180" : ""}`} size={14} />
+                </button>
               </div>
             </div>
+            {categoriesExpanded ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-white/10 pt-2" role="group" aria-label="更多 MCP 工具类别">
+                {remainingCategories.map((category) => {
+                  const isSelected = selectedCategory === category;
+                  return (
+                    <button
+                      aria-pressed={isSelected}
+                      className={`min-h-9 whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
+                        isSelected
+                          ? "border-hire-300/55 bg-hire-300 text-ink-950"
+                          : "border-white/10 bg-white/[0.035] text-slate-300 hover:border-hire-300/30 hover:text-white"
+                      }`}
+                      key={category}
+                      onClick={() => setSelectedCategory(category)}
+                      type="button"
+                    >
+                      {category} · {categoryCounts.get(category) ?? 0}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-white">
-              {activeView === "servers" ? "已上架工具箱" : "全局工具注册表"}
-            </h2>
-            <p className="mt-1 text-sm text-slate-400">
-              {activeView === "servers"
-                ? "可用项由后端固定适配器启动；第 3 批文件工具使用断网受控工作区、只读输入、一次性写入确认和可清理产物。"
-                : "这里聚合所有已连接 MCP Server 的工具；重名工具按首次出现保留。"}
-            </p>
-          </div>
-          <span className="w-fit rounded-full border border-emerald-300/25 bg-emerald-300/10 px-3 py-1.5 text-xs font-semibold text-emerald-100">
+        <div className="mb-3 mt-4 flex items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold text-white sm:text-2xl">
+            {activeView === "servers" ? "已上架工具箱" : "已连接注册表"}
+          </h2>
+          <span className="w-fit shrink-0 rounded-md border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold text-slate-300">
             {activeView === "servers"
-              ? `显示 ${visibleProjects.length} / 匹配 ${filteredProjects.length}`
-              : `${registryTools.length} 个已发现工具`}
+              ? `匹配 ${filteredProjects.length}`
+              : `${registryTools.length} 个工具`}
           </span>
         </div>
 
@@ -478,7 +484,7 @@ export default function McpBrowserPage() {
                 className="mt-4 min-h-11 rounded-full bg-brand-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-brand-200"
                 onClick={() => {
                   setQuery("");
-                  setSelectedCategory("全部");
+                  setSelectedCategory("全部类别");
                   setAvailabilityFilter("all");
                 }}
                 type="button"
