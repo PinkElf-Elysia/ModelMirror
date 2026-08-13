@@ -7,11 +7,12 @@ import {
 
 const packageRoot = new URL("../packages/prototype-spatial-assembler/", import.meta.url);
 
-test("spatial assembly package is private and depends only on frozen internal contracts", async () => {
+test("spatial assembly package is private and pins its audited contracts and GLB reader", async () => {
   const manifest = JSON.parse(await readFile(new URL("package.json", packageRoot), "utf8"));
   assert.equal(manifest.private, true);
   assert.equal(manifest.license, "UNLICENSED");
   assert.deepEqual(manifest.dependencies, {
+    "@gltf-transform/core": "4.4.2",
     "@matrix-oasis/prototype-spatial-environment": "0.1.0-r11",
     "@matrix-oasis/runtime-pack-contracts": "0.1.0-r3",
     "@matrix-oasis/scene-pack-validator": "0.1.0-r7",

@@ -45,6 +45,16 @@ export interface PrototypeSpatialEnvironmentBundle {
       numGaussians: number;
       numLods: 1;
       shBands: number;
+      derivation: Readonly<{
+        profile: "identity-v1" | "mpmm-uniform-v1";
+        targetNumGaussians: 640000;
+        sourceNumGaussians: number;
+        fullResolutionCompressedPly: Readonly<{
+          byteLength: number;
+          sha256: string;
+          numGaussians: number;
+        }>;
+      }>;
     }>;
     collider: Readonly<{
       path: "assets/environment-collider.glb";
@@ -71,8 +81,25 @@ export interface PrototypeSpatialEnvironmentBundle {
       minimumMm: readonly [number, number, number];
       maximumMm: readonly [number, number, number];
     }>;
+    runtimeRobustBounds: Readonly<{
+      profile: "source-position-percentile-1-99-v1";
+      minimumMm: readonly [number, number, number];
+      maximumMm: readonly [number, number, number];
+    }>;
     sourceMeanMm: readonly [number, number, number];
     rendererCenterCompensationMm: readonly [number, number, number];
+    sourceInteriorEnvelope: Readonly<{
+      profile: "source-density-first-surface-v1";
+      coordinateSpace: "splat-robust-fit-30m-v1";
+      minimumMm: readonly [number, 0, number];
+      maximumMm: readonly [number, number, number];
+      verticalBandMm: readonly [350, 3000];
+      lateralBandMm: 4000;
+      binSizeMm: 250;
+      minimumBinCount: 64;
+      peakThresholdPermille: 5;
+      adjacentBins: 2;
+    }> | null;
   }>;
   readonly toolchain: Readonly<{
     converter: Readonly<{ id: "@playcanvas/splat-transform"; version: "3.3.0" }>;
@@ -95,6 +122,8 @@ export declare const PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS: Readonly<{
   colliderBytes: number;
   totalBundleBytes: number;
   maxSplats: number;
+  runtimeSplatTarget: 640000;
+  decimationMemoryBudgetBytes: number;
 }>;
 
 export declare class PrototypeSpatialEnvironmentOperationalError extends Error {

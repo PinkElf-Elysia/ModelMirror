@@ -44,8 +44,16 @@ export function parseSpatialPreviewArguments(args, tempRoot = temporaryRoot) {
   return Object.freeze(values);
 }
 
-export function spatialPrototypeGodotArguments({ projectRoot, runDirectory, smoke = false }) {
-  if (!validAbsolute(projectRoot) || !validAbsolute(runDirectory) || typeof smoke !== "boolean") {
+export function spatialPrototypeGodotArguments({
+  projectRoot,
+  runDirectory,
+  smoke = false,
+  qualification = false,
+  capture = false,
+}) {
+  if (!validAbsolute(projectRoot) || !validAbsolute(runDirectory) || typeof smoke !== "boolean" ||
+      typeof qualification !== "boolean" || typeof capture !== "boolean" ||
+      Number(smoke) + Number(qualification) + Number(capture) > 1) {
     throw new Error("SPATIAL_HOST_GODOT_ARGUMENT_INVALID");
   }
   return Object.freeze([
@@ -57,6 +65,8 @@ export function spatialPrototypeGodotArguments({ projectRoot, runDirectory, smok
     `--matrix-oasis-spatial-assembly=${path.join(runDirectory, "spatial-assembly.json")}`,
     "--matrix-oasis-spatial-resource=res://spatial_run/assets/environment.compressed.ply",
     ...(smoke ? ["--matrix-oasis-spatial-smoke"] : []),
+    ...(qualification ? ["--matrix-oasis-spatial-qualification"] : []),
+    ...(capture ? ["--matrix-oasis-spatial-capture"] : []),
   ]);
 }
 
@@ -116,7 +126,7 @@ async function assertPreviewDirectory(directory, parent, dependencies) {
   if (!sameFileIdentity(current.stat, directory.stat)) throw new Error("SPATIAL_HOST_CACHE_INVALID");
 }
 
-async function copyPreviewFiles(projectRoot, files, dependencies) {
+export async function copySpatialPreviewFiles(projectRoot, files, dependencies) {
   if (!(files instanceof Map) || files.size < 5 || files.size > 32) throw new Error("SPATIAL_HOST_CACHE_INVALID");
   const captured = [];
   for (const [relative, bytes] of Map.prototype.entries.call(files)) {
@@ -221,7 +231,7 @@ export function createSpatialPrototypeOperations({
     const project = createProject({ moduleRoot: root });
     try {
       configureProject(project.projectRoot);
-      const runDirectory = await copyPreviewFiles(project.projectRoot, verified.previewFiles, previewFiles);
+      const runDirectory = await copySpatialPreviewFiles(project.projectRoot, verified.previewFiles, previewFiles);
       const imported = runGodot({ command: godot.command,
         args: ["--headless", "--editor", "--path", project.projectRoot, "--quit"], cwd: root, timeout: 120_000 });
       assertClean(imported);

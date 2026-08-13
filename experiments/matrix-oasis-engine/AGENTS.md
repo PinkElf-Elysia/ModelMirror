@@ -18,7 +18,10 @@
 - 固定输入为仓外 Marble SPZ 与 collider GLB；不创建、轮询或下载新的 Marble/Meshy/模型任务，也不读取其密钥、额度或远程状态。
 - SPZ 只允许通过 `@playcanvas/splat-transform@3.3.0` 和 `@adobe/spz@0.2.2` 离线转换为确定性的 compressed PLY；不得把非确定性 SOG 作为权威缓存格式。
 - Godot 只允许 vendored `ReconWorldLab/godot-gaussian-splatting` v3.3.0、commit `70996511607a886dac9fdd5fc59a0445308eb3db` 的 Compute 路径；不得静默回退 Raster 或 panorama。
-- 全景 PNG 可以保留为来源证据，但 R11 成功预览不得可见渲染 panorama；环境视觉必须来自 full-resolution splat，碰撞来自独立 collider GLB。
+- 全景 PNG 可以保留为来源证据，但 R11 成功预览不得可见渲染 panorama；环境视觉必须来自可追溯到完整 SPZ 身份的 deterministic compressed PLY，碰撞来自独立 collider GLB。
+- 2026-08-13 用户已显式批准在 R11 内加入确定性 LOD/降采样，或更换、修改 Gaussian renderer。运行时 LOD 必须同时记录完整源 SPZ/全量转换统计和派生算法、目标点数、字节数、SHA-256；不得以随机丢点、隐藏质量降级或降低 30 FPS 门冒充通过。
+- R11 在稳定不少于 30 FPS、连续画面无宏观闪动、视觉/碰撞/出生点对齐，并完成一个不同来源且非过拟合的第二样例全链验证前，不得提交收口批次、push、创建 PR 或宣称初版完成。
+- R11通过后仍不得宣称初版闭环。R12必须以最初的末班地铁案例从自然语言开始实际贯通正式人物、环境/道具资产、全部Pack/Spatial组装和Godot游戏运行时，并以另一个非题材专用样例证明可泛化；R12通过前不得提前进入初版完成叙事。
 - 所有 metric scale、ground offset、坐标变换与中心补偿必须显式进入 canonical bundle/report；不得以人工试摆或隐藏常量掩盖对齐误差。
 - 普通 verify 只能使用合成夹具或已验证的仓外缓存，不产生费用、不联网、不写入正式工程资产。
 - 每次验证使用固定 R11 基线 `da2a914a2ff131507750a0afb8d8881180530f62`；committed、staged、unstaged、untracked 一视同仁。

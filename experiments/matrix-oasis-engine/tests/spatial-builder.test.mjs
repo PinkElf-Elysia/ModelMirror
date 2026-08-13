@@ -25,6 +25,7 @@ import {
   SPATIAL_PROTOTYPE_HOST_MARKER,
   SPATIAL_PROTOTYPE_READY_MARKER,
   createSpatialPrototypeOperations,
+  copySpatialPreviewFiles,
   parseSpatialPreviewArguments,
   spatialPrototypeGodotArguments,
 } from "../scripts/preview-spatial-prototype.mjs";
@@ -41,17 +42,37 @@ function hash(value) {
 }
 
 function colliderGlb() {
+  const positions = new Float32Array([
+    -1, -1, -2, 1, -1, -2, 1, -1, 2, -1, -1, 2,
+    -1, 1, -2, 1, 1, -2, 1, 1, 2, -1, 1, 2,
+  ]);
+  const indices = new Uint16Array([
+    0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7,
+    0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5,
+    2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7,
+  ]);
+  const binary = new Uint8Array(positions.byteLength + indices.byteLength);
+  binary.set(new Uint8Array(positions.buffer)); binary.set(new Uint8Array(indices.buffer), positions.byteLength);
   const json = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
-    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }], accessors: [{ count: 3 }, { count: 3 }],
-    buffers: [{ byteLength: 4 }] };
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 8, type: "VEC3", min: [-1, -1, -2], max: [1, 1, 2] },
+      { bufferView: 1, componentType: 5123, count: 36, type: "SCALAR" },
+    ],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: positions.byteLength, target: 34962 },
+      { buffer: 0, byteOffset: positions.byteLength, byteLength: indices.byteLength, target: 34963 },
+    ],
+    buffers: [{ byteLength: binary.byteLength }] };
   const encoded = encoder.encode(JSON.stringify(json));
   const padded = Math.ceil(encoded.length / 4) * 4;
-  const output = new Uint8Array(12 + 8 + padded + 8 + 4);
+  const output = new Uint8Array(12 + 8 + padded + 8 + binary.byteLength);
   const view = new DataView(output.buffer);
   view.setUint32(0, 0x46546c67, true); view.setUint32(4, 2, true); view.setUint32(8, output.length, true);
   view.setUint32(12, padded, true); view.setUint32(16, 0x4e4f534a, true);
   output.fill(32, 20, 20 + padded); output.set(encoded, 20);
-  view.setUint32(20 + padded, 4, true); view.setUint32(24 + padded, 0x004e4942, true);
+  view.setUint32(20 + padded, binary.byteLength, true); view.setUint32(24 + padded, 0x004e4942, true);
+  output.set(binary, 28 + padded);
   return output;
 }
 
@@ -90,10 +111,24 @@ function writeInt24(view, offset, value) {
 }
 
 function spz() {
-  const count = 3; const raw = new Uint8Array(16 + count * 20); const view = new DataView(raw.buffer);
+  const points = [];
+  for (const coordinate of [-162, -160]) {
+    for (let index = 0; index < 64; index += 1) points.push([coordinate, 20, 0]);
+  }
+  for (const coordinate of [160, 162]) {
+    for (let index = 0; index < 64; index += 1) points.push([coordinate, 20, 0]);
+  }
+  for (const coordinate of [-162, -160]) {
+    for (let index = 0; index < 64; index += 1) points.push([0, 20, coordinate]);
+  }
+  for (const coordinate of [160, 162]) {
+    for (let index = 0; index < 64; index += 1) points.push([0, 20, coordinate]);
+  }
+  for (let index = 0; index < 16; index += 1) points.push([0, 0, 0]);
+  const count = points.length; const raw = new Uint8Array(16 + count * 20); const view = new DataView(raw.buffer);
   view.setUint32(0, 0x5053474e, true); view.setUint32(4, 3, true); view.setUint32(8, count, true);
   view.setUint8(12, 0); view.setUint8(13, 8); view.setUint8(14, 0);
-  const points = [[-256, 0, 128], [0, 256, 256], [256, 512, 384]]; let offset = 16;
+  let offset = 16;
   for (const point of points) for (const value of point) { writeInt24(view, offset, value); offset += 3; }
   raw.fill(255, offset, offset + count); offset += count;
   raw.fill(128, offset, offset + count * 3); offset += count * 3;
@@ -153,7 +188,7 @@ async function fixture() {
     provider: { id: "world-labs-marble", model: "marble-1.1", environmentPromptSha256: hash("Neutral room") },
     assets: { panorama: { path: "assets/environment-panorama.png", format: "png", width: 2, height: 1,
       byteLength: panorama.length, sha256: hash(panorama) }, collider: { path: "assets/environment-collider.glb", format: "glb",
-      byteLength: collider.length, sha256: colliderHash, metrics: { nodeCount: 1, meshCount: 1, surfaceCount: 1, triangleCount: 1 } } } };
+      byteLength: collider.length, sha256: colliderHash, metrics: { nodeCount: 1, meshCount: 1, surfaceCount: 1, triangleCount: 12 } } } };
   const environmentText = canonicalizeJsonValue(environment);
   const spatial = await materializePrototypeSpatialEnvironment({ environmentBundleJson: environmentText,
     environmentFiles: new Map([["assets/environment-panorama.png", panorama], ["assets/environment-collider.glb", collider]]),
@@ -203,6 +238,15 @@ test("spatial CLI surfaces and Godot arguments are exact and panorama-free", () 
   assert.equal(args.includes("res://spatial_prototype/spatial_lab.tscn"), true);
   assert.equal(args.some((item) => item.includes("panorama")), false);
   assert.equal(args.at(-1), "--matrix-oasis-spatial-smoke");
+  const qualificationArgs = spatialPrototypeGodotArguments({ projectRoot: path.join(TEMP_ROOT, "project"),
+    runDirectory: path.join(TEMP_ROOT, "run"), qualification: true });
+  assert.equal(qualificationArgs.at(-1), "--matrix-oasis-spatial-qualification");
+  const captureArgs = spatialPrototypeGodotArguments({ projectRoot: path.join(TEMP_ROOT, "project"),
+    runDirectory: path.join(TEMP_ROOT, "run"), capture: true });
+  assert.equal(captureArgs.at(-1), "--matrix-oasis-spatial-capture");
+  assert.throws(() => spatialPrototypeGodotArguments({ projectRoot: path.join(TEMP_ROOT, "project"),
+    runDirectory: path.join(TEMP_ROOT, "run"), smoke: true, qualification: true }), /SPATIAL_HOST_GODOT_ARGUMENT_INVALID/u);
+  assert.equal(typeof copySpatialPreviewFiles, "function");
 });
 
 test("imports an isolated spatial overlay and rejects drift without modifying the R10 run", async () => {
@@ -289,7 +333,10 @@ test("Godot wrapper is Compute-only, transform-explicit, and contains no panoram
   const source = `${loader}\n${lab}`;
   for (const required of ["MATRIX_OASIS_R11_SPATIAL_READY", "require_compute", "Compositor.new()",
     "EULER_ORDER_YXZ", "localRotationMilliDegrees", "panoramaVisible", "SpatialSplat",
-    "ResourceLoader.load(IMPORTED_RESOURCE_PATH"]) assert.equal(source.includes(required), true, required);
+    "ResourceLoader.load(IMPORTED_RESOURCE_PATH", "source-density-first-surface-v1",
+    "R11WalkableEnvelope", "opaque-depth-compose-v1", "depthBiasMicros",
+    "placementGroundTargetMm", "MeshInstance3D", "get_aabb()", "to_global(corner)"])
+    assert.equal(source.includes(required), true, required);
   assert.match(loader, /return path == IMPORTED_RESOURCE_PATH/u);
   for (const forbidden of ["PanoramaSkyMaterial", "environment-panorama.png", "prototype_builder/prototype_lab", "Raster", "HTTPClient", "OS.execute"])
     assert.equal(source.includes(forbidden), false, forbidden);

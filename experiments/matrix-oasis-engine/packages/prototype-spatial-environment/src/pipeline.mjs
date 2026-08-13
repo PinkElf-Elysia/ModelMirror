@@ -27,6 +27,8 @@ export const PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS = Object.freeze({
   colliderBytes: 32 * 1024 * 1024,
   totalBundleBytes: 256 * 1024 * 1024,
   maxSplats: 2_500_000,
+  runtimeSplatTarget: 640_000,
+  decimationMemoryBudgetBytes: 2 * 1024 * 1024 * 1024,
 });
 
 const SPLAT_PATH = "assets/environment.compressed.ply";
@@ -88,13 +90,32 @@ const schema = {
     },
     splat: {
       type: "object", additionalProperties: false,
-      required: ["path", "format", "byteLength", "sha256", "numGaussians", "numLods", "shBands"],
+      required: ["path", "format", "byteLength", "sha256", "numGaussians", "numLods", "shBands", "derivation"],
       properties: {
         path: { const: SPLAT_PATH }, format: { const: "compressed-ply" },
         byteLength: { type: "integer", minimum: 1, maximum: PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS.compressedPlyBytes },
         sha256: { $ref: "#/$defs/hash" },
         numGaussians: { type: "integer", minimum: 1, maximum: PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS.maxSplats },
         numLods: { const: 1 }, shBands: { type: "integer", minimum: 0, maximum: 3 },
+        derivation: { $ref: "#/$defs/splatDerivation" },
+      },
+    },
+    splatDerivation: {
+      type: "object", additionalProperties: false,
+      required: ["profile", "targetNumGaussians", "sourceNumGaussians", "fullResolutionCompressedPly"],
+      properties: {
+        profile: { enum: ["identity-v1", "mpmm-uniform-v1"] },
+        targetNumGaussians: { const: PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS.runtimeSplatTarget },
+        sourceNumGaussians: { type: "integer", minimum: 1, maximum: PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS.maxSplats },
+        fullResolutionCompressedPly: {
+          type: "object", additionalProperties: false,
+          required: ["byteLength", "sha256", "numGaussians"],
+          properties: {
+            byteLength: { type: "integer", minimum: 1, maximum: PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS.compressedPlyBytes },
+            sha256: { $ref: "#/$defs/hash" },
+            numGaussians: { type: "integer", minimum: 1, maximum: PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS.maxSplats },
+          },
+        },
       },
     },
     metrics: {
@@ -139,11 +160,51 @@ const schema = {
     },
     statistics: {
       type: "object", additionalProperties: false,
-      required: ["sourceBounds", "sourceMeanMm", "rendererCenterCompensationMm"],
+      required: ["sourceBounds", "runtimeRobustBounds", "sourceInteriorEnvelope", "sourceMeanMm", "rendererCenterCompensationMm"],
       properties: {
         sourceBounds: { $ref: "#/$defs/bounds" },
+        runtimeRobustBounds: {
+          type: "object", additionalProperties: false,
+          required: ["profile", "minimumMm", "maximumMm"],
+          properties: {
+            profile: { const: "source-position-percentile-1-99-v1" },
+            minimumMm: { $ref: "#/$defs/vector" },
+            maximumMm: { $ref: "#/$defs/vector" },
+          },
+        },
         sourceMeanMm: { $ref: "#/$defs/vector" },
         rendererCenterCompensationMm: { $ref: "#/$defs/vector" },
+        sourceInteriorEnvelope: {
+          anyOf: [
+            { type: "null" },
+            {
+              type: "object", additionalProperties: false,
+              required: [
+                "profile", "coordinateSpace", "minimumMm", "maximumMm",
+                "verticalBandMm", "lateralBandMm", "binSizeMm",
+                "minimumBinCount", "peakThresholdPermille", "adjacentBins",
+              ],
+              properties: {
+                profile: { const: "source-density-first-surface-v1" },
+                coordinateSpace: { const: "splat-robust-fit-30m-v1" },
+                minimumMm: { $ref: "#/$defs/vector" },
+                maximumMm: { $ref: "#/$defs/vector" },
+                verticalBandMm: {
+                  type: "array", minItems: 2, maxItems: 2,
+                  prefixItems: [
+                    { type: "integer", const: 350 },
+                    { type: "integer", const: 3000 },
+                  ],
+                },
+                lateralBandMm: { type: "integer", const: 4000 },
+                binSizeMm: { type: "integer", const: 250 },
+                minimumBinCount: { type: "integer", const: 64 },
+                peakThresholdPermille: { type: "integer", const: 5 },
+                adjacentBins: { type: "integer", const: 2 },
+              },
+            },
+          ],
+        },
       },
     },
     toolchain: {
@@ -225,6 +286,20 @@ function copyOutputFiles(files) {
   return copied;
 }
 
+function validSplatDerivation(splat) {
+  const derivation = splat.derivation;
+  const sourceCount = derivation.sourceNumGaussians;
+  if (derivation.fullResolutionCompressedPly.numGaussians !== sourceCount ||
+      splat.numGaussians > sourceCount) return false;
+  if (sourceCount <= derivation.targetNumGaussians) {
+    return derivation.profile === "identity-v1" && splat.numGaussians === sourceCount &&
+      splat.byteLength === derivation.fullResolutionCompressedPly.byteLength &&
+      splat.sha256 === derivation.fullResolutionCompressedPly.sha256;
+  }
+  return derivation.profile === "mpmm-uniform-v1" &&
+    splat.numGaussians === derivation.targetNumGaussians;
+}
+
 export async function validatePrototypeSpatialEnvironmentBundleJson(text, files) {
   try {
     const value = parseCanonical(text, PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS.manifestBytes, canonicalizeJsonValue);
@@ -240,7 +315,7 @@ export async function validatePrototypeSpatialEnvironmentBundleJson(text, files)
     }
     const inspected = await inspectCompressedPly(splatBytes, PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS);
     if (!inspected) return report([diagnostic("integrity", "PROTOTYPE_SPATIAL_ENVIRONMENT_COMPRESSED_PLY_INVALID", "/spatialEnvironmentBundle/assets/splat/path")]);
-    if (
+    if (!validSplatDerivation(value.assets.splat) ||
       value.assets.splat.byteLength !== splatBytes.byteLength || value.assets.splat.sha256 !== sha256(splatBytes) ||
       value.assets.splat.numGaussians !== inspected.numGaussians || value.assets.splat.numLods !== inspected.numLods || value.assets.splat.shBands !== inspected.shBands ||
       value.assets.collider.byteLength !== colliderBytes.byteLength || value.assets.collider.sha256 !== sha256(colliderBytes)
@@ -271,7 +346,18 @@ export async function materializePrototypeSpatialEnvironment(request) {
     const minimumMm = millimeters(converted.metadata.bounds.minimum, calibration.metricScaleMicros);
     const maximumMm = millimeters(converted.metadata.bounds.maximum, calibration.metricScaleMicros);
     const meanMm = millimeters(converted.metadata.bounds.mean, calibration.metricScaleMicros);
-    if (!minimumMm || !maximumMm || !meanMm) return failure("PROTOTYPE_SPATIAL_ENVIRONMENT_CALIBRATION_INVALID", "semantic", "/spatialEnvironmentBundle/calibration");
+    const robustMinimumMm = millimeters(
+      converted.metadata.robustBounds.minimum,
+      calibration.metricScaleMicros,
+    );
+    const robustMaximumMm = millimeters(
+      converted.metadata.robustBounds.maximum,
+      calibration.metricScaleMicros,
+    );
+    if (!minimumMm || !maximumMm || !meanMm || !robustMinimumMm || !robustMaximumMm ||
+        robustMinimumMm.some((value, index) => value > robustMaximumMm[index])) {
+      return failure("PROTOTYPE_SPATIAL_ENVIRONMENT_CALIBRATION_INVALID", "semantic", "/spatialEnvironmentBundle/calibration");
+    }
     const rendererCenterCompensationMm = [...meanMm];
 
     const bundle = deepFreeze({
@@ -296,9 +382,10 @@ export async function materializePrototypeSpatialEnvironment(request) {
           format: "compressed-ply",
           byteLength: converted.bytes.byteLength,
           sha256: sha256(converted.bytes),
-          numGaussians: converted.metadata.numGaussians,
+          numGaussians: converted.metadata.runtimeNumGaussians,
           numLods: converted.metadata.numLods,
           shBands: converted.metadata.shBands,
+          derivation: converted.metadata.derivation,
         },
         collider: {
           path: COLLIDER_PATH,
@@ -311,8 +398,21 @@ export async function materializePrototypeSpatialEnvironment(request) {
       calibration,
       statistics: {
         sourceBounds: { minimumMm, maximumMm },
+        runtimeRobustBounds: {
+          profile: converted.metadata.robustBounds.profile,
+          minimumMm: robustMinimumMm,
+          maximumMm: robustMaximumMm,
+        },
         sourceMeanMm: meanMm,
         rendererCenterCompensationMm,
+        sourceInteriorEnvelope: converted.metadata.interiorEnvelope === null
+          ? null
+          : {
+              ...converted.metadata.interiorEnvelope,
+              minimumMm: [...converted.metadata.interiorEnvelope.minimumMm],
+              maximumMm: [...converted.metadata.interiorEnvelope.maximumMm],
+              verticalBandMm: [...converted.metadata.interiorEnvelope.verticalBandMm],
+            },
       },
       toolchain: {
         converter: { id: "@playcanvas/splat-transform", version: "3.3.0" },

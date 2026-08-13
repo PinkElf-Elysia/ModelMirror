@@ -22,18 +22,37 @@ function hash(value) {
 }
 
 function colliderGlb() {
+  const positions = new Float32Array([
+    -1, -1, -2, 1, -1, -2, 1, -1, 2, -1, -1, 2,
+    -1, 1, -2, 1, 1, -2, 1, 1, 2, -1, 1, 2,
+  ]);
+  const indices = new Uint16Array([
+    0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7,
+    0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5,
+    2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7,
+  ]);
+  const binary = new Uint8Array(positions.byteLength + indices.byteLength);
+  binary.set(new Uint8Array(positions.buffer), 0);
+  binary.set(new Uint8Array(indices.buffer), positions.byteLength);
   const json = {
     asset: { version: "2.0" },
     scene: 0,
     scenes: [{ nodes: [0] }],
     nodes: [{ mesh: 0 }],
     meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }],
-    accessors: [{ count: 3 }, { count: 3 }],
-    buffers: [{ byteLength: 4 }],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 8, type: "VEC3", min: [-1, -1, -2], max: [1, 1, 2] },
+      { bufferView: 1, componentType: 5123, count: 36, type: "SCALAR" },
+    ],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: positions.byteLength, target: 34962 },
+      { buffer: 0, byteOffset: positions.byteLength, byteLength: indices.byteLength, target: 34963 },
+    ],
+    buffers: [{ byteLength: binary.byteLength }],
   };
   const encoded = new TextEncoder().encode(JSON.stringify(json));
   const jsonLength = Math.ceil(encoded.length / 4) * 4;
-  const output = new Uint8Array(12 + 8 + jsonLength + 8 + 4);
+  const output = new Uint8Array(12 + 8 + jsonLength + 8 + binary.byteLength);
   const view = new DataView(output.buffer);
   view.setUint32(0, 0x46546c67, true);
   view.setUint32(4, 2, true);
@@ -42,8 +61,9 @@ function colliderGlb() {
   view.setUint32(16, 0x4e4f534a, true);
   output.fill(32, 20, 20 + jsonLength);
   output.set(encoded, 20);
-  view.setUint32(20 + jsonLength, 4, true);
+  view.setUint32(20 + jsonLength, binary.byteLength, true);
   view.setUint32(24 + jsonLength, 0x004e4942, true);
+  output.set(binary, 28 + jsonLength);
   return output;
 }
 
@@ -152,6 +172,16 @@ async function fixture() {
         numGaussians: 3,
         numLods: 1,
         shBands: 0,
+        derivation: {
+          profile: "identity-v1",
+          targetNumGaussians: 640_000,
+          sourceNumGaussians: 3,
+          fullResolutionCompressedPly: {
+            byteLength: COMPRESSED_PLY.byteLength,
+            sha256: hash(COMPRESSED_PLY),
+            numGaussians: 3,
+          },
+        },
       },
       collider: {
         path: "assets/environment-collider.glb",
@@ -166,12 +196,29 @@ async function fixture() {
       metricScaleMicros: 1_000_000,
       groundPlaneOffsetMm: -125,
       godotTranslationMm: [100, 200, 300],
-      godotRotationMilliDegrees: [0, 180_000, 0],
+      godotRotationMilliDegrees: [0, 0, 0],
     },
     statistics: {
       sourceBounds: { minimumMm: [-1000, 0, 500], maximumMm: [1000, 2000, 1500] },
+      runtimeRobustBounds: {
+        profile: "source-position-percentile-1-99-v1",
+        minimumMm: [-1000, 0, 500],
+        maximumMm: [1000, 2000, 1500],
+      },
       sourceMeanMm: [0, 1000, 1000],
       rendererCenterCompensationMm: [0, 1000, 1000],
+      sourceInteriorEnvelope: {
+        profile: "source-density-first-surface-v1",
+        coordinateSpace: "splat-robust-fit-30m-v1",
+        minimumMm: [-6000, 0, -15_500],
+        maximumMm: [5750, 12_000, 9500],
+        verticalBandMm: [350, 3000],
+        lateralBandMm: 4000,
+        binSizeMm: 250,
+        minimumBinCount: 64,
+        peakThresholdPermille: 5,
+        adjacentBins: 2,
+      },
     },
     toolchain: {
       converter: { id: "@playcanvas/splat-transform", version: "3.3.0" },
@@ -224,27 +271,114 @@ test("binds Scene Pack, splat and collider with explicit metric transforms", asy
   const result = await assemblePrototypeSpatialScene(await fixture());
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.assembly.environment.panoramaVisible, false);
+  assert.deepEqual(result.assembly.environment.renderer, {
+    profile: "opaque-depth-compose-v1",
+    depthBiasMicros: 0,
+    depthTestMinAlphaPermille: 50,
+    depthCaptureAlphaPermille: 500,
+  });
+  assert.equal(result.assembly.environment.splat.derivation.profile, "identity-v1");
+  assert.equal(result.assembly.environment.splat.derivation.sourceNumGaussians, 3);
   assert.deepEqual(result.assembly.transforms.root, {
-    translationMm: [100, 75, 300],
-    rotationMilliDegrees: [0, 180_000, 0],
+    translationMm: [100, 75, 2300],
+    rotationMilliDegrees: [0, 0, 0],
+  });
+  assert.deepEqual(result.assembly.transforms.alignment, {
+    profile: "collider-fit-30m-v1",
+    targetFloorSpanMm: 30_000,
+    maximumHorizontalSpanMm: 90_000,
+    colliderBoundsMm: {
+      minimumMm: [-1000, -1000, -2000],
+      maximumMm: [1000, 1000, 2000],
+    },
+    centerFloorSampleSourceMm: [0, -1000, 0],
+    splatProfile: "splat-robust-fit-30m-v1",
+    splatBoundsProfile: "source-position-percentile-1-99-v1",
+    splatBoundsMm: {
+      minimumMm: [-1000, 0, 500],
+      maximumMm: [1000, 2000, 1500],
+    },
   });
   assert.deepEqual(result.assembly.transforms.splat, {
-    localTranslationMm: [0, 1000, 1000],
-    localRotationMilliDegrees: [0, 0, -180_000],
-    scaleMicros: 1_000_000,
+    localTranslationMm: [0, 30_000, 0],
+    localRotationMilliDegrees: [0, 0, 0],
+    scaleMicros: 30_000_000,
   });
   assert.equal(result.assembly.transforms.eulerOrder, "YXZ");
   assert.deepEqual(result.assembly.transforms.collider, {
-    localTranslationMm: [0, 0, 0],
-    scaleMicros: 1_000_000,
+    localTranslationMm: [0, 15_000, 0],
+    scaleMicros: 15_000_000,
   });
+  assert.deepEqual(result.assembly.transforms.walkableEnvelope, {
+    profile: "source-density-first-surface-v1",
+    minimumMm: [-6000, 0, -15_500],
+    maximumMm: [5750, 12_000, 9500],
+    wallThicknessMm: 700,
+    floorThicknessMm: 200,
+    verticalBandMm: [350, 3000],
+    lateralBandMm: 4000,
+    binSizeMm: 250,
+    minimumBinCount: 64,
+    peakThresholdPermille: 5,
+    adjacentBins: 2,
+  });
+  assert.equal(result.assembly.transforms.placementGroundTargetMm, 150);
   assert.deepEqual(result.referencedFiles, [
     { source: "spatial-environment", path: "assets/environment.compressed.ply" },
     { source: "spatial-environment", path: "assets/environment-collider.glb" },
   ]);
   assert.equal(validatePrototypeSpatialAssemblyJson(result.canonicalSpatialAssemblyJson).valid, true);
+  const report = JSON.parse(result.canonicalSpatialAssemblyReportJson);
+  assert.equal(report.alignment.colliderFitProfile, "collider-fit-30m-v1");
+  assert.equal(report.alignment.colliderScaleMicros, 15_000_000);
+  assert.equal(report.alignment.walkableEnvelopeProfile, "source-density-first-surface-v1");
+  assert.deepEqual(report.alignment.walkableEnvelopeMinimumMm, [-6000, 0, -15_500]);
+  assert.deepEqual(report.alignment.walkableEnvelopeMaximumMm, [5750, 12_000, 9500]);
+  assert.equal(report.alignment.wallDensityBinSizeMm, 250);
+  assert.equal(report.alignment.wallDensityMinimumBinCount, 64);
+  assert.equal(report.alignment.rendererDepthBiasMicros, 0);
+  assert.equal(report.alignment.placementGroundTargetMm, 150);
+  assert.equal(report.output.sourceSplatCount, 3);
+  assert.equal(report.output.splatLodProfile, "identity-v1");
+  assert.deepEqual(report.alignment.entryPlayerSpawnMm, [0, 1000, 2000]);
   assert.equal(Object.isFrozen(result), true);
   assert.equal(Object.isFrozen(result.assembly.transforms.splat), true);
+});
+
+test("keeps the same world layout when source metric units are scaled", async () => {
+  const input = await fixture();
+  const spatial = JSON.parse(input.spatialEnvironmentBundleJson);
+  spatial.calibration.metricScaleMicros = 2_000_000;
+  for (const bounds of [spatial.statistics.sourceBounds, spatial.statistics.runtimeRobustBounds]) {
+    bounds.minimumMm = bounds.minimumMm.map((value) => value * 2);
+    bounds.maximumMm = bounds.maximumMm.map((value) => value * 2);
+  }
+  spatial.statistics.sourceMeanMm = spatial.statistics.sourceMeanMm.map((value) => value * 2);
+  spatial.statistics.rendererCenterCompensationMm =
+    spatial.statistics.rendererCenterCompensationMm.map((value) => value * 2);
+  const result = await assemblePrototypeSpatialScene({
+    ...input,
+    spatialEnvironmentBundleJson: canonicalizeJsonValue(spatial),
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.assembly.transforms.splat, {
+    localTranslationMm: [0, 30_000, 0],
+    localRotationMilliDegrees: [0, 0, 0],
+    scaleMicros: 30_000_000,
+  });
+  assert.deepEqual(result.assembly.transforms.walkableEnvelope, {
+    profile: "source-density-first-surface-v1",
+    minimumMm: [-6000, 0, -15_500],
+    maximumMm: [5750, 12_000, 9500],
+    wallThicknessMm: 700,
+    floorThicknessMm: 200,
+    verticalBandMm: [350, 3000],
+    lateralBandMm: 4000,
+    binSizeMm: 250,
+    minimumBinCount: 64,
+    peakThresholdPermille: 5,
+    adjacentBins: 2,
+  });
 });
 
 test("is byte deterministic twenty times and leaves caller bytes unchanged", async () => {

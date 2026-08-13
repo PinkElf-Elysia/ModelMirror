@@ -72,6 +72,8 @@
     "capture:godot:scene": "node scripts/capture-godot-scene.mjs",
     "qualify:godot-mcp": "node scripts/qualify-godot-mcp.mjs",
     "qualify:godot-splat": "node scripts/qualify-godot-splat.mjs",
+    "qualify:spatial-environment": "node scripts/qualify-spatial-environment.mjs",
+    "qualify:spatial-preview": "node scripts/verify-r11.mjs",
     "validate:pack": "node scripts/validate-pack.mjs",
     "compile:pack": "node scripts/compile-pack.mjs",
     "validate:runtime-pack": "node scripts/validate-runtime-pack.mjs",
@@ -109,7 +111,7 @@
     "verify:extraction": "node scripts/verify-extraction.mjs",
     "test:spatial-assembly": "node --test packages/prototype-spatial-assembler/tests/spatial-assembler.test.mjs tests/spatial-assembly.test.mjs",
     "verify:spatial-assembly": "npm run test:spatial-assembly",
-    "test:spatial-builder": "node --test tests/spatial-builder.test.mjs",
+    "test:spatial-builder": "node --test tests/spatial-builder.test.mjs tests/r11-qualification.test.mjs",
     "verify:spatial-builder": "npm run test:spatial-builder && npm run build:creator && node scripts/verify-spatial-builder.mjs",
     "verify:r11": "npm run verify:spatial-environment && npm run verify:spatial-assembly && npm run verify:spatial-builder"
   }

@@ -97,11 +97,16 @@ static func _valid_sources(value: Variant, prepared_scene: MatrixOasisPreparedSc
 
 
 static func _valid_environment(value: Variant, scene_pack: Dictionary) -> bool:
-	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["collider", "panoramaVisible", "splat"]) or value["panoramaVisible"] != false:
+	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["collider", "panoramaVisible", "renderer", "splat"]) or value["panoramaVisible"] != false:
+		return false
+	var renderer: Variant = value["renderer"]
+	if typeof(renderer) != TYPE_DICTIONARY or not _exact(renderer, ["depthBiasMicros", "depthCaptureAlphaPermille", "depthTestMinAlphaPermille", "profile"]):
+		return false
+	if renderer["profile"] != "opaque-depth-compose-v1" or renderer["depthBiasMicros"] != 0 or renderer["depthTestMinAlphaPermille"] != 50 or renderer["depthCaptureAlphaPermille"] != 500:
 		return false
 	var splat: Variant = value["splat"]
 	var collider: Variant = value["collider"]
-	if typeof(splat) != TYPE_DICTIONARY or not _exact(splat, ["numGaussians", "path", "sha256"]) or splat["path"] != SPLAT_RELATIVE_PATH or not _bounded_integer(splat["numGaussians"], 1, 2500000) or not _hash(splat["sha256"]):
+	if typeof(splat) != TYPE_DICTIONARY or not _exact(splat, ["derivation", "numGaussians", "path", "sha256"]) or splat["path"] != SPLAT_RELATIVE_PATH or not _bounded_integer(splat["numGaussians"], 1, 2500000) or not _hash(splat["sha256"]) or not _valid_splat_derivation(splat["derivation"], splat["numGaussians"]):
 		return false
 	if typeof(collider) != TYPE_DICTIONARY or not _exact(collider, ["assetId", "path", "placementId", "sha256"]) or collider["path"] != COLLIDER_RELATIVE_PATH or not _hash(collider["sha256"]):
 		return false
@@ -119,17 +124,67 @@ static func _valid_environment(value: Variant, scene_pack: Dictionary) -> bool:
 	return true
 
 
+static func _valid_splat_derivation(value: Variant, runtime_count: int) -> bool:
+	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["fullResolutionCompressedPly", "profile", "sourceNumGaussians", "targetNumGaussians"]):
+		return false
+	if value["profile"] not in ["identity-v1", "mpmm-uniform-v1"] or value["targetNumGaussians"] != 640000 or not _bounded_integer(value["sourceNumGaussians"], runtime_count, 2500000):
+		return false
+	var full: Variant = value["fullResolutionCompressedPly"]
+	if typeof(full) != TYPE_DICTIONARY or not _exact(full, ["byteLength", "numGaussians", "sha256"]) or not _bounded_integer(full["byteLength"], 1, SPLAT_MAX_BYTES) or not _hash(full["sha256"]) or full["numGaussians"] != value["sourceNumGaussians"]:
+		return false
+	if value["sourceNumGaussians"] <= value["targetNumGaussians"]:
+		return value["profile"] == "identity-v1" and runtime_count == value["sourceNumGaussians"]
+	return value["profile"] == "mpmm-uniform-v1" and runtime_count == value["targetNumGaussians"]
+
+
 static func _valid_transforms(value: Variant) -> bool:
-	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["collider", "coordinateTransform", "eulerOrder", "root", "splat"]) or value["coordinateTransform"] != "spz-raw-ply-to-godot-v1" or value["eulerOrder"] != "YXZ":
+	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["alignment", "collider", "coordinateTransform", "eulerOrder", "placementGroundTargetMm", "root", "splat", "walkableEnvelope"]) or value["coordinateTransform"] != "spz-raw-ply-to-godot-v1" or value["eulerOrder"] != "YXZ" or value["placementGroundTargetMm"] != 150:
+		return false
+	if not _valid_alignment(value["alignment"]):
 		return false
 	var root: Variant = value["root"]
 	var splat: Variant = value["splat"]
 	var collider: Variant = value["collider"]
 	if typeof(root) != TYPE_DICTIONARY or not _exact(root, ["rotationMilliDegrees", "translationMm"]) or not _vector(root["translationMm"], -2000000, 2000000) or not _vector(root["rotationMilliDegrees"], -360000, 360000):
 		return false
-	if typeof(splat) != TYPE_DICTIONARY or not _exact(splat, ["localRotationMilliDegrees", "localTranslationMm", "scaleMicros"]) or not _vector(splat["localTranslationMm"], -1000000, 1000000) or splat["localRotationMilliDegrees"] != [0, 0, -180000] or not _bounded_integer(splat["scaleMicros"], 1, 100000000):
+	if typeof(splat) != TYPE_DICTIONARY or not _exact(splat, ["localRotationMilliDegrees", "localTranslationMm", "scaleMicros"]) or not _vector(splat["localTranslationMm"], -1000000, 1000000) or splat["localRotationMilliDegrees"] != [0, 0, 0] or not _bounded_integer(splat["scaleMicros"], 1, 100000000):
 		return false
-	return typeof(collider) == TYPE_DICTIONARY and _exact(collider, ["localTranslationMm", "scaleMicros"]) and collider["localTranslationMm"] == [0, 0, 0] and collider["scaleMicros"] == splat["scaleMicros"]
+	if typeof(collider) != TYPE_DICTIONARY or not _exact(collider, ["localTranslationMm", "scaleMicros"]) or not _vector(collider["localTranslationMm"], -2000000, 2000000) or not _bounded_integer(collider["scaleMicros"], 1, 100000000):
+		return false
+	return _valid_walkable_envelope(value["walkableEnvelope"])
+
+
+static func _valid_walkable_envelope(value: Variant) -> bool:
+	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["adjacentBins", "binSizeMm", "floorThicknessMm", "lateralBandMm", "maximumMm", "minimumBinCount", "minimumMm", "peakThresholdPermille", "profile", "verticalBandMm", "wallThicknessMm"]):
+		return false
+	if value["profile"] != "source-density-first-surface-v1" or value["adjacentBins"] != 2 or value["binSizeMm"] != 250 or value["minimumBinCount"] != 64 or value["peakThresholdPermille"] != 5 or value["lateralBandMm"] != 4000 or value["verticalBandMm"] != [350, 3000] or value["wallThicknessMm"] != 700 or value["floorThicknessMm"] != 200 or not _vector(value["minimumMm"], -2000000, 2000000) or not _vector(value["maximumMm"], -2000000, 2000000):
+		return false
+	if value["minimumMm"][1] != 0 or value["maximumMm"][1] < 3000 or value["maximumMm"][1] > 12000:
+		return false
+	for index in range(3):
+		if value["minimumMm"][index] >= value["maximumMm"][index]:
+			return false
+	return true
+
+
+static func _valid_alignment(value: Variant) -> bool:
+	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["centerFloorSampleSourceMm", "colliderBoundsMm", "maximumHorizontalSpanMm", "profile", "splatBoundsMm", "splatBoundsProfile", "splatProfile", "targetFloorSpanMm"]):
+		return false
+	if value["profile"] != "collider-fit-30m-v1" or value["targetFloorSpanMm"] != 30000 or value["maximumHorizontalSpanMm"] != 90000:
+		return false
+	var bounds: Variant = value["colliderBoundsMm"]
+	if typeof(bounds) != TYPE_DICTIONARY or not _exact(bounds, ["maximumMm", "minimumMm"]) or not _vector(bounds["minimumMm"], -1000000, 1000000) or not _vector(bounds["maximumMm"], -1000000, 1000000):
+		return false
+	for index in range(3):
+		if bounds["minimumMm"][index] > bounds["maximumMm"][index]:
+			return false
+	var splat_bounds: Variant = value["splatBoundsMm"]
+	if value["splatProfile"] != "splat-robust-fit-30m-v1" or value["splatBoundsProfile"] != "source-position-percentile-1-99-v1" or typeof(splat_bounds) != TYPE_DICTIONARY or not _exact(splat_bounds, ["maximumMm", "minimumMm"]) or not _vector(splat_bounds["minimumMm"], -1000000, 1000000) or not _vector(splat_bounds["maximumMm"], -1000000, 1000000):
+		return false
+	for index in range(3):
+		if splat_bounds["minimumMm"][index] > splat_bounds["maximumMm"][index]:
+			return false
+	return _vector(value["centerFloorSampleSourceMm"], -1000000, 1000000)
 
 
 static func _valid_imported_resource_path(path: String) -> bool:

@@ -11,6 +11,7 @@ import {
   materializePrototypeSpatialEnvironment,
   validatePrototypeSpatialEnvironmentBundleJson,
 } from "../src/index.mjs";
+import { convertSpzToCompressedPly } from "../src/convert.mjs";
 
 function sha256(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -161,6 +162,7 @@ test("publishes an exact minimal runtime surface", async () => {
   assert.equal(PROTOTYPE_SPATIAL_ENVIRONMENT_BUNDLE_FORMAT, "matrix-oasis.prototype-spatial-environment-bundle");
   assert.equal(PROTOTYPE_SPATIAL_ENVIRONMENT_BUNDLE_FORMAT_VERSION, "0.1.0");
   assert.equal(PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS.maxSplats, 2_500_000);
+  assert.equal(PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS.runtimeSplatTarget, 640_000);
   assert.equal(new PrototypeSpatialEnvironmentOperationalError().message, "PROTOTYPE_SPATIAL_ENVIRONMENT_INTERNAL_ERROR");
 });
 
@@ -172,9 +174,25 @@ test("materializes SPZ and inherited collider into a canonical spatial bundle", 
   assert.equal(result.bundle.assets.splat.numGaussians, 3);
   assert.equal(result.bundle.assets.splat.numLods, 1);
   assert.equal(result.bundle.assets.splat.shBands, 0);
+  assert.deepEqual(result.bundle.assets.splat.derivation, {
+    profile: "identity-v1",
+    targetNumGaussians: 640_000,
+    sourceNumGaussians: 3,
+    fullResolutionCompressedPly: {
+      byteLength: result.bundle.assets.splat.byteLength,
+      sha256: result.bundle.assets.splat.sha256,
+      numGaussians: 3,
+    },
+  });
   assert.deepEqual(result.bundle.statistics.sourceBounds, { minimumMm: [-1000, 0, 500], maximumMm: [1000, 2000, 1500] });
+  assert.deepEqual(result.bundle.statistics.runtimeRobustBounds, {
+    profile: "source-position-percentile-1-99-v1",
+    minimumMm: [-1000, 0, 500],
+    maximumMm: [1000, 2000, 1500],
+  });
   assert.deepEqual(result.bundle.statistics.sourceMeanMm, [0, 1000, 1000]);
   assert.deepEqual(result.bundle.statistics.rendererCenterCompensationMm, [0, 1000, 1000]);
+  assert.equal(result.bundle.statistics.sourceInteriorEnvelope, null);
   assert.equal(result.canonicalBundleJson, canonicalizeJsonValue(result.bundle));
   assert.equal(result.files[0].bytes.byteLength, result.bundle.assets.splat.byteLength);
   const files = new Map(result.files.map((file) => [file.path, file.bytes]));
@@ -194,6 +212,28 @@ test("repeats the synthetic conversion byte-for-byte twenty times", async () => 
       splat: sha256(result.files[0].bytes),
       collider: sha256(result.files[1].bytes),
     }));
+  }
+  assert.equal(new Set(outputs).size, 1);
+});
+
+test("derives a deterministic MPMM runtime LOD while retaining full-resolution identity", async () => {
+  const limits = {
+    ...PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS,
+    runtimeSplatTarget: 2,
+    decimationMemoryBudgetBytes: 32 * 1024 * 1024,
+  };
+  const outputs = [];
+  for (let index = 0; index < 20; index += 1) {
+    const converted = await convertSpzToCompressedPly(spz(), limits);
+    assert.equal(converted.ok, true);
+    assert.equal(converted.metadata.numGaussians, 3);
+    assert.equal(converted.metadata.runtimeNumGaussians, 2);
+    assert.equal(converted.metadata.derivation.profile, "mpmm-uniform-v1");
+    assert.equal(converted.metadata.derivation.sourceNumGaussians, 3);
+    assert.equal(converted.metadata.derivation.targetNumGaussians, 2);
+    assert.equal(converted.metadata.derivation.fullResolutionCompressedPly.numGaussians, 3);
+    assert.equal(converted.metadata.interiorEnvelope, null);
+    outputs.push(`${sha256(converted.bytes)}:${JSON.stringify(converted.metadata.derivation)}`);
   }
   assert.equal(new Set(outputs).size, 1);
 });
