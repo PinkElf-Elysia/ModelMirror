@@ -605,6 +605,24 @@ class WorkspaceBroker:
             except OSError:
                 pass
 
+    @staticmethod
+    def _normalize_path(value: str) -> PurePosixPath:
+        if "\\" in value or "\x00" in value:
+            raise WorkspaceError(
+                "Workspace changed path is invalid.", code="workspace_changed"
+            )
+        path = PurePosixPath(value)
+        if (
+            path.is_absolute()
+            or not path.parts
+            or any(part in {"", ".", "..", ".git"} for part in path.parts)
+            or path.as_posix() != value
+        ):
+            raise WorkspaceError(
+                "Workspace changed path is invalid.", code="workspace_changed"
+            )
+        return path
+
     def fork_merge_changes(
         self,
         workspace_id: str,
