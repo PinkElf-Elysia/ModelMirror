@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 UPSTREAM_REVISION = "047505dccc0cc16ad92be11011347d635f33ceb0"
 ENGINE_PROTOCOL = "modelmirror.upstream-workbench/1"
-DEFAULT_MODEL_BASE_ID = "deepseek-v4-flash-0731"
+DEFAULT_MODEL_BASE_ID = "deepseek-v4-pro-0813"
 
 ThinkingLevel = Literal["low", "medium", "high", "xhigh"]
 EngineShadowStatus = Literal[

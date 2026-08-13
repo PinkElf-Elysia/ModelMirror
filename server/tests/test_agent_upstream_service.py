@@ -23,10 +23,10 @@ def _catalog(*, available: bool = True) -> SimpleNamespace:
     return SimpleNamespace(
         models=[
             SimpleNamespace(
-                invocation_id="deepseek/deepseek-v4-flash-0731",
-                profile_id="deepseek-v4-flash-0731",
-                root="deepseek-v4-flash-0731",
-                name="DeepSeek V4 Flash 0731",
+                invocation_id="deepseek/deepseek-v4-pro-0813",
+                profile_id="deepseek-v4-pro-0813",
+                root="deepseek-v4-pro-0813",
+                name="DeepSeek V4 Pro 0813",
                 invocable=available,
                 availability="live" if available else "offline",
                 operations=("chat",),
@@ -48,7 +48,7 @@ class _FakeGateway:
             content="private-model-output-that-must-stay-in-memory",
             tool_calls=(),
             finish_reason="stop",
-            model_id="deepseek/deepseek-v4-flash-0731",
+            model_id="deepseek/deepseek-v4-pro-0813",
         )
 
 

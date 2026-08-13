@@ -148,6 +148,51 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
                             "supported_durations": [5],
                         },
                         {
+                            "id": "bytedance/seedance-2.0-mini",
+                            "supported_resolutions": ["480p", "720p"],
+                            "supported_aspect_ratios": [
+                                "1:1",
+                                "3:4",
+                                "9:16",
+                                "4:3",
+                                "16:9",
+                                "21:9",
+                                "9:21",
+                            ],
+                            "supported_sizes": [
+                                "480x480",
+                                "480x640",
+                                "480x854",
+                                "640x480",
+                                "854x480",
+                                "1120x480",
+                                "720x720",
+                                "720x960",
+                                "720x1280",
+                                "720x1680",
+                                "960x720",
+                                "1280x720",
+                                "1680x720",
+                            ],
+                            "supported_durations": list(range(4, 16)),
+                            "supported_frame_images": [
+                                "first_frame",
+                                "last_frame",
+                            ],
+                            "generate_audio": True,
+                            "seed": True,
+                            "pricing_skus": {
+                                "video_tokens": "0.0000035",
+                                "video_tokens_without_audio": "0.0000035",
+                                "video_tokens_with_video_input": "0.0000021",
+                            },
+                            "allowed_passthrough_parameters": [
+                                "watermark",
+                                "req_key",
+                                "return_last_frame",
+                            ],
+                        },
+                        {
                             "id": "runway/aleph-2",
                             "supported_resolutions": None,
                             "supported_aspect_ratios": [
@@ -216,7 +261,7 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
 
     assert result.status == "online"
     assert result.stale is False
-    assert len(result.profiles) == 5
+    assert len(result.profiles) == 6
     analysis = next(
         item for item in result.profiles if item.operation == "analyze_video"
     )
@@ -229,6 +274,11 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
         item
         for item in result.profiles
         if item.model_id == "bytedance/seedance-2.0-fast"
+    )
+    seedance_mini = next(
+        item
+        for item in result.profiles
+        if item.model_id == "bytedance/seedance-2.0-mini"
     )
     runway_aleph = next(
         item for item in result.profiles if item.model_id == "runway/aleph-2"
@@ -271,6 +321,23 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
     assert reference_model.supports_reference_images is True
     assert reference_model.max_reference_images == 3
     assert reference_model.verification_entry_enabled is False
+    assert seedance_mini.interaction_status == "ready"
+    assert seedance_mini.supported_resolutions == ["480p", "720p"]
+    assert seedance_mini.supported_durations == list(range(4, 16))
+    assert seedance_mini.supported_frame_types == [
+        "first_frame",
+        "last_frame",
+    ]
+    assert seedance_mini.supports_generated_audio is True
+    assert seedance_mini.supports_seed is True
+    assert seedance_mini.pricing_skus == {
+        "video_tokens": "0.0000035",
+        "video_tokens_without_audio": "0.0000035",
+        "video_tokens_with_video_input": "0.0000021",
+    }
+    assert seedance_mini.operation_readiness[0].verification_status == (
+        "verified"
+    )
     assert runway_aleph.interaction_status == "ready"
     assert runway_aleph.verification_entry_enabled is False
     assert runway_aleph.operation_readiness[0].verification_status == (

@@ -49,6 +49,9 @@ VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
         "bytedance/seedance-2.0-fast",
         # 2026-08-11：复用统一异步视频链路，首尾帧、本地参考图与费用估算已适配。
         "bytedance/seedance-2.5",
+        # 2026-08-13：实时目录确认 480p/720p、4–15 秒、首尾帧、
+        # 生成音频、seed 与 video-token 价格契约；复用同一异步链路。
+        "bytedance/seedance-2.0-mini",
         # 2026-08-06 人工验收：最低规格生成、轮询、播放与下载闭环通过。
         # Veo Lite 的受控高级参数也已完成验收。
         "google/veo-3.1-lite",

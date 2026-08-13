@@ -684,6 +684,23 @@ async def test_parameters_are_cross_checked_before_submit(
     assert caught.value.code == "unsupported_duration"
     assert adapter.submit_calls == []
 
+    service.catalog_service.profile.supported_sizes = [
+        "854x480",
+        "1280x720",
+    ]
+    service.catalog_service.profile.supported_aspect_ratios.append("9:21")
+    with pytest.raises(MultimodalServiceError) as caught:
+        await service.create(
+            model_id="google/veo-test",
+            prompt="A test",
+            duration=5,
+            resolution="720p",
+            aspect_ratio="9:21",
+            idempotency_key="bad-size-combination-0001",
+        )
+    assert caught.value.code == "unsupported_video_size"
+    assert adapter.submit_calls == []
+
     no_frame_router = router_service(tmp_path / "no-frame")
     no_frame = VideoJobService(
         no_frame_router,

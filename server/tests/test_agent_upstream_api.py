@@ -22,7 +22,7 @@ class _ApiShadowService:
     async def create_run(self, payload: EngineShadowRunCreate):
         model = ResolvedShadowModel(
             requested_base_id=payload.model_base_id,
-            invocation_id="deepseek/deepseek-v4-flash-0731",
+            invocation_id="deepseek/deepseek-v4-pro-0813",
             context_window=1_048_576,
             max_output_tokens=32_000,
         )
@@ -105,7 +105,7 @@ async def test_shadow_api_exposes_only_control_plane_and_read_only_workspace(
         "/api/agent-workspace/apps/engine-shadow-runs",
         json={
             "objective": "Build an offline single-file interaction",
-            "model_base_id": "deepseek-v4-flash-0731",
+            "model_base_id": "deepseek-v4-pro-0813",
             "thinking_level": "medium",
             "token_budget": 750_000,
             "max_goal_rounds": 12,

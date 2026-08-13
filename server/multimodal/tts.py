@@ -23,8 +23,9 @@ logger = logging.getLogger("modelmirror.multimodal")
 MAX_SPEECH_INPUT_CHARS = 4_000
 MAX_SPEECH_BYTES = 20 * 1024 * 1024
 CATALOG_CACHE_SECONDS = 300.0
-SPEECH_PROFILE_VERSION = "tts-contracts-2026-08-06-c1"
+SPEECH_PROFILE_VERSION = "tts-contracts-2026-08-13-c1"
 GEMINI_PCM_TTS_MODEL_ID = "google/gemini-3.1-flash-tts-preview"
+DEEPGRAM_FLUX_TTS_MODEL_ID = "deepgram/flux-tts:free"
 FISH_AUDIO_PUBLIC_VOICES = (
     "8ef4a238714b45718ce04243307c57a7",
     "802e3bc2b27e49c2995d23ef70e6ac89",
@@ -39,10 +40,49 @@ MINIMAX_SYSTEM_SPEECH_VOICES = (
     "English_magnetic_voiced_man",
     "English_Graceful_Lady",
 )
+DEEPGRAM_FLUX_TTS_VOICES = (
+    "flux-alexis-en",
+    "flux-bree-en",
+    "flux-brittany-en",
+    "flux-brooke-en",
+    "flux-bruce-en",
+    "flux-cliff-en",
+    "flux-cole-en",
+    "flux-colin-en",
+    "flux-conor-en",
+    "flux-donovan-en",
+    "flux-drew-en",
+    "flux-elise-en",
+    "flux-gemma-en",
+    "flux-haley-en",
+    "flux-hannah-en",
+    "flux-heather-en",
+    "flux-jack-en",
+    "flux-kai-en",
+    "flux-kelsey-en",
+    "flux-kit-en",
+    "flux-maeve-en",
+    "flux-marcelo-en",
+    "flux-marcus-en",
+    "flux-meena-en",
+    "flux-meghan-en",
+    "flux-miles-en",
+    "flux-naveen-en",
+    "flux-paige-en",
+    "flux-priya-en",
+    "flux-rufus-en",
+    "flux-sean-en",
+    "flux-sharon-en",
+    "flux-sienna-en",
+    "flux-tanner-en",
+    "flux-wade-en",
+    "flux-wes-en",
+)
 SPEECH_OUTPUT_FORMATS: dict[str, str] = {
     GEMINI_PCM_TTS_MODEL_ID: "wav",
 }
 ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    DEEPGRAM_FLUX_TTS_MODEL_ID: DEEPGRAM_FLUX_TTS_VOICES,
     "fish-audio/s1": FISH_AUDIO_PUBLIC_VOICES,
     "fish-audio/s2-pro": FISH_AUDIO_PUBLIC_VOICES,
     "fish-audio/s2.1-pro-free:free": FISH_AUDIO_PUBLIC_VOICES,

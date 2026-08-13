@@ -30,6 +30,19 @@ export const GROK_IMAGINE_IMAGE_2_PRICING: ImagePricingItem[] = [
   { billable: "output_image", unit: "image", cost_usd: 0.08, variant: "medium_2k" },
 ];
 
+// Verified against the dedicated Seedream endpoint on 2026-08-13. The live
+// endpoint profile still takes precedence when OpenRouter updates its pricing.
+export const SEEDREAM_5_PRO_PRICING: ImagePricingItem[] = [
+  { billable: "input_image", unit: "image", cost_usd: 0.003 },
+  { billable: "output_image", unit: "image", cost_usd: 0.045 },
+  {
+    billable: "output_image",
+    unit: "image",
+    cost_usd: 0.09,
+    variant: "high_resolution",
+  },
+];
+
 function normalized(value?: string) {
   return value?.trim().toLowerCase() ?? "";
 }
@@ -42,6 +55,9 @@ export function estimateImageCost(
   const referenceCount = Math.max(0, Math.floor(input.referenceCount));
   const resolution = normalized(input.resolution);
   const quality = normalized(input.quality);
+  const hasHighResolutionVariant = pricing.some(
+    (item) => normalized(item.variant ?? undefined) === "high_resolution",
+  );
   const inputRates = pricing
     .filter((item) => item.billable === "input_image")
     .map((item) => item.cost_usd)
@@ -50,7 +66,12 @@ export function estimateImageCost(
     .filter((item) => item.billable === "output_image")
     .filter((item) => {
       const variant = normalized(item.variant ?? undefined);
-      if (!variant) return true;
+      if (!variant) {
+        return !(resolution === "2k" && hasHighResolutionVariant);
+      }
+      if (variant === "high_resolution") {
+        return !resolution || resolution === "2k";
+      }
       if (quality && !variant.startsWith(`${quality}_`)) return false;
       if (resolution && !variant.endsWith(`_${resolution}`)) return false;
       return true;

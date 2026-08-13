@@ -16,6 +16,8 @@ from server.multimodal.audio_catalog import AudioCatalogService
 from server.multimodal.stt import MultimodalServiceError, OpenRouterTarget
 from server.multimodal.tts import (
     ALLOWED_SPEECH_PROFILES,
+    DEEPGRAM_FLUX_TTS_MODEL_ID,
+    DEEPGRAM_FLUX_TTS_VOICES,
     FISH_AUDIO_PUBLIC_VOICES,
     GEMINI_PCM_TTS_MODEL_ID,
     MAX_SPEECH_INPUT_CHARS,
@@ -46,6 +48,7 @@ def test_verified_speech_profiles_cover_multiple_providers() -> None:
         "qwen/qwen-audio-3.0-tts-flash",
         "x-ai/grok-voice-tts-1.0",
         "deepgram/aura-2",
+        DEEPGRAM_FLUX_TTS_MODEL_ID,
         "zyphra/zonos-v0.1-transformer",
         "zyphra/zonos-v0.1-hybrid",
         "canopylabs/orpheus-3b-0.1-ft",
@@ -57,6 +60,21 @@ def test_verified_speech_profiles_cover_multiple_providers() -> None:
     assert speech_output_format(MODEL_ID) == "mp3"
     assert speech_output_format(GEMINI_PCM_TTS_MODEL_ID) == "wav"
     assert "marin" in OPENAI_SPEECH_PROFILES["gpt-4o-mini-tts"]
+
+
+def test_deepgram_flux_tts_uses_the_live_openrouter_voice_contract() -> None:
+    assert len(DEEPGRAM_FLUX_TTS_VOICES) == 36
+    assert DEEPGRAM_FLUX_TTS_VOICES[0] == "flux-alexis-en"
+    assert DEEPGRAM_FLUX_TTS_VOICES[-1] == "flux-wes-en"
+    assert (
+        ALLOWED_SPEECH_PROFILES[DEEPGRAM_FLUX_TTS_MODEL_ID]
+        == DEEPGRAM_FLUX_TTS_VOICES
+    )
+    assert speech_output_format(DEEPGRAM_FLUX_TTS_MODEL_ID) == "mp3"
+    assert SpeechService._voice(
+        DEEPGRAM_FLUX_TTS_MODEL_ID,
+        "flux-alexis-en",
+    ) == "flux-alexis-en"
 
 
 def test_fish_audio_profiles_use_documented_public_voice_ids() -> None:
@@ -142,6 +160,7 @@ def test_fish_audio_catalog_profiles_are_ready(
         ("qwen/qwen-audio-3.0-tts-flash", "longanhuan_v3.6"),
         ("x-ai/grok-voice-tts-1.0", "ara"),
         ("deepgram/aura-2", "aura-2-amalthea-en"),
+        (DEEPGRAM_FLUX_TTS_MODEL_ID, "flux-alexis-en"),
         ("zyphra/zonos-v0.1-transformer", "american_female"),
         ("zyphra/zonos-v0.1-hybrid", "american_female"),
         ("canopylabs/orpheus-3b-0.1-ft", "dan"),

@@ -25,21 +25,40 @@ function selectedDimensions(
   resolution: string,
   aspectRatio: string,
 ) {
-  const resolutionIndex = profile.supported_resolutions.indexOf(resolution);
-  const aspectRatioIndex = profile.supported_aspect_ratios.indexOf(aspectRatio);
-  if (resolutionIndex < 0 || aspectRatioIndex < 0) return null;
+  const resolutionMatch = resolution.trim().toLowerCase().match(/^(\d+)p$/);
+  const ratioMatch = aspectRatio.trim().match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  if (!resolutionMatch || !ratioMatch) return null;
+  const shortEdge = Number(resolutionMatch[1]);
+  const selectedRatio = Number(ratioMatch[1]) / Number(ratioMatch[2]);
 
-  // OpenRouter returns sizes in resolution-major, aspect-ratio-minor order.
-  const size =
-    profile.supported_sizes[
-      resolutionIndex * profile.supported_aspect_ratios.length +
-        aspectRatioIndex
-    ];
-  const match = size?.trim().toLowerCase().match(/^(\d+)x(\d+)$/);
-  if (!match) return null;
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  return width > 0 && height > 0 ? { width, height } : null;
+  for (const size of profile.supported_sizes) {
+    const match = size.trim().toLowerCase().match(/^(\d+)x(\d+)$/);
+    if (!match) continue;
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (
+      width > 0 &&
+      height > 0 &&
+      Math.min(width, height) === shortEdge &&
+      Math.abs(width / height - selectedRatio) <= 0.02
+    ) {
+      return { width, height };
+    }
+  }
+  return null;
+}
+
+export function supportedAspectRatiosForResolution(
+  profile: VideoPricingProfile,
+  resolution: string,
+) {
+  if (!resolution || profile.supported_sizes.length === 0) {
+    return profile.supported_aspect_ratios;
+  }
+  const matched = profile.supported_aspect_ratios.filter((aspectRatio) =>
+    Boolean(selectedDimensions(profile, resolution, aspectRatio)),
+  );
+  return matched.length > 0 ? matched : profile.supported_aspect_ratios;
 }
 
 export function estimateVideoCost(

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { estimateVideoCost } from "./videoCostEstimate";
+import {
+  estimateVideoCost,
+  supportedAspectRatiosForResolution,
+} from "./videoCostEstimate";
 
 const seedance25Profile = {
   supported_resolutions: ["480p", "720p"],
@@ -71,5 +74,31 @@ describe("estimateVideoCost", () => {
     });
 
     expect(estimate).toBeNull();
+  });
+
+  it("maps Seedance Mini sizes by dimensions when a resolution omits one aspect ratio", () => {
+    const miniProfile = {
+        supported_resolutions: ["480p", "720p"],
+        supported_aspect_ratios: ["1:1", "3:4", "9:16", "4:3", "16:9", "21:9", "9:21"],
+        supported_sizes: [
+          "480x480", "480x640", "480x854", "640x480", "854x480", "1120x480",
+          "720x720", "720x960", "720x1280", "720x1680", "960x720", "1280x720", "1680x720",
+        ],
+        pricing_skus: { video_tokens: "0.0000035" },
+      };
+    const estimate = estimateVideoCost(
+      miniProfile,
+      {
+        duration: 4,
+        resolution: "720p",
+        aspectRatio: "16:9",
+        generateAudio: true,
+        imageInputCount: 0,
+      },
+    );
+
+    expect(estimate).toBeCloseTo(0.3024, 6);
+    expect(supportedAspectRatiosForResolution(miniProfile, "480p")).not.toContain("9:21");
+    expect(supportedAspectRatiosForResolution(miniProfile, "720p")).toContain("9:21");
   });
 });

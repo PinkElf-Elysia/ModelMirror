@@ -8,7 +8,10 @@ import {
 } from "react";
 import { Link } from "react-router-dom";
 import type { Model } from "../data/models";
-import { estimateVideoCost } from "../utils/videoCostEstimate";
+import {
+  estimateVideoCost,
+  supportedAspectRatiosForResolution,
+} from "../utils/videoCostEstimate";
 import BrandLogo from "./BrandLogo";
 import ResourceNav from "./ResourceNav";
 
@@ -796,6 +799,9 @@ export default function VideoGenerationWorkspace({
     providerOptionCount > 0;
   const capabilityRefreshRequired =
     catalogStale && enhancedInputsSelected;
+  const selectableAspectRatios = profile
+    ? supportedAspectRatiosForResolution(profile, resolution)
+    : [];
 
   const estimate = profile
     ? estimateVideoCost(profile, {
@@ -1080,7 +1086,20 @@ export default function VideoGenerationWorkspace({
                       className="mt-2 w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-brand-300/60 focus:ring-4 focus:ring-brand-300/10"
                       disabled={submitting}
                       onChange={(event) => {
-                        setResolution(event.target.value);
+                        const nextResolution = event.target.value;
+                        setResolution(nextResolution);
+                        const nextAspectRatios =
+                          supportedAspectRatiosForResolution(
+                            profile,
+                            nextResolution,
+                          );
+                        if (!nextAspectRatios.includes(aspectRatio)) {
+                          setAspectRatio(
+                            nextAspectRatios.includes("16:9")
+                              ? "16:9"
+                              : (nextAspectRatios[0] ?? ""),
+                          );
+                        }
                         markFormChanged();
                       }}
                       value={resolution}
@@ -1098,7 +1117,7 @@ export default function VideoGenerationWorkspace({
                       className="mt-2 w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-brand-300/60 focus:ring-4 focus:ring-brand-300/10 disabled:cursor-not-allowed disabled:opacity-55"
                       disabled={
                         submitting ||
-                        profile.supported_aspect_ratios.length === 0
+                        selectableAspectRatios.length === 0
                       }
                       onChange={(event) => {
                         setAspectRatio(event.target.value);
@@ -1106,10 +1125,10 @@ export default function VideoGenerationWorkspace({
                       }}
                       value={aspectRatio}
                     >
-                      {profile.supported_aspect_ratios.length === 0 ? (
+                      {selectableAspectRatios.length === 0 ? (
                         <option value="">由模型决定</option>
                       ) : (
-                        profile.supported_aspect_ratios.map((value) => (
+                        selectableAspectRatios.map((value) => (
                           <option key={value} value={value}>
                             {value}
                           </option>
