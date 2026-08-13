@@ -1,7 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import ts from "../client/node_modules/typescript/lib/typescript.js";
+import ts from "../server/orchestration_worker/node_modules/typescript/lib/typescript.js";
 
 const SOURCE_SUFFIXES = [".ts", ".tsx", ".json"];
 
