@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from server.coding_worker.broker_rpc import BrokerRPCServer
 from server.coding_worker.contracts import PolicyProfile, TaskBudget
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
+    ProviderEvent,
     ProviderEventKind,
     ProviderOpenRequest,
 )
@@ -37,6 +39,26 @@ def _request(task_id: str, workspace_id: str) -> ProviderOpenRequest:
         policy_profile=PolicyProfile.DEVELOP,
         budget=TaskBudget(),
     )
+
+
+class _AbortTrackingProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = asyncio.Event()
+        self.cancel_count = 0
+
+    async def message(self, session, text):
+        yield ProviderEvent(
+            kind=ProviderEventKind.MESSAGE,
+            data={"text": "provider turn started"},
+        )
+        await self.release.wait()
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+    async def cancel(self, session):
+        self.cancel_count += 1
+        self.release.set()
+        return True
 
 
 @pytest.mark.asyncio
@@ -73,6 +95,49 @@ async def test_provider_sidecar_pool_streams_neutral_events_and_revokes_broker_t
     assert task_id in broker_rpc._tokens
     await pool.close(session)
     assert task_id not in broker_rpc._tokens
+    await server.close()
+    await broker_rpc.close()
+
+
+@pytest.mark.asyncio
+async def test_closing_provider_stream_aborts_the_unfinished_sidecar_turn(
+    tmp_path: Path,
+) -> None:
+    store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
+    workspace = WorkspaceBroker(tmp_path / "workspace", {}, id_key=b"z" * 32)
+    broker_rpc = BrokerRPCServer(ToolBroker(store=store, workspace_broker=workspace))
+    await broker_rpc.start_tcp_for_tests()
+    provider = _AbortTrackingProvider()
+    server = ProviderRPCServer(provider, token="z" * 48)
+    endpoint = await server.start_tcp_for_tests()
+    pool = ProviderSidecarClientPool(
+        endpoints={"slot-a": endpoint},
+        tokens={"slot-a": "z" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        broker_rpc=broker_rpc,
+    )
+    from server.tests.test_coding_worker_service import _request as task_request
+    from server.coding_worker.contracts import Origin, TaskSpec
+
+    task_id = store.create_task(
+        TaskSpec(
+            **task_request("rpc-abort").model_dump(),
+            origin=Origin(module="test", object_id="rpc-abort"),
+        )
+    ).task_id
+    session = await pool.open(_request(task_id, "workspace_abort"))
+    stream = pool.message(session, "continue")
+    first = await anext(stream)
+    assert first.kind is ProviderEventKind.MESSAGE
+
+    await stream.aclose()
+    for _ in range(100):
+        if provider.cancel_count == 1:
+            break
+        await asyncio.sleep(0.01)
+    assert provider.cancel_count == 1
+
+    await pool.close(session)
     await server.close()
     await broker_rpc.close()
 
@@ -121,6 +186,137 @@ async def test_provider_sidecar_rejects_wrong_token_and_second_active_task(
     assert busy.value.code == "provider_slot_busy"
     await pool.close(first)
     await server.close()
+    await broker_rpc.close()
+
+
+@pytest.mark.asyncio
+async def test_new_server_controller_reclaims_stale_provider_and_executor_bindings(
+    tmp_path: Path,
+) -> None:
+    store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
+    workspace = WorkspaceBroker(tmp_path / "workspace", {}, id_key=b"r" * 32)
+    broker_rpc = BrokerRPCServer(ToolBroker(store=store, workspace_broker=workspace))
+    await broker_rpc.start_tcp_for_tests()
+    provider = FakeCodingAgentProvider()
+    provider_server = ProviderRPCServer(provider, token="p" * 48)
+    provider_endpoint = await provider_server.start_tcp_for_tests()
+    from server.tests.test_coding_worker_service import _request as task_request
+    from server.coding_worker.contracts import Origin, TaskSpec
+
+    task_ids = [
+        store.create_task(
+            TaskSpec(
+                **task_request(f"restart-{index}").model_dump(),
+                origin=Origin(module="test", object_id=f"restart-{index}"),
+            )
+        ).task_id
+        for index in range(4)
+    ]
+    old_generation = store.allocate_controller_generation()
+    new_generation = store.allocate_controller_generation()
+    assert new_generation == old_generation + 1
+    old_provider_pool = ProviderSidecarClientPool(
+        endpoints={"slot-a": provider_endpoint},
+        tokens={"slot-a": "p" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        broker_rpc=broker_rpc,
+        controller_id="controller_old",
+        controller_generation=old_generation,
+    )
+    new_provider_pool = ProviderSidecarClientPool(
+        endpoints={"slot-a": provider_endpoint},
+        tokens={"slot-a": "p" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        broker_rpc=broker_rpc,
+        controller_id="controller_new",
+        controller_generation=new_generation,
+    )
+    old_session = await old_provider_pool.open(
+        _request(task_ids[0], "workspace_one")
+    )
+    new_session = await new_provider_pool.open(
+        _request(task_ids[1], "workspace_two")
+    )
+    assert old_session.session_id in provider._closed
+    with pytest.raises(ProviderRPCError) as stale_provider:
+        await old_provider_pool.checkpoint(old_session)
+    assert stale_provider.value.code == "session_not_found"
+    assert (await new_provider_pool.checkpoint(new_session)).payload
+    with pytest.raises(ProviderRPCError) as stale_provider_reopen:
+        await old_provider_pool.open(_request(task_ids[2], "workspace_three"))
+    assert stale_provider_reopen.value.code == "provider_controller_stale"
+    assert (await new_provider_pool.checkpoint(new_session)).payload
+
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    (repository / "main.py").write_text("print('rebound')\n", encoding="utf-8")
+    executor_server = ExecutorRPCServer(
+        SidecarExecutor(lambda _workspace_id: repository, runtime_root=tmp_path / "run"),
+        token="e" * 48,
+    )
+    executor_endpoint = await executor_server.start_tcp_for_tests()
+    old_executor_pool = ExecutorSidecarClientPool(
+        endpoints={"slot-a": executor_endpoint},
+        tokens={"slot-a": "e" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        controller_id="controller_old",
+        controller_generation=old_generation,
+        auto_rebind=True,
+    )
+    new_executor_pool = ExecutorSidecarClientPool(
+        endpoints={"slot-a": executor_endpoint},
+        tokens={"slot-a": "e" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        controller_id="controller_new",
+        controller_generation=new_generation,
+    )
+    await old_executor_pool.bind_task("task_one", "workspace_one")
+    running = asyncio.create_task(
+        old_executor_pool.run_process(
+            task_id="task_one",
+            workspace_id="workspace_one",
+            argv=("python", "-c", "import time; time.sleep(30)"),
+            timeout_seconds=60,
+            isolated=True,
+        )
+    )
+    for _ in range(200):
+        if executor_server.executor._processes.get("task_one"):
+            break
+        await asyncio.sleep(0.01)
+    assert executor_server.executor._processes.get("task_one")
+    await new_executor_pool.bind_task("task_two", "workspace_two")
+    with pytest.raises(ExecutorRPCError) as stopped:
+        await asyncio.wait_for(running, timeout=5)
+    assert stopped.value.code == "executor_controller_stale"
+    with pytest.raises(ExecutorRPCError) as stale_executor:
+        await old_executor_pool.run_process(
+            task_id="task_one",
+            workspace_id="workspace_one",
+            argv=("python", "main.py"),
+            timeout_seconds=10,
+            isolated=False,
+        )
+    assert stale_executor.value.code == "executor_controller_stale"
+    result = await new_executor_pool.run_process(
+        task_id="task_two",
+        workspace_id="workspace_two",
+        argv=("python", "main.py"),
+        timeout_seconds=10,
+        isolated=False,
+    )
+    assert result["exit_code"] == 0
+
+    await new_provider_pool.close(new_session)
+    await new_executor_pool.close_task("task_two", "workspace_two")
+    with pytest.raises(ProviderRPCError) as stale_provider_after_close:
+        await old_provider_pool.open(_request(task_ids[3], "workspace_four"))
+    assert stale_provider_after_close.value.code == "provider_controller_stale"
+    with pytest.raises(ExecutorRPCError) as stale_executor_after_close:
+        await old_executor_pool.bind_task("task_three", "workspace_three")
+    assert stale_executor_after_close.value.code == "executor_controller_stale"
+    await provider_server.close()
+    await executor_server.close()
     await broker_rpc.close()
 
 

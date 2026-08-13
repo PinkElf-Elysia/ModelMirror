@@ -11,6 +11,7 @@ from server.coding_worker.executor import (
     ExecutorSidecarClientPool,
     SidecarExecutor,
 )
+from server.coding_worker.workspace import WorkspaceBroker
 
 
 pytestmark = pytest.mark.skipif(
@@ -42,6 +43,10 @@ async def test_shell_inspect_streams_output_and_discards_clone_changes(
     tmp_path: Path,
 ) -> None:
     executor, repository, runtime = _executor(tmp_path)
+    repository.joinpath("nested").mkdir()
+    repository.joinpath("nested", "value.py").write_text(
+        "VALUE = 1\n", encoding="utf-8"
+    )
     output: list[tuple[str, bytes]] = []
 
     async def collect(stream: str, chunk: bytes) -> None:
@@ -62,6 +67,7 @@ async def test_shell_inspect_streams_output_and_discards_clone_changes(
     assert result["workspace_changed"] is True
     assert result["changeset_eligible"] is False
     assert result["changes"] == []
+    assert result["base_tree_hash"] == WorkspaceBroker._tree_hash(repository)
     assert b"".join(chunk for stream, chunk in output if stream == "stdout") == b"stdout-data"
     assert b"".join(chunk for stream, chunk in output if stream == "stderr") == b"stderr-data"
     assert repository.joinpath("app.py").read_text(encoding="utf-8") == "print('old')\n"
@@ -175,13 +181,25 @@ async def test_executor_health_probe_is_stateless_while_slot_is_bound(
     server = ExecutorRPCServer(executor, token="x" * 48)
 
     await server._dispatch(
-        "bind_task", {"task_id": "task_one", "workspace_id": "workspace_one"}
+        "bind_task",
+        {
+            "task_id": "task_one",
+            "workspace_id": "workspace_one",
+            "controller_id": "controller_local",
+            "controller_generation": 1,
+        },
     )
     assert await server._dispatch("health", {}) == {"healthy": True}
     assert server._task_id == "task_one"
     assert server._workspace_id == "workspace_one"
     await server._dispatch(
-        "close_task", {"task_id": "task_one", "workspace_id": "workspace_one"}
+        "close_task",
+        {
+            "task_id": "task_one",
+            "workspace_id": "workspace_one",
+            "controller_id": "controller_local",
+            "controller_generation": 1,
+        },
     )
 
 
