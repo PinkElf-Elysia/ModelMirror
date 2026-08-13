@@ -26,6 +26,24 @@ AGENCY_UPSTREAM_PROJECT = "jnMetaCode/agency-orchestrator"
 EXPERT_TEAM_AGENCY_MAX_STEPS = 8
 
 
+class ExpertTeamAssetTeamWriteRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=1_000)
+    agent_ids: list[str] = Field(min_length=1, max_length=6)
+
+    @model_validator(mode="after")
+    def validate_agent_ids(self) -> "ExpertTeamAssetTeamWriteRequest":
+        if len(self.agent_ids) != len(set(self.agent_ids)):
+            raise ValueError("agent_ids must be unique")
+        return self
+
+
+class ExpertTeamAssetTemplateWriteRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=10, max_length=20_000)
+    note: str = Field(default="", max_length=500)
+
+
 class ExpertTeamPlanPreviewRequest(BaseModel):
     goal: str = Field(min_length=10, max_length=20_000)
     planner_model_id: str = Field(min_length=1, max_length=300)
@@ -36,6 +54,7 @@ class ExpertTeamPlanPreviewRequest(BaseModel):
     temperature: float = Field(default=0.2, ge=0, le=1)
     knowledge_base_id: str | None = Field(default=None, min_length=1, max_length=160)
     allow_knowledge_context: bool = False
+    method_skill_id: str | None = Field(default=None, min_length=1, max_length=160)
 
     @model_validator(mode="after")
     def validate_lineup(self) -> "ExpertTeamPlanPreviewRequest":
@@ -82,8 +101,11 @@ class ExpertTeamPlanPreviewResponse(BaseModel):
     selected_agents: list[dict[str, Any]]
     baseline_matches: list[dict[str, Any]]
     knowledge_context: dict[str, Any] | None = None
+    method_skill: dict[str, Any] | None = None
     warnings: list[str] = Field(default_factory=list)
     repair_used: bool = False
+    model_calls: int = Field(default=0, ge=0, le=3)
+    usage: dict[str, int] = Field(default_factory=dict)
     capability_snapshot_version: str
     capability_snapshot_hash: str
     upstream_project: str = AGENCY_UPSTREAM_PROJECT
@@ -120,6 +142,7 @@ def build_meta_planner_inputs(
     *,
     default_agent_model_id: str,
     goal: str,
+    method_skill_id: str | None = None,
 ) -> tuple[MetaPlannerTaskPlan, MetaPlannerBlueprint, list[dict[str, Any]]]:
     """Convert the pinned Agency DAG into existing Meta Planner V2 contracts."""
 
@@ -246,6 +269,9 @@ def build_meta_planner_inputs(
                 )[:1_000],
                 agent_id=source_agent_id,
                 acceptance=acceptance[:2_000],
+                method_skill_ids=(
+                    [method_skill_id] if method_skill_id else []
+                ),
             )
         )
         agents.append(
@@ -277,7 +303,8 @@ def build_meta_planner_inputs(
         ).strip()[:4_000],
         assumptions=[
             "The preview uses the current ModelMirror expert catalog.",
-            "DAG automatic execution is not enabled in this round.",
+            "The preview does not start execution automatically.",
+            "输入未明确的日期、市场、容量、流量与基础设施必须标记为待确认假设，不得作为事实。",
         ],
         tasks=tasks,
     )

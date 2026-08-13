@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Literal, get_args
 
@@ -261,6 +262,18 @@ class WorkflowAgentPlannerConfig(BaseModel):
     task_input: str = Field(min_length=1, max_length=8_000)
     model_id: str | None = Field(default=None, max_length=300)
     source_agent_id: str | None = Field(default=None, min_length=1, max_length=160)
+    method_skill_ids: list[str] = Field(default_factory=list, max_length=1)
+
+    @model_validator(mode="after")
+    def validate_method_skill_ids(self) -> "WorkflowAgentPlannerConfig":
+        if len(self.method_skill_ids) != len(set(self.method_skill_ids)):
+            raise ValueError("method_skill_ids must be unique")
+        if any(
+            not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,159}", item)
+            for item in self.method_skill_ids
+        ):
+            raise ValueError("method_skill_ids contains an invalid Skill id")
+        return self
 
 
 @dataclass(frozen=True, slots=True)

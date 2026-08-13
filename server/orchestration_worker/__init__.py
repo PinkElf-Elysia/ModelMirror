@@ -4,7 +4,12 @@ from .client import (
     AgencyWorkerClient,
     AgencyWorkerError,
 )
-from .contracts import AgencyAgentDefinition, AgencyModelRequest, AgencyModelResponse
+from .contracts import (
+    AgencyAgentDefinition,
+    AgencyModelRequest,
+    AgencyModelResponse,
+    AgencySkillDefinition,
+)
 from .execution_client import AGENCY_EXECUTION_PROTOCOL, AgencyExecutionClient
 from .expert_adapter import adapt_expert_catalog
 
@@ -15,6 +20,7 @@ __all__ = [
     "AgencyAgentDefinition",
     "AgencyModelRequest",
     "AgencyModelResponse",
+    "AgencySkillDefinition",
     "AgencyExecutionClient",
     "AgencyWorkerClient",
     "AgencyWorkerError",

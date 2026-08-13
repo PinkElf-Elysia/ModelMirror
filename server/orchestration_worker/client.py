@@ -60,6 +60,7 @@ class AgencyWorkerClient:
         model_runner: ModelRunner | None = None,
         node_binary: str = "node",
         worker_entry: str | Path | None = None,
+        asset_root: str | Path | None = None,
         timeout_seconds: float = 300.0,
     ) -> None:
         if not 0.05 <= timeout_seconds <= 300:
@@ -67,7 +68,9 @@ class AgencyWorkerClient:
         self.model_runner = model_runner
         self.node_binary = str(node_binary)
         self.worker_entry = Path(worker_entry or self.default_worker_entry()).resolve()
+        self.asset_root = Path(asset_root).resolve() if asset_root else None
         self.timeout_seconds = float(timeout_seconds)
+        self._asset_lock = asyncio.Lock()
 
     @staticmethod
     def default_worker_entry() -> Path:
@@ -145,9 +148,22 @@ class AgencyWorkerClient:
             )
         ).payload
 
+    async def assets(
+        self,
+        action: Literal["list", "save_team", "save_template"],
+        payload: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        async with self._asset_lock:
+            return (
+                await self.call(
+                    "assets",
+                    {"action": action, **dict(payload or {})},
+                )
+            ).payload
+
     async def call(
         self,
-        method: Literal["health", "compose", "validate"],
+        method: Literal["health", "compose", "validate", "assets"],
         params: Mapping[str, Any],
     ) -> AgencyWorkerResult:
         if not self.worker_entry.is_file():
@@ -170,9 +186,18 @@ class AgencyWorkerClient:
         started = time.monotonic()
         model_calls = 0
         try:
+            environment = self.sanitized_environment()
+            if method == "assets":
+                if self.asset_root is None:
+                    raise AgencyWorkerError(
+                        "Agency asset store is unavailable.",
+                        code="agency_asset_store_unavailable",
+                    )
+                environment["MM_AGENCY_ASSET_ROOT"] = str(self.asset_root)
             process, stderr, stderr_task = await self._spawn_process(
                 self.argv,
                 self.worker_entry.parent,
+                environment=environment,
             )
             assert process.stdin is not None
             assert process.stdout is not None
@@ -265,6 +290,7 @@ class AgencyWorkerClient:
                     "messages": message.get("messages"),
                     "temperature": message.get("temperature"),
                     "max_tokens": message.get("max_tokens"),
+                    "json_response": message.get("json_response", False),
                 }
             )
             if self.model_runner is None:
@@ -320,6 +346,8 @@ class AgencyWorkerClient:
         cls,
         argv: Sequence[str],
         cwd: str | Path,
+        *,
+        environment: Mapping[str, str] | None = None,
     ) -> tuple[asyncio.subprocess.Process, bytearray, asyncio.Task[None]]:
         kwargs: dict[str, Any] = {}
         if os.name == "nt":
@@ -329,7 +357,7 @@ class AgencyWorkerClient:
         process = await asyncio.create_subprocess_exec(
             *argv,
             cwd=str(cwd),
-            env=cls.sanitized_environment(),
+            env=(dict(environment) if environment is not None else cls.sanitized_environment()),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

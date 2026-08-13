@@ -1,6 +1,9 @@
 /**
  * Skills（流程剧本）—— 给工作流步骤挂一套「怎么做」的方法论，注入该步的 system prompt。
  *
+ * MODELMIRROR MODIFICATION: callers may inject a host-owned in-memory Skill
+ * resolver. The default upstream directory loader remains unchanged.
+ *
  * 内容直接用开源的 superpowers-zh（MIT，20 个 skill），不自己写。
  * 每个 skill = <skillsDir>/<name>/SKILL.md（frontmatter: name/description + 正文方法论）。
  *
@@ -17,6 +20,8 @@ export interface SkillDefinition {
   description: string;
   body: string;       // SKILL.md frontmatter 之后的方法论正文
 }
+
+export type SkillResolver = (name: string) => SkillDefinition | null;
 
 let _cachedDir: string | null | undefined;
 
@@ -96,12 +101,17 @@ export function collectSkillNames(step: { skill?: string; skills?: string[] }): 
  * 把指定 skill 的方法论追加到 system prompt 末尾。找不到的 skill 跳过（返回 missing 名单）。
  * 不抛错——skills 是可选增强。
  */
-export function injectSkills(systemPrompt: string, names: string[], dir = resolveSkillsDir()): { prompt: string; applied: string[]; missing: string[] } {
+export function injectSkills(
+  systemPrompt: string,
+  names: string[],
+  dir = resolveSkillsDir(),
+  resolver?: SkillResolver,
+): { prompt: string; applied: string[]; missing: string[] } {
   const applied: string[] = [];
   const missing: string[] = [];
   const blocks: string[] = [];
   for (const n of names) {
-    const sk = loadSkill(n, dir);
+    const sk = resolver ? resolver(n) : loadSkill(n, dir);
     if (!sk) { missing.push(n); continue; }
     applied.push(sk.name);
     blocks.push(`## 工作方法 / Skill：${sk.name}\n（完成本步骤时请严格遵循以下方法论）\n\n${sk.body}`);

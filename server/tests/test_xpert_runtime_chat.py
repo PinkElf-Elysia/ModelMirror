@@ -250,6 +250,30 @@ def test_json_completion_selects_required_dataset_after_schema_example() -> None
     }
 
 
+def test_json_completion_prefers_final_content_contract_over_reasoning_draft() -> None:
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": '{"pass":true,"failed":[]}',
+                    "reasoning_content": (
+                        'draft {"pass":false,"failed":'
+                        '[{"criterion":"budget","why":"missing"}]}'
+                    ),
+                }
+            }
+        ]
+    }
+
+    recovered, diagnostics = completion_json_result_from_payload(
+        payload,
+        required_top_level_key="pass",
+    )
+
+    assert json.loads(recovered) == {"pass": True, "failed": []}
+    assert diagnostics["selected_source"] == "content"
+
+
 def test_json_completion_rejects_reasoning_schema_without_required_dataset() -> None:
     payload = {
         "choices": [

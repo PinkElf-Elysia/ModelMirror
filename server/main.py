@@ -38,6 +38,7 @@ from orchestration_worker import (
     AGENCY_UPSTREAM_REVISION,
     AgencyModelRequest,
     AgencyModelResponse,
+    AgencySkillDefinition,
     AgencyWorkerClient,
     AgencyWorkerError,
     adapt_expert_catalog,
@@ -45,6 +46,8 @@ from orchestration_worker import (
 from expert_team_agency import (
     AGENCY_UPSTREAM_PROJECT,
     EXPERT_TEAM_AGENCY_MAX_STEPS,
+    ExpertTeamAssetTeamWriteRequest,
+    ExpertTeamAssetTemplateWriteRequest,
     ExpertTeamAgencyCapabilities,
     ExpertTeamPlanPreviewRequest,
     ExpertTeamPlanPreviewResponse,
@@ -56,6 +59,7 @@ from expert_team_agency_runtime import (
     AgencyExecutionCoordinator,
     AgencyExecutionValidationError,
     ExpertTeamDagRunRequest,
+    PreparedAgencyExecution,
     prepare_agency_execution,
 )
 
@@ -169,6 +173,7 @@ except ModuleNotFoundError:
 
 try:
     from server.skills.api import (
+        get_builtin_skill_library,
         get_skill_draft_store,
         get_skill_manager,
         get_skill_semantic_rerank_service,
@@ -237,6 +242,7 @@ try:
     )
 except ModuleNotFoundError:
     from skills.api import (
+        get_builtin_skill_library,
         get_skill_draft_store,
         get_skill_manager,
         get_skill_semantic_rerank_service,
@@ -3244,8 +3250,9 @@ def completion_json_result_from_payload(
 
     decoder = json.JSONDecoder()
     detected_keys: set[str] = set()
+    selected_content = False
     selected_reasoning = ""
-    for source, candidate in [*candidates, ("content", text)]:
+    for source, candidate in [("content", text), *candidates]:
         for match in re.finditer(r"\{", candidate):
             try:
                 value, end = decoder.raw_decode(candidate[match.start() :])
@@ -3256,10 +3263,15 @@ def completion_json_result_from_payload(
             detected_keys.update(str(key)[:80] for key in value.keys())
             if not required_top_level_key or required_top_level_key in value:
                 diagnostics["contract_found"] = True
-                if source == "reasoning" and not selected_reasoning:
+                if source == "content":
+                    selected_content = True
+                elif not selected_content and not selected_reasoning:
                     selected_reasoning = candidate[match.start() : match.start() + end]
                 break
     diagnostics["candidate_top_level_keys"] = sorted(detected_keys)[:20]
+    if selected_content:
+        diagnostics["selected_source"] = "content"
+        return text, diagnostics
     if selected_reasoning:
         diagnostics["selected_source"] = "reasoning"
         return selected_reasoning, diagnostics
@@ -3373,6 +3385,7 @@ async def collect_chat_completion_text(
     gateway_key: str | None = None,
     actual_model_observer: Callable[[str], None] | None = None,
     usage_observer: Callable[[dict[str, int]], None] | None = None,
+    completion_metadata_observer: Callable[[dict[str, str]], None] | None = None,
     response_format: dict[str, Any] | None = None,
     reasoning: dict[str, Any] | None = None,
     allow_json_reasoning_fallback: bool = False,
@@ -3434,6 +3447,32 @@ async def collect_chat_completion_text(
         data = response.json()
         if not isinstance(data, dict):
             raise RuntimeError("模型返回了无法解析的响应。")
+        choices = data.get("choices")
+        first_choice = choices[0] if isinstance(choices, list) and choices else {}
+        first_choice = first_choice if isinstance(first_choice, dict) else {}
+        finish_reason = first_choice.get("finish_reason")
+        if completion_metadata_observer is not None:
+            completion_metadata_observer(
+                {
+                    "finish_reason": (
+                        finish_reason.strip()[:80]
+                        if isinstance(finish_reason, str)
+                        else ""
+                    )
+                }
+            )
+        if usage_observer is not None:
+            raw_usage = data.get("usage")
+            raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
+            usage_observer(
+                {
+                    str(metric): max(0, int(value))
+                    for metric, value in raw_usage.items()
+                    if isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and value >= 0
+                }
+            )
         raw_reported_model = data.get("model")
         reported_model = (
             raw_reported_model.strip()
@@ -3469,18 +3508,6 @@ async def collect_chat_completion_text(
             raise RuntimeError("模型没有返回可用内容。")
         if actual_model_observer is not None:
             actual_model_observer(reported_model)
-        if usage_observer is not None:
-            raw_usage = data.get("usage")
-            raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
-            usage_observer(
-                {
-                    str(metric): max(0, int(value))
-                    for metric, value in raw_usage.items()
-                    if isinstance(value, (int, float))
-                    and not isinstance(value, bool)
-                    and value >= 0
-                }
-            )
         return text
 
 
@@ -3490,20 +3517,57 @@ async def collect_agency_worker_model(
     """Keep model gateway credentials and calls in the Python host process."""
 
     usage: dict[str, int] = {}
+    completion_metadata: dict[str, str] = {}
 
     def observe_usage(values: dict[str, int]) -> None:
         usage.update(values)
 
-    content = await collect_chat_completion_text(
-        request.model_id,
-        [
-            ChatMessage(role=message.role, content=message.content)
-            for message in request.messages
-        ],
-        temperature=request.temperature,
-        max_tokens=request.max_tokens,
-        usage_observer=observe_usage,
-    )
+    try:
+        content = await collect_chat_completion_text(
+            request.model_id,
+            [
+                ChatMessage(role=message.role, content=message.content)
+                for message in request.messages
+            ],
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            usage_observer=observe_usage,
+            completion_metadata_observer=completion_metadata.update,
+            response_format=(
+                {"type": "json_object"} if request.json_response else None
+            ),
+            reasoning={"effort": "low"},
+            allow_json_reasoning_fallback=request.json_response,
+            json_required_top_level_key=("pass" if request.json_response else None),
+        )
+    except httpx.TimeoutException as exc:
+        raise AgencyWorkerError(
+            "模型网关请求超时。可仅重试失败步骤，已完成步骤不会重新计费。",
+            code="model_gateway_timeout",
+        ) from exc
+    except RuntimeError as exc:
+        message = str(exc)
+        if completion_metadata.get("finish_reason") == "length":
+            code = "model_output_truncated"
+            safe_message = "模型输出达到 token 上限，未作为完整结果保存。可缩短目标后仅重试失败步骤。"
+        elif "额度不足" in message or "充值" in message or "计费不可用" in message:
+            code = "model_gateway_quota_exceeded"
+            safe_message = "模型网关额度不足或计费不可用。请充值或更换可用连接后再运行；当前任务不应继续重试。"
+        elif "没有返回可用内容" in message:
+            code = "model_response_empty"
+            safe_message = "模型返回空内容。可仅重试失败步骤，已完成步骤不会重新计费。"
+        elif "无法解析" in message:
+            code = "model_response_invalid"
+            safe_message = "模型返回格式无法解析。可仅重试失败步骤，已完成步骤不会重新计费。"
+        else:
+            code = "model_gateway_failed"
+            safe_message = "模型网关调用失败。请检查模型可用性后仅重试失败步骤。"
+        raise AgencyWorkerError(safe_message, code=code) from exc
+    except (httpx.HTTPError, ValueError) as exc:
+        raise AgencyWorkerError(
+            "模型网关响应异常。请检查模型可用性后仅重试失败步骤。",
+            code="model_gateway_failed",
+        ) from exc
     return AgencyModelResponse(
         content=content,
         usage={
@@ -3514,10 +3578,25 @@ async def collect_agency_worker_model(
                 usage.get("output_tokens", usage.get("completion_tokens", 0))
             ),
         },
+        finish_reason=completion_metadata.get("finish_reason") or None,
     )
 
 
-agency_worker_client = AgencyWorkerClient(model_runner=collect_agency_worker_model)
+def expert_team_agency_asset_root() -> Path:
+    configured = str(os.getenv("EXPERT_TEAM_AGENCY_ASSET_DIR") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    runtime_root = Path(
+        os.getenv("AGENT_TASK_STORAGE_DIR")
+        or Path(__file__).resolve().parent / "xpert_runtime" / "storage"
+    )
+    return (runtime_root / "expert_team_assets").resolve()
+
+
+agency_worker_client = AgencyWorkerClient(
+    model_runner=collect_agency_worker_model,
+    asset_root=expert_team_agency_asset_root(),
+)
 agency_execution_coordinator = AgencyExecutionCoordinator(
     store=workflow_execution_store,
     run_registry=run_registry,
@@ -4853,6 +4932,64 @@ def expert_team_agency_execution_enabled() -> bool:
     }
 
 
+EXPERT_TEAM_METHOD_SKILL_ALLOWLIST = {
+    "data-analysis",
+    "software-engineering",
+    "web-design",
+}
+
+
+def expert_team_method_skills() -> dict[str, dict[str, Any]]:
+    library = get_builtin_skill_library()
+    catalog: dict[str, dict[str, Any]] = {}
+    for skill in library.list_skills():
+        if (
+            skill.skill_id not in EXPERT_TEAM_METHOD_SKILL_ALLOWLIST
+            or not skill.inject_runtime
+        ):
+            continue
+        catalog[skill.skill_id] = {
+            "skill_id": skill.skill_id,
+            "name": skill.name,
+            "description": skill.description,
+            "digest": skill.digest,
+        }
+    return catalog
+
+
+def resolve_expert_team_method_skill_definitions(
+    selected_skill_ids: Iterable[str],
+    expected_digests: dict[str, str],
+) -> dict[str, AgencySkillDefinition]:
+    selected = list(dict.fromkeys(str(item).strip() for item in selected_skill_ids))
+    if set(selected) != set(expected_digests):
+        raise AgencyExecutionValidationError(
+            "工作方法摘要与计划不一致，请重新生成或重新校验计划。",
+            code="agency_method_skill_changed",
+        )
+    catalog = expert_team_method_skills()
+    library = get_builtin_skill_library()
+    resolved: dict[str, AgencySkillDefinition] = {}
+    for skill_id in selected:
+        record = catalog.get(skill_id)
+        if record is None or record["digest"] != expected_digests.get(skill_id):
+            raise AgencyExecutionValidationError(
+                f"工作方法 {skill_id} 已变化或当前不可用，请重新生成计划。",
+                code="agency_method_skill_changed",
+            )
+        markdown = library.get_content(skill_id).replace("\r\n", "\n")
+        match = re.match(r"^---\n[\s\S]*?\n---\n([\s\S]*)$", markdown)
+        body = (match.group(1) if match else markdown).strip()
+        resolved[skill_id] = AgencySkillDefinition(
+            skill_id=skill_id,
+            name=str(record["name"]),
+            description=str(record["description"]),
+            body=body[:20_000],
+            digest=str(record["digest"]),
+        )
+    return resolved
+
+
 class ExpertTeamKnowledgeContextError(Exception):
     def __init__(self, status_code: int, code: str, message: str):
         super().__init__(message)
@@ -4974,13 +5111,98 @@ def agency_worker_http_status(code: str) -> int:
         "duplicate_agent",
         "pinned_roles_mismatch",
         "max_agents_exceeded",
+        "agency_asset_invalid",
+        "agency_asset_action_invalid",
     }:
         return 422
     if code == "worker_timeout":
         return 504
-    if code in {"worker_unavailable", "model_runner_unavailable"}:
+    if code in {
+        "worker_unavailable",
+        "model_runner_unavailable",
+        "agency_asset_store_unavailable",
+    }:
         return 503
     return 502
+
+
+@app.get("/api/expert-team/assets")
+async def list_expert_team_assets():
+    try:
+        assets = await agency_worker_client.assets("list")
+    except AgencyWorkerError as exc:
+        return JSONResponse(
+            status_code=agency_worker_http_status(exc.code),
+            content={"error": str(exc), "code": exc.code},
+        )
+    return {
+        **assets,
+        "method_skills": list(expert_team_method_skills().values()),
+        "upstream_project": AGENCY_UPSTREAM_PROJECT,
+        "upstream_revision": AGENCY_UPSTREAM_REVISION,
+    }
+
+
+@app.post("/api/expert-team/teams", status_code=201)
+async def save_expert_team_asset(payload: ExpertTeamAssetTeamWriteRequest):
+    unknown = [agent_id for agent_id in payload.agent_ids if agent_id not in AGENTS_BY_ID]
+    if unknown:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": f"未找到专家：{', '.join(unknown)}",
+                "code": "unknown_agent",
+            },
+        )
+    roles = []
+    for agent_id in payload.agent_ids:
+        agent = AGENTS_BY_ID[agent_id]
+        roles.append(
+            {
+                "role": agent.id,
+                "name": agent.name,
+                "emoji": agent.emoji,
+                "note": agent.expertise[:500],
+            }
+        )
+    try:
+        return await agency_worker_client.assets(
+            "save_team",
+            {
+                "team": {
+                    "name": payload.name,
+                    "description": payload.description,
+                    "roles": roles,
+                }
+            },
+        )
+    except AgencyWorkerError as exc:
+        return JSONResponse(
+            status_code=agency_worker_http_status(exc.code),
+            content={"error": str(exc), "code": exc.code},
+        )
+
+
+@app.post("/api/expert-team/templates", status_code=201)
+async def save_expert_team_template(
+    payload: ExpertTeamAssetTemplateWriteRequest,
+):
+    try:
+        return await agency_worker_client.assets(
+            "save_template",
+            {
+                "template": {
+                    "name": payload.name,
+                    "content": payload.content,
+                    "note": payload.note,
+                }
+            },
+        )
+    except AgencyWorkerError as exc:
+        return JSONResponse(
+            status_code=agency_worker_http_status(exc.code),
+            content={"error": str(exc), "code": exc.code},
+        )
 
 
 @app.post(
@@ -5027,6 +5249,18 @@ async def preview_expert_team_plan(
             },
         )
 
+    method_skill = None
+    if payload.method_skill_id:
+        method_skill = expert_team_method_skills().get(payload.method_skill_id)
+        if method_skill is None:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "error": "所选工作方法当前不可用于专家团文本执行。",
+                    "code": "agency_method_skill_unavailable",
+                },
+            )
+
     try:
         planning_goal, knowledge_context, knowledge_warnings = (
             await resolve_expert_team_knowledge_context(payload)
@@ -5058,6 +5292,7 @@ async def preview_expert_team_plan(
             "max_agents": payload.max_agents,
             "knowledge_base_id": payload.knowledge_base_id,
             "knowledge_context_allowed": payload.allow_knowledge_context,
+            "method_skill_id": payload.method_skill_id,
         },
     )
     await run_registry.record_checkpoint(
@@ -5085,6 +5320,7 @@ async def preview_expert_team_plan(
             AGENT_RECORDS,
             default_agent_model_id=payload.default_agent_model_id,
             goal=planning_goal,
+            method_skill_id=payload.method_skill_id,
         )
         selected_ids = [item["id"] for item in selected_agents]
         if len(selected_ids) > payload.max_agents:
@@ -5153,6 +5389,7 @@ async def preview_expert_team_plan(
                 "valid": bool(preview.validation.get("valid")),
                 "snapshot_hash": preview.capability_snapshot_hash,
                 "knowledge_base_id": payload.knowledge_base_id,
+                "method_skill_id": payload.method_skill_id,
             },
         )
         await run_registry.update_run(
@@ -5161,6 +5398,8 @@ async def preview_expert_team_plan(
             metadata={
                 "selected_agent_ids": selected_ids,
                 "snapshot_hash": preview.capability_snapshot_hash,
+                "model_calls": int(worker_result.get("model_calls") or 0),
+                "usage": worker_result.get("usage") or {},
             },
         )
         return ExpertTeamPlanPreviewResponse(
@@ -5171,8 +5410,16 @@ async def preview_expert_team_plan(
             selected_agents=selected_agents,
             baseline_matches=baseline_matches,
             knowledge_context=knowledge_context,
+            method_skill=method_skill,
             warnings=preview.warnings,
             repair_used=preview.repair_used,
+            model_calls=int(worker_result.get("model_calls") or 0),
+            usage={
+                str(key): max(0, int(value))
+                for key, value in (worker_result.get("usage") or {}).items()
+                if isinstance(value, (int, float))
+                and not isinstance(value, bool)
+            },
             capability_snapshot_version=preview.capability_snapshot_version,
             capability_snapshot_hash=preview.capability_snapshot_hash,
             upstream_revision=AGENCY_UPSTREAM_REVISION,
@@ -5292,10 +5539,20 @@ async def start_expert_team_dag_run(
             "DAG Beta 只支持文本输入、文本输出的聊天模型。",
         )
     try:
+        selected_method_skill_ids = [
+            skill_id
+            for task in payload.plan.tasks
+            for skill_id in task.method_skill_ids
+        ]
+        method_skills = resolve_expert_team_method_skill_definitions(
+            selected_method_skill_ids,
+            payload.method_skill_digests,
+        )
         prepared = prepare_agency_execution(
             plan=payload.plan,
             workflow=payload.workflow,
             expert_records=AGENT_RECORDS,
+            method_skills=method_skills,
         )
         result = await agency_execution_coordinator.start(
             goal=payload.goal,
@@ -5310,13 +5567,18 @@ async def start_expert_team_dag_run(
             429, "agency_execution_capacity_reached", str(exc)
         )
     except AgencyExecutionValidationError as exc:
-        return agency_execution_error(422, exc.code, str(exc))
+        return agency_execution_error(
+            409 if exc.code == "agency_method_skill_changed" else 422,
+            exc.code,
+            str(exc),
+        )
     task_id = str(result["task_id"])
     return {
         **result,
         "status_url": f"/api/expert-team/dag-runs/{task_id}",
         "events_url": f"/api/expert-team/dag-runs/{task_id}/events",
         "cancel_url": f"/api/expert-team/dag-runs/{task_id}/cancel",
+        "retry_url": f"/api/expert-team/dag-runs/{task_id}/retry",
     }
 
 
@@ -5423,6 +5685,117 @@ async def cancel_expert_team_dag_run(task_id: str):
             404, "agency_execution_not_found", "DAG 执行任务不存在。"
         )
     return await agency_execution_coordinator.cancel(task_id)
+
+
+@app.post("/api/expert-team/dag-runs/{task_id}/retry", status_code=202)
+async def retry_expert_team_dag_run(task_id: str, request: Request):
+    if not expert_team_agency_execution_enabled():
+        return agency_execution_error(
+            503, "agency_execution_disabled", "专家团 DAG Beta 当前未启用。"
+        )
+    if not agency_execution_coordinator.worker_available() or not get_llm_gateway_config()[0]:
+        return agency_execution_error(
+            503,
+            "agency_worker_unavailable",
+            "Agency Worker 或 LLM 网关当前不可用。",
+        )
+    source = workflow_execution_store.get(task_id)
+    if source is None or source.source_kind != "expert_team_agency":
+        return agency_execution_error(
+            404, "agency_execution_not_found", "DAG 执行任务不存在。"
+        )
+    try:
+        rate_limit_or_raise(client_ip(request))
+    except HTTPException as exc:
+        return agency_execution_error(
+            exc.status_code, "agency_execution_not_retryable", str(exc.detail)
+        )
+    metadata = source.runtime_metadata
+    if str(metadata.get("upstream_revision") or "") != AGENCY_UPSTREAM_REVISION:
+        return agency_execution_error(
+            409,
+            "upstream_revision_changed",
+            "Agency Orchestrator 上游版本已变化，请重新生成计划。",
+        )
+    snapshot = build_meta_planner_capability_snapshot(AGENT_RECORDS)
+    if (
+        str(metadata.get("capability_snapshot_version") or "") != snapshot.version
+        or str(metadata.get("capability_snapshot_hash") or "")
+        != snapshot.snapshot_hash
+    ):
+        return agency_execution_error(
+            409,
+            "capability_snapshot_changed",
+            "专家能力快照已变化，请重新生成计划。",
+        )
+    model_id = str(metadata.get("model_id") or "")
+    if not await expert_team_execution_model_is_text(model_id):
+        return agency_execution_error(
+            422,
+            "agency_execution_plan_invalid",
+            "原执行模型已不再是可用的文本聊天模型。",
+        )
+    try:
+        raw_selected = metadata.get("selected_agent_ids")
+        selected_ids = [
+            str(value)
+            for value in (raw_selected if isinstance(raw_selected, list) else [])
+        ]
+        current_agents = {
+            agent.id: agent for agent in adapt_expert_catalog(AGENT_RECORDS)
+        }
+        if not selected_ids or any(agent_id not in current_agents for agent_id in selected_ids):
+            raise AgencyExecutionValidationError(
+                "原计划中的专家已变化，请重新生成计划。",
+                code="capability_snapshot_changed",
+            )
+        raw_digests = metadata.get("method_skill_digests")
+        expected_digests = {
+            str(key): str(value)
+            for key, value in (
+                raw_digests.items() if isinstance(raw_digests, dict) else []
+            )
+        }
+        method_skills = resolve_expert_team_method_skill_definitions(
+            expected_digests.keys(), expected_digests
+        )
+        workflow = dict(source.workflow) if isinstance(source.workflow, dict) else {}
+        sink_task_id = str(metadata.get("sink_task_id") or "")
+        if not workflow.get("steps") or not sink_task_id:
+            raise AgencyExecutionValidationError(
+                "原执行工作流不完整，不能安全续跑。",
+                code="agency_execution_not_retryable",
+            )
+        prepared = PreparedAgencyExecution(
+            workflow=workflow,
+            agents=[current_agents[agent_id] for agent_id in selected_ids],
+            skills=list(method_skills.values()),
+            sink_task_id=sink_task_id,
+            selected_agent_ids=selected_ids,
+        )
+        result = await agency_execution_coordinator.retry(
+            source_task_id=task_id,
+            prepared=prepared,
+        )
+    except AgencyExecutionCapacityError as exc:
+        return agency_execution_error(
+            429, "agency_execution_capacity_reached", str(exc)
+        )
+    except AgencyExecutionValidationError as exc:
+        status = 409 if exc.code in {
+            "agency_execution_not_retryable",
+            "agency_method_skill_changed",
+            "capability_snapshot_changed",
+        } else 422
+        return agency_execution_error(status, exc.code, str(exc))
+    new_task_id = str(result["task_id"])
+    return {
+        **result,
+        "status_url": f"/api/expert-team/dag-runs/{new_task_id}",
+        "events_url": f"/api/expert-team/dag-runs/{new_task_id}/events",
+        "cancel_url": f"/api/expert-team/dag-runs/{new_task_id}/cancel",
+        "retry_url": f"/api/expert-team/dag-runs/{new_task_id}/retry",
+    }
 
 
 @app.post(

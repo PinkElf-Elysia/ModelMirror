@@ -9,6 +9,7 @@ export interface AgencyExecutionCapabilities {
   timeout_seconds: number;
   supports_replay: boolean;
   supports_cancel: boolean;
+  supports_retry: boolean;
   supports_restart_resume: boolean;
 }
 
@@ -32,6 +33,59 @@ export interface AgencyPlanTask {
   output_contract: string;
   agent_id?: string | null;
   acceptance: string;
+  method_skill_ids?: string[];
+}
+
+export interface AgencyMethodSkill {
+  skill_id: string;
+  name: string;
+  description: string;
+  digest: string;
+}
+
+export interface AgencyTeamAsset {
+  ref: string;
+  kind: "team";
+  name: string;
+  description?: string;
+  roles: Array<{
+    role: string;
+    name?: string;
+    emoji?: string;
+    note?: string;
+  }>;
+  created?: string;
+  source?: string;
+}
+
+export interface AgencyTaskTemplate {
+  ref: string;
+  kind: "prompt";
+  name: string;
+  mode: "user" | "system";
+  content: string;
+  note?: string;
+  version_count: number;
+  created: string;
+  updated: string;
+}
+
+export interface AgencyPromptGardenSeed {
+  id: string;
+  name: string;
+  mode: "user" | "system";
+  lang: "zh" | "en";
+  tags: string[];
+  content: string;
+}
+
+export interface AgencyAssets {
+  teams: AgencyTeamAsset[];
+  templates: AgencyTaskTemplate[];
+  garden: AgencyPromptGardenSeed[];
+  method_skills: AgencyMethodSkill[];
+  upstream_project: string;
+  upstream_revision: string;
 }
 
 export interface AgencyValidationIssue {
@@ -95,8 +149,11 @@ export interface AgencyPlanPreview {
   };
   selected_agents: AgencyAgentSummary[];
   baseline_matches: AgencyAgentSummary[];
+  method_skill?: AgencyMethodSkill | null;
   warnings: string[];
   repair_used: boolean;
+  model_calls: number;
+  usage: AgencyDagUsage;
   capability_snapshot_version: string;
   capability_snapshot_hash: string;
   upstream_project: string;
@@ -135,6 +192,8 @@ export interface AgencyDagEvent {
   message?: string;
   verification?: AgencyDagVerification;
   usage?: AgencyDagUsage;
+  cumulative_usage?: AgencyDagUsage;
+  reused?: boolean;
   warnings?: string[];
   model_calls?: number;
   quality_status?: string;
@@ -159,6 +218,7 @@ export interface AgencyDagRun {
     depends_on: string[];
     agent_id: string;
     acceptance: string;
+    method_skill_ids?: string[];
   }>;
   final_output?: string | null;
   quality_status?: string | null;
@@ -168,11 +228,15 @@ export interface AgencyDagRun {
   estimated_cost?: number | null;
   error?: string | null;
   error_code?: string | null;
+  error_message?: string | null;
+  retryable?: boolean;
+  resumed_from_task_id?: string | null;
   created_at: number;
   updated_at: number;
   status_url?: string;
   events_url?: string;
   cancel_url?: string;
+  retry_url?: string;
 }
 
 export interface AgencyDagStartPayload {
@@ -183,4 +247,5 @@ export interface AgencyDagStartPayload {
   capability_snapshot_version: string;
   capability_snapshot_hash: string;
   upstream_revision: string;
+  method_skill_digests: Record<string, string>;
 }

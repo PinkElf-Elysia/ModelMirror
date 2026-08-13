@@ -111,9 +111,15 @@ function mergeEvent(run: AgencyDagRun, event: AgencyDagEvent): AgencyDagRun {
     quality_status: event.quality_status ?? run.quality_status,
     warnings: event.warnings ?? run.warnings,
     model_calls: event.model_calls ?? run.model_calls,
-    usage: event.usage ?? run.usage,
+    usage: event.cumulative_usage ?? (
+      event.event.startsWith("agency.run.") ? event.usage ?? run.usage : run.usage
+    ),
     error_code:
       event.event === "agency.run.failed" ? event.error || run.error_code : run.error_code,
+    error_message:
+      event.event === "agency.run.failed"
+        ? event.message || event.error || run.error_message
+        : run.error_message,
   };
 }
 
@@ -275,6 +281,31 @@ export function useAgencyDagRun() {
     }
   }, [closeEvents, setCurrentRun]);
 
+  const retry = useCallback(async () => {
+    const taskId = runRef.current?.task_id;
+    if (!taskId) return;
+    setBusy(true);
+    setError("");
+    closeEvents();
+    try {
+      const response = await fetch(
+        `/api/expert-team/dag-runs/${taskId}/retry`,
+        { method: "POST" },
+      );
+      const created = await responseJson<AgencyDagRun>(response);
+      setCurrentRun(created);
+      persistRecentTask(created.task_id);
+      writeTaskToUrl(created.task_id);
+      connectEvents(created.task_id);
+      return created;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "DAG 续跑失败。");
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }, [closeEvents, connectEvents, setCurrentRun]);
+
   const clear = useCallback(() => {
     const taskId = runRef.current?.task_id || recentTaskFromBrowser();
     closeEvents();
@@ -283,5 +314,5 @@ export function useAgencyDagRun() {
     if (taskId) forgetTask(taskId);
   }, [closeEvents, setCurrentRun]);
 
-  return { run, error, busy, start, cancel, restore, refresh, clear };
+  return { run, error, busy, start, retry, cancel, restore, refresh, clear };
 }

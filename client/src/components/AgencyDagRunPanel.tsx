@@ -85,10 +85,11 @@ interface AgencyDagRunPanelProps {
   run: AgencyDagRun | null;
   error: string;
   busy: boolean;
-  confirmOpen: boolean;
+  confirmMode: "start" | "retry" | null;
   onConfirm: () => void;
   onDismissConfirm: () => void;
   onCancel: () => void;
+  onRetryRequest: () => void;
 }
 
 export default function AgencyDagRunPanel({
@@ -101,10 +102,11 @@ export default function AgencyDagRunPanel({
   run,
   error,
   busy,
-  confirmOpen,
+  confirmMode,
   onConfirm,
   onDismissConfirm,
   onCancel,
+  onRetryRequest,
 }: AgencyDagRunPanelProps) {
   const [history, setHistory] = useState<AgencyDagRunSummary[]>([]);
   const [historyError, setHistoryError] = useState("");
@@ -152,7 +154,7 @@ export default function AgencyDagRunPanel({
 
   return (
     <div className="space-y-4">
-      {confirmOpen ? (
+      {confirmMode ? (
         <section
           aria-labelledby="dag-payment-confirmation"
           className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-5"
@@ -161,8 +163,9 @@ export default function AgencyDagRunPanel({
             提交前请确认
           </h3>
           <p className="mt-2 text-sm leading-6 text-amber-50/90">
-            将使用 {modelName} 执行受控 DAG。最多 {capabilities?.max_model_calls || 10} 次模型调用，
-            并发 {capabilities?.max_concurrency || 2}，最长 {Math.round((capabilities?.timeout_seconds || 900) / 60)} 分钟，可能产生费用。
+            {confirmMode === "retry"
+              ? `将使用 ${modelName} 创建新的续跑任务，复用已完成步骤，只重新执行失败及下游步骤。累计还可调用 ${Math.max(0, (capabilities?.max_model_calls || 10) - (run?.model_calls || 0))} 次；复用内容不会再次调用模型，但续跑仍可能产生费用。`
+              : `将使用 ${modelName} 执行受控 DAG。最多 ${capabilities?.max_model_calls || 10} 次模型调用，并发 ${capabilities?.max_concurrency || 2}，最长 ${Math.round((capabilities?.timeout_seconds || 900) / 60)} 分钟，可能产生费用。`}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
@@ -171,7 +174,7 @@ export default function AgencyDagRunPanel({
               onClick={onConfirm}
               type="button"
             >
-              {busy ? "正在启动..." : "确认并启动"}
+              {busy ? "正在提交..." : confirmMode === "retry" ? "确认并续跑" : "确认并启动"}
             </button>
             <button
               className="rounded-full border border-white/15 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-white/30"
@@ -220,6 +223,16 @@ export default function AgencyDagRunPanel({
                 取消 DAG 执行
               </button>
             ) : null}
+            {run?.status === "failed" && run.retryable && !confirmMode ? (
+              <button
+                className="rounded-full border border-amber-300/30 px-3 py-1.5 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/10 disabled:opacity-50"
+                disabled={busy}
+                onClick={onRetryRequest}
+                type="button"
+              >
+                重试失败步骤
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -238,7 +251,7 @@ export default function AgencyDagRunPanel({
                     </p>
                   </div>
                   <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusClasses(event?.status)}`}>
-                    {statusLabel(event?.status)}
+                    {event?.reused ? "已复用" : statusLabel(event?.status)}
                   </span>
                 </div>
                 <dl className="mt-3 grid gap-2 text-xs leading-5 text-slate-400 sm:grid-cols-2">
@@ -248,6 +261,11 @@ export default function AgencyDagRunPanel({
                 <p className="mt-3 text-xs leading-5 text-slate-400">
                   <span className="text-slate-500">验收：</span>{task.acceptance || "未设置"}
                 </p>
+                {task.method_skill_ids?.length ? (
+                  <p className="mt-2 text-xs leading-5 text-cyan-100">
+                    方法 Skill：{task.method_skill_ids.join("、")}
+                  </p>
+                ) : null}
                 {event?.verification ? (
                   <p className={`mt-3 rounded-lg border px-3 py-2 text-xs leading-5 ${statusClasses(event.verification.pass ? "completed" : "failed")}`}>
                     {event.verification.pass ? "验收通过" : "验收未完全通过"}
@@ -266,6 +284,16 @@ export default function AgencyDagRunPanel({
             <p className="py-6 text-center text-sm text-slate-500">载入有效 Agency 计划后可查看任务 DAG。</p>
           )}
         </div>
+        {run?.error_message ? (
+          <p className="mt-4 rounded-lg border border-red-300/20 bg-red-300/[0.07] p-3 text-sm leading-6 text-red-100">
+            {run.error_message}
+          </p>
+        ) : null}
+        {run?.resumed_from_task_id ? (
+          <p className="mt-3 break-all text-xs text-cyan-100">
+            本任务续跑自 {run.resumed_from_task_id}；标记“已复用”的步骤未再次调用模型。
+          </p>
+        ) : null}
       </section>
 
       <section className="surface-panel rounded-lg p-5">

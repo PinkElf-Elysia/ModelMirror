@@ -22,13 +22,14 @@ from .contracts import (
     AgencyExecutionWorkerResult,
     AgencyModelRequest,
     AgencyModelResponse,
+    AgencySkillDefinition,
 )
 
 
 AGENCY_EXECUTION_PROTOCOL = "mm-agency-bridge/v2"
 MAX_EXECUTION_MODEL_CALLS = 10
 MAX_EXECUTION_CONCURRENCY = 2
-MAX_MODEL_REQUEST_SECONDS = 180.0
+MAX_MODEL_REQUEST_SECONDS = 240.0
 MAX_EXECUTION_SECONDS = 900.0
 
 ExecutionEventHandler = Callable[[dict[str, Any]], Awaitable[None] | None]
@@ -69,6 +70,8 @@ class AgencyExecutionClient:
         model_id: str,
         workflow: Mapping[str, Any],
         agents: Sequence[AgencyAgentDefinition],
+        skills: Sequence[AgencySkillDefinition] = (),
+        resume: Mapping[str, Any] | None = None,
         on_event: ExecutionEventHandler | None = None,
     ) -> AgencyExecutionWorkerResult:
         if not self.worker_entry.is_file():
@@ -87,6 +90,8 @@ class AgencyExecutionClient:
                 "model_id": model_id,
                 "workflow": dict(workflow),
                 "agents": [agent.model_dump(mode="json") for agent in agents],
+                "skills": [skill.model_dump(mode="json") for skill in skills],
+                **({"resume": dict(resume)} if resume is not None else {}),
             },
         }
         encoded = AgencyWorkerClient._encode(
@@ -100,7 +105,17 @@ class AgencyExecutionClient:
         write_lock = asyncio.Lock()
         model_semaphore = asyncio.Semaphore(MAX_EXECUTION_CONCURRENCY)
         started = time.monotonic()
-        model_calls = 0
+        prior_model_calls = (
+            int(resume.get("prior_model_calls") or 0)
+            if resume is not None
+            else 0
+        )
+        if not 0 <= prior_model_calls <= MAX_EXECUTION_MODEL_CALLS:
+            raise AgencyWorkerError(
+                "Agency resume model-call budget is invalid.",
+                code="agency_execution_plan_invalid",
+            )
+        model_calls = prior_model_calls
         try:
             process, stderr, stderr_task = await AgencyWorkerClient._spawn_process(
                 self.argv,
@@ -248,9 +263,11 @@ class AgencyExecutionClient:
                     "messages": message.get("messages"),
                     "temperature": message.get("temperature"),
                     "max_tokens": message.get("max_tokens"),
+                    "json_response": message.get("json_response", False),
                 }
             )
-            if request.temperature != 0.3 or request.max_tokens > 4096:
+            expected_temperature = 0.0 if request.json_response else 0.3
+            if request.temperature != expected_temperature or request.max_tokens > 4096:
                 raise AgencyWorkerError(
                     "Agency execution model limits are invalid.",
                     code="worker_protocol_invalid",

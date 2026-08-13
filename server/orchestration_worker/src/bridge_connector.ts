@@ -10,10 +10,12 @@ import {
   AgencyBridgeError,
   asObject,
   MAX_MODEL_CALLS,
+  MAX_PLANNING_OUTPUT_TOKENS,
 } from './protocol.js';
 
 export class BridgeConnector implements LLMConnector {
   calls = 0;
+  readonly usage = { input_tokens: 0, output_tokens: 0 };
 
   constructor(
     private readonly channel: JsonlChannel,
@@ -26,6 +28,7 @@ export class BridgeConnector implements LLMConnector {
       throw new AgencyBridgeError('model_call_limit', 'Agency planning exceeded three model calls.');
     }
     const modelRequestId = `${this.bridgeRequestId}:model:${this.calls}`;
+    const maxTokens = config.max_tokens ?? MAX_PLANNING_OUTPUT_TOKENS;
     this.channel.write({
       protocol: AGENCY_BRIDGE_PROTOCOL,
       type: 'model_request',
@@ -37,7 +40,7 @@ export class BridgeConnector implements LLMConnector {
         { role: 'user', content: userMessage },
       ],
       temperature: config.temperature ?? 0.2,
-      max_tokens: config.max_tokens ?? 4096,
+      max_tokens: maxTokens,
     });
 
     const response = asObject(await this.channel.read());
@@ -61,11 +64,21 @@ export class BridgeConnector implements LLMConnector {
       throw new AgencyBridgeError('model_response_invalid', 'Model response content is empty.');
     }
     const usage = asObject(result.usage ?? {}, 'model_response_invalid');
+    const inputTokens = Number.isFinite(usage.input_tokens) ? Math.max(0, Number(usage.input_tokens)) : 0;
+    const outputTokens = Number.isFinite(usage.output_tokens) ? Math.max(0, Number(usage.output_tokens)) : 0;
+    this.usage.input_tokens += inputTokens;
+    this.usage.output_tokens += outputTokens;
+    if (result.finish_reason === 'length') {
+      throw new AgencyBridgeError(
+        'model_output_truncated',
+        `Planning output reached the ${maxTokens}-token limit. Split the goal into separate plans, then retry.`,
+      );
+    }
     return {
       content: result.content,
       usage: {
-        input_tokens: Number.isFinite(usage.input_tokens) ? Number(usage.input_tokens) : 0,
-        output_tokens: Number.isFinite(usage.output_tokens) ? Number(usage.output_tokens) : 0,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
       },
     };
   }

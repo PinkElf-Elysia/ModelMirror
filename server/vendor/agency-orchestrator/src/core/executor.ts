@@ -1,8 +1,9 @@
 /**
  * DAG 执行引擎 — 核心调度器
  *
- * MODELMIRROR MODIFICATION: callers may inject an in-memory agent resolver.
- * The default upstream file-loader behavior remains unchanged.
+ * MODELMIRROR MODIFICATION: callers may inject in-memory agent and Skill
+ * resolvers plus a host-owned template-context view. The default upstream
+ * file-loader and unmodified-context behavior remain unchanged.
  */
 import type {
   WorkflowDefinition,
@@ -17,9 +18,14 @@ import type { DAG } from './dag.js';
 import { renderTemplate } from './template.js';
 import { evaluateCondition } from './condition.js';
 import { loadAgent } from '../agents/loader.js';
-import { collectSkillNames, injectSkills } from '../skills/loader.js';
+import { collectSkillNames, injectSkills, type SkillResolver } from '../skills/loader.js';
 import { createConnector } from '../connectors/factory.js';
-import { verifyAcceptance, buildReworkBlock, formatFailedItems } from './verify.js';
+import {
+  verifyAcceptance,
+  buildReworkBlock,
+  formatFailedItems,
+  type VerifyVerdict,
+} from './verify.js';
 import { createInterface } from 'node:readline';
 
 export interface ExecutorOptions {
@@ -30,6 +36,19 @@ export interface ExecutorOptions {
   inputs: Map<string, string>;
   /** Optional host-owned role catalog; defaults to the upstream file loader. */
   resolveAgent?: (rolePath: string) => AgentDefinition;
+  /** Optional host-owned method Skill catalog; defaults to the upstream file loader. */
+  resolveSkill?: SkillResolver;
+  /** Optional host-owned view used only while rendering a step template. */
+  prepareTemplateContext?: (
+    node: DAGNode,
+    context: ReadonlyMap<string, string>,
+  ) => Map<string, string>;
+  /** Optional host-owned deterministic acceptance checks. */
+  validateOutput?: (
+    node: DAGNode,
+    output: string,
+    acceptance: string,
+  ) => VerifyVerdict | null;
   /** 每步完成的回调 */
   onStepComplete?: (node: DAGNode) => void;
   onStepStart?: (node: DAGNode) => void;
@@ -182,6 +201,9 @@ export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<Wo
           feedback: options.feedback,
           verify: options.verify,
           resolveAgent: options.resolveAgent,
+          resolveSkill: options.resolveSkill,
+          prepareTemplateContext: options.prepareTemplateContext,
+          validateOutput: options.validateOutput,
         }).then(value => {
           // 中断兜底：settle 即写入 sink 一份最小记录，不等整批屏障——否则并行批次里
           // 先完成的步骤在 SIGTERM 时会被当作"未完成"丢弃（产出和 token 白花）。
@@ -409,6 +431,16 @@ async function executeStep(
     feedback?: { stepId: string; text: string; previousOutput?: string };
     verify?: boolean;
     resolveAgent?: (rolePath: string) => AgentDefinition;
+    resolveSkill?: SkillResolver;
+    prepareTemplateContext?: (
+      node: DAGNode,
+      context: ReadonlyMap<string, string>,
+    ) => Map<string, string>;
+    validateOutput?: (
+      node: DAGNode,
+      output: string,
+      acceptance: string,
+    ) => VerifyVerdict | null;
   }
 ): Promise<string> {
   node.status = 'running';
@@ -450,14 +482,17 @@ async function executeStep(
   // 给本步挂 skill（流程剧本）→ 把方法论注入 system prompt 末尾。可选增强，缺失则跳过、不报错。
   const skillNames = collectSkillNames(node.step);
   if (skillNames.length) {
-    const inj = injectSkills(systemPrompt, skillNames);
+    const inj = injectSkills(systemPrompt, skillNames, undefined, opts.resolveSkill);
     systemPrompt = inj.prompt;
     if (inj.applied.length) process.stderr.write(`  🧠 ${node.step.id} 挂载 skill: ${inj.applied.join(', ')}\n`);
     if (inj.missing.length) process.stderr.write(`  ⚠️ 找不到 skill（已跳过）: ${inj.missing.join(', ')}\n`);
   }
 
-  // 渲染任务模板
-  let userMessage = renderTemplate(node.step.task, opts.context);
+  // 渲染任务模板。宿主可为单步提供只读上下文视图；默认仍使用完整上游上下文。
+  const templateContext = opts.prepareTemplateContext
+    ? opts.prepareTemplateContext(node, opts.context)
+    : opts.context;
+  let userMessage = renderTemplate(node.step.task, templateContext);
   // 渲染后的纯任务描述（不含反馈块/验收尾巴），验收核验时给验收员当"任务"上下文
   const renderedTask = userMessage;
 
@@ -470,7 +505,7 @@ async function executeStep(
   // 验收标准：追加在任务最末（含反馈块之后），让"产出必须满足什么"是模型看到的最后指令。
   // 渲染后的文本存回 node，随 StepResult 进 metadata（查看器展示 / 盲评锚点用同一份文本）。
   if (node.step.acceptance) {
-    const acc = renderTemplate(node.step.acceptance, opts.context);
+    const acc = renderTemplate(node.step.acceptance, templateContext);
     node.acceptance = acc;
     const zh = /[一-鿿]/.test(acc);
     userMessage += zh
@@ -586,7 +621,10 @@ async function executeStep(
     return content;
   }
 
-  const check1 = await verifyAcceptance(effectiveConnector, effectiveConfig, renderedTask, content, node.acceptance);
+  const deterministic1 = opts.validateOutput?.(node, content, node.acceptance) ?? null;
+  const check1 = deterministic1 && !deterministic1.pass
+    ? { verdict: deterministic1, tokens: { input: 0, output: 0 } }
+    : await verifyAcceptance(effectiveConnector, effectiveConfig, renderedTask, content, node.acceptance);
   addTokens(check1.tokens);
   if (!check1.verdict) {
     // 核验不可用（网络错误 / 两次解析失败）→ 跳过核验，不拦产出（检查员宕机不停产线）
@@ -611,7 +649,10 @@ async function executeStep(
     return content;
   }
 
-  const check2 = await verifyAcceptance(effectiveConnector, effectiveConfig, renderedTask, reworked, node.acceptance);
+  const deterministic2 = opts.validateOutput?.(node, reworked, node.acceptance) ?? null;
+  const check2 = deterministic2 && !deterministic2.pass
+    ? { verdict: deterministic2, tokens: { input: 0, output: 0 } }
+    : await verifyAcceptance(effectiveConnector, effectiveConfig, renderedTask, reworked, node.acceptance);
   addTokens(check2.tokens);
   if (check2.verdict?.pass) {
     node.verification = { pass: true, failed: [], reworked: true };

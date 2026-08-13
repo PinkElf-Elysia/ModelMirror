@@ -482,8 +482,12 @@ class WorkflowExecutionStore:
                     "error",
                     "verification",
                     "usage",
+                    "cumulative_usage",
                     "warnings",
                     "model_calls",
+                    "reused",
+                    "reused_task_ids",
+                    "resumed_from_task_id",
                     "quality_status",
                     "task_ids",
                     "step_count",
@@ -497,22 +501,33 @@ class WorkflowExecutionStore:
         for key, limit in (("output", 64 * 1024), ("error", 4_000), ("acceptance", 4_000)):
             if key in clean:
                 clean[key] = str(clean[key] or "")[:limit]
-        for key in ("depends_on", "task_ids"):
+        for key in ("depends_on", "task_ids", "reused_task_ids"):
             if key in clean:
                 values = clean[key] if isinstance(clean[key], list) else []
                 clean[key] = [str(value)[:128] for value in values[:6]]
         if "warnings" in clean:
             values = clean["warnings"] if isinstance(clean["warnings"], list) else []
             clean["warnings"] = [str(value)[:500] for value in values[:10]]
-        if "usage" in clean:
-            raw_usage = clean["usage"] if isinstance(clean["usage"], dict) else {}
-            clean["usage"] = {
-                key: max(0, int(value))
-                for key, value in raw_usage.items()
-                if key in {"input_tokens", "output_tokens"}
-                and isinstance(value, (int, float))
-                and not isinstance(value, bool)
-            }
+        for usage_key in ("usage", "cumulative_usage"):
+            if usage_key in clean:
+                raw_usage = (
+                    clean[usage_key]
+                    if isinstance(clean[usage_key], dict)
+                    else {}
+                )
+                clean[usage_key] = {
+                    key: max(0, int(value))
+                    for key, value in raw_usage.items()
+                    if key in {"input_tokens", "output_tokens"}
+                    and isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                }
+        if "reused" in clean:
+            clean["reused"] = bool(clean["reused"])
+        if "resumed_from_task_id" in clean:
+            clean["resumed_from_task_id"] = str(
+                clean["resumed_from_task_id"] or ""
+            )[:200]
         if "verification" in clean:
             raw_verification = (
                 clean["verification"]

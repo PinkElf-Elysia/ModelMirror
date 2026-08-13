@@ -19,6 +19,14 @@ class AgencyAgentDefinition(StrictModel):
     emoji: str | None = Field(default=None, max_length=16)
 
 
+class AgencySkillDefinition(StrictModel):
+    skill_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$", max_length=160)
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=2_000)
+    body: str = Field(min_length=1, max_length=20_000)
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class AgencyModelMessage(StrictModel):
     role: Literal["system", "user"]
     content: str = Field(min_length=1, max_length=2 * 1024 * 1024)
@@ -30,11 +38,13 @@ class AgencyModelRequest(StrictModel):
     messages: list[AgencyModelMessage] = Field(min_length=1, max_length=4)
     temperature: float = Field(ge=0, le=2)
     max_tokens: int = Field(ge=1, le=16_384)
+    json_response: bool = False
 
 
 class AgencyModelResponse(StrictModel):
     content: str = Field(min_length=1, max_length=2 * 1024 * 1024)
     usage: dict[str, int] = Field(default_factory=dict)
+    finish_reason: str | None = Field(default=None, max_length=80)
 
 
 class AgencyWorkerResult(StrictModel):
