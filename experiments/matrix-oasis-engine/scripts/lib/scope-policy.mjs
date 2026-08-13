@@ -1,7 +1,7 @@
 export const MODULE_PREFIX = "experiments/matrix-oasis-engine";
-export const ACTIVE_ROUND = "R10";
+export const ACTIVE_ROUND = "R11";
 export const ACTIVE_ROUND_BASELINE_SHA =
-  "09f4cca4f1e02fe275ada17535597437cac3778d";
+  "da2a914a2ff131507750a0afb8d8881180530f62";
 
 export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "AGENTS.md",
@@ -17,60 +17,50 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "docs/KNOWN_LIMITATIONS.md",
   "docs/PRODUCT.md",
   "docs/V1_CRITICAL_PATH.md",
-  "docs/PROTOTYPE_ASSET_BUNDLE.md",
-  "docs/PROTOTYPE_ASSET_THREAT_MODEL.md",
-  "docs/MESHY_CALL_APPROVAL.md",
-  "docs/PROTOTYPE_ENVIRONMENT.md",
-  "docs/PROTOTYPE_BUILDER_THREAT_MODEL.md",
-  "docs/MARBLE_CALL_APPROVAL.md",
-  "docs/adr/0011-r10-prototype-builder-governance.md",
-  "docs/rounds/R10_ACCEPTANCE.md",
+  "docs/PROTOTYPE_SPATIAL_ENVIRONMENT.md",
+  "docs/PROTOTYPE_SPATIAL_THREAT_MODEL.md",
+  "docs/adr/0012-r11-spatial-environment-governance.md",
+  "docs/rounds/R11_ACCEPTANCE.md",
   "apps/creator-web/package.json",
   "apps/creator-web/src/App.tsx",
   "apps/creator-web/src/styles.css",
   "apps/creator-web/src/prototype-builder.ts",
   "scripts/check-round-scope.mjs",
-  "scripts/plan-prototype-assets.mjs",
-  "scripts/qualify-meshy-asset.mjs",
-  "scripts/materialize-prototype-assets.mjs",
-  "scripts/verify-prototype-assets-godot.mjs",
-  "scripts/import-prototype-cache.mjs",
-  "scripts/preview-prototype.mjs",
-  "scripts/qualify-marble-environment.mjs",
-  "scripts/verify-prototype-environment.mjs",
-  "scripts/verify-prototype-assembly.mjs",
-  "scripts/verify-prototype-host.mjs",
-  "scripts/verify-prototype-builder.mjs",
-  "scripts/verify-r10.mjs",
+  "scripts/qualify-spatial-environment.mjs",
+  "scripts/import-spatial-prototype-cache.mjs",
+  "scripts/preview-spatial-prototype.mjs",
+  "scripts/verify-spatial-environment.mjs",
+  "scripts/verify-spatial-assembly.mjs",
+  "scripts/verify-godot-splat.mjs",
+  "scripts/verify-spatial-builder.mjs",
+  "scripts/verify-r11.mjs",
   "scripts/lib/boundary-core.mjs",
   "scripts/lib/parent-scope-core.mjs",
-  "scripts/lib/prototype-asset-cli-core.mjs",
-  "scripts/lib/prototype-cache-core.mjs",
-  "scripts/lib/prototype-host-core.mjs",
+  "scripts/lib/spatial-cache-core.mjs",
   "scripts/lib/scope-policy.mjs",
   "scripts/run-verify.mjs",
   "scripts/verify-extraction.mjs",
   "tests/boundary.test.mjs",
   "tests/extraction-contract.test.mjs",
-  "tests/prototype-asset-cli.test.mjs",
-  "tests/prototype-asset-qualification.test.mjs",
-  "tests/prototype-asset-godot.test.mjs",
-  "tests/prototype-environment.test.mjs",
-  "tests/prototype-assembly.test.mjs",
-  "tests/prototype-host.test.mjs",
-  "tests/prototype-builder.test.mjs",
-  "tests/r10-qualification.test.mjs",
+  "tests/spatial-environment.test.mjs",
+  "tests/spatial-assembly.test.mjs",
+  "tests/godot-splat.test.mjs",
+  "tests/spatial-builder.test.mjs",
+  "tests/r11-qualification.test.mjs",
   "tests/round-scope.test.mjs",
+  "third-party/godot-gaussian-splatting.lock.json",
+  "third-party/godot-gaussian-splatting/LICENSE",
 ]);
 
 export const ROUND_ALLOWED_MODULE_PREFIXES = Object.freeze([
-  "packages/prototype-environment-pipeline",
-  "packages/prototype-assembler",
-  "apps/runtime-godot/prototype_builder",
+  "packages/prototype-spatial-environment",
+  "packages/prototype-spatial-assembler",
+  "apps/runtime-godot/spatial_prototype",
+  "apps/runtime-godot/addons/gdgs",
 ]);
 
 // Exact allowlist entries above intentionally override these broad frozen roots.
-// Everything inherited from R1-R9 therefore remains frozen unless R10 names it.
+// Everything inherited from R1-R10 therefore remains frozen unless R11 names it.
 export const ROUND_FROZEN_MODULE_PATHS = Object.freeze([
   "apps",
   "docs",

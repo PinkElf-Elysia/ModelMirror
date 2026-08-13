@@ -7,22 +7,22 @@
 1. 只修改本目录；任何父仓文件变更必须先提交父项目变更申请并取得用户人工批准。
 2. 禁止依赖父 `client/`、`server/`、根配置、环境变量、数据库、Docker、CI、路由、资产或构建产物。
 3. 禁止模块外 `file:` / `link:`、符号链接、绝对路径或目录穿越。
-4. 不提交密钥、真实 `.env`、日志、依赖目录、构建产物、Godot 缓存、测试报告或二进制。
+4. 不提交密钥、真实 `.env`、日志、依赖目录、构建产物、Godot 缓存、测试报告或生成的空间资产。
 5. 一批只解决一个可验证目标；先验证后提交；失败不得进入下一批。
 6. 回退只使用 `git revert`，不得重置、覆盖或清理用户工作区。
 
-## R10 专属限制
+## R11 专属限制
 
-- R10 只完成纯文本到 panorama 环境、collider、冻结 Meshy 资产、确定性 Scene Pack 与一键 Godot 预览；不接 SPZ、HQ mesh、AI NPC、存档或父产品。
-- R1–R9 的合同、Runtime、Scene Pack、examples、vendor、历史 ADR/验收和语义测试全部字节冻结；仅本轮明确列出的 Creator 文件与新 Godot wrapper 解冻。
-- 网络例外仅有冻结的 R8 OpenAI adapter、冻结的 R9 Meshy adapter 和 `packages/prototype-environment-pipeline/src/marble-provider.mjs`。Creator、Godot和其他代码仍禁止外部网络。
-- Provider 只接受调用方注入配置。只有本地宿主/资格 CLI 可读取 `MATRIX_OASIS_MODEL_*`、`MATRIX_OASIS_MESHY_API_KEY`、`MATRIX_OASIS_MARBLE_API_KEY` 与 `GODOT_BIN`，且不得返回或持久化其值。
-- Marble 固定 `marble-1.1` 纯文本输入，只消费 panorama PNG 与 collider GLB；SPZ、网页 HQ mesh 和父服务凭据存储均禁止。
-- 真实模型和 Marble/Meshy 操作必须由当前内容哈希绑定的人工审批覆盖；普通 verify 只能使用 loopback 或已验证仓外缓存，不产生费用。
-- 原始响应、任务状态、下载 URL、供应商资产和详细日志只放 `C:\tmp`；仓内只提交适配器、离线测试、脱敏说明和不含供应商标识的合同。
-- Sharp/libvips 仅作为模块本地离线开发工具，适用用户批准的 LGPL-3.0-or-later 例外；不得 vendoring 二进制，也不得进入 Creator、Godot 或 runtime 分发。
-- 每次验证使用固定 R10 基线 `09f4cca4f1e02fe275ada17535597437cac3778d`；committed、staged、unstaged、untracked 一视同仁。
-- 不 push、不创建 PR，直至用户明确回复“R10验收通过，可以创建PR”。
+- R11 只修复 R10 panorama 室内环境缺乏平移视差和空间体积感的问题；不新增 AI NPC、任务、世界事件、图片输入、编辑器、存档、正式导出或父项目接入。
+- R1–R10 contracts、validator、compiler、runtime、Scene Pack、examples、Creator 既有模式、Godot R4–R10、vendor 与历史 ADR/验收记录全部字节冻结；仅本轮机器白名单列出的新包、Godot spatial wrapper、gdgs 原样 vendor、指定 Creator 文件和 R11 文档可变更。
+- 固定输入为仓外 Marble SPZ 与 collider GLB；不创建、轮询或下载新的 Marble/Meshy/模型任务，也不读取其密钥、额度或远程状态。
+- SPZ 只允许通过 `@playcanvas/splat-transform@3.3.0` 和 `@adobe/spz@0.2.2` 离线转换为确定性的 compressed PLY；不得把非确定性 SOG 作为权威缓存格式。
+- Godot 只允许 vendored `ReconWorldLab/godot-gaussian-splatting` v3.3.0、commit `70996511607a886dac9fdd5fc59a0445308eb3db` 的 Compute 路径；不得静默回退 Raster 或 panorama。
+- 全景 PNG 可以保留为来源证据，但 R11 成功预览不得可见渲染 panorama；环境视觉必须来自 full-resolution splat，碰撞来自独立 collider GLB。
+- 所有 metric scale、ground offset、坐标变换与中心补偿必须显式进入 canonical bundle/report；不得以人工试摆或隐藏常量掩盖对齐误差。
+- 普通 verify 只能使用合成夹具或已验证的仓外缓存，不产生费用、不联网、不写入正式工程资产。
+- 每次验证使用固定 R11 基线 `da2a914a2ff131507750a0afb8d8881180530f62`；committed、staged、unstaged、untracked 一视同仁。
+- 不 push、不创建 PR，直至用户明确回复“R11验收通过，可以创建PR”。
 - 不删除或复用其他分支/worktree，不重建共享栈。主线前进时先报告差异，不擅自 rebase。
 
 ## 提交前检查

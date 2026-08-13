@@ -1,6 +1,6 @@
 {
   "name": "@matrix-oasis/engine",
-  "version": "0.10.0-r10",
+  "version": "0.11.0-r11",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
