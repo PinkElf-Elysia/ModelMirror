@@ -954,7 +954,9 @@ class WorkerSessionLedgerEntry(StrictModel):
                 "cancelled",
                 "failed",
                 "interrupted",
+                "waiting_approval",
                 "waiting_input",
+                "waiting_subtasks",
             }:
                 raise ValueError("session ledger turn result is invalid")
         elif self.kind is SessionLedgerKind.PLAN:

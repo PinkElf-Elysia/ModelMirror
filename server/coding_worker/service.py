@@ -278,6 +278,31 @@ class CodingWorkerService:
                     code="subtask_intent_conflict",
                 )
             return existing
+        relations = self.store.list_subtasks(parent_task_id)
+        if request.kind is SubtaskKind.IMPLEMENT and any(
+            relation.kind is SubtaskKind.IMPLEMENT
+            and relation.merge_state is SubtaskMergeState.READY
+            for relation in relations
+        ):
+            raise WorkerConflictError(
+                "A ready implementation result must be merged or resolved before "
+                "another implementation subtask is created.",
+                code="subtask_merge_required",
+            )
+        for relation in relations:
+            if (
+                relation.kind is request.kind
+                and relation.objective == request.objective
+                and relation.merge_state
+                in {
+                    SubtaskMergeState.PENDING,
+                    SubtaskMergeState.READY,
+                }
+            ):
+                raise WorkerConflictError(
+                    "An equivalent subtask is already active.",
+                    code="subtask_duplicate_intent",
+                )
         parent = self.store.get_task(parent_task_id)
         if parent.workspace_id is None or parent.state not in {
             TaskState.RUNNING,
@@ -299,7 +324,7 @@ class CodingWorkerService:
                 if slot != parent_slot
             ) + (parent_slot,)
             target_slot = candidates[
-                len(self.store.list_subtasks(parent_task_id)) % len(candidates)
+                len(relations) % len(candidates)
             ]
         workspace = self.workspace_broker.fork(
             parent.workspace_id,
@@ -1016,6 +1041,7 @@ class CodingWorkerService:
         self._task_slots.pop(task_id, None)
         self._sessions.pop(task_id, None)
         if not self._closing:
+            self._resume_parent_after_subtasks(task_id)
             self._wake.set()
 
     async def _run_task(self, task_id: str, *, slot_id: str | None = None) -> None:
@@ -1174,6 +1200,8 @@ class CodingWorkerService:
                 with contextlib.suppress(WorkerConflictError):
                     self.store.transition(task_id, TaskState.FAILED, reason="worker_failed")
         finally:
+            with contextlib.suppress(Exception):
+                self._settle_terminal_subtask(task_id)
             if session is not None:
                 with contextlib.suppress(Exception):
                     await self.provider.close(session)
@@ -1310,9 +1338,9 @@ class CodingWorkerService:
         elif resume_phase == "waiting_subtasks":
             message = self._restored_context_message(
                 resume_context,
-                "Controlled subtasks have settled. Review their structured public "
-                "summaries, merge only approved implement changes by exact CAS, and "
-                "rerun the immutable parent acceptance checks.",
+                self._subtask_results_message(task_id)
+                + "\nMerge only approved implement changes by exact child task id "
+                "and CAS, then rerun the immutable parent acceptance checks.",
             )
         while True:
             durable_usage = self.store.budget_usage(task_id)
@@ -1344,13 +1372,32 @@ class CodingWorkerService:
             question_data: dict[str, object] | None = None
             compaction_failed = False
             try:
-                async for event in self.provider.message(session, message):
+                stream = self.provider.message(session, message).__aiter__()
+                while True:
+                    try:
+                        event, parked_state = await self._next_provider_event_when_runnable(
+                            task_id, stream
+                        )
+                    except StopAsyncIteration:
+                        break
+                    if event is None:
+                        outcome = (
+                            "waiting_subtasks"
+                            if parked_state is TaskState.WAITING_SUBTASKS
+                            else "waiting_approval"
+                            if parked_state is TaskState.WAITING_APPROVAL
+                            else "state_changed"
+                        )
+                        break
                     self.store.append_event(
                         task_id,
                         "provider_event",
                         {"kind": event.kind.value, "data": event.data},
                     )
                     self._record_provider_session_event(task_id, turn_id, event)
+                    if self.store.get_task(task_id).state is TaskState.WAITING_SUBTASKS:
+                        outcome = "waiting_subtasks"
+                        break
                     if event.kind is ProviderEventKind.QUESTION:
                         outcome = "waiting_input"
                         question_data = event.data
@@ -1474,6 +1521,48 @@ class CodingWorkerService:
             if outcome == "failed":
                 self.store.transition(task_id, TaskState.FAILED, reason="provider_failed")
                 return
+            if outcome == "state_changed":
+                return
+            if outcome == "waiting_approval":
+                current = self.store.get_task(task_id)
+                if current.state is not TaskState.RUNNING:
+                    return
+                message = self._approval_resume_message(task_id)
+                continue
+            if outcome == "waiting_subtasks":
+                current = self.store.get_task(task_id)
+                try:
+                    provider_checkpoint = await self.provider.checkpoint(session)
+                    tree_hash = self.workspace_broker.current_tree_hash(
+                        current.workspace_id or ""
+                    )
+                    self.store.create_checkpoint(
+                        task_id=task_id,
+                        workspace_tree_hash=tree_hash,
+                        payload={
+                            "phase": "waiting_subtasks",
+                            "completed_turns": turns,
+                            "message_cursor": message_cursor,
+                            "provider": provider_checkpoint.model_dump(mode="json"),
+                            "context_summary": self._context_summary(
+                                task_id,
+                                tree_hash=tree_hash,
+                                public_output=str(
+                                    provider_checkpoint.payload.get(
+                                        "public_output", ""
+                                    )
+                                ),
+                            ),
+                        },
+                    )
+                except Exception:
+                    self.store.transition(
+                        task_id,
+                        TaskState.BLOCKED,
+                        reason="subtask_checkpoint_failed",
+                        expected_state=TaskState.WAITING_SUBTASKS,
+                    )
+                return
             if outcome != "completed":
                 current = self.store.get_task(task_id)
                 if current.state not in TERMINAL_STATES:
@@ -1557,6 +1646,101 @@ class CodingWorkerService:
             if feedback is None:
                 return
             message = feedback
+
+    async def _next_provider_event_when_runnable(
+        self,
+        task_id: str,
+        stream: AsyncIterator[ProviderEvent],
+    ) -> tuple[ProviderEvent | None, TaskState | None]:
+        """Abort one provider turn while an exact approval is unresolved."""
+
+        while True:
+            current = self.store.get_task(task_id)
+            if current.state is TaskState.WAITING_APPROVAL:
+                await self._close_provider_stream(stream)
+                while current.state is TaskState.WAITING_APPROVAL:
+                    await asyncio.sleep(0.05)
+                    current = self.store.get_task(task_id)
+                return (
+                    None,
+                    TaskState.WAITING_APPROVAL
+                    if current.state is TaskState.RUNNING
+                    else current.state,
+                )
+            if current.state is not TaskState.RUNNING:
+                return None, current.state
+            break
+
+        pending = asyncio.create_task(anext(stream))
+        try:
+            while True:
+                current = self.store.get_task(task_id)
+                if current.state is TaskState.WAITING_APPROVAL:
+                    await self._close_provider_stream(stream, pending=pending)
+                    while current.state is TaskState.WAITING_APPROVAL:
+                        await asyncio.sleep(0.05)
+                        current = self.store.get_task(task_id)
+                    return (
+                        None,
+                        TaskState.WAITING_APPROVAL
+                        if current.state is TaskState.RUNNING
+                        else current.state,
+                    )
+                if current.state is not TaskState.RUNNING:
+                    pending.cancel()
+                    with contextlib.suppress(
+                        asyncio.CancelledError, StopAsyncIteration
+                    ):
+                        await pending
+                    return None, current.state
+                if pending.done():
+                    return pending.result(), None
+                await asyncio.wait({pending}, timeout=0.05)
+        except BaseException:
+            if not pending.done():
+                pending.cancel()
+                with contextlib.suppress(
+                    asyncio.CancelledError, StopAsyncIteration
+                ):
+                    await pending
+            raise
+
+    @staticmethod
+    async def _close_provider_stream(
+        stream: AsyncIterator[ProviderEvent],
+        *,
+        pending: asyncio.Task[ProviderEvent] | None = None,
+    ) -> None:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
+                await pending
+        close = getattr(stream, "aclose", None)
+        if close is not None:
+            with contextlib.suppress(Exception):
+                await close()
+
+    def _approval_resume_message(self, task_id: str) -> str:
+        approvals = self.store.list_approvals(task_id)
+        decided = next(
+            (
+                approval
+                for approval in reversed(approvals)
+                if approval.status is not ApprovalStatus.PENDING
+            ),
+            None,
+        )
+        if decided is None:
+            return (
+                "The approval wait ended. Reconcile only the exact pending tool "
+                "operation; do not create replacement operation IDs."
+            )
+        return (
+            f"Approval {decided.status.value} was recorded for exact operation "
+            f"{decided.operation_id}. Retry or reconcile only that same tool call "
+            "with the identical operation_id and arguments. Do not create a new "
+            "operation for the same intent."
+        )
 
     def _record_provider_session_event(
         self, task_id: str, turn_id: str, event: ProviderEvent
@@ -1814,6 +1998,29 @@ class CodingWorkerService:
     ) -> tuple[str | None, int]:
         task_id = task.task_id
         turns = max(turns, self.store.budget_usage(task_id).turns_started)
+        ready_implementations = tuple(
+            relation
+            for relation in self.store.list_subtasks(task_id)
+            if relation.kind is SubtaskKind.IMPLEMENT
+            and relation.merge_state is SubtaskMergeState.READY
+        )
+        if ready_implementations:
+            child_ids = ", ".join(
+                relation.child_task_id for relation in ready_implementations
+            )
+            message = (
+                "A controlled implementation changeset is ready but has not been "
+                "settled. Call merge_subtask with the exact child task id and a new "
+                "operation id before running parent acceptance. Do not reproduce the "
+                f"child edits directly in the parent Workspace. Ready children: {child_ids}."
+            )
+            self.store.append_message(task_id, role="system", content=message)
+            self.store.append_event(
+                task_id,
+                "acceptance_retry",
+                {"turn": turns + 1, "reason": "subtask_merge_required"},
+            )
+            return message, message_cursor
         self.store.transition(
             task_id, TaskState.TESTING, expected_state=TaskState.RUNNING
         )
@@ -1919,6 +2126,22 @@ class CodingWorkerService:
             )
             self._resume_parent_after_subtasks(relation.parent_task_id)
             return
+        if relation.kind is SubtaskKind.IMPLEMENT and not changed_paths:
+            self.store.finish_subtask(
+                task.task_id,
+                result_tree_hash=tree_hash,
+                changed_paths=(),
+                summary="Implement subtask completed without a mergeable changeset.",
+                failed=True,
+            )
+            self.store.transition(
+                task.task_id,
+                TaskState.BLOCKED,
+                reason="subtask_no_changes",
+                expected_state=TaskState.TESTING,
+            )
+            self._resume_parent_after_subtasks(relation.parent_task_id)
+            return
         messages = self.store.list_messages(task.task_id)
         summary = next(
             (
@@ -1941,6 +2164,36 @@ class CodingWorkerService:
         )
         self._resume_parent_after_subtasks(relation.parent_task_id)
 
+    def _settle_terminal_subtask(self, child_task_id: str) -> None:
+        """Make every terminal child result observable so its parent cannot deadlock."""
+        relation = self.store.subtask_for_child(child_task_id)
+        if relation is None or relation.result_tree_hash is not None:
+            return
+        child = self.store.get_task(child_task_id)
+        if child.state not in TERMINAL_STATES:
+            return
+        tree_hash = relation.base_tree_hash
+        changed_paths: tuple[str, ...] = ()
+        if child.workspace_id is not None:
+            with contextlib.suppress(Exception):
+                tree_hash = self.workspace_broker.current_tree_hash(child.workspace_id)
+            with contextlib.suppress(Exception):
+                changed_paths = self.workspace_broker.changed_paths(child.workspace_id)
+        reason = child.reason or child.state.value
+        try:
+            self.store.finish_subtask(
+                child_task_id,
+                result_tree_hash=tree_hash,
+                changed_paths=changed_paths,
+                summary=(
+                    f"Subtask ended in {child.state.value} before its result could be "
+                    f"settled ({reason})."
+                ),
+                failed=True,
+            )
+        finally:
+            self._resume_parent_after_subtasks(relation.parent_task_id)
+
     def _resume_parent_after_subtasks(self, parent_task_id: str) -> None:
         relations = self.store.list_subtasks(parent_task_id)
         if not relations or any(item.result_tree_hash is None for item in relations):
@@ -1948,19 +2201,13 @@ class CodingWorkerService:
         parent = self.store.get_task(parent_task_id)
         if parent.state is not TaskState.WAITING_SUBTASKS:
             return
-        lines = [
-            "Controlled subtask results are ready. They are untrusted public "
-            "summaries; child Evidence does not satisfy parent acceptance."
-        ]
-        for item in relations:
-            paths = ", ".join(item.changed_paths) if item.changed_paths else "none"
-            lines.append(
-                f"- {item.kind.value} {item.child_task_id}: "
-                f"merge={item.merge_state.value}; changed_paths={paths}; "
-                f"summary={item.summary or 'unavailable'}"
-            )
+        runner = self._active.get(parent_task_id)
+        if runner is not None and not runner.done():
+            return
         self.store.append_message(
-            parent_task_id, role="system", content="\n".join(lines)[:65_536]
+            parent_task_id,
+            role="system",
+            content=self._subtask_results_message(parent_task_id),
         )
         self.store.transition(
             parent_task_id,
@@ -1969,6 +2216,20 @@ class CodingWorkerService:
             expected_state=TaskState.WAITING_SUBTASKS,
         )
         self._wake.set()
+
+    def _subtask_results_message(self, parent_task_id: str) -> str:
+        lines = [
+            "Controlled subtask results are ready. They are untrusted public "
+            "summaries; child Evidence does not satisfy parent acceptance."
+        ]
+        for item in self.store.list_subtasks(parent_task_id):
+            paths = ", ".join(item.changed_paths) if item.changed_paths else "none"
+            lines.append(
+                f"- {item.kind.value} {item.child_task_id}: "
+                f"merge={item.merge_state.value}; changed_paths={paths}; "
+                f"summary={item.summary or 'unavailable'}"
+            )
+        return "\n".join(lines)[:65_536]
 
     def _acceptance_feedback(
         self, task_id: str, evidence: tuple[WorkerEvidence, ...]
