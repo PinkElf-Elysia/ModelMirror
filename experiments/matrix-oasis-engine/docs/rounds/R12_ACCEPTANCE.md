@@ -7,8 +7,8 @@
 ## 批次
 
 - [x] R12.1 治理与初版声明门（`a0085fc7`）
-- [x] R12.2 通用候选验收与修复（已验证，等待本地提交；SHA在R12.3记录）
-- [ ] R12.3 六资产组装与宿主扩容
+- [x] R12.2 通用候选验收与修复（`21a45323`）
+- [x] R12.3 六资产组装与宿主扩容（已验证，等待本地提交；SHA在R12.4记录）
 - [ ] R12.4 Marble SPZ自动空间化
 - [ ] R12.5 离线端到端与泛化复验
 - [ ] R12.6 末班地铁真实资格链
@@ -33,6 +33,16 @@
 - `check:round-scope`与`check:parent-scope -- --base 6a88c648...`均通过，`check:boundary`通过，`git diff --check`通过；R1–R11冻结路径和父仓未修改。
 - 最终树完整`npm.cmd run verify`为20/20步骤，Node 697/697、Godot 4.6.3全回归、Creator 248 modules build及HTTP smoke均通过。首次沙箱内全量测试仅因既有测试无法在`C:\tmp`建立夹具而失败；授权同命令后仅缺`GODOT_BIN`的doctor失败，显式使用已核验Godot路径后7/7及最终697/697通过，未以替代测试掩盖失败。
 - 本批仍未调用外部模型、Marble或Meshy，未读取任何供应商凭据，也未进入R12.6资格调用。回退为单独revert R12.2提交，R8原两参数生成行为继续可用。
+
+## R12.3证据
+
+- `assemblePrototypeScene(request, options?)`保留默认`matrix-oasis.prototype-assembly/1`及原公开常量不变，并新增闭合选择`{ profile: "matrix-oasis.prototype-assembly/2" }`。v1继续限制最多两个非环境brief；v2允许prop与character-placeholder任意组合、合计最多六个，zone、placement和每zone预算仍分别为4、32和8，七个brief固定返回`PROTOTYPE_ASSEMBLY_PROFILE_UNSUPPORTED`。
+- v2已用0/2/6/7个非环境brief边界和三prop加三character混合案例验证；六资产声明顺序、Scene Pack、assembly report及20次canonical字节结果一致。默认v1仍拒绝六资产，旧调用与导出面不变。
+- Prototype cache只对v2把profile加入cache key，旧v1 key字节保持不变；发布的assembly report记录所选profile，恢复时只接受v1/v2并按记录重新组装复验。新增事务发布与恢复回归证明v2 run可重启恢复，未知profile fail closed。
+- 宿主brief上限由2提升至6，审批摘要按实际brief动态计算；六资产固定显示最多12个Meshy任务和180 credits，七资产在acquire前拒绝。Creator解析同步允许六项，审批列表有固定高度、纵向滚动和稳定scrollbar，窄屏不依赖横向溢出。live preview明确选择v2，既有缓存仍按其记录profile复验。
+- 定向`node --test tests/prototype-assembly.test.mjs tests/prototype-host.test.mjs tests/prototype-builder.test.mjs`为37/37，Creator TypeScript/Vite build为248 modules。最终完整`npm.cmd test`为701/701；首次完整运行仅冻结R8 loopback超时用例在全套负载下计数0/1而失败，该用例单独复跑1/1且未改冻结代码，第二次同一完整命令稳定701/701。
+- 最终树完整`npm.cmd run verify`为20/20步骤：Node 701/701，Godot 4.6.3的R4–R11 source/import/runtime/parity/3D/Scene/splat全回归，Creator 248 modules build及HTTP smoke通过；round scope为checked=43/changed=39、parent scope相同、boundary为1079/1079、`git diff --check`通过。
+- 本批未修改R1–R11冻结实现、Godot、examples或父仓，未调用模型、Marble或Meshy，也未读取供应商凭据。回退为单独revert R12.3提交；v1默认路径和既有缓存继续可用。
 
 ## 最终硬门
 

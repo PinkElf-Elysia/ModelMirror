@@ -207,7 +207,7 @@ export function createPrototypeHost({ configuration, operations, webAssets, crea
       if (!generated?.ok) return failRun(run, generated?.diagnostics, "PROTOTYPE_HOST_GENERATION_FAILED");
       const description = await op.describeAssets({ artifacts: generated.artifacts });
       if (!description?.ok || !HASH.test(description.blueprintSha256) || typeof description.environmentPrompt !== "string" ||
-          !Array.isArray(description.briefs) || description.briefs.length > 2) {
+          !Array.isArray(description.briefs) || description.briefs.length > 6) {
         return failRun(run, description?.diagnostics, "PROTOTYPE_HOST_GENERATION_FAILED");
       }
       run.artifacts = generated.artifacts;

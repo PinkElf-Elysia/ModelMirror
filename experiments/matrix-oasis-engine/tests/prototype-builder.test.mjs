@@ -23,12 +23,17 @@ function modelApproval() {
     approvalHash: HASH_B, approved: false };
 }
 
-function assetApproval() {
+function assetApproval(count = 1) {
+  const briefs = Array.from({ length: count }, (_, index) => ({
+    id: `asset-${index}`,
+    kind: index % 2 === 0 ? "prop" : "character-placeholder",
+    prompt: `A neutral generated asset ${index}.`,
+  }));
   return { blueprintSha256: HASH_A, marble: { model: "marble-1.1",
     environmentPrompt: "A quiet room.\nSoft indirect light.", maxCreates: 1, maxPolls: 180,
     maxDownloads: 2, creditLimit: 1600, usdLimitCents: 150 },
-  meshy: { model: "meshy-6", briefs: [{ id: "asset-prop", kind: "prop", prompt: "A plain console." }],
-    maxTasks: 2, creditLimit: 30 }, approvalHash: HASH_B, approved: false };
+  meshy: { model: "meshy-6", briefs,
+    maxTasks: count * 2, creditLimit: count * 30 }, approvalHash: HASH_B, approved: false };
 }
 
 function run(overrides = {}) {
@@ -83,6 +88,27 @@ test("malformed, oversized, and dynamic failure responses collapse to static cli
   }
 });
 
+test("client accepts six approval briefs but rejects seven", async () => {
+  for (const [count, accepted] of [[6, true], [7, false]]) {
+    const client = new PrototypeBuilderClient(async (input) => {
+      if (String(input).endsWith("/approve-model")) {
+        return response({ ok: true, run: run({ status: "awaiting_asset_approval",
+          modelApproval: null, assetApproval: assetApproval(count) }) }, 202);
+      }
+      return response({ ok: true, run: run() });
+    });
+    const created = run();
+    if (accepted) {
+      const waiting = await client.approveModel(created);
+      assert.equal(waiting.assetApproval?.meshy.briefs.length, 6);
+      assert.equal(waiting.assetApproval?.meshy.maxTasks, 12);
+      assert.equal(waiting.assetApproval?.meshy.creditLimit, 180);
+    } else {
+      await assert.rejects(() => client.approveModel(created), PrototypeBuilderClientError);
+    }
+  }
+});
+
 test("Godot launch arguments bind exactly one verified run to the R10 wrapper", () => {
   const fixtureRoot = path.resolve(path.parse(process.cwd()).root, "tmp");
   const projectRoot = path.join(fixtureRoot, "r10-project");
@@ -116,6 +142,7 @@ test("Creator and Godot wrapper preserve old modes and expose the bounded R10 UX
   for (const forbidden of ["API-Key", "任务 ID", "JSON 编辑", "gradient", "backdrop-filter", "animation:"])
     assert.equal(`${app}\n${client}\n${css}`.includes(forbidden), false);
   assert.match(css, /@media \(max-width: 640px\)/u); assert.match(css, /min-width: 320px/u);
+  assert.match(css, /\.upload-summary ul[\s\S]*max-height: 18rem[\s\S]*overflow-y: auto/u);
   assert.equal(lab.includes("PanoramaSkyMaterial"), true); assert.equal(lab.includes('get_node_or_null("Visual")'), true);
   assert.equal(lab.includes(".visible = false"), true); assert.equal(lab.includes("MATRIX_OASIS_R10_PROTOTYPE_READY"), true);
   assert.equal(lab.includes("TARGET_FLOOR_SPAN_METERS := 30.0"), true);

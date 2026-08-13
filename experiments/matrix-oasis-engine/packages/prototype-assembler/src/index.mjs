@@ -34,6 +34,10 @@ export const PROTOTYPE_ASSEMBLY_PROFILE = Object.freeze({
   id: "matrix-oasis.prototype-assembly/1", maxZones: 4, maxNonEnvironmentBriefs: 2,
   maxPlacements: 32, maxPlacementsPerZone: 8,
 });
+const PROTOTYPE_ASSEMBLY_PROFILE_V2 = Object.freeze({
+  id: "matrix-oasis.prototype-assembly/2", maxZones: 4, maxNonEnvironmentBriefs: 6,
+  maxPlacements: 32, maxPlacementsPerZone: 8,
+});
 
 export class PrototypeAssemblerOperationalError extends Error {
   constructor() {
@@ -88,6 +92,15 @@ function captureRequest(request) {
   return output;
 }
 
+function captureProfile(options) {
+  if (options === undefined) return PROTOTYPE_ASSEMBLY_PROFILE;
+  if (options === null || typeof options !== "object" || Object.getPrototypeOf(options) !== Object.prototype) return null;
+  const descriptors = Object.getOwnPropertyDescriptors(options);
+  if (Reflect.ownKeys(descriptors).length !== 1 || !descriptors.profile?.enumerable ||
+      !("value" in descriptors.profile) || descriptors.profile.value !== PROTOTYPE_ASSEMBLY_PROFILE_V2.id) return null;
+  return PROTOTYPE_ASSEMBLY_PROFILE_V2;
+}
+
 function captureFileMap(value) {
   if (value === null || typeof value !== "object" || Object.getPrototypeOf(value) !== Map.prototype) return null;
   const output = new Map();
@@ -140,18 +153,19 @@ function assetIdentityMatches(bundle, runtimePack, receipt, blueprintSha) {
     identity.artifactSha256 === `sha256:${receipt.artifact.sha256}`;
 }
 
-function profileCheck(blueprint) {
-  if (blueprint.zones.length < 1 || blueprint.zones.length > PROTOTYPE_ASSEMBLY_PROFILE.maxZones ||
-      blueprint.placements.length > PROTOTYPE_ASSEMBLY_PROFILE.maxPlacements) return false;
+function profileCheck(blueprint, profile) {
+  if (blueprint.zones.length < 1 || blueprint.zones.length > profile.maxZones ||
+      blueprint.placements.length > profile.maxPlacements) return false;
   const nonEnvironment = blueprint.assetBriefs.filter((brief) => brief.kind !== "environment");
-  if (nonEnvironment.length > PROTOTYPE_ASSEMBLY_PROFILE.maxNonEnvironmentBriefs ||
-      nonEnvironment.filter((brief) => brief.kind === "prop").length > 1 ||
-      nonEnvironment.filter((brief) => brief.kind === "character-placeholder").length > 1) return false;
+  if (nonEnvironment.length > profile.maxNonEnvironmentBriefs ||
+      (profile.id === PROTOTYPE_ASSEMBLY_PROFILE.id &&
+       (nonEnvironment.filter((brief) => brief.kind === "prop").length > 1 ||
+        nonEnvironment.filter((brief) => brief.kind === "character-placeholder").length > 1))) return false;
   const counts = new Map(blueprint.zones.map((zone) => [zone.id, 0]));
   for (const placement of blueprint.placements) {
     if (!counts.has(placement.zoneId)) return false;
     const next = counts.get(placement.zoneId) + 1;
-    if (next > PROTOTYPE_ASSEMBLY_PROFILE.maxPlacementsPerZone) return false;
+    if (next > profile.maxPlacementsPerZone) return false;
     counts.set(placement.zoneId, next);
   }
   return true;
@@ -253,8 +267,8 @@ function referencedFiles(scene, assetBundle, environmentBundle) {
   return output;
 }
 
-function assemblyReport(values) {
-  return { reportVersion: 1, profile: PROTOTYPE_ASSEMBLY_PROFILE.id,
+function assemblyReport(values, profile) {
+  return { reportVersion: 1, profile: profile.id,
     inputs: {
       authoringGamePackSha256: sha256Text(values.authoringText),
       sceneBlueprintSha256: sha256Text(values.blueprintText),
@@ -270,7 +284,7 @@ function assemblyReport(values) {
       referencedFiles: values.referenced.map(({ source, path }) => ({ source, path })) } };
 }
 
-async function assemble(request) {
+async function assemble(request, profile) {
   const captured = captureRequest(request);
   if (!captured) return reject("PROTOTYPE_ASSEMBLY_INPUT_INVALID");
   const assetFiles = captureFileMap(captured.assetFiles);
@@ -282,7 +296,7 @@ async function assemble(request) {
   const proposal = prepareGenerationProposalJson(canonicalizeJsonValue({ format: GENERATION_PROPOSAL_FORMAT,
     formatVersion: GENERATION_PROPOSAL_FORMAT_VERSION, authoringGamePack: authoring, sceneBlueprint: blueprint }));
   if (!proposal?.ok) return reject("PROTOTYPE_ASSEMBLY_GENERATION_INVALID");
-  if (!profileCheck(blueprint)) return reject("PROTOTYPE_ASSEMBLY_PROFILE_UNSUPPORTED", "/sceneBlueprint");
+  if (!profileCheck(blueprint, profile)) return reject("PROTOTYPE_ASSEMBLY_PROFILE_UNSUPPORTED", "/sceneBlueprint");
   const runtimeReport = await validateRuntimeGamePackJson(captured.runtimeGamePackJson, captured.runtimeReceiptJson);
   if (!isValidReport(runtimeReport)) return reject("PROTOTYPE_ASSEMBLY_RUNTIME_INVALID");
   const runtimePack = JSON.parse(captured.runtimeGamePackJson);
@@ -317,12 +331,16 @@ async function assemble(request) {
     blueprintText: captured.sceneBlueprintJson, runtimeText: captured.runtimeGamePackJson,
     receiptText: captured.runtimeReceiptJson, assetText: captured.assetBundleJson,
     environmentText: captured.environmentBundleJson, sceneText: canonicalScenePackJson,
-    scene, environmentBundle, referenced }));
+    scene, environmentBundle, referenced }, profile));
   return deepFreeze({ ok: true, canonicalScenePackJson, canonicalAssemblyReportJson, referencedFiles: referenced });
 }
 
-export async function assemblePrototypeScene(request) {
-  try { return await assemble(request); }
+export async function assemblePrototypeScene(request, options) {
+  try {
+    const profile = captureProfile(options);
+    if (!profile) return reject("PROTOTYPE_ASSEMBLY_PROFILE_UNSUPPORTED", "/profile");
+    return await assemble(request, profile);
+  }
   catch (error) {
     if (error instanceof PrototypeAssemblerOperationalError) throw error;
     throw new PrototypeAssemblerOperationalError();

@@ -153,6 +153,70 @@ test("model and asset approvals are content-bound and external operations start 
   assert.equal(duplicate.status, 409); assert.equal(calls.acquire, 1);
 });
 
+test("asset approval expands to six briefs and twelve bounded Meshy tasks", async () => {
+  const briefs = Array.from({ length: 6 }, (_, index) => ({
+    id: `asset-${index}`,
+    kind: index % 2 === 0 ? "prop" : "character-placeholder",
+    prompt: `Neutral asset brief ${index}`,
+  }));
+  const fixture = operationFixture({
+    async describeAssets() {
+      fixture.calls.describeAssets += 1;
+      return {
+        ok: true,
+        blueprintSha256: `sha256:${"e".repeat(64)}`,
+        environmentPrompt: "A connected neutral environment.",
+        briefs,
+      };
+    },
+  });
+  const host = createPrototypeHost({ configuration: configuration(), operations: fixture.operations });
+  await host.start();
+  try {
+    const { cookie } = await session();
+    const created = await createRun(cookie);
+    await request(`/api/runs/${created.body.run.id}/approve-model`, {
+      method: "POST",
+      cookie,
+      body: { approvalHash: created.body.run.modelApproval.approvalHash },
+    });
+    const waiting = await waitFor(cookie, created.body.run.id, "awaiting_asset_approval");
+    assert.deepEqual(waiting.assetApproval.meshy.briefs, briefs);
+    assert.equal(waiting.assetApproval.meshy.maxTasks, 12);
+    assert.equal(waiting.assetApproval.meshy.creditLimit, 180);
+    assert.equal(fixture.calls.acquire, 0);
+  } finally {
+    await host.stop();
+  }
+
+  const overLimit = operationFixture({
+    async describeAssets() {
+      return {
+        ok: true,
+        blueprintSha256: `sha256:${"e".repeat(64)}`,
+        environmentPrompt: "A connected neutral environment.",
+        briefs: [...briefs, { id: "asset-6", kind: "prop", prompt: "One extra brief" }],
+      };
+    },
+  });
+  const rejectedHost = createPrototypeHost({ configuration: configuration(), operations: overLimit.operations });
+  await rejectedHost.start();
+  try {
+    const { cookie } = await session();
+    const created = await createRun(cookie);
+    await request(`/api/runs/${created.body.run.id}/approve-model`, {
+      method: "POST",
+      cookie,
+      body: { approvalHash: created.body.run.modelApproval.approvalHash },
+    });
+    const failed = await waitFor(cookie, created.body.run.id, "failed");
+    assert.equal(failed.diagnostics[0].code, "PROTOTYPE_HOST_GENERATION_FAILED");
+    assert.equal(overLimit.calls.acquire, 0);
+  } finally {
+    await rejectedHost.stop();
+  }
+});
+
 test("only one nonterminal run exists and a cache hit requires no approval or provider operation", async (t) => {
   const fixture = operationFixture({ async findCache() { fixture.calls.findCache += 1; return { ok: true, runId: SECOND_RUN }; } });
   const host = createPrototypeHost({ configuration: configuration({ modelReady: false, assetsReady: false }), operations: fixture.operations });
@@ -276,6 +340,7 @@ test("host and preview source do not implement provider networking or expose sec
   assert.equal(hostSource.includes("fetch("), false); assert.equal(hostSource.includes("process.env"), false);
   const preview = await readFile(new URL("../scripts/preview-prototype.mjs", import.meta.url), "utf8");
   assert.equal(preview.includes("console.log"), false); assert.equal(preview.includes("shell: true"), false);
+  assert.equal(preview.includes('assemblyProfile: "matrix-oasis.prototype-assembly/2"'), true);
   assert.equal(preview.includes("environmentPrompt: environmentPlan.plan.environmentPrompt"), true);
   assert.equal(preview.includes("environmentPrompt: blueprint.scene.environmentPrompt"), false);
   for (const forbidden of ["LLM_GATEWAY_", "OPENROUTER_API_KEY", "WORLD_LABS_API_KEY"]) assert.equal(preview.includes(forbidden), false);

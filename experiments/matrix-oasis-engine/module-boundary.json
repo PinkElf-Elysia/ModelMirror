@@ -15,10 +15,10 @@
       "apps/runtime-godot/spatial_prototype/spatial_assembly_loader.gd", "apps/runtime-godot/spatial_prototype/spatial_lab.gd", "apps/runtime-godot/spatial_prototype/spatial_lab.tscn",
       "scripts/check-round-scope.mjs", "scripts/check-mvp-claim.mjs", "scripts/check-godot-boundary.mjs", "scripts/import-spatial-prototype-cache.mjs", "scripts/preview-spatial-prototype.mjs",
       "scripts/verify-spatial-builder.mjs", "scripts/plan-r12-call.mjs", "scripts/qualify-r12.mjs", "scripts/preview-r12.mjs", "scripts/verify-r12.mjs",
-      "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/prototype-host-core.mjs",
+      "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/prototype-cache-core.mjs", "scripts/lib/prototype-host-core.mjs",
       "scripts/lib/r12-host-core.mjs", "scripts/lib/r12-qualification-core.mjs", "scripts/lib/spatial-cache-core.mjs", "scripts/lib/scope-policy.mjs",
-      "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/mvp-claim.test.mjs", "tests/prototype-builder.test.mjs", "tests/prototype-host.test.mjs", "tests/spatial-builder.test.mjs",
+      "scripts/run-verify.mjs", "scripts/preview-prototype.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
+      "tests/mvp-claim.test.mjs", "tests/prototype-assembly.test.mjs", "tests/prototype-builder.test.mjs", "tests/prototype-host.test.mjs", "tests/spatial-builder.test.mjs",
       "tests/r12-acceptance-profile.test.mjs", "tests/r12-multi-asset.test.mjs", "tests/r12-spatial-materialization.test.mjs", "tests/r12-generalization.test.mjs",
       "tests/r12-host.test.mjs", "tests/r12-qualification.test.mjs", "tests/round-scope.test.mjs"
     ],

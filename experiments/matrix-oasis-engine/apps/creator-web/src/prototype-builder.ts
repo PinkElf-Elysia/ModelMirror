@@ -239,7 +239,7 @@ function parseAssetApproval(value: unknown): PrototypeAssetApproval | null {
     !exactKeys(value.meshy, ["model", "briefs", "maxTasks", "creditLimit"]) ||
     value.meshy.model !== "meshy-6" ||
     !Array.isArray(value.meshy.briefs) ||
-    value.meshy.briefs.length > 2 ||
+    value.meshy.briefs.length > 6 ||
     value.meshy.maxTasks !== value.meshy.briefs.length * 2 ||
     value.meshy.creditLimit !== value.meshy.briefs.length * 30
   ) {

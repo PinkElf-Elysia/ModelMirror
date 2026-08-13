@@ -170,13 +170,16 @@ test("accepts exact R12 files and compatibility package prefixes in every Git st
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
+  write(fixture, `${MODULE_PREFIX}/scripts/lib/prototype-cache-core.mjs`);
+  write(fixture, `${MODULE_PREFIX}/scripts/preview-prototype.mjs`);
+  write(fixture, `${MODULE_PREFIX}/tests/prototype-assembly.test.mjs`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R12_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/spatial_prototype/spatial_lab.gd`, "extends Node3D\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
   assert.equal(result.mode, "parent");
-  assert.equal(result.uniqueChangedPaths, 5);
+  assert.equal(result.uniqueChangedPaths, 8);
 });
 
 test("rejects a committed R1 contracts change", (t) => {
