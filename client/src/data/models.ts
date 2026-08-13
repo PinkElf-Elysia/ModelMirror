@@ -1,6 +1,6 @@
-﻿// Merged with OpenRouter model catalog on 2026-08-12T06:32:56.587Z.
+﻿// Merged with OpenRouter model catalog on 2026-08-13T07:25:13.212Z.
 // Current OpenRouter refresh verified on 2026-08-13 against the live all-modalities catalog.
-// Refreshed with entries published through 2026-08-13.
+// Refreshed with entries published through 2026-08-13T05:08:04.000Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
 // Full OpenRouter catalog audit refresh: 2026-08-13. Batch catalog entries are
 // attached to their canonical models as serving variants and excluded from
@@ -10,6 +10,13 @@
 // Speech source: https://openrouter.ai/api/v1/models?output_modalities=speech
 // Video source: https://openrouter.ai/api/v1/videos/models
 // Prices are stored as USD per 1M tokens and CNY per 1M tokens.
+import {
+  EMPTY_OPENROUTER_MARKET_SNAPSHOT,
+  type OpenRouterMarketSeries,
+  type OpenRouterMarketSnapshot,
+} from "./openRouterMarket";
+import { openRouterMarketSnapshotByModelId } from "./openRouterMarketSnapshot";
+
 export const USD_TO_CNY = 6.77;
 
 export type Provider = string;
@@ -66,7 +73,6 @@ export type JobCapability =
   | "video_generation"
   | "embedding"
   | "rerank"
-  | "translation"
   | "safety"
   | "world_generation";
 export type InteractionStatus = "ready" | "planned" | "unsupported";
@@ -80,21 +86,31 @@ export type Category = string;
 export type SupportedParameter = string;
 export type PricingTier = "free" | "dynamic" | "low" | "medium" | "high";
 export type PricingStatus = "fixed" | "free" | "dynamic";
+export type PricingBasis = "token" | "media" | "request" | "dynamic" | "free";
 export type ModelServingVariantType = "realtime" | "batch";
 export type ModelServingEndpoint =
   | "synchronous"
   | "/v1/chat/completions"
   | "/v1/embeddings";
 
+export interface TokenPricing {
+  input: number;
+  output: number;
+}
+
+export interface TokenPricingOverride {
+  min_prompt_tokens: number;
+  pricing: TokenPricing;
+  price_cny: TokenPricing;
+}
+
 export interface ModelServingVariant {
   type: ModelServingVariantType;
   catalog_id: string;
   request_model_id: string;
   endpoint: ModelServingEndpoint;
-  pricing: {
-    input: number;
-    output: number;
-  };
+  pricing: TokenPricing;
+  pricing_overrides: TokenPricingOverride[];
   price_cny: {
     input: number;
     output: number;
@@ -113,15 +129,14 @@ export interface Model {
   model_author: string;
   description: string;
   context_length: number;
-  pricing: {
-    input: number;
-    output: number;
-  };
+  pricing: TokenPricing;
+  pricing_overrides: TokenPricingOverride[];
   price_cny: {
     input: number;
     output: number;
   };
   pricing_status: PricingStatus;
+  pricing_basis: PricingBasis;
   pricing_tier: PricingTier;
   capabilities: Capability[];
   input_modalities: InputModality[];
@@ -133,7 +148,10 @@ export interface Model {
   ui_entrypoint: ModelUiEntrypoint;
   series: string;
   categories: Category[];
+  /** Snapshot of the filters exposed by OpenRouter's /models sidebar. */
+  openrouter_market: OpenRouterMarketSnapshot;
   supported_parameters: SupportedParameter[];
+  reasoning_declared: boolean;
   distillable: boolean;
   zero_data_retention: boolean;
   in_region_routing: boolean;
@@ -154,7 +172,13 @@ interface RawCatalogModel {
   name: string;
   raw_description: string;
   context_length: number;
-  pricing: { input: number; output: number };
+  pricing: TokenPricing & {
+    overrides?: Array<{
+      min_prompt_tokens: number;
+      input: number;
+      output: number;
+    }>;
+  };
   input_modalities: InputModality[];
   output_modalities: OutputModality[];
   tokenizer: string;
@@ -162,19 +186,132 @@ interface RawCatalogModel {
   created: number;
   expiration_date: number | null;
   model_author: string;
+  reasoning_declared?: boolean;
   note?: string;
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "qwen/qwen3-reranker-8b",
+    "canonical_slug": "qwen/qwen3-reranker-8b",
+    "name": "Qwen3 Reranker 8B",
+    "raw_description": "Qwen3 Reranker 8B is a text reranking model from Alibaba Cloud built on the Qwen3 architecture. It evaluates query-document pairs to produce relevance scores for use in retrieval and RAG...",
+    "context_length": 40960,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "rerank"
+    ],
+    "tokenizer": "Qwen3",
+    "supported_parameters": [
+      "frequency_penalty",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "repetition_penalty",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1786597684,
+    "expiration_date": null,
+    "model_author": "Qwen"
+  },
+  {
+    "id": "qwen/qwen3-asr-1.7b",
+    "canonical_slug": "qwen/qwen3-asr-1.7b-20260813",
+    "name": "Qwen: Qwen3 ASR 1.7B",
+    "raw_description": "Qwen3 ASR 1.7B is an automatic speech recognition model from Qwen. It supports multilingual language identification and transcription across 30 languages and 22 Chinese dialects, with streaming and offline inference...",
+    "context_length": 0,
+    "pricing": {
+      "input": 7.5,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Qwen3",
+    "supported_parameters": [
+      "frequency_penalty",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "temperature",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1786592646,
+    "expiration_date": null,
+    "model_author": "Qwen"
+  },
+  {
+    "id": "qwen/qwen3-asr-0.6b",
+    "canonical_slug": "qwen/qwen3-asr-0.6b-20260813",
+    "name": "Qwen: Qwen3 ASR 0.6B",
+    "raw_description": "Qwen3 ASR 0.6B is a compact automatic speech recognition model from Qwen. It supports multilingual language identification and transcription across 30 languages and 22 Chinese dialects, with streaming and offline...",
+    "context_length": 0,
+    "pricing": {
+      "input": 3.33,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Qwen3",
+    "supported_parameters": [
+      "frequency_penalty",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "temperature",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1786591833,
+    "expiration_date": null,
+    "model_author": "Qwen"
+  },
   {
     "id": "bytedance-seed/seedream-5-0-pro",
     "canonical_slug": "bytedance-seed/seedream-5-0-pro-20260812",
     "name": "ByteDance Seed: Seedream 5.0 Pro",
     "raw_description": "Seedream 5.0 Pro is ByteDance Seed's professional image generation and editing model for natural, lifelike commercial visuals and precise edits. It accepts text and up to 14 image references and returns one image per request.",
     "context_length": 0,
-    "pricing": { "input": -1, "output": -1 },
-    "input_modalities": ["text", "image"],
-    "output_modalities": ["image"],
+    "pricing": {
+      "input": -1,
+      "output": -1
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
     "tokenizer": "Other",
     "supported_parameters": [
       "resolution",
@@ -194,11 +331,22 @@ const rawCatalogModels: RawCatalogModel[] = [
     "name": "Deepgram: Flux TTS (free)",
     "raw_description": "Flux TTS is Deepgram's free text-to-speech model for English voice synthesis. It exposes 36 Flux voices through OpenRouter's dedicated speech endpoint and returns binary audio rather than chat-completion text.",
     "context_length": 0,
-    "pricing": { "input": 0, "output": 0 },
-    "input_modalities": ["text"],
-    "output_modalities": ["speech"],
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
     "tokenizer": "Other",
-    "supported_parameters": ["voice", "response_format", "speed"],
+    "supported_parameters": [
+      "voice",
+      "response_format",
+      "speed"
+    ],
     "created": 1786574888,
     "expiration_date": null,
     "model_author": "Deepgram",
@@ -210,9 +358,19 @@ const rawCatalogModels: RawCatalogModel[] = [
     "name": "ByteDance: Seedance 2.0 Mini",
     "raw_description": "Seedance 2.0 Mini is a compact ByteDance video generation model supporting text, image, video, and audio guidance. It supports first- and last-frame control, optional generated audio, and 4–15 second video jobs at 480p or 720p.",
     "context_length": 0,
-    "pricing": { "input": -1, "output": -1 },
-    "input_modalities": ["text", "image", "video", "audio"],
-    "output_modalities": ["video"],
+    "pricing": {
+      "input": -1,
+      "output": -1
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "audio"
+    ],
+    "output_modalities": [
+      "video"
+    ],
     "tokenizer": "Media",
     "supported_parameters": [
       "resolution",
@@ -232,21 +390,27 @@ const rawCatalogModels: RawCatalogModel[] = [
     "id": "bytedance-seed/seed-2-1-turbo",
     "canonical_slug": "bytedance-seed/seed-2-1-turbo-20260810",
     "name": "ByteDance Seed: Seed 2.1 Turbo",
-    "raw_description": "Seed 2.1 Turbo is ByteDance Seed's fast multimodal reasoning model for coding, long-horizon agent workflows, and visual or video understanding. It accepts text, image, and video input and supports tool calling and structured output.",
+    "raw_description": "Seed 2.1 Turbo is a multimodal model from ByteDance Seed for coding and long-horizon agent workflows. It is suited for end-to-end software delivery, multi-step task execution, and understanding visual and...",
     "context_length": 262144,
-    "pricing": { "input": 0.5, "output": 2.5 },
-    "input_modalities": ["text", "image", "video"],
-    "output_modalities": ["text"],
+    "pricing": {
+      "input": 0.5,
+      "output": 2.5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
     "tokenizer": "Other",
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
       "max_tokens",
-      "presence_penalty",
       "reasoning",
-      "reasoning_effort",
       "response_format",
-      "seed",
       "stop",
       "structured_outputs",
       "temperature",
@@ -256,17 +420,25 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1786552176,
     "expiration_date": null,
-    "model_author": "ByteDance Seed"
+    "model_author": "ByteDance Seed",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.8-2.4t-a95b",
     "canonical_slug": "qwen/qwen3.8-2.4t-a95b-20260812",
     "name": "Qwen: Qwen3.8 2.4T A95B",
-    "raw_description": "Qwen3.8 2.4T A95B is Qwen's open-weight sparse mixture-of-experts flagship, with 2.4 trillion total parameters and 95 billion active parameters. It is designed for advanced reasoning, coding, and agentic tool use.",
-    "context_length": 262144,
-    "pricing": { "input": 2, "output": 6 },
-    "input_modalities": ["text"],
-    "output_modalities": ["text"],
+    "raw_description": "Qwen3.8 2.4T A95B is an open-weight sparse mixture-of-experts model from Qwen and the open-weight variant of [Qwen3.8 Max](/qwen/qwen3.8-max), with 95 billion active parameters out of 2.4 trillion total. It is...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 2,
+      "output": 6
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
     "tokenizer": "Qwen",
     "supported_parameters": [
       "frequency_penalty",
@@ -292,53 +464,117 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1786551702,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
-    "id": "deepseek/deepseek-v4-pro-0813",
-    "canonical_slug": "deepseek/deepseek-v4-pro-20260813",
-    "name": "DeepSeek: DeepSeek V4 Pro 0813",
-    "raw_description": "DeepSeek V4 Pro 0813 is the generally available DeepSeek V4 Pro release. It provides a 1M-token context window and up to 384K output tokens for complex reasoning, coding, and long-horizon agent workflows.",
-    "context_length": 1048576,
-    "pricing": { "input": 0.435, "output": 0.87 },
-    "input_modalities": ["text"],
-    "output_modalities": ["text"],
-    "tokenizer": "DeepSeek",
+    "id": "bytedance-seed/seed-2.0-code",
+    "canonical_slug": "bytedance-seed/seed-2.0-code-20260730",
+    "name": "ByteDance Seed: Seed-2.0-Code",
+    "raw_description": "Seed 2.0 Code is a model from ByteDance Seed optimized for agentic coding. It is suited for frontend development, multilingual programming tasks, and coding-agent workflows in tools such as Claude...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.5,
+      "output": 3,
+      "overrides": [
+        {
+          "min_prompt_tokens": 128000,
+          "input": 1,
+          "output": 6
+        }
+      ]
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
-      "logprobs",
       "max_tokens",
-      "min_p",
-      "presence_penalty",
       "reasoning",
       "reasoning_effort",
-      "repetition_penalty",
       "response_format",
-      "seed",
       "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
-      "top_k",
+      "top_p"
+    ],
+    "created": 1786550701,
+    "expiration_date": null,
+    "model_author": "ByteDance Seed",
+    "reasoning_declared": true
+  },
+  {
+    "id": "deepseek/deepseek-v4-pro-0813",
+    "canonical_slug": "deepseek/deepseek-v4-pro-20260813",
+    "name": "DeepSeek: DeepSeek V4 Pro 0813",
+    "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.435,
+      "output": 0.87
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "DeepSeek",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "temperature",
+      "tool_choice",
+      "tools",
       "top_logprobs",
       "top_p"
     ],
     "created": 1786549364,
     "expiration_date": null,
-    "model_author": "DeepSeek"
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
   },
   {
     "id": "x-ai/grok-4.6",
     "canonical_slug": "x-ai/grok-4.6-20260810",
     "name": "SpaceXAI: Grok 4.6",
-    "raw_description": "Grok 4.6 is SpaceXAI's frontier reasoning model for coding, knowledge, and STEM workloads. It accepts text, images, and files, provides a 500K-token context window, and supports tool use and structured output.",
+    "raw_description": "Grok 4.6 is SpaceXAI's smartest model with frontier performance on coding, knowledge work, and STEM.",
     "context_length": 500000,
-    "pricing": { "input": 2, "output": 6 },
-    "input_modalities": ["text", "image", "file"],
-    "output_modalities": ["text"],
+    "pricing": {
+      "input": 2,
+      "output": 6,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 4,
+          "output": 12
+        }
+      ]
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
     "tokenizer": "Grok",
     "supported_parameters": [
       "frequency_penalty",
@@ -360,8 +596,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1786548957,
     "expiration_date": null,
-    "model_author": "SpaceXAI",
-    "note": "基础价格为输入 $2、输出 $6 / 百万 token；上下文达到 200K tokens 后进入长上下文阶梯价，输入 $4、输出 $12 / 百万 token。"
+    "model_author": "xAI",
+    "reasoning_declared": true
   },
   {
     "id": "x-ai/grok-imagine-image-2.0",
@@ -433,14 +669,15 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1786470519,
     "expiration_date": null,
-    "model_author": "LiquidAI"
+    "model_author": "LiquidAI",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/nemotron-3.5-lightning",
     "canonical_slug": "nvidia/nemotron-3.5-lightning-20260807",
     "name": "NVIDIA: Nemotron 3.5 Lightning",
     "raw_description": "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
-    "context_length": 262144,
+    "context_length": 1048576,
     "pricing": {
       "input": 0.09999999999999999,
       "output": 0.25
@@ -467,13 +704,16 @@ const rawCatalogModels: RawCatalogModel[] = [
       "stop",
       "structured_outputs",
       "temperature",
+      "tool_choice",
+      "tools",
       "top_k",
       "top_logprobs",
       "top_p"
     ],
     "created": 1786452751,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/nemotron-3.5-lightning:free",
@@ -504,7 +744,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1786452751,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "sakana/sakana-namazu",
@@ -536,7 +777,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1786410129,
     "expiration_date": null,
-    "model_author": "Sakana"
+    "model_author": "Sakana",
+    "reasoning_declared": true
   },
   {
     "id": "upstage/solar-pro4",
@@ -570,7 +812,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1786371636,
     "expiration_date": null,
-    "model_author": "Upstage"
+    "model_author": "Upstage",
+    "reasoning_declared": true
   },
   {
     "id": "meta/muse-glimmer-30b",
@@ -614,7 +857,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1786302394,
     "expiration_date": null,
-    "model_author": "Meta"
+    "model_author": "Meta",
+    "reasoning_declared": true
   },
   {
     "id": "bytedance/seedance-2.5",
@@ -678,8 +922,9 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1786034890,
-    "expiration_date": null,
-    "model_author": "InclusionAI"
+    "expiration_date": 1786579200,
+    "model_author": "InclusionAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-transcribe",
@@ -753,7 +998,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1785959287,
     "expiration_date": null,
-    "model_author": "Meta"
+    "model_author": "Meta",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen-image-3",
@@ -879,7 +1125,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1785731612,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "~deepseek/deepseek-v4-flash-latest",
@@ -888,8 +1135,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.072,
-      "output": 0.144
+      "input": 0.079996,
+      "output": 0.252
     },
     "input_modalities": [
       "text"
@@ -924,13 +1171,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1785606009,
     "expiration_date": null,
-    "model_author": "DeepSeek"
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
   },
   {
     "id": "deepseek/deepseek-v4-flash-0731",
     "canonical_slug": "deepseek/deepseek-v4-flash-20260731",
     "name": "DeepSeek: DeepSeek V4 Flash 0731",
-    "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows.",
+    "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1048576,
     "pricing": {
       "input": 0.08,
@@ -969,44 +1217,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1785478908,
     "expiration_date": null,
-    "model_author": "DeepSeek"
-  },
-  {
-    "id": "bytedance-seed/seed-2.0-code",
-    "canonical_slug": "bytedance-seed/seed-2.0-code-20260730",
-    "name": "ByteDance Seed: Seed-2.0-Code",
-    "raw_description": "Seed 2.0 Code is a model from ByteDance Seed optimized for agentic coding. It is suited for frontend development, multilingual programming tasks, and coding-agent workflows in tools such as Claude...",
-    "context_length": 262144,
-    "pricing": {
-      "input": 0.5,
-      "output": 3
-    },
-    "input_modalities": [
-      "text",
-      "image",
-      "video"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "include_reasoning",
-      "max_tokens",
-      "reasoning",
-      "reasoning_effort",
-      "response_format",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_p"
-    ],
-    "created": 1786550701,
-    "expiration_date": null,
-    "model_author": "ByteDance Seed"
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
   },
   {
     "id": "thinkingmachines/inkling-small",
@@ -1050,7 +1262,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1785443117,
     "expiration_date": null,
-    "model_author": "Thinkingmachines"
+    "model_author": "Thinkingmachines",
+    "reasoning_declared": true
   },
   {
     "id": "minimax/hailuo-3",
@@ -1246,7 +1459,19 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 0.03,
-      "output": 0.13
+      "output": 0.13,
+      "overrides": [
+        {
+          "min_prompt_tokens": 32000,
+          "input": 0.09999999999999999,
+          "output": 0.39999999999999997
+        },
+        {
+          "min_prompt_tokens": 256000,
+          "input": 0.19999999999999998,
+          "output": 0.7999999999999999
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -1273,7 +1498,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1785190561,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "voyageai/rerank-2.5-lite",
@@ -1441,7 +1667,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1784912546,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-opus-5",
@@ -1478,7 +1705,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1784912544,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "microsoft/mai-image-2.5-pro",
@@ -1572,7 +1800,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1784818580,
     "expiration_date": null,
-    "model_author": "InclusionAI"
+    "model_author": "InclusionAI",
+    "reasoning_declared": true
   },
   {
     "id": "inclusionai/ling-3.0-flash:free",
@@ -1730,7 +1959,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1784652683,
     "expiration_date": null,
-    "model_author": "Poolside"
+    "model_author": "Poolside",
+    "reasoning_declared": true
   },
   {
     "id": "poolside/laguna-s-2.1:free",
@@ -1759,7 +1989,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1784652683,
     "expiration_date": null,
-    "model_author": "Poolside"
+    "model_author": "Poolside",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3.6-flash",
@@ -1798,7 +2029,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1784646733,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3.5-flash-lite",
@@ -1837,7 +2069,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1784646726,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "krea/krea-2-large",
@@ -1944,7 +2177,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1784554658,
     "expiration_date": null,
-    "model_author": "Meituan"
+    "model_author": "Meituan",
+    "reasoning_declared": true
   },
   {
     "id": "x-ai/grok-imagine-video-1.5",
@@ -2020,7 +2254,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1784325956,
     "expiration_date": null,
-    "model_author": "Thinkingmachines"
+    "model_author": "Thinkingmachines",
+    "reasoning_declared": true
   },
   {
     "id": "openrouter/auto-beta",
@@ -2138,7 +2373,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1784215858,
     "expiration_date": null,
-    "model_author": "MoonshotAI"
+    "model_author": "MoonshotAI",
+    "reasoning_declared": true
   },
   {
     "id": "meta/muse-spark-1.1",
@@ -2177,7 +2413,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1784215741,
     "expiration_date": null,
-    "model_author": "Meta"
+    "model_author": "Meta",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/nemotron-3-embed-1b:free",
@@ -2358,7 +2595,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 0.09999999999999999,
-      "output": 0.6
+      "output": 0.6,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 0.19999999999999998,
+          "output": 0.8999999999999999
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -2383,7 +2627,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783590867,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.6-luna",
@@ -2393,7 +2638,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 0.09999999999999999,
-      "output": 0.6
+      "output": 0.6,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 0.19999999999999998,
+          "output": 0.8999999999999999
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -2418,7 +2670,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783590864,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.6-terra-pro",
@@ -2428,7 +2681,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 1,
-      "output": 6
+      "output": 6,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 2,
+          "output": 9
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -2453,7 +2713,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783590861,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.6-terra",
@@ -2463,7 +2724,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 1,
-      "output": 6
+      "output": 6,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 2,
+          "output": 9
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -2488,7 +2756,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783590857,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.6-sol-pro",
@@ -2498,7 +2767,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 5,
-      "output": 30
+      "output": 30,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 10,
+          "output": 45
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -2523,7 +2799,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783590854,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.6-sol",
@@ -2533,7 +2810,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 5,
-      "output": 30
+      "output": 30,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 10,
+          "output": 45
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -2558,17 +2842,25 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783590850,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "x-ai/grok-4.5",
     "canonical_slug": "x-ai/grok-4.5-20260708",
     "name": "SpaceXAI: Grok 4.5",
-    "raw_description": "Grok 4.5 is SpaceXAI's smartest model with frontier performance on coding, knowledge work, and STEM.",
+    "raw_description": "Grok 4.5 is a model from SpaceXAI with frontier performance on coding, knowledge work, and STEM.",
     "context_length": 500000,
     "pricing": {
       "input": 2,
-      "output": 6
+      "output": 6,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 4,
+          "output": 12
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -2599,7 +2891,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783523154,
     "expiration_date": null,
-    "model_author": "xAI"
+    "model_author": "xAI",
+    "reasoning_declared": true
   },
   {
     "id": "~x-ai/grok-latest",
@@ -2609,7 +2902,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 500000,
     "pricing": {
       "input": 2,
-      "output": 6
+      "output": 6,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 4,
+          "output": 12
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -2640,7 +2940,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783519360,
     "expiration_date": null,
-    "model_author": "xAI"
+    "model_author": "xAI",
+    "reasoning_declared": true
   },
   {
     "id": "aion-labs/aion-3.0-mini",
@@ -2671,7 +2972,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783443096,
     "expiration_date": null,
-    "model_author": "AionLabs"
+    "model_author": "AionLabs",
+    "reasoning_declared": true
   },
   {
     "id": "aion-labs/aion-3.0",
@@ -2702,7 +3004,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783443095,
     "expiration_date": null,
-    "model_author": "AionLabs"
+    "model_author": "AionLabs",
+    "reasoning_declared": true
   },
   {
     "id": "tencent/hy3",
@@ -2744,7 +3047,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783344048,
     "expiration_date": null,
-    "model_author": "Tencent"
+    "model_author": "Tencent",
+    "reasoning_declared": true
   },
   {
     "id": "tencent/hy3:free",
@@ -2811,7 +3115,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783002429,
     "expiration_date": null,
-    "model_author": "Poolside"
+    "model_author": "Poolside",
+    "reasoning_declared": true
   },
   {
     "id": "poolside/laguna-xs-2.1:free",
@@ -2840,7 +3145,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1783002429,
     "expiration_date": null,
-    "model_author": "Poolside"
+    "model_author": "Poolside",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-sonnet-5",
@@ -2876,7 +3182,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1782843083,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3.1-flash-lite-image",
@@ -2909,7 +3216,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1782837225,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "nex-agi/nex-n2-mini",
@@ -2945,7 +3253,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1782312964,
     "expiration_date": null,
-    "model_author": "Nex AGI"
+    "model_author": "Nex AGI",
+    "reasoning_declared": true
   },
   {
     "id": "sakana/fugu-ultra",
@@ -2955,7 +3264,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 5,
-      "output": 30
+      "output": 30,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 10,
+          "output": 45
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -2976,7 +3292,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1782276303,
     "expiration_date": null,
-    "model_author": "Sakana"
+    "model_author": "Sakana",
+    "reasoning_declared": true
   },
   {
     "id": "alibaba/happyhorse-1.1",
@@ -3178,7 +3495,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1781754065,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3-pro-image",
@@ -3214,7 +3532,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1781754054,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "cohere/north-mini-code:free",
@@ -3249,7 +3568,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1781723748,
     "expiration_date": null,
-    "model_author": "Cohere"
+    "model_author": "Cohere",
+    "reasoning_declared": true
   },
   {
     "id": "z-ai/glm-5.2",
@@ -3258,8 +3578,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.42,
-      "output": 1.4
+      "input": 0.5,
+      "output": 3.15
     },
     "input_modalities": [
       "text"
@@ -3293,7 +3613,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1781631930,
     "expiration_date": null,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "openrouter/fusion",
@@ -3324,8 +3645,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MoonshotAI: Kimi K2.7 Code is a coding-focused model in Moonshot AI's Kimi K2 family, built to complete end-to-end programming tasks reliably over long contexts. It uses a native multimodal mixture-of-experts...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.7,
-      "output": 3.5
+      "input": 0.67,
+      "output": 3.4
     },
     "input_modalities": [
       "text",
@@ -3359,7 +3680,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1781266361,
     "expiration_date": null,
-    "model_author": "MoonshotAI"
+    "model_author": "MoonshotAI",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/llama-nemotron-rerank-vl-1b-v2:free",
@@ -3423,7 +3745,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1781029944,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-fable-5",
@@ -3459,7 +3782,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1781007515,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "nex-agi/nex-n2-pro",
@@ -3494,7 +3818,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1780937140,
     "expiration_date": null,
-    "model_author": "Nex AGI"
+    "model_author": "Nex AGI",
+    "reasoning_declared": true
   },
   {
     "id": "sourceful/riverflow-v2.5-pro",
@@ -3521,7 +3846,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1780584991,
     "expiration_date": null,
-    "model_author": "Sourceful"
+    "model_author": "Sourceful",
+    "reasoning_declared": true
   },
   {
     "id": "sourceful/riverflow-v2.5-pro:free",
@@ -3574,7 +3900,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1780584983,
     "expiration_date": null,
-    "model_author": "Sourceful"
+    "model_author": "Sourceful",
+    "reasoning_declared": true
   },
   {
     "id": "sourceful/riverflow-v2.5-fast:free",
@@ -3630,7 +3957,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1780581864,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/nemotron-3-ultra-550b-a55b",
@@ -3671,7 +3999,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1780551208,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -3703,7 +4032,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1780551208,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.7-plus",
@@ -3713,7 +4043,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 0.32,
-      "output": 1.28
+      "output": 1.28,
+      "overrides": [
+        {
+          "min_prompt_tokens": 256000,
+          "input": 0.96,
+          "output": 3.84
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -3743,7 +4080,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1780491783,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "microsoft/mai-voice-2",
@@ -3868,7 +4206,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1780245374,
     "expiration_date": null,
-    "model_author": "MiniMax"
+    "model_author": "MiniMax",
+    "reasoning_declared": true
   },
   {
     "id": "stepfun/step-3.7-flash",
@@ -3913,7 +4252,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1779985069,
     "expiration_date": null,
-    "model_author": "StepFun"
+    "model_author": "StepFun",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-opus-4.8-fast",
@@ -3948,7 +4288,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1779913703,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-opus-4.8",
@@ -3985,7 +4326,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1779905091,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/parakeet-tdt-0.6b-v3",
@@ -4057,7 +4399,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1779376861,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "x-ai/grok-build-0.1",
@@ -4067,7 +4410,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 256000,
     "pricing": {
       "input": 1,
-      "output": 2
+      "output": 2,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 2,
+          "output": 4
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -4097,7 +4447,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1779298123,
     "expiration_date": null,
-    "model_author": "xAI"
+    "model_author": "xAI",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-embedding-2",
@@ -4168,7 +4519,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1779193800,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "x-ai/grok-imagine-video",
@@ -4549,7 +4901,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1778613011,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "perceptron/perceptron-mk1",
@@ -4583,7 +4936,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1778597029,
     "expiration_date": null,
-    "model_author": "Perceptron"
+    "model_author": "Perceptron",
+    "reasoning_declared": true
   },
   {
     "id": "inclusionai/ring-2.6-1t",
@@ -4621,7 +4975,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1778247440,
     "expiration_date": null,
-    "model_author": "InclusionAI"
+    "model_author": "InclusionAI",
+    "reasoning_declared": true
   },
   {
     "id": "recraft/recraft-v4-pro",
@@ -4729,7 +5084,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1778168828,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-chat-latest",
@@ -4897,7 +5253,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 1.25,
-      "output": 2.5
+      "output": 2.5,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 2.5,
+          "output": 5
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -4928,7 +5291,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777591821,
     "expiration_date": null,
-    "model_author": "xAI"
+    "model_author": "xAI",
+    "reasoning_declared": true
   },
   {
     "id": "ibm-granite/granite-4.1-8b",
@@ -5005,7 +5369,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777570439,
     "expiration_date": null,
-    "model_author": "Mistral AI"
+    "model_author": "Mistral AI",
+    "reasoning_declared": true
   },
   {
     "id": "kwaivgi/kling-v3.0-pro",
@@ -5129,7 +5494,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777393095,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "poolside/laguna-xs.2:free",
@@ -5323,7 +5689,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777318492,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "~openai/gpt-mini-latest",
@@ -5358,7 +5725,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777318471,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "~google/gemini-pro-latest",
@@ -5368,7 +5736,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 2,
-      "output": 12
+      "output": 12,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 4,
+          "output": 18
+        }
+      ]
     },
     "input_modalities": [
       "audio",
@@ -5397,7 +5772,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777318451,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "~moonshotai/kimi-latest",
@@ -5442,7 +5818,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777318428,
     "expiration_date": null,
-    "model_author": "MoonshotAI"
+    "model_author": "MoonshotAI",
+    "reasoning_declared": true
   },
   {
     "id": "~google/gemini-flash-latest",
@@ -5481,7 +5858,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777318398,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "~anthropic/claude-sonnet-latest",
@@ -5517,7 +5895,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777318368,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "~openai/gpt-latest",
@@ -5527,7 +5906,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 5,
-      "output": 30
+      "output": 30,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 10,
+          "output": 45
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -5552,7 +5938,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777318334,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.5-plus-20260420",
@@ -5562,7 +5949,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 0.3,
-      "output": 1.7999999999999998
+      "output": 1.7999999999999998,
+      "overrides": [
+        {
+          "min_prompt_tokens": 256000,
+          "input": 0.375,
+          "output": 2.25
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -5593,7 +5987,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777261368,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.6-flash",
@@ -5603,7 +5998,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 0.1875,
-      "output": 1.125
+      "output": 1.125,
+      "overrides": [
+        {
+          "min_prompt_tokens": 256000,
+          "input": 0.75,
+          "output": 3
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -5634,7 +6036,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777261362,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.6-35b-a3b",
@@ -5678,7 +6081,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777260255,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.6-max-preview",
@@ -5688,7 +6092,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 262144,
     "pricing": {
       "input": 1.0270000000000001,
-      "output": 6.162
+      "output": 6.162,
+      "overrides": [
+        {
+          "min_prompt_tokens": 128000,
+          "input": 1.5799999999999998,
+          "output": 9.48
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -5717,7 +6128,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777260242,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.6-27b",
@@ -5761,7 +6173,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777255064,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.5-pro",
@@ -5771,7 +6184,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 30,
-      "output": 180
+      "output": 180,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 60,
+          "output": 270
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -5795,7 +6215,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777051896,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.5",
@@ -5805,7 +6226,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 5,
-      "output": 30
+      "output": 30,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 10,
+          "output": 45
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -5830,7 +6258,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777051893,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "deepseek/deepseek-v4-pro",
@@ -5839,8 +6268,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.63168,
-      "output": 1.26336
+      "input": 1.1680000000000001,
+      "output": 2.3360000000000003
     },
     "input_modalities": [
       "text"
@@ -5873,7 +6302,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777000679,
     "expiration_date": null,
-    "model_author": "DeepSeek"
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
   },
   {
     "id": "deepseek/deepseek-v4-flash",
@@ -5917,7 +6347,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1777000666,
     "expiration_date": null,
-    "model_author": "DeepSeek"
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3.1-flash-tts-preview",
@@ -6245,7 +6676,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1776878150,
     "expiration_date": null,
-    "model_author": "Tencent"
+    "model_author": "Tencent",
+    "reasoning_declared": true
   },
   {
     "id": "xiaomi/mimo-v2.5-pro",
@@ -6287,7 +6719,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1776874273,
     "expiration_date": null,
-    "model_author": "Xiaomi"
+    "model_author": "Xiaomi",
+    "reasoning_declared": true
   },
   {
     "id": "xiaomi/mimo-v2.5",
@@ -6332,7 +6765,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1776874269,
     "expiration_date": null,
-    "model_author": "Xiaomi"
+    "model_author": "Xiaomi",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.4-image-2",
@@ -6371,7 +6805,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1776797528,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "inclusionai/ling-2.6-flash",
@@ -6446,7 +6881,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1776795361,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "openrouter/pareto-code",
@@ -6566,7 +7002,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1776699402,
     "expiration_date": null,
-    "model_author": "MoonshotAI"
+    "model_author": "MoonshotAI",
+    "reasoning_declared": true
   },
   {
     "id": "moonshotai/kimi-k2.6:free",
@@ -6694,7 +7131,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1776351100,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "alibaba/wan-2.7",
@@ -6852,7 +7290,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1775578025,
     "expiration_date": null,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "cohere/rerank-4-pro",
@@ -6995,7 +7434,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1775227989,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemma-4-26b-a4b-it:free",
@@ -7037,7 +7477,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1775227989,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemma-4-31b-it",
@@ -7082,7 +7523,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1775148486,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemma-4-31b-it:free",
@@ -7116,7 +7558,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1775148486,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.6-plus",
@@ -7126,7 +7569,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 0.325,
-      "output": 1.95
+      "output": 1.95,
+      "overrides": [
+        {
+          "min_prompt_tokens": 256000,
+          "input": 1.3,
+          "output": 3.9
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -7157,7 +7607,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1775133557,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "z-ai/glm-5v-turbo",
@@ -7191,7 +7642,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1775061458,
     "expiration_date": 4070822400,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "arcee-ai/trinity-large-thinking",
@@ -7232,7 +7684,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1775058318,
     "expiration_date": null,
-    "model_author": "Arcee AI"
+    "model_author": "Arcee AI",
+    "reasoning_declared": true
   },
   {
     "id": "x-ai/grok-4.20-multi-agent",
@@ -7242,7 +7695,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 2000000,
     "pricing": {
       "input": 1.25,
-      "output": 2.5
+      "output": 2.5,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 2.5,
+          "output": 5
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -7268,7 +7728,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1774979158,
     "expiration_date": null,
-    "model_author": "xAI"
+    "model_author": "xAI",
+    "reasoning_declared": true
   },
   {
     "id": "x-ai/grok-4.20",
@@ -7278,7 +7739,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 2000000,
     "pricing": {
       "input": 1.25,
-      "output": 2.5
+      "output": 2.5,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 2.5,
+          "output": 5
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -7305,7 +7773,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1774979019,
     "expiration_date": null,
-    "model_author": "xAI"
+    "model_author": "xAI",
+    "reasoning_declared": true
   },
   {
     "id": "google/lyria-3-pro-preview",
@@ -7554,7 +8023,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1774026965,
     "expiration_date": null,
-    "model_author": "rekaai"
+    "model_author": "rekaai",
+    "reasoning_declared": true
   },
   {
     "id": "minimax/minimax-m2.7",
@@ -7596,7 +8066,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1773836697,
     "expiration_date": null,
-    "model_author": "MiniMax"
+    "model_author": "MiniMax",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.4-nano",
@@ -7631,7 +8102,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1773748187,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.4-mini",
@@ -7666,7 +8138,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1773748178,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "mistralai/mistral-small-2603",
@@ -7705,7 +8178,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1773695685,
     "expiration_date": null,
-    "model_author": "Mistral AI"
+    "model_author": "Mistral AI",
+    "reasoning_declared": true
   },
   {
     "id": "perplexity/pplx-embed-v1-4b",
@@ -7797,7 +8271,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1773583573,
     "expiration_date": 4070822400,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/nemotron-3-super-120b-a12b",
@@ -7840,7 +8315,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1773245239,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/nemotron-3-super-120b-a12b:free",
@@ -7874,7 +8350,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1773245239,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "bytedance-seed/seed-2.0-lite",
@@ -7884,7 +8361,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 262144,
     "pricing": {
       "input": 0.25,
-      "output": 2
+      "output": 2,
+      "overrides": [
+        {
+          "min_prompt_tokens": 128000,
+          "input": 0.5,
+          "output": 4
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -7911,7 +8395,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1773157231,
     "expiration_date": null,
-    "model_author": "ByteDance Seed"
+    "model_author": "ByteDance Seed",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.5-9b",
@@ -7955,7 +8440,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1773152396,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.4-pro",
@@ -7965,7 +8451,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 30,
-      "output": 180
+      "output": 180,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 60,
+          "output": 270
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -7990,7 +8483,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1772734366,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.4",
@@ -8000,7 +8494,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 2.5,
-      "output": 15
+      "output": 15,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 5,
+          "output": 22.5
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -8025,7 +8526,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1772734352,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "inception/mercury-2",
@@ -8058,7 +8560,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1772636275,
     "expiration_date": null,
-    "model_author": "Inception"
+    "model_author": "Inception",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.3-chat",
@@ -8128,7 +8631,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1772512673,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "bytedance-seed/seed-2.0-mini",
@@ -8138,7 +8642,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 262144,
     "pricing": {
       "input": 0.09999999999999999,
-      "output": 0.39999999999999997
+      "output": 0.39999999999999997,
+      "overrides": [
+        {
+          "min_prompt_tokens": 128000,
+          "input": 0.19999999999999998,
+          "output": 0.7999999999999999
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -8165,7 +8676,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1772131107,
     "expiration_date": null,
-    "model_author": "ByteDance Seed"
+    "model_author": "ByteDance Seed",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3.1-flash-image-preview",
@@ -8199,7 +8711,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1772119558,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.5-35b-a3b",
@@ -8208,8 +8721,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 Series 35B-A3B is a native vision-language model designed with a hybrid architecture that integrates linear attention mechanisms and a sparse mixture-of-experts model, achieving higher inference efficiency. Its overall...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.14,
-      "output": 1
+      "input": 0.25,
+      "output": 1.25
     },
     "input_modalities": [
       "text",
@@ -8243,7 +8756,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1772053822,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.5-27b",
@@ -8287,7 +8801,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1772053810,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.5-122b-a10b",
@@ -8331,7 +8846,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1772053789,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.5-flash-02-23",
@@ -8370,7 +8886,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1772053776,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "liquid/lfm-2-24b-a2b",
@@ -8413,7 +8930,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 2,
-      "output": 12
+      "output": 12,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 4,
+          "output": 18
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -8441,7 +8965,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1772045923,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/llama-nemotron-embed-vl-1b-v2:free",
@@ -8504,7 +9029,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1771959164,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "aion-labs/aion-2.0",
@@ -8535,7 +9061,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1771881306,
     "expiration_date": null,
-    "model_author": "AionLabs"
+    "model_author": "AionLabs",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3.1-pro-preview",
@@ -8545,7 +9072,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 2,
-      "output": 12
+      "output": 12,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 4,
+          "output": 18
+        }
+      ]
     },
     "input_modalities": [
       "audio",
@@ -8574,7 +9108,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1771509627,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-sonnet-4.6",
@@ -8613,7 +9148,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1771342990,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.5-plus-02-15",
@@ -8623,7 +9159,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 0.26,
-      "output": 1.56
+      "output": 1.56,
+      "overrides": [
+        {
+          "min_prompt_tokens": 256000,
+          "input": 0.325,
+          "output": 1.95
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -8654,7 +9197,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1771229416,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3.5-397b-a17b",
@@ -8698,7 +9242,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1771223018,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "minimax/minimax-m2.5",
@@ -8741,7 +9286,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1770908502,
     "expiration_date": null,
-    "model_author": "MiniMax"
+    "model_author": "MiniMax",
+    "reasoning_declared": true
   },
   {
     "id": "z-ai/glm-5",
@@ -8783,7 +9329,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1770829182,
     "expiration_date": null,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-max-thinking",
@@ -8793,7 +9340,19 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 262144,
     "pricing": {
       "input": 0.78,
-      "output": 3.9
+      "output": 3.9,
+      "overrides": [
+        {
+          "min_prompt_tokens": 32000,
+          "input": 1.56,
+          "output": 7.8
+        },
+        {
+          "min_prompt_tokens": 128000,
+          "input": 1.95,
+          "output": 9.75
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -8822,7 +9381,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1770671901,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-opus-4.6",
@@ -8861,7 +9421,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1770219050,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-coder-next",
@@ -9022,7 +9583,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1769728337,
     "expiration_date": null,
-    "model_author": "StepFun"
+    "model_author": "StepFun",
+    "reasoning_declared": true
   },
   {
     "id": "moonshotai/kimi-k2.5",
@@ -9065,7 +9627,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1769487076,
     "expiration_date": null,
-    "model_author": "MoonshotAI"
+    "model_author": "MoonshotAI",
+    "reasoning_declared": true
   },
   {
     "id": "upstage/solar-pro-3",
@@ -9099,7 +9662,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1769481200,
     "expiration_date": null,
-    "model_author": "Upstage"
+    "model_author": "Upstage",
+    "reasoning_declared": true
   },
   {
     "id": "minimax/minimax-m2-her",
@@ -9341,7 +9905,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1768833913,
     "expiration_date": null,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "black-forest-labs/flux.2-klein-4b",
@@ -9399,7 +9964,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1768409315,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "bytedance-seed/seedream-4.5",
@@ -9437,7 +10003,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 262144,
     "pricing": {
       "input": 0.075,
-      "output": 0.3
+      "output": 0.3,
+      "overrides": [
+        {
+          "min_prompt_tokens": 128000,
+          "input": 0.09999999999999999,
+          "output": 0.7999999999999999
+        }
+      ]
     },
     "input_modalities": [
       "image",
@@ -9463,7 +10036,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1766505011,
     "expiration_date": null,
-    "model_author": "ByteDance Seed"
+    "model_author": "ByteDance Seed",
+    "reasoning_declared": true
   },
   {
     "id": "bytedance-seed/seed-1.6",
@@ -9473,7 +10047,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 262144,
     "pricing": {
       "input": 0.25,
-      "output": 2
+      "output": 2,
+      "overrides": [
+        {
+          "min_prompt_tokens": 128000,
+          "input": 0.5,
+          "output": 4
+        }
+      ]
     },
     "input_modalities": [
       "image",
@@ -9499,7 +10080,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1766504997,
     "expiration_date": null,
-    "model_author": "ByteDance Seed"
+    "model_author": "ByteDance Seed",
+    "reasoning_declared": true
   },
   {
     "id": "minimax/minimax-m2.1",
@@ -9536,7 +10118,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1766454997,
     "expiration_date": null,
-    "model_author": "MiniMax"
+    "model_author": "MiniMax",
+    "reasoning_declared": true
   },
   {
     "id": "z-ai/glm-4.7",
@@ -9579,7 +10162,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1766378014,
     "expiration_date": null,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3-flash-preview",
@@ -9618,7 +10202,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1765987078,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "black-forest-labs/flux.2-max",
@@ -9719,7 +10304,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1765731275,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/nemotron-3-nano-30b-a3b:free",
@@ -9750,7 +10336,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1765731275,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.2-chat",
@@ -9815,7 +10402,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1765389780,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.2",
@@ -9850,7 +10438,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1765389775,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "mistralai/devstral-2512",
@@ -10024,7 +10613,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1765207462,
     "expiration_date": null,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "nex-agi/deepseek-v3.1-nex-n1",
@@ -10148,7 +10738,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1764878934,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "amazon/nova-2-lite-v1",
@@ -10183,7 +10774,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1764696672,
     "expiration_date": null,
-    "model_author": "Amazon"
+    "model_author": "Amazon",
+    "reasoning_declared": true
   },
   {
     "id": "mistralai/ministral-14b-2512",
@@ -10400,7 +10992,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1764594642,
     "expiration_date": null,
-    "model_author": "DeepSeek"
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
   },
   {
     "id": "prime-intellect/intellect-3",
@@ -10523,7 +11116,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1764010580,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "allenai/olmo-3-32b-think",
@@ -10560,7 +11154,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1763758276,
     "expiration_date": null,
-    "model_author": "AllenAI"
+    "model_author": "AllenAI",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3-pro-image-preview",
@@ -10594,7 +11189,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1763653797,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "thenlper/gte-base",
@@ -11074,7 +11670,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1763071233,
     "expiration_date": null,
-    "model_author": "Deep Cogito"
+    "model_author": "Deep Cogito",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.1",
@@ -11109,7 +11706,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1763060305,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.1-chat",
@@ -11173,7 +11771,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1763060298,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.1-codex-mini",
@@ -11206,7 +11805,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1763057820,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "moonshotai/kimi-k2-thinking",
@@ -11246,7 +11846,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1762440622,
     "expiration_date": null,
-    "model_author": "MoonshotAI"
+    "model_author": "MoonshotAI",
+    "reasoning_declared": true
   },
   {
     "id": "amazon/nova-premier-v1",
@@ -11509,7 +12110,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1761854366,
     "expiration_date": null,
-    "model_author": "Perplexity"
+    "model_author": "Perplexity",
+    "reasoning_declared": true
   },
   {
     "id": "mistralai/voxtral-small-24b-2507",
@@ -11579,7 +12181,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1761752836,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-embedding-8b",
@@ -11649,7 +12252,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1761675565,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-embedding-4b",
@@ -11723,7 +12327,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1761252093,
     "expiration_date": null,
-    "model_author": "MiniMax"
+    "model_author": "MiniMax",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-vl-32b-instruct",
@@ -11872,7 +12477,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1760624583,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-haiku-4.5",
@@ -11909,7 +12515,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1760547638,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-vl-8b-thinking",
@@ -11949,7 +12556,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1760463746,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-vl-8b-instruct",
@@ -12029,7 +12637,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1760447986,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/o3-deep-research",
@@ -12222,7 +12831,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1759794479,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-vl-30b-a3b-instruct",
@@ -12297,7 +12907,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1759776663,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "z-ai/glm-4.6",
@@ -12306,8 +12917,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Compared with GLM-4.5, this generation brings several key improvements: Longer context window: The context window has been expanded from 128K to 200K tokens, enabling the model to handle more complex...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.55,
-      "output": 2.2
+      "input": 0.5,
+      "output": 2
     },
     "input_modalities": [
       "text"
@@ -12337,7 +12948,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1759235576,
     "expiration_date": null,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-sonnet-4.5",
@@ -12347,7 +12959,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 3,
-      "output": 15
+      "output": 15,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 6,
+          "output": 22.5
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -12374,7 +12993,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1759161676,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "deepseek/deepseek-v3.2-exp",
@@ -12416,7 +13036,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1759150481,
     "expiration_date": null,
-    "model_author": "DeepSeek"
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
   },
   {
     "id": "thedrummer/cydonia-24b-v4.1",
@@ -12557,7 +13178,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1758668690,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-vl-235b-a22b-instruct",
@@ -12608,7 +13230,19 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 262144,
     "pricing": {
       "input": 0.78,
-      "output": 3.9
+      "output": 3.9,
+      "overrides": [
+        {
+          "min_prompt_tokens": 32000,
+          "input": 1.56,
+          "output": 7.8
+        },
+        {
+          "min_prompt_tokens": 128000,
+          "input": 1.95,
+          "output": 9.75
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -12635,7 +13269,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1758662808,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-coder-plus",
@@ -12645,7 +13280,19 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 0.65,
-      "output": 3.25
+      "output": 3.25,
+      "overrides": [
+        {
+          "min_prompt_tokens": 32000,
+          "input": 1.17,
+          "output": 5.85
+        },
+        {
+          "min_prompt_tokens": 128000,
+          "input": 1.95,
+          "output": 9.75
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -12672,7 +13319,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1758662707,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5-codex",
@@ -12744,7 +13392,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1758548275,
     "expiration_date": null,
-    "model_author": "DeepSeek"
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-coder-flash",
@@ -12754,7 +13403,19 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 0.195,
-      "output": 0.975
+      "output": 0.975,
+      "overrides": [
+        {
+          "min_prompt_tokens": 32000,
+          "input": 0.325,
+          "output": 1.625
+        },
+        {
+          "min_prompt_tokens": 128000,
+          "input": 0.52,
+          "output": 2.6
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -12821,7 +13482,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1757612284,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-next-80b-a3b-instruct",
@@ -12905,7 +13567,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 0.26,
-      "output": 0.78
+      "output": 0.78,
+      "overrides": [
+        {
+          "min_prompt_tokens": 256000,
+          "input": 0.78,
+          "output": 2.34
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -12932,7 +13601,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1757347599,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen-plus-2025-07-28:thinking",
@@ -12942,7 +13612,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 0.39999999999999997,
-      "output": 1.2
+      "output": 1.2,
+      "overrides": [
+        {
+          "min_prompt_tokens": 256000,
+          "input": 1.2,
+          "output": 3.5999999999999996
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -12971,7 +13648,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1757347599,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/nemotron-nano-9b-v2",
@@ -13043,7 +13721,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1757106807,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "moonshotai/kimi-k2-0905",
@@ -13115,7 +13794,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1756399192,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "nousresearch/hermes-4-70b",
@@ -13148,7 +13828,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1756236182,
     "expiration_date": null,
-    "model_author": "Nous"
+    "model_author": "Nous",
+    "reasoning_declared": true
   },
   {
     "id": "nousresearch/hermes-4-405b",
@@ -13181,7 +13862,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1756235463,
     "expiration_date": null,
-    "model_author": "Nous"
+    "model_author": "Nous",
+    "reasoning_declared": true
   },
   {
     "id": "deepseek/deepseek-chat-v3.1",
@@ -13223,7 +13905,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1755779628,
     "expiration_date": null,
-    "model_author": "DeepSeek"
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
   },
   {
     "id": "mistralai/mistral-medium-3.1",
@@ -13297,7 +13980,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1754922288,
     "expiration_date": null,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "ai21/jamba-large-1.7",
@@ -13390,7 +14074,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1754587413,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5-mini",
@@ -13425,7 +14110,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1754587407,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5-nano",
@@ -13460,7 +14146,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1754587402,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-oss-120b",
@@ -13504,7 +14191,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1754414231,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-oss-120b:free",
@@ -13578,7 +14266,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1754414229,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-oss-20b:free",
@@ -13619,7 +14308,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1754414229,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-opus-4.1",
@@ -13653,7 +14343,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1754411591,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "mistralai/codestral-2508",
@@ -13798,7 +14489,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1753471347,
     "expiration_date": 1798675200,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "z-ai/glm-4.5-air",
@@ -13834,7 +14526,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1753471258,
     "expiration_date": null,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "z-ai/glm-4.5-air:free",
@@ -13905,7 +14598,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1753449557,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "z-ai/glm-4-32b",
@@ -14080,7 +14774,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1753200276,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-235b-a22b-2507",
@@ -14280,7 +14975,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1751987664,
     "expiration_date": null,
-    "model_author": "Tencent"
+    "model_author": "Tencent",
+    "reasoning_declared": true
   },
   {
     "id": "morph/morph-v3-large",
@@ -14371,7 +15067,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1751300903,
     "expiration_date": null,
-    "model_author": "Baidu"
+    "model_author": "Baidu",
+    "reasoning_declared": true
   },
   {
     "id": "mistralai/mistral-small-3.2-24b-instruct",
@@ -14448,7 +15145,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1750200414,
     "expiration_date": null,
-    "model_author": "MiniMax"
+    "model_author": "MiniMax",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-2.5-flash",
@@ -14486,7 +15184,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1750172488,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-2.5-pro",
@@ -14496,7 +15195,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 1.25,
-      "output": 10
+      "output": 10,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 2.5,
+          "output": 15
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -14524,7 +15230,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1750169544,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "openai/o3-pro",
@@ -14557,7 +15264,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1749598352,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-2.5-pro-preview",
@@ -14567,7 +15275,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 1.25,
-      "output": 10
+      "output": 10,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 2.5,
+          "output": 15
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -14594,7 +15309,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1749137257,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "deepseek/deepseek-r1-0528",
@@ -14636,7 +15352,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1748455170,
     "expiration_date": null,
-    "model_author": "DeepSeek"
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-opus-4",
@@ -14669,7 +15386,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1747931245,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-sonnet-4",
@@ -14679,7 +15397,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 3,
-      "output": 15
+      "output": 15,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 6,
+          "output": 22.5
+        }
+      ]
     },
     "input_modalities": [
       "image",
@@ -14703,7 +15428,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1747930371,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemma-3n-e4b-it",
@@ -14784,7 +15510,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 1.25,
-      "output": 10
+      "output": 10,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 2.5,
+          "output": 15
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -14812,7 +15545,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1746578513,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "arcee-ai/maestro-reasoning",
@@ -14988,7 +15722,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1745878604,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-8b",
@@ -15024,7 +15759,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1745876632,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-14b",
@@ -15066,7 +15802,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1745876478,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-32b",
@@ -15108,7 +15845,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1745875945,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "qwen/qwen3-235b-a22b",
@@ -15144,7 +15882,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1745875757,
     "expiration_date": null,
-    "model_author": "Qwen"
+    "model_author": "Qwen",
+    "reasoning_declared": true
   },
   {
     "id": "openai/o4-mini-high",
@@ -15178,7 +15917,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1744824212,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/o3",
@@ -15211,7 +15951,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1744823457,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/o4-mini",
@@ -15244,7 +15985,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1744820942,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-4.1",
@@ -15495,7 +16237,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1742423211,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "mistralai/mistral-small-3.1-24b-instruct",
@@ -15731,7 +16474,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1741812813,
     "expiration_date": null,
-    "model_author": "rekaai"
+    "model_author": "rekaai",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemma-3-27b-it",
@@ -15842,7 +16586,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1741313308,
     "expiration_date": null,
-    "model_author": "Perplexity"
+    "model_author": "Perplexity",
+    "reasoning_declared": true
   },
   {
     "id": "perplexity/sonar-pro",
@@ -15905,7 +16650,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1741311246,
     "expiration_date": null,
-    "model_author": "Perplexity"
+    "model_author": "Perplexity",
+    "reasoning_declared": true
   },
   {
     "id": "mistralai/mistral-saba",
@@ -16007,7 +16753,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1739372611,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "aion-labs/aion-1.0",
@@ -16137,7 +16884,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 0.26,
-      "output": 0.78
+      "output": 0.78,
+      "overrides": [
+        {
+          "min_prompt_tokens": 256000,
+          "input": 0.78,
+          "output": 2.34
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -16196,7 +16950,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1738351721,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "mistralai/mistral-small-24b-instruct-2501",
@@ -16334,7 +17089,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1737663169,
     "expiration_date": null,
-    "model_author": "DeepSeek"
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
   },
   {
     "id": "deepseek/deepseek-r1",
@@ -16373,7 +17129,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1737381095,
     "expiration_date": null,
-    "model_author": "DeepSeek"
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
   },
   {
     "id": "minimax/minimax-01",
@@ -16576,7 +17333,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1734459999,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "cohere/command-r7b-12-2024",
@@ -16957,7 +17715,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "anthracite-org/magnum-v4-72b",
     "name": "Magnum v4 72B",
     "raw_description": "This is a series of models designed to replicate the prose quality of the Claude 3 models, specifically Sonnet(https://openrouter.ai/anthropic/claude-3.5-sonnet) and Opus(https://openrouter.ai/anthropic/claude-3-opus).\n\nThe model is fine-tuned on top of [Qwen2.5 72B](https://openrouter.ai/qwen/qwen-2.5-72b-instruct).",
-    "context_length": 16384,
+    "context_length": 32768,
     "pricing": {
       "input": 3,
       "output": 5
@@ -18569,7 +19327,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1784912544,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3.6-flash:batch",
@@ -18606,7 +19365,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1784646733,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3.5-flash-lite:batch",
@@ -18643,7 +19403,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1784646726,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "thinkingmachines/inkling:batch",
@@ -18683,7 +19444,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1784325956,
     "expiration_date": null,
-    "model_author": "Thinkingmachines"
+    "model_author": "Thinkingmachines",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.6-luna-pro:batch",
@@ -18693,7 +19455,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 0.09999999999999999,
-      "output": 0.6
+      "output": 0.6,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 0.19999999999999998,
+          "output": 0.8999999999999999
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -18717,7 +19486,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1783590867,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.6-luna:batch",
@@ -18727,7 +19497,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 0.09999999999999999,
-      "output": 0.6
+      "output": 0.6,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 0.19999999999999998,
+          "output": 0.8999999999999999
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -18751,7 +19528,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1783590864,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.6-terra-pro:batch",
@@ -18761,7 +19539,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 1,
-      "output": 6
+      "output": 6,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 2,
+          "output": 9
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -18785,7 +19570,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1783590861,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.6-terra:batch",
@@ -18795,7 +19581,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 1,
-      "output": 6
+      "output": 6,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 2,
+          "output": 9
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -18819,7 +19612,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1783590857,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.6-sol-pro:batch",
@@ -18829,7 +19623,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 2.5,
-      "output": 15
+      "output": 15,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 5,
+          "output": 22.5
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -18853,7 +19654,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1783590854,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.6-sol:batch",
@@ -18863,7 +19665,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 2.5,
-      "output": 15
+      "output": 15,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 5,
+          "output": 22.5
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -18887,7 +19696,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1783590850,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-sonnet-5:batch",
@@ -18922,7 +19732,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1782843083,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "z-ai/glm-5.2:batch",
@@ -18962,7 +19773,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1781631930,
     "expiration_date": null,
-    "model_author": "Z.ai"
+    "model_author": "Z.ai",
+    "reasoning_declared": true
   },
   {
     "id": "moonshotai/kimi-k2.7-code:batch",
@@ -19002,7 +19814,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1781266361,
     "expiration_date": null,
-    "model_author": "MoonshotAI"
+    "model_author": "MoonshotAI",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-fable-5:batch",
@@ -19037,7 +19850,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1781007515,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "nvidia/nemotron-3-ultra-550b-a55b:batch",
@@ -19077,7 +19891,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1780551208,
     "expiration_date": null,
-    "model_author": "NVIDIA"
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
   },
   {
     "id": "minimax/minimax-m3:batch",
@@ -19118,7 +19933,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1780245374,
     "expiration_date": null,
-    "model_author": "MiniMax"
+    "model_author": "MiniMax",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-opus-4.8:batch",
@@ -19153,7 +19969,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1779905091,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3.5-flash:batch",
@@ -19192,7 +20009,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1779193800,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3.1-flash-lite:batch",
@@ -19231,7 +20049,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1778168828,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.5-pro:batch",
@@ -19241,7 +20060,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 15,
-      "output": 90
+      "output": 90,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 30,
+          "output": 135
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -19265,7 +20091,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1777051896,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.5:batch",
@@ -19275,7 +20102,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 2.5,
-      "output": 15
+      "output": 15,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 5,
+          "output": 22.5
+        }
+      ]
     },
     "input_modalities": [
       "file",
@@ -19299,7 +20133,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1777051893,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-opus-4.7:batch",
@@ -19334,7 +20169,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1776351100,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.4-nano:batch",
@@ -19368,7 +20204,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1773748187,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.4-mini:batch",
@@ -19402,7 +20239,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1773748178,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.4-pro:batch",
@@ -19412,7 +20250,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 15,
-      "output": 90
+      "output": 90,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 30,
+          "output": 135
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -19436,7 +20281,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1772734366,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.4:batch",
@@ -19446,7 +20292,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1050000,
     "pricing": {
       "input": 1.25,
-      "output": 7.5
+      "output": 7.5,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 2.5,
+          "output": 11.25
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -19470,7 +20323,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1772734352,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3.1-pro-preview:batch",
@@ -19480,7 +20334,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 1,
-      "output": 6
+      "output": 6,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 2,
+          "output": 9
+        }
+      ]
     },
     "input_modalities": [
       "audio",
@@ -19509,7 +20370,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1771509627,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-sonnet-4.6:batch",
@@ -19546,7 +20408,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1771342990,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-opus-4.6:batch",
@@ -19583,7 +20446,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1770219050,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-3-flash-preview:batch",
@@ -19622,7 +20486,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1765987078,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.2-pro:batch",
@@ -19656,7 +20521,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1765389780,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.2:batch",
@@ -19690,7 +20556,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1765389775,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-opus-4.5:batch",
@@ -19725,7 +20592,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1764010580,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5.1:batch",
@@ -19759,7 +20627,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1763060305,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/text-embedding-ada-002:batch",
@@ -19865,7 +20734,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1760547638,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5-pro:batch",
@@ -19899,7 +20769,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1759776663,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-sonnet-4.5:batch",
@@ -19909,7 +20780,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1000000,
     "pricing": {
       "input": 1.5,
-      "output": 7.5
+      "output": 7.5,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 3,
+          "output": 11.25
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -19935,7 +20813,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1759161676,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5-codex:batch",
@@ -19967,7 +20846,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1758643403,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5:batch",
@@ -20001,7 +20881,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1754587413,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5-mini:batch",
@@ -20035,7 +20916,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1754587407,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-5-nano:batch",
@@ -20069,7 +20951,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1754587402,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "anthropic/claude-opus-4.1:batch",
@@ -20103,7 +20986,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1754411591,
     "expiration_date": null,
-    "model_author": "Anthropic"
+    "model_author": "Anthropic",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-2.5-flash-lite:batch",
@@ -20141,7 +21025,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1753200276,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-2.5-flash:batch",
@@ -20179,7 +21064,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1750172488,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "google/gemini-2.5-pro:batch",
@@ -20189,7 +21075,14 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.625,
-      "output": 5
+      "output": 5,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 1.25,
+          "output": 7.5
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -20217,7 +21110,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1750169544,
     "expiration_date": null,
-    "model_author": "Google"
+    "model_author": "Google",
+    "reasoning_declared": true
   },
   {
     "id": "openai/o3-pro:batch",
@@ -20250,7 +21144,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1749598352,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/o4-mini-high:batch",
@@ -20284,7 +21179,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1744824212,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/o3:batch",
@@ -20317,7 +21213,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1744823457,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/o4-mini:batch",
@@ -20350,7 +21247,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1744820942,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-4.1:batch",
@@ -20480,7 +21378,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1742423211,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/o3-mini-high:batch",
@@ -20513,7 +21412,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1739372611,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/o3-mini:batch",
@@ -20545,7 +21445,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1738351721,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/o1:batch",
@@ -20578,7 +21479,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     ],
     "created": 1734459999,
     "expiration_date": null,
-    "model_author": "OpenAI"
+    "model_author": "OpenAI",
+    "reasoning_declared": true
   },
   {
     "id": "openai/gpt-4o-mini:batch",
@@ -20794,7 +21696,9 @@ const uncertainCatalogModelIds = new Set<string>([
   "switchpoint/router",
   "xiaomi/mimo-v2-flash",
   "z-ai/glm-4-32b",
-  "z-ai/glm-4.5-air:free"
+  "z-ai/glm-4.5-air:free",
+  "zyphra/zonos-v0.1-hybrid",
+  "zyphra/zonos-v0.1-transformer"
 ]);
 
 const CURRENT_TIME_SECONDS = Math.floor(Date.now() / 1000);
@@ -20807,10 +21711,45 @@ function toCny(usdPerMillion: number) {
   return roundMoney(usdPerMillion * USD_TO_CNY);
 }
 
-function getPricingStatus(raw: RawCatalogModel): PricingStatus {
+function pricingOverrides(raw: RawCatalogModel): TokenPricingOverride[] {
+  return (raw.pricing.overrides ?? []).map((override) => ({
+    min_prompt_tokens: override.min_prompt_tokens,
+    pricing: {
+      input: override.input,
+      output: override.output,
+    },
+    price_cny: {
+      input: toCny(override.input),
+      output: toCny(override.output),
+    },
+  }));
+}
+
+function getPricingBasis(raw: RawCatalogModel): PricingBasis {
+  if (raw.id.endsWith(":free") || raw.id === "openrouter/free") return "free";
+  if (
+    raw.output_modalities.some((modality) =>
+      ["image", "video", "audio", "speech"].includes(modality),
+    )
+  ) {
+    return "media";
+  }
+  if (
+    raw.output_modalities.some((modality) =>
+      ["embeddings", "rerank"].includes(modality),
+    )
+  ) {
+    return "request";
+  }
   if (raw.pricing.input < 0 || raw.pricing.output < 0) return "dynamic";
-  if (raw.pricing.input === 0 && raw.pricing.output === 0) return "free";
-  return "fixed";
+  if (raw.pricing.input !== 0 || raw.pricing.output !== 0) return "token";
+  return "dynamic";
+}
+
+function getPricingStatus(pricingBasis: PricingBasis): PricingStatus {
+  if (pricingBasis === "free") return "free";
+  if (pricingBasis === "token") return "fixed";
+  return "dynamic";
 }
 
 function getPricingTier(
@@ -20832,9 +21771,9 @@ function normalizeProvider(author: string): Provider {
   if (normalized.includes("google") || normalized.includes("gemma")) return "Google";
   if (normalized.includes("meta") || normalized.includes("llama")) return "Meta";
   if (normalized.includes("deepseek")) return "DeepSeek";
-  if (normalized.includes("mistral")) return "Mistral";
+  if (normalized.includes("mistral")) return "Mistral AI";
   if (normalized.includes("microsoft") || normalized.includes("phi")) return "Microsoft";
-  return "其他";
+  return author.trim() || "其他";
 }
 
 function inferCapabilities(raw: RawCatalogModel): Capability[] {
@@ -20844,9 +21783,20 @@ function inferCapabilities(raw: RawCatalogModel): Capability[] {
   if (raw.input_modalities.includes("image") || raw.output_modalities.includes("image")) capabilities.add("image");
   if (raw.input_modalities.includes("audio") || raw.output_modalities.includes("audio") || raw.output_modalities.includes("speech") || raw.output_modalities.includes("transcription")) capabilities.add("audio");
   if (raw.input_modalities.includes("video") || raw.output_modalities.includes("video")) capabilities.add("video");
-  if (haystack.includes("code") || haystack.includes("coder") || haystack.includes("codex") || haystack.includes("programming")) capabilities.add("code");
+  if (
+    raw.output_modalities.includes("text") &&
+    (haystack.includes("code") ||
+      haystack.includes("coder") ||
+      haystack.includes("codex") ||
+      haystack.includes("programming"))
+  ) capabilities.add("code");
   if (raw.supported_parameters.includes("tools") || raw.supported_parameters.includes("tool_choice")) capabilities.add("tool");
-  if (raw.supported_parameters.includes("reasoning") || raw.supported_parameters.includes("include_reasoning") || haystack.includes("reasoning") || haystack.includes("thinking") || haystack.includes("math") || haystack.includes("o3") || haystack.includes("o4") || haystack.includes("qwq")) capabilities.add("reasoning");
+  if (
+    raw.reasoning_declared === true ||
+    raw.supported_parameters.includes("reasoning") ||
+    raw.supported_parameters.includes("include_reasoning") ||
+    raw.supported_parameters.includes("reasoning_effort")
+  ) capabilities.add("reasoning");
   if (capabilities.size === 0) capabilities.add("text");
   return Array.from(capabilities);
 }
@@ -20870,12 +21820,72 @@ function inferSeries(raw: RawCatalogModel): string {
   return rules.find(([needle]) => haystack.includes(needle))?.[1] ?? raw.model_author;
 }
 
+function inferOpenRouterMarketSeries(
+  raw: RawCatalogModel,
+): OpenRouterMarketSeries {
+  const haystack = `${raw.id} ${raw.name} ${raw.model_author}`.toLowerCase();
+  const rules: Array<[RegExp, OpenRouterMarketSeries]> = [
+    [/openrouter\/|router/, "Router"],
+    [/\bgpt[-\s]|openai\/o[134](?:[-:/]|$)/, "GPT"],
+    [/claude|anthropic/, "Claude"],
+    [/gemini|google\/gemini/, "Gemini"],
+    [/gemma/, "Gemma"],
+    [/grok|x-ai\//, "Grok"],
+    [/cohere|command[-\s]/, "Cohere"],
+    [/amazon\/nova|\bnova[-\s]/, "Nova"],
+    [/qwen3/, "Qwen3"],
+    [/qwen|alibaba|tongyi/, "Qwen"],
+    [/(^|[/\s-])yi(?:[/\s:-]|$)/, "Yi"],
+    [/deepseek/, "DeepSeek"],
+    [/mistral|ministral|pixtral|voxtral/, "Mistral"],
+    [/llama-?4/, "Llama4"],
+    [/llama-?3/, "Llama3"],
+    [/llama-?2/, "Llama2"],
+    [/rwkv/, "RWKV"],
+    [/palm/, "PaLM"],
+    [
+      /image|video|audio|speech|tts|asr|transcri|embed|rerank|recraft|seedream|seedance/,
+      "Media",
+    ],
+  ];
+  return rules.find(([pattern]) => pattern.test(haystack))?.[1] ?? "Other";
+}
+
+function marketSnapshotFor(raw: RawCatalogModel): OpenRouterMarketSnapshot {
+  const snapshot =
+    openRouterMarketSnapshotByModelId[raw.id] ??
+    openRouterMarketSnapshotByModelId[raw.canonical_slug];
+  if (snapshot) return snapshot;
+
+  return {
+    ...EMPTY_OPENROUTER_MARKET_SNAPSHOT,
+    series: inferOpenRouterMarketSeries(raw),
+    author: raw.id.split("/", 1)[0] ?? "",
+    created_at: raw.created > 0 ? raw.created : null,
+    artificial_analysis: {},
+    design_arena: {},
+  };
+}
+
+function curatedMarketSnapshot(
+  author: string,
+  series: OpenRouterMarketSeries = "Other",
+): OpenRouterMarketSnapshot {
+  return {
+    ...EMPTY_OPENROUTER_MARKET_SNAPSHOT,
+    author,
+    series,
+    artificial_analysis: {},
+    design_arena: {},
+  };
+}
+
 function inferCategories(raw: RawCatalogModel, capabilities: Capability[]): Category[] {
   const categories = new Set<Category>();
   const haystack = (raw.id + " " + raw.name + " " + raw.raw_description).toLowerCase();
   if (raw.output_modalities.includes("text")) categories.add("chat");
   if (capabilities.includes("code")) categories.add("coding");
-  if (capabilities.includes("reasoning")) { categories.add("reasoning"); categories.add("math"); categories.add("analysis"); }
+  if (capabilities.includes("reasoning")) categories.add("reasoning");
   if (raw.input_modalities.includes("image")) { categories.add("vision"); categories.add("multimodal"); }
   if (raw.output_modalities.includes("image")) categories.add("image_generation");
   if (capabilities.includes("audio")) categories.add("audio");
@@ -20885,10 +21895,10 @@ function inferCategories(raw: RawCatalogModel, capabilities: Capability[]): Cate
   if (raw.output_modalities.includes("embeddings") || haystack.includes("embedding")) categories.add("embeddings");
   if (raw.output_modalities.includes("rerank") || haystack.includes("rerank")) categories.add("rerank");
   if (raw.context_length >= 200000) categories.add("long_context");
-  if (raw.pricing.input === 0) categories.add("low_cost");
-  if (haystack.includes("translation") || haystack.includes("multilingual")) categories.add("translation");
-  if (haystack.includes("roleplay") || haystack.includes("role-play")) categories.add("roleplay");
-  if (haystack.includes("moderation") || haystack.includes("guard")) categories.add("safety");
+  if (
+    raw.output_modalities.includes("text") &&
+    (haystack.includes("moderation") || haystack.includes("guard"))
+  ) categories.add("safety");
   if (categories.size === 0) categories.add("chat");
   return Array.from(categories);
 }
@@ -20913,7 +21923,10 @@ function inferTags(
   if (categories.includes("embeddings")) tags.add("向量");
   if (categories.includes("coding")) tags.add("代码");
   if (categories.includes("reasoning")) tags.add("推理");
-  if (categories.includes("low_cost")) tags.add("低价");
+  if (
+    pricingStatus === "fixed" &&
+    raw.pricing.input * USD_TO_CNY <= 1
+  ) tags.add("低价");
   if (categories.includes("long_context")) tags.add("长上下文");
   if (/gpt|claude|gemini|llama|deepseek|qwen|grok|mistral|command-r|sonar/.test(haystack)) tags.add("热门");
   if (/gpt-5|claude|gemini-3|llama-4|deepseek-v4|grok-4|qwen3.7/.test(haystack)) tags.add("精选");
@@ -21054,9 +22067,6 @@ function inferJobCapabilities(
   if (operations.includes("generate_video")) result.add("video_generation");
   if (operations.includes("embed")) result.add("embedding");
   if (operations.includes("rerank")) result.add("rerank");
-  if (haystack.includes("translation") || haystack.includes("multilingual")) {
-    result.add("translation");
-  }
   if (haystack.includes("moderation") || haystack.includes("guard")) {
     result.add("safety");
   }
@@ -21069,6 +22079,7 @@ function buildChineseDescription(
   active: boolean,
   priceCny: Model["price_cny"],
   pricingStatus: PricingStatus,
+  pricingBasis: PricingBasis,
 ) {
   const inputs = describeModalities(raw.input_modalities);
   const outputs = describeModalities(raw.output_modalities);
@@ -21077,8 +22088,12 @@ function buildChineseDescription(
   const price =
     pricingStatus === "free"
       ? "当前目录价格为免费，后续以平台结算为准。"
-      : pricingStatus === "dynamic"
-        ? "费用由实际路由模型或组合调用决定。"
+      : pricingBasis === "media"
+        ? "按图片、音频或视频规格计费，费用以专用生成接口为准。"
+        : pricingBasis === "request"
+          ? "按请求或专用端点计费，费用以对应接口为准。"
+          : pricingStatus === "dynamic"
+            ? "费用由实际路由模型或组合调用决定。"
         : "输入约 ¥" + priceCny.input.toFixed(2) + "，输出约 ¥" + priceCny.output.toFixed(2) + " / 百万 token。";
   const lifecycle = active ? "" : "\u8be5\u6761\u76ee\u5df2\u6309\u5e73\u53f0\u76ee\u5f55\u6807\u8bb0\u4e3a\u975e\u6d3b\u8dc3\u3002";
   return raw.name + " \u662f模镜\u76ee\u5f55\u6536\u5f55\u7684 " + raw.model_author + " 模型，支持" + inputs + "输入并输出" + outputs + "，适合" + scenes + "等场景。上下文长度为 " + context + "，" + price + lifecycle;
@@ -21103,23 +22118,35 @@ function enrichModel(
         ? "uncertain"
         : "live");
   const active = catalog_status !== "expired";
-  const pricing_status = getPricingStatus(raw);
+  const pricing_basis = getPricingBasis(raw);
+  const pricing_status = getPricingStatus(pricing_basis);
   const price_cny =
-    pricing_status === "free"
-      ? { input: 0, output: 0 }
-      : { input: toCny(raw.pricing.input), output: toCny(raw.pricing.output) };
+    pricing_status === "fixed"
+      ? { input: toCny(raw.pricing.input), output: toCny(raw.pricing.output) }
+      : { input: 0, output: 0 };
   const capabilities = inferCapabilities(raw);
   const categories = inferCategories(raw, capabilities);
+  const openrouter_market = marketSnapshotFor(raw);
   const operations = inferOperations(raw);
-  const job_capabilities = inferJobCapabilities(raw, capabilities, operations);
+  const job_capabilities = inferJobCapabilities(
+    raw,
+    capabilities,
+    operations,
+  );
   const primary_operation = primaryOperation(operations);
   const interaction = interactionForOperation(primary_operation, raw.id);
+  const basePricing: TokenPricing = {
+    input: raw.pricing.input,
+    output: raw.pricing.output,
+  };
+  const tieredPricing = pricingOverrides(raw);
   const realtimeVariant: ModelServingVariant = {
     type: "realtime",
     catalog_id: raw.id,
     request_model_id: raw.id,
     endpoint: "synchronous",
-    pricing: raw.pricing,
+    pricing: basePricing,
+    pricing_overrides: tieredPricing,
     price_cny,
     input_modalities: raw.input_modalities,
     output_modalities: raw.output_modalities,
@@ -21136,11 +22163,14 @@ function enrichModel(
       active,
       price_cny,
       pricing_status,
+      pricing_basis,
     ),
     context_length: raw.context_length,
-    pricing: raw.pricing,
+    pricing: basePricing,
+    pricing_overrides: tieredPricing,
     price_cny,
     pricing_status,
+    pricing_basis,
     pricing_tier: getPricingTier(raw.pricing.input, pricing_status),
     capabilities,
     input_modalities: raw.input_modalities,
@@ -21152,10 +22182,12 @@ function enrichModel(
     ui_entrypoint: interaction.entrypoint,
     series: inferSeries(raw),
     categories,
+    openrouter_market,
     supported_parameters: raw.supported_parameters,
-    distillable: false,
-    zero_data_retention: false,
-    in_region_routing: false,
+    reasoning_declared: raw.reasoning_declared === true,
+    distillable: openrouter_market.distillable,
+    zero_data_retention: openrouter_market.zero_data_retention,
+    in_region_routing: openrouter_market.regions.length > 0,
     catalog_status,
     catalog_counted: options.catalogCounted ?? true,
     serving_variants: [realtimeVariant],
@@ -21181,8 +22213,10 @@ const worldModelEntry: Model = {
     "上传现实场景的图片或视频，异步生成可探索的 3D 世界，支持全景图、GLB、SPZ 预览和显式 PLY 导出。",
   context_length: 0,
   pricing: { input: -1, output: -1 },
+  pricing_overrides: [],
   price_cny: { input: 0, output: 0 },
   pricing_status: "dynamic",
+  pricing_basis: "dynamic",
   pricing_tier: "dynamic",
   capabilities: ["image", "video"],
   input_modalities: ["image", "video"],
@@ -21194,7 +22228,9 @@ const worldModelEntry: Model = {
   ui_entrypoint: "multimodal",
   series: "世界模型",
   categories: ["3D", "空间智能"],
+  openrouter_market: curatedMarketSnapshot("worldlabs"),
   supported_parameters: [],
+  reasoning_declared: false,
   distillable: false,
   zero_data_retention: false,
   in_region_routing: false,
@@ -21264,8 +22300,10 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
       "OpenAI 的轻量文字转语音模型，适合朗读助手回答和生成普通语音。通过独立 OpenAI 音频连接调用；自定义音色与声音克隆仍保持关闭。",
     context_length: 0,
     pricing: { input: -1, output: -1 },
+    pricing_overrides: [],
     price_cny: { input: 0, output: 0 },
     pricing_status: "dynamic",
+    pricing_basis: "dynamic",
     pricing_tier: "dynamic",
     capabilities: ["text", "audio"],
     input_modalities: ["text"],
@@ -21277,7 +22315,9 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
     ui_entrypoint: "multimodal",
     series: "GPT-4o Audio",
     categories: ["audio"],
+    openrouter_market: curatedMarketSnapshot("openai", "GPT"),
     supported_parameters: ["voice", "speed"],
+    reasoning_declared: false,
     distillable: false,
     zero_data_retention: false,
     in_region_routing: false,
@@ -21298,8 +22338,10 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
       "OpenAI 实时双向语音模型的均衡版本，适合低延迟连续语音对话、自然停顿和随时打断。该模型通过独立 OpenAI 音频连接调用，不进入普通聊天或智能调度候选池。",
     context_length: 0,
     pricing: { input: -1, output: -1 },
+    pricing_overrides: [],
     price_cny: { input: 0, output: 0 },
     pricing_status: "dynamic",
+    pricing_basis: "dynamic",
     pricing_tier: "dynamic",
     capabilities: ["audio"],
     input_modalities: ["audio"],
@@ -21311,7 +22353,9 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
     ui_entrypoint: "multimodal",
     series: "GPT Realtime 2.1",
     categories: ["audio"],
+    openrouter_market: curatedMarketSnapshot("openai", "GPT"),
     supported_parameters: [],
+    reasoning_declared: false,
     distillable: false,
     zero_data_retention: false,
     in_region_routing: false,
@@ -21332,8 +22376,10 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
       "OpenAI 实时双向语音模型的质量版本，适合更重视回答质量的连续语音对话，支持自然停顿和随时打断。该模型通过独立 OpenAI 音频连接调用，不进入普通聊天或智能调度候选池。",
     context_length: 0,
     pricing: { input: -1, output: -1 },
+    pricing_overrides: [],
     price_cny: { input: 0, output: 0 },
     pricing_status: "dynamic",
+    pricing_basis: "dynamic",
     pricing_tier: "dynamic",
     capabilities: ["audio"],
     input_modalities: ["audio"],
@@ -21345,7 +22391,9 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
     ui_entrypoint: "multimodal",
     series: "GPT Realtime 2.1",
     categories: ["audio"],
+    openrouter_market: curatedMarketSnapshot("openai", "GPT"),
     supported_parameters: [],
+    reasoning_declared: false,
     distillable: false,
     zero_data_retention: false,
     in_region_routing: false,
@@ -21361,12 +22409,17 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
 function batchServingVariant(raw: RawCatalogModel): ModelServingVariant {
   const requestModelId = raw.id.replace(/:batch$/, "");
   const outputIsEmbedding = raw.output_modalities.includes("embeddings");
+  const basePricing: TokenPricing = {
+    input: raw.pricing.input,
+    output: raw.pricing.output,
+  };
   return {
     type: "batch",
     catalog_id: raw.id,
     request_model_id: requestModelId,
     endpoint: outputIsEmbedding ? "/v1/embeddings" : "/v1/chat/completions",
-    pricing: raw.pricing,
+    pricing: basePricing,
+    pricing_overrides: pricingOverrides(raw),
     price_cny: {
       input: toCny(raw.pricing.input),
       output: toCny(raw.pricing.output),
@@ -21410,6 +22463,9 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "qwen/qwen3-reranker-8b",
+  "qwen/qwen3-asr-1.7b",
+  "qwen/qwen3-asr-0.6b",
   "x-ai/grok-imagine-image-2.0",
   "liquid/lfm-2.5-2.6b:free",
   "nvidia/nemotron-3.5-lightning",
@@ -21452,13 +22508,13 @@ const normallyOrderedCatalogModels = sortedCatalogModels.filter(
 );
 
 // The list has one router card followed by two model cards in its first row.
-// Keep V4 Pro at row 2 column 1, move the former Flash default back exactly one
-// row, and reserve row 4 column 1 for Seedream 5 Pro.
+// Keep the stable V4 Flash default at row 2 column 1, place V4 Pro one row
+// later, and reserve row 4 column 1 for Seedream 5 Pro.
 const primaryCatalogModels: Model[] = [
   ...normallyOrderedCatalogModels.slice(0, 2),
-  ...(deepseekV4ProModel ? [deepseekV4ProModel] : []),
-  ...normallyOrderedCatalogModels.slice(2, 4),
   ...(deepseekV4FlashModel ? [deepseekV4FlashModel] : []),
+  ...normallyOrderedCatalogModels.slice(2, 4),
+  ...(deepseekV4ProModel ? [deepseekV4ProModel] : []),
   ...normallyOrderedCatalogModels.slice(4, 6),
   ...(seedream5ProModel ? [seedream5ProModel] : []),
   ...normallyOrderedCatalogModels.slice(6, 8),

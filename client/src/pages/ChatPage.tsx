@@ -101,6 +101,7 @@ import {
   readAgentInterview,
 } from "../utils/agentInterview";
 import { deriveProviderFromModel } from "../utils/userFriendlyText";
+import { formatPricingOverridesCny } from "../utils/tokenPricing";
 import {
   fetchChatStream,
   type ChatApiMessage,
@@ -4292,11 +4293,20 @@ function ChatConversationPage() {
                 <dt className="text-slate-500">价格</dt>
                 <dd className="mt-1 font-semibold text-slate-100">
                   {isOmniAutoRoute || model.pricing_status === "dynamic"
-                    ? "按实际调用"
-                    : `¥${model.price_cny.input.toFixed(2)} / ¥${model.price_cny.output.toFixed(2)}`}
+                    ? model.pricing_basis === "media"
+                      ? "按媒体计费"
+                      : model.pricing_basis === "request"
+                        ? "按请求计费"
+                        : "按实际调用"
+                    : `${model.pricing_overrides.length ? "起 " : ""}¥${model.price_cny.input.toFixed(2)} / ¥${model.price_cny.output.toFixed(2)}`}
                 </dd>
               </div>
             </dl>
+            {!isOmniAutoRoute && formatPricingOverridesCny(model) ? (
+              <p className="mt-3 rounded-xl border border-sky-300/20 bg-sky-300/[0.07] px-3 py-2 text-xs leading-5 text-sky-100">
+                分段价格：{formatPricingOverridesCny(model)}
+              </p>
+            ) : null}
           </section>
 
           {isOmniAutoRoute ? (
@@ -4401,16 +4411,26 @@ function ChatConversationPage() {
                 <div className="rounded-lg bg-white/[0.035] p-3">
                   <dt className="text-slate-500">实时价格</dt>
                   <dd className="mt-1 font-semibold text-slate-100">
-                    ¥{model.price_cny.input.toFixed(2)} / ¥{model.price_cny.output.toFixed(2)}
+                    {model.pricing_overrides.length ? "起 " : ""}¥{model.price_cny.input.toFixed(2)} / ¥{model.price_cny.output.toFixed(2)}
                   </dd>
                 </div>
                 <div className="rounded-lg bg-sky-300/10 p-3">
                   <dt className="text-sky-100/70">批处理价格</dt>
                   <dd className="mt-1 font-semibold text-sky-100">
-                    ¥{batchServingVariant.price_cny.input.toFixed(2)} / ¥{batchServingVariant.price_cny.output.toFixed(2)}
+                    {batchServingVariant.pricing_overrides.length ? "起 " : ""}¥{batchServingVariant.price_cny.input.toFixed(2)} / ¥{batchServingVariant.price_cny.output.toFixed(2)}
                   </dd>
                 </div>
               </dl>
+              {formatPricingOverridesCny(model) || formatPricingOverridesCny(batchServingVariant) ? (
+                <div className="space-y-1 rounded-lg border border-sky-300/15 bg-sky-300/[0.05] px-3 py-2 text-xs leading-5 text-sky-100">
+                  {formatPricingOverridesCny(model) ? (
+                    <p>实时分段：{formatPricingOverridesCny(model)}</p>
+                  ) : null}
+                  {formatPricingOverridesCny(batchServingVariant) ? (
+                    <p>批处理分段：{formatPricingOverridesCny(batchServingVariant)}</p>
+                  ) : null}
+                </div>
+              ) : null}
               <p className="text-xs leading-5 text-amber-100">
                 当前 Batch 仅接受文本输入，不支持流式输出；输入与结果由 OpenRouter 保留 30 天。
               </p>

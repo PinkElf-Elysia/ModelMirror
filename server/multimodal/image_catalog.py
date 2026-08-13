@@ -21,12 +21,7 @@ from .readiness import OperationReadiness
 
 IMAGE_CATALOG_TTL_SECONDS = 300.0
 IMAGE_CATALOG_STALE_SECONDS = 1_800.0
-IMAGE_PRICING_DETAIL_MODEL_IDS = frozenset(
-    {
-        "bytedance-seed/seedream-5-0-pro",
-        "x-ai/grok-imagine-image-2.0",
-    }
-)
+IMAGE_PRICING_CONCURRENCY = 8
 
 
 class ImageParameterProfile(BaseModel):
@@ -234,19 +229,30 @@ class ImageCatalogService:
         if generation_enabled:
             response = responses[response_index]
             self._raise_for_status(response)
-            for item in self._items(response.json()):
+            generation_items = [
+                item
+                for item in self._items(response.json())
+                if str(item.get("id") or "").strip()
+                and "image" in self._modalities(item, "output_modalities")
+            ]
+            pricing_semaphore = asyncio.Semaphore(IMAGE_PRICING_CONCURRENCY)
+
+            async def fetch_pricing(model_id: str):
+                async with pricing_semaphore:
+                    return model_id, await self._fetch_pricing(target, model_id)
+
+            pricing_by_model = dict(
+                await asyncio.gather(
+                    *(
+                        fetch_pricing(str(item["id"]).strip())
+                        for item in generation_items
+                    )
+                )
+            )
+            for item in generation_items:
                 model_id = str(item.get("id") or "").strip()
-                if not model_id:
-                    continue
                 inputs = self._modalities(item, "input_modalities")
                 outputs = self._modalities(item, "output_modalities")
-                if "image" not in outputs:
-                    continue
-                pricing = (
-                    await self._fetch_pricing(target, model_id)
-                    if model_id in IMAGE_PRICING_DETAIL_MODEL_IDS
-                    else []
-                )
                 profiles.append(
                     ImageModelProfile(
                         model_id=model_id,
@@ -257,7 +263,7 @@ class ImageCatalogService:
                         supported_parameters=self._parameters(
                             item.get("supported_parameters")
                         ),
-                        pricing=pricing,
+                        pricing=pricing_by_model.get(model_id, []),
                         supports_streaming=bool(
                             item.get("supports_streaming")
                         ),

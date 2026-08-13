@@ -348,6 +348,82 @@ async def test_seedream_5_pro_uses_the_dedicated_images_contract(
 
 
 @pytest.mark.asyncio
+async def test_image_catalog_fetches_pricing_for_every_generation_model(
+    tmp_path: Path,
+) -> None:
+    requested_endpoint_ids: list[str] = []
+
+    def handler(request: Request) -> Response:
+        if request.url.path.endswith("/images/models"):
+            return Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "provider/image-a",
+                            "architecture": {
+                                "input_modalities": ["text"],
+                                "output_modalities": ["image"],
+                            },
+                        },
+                        {
+                            "id": "provider/image-b",
+                            "architecture": {
+                                "input_modalities": ["text"],
+                                "output_modalities": ["image"],
+                            },
+                        },
+                    ]
+                },
+            )
+        if "/images/models/" in request.url.path:
+            model_id = request.url.path.split("/images/models/", 1)[1].split(
+                "/endpoints", 1
+            )[0]
+            requested_endpoint_ids.append(model_id)
+            if model_id == "provider/image-b":
+                return Response(503, json={"error": "temporarily unavailable"})
+            return Response(
+                200,
+                json={
+                    "endpoints": [
+                        {
+                            "pricing": [
+                                {
+                                    "billable": "output_image",
+                                    "unit": "image",
+                                    "cost_usd": 0.025,
+                                }
+                            ]
+                        }
+                    ]
+                },
+            )
+        return Response(200, json={"data": []})
+
+    catalog = ImageCatalogService(
+        openrouter_service(tmp_path),
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(handler)
+        ),
+    )
+    result = await catalog.get_catalog()
+    by_id = {
+        profile.model_id: profile
+        for profile in result.profiles
+        if profile.operation == "generate_image"
+    }
+
+    assert set(requested_endpoint_ids) == {
+        "provider/image-a",
+        "provider/image-b",
+    }
+    assert by_id["provider/image-a"].pricing[0].cost_usd == 0.025
+    assert by_id["provider/image-b"].pricing == []
+    assert by_id["provider/image-b"].interaction_status == "ready"
+
+
+@pytest.mark.asyncio
 async def test_grok_imagine_image_2_uses_dedicated_openrouter_contract(
     tmp_path: Path,
 ) -> None:

@@ -36,7 +36,7 @@ ALLOWED_AUDIO_FORMATS: dict[str, tuple[str, ...]] = {
     "webm": ("audio/webm", "video/webm", "application/octet-stream"),
     "aac": ("audio/aac", "audio/x-aac", "application/octet-stream"),
 }
-TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-08-06-b4"
+TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-08-13-c1"
 
 
 @dataclass(frozen=True)
@@ -67,7 +67,13 @@ VERIFIED_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
         "x-ai/grok-stt-1.0",
     )
 }
-MANUAL_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {}
+MANUAL_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
+    model_id: _STANDARD_TRANSCRIPTION_PROFILE
+    for model_id in (
+        "qwen/qwen3-asr-0.6b",
+        "qwen/qwen3-asr-1.7b",
+    )
+}
 
 
 def verification_model_ids() -> set[str]:

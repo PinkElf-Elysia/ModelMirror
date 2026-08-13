@@ -6,20 +6,29 @@ import {
   type ReactNode,
 } from "react";
 import {
-  CONTEXT_RANGE_LIMIT,
-  PROMPT_PRICE_CNY_LIMIT,
+  ARTIFICIAL_ANALYSIS_RANGE_LIMIT,
+  CONTEXT_MIN_LIMIT,
+  DESIGN_ARENA_RANGE_LIMIT,
+  MODEL_AGE_DAYS_LIMIT,
+  OUTPUT_PRICE_USD_LIMIT,
+  PROMPT_PRICE_USD_LIMIT,
+  artificialAnalysisMetricOptions,
   contextQuickOptions,
+  designArenaMetricOptions,
   jobCapabilityOptions,
-  type Option,
-  priceQuickOptions,
+  openRouterCategoryOptions,
+  promptPriceQuickOptions,
   providerOptions,
+  regionOptions,
   supportedParameterOptions,
+  type Option,
+  type RangeValue,
 } from "../../data/filterOptions";
 import {
   defaultFilterState,
   type ModelFilterState,
 } from "../../data/filterState";
-import { recruitmentFilterTitles } from "../../theme/recruitmentTheme";
+import type { OpenRouterMarketSeries } from "../../data/openRouterMarket";
 import CheckboxFilter from "./CheckboxFilter";
 import RangeSlider from "./RangeSlider";
 import TagFilter from "./TagFilter";
@@ -28,18 +37,28 @@ import ToggleFilter from "./ToggleFilter";
 interface FilterPanelProps {
   filters: ModelFilterState;
   modelAuthorOptions: Option<string>[];
-  seriesOptions: Option<string>[];
+  seriesOptions: Option<OpenRouterMarketSeries>[];
   onChange: (filters: ModelFilterState) => void;
   onClear: () => void;
 }
 
-type AdvancedTab = "provider" | "pricing" | "series" | "advanced";
+type AdvancedTab =
+  | "provider"
+  | "pricing"
+  | "series"
+  | "categories"
+  | "parameters"
+  | "benchmarks"
+  | "capability";
 
 const advancedTabs: Array<{ id: AdvancedTab; label: string }> = [
-  { id: "provider", label: "用人单位" },
+  { id: "provider", label: "提供商与模型商" },
   { id: "pricing", label: "价格与上下文" },
   { id: "series", label: "模型系列" },
-  { id: "advanced", label: "高级条件" },
+  { id: "categories", label: "应用分类" },
+  { id: "parameters", label: "参数与状态" },
+  { id: "benchmarks", label: "基准指标" },
+  { id: "capability", label: "可完成任务" },
 ];
 
 const primaryJobCapabilities: ModelFilterState["jobCapabilities"] = [
@@ -83,8 +102,16 @@ function formatContext(value: number) {
   return `${value}`;
 }
 
-function formatCny(value: number) {
-  return `¥${value.toFixed(value % 1 === 0 ? 0 : 1)}`;
+function formatUsd(value: number) {
+  return `$${value.toFixed(value % 1 === 0 ? 0 : 2)}/M`;
+}
+
+function formatAge(value: number) {
+  return value >= MODEL_AGE_DAYS_LIMIT.max ? "12+ 月" : `${value} 天`;
+}
+
+function isDefaultRange(value: RangeValue, limit: RangeValue) {
+  return value.min === limit.min && value.max === limit.max;
 }
 
 function CoreFilterChip({
@@ -112,19 +139,74 @@ function CoreFilterChip({
   );
 }
 
-function FilterGroup({
-  children,
-  label,
-}: {
-  children: ReactNode;
-  label: string;
-}) {
+function FilterGroup({ children, label }: { children: ReactNode; label: string }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
       <span className="mr-1 shrink-0 text-sm font-semibold text-slate-100">
         {label}
       </span>
       {children}
+    </div>
+  );
+}
+
+function FilterSection({
+  children,
+  description,
+  title,
+}: {
+  children: ReactNode;
+  description?: string;
+  title: string;
+}) {
+  return (
+    <section className="border-b border-white/10 pb-5 last:border-b-0 last:pb-0">
+      <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+      {description ? (
+        <p className="mb-3 mt-1 text-xs leading-5 text-slate-400">
+          {description}
+        </p>
+      ) : (
+        <div className="mb-3" />
+      )}
+      {children}
+    </section>
+  );
+}
+
+function MinimumSlider({
+  label,
+  max,
+  step,
+  value,
+  formatValue,
+  onChange,
+}: {
+  label: string;
+  max: number;
+  step: number;
+  value: number;
+  formatValue: (value: number) => string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-sm font-semibold text-slate-100">
+        {formatValue(value)}+
+      </p>
+      <label className="block text-xs text-slate-400">
+        {label}
+        <input
+          aria-label={label}
+          className="mt-2 h-2 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-hire-300"
+          max={max}
+          min={0}
+          onChange={(event) => onChange(Number(event.target.value))}
+          step={step}
+          type="range"
+          value={value}
+        />
+      </label>
     </div>
   );
 }
@@ -170,22 +252,16 @@ export default function FilterPanel({
 
   useEffect(() => {
     if (!advancedOpen) return;
-
     const frame = window.requestAnimationFrame(() => {
       const rootBottom = rootRef.current?.getBoundingClientRect().bottom ?? 0;
-      const availableHeight = Math.max(
-        240,
-        window.innerHeight - rootBottom - 28,
-      );
       panelRef.current?.style.setProperty(
         "--advanced-filter-max-height",
-        `${availableHeight}px`,
+        `${Math.max(240, window.innerHeight - rootBottom - 28)}px`,
       );
       panelRef.current
         ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
         ?.focus();
     });
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -193,12 +269,10 @@ export default function FilterPanel({
       }
     };
     const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && !rootRef.current?.contains(target)) {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
         closeAdvanced();
       }
     };
-
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("pointerdown", handlePointerDown);
     return () => {
@@ -208,109 +282,86 @@ export default function FilterPanel({
     };
   }, [advancedOpen]);
 
-  const providerPriority = [
-    "OpenAI",
-    "Anthropic",
-    "深度求索",
-    "Google",
-    "通义千问",
-    "Meta",
-    "Mistral AI",
-    "Microsoft",
-  ];
-  const prioritizedProviderOptions = useMemo(() => {
-    const providerPriorityIndex = (label: string) => {
-      const index = providerPriority.indexOf(label);
-      return index === -1 ? providerPriority.length : index;
-    };
-    const seenProviderLabels = new Set<string>();
-    return [...providerOptions]
-      .sort((left, right) => {
-        const priorityDifference =
-          providerPriorityIndex(left.label) -
-          providerPriorityIndex(right.label);
-        return (
-          priorityDifference || left.label.localeCompare(right.label, "zh-CN")
-        );
-      })
-      .filter((option) => {
-        if (seenProviderLabels.has(option.label)) return false;
-        seenProviderLabels.add(option.label);
-        return true;
-      });
-  }, []);
-
-  const normalizedProviderQuery = providerQuery.trim().toLocaleLowerCase();
-  const visibleProviderOptions = prioritizedProviderOptions.filter((option) =>
-    normalizedProviderQuery.length === 0
-      ? true
-      : option.label.toLocaleLowerCase().includes(normalizedProviderQuery),
+  const normalizedProviderQuery = providerQuery.trim().toLowerCase();
+  const visibleProviderOptions = useMemo(
+    () =>
+      providerOptions.filter((option) =>
+        normalizedProviderQuery
+          ? `${option.label} ${option.value}`
+              .toLowerCase()
+              .includes(normalizedProviderQuery)
+          : true,
+      ),
+    [normalizedProviderQuery],
   );
 
   const hiddenJobCapabilityCount = filters.jobCapabilities.filter(
     (capability) => !primaryJobCapabilities.includes(capability),
   ).length;
+  const benchmarkCount =
+    Number(filters.minToolSuccessRate > 0) +
+    Object.values(filters.artificialAnalysisRanges).filter(
+      (range) => !isDefaultRange(range, ARTIFICIAL_ANALYSIS_RANGE_LIMIT),
+    ).length +
+    Object.values(filters.designArenaRanges).filter(
+      (range) => !isDefaultRange(range, DESIGN_ARENA_RANGE_LIMIT),
+    ).length;
   const advancedFilterCount =
-    (filters.provider === "all" ? 0 : 1) +
+    filters.providers.length +
     filters.series.length +
     hiddenJobCapabilityCount +
+    filters.openRouterCategories.length +
     filters.supportedParameters.length +
     filters.modelAuthors.length +
-    (filters.contextRange.min === defaultFilterState.contextRange.min &&
-    filters.contextRange.max === defaultFilterState.contextRange.max
-      ? 0
-      : 1) +
-    (filters.promptPriceCnyRange.min ===
-      defaultFilterState.promptPriceCnyRange.min &&
-    filters.promptPriceCnyRange.max ===
-      defaultFilterState.promptPriceCnyRange.max
-      ? 0
-      : 1) +
-    Number(filters.distillable) +
+    filters.regions.length +
+    Number(filters.discounted) +
+    Number(filters.minContextLength > 0) +
+    Number(!isDefaultRange(filters.promptPriceUsdRange, PROMPT_PRICE_USD_LIMIT)) +
+    Number(!isDefaultRange(filters.outputPriceUsdRange, OUTPUT_PRICE_USD_LIMIT)) +
+    Number(!isDefaultRange(filters.modelAgeDaysRange, MODEL_AGE_DAYS_LIMIT)) +
+    Number(filters.distillable !== "all") +
     Number(filters.zeroDataRetention) +
-    Number(filters.inRegionRouting) +
-    Number(filters.showInactive);
+    Number(filters.showInactive) +
+    benchmarkCount;
 
   const advancedContent = (() => {
     if (activeTab === "provider") {
       return (
-        <div>
-          <label className="block">
-            <span className="sr-only">搜索用人单位</span>
-            <input
-              className="h-11 w-full rounded-md border border-white/10 bg-ink-950/70 px-4 text-sm text-white outline-none placeholder:text-slate-500 focus:border-hire-300/55 focus:ring-2 focus:ring-hire-300/10"
-              onChange={(event) => setProviderQuery(event.target.value)}
-              placeholder="搜索用人单位"
-              type="search"
-              value={providerQuery}
+        <div className="space-y-5">
+          <FilterSection
+            description="选择当前可用的服务端点，可同时选择多个。"
+            title="服务提供商"
+          >
+            <label className="mb-3 block">
+              <span className="sr-only">搜索服务提供商</span>
+              <input
+                className="h-11 w-full rounded-md border border-white/10 bg-ink-950/70 px-4 text-sm text-white outline-none placeholder:text-slate-500 focus:border-hire-300/55 focus:ring-2 focus:ring-hire-300/10"
+                onChange={(event) => setProviderQuery(event.target.value)}
+                placeholder="搜索服务提供商"
+                type="search"
+                value={providerQuery}
+              />
+            </label>
+            <CheckboxFilter
+              onToggle={(value) =>
+                update("providers", toggleValue(filters.providers, value))
+              }
+              options={visibleProviderOptions}
+              selected={filters.providers}
             />
-          </label>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            {[{ value: "all" as const, label: "全部" }, ...visibleProviderOptions].map(
-              (option) => {
-                const selected = filters.provider === option.value;
-                return (
-                  <label
-                    className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 text-sm transition ${
-                      selected
-                        ? "border-hire-300/40 bg-hire-300/10 text-hire-100"
-                        : "border-transparent text-slate-300 hover:border-white/10 hover:bg-white/[0.04] hover:text-white"
-                    }`}
-                    key={option.value}
-                  >
-                    <input
-                      checked={selected}
-                      className="h-4 w-4 accent-hire-300"
-                      name="providers"
-                      onChange={() => update("provider", option.value)}
-                      type="radio"
-                    />
-                    <span className="truncate">{option.label}</span>
-                  </label>
-                );
-              },
-            )}
-          </div>
+          </FilterSection>
+          <FilterSection title="模型商">
+            <TagFilter
+              onToggle={(value) =>
+                update(
+                  "modelAuthors",
+                  toggleValue(filters.modelAuthors, value),
+                )
+              }
+              options={modelAuthorOptions}
+              selected={filters.modelAuthors}
+            />
+          </FilterSection>
         </div>
       );
     }
@@ -318,56 +369,77 @@ export default function FilterPanel({
     if (activeTab === "pricing") {
       return (
         <div className="space-y-5">
-          <section aria-labelledby="context-filter-heading">
-            <h3
-              className="mb-3 text-sm font-semibold text-slate-100"
-              id="context-filter-heading"
-            >
-              {recruitmentFilterTitles.context}
-            </h3>
-            <RangeSlider
+          <FilterSection title="折扣模型">
+            <ToggleFilter
+              checked={filters.discounted}
+              description="仅显示当前存在折扣端点的模型。"
+              label="仅看折扣"
+              onChange={(checked) => update("discounted", checked)}
+            />
+          </FilterSection>
+          <FilterSection title="上下文长度">
+            <MinimumSlider
               formatValue={formatContext}
-              max={CONTEXT_RANGE_LIMIT.max}
-              min={CONTEXT_RANGE_LIMIT.min}
-              onChange={(value) => update("contextRange", value)}
-              quickOptions={contextQuickOptions}
+              label="最小上下文长度"
+              max={CONTEXT_MIN_LIMIT}
+              onChange={(value) => update("minContextLength", value)}
               step={1000}
-              value={filters.contextRange}
+              value={filters.minContextLength}
             />
-          </section>
-          <section
-            aria-labelledby="price-filter-heading"
-            className="border-t border-white/10 pt-5"
+            <div className="mt-3 flex flex-wrap gap-2">
+              {contextQuickOptions.map((option) => (
+                <button
+                  className="rounded-full border border-white/10 bg-white/[0.045] px-2.5 py-1 text-xs text-slate-300 hover:border-hire-300/30 hover:text-hire-100"
+                  key={option.label}
+                  onClick={() => update("minContextLength", option.value)}
+                  type="button"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </FilterSection>
+          <FilterSection
+            description="按美元/百万 token 的输入价格筛选。"
+            title="输入价格"
           >
-            <h3
-              className="mb-3 text-sm font-semibold text-slate-100"
-              id="price-filter-heading"
-            >
-              {recruitmentFilterTitles.pricing}
-            </h3>
             <RangeSlider
-              formatValue={formatCny}
-              max={PROMPT_PRICE_CNY_LIMIT.max}
-              min={PROMPT_PRICE_CNY_LIMIT.min}
-              onChange={(value) => update("promptPriceCnyRange", value)}
-              quickOptions={priceQuickOptions}
+              formatValue={formatUsd}
+              max={PROMPT_PRICE_USD_LIMIT.max}
+              min={PROMPT_PRICE_USD_LIMIT.min}
+              onChange={(value) => update("promptPriceUsdRange", value)}
+              quickOptions={promptPriceQuickOptions}
               step={0.1}
-              value={filters.promptPriceCnyRange}
+              value={filters.promptPriceUsdRange}
             />
-          </section>
+          </FilterSection>
+          <FilterSection title="输出价格">
+            <RangeSlider
+              formatValue={formatUsd}
+              max={OUTPUT_PRICE_USD_LIMIT.max}
+              min={OUTPUT_PRICE_USD_LIMIT.min}
+              onChange={(value) => update("outputPriceUsdRange", value)}
+              step={0.5}
+              value={filters.outputPriceUsdRange}
+            />
+          </FilterSection>
+          <FilterSection title="模型年龄">
+            <RangeSlider
+              formatValue={formatAge}
+              max={MODEL_AGE_DAYS_LIMIT.max}
+              min={MODEL_AGE_DAYS_LIMIT.min}
+              onChange={(value) => update("modelAgeDaysRange", value)}
+              step={1}
+              value={filters.modelAgeDaysRange}
+            />
+          </FilterSection>
         </div>
       );
     }
 
     if (activeTab === "series") {
       return (
-        <section aria-labelledby="series-filter-heading">
-          <h3
-            className="mb-3 text-sm font-semibold text-slate-100"
-            id="series-filter-heading"
-          >
-            {recruitmentFilterTitles.series}
-          </h3>
+        <FilterSection title="模型系列">
           <TagFilter
             onToggle={(value) =>
               update("series", toggleValue(filters.series, value))
@@ -375,113 +447,182 @@ export default function FilterPanel({
             options={seriesOptions}
             selected={filters.series}
           />
-        </section>
+        </FilterSection>
+      );
+    }
+
+    if (activeTab === "categories") {
+      return (
+        <FilterSection
+          description="按模型适用的领域筛选。"
+          title="应用分类"
+        >
+          <TagFilter
+            onToggle={(value) =>
+              update(
+                "openRouterCategories",
+                toggleValue(filters.openRouterCategories, value),
+              )
+            }
+            options={openRouterCategoryOptions}
+            selected={filters.openRouterCategories}
+          />
+        </FilterSection>
+      );
+    }
+
+    if (activeTab === "parameters") {
+      return (
+        <div className="space-y-5">
+          <FilterSection title="支持参数">
+            <CheckboxFilter
+              onToggle={(value) =>
+                update(
+                  "supportedParameters",
+                  toggleValue(filters.supportedParameters, value),
+                )
+              }
+              options={supportedParameterOptions}
+              selected={filters.supportedParameters}
+            />
+          </FilterSection>
+          <FilterSection title="可蒸馏">
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { value: "all" as const, label: "全部" },
+                { value: "yes" as const, label: "是" },
+                { value: "no" as const, label: "否" },
+              ].map((option) => (
+                <label
+                  className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-white/10 px-3 text-sm text-slate-200"
+                  key={option.value}
+                >
+                  <input
+                    checked={filters.distillable === option.value}
+                    className="h-4 w-4 accent-hire-300"
+                    name="distillable"
+                    onChange={() => update("distillable", option.value)}
+                    type="radio"
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
+          </FilterSection>
+          <FilterSection title="区域路由">
+            <TagFilter
+              onToggle={(value) =>
+                update("regions", toggleValue(filters.regions, value))
+              }
+              options={regionOptions}
+              selected={filters.regions}
+            />
+          </FilterSection>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ToggleFilter
+              checked={filters.zeroDataRetention}
+              description="仅显示至少有一个零数据保留端点的模型。"
+              label="零数据保留"
+              onChange={(checked) => update("zeroDataRetention", checked)}
+            />
+            <ToggleFilter
+              checked={filters.showInactive}
+              description="额外显示目录中明确到期的模型。"
+              label="显示已下架模型"
+              onChange={(checked) => update("showInactive", checked)}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    if (activeTab === "benchmarks") {
+      return (
+        <div className="space-y-5">
+          <FilterSection title="工具调用">
+            <MinimumSlider
+              formatValue={(value) => `${value}%`}
+              label="最低成功率"
+              max={100}
+              onChange={(value) => update("minToolSuccessRate", value)}
+              step={1}
+              value={filters.minToolSuccessRate}
+            />
+          </FilterSection>
+          <FilterSection title="综合能力评测">
+            <div className="space-y-5">
+              {artificialAnalysisMetricOptions.map((option) => (
+                <div key={option.value}>
+                  <p className="mb-2 text-xs font-medium text-slate-300">
+                    {option.label}
+                  </p>
+                  <RangeSlider
+                    formatValue={(value) => `${value}`}
+                    max={ARTIFICIAL_ANALYSIS_RANGE_LIMIT.max}
+                    min={ARTIFICIAL_ANALYSIS_RANGE_LIMIT.min}
+                    onChange={(value) =>
+                      update("artificialAnalysisRanges", {
+                        ...filters.artificialAnalysisRanges,
+                        [option.value]: value,
+                      })
+                    }
+                    step={1}
+                    value={filters.artificialAnalysisRanges[option.value]}
+                  />
+                </div>
+              ))}
+            </div>
+          </FilterSection>
+          <FilterSection title="设计能力评测">
+            <div className="space-y-5">
+              {designArenaMetricOptions.map((option) => (
+                <div key={option.value}>
+                  <p className="mb-2 text-xs font-medium text-slate-300">
+                    {option.label}
+                  </p>
+                  <RangeSlider
+                    formatValue={(value) => `${value} ELO`}
+                    max={DESIGN_ARENA_RANGE_LIMIT.max}
+                    min={DESIGN_ARENA_RANGE_LIMIT.min}
+                    onChange={(value) =>
+                      update("designArenaRanges", {
+                        ...filters.designArenaRanges,
+                        [option.value]: value,
+                      })
+                    }
+                    step={10}
+                    value={filters.designArenaRanges[option.value]}
+                  />
+                </div>
+              ))}
+            </div>
+          </FilterSection>
+        </div>
       );
     }
 
     return (
-      <div className="space-y-5">
-        <section aria-labelledby="all-capabilities-heading">
-          <h3
-            className="mb-3 text-sm font-semibold text-slate-100"
-            id="all-capabilities-heading"
-          >
-            全部岗位能力
-          </h3>
-          <TagFilter
-            onToggle={(value) =>
-              update(
-                "jobCapabilities",
-                toggleValue(filters.jobCapabilities, value),
-              )
-            }
-            options={jobCapabilityOptions}
-            selected={filters.jobCapabilities}
-          />
-        </section>
-        <section
-          aria-labelledby="parameters-filter-heading"
-          className="border-t border-white/10 pt-5"
-        >
-          <h3
-            className="mb-3 text-sm font-semibold text-slate-100"
-            id="parameters-filter-heading"
-          >
-            {recruitmentFilterTitles.parameters}
-          </h3>
-          <CheckboxFilter
-            onToggle={(value) =>
-              update(
-                "supportedParameters",
-                toggleValue(filters.supportedParameters, value),
-              )
-            }
-            options={supportedParameterOptions}
-            selected={filters.supportedParameters}
-          />
-        </section>
-        <section
-          aria-labelledby="authors-filter-heading"
-          className="border-t border-white/10 pt-5"
-        >
-          <h3
-            className="mb-3 text-sm font-semibold text-slate-100"
-            id="authors-filter-heading"
-          >
-            {recruitmentFilterTitles.authors}
-          </h3>
-          <TagFilter
-            onToggle={(value) =>
-              update(
-                "modelAuthors",
-                toggleValue(filters.modelAuthors, value),
-              )
-            }
-            options={modelAuthorOptions}
-            selected={filters.modelAuthors}
-          />
-        </section>
-        <div className="grid gap-3 border-t border-white/10 pt-5 sm:grid-cols-2">
-          <ToggleFilter
-            checked={filters.distillable}
-            description="仅显示适合训练和传帮带的候选人"
-            label="可带徒弟"
-            onChange={(checked) => update("distillable", checked)}
-          />
-          <ToggleFilter
-            checked={filters.zeroDataRetention}
-            description="仅显示更注重数据保密的候选人"
-            label="保密意识强"
-            onChange={(checked) => update("zeroDataRetention", checked)}
-          />
-          <ToggleFilter
-            checked={filters.inRegionRouting}
-            description="仅显示支持指定区域路由的候选人"
-            label="区域路由"
-            onChange={(checked) => update("inRegionRouting", checked)}
-          />
-          <ToggleFilter
-            checked={filters.showInactive}
-            description="额外显示目录中明确到期的模型"
-            label="显示到期候选人"
-            onChange={(checked) => update("showInactive", checked)}
-          />
-        </div>
-      </div>
+      <FilterSection
+        description="按已接入的调用入口与任务能力筛选。"
+        title="全部任务能力"
+      >
+        <TagFilter
+          onToggle={(value) =>
+            update(
+              "jobCapabilities",
+              toggleValue(filters.jobCapabilities, value),
+            )
+          }
+          options={jobCapabilityOptions}
+          selected={filters.jobCapabilities}
+        />
+      </FilterSection>
     );
   })();
 
   return (
     <div className="relative z-30" ref={rootRef}>
       <div className="relative overflow-hidden rounded-lg border border-white/10 bg-ink-950/72 px-4 py-3 shadow-[0_8px_8px_rgba(0,0,0,0.18)]">
-        <div className="pointer-events-none absolute right-5 top-2 hidden h-12 w-36 opacity-35 lg:block">
-          <span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-cyan-300/70" />
-          <span className="absolute right-8 top-5 h-1 w-1 rounded-full bg-hire-300/70" />
-          <span className="absolute right-16 top-1 h-1 w-1 rounded-full bg-cyan-300/60" />
-          <span className="absolute right-1 top-1 h-px w-16 origin-right -rotate-[18deg] bg-cyan-300/25" />
-          <span className="absolute right-8 top-5 h-px w-12 origin-right rotate-[28deg] bg-hire-300/20" />
-        </div>
-
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0 max-w-[56rem] flex-1 space-y-2.5">
             <FilterGroup label="可接收输入">
@@ -500,7 +641,6 @@ export default function FilterPanel({
                 </CoreFilterChip>
               ))}
             </FilterGroup>
-
             <FilterGroup label="可完成任务">
               {primaryJobCapabilities.map((capability) => {
                 const option = jobCapabilityOptions.find(
@@ -523,17 +663,17 @@ export default function FilterPanel({
               })}
               <button
                 aria-controls="model-advanced-filter-panel"
-                aria-expanded={advancedOpen && activeTab === "advanced"}
+                aria-expanded={advancedOpen && activeTab === "capability"}
                 className="min-h-9 rounded-md px-2 text-xs font-semibold text-hire-100 transition hover:bg-hire-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-200/60"
                 onClick={() =>
-                  advancedOpen && activeTab === "advanced"
+                  advancedOpen && activeTab === "capability"
                     ? closeAdvanced()
-                    : openAdvanced("advanced", capabilityTriggerRef.current)
+                    : openAdvanced("capability", capabilityTriggerRef.current)
                 }
                 ref={capabilityTriggerRef}
                 type="button"
               >
-                {advancedOpen && activeTab === "advanced"
+                {advancedOpen && activeTab === "capability"
                   ? "收起全部"
                   : "查看全部"}
                 {hiddenJobCapabilityCount > 0
@@ -542,7 +682,6 @@ export default function FilterPanel({
               </button>
             </FilterGroup>
           </div>
-
           <button
             aria-controls="model-advanced-filter-panel"
             aria-expanded={advancedOpen}
@@ -561,12 +700,7 @@ export default function FilterPanel({
                 {advancedFilterCount}
               </span>
             ) : null}
-            <span
-              aria-hidden="true"
-              className={`text-hire-200 transition ${
-                advancedOpen ? "rotate-180" : ""
-              }`}
-            >
+            <span aria-hidden="true" className={advancedOpen ? "rotate-180" : ""}>
               ⌄
             </span>
           </button>
@@ -583,7 +717,7 @@ export default function FilterPanel({
           />
           <div
             aria-label="更多筛选"
-            className="fixed inset-x-0 bottom-0 z-[150] max-h-[82vh] overflow-y-auto rounded-t-lg border-t border-hire-300/35 bg-ink-950 pb-20 shadow-[0_-8px_8px_rgba(0,0,0,0.28)] lg:absolute lg:inset-x-auto lg:bottom-auto lg:right-0 lg:top-[calc(100%+0.75rem)] lg:max-h-[var(--advanced-filter-max-height,38rem)] lg:w-[min(42rem,calc(100vw-3rem))] lg:rounded-lg lg:border lg:border-white/10 lg:border-t-hire-300/45 lg:bg-[#091427] lg:pb-0 lg:shadow-[0_8px_8px_rgba(0,0,0,0.32)]"
+            className="fixed inset-x-0 bottom-0 z-[150] max-h-[82vh] overflow-y-auto rounded-t-lg border-t border-hire-300/35 bg-ink-950 pb-20 shadow-[0_-8px_8px_rgba(0,0,0,0.28)] lg:absolute lg:inset-x-auto lg:bottom-auto lg:right-0 lg:top-[calc(100%+0.75rem)] lg:max-h-[var(--advanced-filter-max-height,38rem)] lg:w-[min(50rem,calc(100vw-3rem))] lg:rounded-lg lg:border lg:border-white/10 lg:border-t-hire-300/45 lg:bg-[#091427] lg:pb-0 lg:shadow-[0_8px_8px_rgba(0,0,0,0.32)]"
             id="model-advanced-filter-panel"
             ref={panelRef}
             role="dialog"
@@ -598,18 +732,17 @@ export default function FilterPanel({
                 关闭
               </button>
             </div>
-
-            <div className="lg:grid lg:grid-cols-[9.5rem_minmax(0,1fr)]">
+            <div className="lg:grid lg:grid-cols-[11rem_minmax(0,1fr)]">
               <div
                 aria-label="筛选分类"
-                className="grid grid-cols-2 gap-1 border-b border-white/10 p-2 sm:flex lg:flex-col lg:border-b-0 lg:border-r lg:p-3"
+                className="grid grid-cols-2 gap-1 border-b border-white/10 p-2 sm:grid-cols-3 lg:flex lg:flex-col lg:border-b-0 lg:border-r lg:p-3"
                 role="tablist"
               >
                 {advancedTabs.map((tab) => (
                   <button
                     aria-controls={`advanced-filter-panel-${tab.id}`}
                     aria-selected={activeTab === tab.id}
-                    className={`relative min-h-11 flex-1 rounded-md px-3 text-left text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-200/60 lg:flex-none ${
+                    className={`relative min-h-11 rounded-md px-3 text-left text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-200/60 ${
                       activeTab === tab.id
                         ? "bg-hire-300/10 text-hire-100 before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:bg-hire-300"
                         : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-100"
@@ -625,7 +758,6 @@ export default function FilterPanel({
                   </button>
                 ))}
               </div>
-
               <div
                 aria-labelledby={`advanced-filter-tab-${activeTab}`}
                 className="p-4"
