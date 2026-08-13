@@ -71,6 +71,12 @@ VoltAgent 仓库自身不包含 `SKILL.md`，不能把仓库根目录当成 Skil
 
 中高风险及可疑内容的本机授权绑定 `skill_id + trustFingerprint`，凭据或版本变化后自动失效；普通可路由候选的 Router 人工批准只进入当前运行恢复状态，不写永久授权。`routerEligible=false` 的可疑凭据不会出现在 `skill_find` 结果中，也不能通过伪造候选调用 `skill_enable` 或 `skill_install`。市场、SkillSet 成员和已安装页面均展示同一份服务端凭据；聊天与工作流选择器保留被阻断项但禁用选择，服务端仍执行最终门禁。统一激活检查覆盖静态 `skill_ids`、`skill_read`、`skill_stage`、`skill_enable`、`skill_install` 与插件 Hook；即使已确认，运行能力不足仍会返回不兼容。Workspace Creator、插件和内置 Skill 继续使用各自既有质量与来源合同，不套用第三方目录评级。三份索引共享同一目录指纹，任一映射或指纹不一致都会失败关闭，但不会拖垮 Server 其他模块启动。
 
+### 1.2 已安装 Skill 生命周期基础层
+
+`SkillLifecycleStore` 是与实时安装目录分离的不可变历史 Store。它按原始字节 package digest 去重保存文件树，并将版本绑定到来源 revision、Git 固定提交、信任凭据或 Creator 质量证据。首批支持 Git、`local_import` 和 Workspace Creator；插件仍以版本化 Skill ID 管理，内置 Skill 仍跟随镜像。
+
+`SKILL_LIFECYCLE_ENABLED=false` 是第一阶段默认值。此时 `GET /api/skills/lifecycle/status` 与只读迁移审计可用，但迁移写入关闭；显式开启后，`POST /api/skills/lifecycle/migration` 仍要求 `confirmed=true`。迁移只复制已验证的当前版本到独立历史区，不改变安装目录、激活、Router 或卸载行为。无法证明来源、摘要或目录完整性的既有安装保留查看和卸载能力，并在生命周期 Store 中标记 `migration_blocked`。默认容量为当前版本加 5 个非当前版本、全局 1 GiB；版本切换、恢复点、运行绑定和永久清理在后续串行 PR 接入。
+
 ## 2. 如何添加新的 Skill 到市场
 
 手工精选市场数据位于：

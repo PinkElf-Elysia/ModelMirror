@@ -1616,17 +1616,30 @@ class SkillManager:
             self._write_metadata({})
 
     def _read_metadata(self) -> dict[str, dict[str, object]]:
-        self._ensure_dirs_for_read()
         try:
+            self._ensure_dirs_for_read()
             raw = json.loads(self.metadata_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SkillInstallError(
+                "Installed Skill metadata is unavailable or corrupt."
+            ) from exc
 
-        if isinstance(raw, dict) and isinstance(raw.get("skills"), dict):
-            return raw["skills"]  # type: ignore[return-value]
-        if isinstance(raw, dict):
+        if isinstance(raw, dict) and "skills" in raw:
+            skills = raw.get("skills")
+            if isinstance(skills, dict) and all(
+                isinstance(key, str) and isinstance(value, dict)
+                for key, value in skills.items()
+            ):
+                return skills  # type: ignore[return-value]
+            raise SkillInstallError(
+                "Installed Skill metadata is unavailable or corrupt."
+            )
+        if isinstance(raw, dict) and all(
+            isinstance(key, str) and isinstance(value, dict)
+            for key, value in raw.items()
+        ):
             return raw  # backward-compatible flat shape
-        return {}
+        raise SkillInstallError("Installed Skill metadata is unavailable or corrupt.")
 
     def _write_metadata(self, skills: dict[str, dict[str, object]]) -> None:
         self.installed_dir.mkdir(parents=True, exist_ok=True)

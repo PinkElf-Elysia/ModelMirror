@@ -158,7 +158,13 @@ node scripts/audit-skill-experience.mjs
 
 资源化增强 PR 3 将该合同接入工作台：新 Session 默认使用资源化流程，旧 Session 只读兼容并需用户主动迁移；页面按完整资源展示一次接受或重做，支持直接编辑生成新构建 revision，并在资源全部确认后单独评审最终 `SKILL.md` 与全包差异。`SKILL_CREATOR_RESOURCE_AUTHORING_ENABLED` 默认开启；设为 `false` 可回退到旧提案流程，不影响 Creator 的评测与安装质量门。
 
-### 4.4 外部市场
+### 4.4 已安装 Skill 生命周期
+
+生命周期基础层使用独立的 `SkillLifecycleStore` 保存不可变版本元数据和按 package digest 去重的原始字节文件树。首批只覆盖固定 SHA 的 Git Skill、`local_import` 与 Workspace Creator 草稿；插件继续使用版本化 Skill ID，内置 Skill 跟随镜像版本。迁移会重新读取实际安装目录，并分别核对 Git 信任凭据、本地 Import receipt 或 Creator 不可变 revision。来源、摘要、路径或扫描完整性不匹配时只记录结构化 `migration_blocked`，不删除或改写现有安装。
+
+PR 1 默认保持 `SKILL_LIFECYCLE_ENABLED=false`，只提供状态、只读迁移审计和需要明确确认的迁移入口；安装、卸载、运行绑定和 Router 行为均保持原状。Store 顶层损坏时失败关闭且不覆盖原文件，单条损坏记录只隔离摘要与大小，不保留原记录内容。默认保留当前版本与最多 5 个非当前版本，内容寻址存储上限为 1 GiB；后续 PR 才接入统一安装事务、卸载恢复点、固定版本运行绑定、回滚与永久清理。
+
+### 4.5 外部市场
 
 SkillHub 和其他外部市场继续延后。此次来源页读取仅为核验当前索引中的既有条目，不产生新目录、不做市场搜索、不自动同步外部条目。
 

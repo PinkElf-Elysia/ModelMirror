@@ -30,6 +30,15 @@ from .local_import import (
     SkillLocalImportNotFoundError,
     SkillLocalImportStorageError,
 )
+from .lifecycle import (
+    SkillLifecycleConflictError,
+    SkillLifecycleDisabledError,
+    SkillLifecycleError,
+    SkillLifecycleMigrationService,
+    SkillLifecycleStorageError,
+    SkillLifecycleStore,
+    SkillLifecycleValidationError,
+)
 from .draft_store import (
     SkillDraftConflictError,
     SkillDraftError,
@@ -68,6 +77,7 @@ _skill_draft_store: WorkspaceSkillDraftStore | None = None
 _builtin_library: BuiltinSkillLibrary | None = None
 _semantic_rerank_service: SkillSemanticRerankService | None = None
 _rerank_governance_service: SkillRerankGovernanceService | None = None
+_skill_lifecycle_service: SkillLifecycleMigrationService | None = None
 
 
 class SkillInstallRequest(BaseModel):
@@ -194,6 +204,10 @@ class SkillDraftPatchRequest(BaseModel):
     files: dict[str, str] | None = None
 
 
+class SkillLifecycleMigrationRequest(BaseModel):
+    confirmed: bool
+
+
 class SkillLibraryResponse(BaseModel):
     skills: list[BuiltinSkill]
     total: int
@@ -242,6 +256,26 @@ def set_skill_draft_store_for_tests(
 ) -> None:
     global _skill_draft_store
     _skill_draft_store = store
+
+
+def get_skill_lifecycle_service() -> SkillLifecycleMigrationService:
+    global _skill_lifecycle_service
+    if _skill_lifecycle_service is None:
+        manager = get_skill_manager()
+        _skill_lifecycle_service = SkillLifecycleMigrationService(
+            store=SkillLifecycleStore(),
+            manager=manager,
+            draft_store=get_skill_draft_store(),
+            local_import_store=manager.local_import_store,
+        )
+    return _skill_lifecycle_service
+
+
+def set_skill_lifecycle_service_for_tests(
+    service: SkillLifecycleMigrationService | None,
+) -> None:
+    global _skill_lifecycle_service
+    _skill_lifecycle_service = service
 
 
 def get_builtin_skill_library() -> BuiltinSkillLibrary:
@@ -672,12 +706,92 @@ async def get_skill_trust_receipt(receipt_id: str):
         _raise_trust_error(exc)
 
 
+def _raise_lifecycle_error(exc: SkillLifecycleError) -> None:
+    if isinstance(exc, SkillLifecycleDisabledError):
+        status_code = 404
+    elif isinstance(exc, SkillLifecycleStorageError):
+        status_code = 503
+    elif isinstance(exc, SkillLifecycleConflictError):
+        status_code = 409
+    elif isinstance(exc, SkillLifecycleValidationError):
+        status_code = (
+            409
+            if exc.code in {
+                "skill_lifecycle_confirmation_required",
+                "skill_lifecycle_package_mismatch",
+                "skill_lifecycle_version_conflict",
+            }
+            else 400
+        )
+    else:
+        status_code = 500
+    raise HTTPException(
+        status_code=status_code,
+        detail={
+            "code": exc.code,
+            "message": str(exc),
+            "details": exc.details,
+        },
+    ) from exc
+
+
+@router.get("/lifecycle/status")
+async def get_skill_lifecycle_status():
+    return get_skill_lifecycle_service().status()
+
+
+@router.get("/lifecycle/migration")
+async def audit_skill_lifecycle_migration():
+    try:
+        return await asyncio.to_thread(get_skill_lifecycle_service().audit)
+    except SkillLifecycleError as exc:
+        _raise_lifecycle_error(exc)
+    except SkillManagerError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "skill_lifecycle_installed_metadata_unavailable",
+                "message": str(exc),
+            },
+        ) from exc
+
+
+@router.post("/lifecycle/migration")
+async def apply_skill_lifecycle_migration(
+    payload: SkillLifecycleMigrationRequest,
+):
+    try:
+        return await asyncio.to_thread(
+            get_skill_lifecycle_service().migrate,
+            confirmed=payload.confirmed,
+        )
+    except SkillLifecycleError as exc:
+        _raise_lifecycle_error(exc)
+    except SkillManagerError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "skill_lifecycle_installed_metadata_unavailable",
+                "message": str(exc),
+            },
+        ) from exc
+
+
 @router.get("/installed", response_model=InstalledSkillsResponse)
 async def list_installed_skills() -> InstalledSkillsResponse:
-    skills = await asyncio.to_thread(get_skill_manager().list_installed_skills)
-    return InstalledSkillsResponse(
-        skills=[_payload_from_skill(skill) for skill in skills]
-    )
+    try:
+        skills = await asyncio.to_thread(get_skill_manager().list_installed_skills)
+        return InstalledSkillsResponse(
+            skills=[_payload_from_skill(skill) for skill in skills]
+        )
+    except SkillManagerError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "skill_installed_metadata_unavailable",
+                "message": str(exc),
+            },
+        ) from exc
 
 
 def _raise_draft_error(exc: Exception) -> None:
