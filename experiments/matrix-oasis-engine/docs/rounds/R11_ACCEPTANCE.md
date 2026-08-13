@@ -1,6 +1,6 @@
 # R11验收记录
 
-状态：R11.4已验证，等待本地提交
+状态：R11.5已验证，等待本地提交
 
 固定基线：`da2a914a2ff131507750a0afb8d8881180530f62`
 
@@ -9,8 +9,8 @@
 - [x] R11.1 治理与空间环境边界（`e9b88dd3`）
 - [x] R11.2 SPZ转换与Spatial Environment合同（`07e80872`）
 - [x] R11.3 Godot gdgs Compute导入底座（`987f4f9e`）
-- [x] R11.4 米制空间自动组装（本批提交；SHA在R11.5记录）
-- [ ] R11.5 一键空间预览
+- [x] R11.4 米制空间自动组装（`0ff37ad1`）
+- [x] R11.5 一键空间预览（本批提交；SHA在R11.6记录）
 - [ ] R11.6 standalone、性能与人工验收收口
 
 ## R11.1证据
@@ -50,6 +50,16 @@
 - 最新树完整`npm.cmd run verify`为18/18步骤，Node 683/683，Godot R4–R11.3、Creator 248 modules build与HTTP smoke全绿；`check:round-scope`、`check:parent-scope`、`check:boundary`分别通过并报告checked=122、122和1058/tracked=1052，changed均为117，`git diff --check`通过。
 - 锁文件使用既有离线依赖完成更新，`npm.cmd ci --offline --ignore-scripts --no-audit --no-fund`安装120个锁定包；`npm.cmd prefix`和`npm.cmd ls --all --depth=0`退出0。默认受限沙箱中的一次预检仅因`C:\\tmp`临时目录`EPERM`产生28项环境失败；在获准的模块本地环境重跑完整verify后683/683通过，不把该预检记为源码失败。
 - 本批未调用模型、Meshy或Marble，未读取供应商凭据，未生成或提交真实SPZ/compressed PLY/collider资产，未启动父服务、Docker或共享栈。本批可单独revert，回退不会删除仓外缓存、run或供应商资产。
+
+## R11.5证据
+
+- 本批21个模块内文件：新增独立Godot `spatial_lab`、严格Spatial Assembly loader、空间overlay/cache与导入/预览CLI、headless验证脚本和5项集成测试；同步根命令、verify编排、Godot源码边界、R11空间文档与本验收记录。Creator及其R10 HTTP/API类型未修改。
+- 空间缓存固定为`spatial-runs/<r10RunId>/`和独立`spatial-current.json`，不向已发布R10 run追加文件，也不修改R10 `current.json`。recover/find/load只有在冻结R10 run、全部Scene GLB、overlay、compressed PLY及collider交叉身份均重新验证后才暴露结果；source run ID、prompt hash、model和Scene Pack hash必须与冻结R10恢复结果精确一致，任一漂移会使overlay失效。
+- 预览把复验后的Runtime、Receipt、Scene Pack、全部Scene GLB、Spatial Assembly和compressed PLY以FileHandle独占写入一次性Godot工程，逐文件执行realpath、bigint identity与回读检查；然后在副本中显式启用gdgs Compute、完成editor import并以无shell参数数组启动。正式Godot工程、R10 run和panorama均不改写、不读取。
+- 集成审计发现并关闭了两项变换缝隙：canonical Assembly现固定`eulerOrder:YXZ`并记录splat局部`[0,0,-180000]`毫度旋转；Godot在节点进入树后重新应用该canonical变换，覆盖gdgs内部隐式方向修正。R11.4包内及顶层组装测试继续为8/8。
+- `npm.cmd run test:spatial-builder`为5/5；覆盖精确CLI/marker、panorama-free参数、独立overlay发布与漂移失效、R10 run字节不变、cache-only宿主、一次性工程复制和Compute-only Godot静态护栏。`npm.cmd run verify:r11`为21/21定向测试，Creator构建248 modules，Godot一次性工程import成功并在headless中以唯一`PACK_GODOT_SPATIAL_COMPUTE_UNAVAILABLE`静态失败，未输出ready marker。
+- 最新树完整`npm.cmd run verify`为19/19步骤，Node 688/688，Godot R4–R11.5、Creator 248 modules build和HTTP 200 smoke全绿；Godot一方40个脚本通过源码边界，固定导入资源路径拒绝动态资源选择。`check:round-scope`、`check:boundary`分别在完整verify中通过并报告checked=138/changed=125与checked=1066/tracked=1058。
+- headless证据不是图形验收：full-resolution 1.92M splat画面、真实视差、300帧中位FPS、collider/Meshy/Action对齐和窄窗体验继续作为R11.6人工硬门。本批未调用模型、Meshy或Marble，未读取供应商凭据，未启动父服务、Docker或共享栈。
 
 ## 最终人工门
 

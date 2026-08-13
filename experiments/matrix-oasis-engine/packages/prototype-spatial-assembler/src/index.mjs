@@ -197,13 +197,18 @@ function validAssemblyShape(value) {
       !["assetId", "placementId"].every((key) =>
         typeof value.environment.collider[key] === "string" &&
         ID_PATTERN.test(value.environment.collider[key])) ||
-      !exactRecord(value.transforms, ["coordinateTransform", "root", "splat", "collider"]) ||
+      !exactRecord(value.transforms, ["coordinateTransform", "eulerOrder", "root", "splat", "collider"]) ||
       value.transforms.coordinateTransform !== "spz-raw-ply-to-godot-v1" ||
+      value.transforms.eulerOrder !== "YXZ" ||
       !exactRecord(value.transforms.root, ["translationMm", "rotationMilliDegrees"]) ||
       !safeVector(value.transforms.root.translationMm, -2_000_000, 2_000_000) ||
       !safeVector(value.transforms.root.rotationMilliDegrees, -360_000, 360_000) ||
-      !exactRecord(value.transforms.splat, ["localTranslationMm", "scaleMicros"]) ||
+      !exactRecord(value.transforms.splat, ["localTranslationMm", "localRotationMilliDegrees", "scaleMicros"]) ||
       !safeVector(value.transforms.splat.localTranslationMm, -1_000_000, 1_000_000) ||
+      !safeVector(value.transforms.splat.localRotationMilliDegrees, -360_000, 360_000) ||
+      value.transforms.splat.localRotationMilliDegrees[0] !== 0 ||
+      value.transforms.splat.localRotationMilliDegrees[1] !== 0 ||
+      value.transforms.splat.localRotationMilliDegrees[2] !== -180_000 ||
       !Number.isSafeInteger(value.transforms.splat.scaleMicros) ||
       value.transforms.splat.scaleMicros < 1 || value.transforms.splat.scaleMicros > 100_000_000 ||
       !exactRecord(value.transforms.collider, ["localTranslationMm", "scaleMicros"]) ||
@@ -343,12 +348,14 @@ function buildAssembly({
     },
     transforms: {
       coordinateTransform: spatial.calibration.coordinateTransform,
+      eulerOrder: "YXZ",
       root: {
         translationMm: rootTranslation,
         rotationMilliDegrees: [...spatial.calibration.godotRotationMilliDegrees],
       },
       splat: {
         localTranslationMm: [...spatial.statistics.rendererCenterCompensationMm],
+        localRotationMilliDegrees: [0, 0, -180_000],
         scaleMicros: spatial.calibration.metricScaleMicros,
       },
       collider: {
@@ -366,11 +373,13 @@ function buildAssemblyReport({ assembly, canonicalAssemblyJson }) {
     inputs: { ...assembly.sources },
     alignment: {
       coordinateTransform: assembly.transforms.coordinateTransform,
+      eulerOrder: assembly.transforms.eulerOrder,
       panoramaVisible: false,
       metricScaleMicros: assembly.transforms.splat.scaleMicros,
       rootTranslationMm: [...assembly.transforms.root.translationMm],
       rootRotationMilliDegrees: [...assembly.transforms.root.rotationMilliDegrees],
       rendererCenterCompensationMm: [...assembly.transforms.splat.localTranslationMm],
+      splatLocalRotationMilliDegrees: [...assembly.transforms.splat.localRotationMilliDegrees],
     },
     output: {
       spatialAssemblySha256: sha256(canonicalAssemblyJson),

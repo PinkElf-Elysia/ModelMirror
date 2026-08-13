@@ -39,6 +39,8 @@ test("spatial assembly source is offline and cannot hide calibration or a panora
     "godotRotationMilliDegrees",
     "rendererCenterCompensationMm",
     "metricScaleMicros",
+    "localRotationMilliDegrees",
+    "eulerOrder",
     "panoramaVisible: false",
   ]) {
     assert.equal(source.includes(required), true, required);

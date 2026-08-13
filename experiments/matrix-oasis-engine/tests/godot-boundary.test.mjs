@@ -63,7 +63,7 @@ test("an unknown addon remains first-party and cannot bypass the source rules", 
 test("fixed runtime diagnostic pointers pass without allowing arbitrary absolute paths", (context) => {
   const root = fixture([
     "extends Node",
-    "const DIAGNOSTIC_PATHS = [\"/prepared\", \"/snapshot/pack\", \"/actionId\"]",
+    "const DIAGNOSTIC_PATHS = [\"/prepared\", \"/snapshot/pack\", \"/actionId\", \"/spatialAssembly\"]",
   ].join("\n"));
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));
   assert.equal(auditGodotBoundary({ root }).ok, true);

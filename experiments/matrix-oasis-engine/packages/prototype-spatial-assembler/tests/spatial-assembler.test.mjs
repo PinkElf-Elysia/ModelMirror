@@ -230,8 +230,10 @@ test("binds Scene Pack, splat and collider with explicit metric transforms", asy
   });
   assert.deepEqual(result.assembly.transforms.splat, {
     localTranslationMm: [0, 1000, 1000],
+    localRotationMilliDegrees: [0, 0, -180_000],
     scaleMicros: 1_000_000,
   });
+  assert.equal(result.assembly.transforms.eulerOrder, "YXZ");
   assert.deepEqual(result.assembly.transforms.collider, {
     localTranslationMm: [0, 0, 0],
     scaleMicros: 1_000_000,

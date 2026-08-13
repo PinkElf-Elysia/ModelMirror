@@ -39,12 +39,14 @@ export interface PrototypeSpatialAssembly {
   }>;
   readonly transforms: Readonly<{
     coordinateTransform: "spz-raw-ply-to-godot-v1";
+    eulerOrder: "YXZ";
     root: Readonly<{
       translationMm: readonly [number, number, number];
       rotationMilliDegrees: readonly [number, number, number];
     }>;
     splat: Readonly<{
       localTranslationMm: readonly [number, number, number];
+      localRotationMilliDegrees: readonly [0, 0, -180000];
       scaleMicros: number;
     }>;
     collider: Readonly<{
