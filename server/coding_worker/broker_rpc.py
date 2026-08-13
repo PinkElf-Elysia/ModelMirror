@@ -150,7 +150,7 @@ class BrokerRPCServer:
         self, request: BrokerRPCRequest
     ) -> tuple[str, str | None]:
         required_ids = [request.operation_id]
-        if request.tool_name == "install_dependencies":
+        if request.tool_name in {"install_dependencies", "query_documentation"}:
             required_ids.append(
                 "network_"
                 + hashlib.sha256(request.operation_id.encode("utf-8")).hexdigest()[:32]

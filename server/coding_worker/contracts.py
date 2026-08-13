@@ -15,6 +15,7 @@ CapabilityName = Literal[
     "workspace_write",
     "command",
     "dependency_install",
+    "documentation_query",
     "service",
     "network",
     "shell",
@@ -30,6 +31,8 @@ class TaskState(StrEnum):
     PREPARING = "preparing"
     RUNNING = "running"
     WAITING_APPROVAL = "waiting_approval"
+    WAITING_INPUT = "waiting_input"
+    WAITING_SUBTASKS = "waiting_subtasks"
     PAUSED = "paused"
     TESTING = "testing"
     INTERRUPTED = "interrupted"
@@ -75,6 +78,8 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     TaskState.RUNNING: frozenset(
         {
             TaskState.WAITING_APPROVAL,
+            TaskState.WAITING_INPUT,
+            TaskState.WAITING_SUBTASKS,
             TaskState.PAUSED,
             TaskState.TESTING,
             TaskState.INTERRUPTED,
@@ -94,8 +99,32 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
             TaskState.EXPIRED,
         }
     ),
+    TaskState.WAITING_INPUT: frozenset(
+        {
+            TaskState.QUEUED,
+            TaskState.PAUSED,
+            TaskState.INTERRUPTED,
+            TaskState.CANCELLED,
+            TaskState.EXPIRED,
+        }
+    ),
+    TaskState.WAITING_SUBTASKS: frozenset(
+        {
+            TaskState.QUEUED,
+            TaskState.PAUSED,
+            TaskState.INTERRUPTED,
+            TaskState.BLOCKED,
+            TaskState.CANCELLED,
+            TaskState.EXPIRED,
+        }
+    ),
     TaskState.PAUSED: frozenset(
-        {TaskState.QUEUED, TaskState.CANCELLED, TaskState.EXPIRED}
+        {
+            TaskState.QUEUED,
+            TaskState.WAITING_SUBTASKS,
+            TaskState.CANCELLED,
+            TaskState.EXPIRED,
+        }
     ),
     TaskState.TESTING: frozenset(
         {
@@ -111,13 +140,31 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
         }
     ),
     TaskState.INTERRUPTED: frozenset(
-        {TaskState.QUEUED, TaskState.CANCELLED, TaskState.EXPIRED}
+        {
+            TaskState.QUEUED,
+            TaskState.WAITING_SUBTASKS,
+            TaskState.PAUSED,
+            TaskState.CANCELLED,
+            TaskState.EXPIRED,
+        }
     ),
-    TaskState.COMPLETED: frozenset({TaskState.EXPIRED}),
-    TaskState.BLOCKED: frozenset({TaskState.QUEUED, TaskState.CANCELLED, TaskState.EXPIRED}),
-    TaskState.FAILED: frozenset({TaskState.QUEUED, TaskState.CANCELLED, TaskState.EXPIRED}),
+    TaskState.COMPLETED: frozenset({TaskState.PAUSED, TaskState.EXPIRED}),
+    TaskState.BLOCKED: frozenset(
+        {
+            TaskState.QUEUED,
+            TaskState.WAITING_SUBTASKS,
+            TaskState.PAUSED,
+            TaskState.CANCELLED,
+            TaskState.EXPIRED,
+        }
+    ),
+    TaskState.FAILED: frozenset(
+        {TaskState.QUEUED, TaskState.PAUSED, TaskState.CANCELLED, TaskState.EXPIRED}
+    ),
     TaskState.CANCELLED: frozenset({TaskState.EXPIRED}),
-    TaskState.BUDGET_LIMITED: frozenset({TaskState.QUEUED, TaskState.CANCELLED, TaskState.EXPIRED}),
+    TaskState.BUDGET_LIMITED: frozenset(
+        {TaskState.QUEUED, TaskState.PAUSED, TaskState.CANCELLED, TaskState.EXPIRED}
+    ),
     TaskState.EXPIRED: frozenset(),
 }
 
@@ -204,6 +251,23 @@ class WorkspaceSource(StrictModel):
         if SAFE_ID.fullmatch(value) is None:
             raise ValueError("workspace source values must be opaque safe ids")
         return value
+
+
+class RepositoryInstruction(StrictModel):
+    display_path: str = Field(min_length=1, max_length=1024)
+    scope: str = Field(min_length=1, max_length=1024)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    content: str = Field(max_length=16_384)
+
+    @field_validator("display_path")
+    @classmethod
+    def validate_instruction_path(cls, value: str) -> str:
+        return _normalized_workspace_relative(value)
+
+    @field_validator("scope")
+    @classmethod
+    def validate_instruction_scope(cls, value: str) -> str:
+        return _normalized_workspace_relative(value, allow_root=True)
 
 
 class AcceptanceCheck(StrictModel):
@@ -324,6 +388,26 @@ class WorkerCapabilities(StrictModel):
     operation_output: bool
     changesets: bool
     code_intelligence: bool
+    structured_plan: bool = False
+    user_questions: bool = False
+    context_compaction: bool = False
+    turn_history: bool = False
+    subtasks: bool = False
+
+
+class SubtaskKind(StrEnum):
+    EXPLORE = "explore"
+    IMPLEMENT = "implement"
+    REVIEW = "review"
+
+
+class SubtaskMergeState(StrEnum):
+    NOT_APPLICABLE = "not_applicable"
+    PENDING = "pending"
+    READY = "ready"
+    MERGED = "merged"
+    CONFLICTED = "conflicted"
+    FAILED = "failed"
 
 
 class OperationOutputStream(StrEnum):
@@ -594,6 +678,64 @@ class TaskRecord(StrictModel):
         return value
 
 
+class SubtaskRequest(StrictModel):
+    client_subtask_id: str
+    kind: SubtaskKind
+    objective: str = Field(min_length=1, max_length=65_536)
+
+    @field_validator("client_subtask_id")
+    @classmethod
+    def validate_client_subtask_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("subtask id is invalid")
+        return value
+
+    @field_validator("objective")
+    @classmethod
+    def reject_blank_subtask_objective(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("subtask objective cannot be blank")
+        return value
+
+
+class SubtaskRecord(StrictModel):
+    parent_task_id: str
+    child_task_id: str
+    client_subtask_id: str
+    kind: SubtaskKind
+    objective: str
+    base_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    merge_state: SubtaskMergeState
+    result_tree_hash: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    merge_operation_id: str | None = None
+    merged_tree_hash: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    changed_paths: tuple[str, ...] = Field(default=(), max_length=4096)
+    summary: str | None = Field(default=None, max_length=65_536)
+    created_at: float
+    updated_at: float
+
+    @field_validator(
+        "parent_task_id", "child_task_id", "client_subtask_id", "merge_operation_id"
+    )
+    @classmethod
+    def validate_subtask_id(cls, value: str | None) -> str | None:
+        if value is not None and SAFE_ID.fullmatch(value) is None:
+            raise ValueError("subtask identifier is invalid")
+        return value
+
+    @field_validator("changed_paths")
+    @classmethod
+    def validate_changed_paths(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(_normalized_workspace_relative(item) for item in value)
+        if normalized != value or len(value) != len(set(value)):
+            raise ValueError("subtask changed paths are invalid")
+        return value
+
+
 class WorkerEvent(StrictModel):
     sequence: int = Field(ge=1)
     task_id: str
@@ -609,6 +751,91 @@ class WorkerMessage(StrictModel):
     role: Literal["user", "assistant", "tool", "system"]
     content: str
     created_at: float
+
+
+class WorkerPlanItem(StrictModel):
+    step: str = Field(min_length=1, max_length=4096)
+    status: Literal["pending", "in_progress", "completed"]
+
+
+class WorkerPlan(StrictModel):
+    task_id: str
+    sequence: int = Field(ge=1)
+    turn_id: str
+    explanation: str | None = Field(default=None, max_length=16_384)
+    items: tuple[WorkerPlanItem, ...] = Field(min_length=1, max_length=128)
+    updated_at: float
+
+    @field_validator("task_id", "turn_id")
+    @classmethod
+    def validate_plan_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("plan identifier is invalid")
+        return value
+
+
+class QuestionStatus(StrEnum):
+    PENDING = "pending"
+    RESOLVED = "resolved"
+
+
+class WorkerQuestionOption(StrictModel):
+    option_id: str
+    label: str = Field(min_length=1, max_length=200)
+
+    @field_validator("option_id")
+    @classmethod
+    def validate_option_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("question option id is invalid")
+        return value
+
+
+class WorkerQuestionAnswer(StrictModel):
+    answer: str | None = Field(default=None, min_length=1, max_length=16_384)
+    option_id: str | None = None
+
+    @field_validator("option_id")
+    @classmethod
+    def validate_answer_option_id(cls, value: str | None) -> str | None:
+        if value is not None and SAFE_ID.fullmatch(value) is None:
+            raise ValueError("question option id is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_single_answer(self) -> "WorkerQuestionAnswer":
+        if (self.answer is None) == (self.option_id is None):
+            raise ValueError("exactly one question answer is required")
+        return self
+
+
+class WorkerQuestion(StrictModel):
+    task_id: str
+    question_id: str
+    turn_id: str
+    status: QuestionStatus
+    prompt: str = Field(min_length=1, max_length=16_384)
+    options: tuple[WorkerQuestionOption, ...] = Field(max_length=16)
+    answer: str | None = Field(default=None, max_length=16_384)
+    selected_option_id: str | None = None
+    created_at: float
+    resolved_at: float | None = None
+
+    @field_validator("task_id", "question_id", "turn_id", "selected_option_id")
+    @classmethod
+    def validate_question_id(cls, value: str | None) -> str | None:
+        if value is not None and SAFE_ID.fullmatch(value) is None:
+            raise ValueError("question identifier is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_resolution(self) -> "WorkerQuestion":
+        resolved = self.status is QuestionStatus.RESOLVED
+        if resolved != (self.resolved_at is not None):
+            raise ValueError("question resolution timestamp is invalid")
+        if resolved != (self.answer is not None or self.selected_option_id is not None):
+            raise ValueError("question resolution payload is invalid")
+        return self
 
 
 class SessionLedgerKind(StrEnum):
@@ -727,6 +954,9 @@ class WorkerSessionLedgerEntry(StrictModel):
                 "cancelled",
                 "failed",
                 "interrupted",
+                "waiting_approval",
+                "waiting_input",
+                "waiting_subtasks",
             }:
                 raise ValueError("session ledger turn result is invalid")
         elif self.kind is SessionLedgerKind.PLAN:
@@ -842,6 +1072,54 @@ class WorkerCheckpoint(StrictModel):
     task_id: str
     workspace_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: float
+
+
+class WorkerTurnCheckpoint(StrictModel):
+    checkpoint_id: str
+    task_id: str
+    ordinal: int = Field(ge=1)
+    turn_id: str
+    before_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    before_tree_oid: str = Field(pattern=r"^[a-f0-9]{40}$")
+    after_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    after_tree_oid: str = Field(pattern=r"^[a-f0-9]{40}$")
+    ledger_sequence: int = Field(ge=1)
+    before_public_context: dict[str, Any] = Field(
+        default_factory=dict, exclude=True, repr=False
+    )
+    after_public_context: dict[str, Any] = Field(
+        default_factory=dict, exclude=True, repr=False
+    )
+    created_at: float
+
+    @field_validator("checkpoint_id", "task_id", "turn_id")
+    @classmethod
+    def validate_turn_checkpoint_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("turn checkpoint identifier is invalid")
+        return value
+
+
+class WorkerTurnHistory(StrictModel):
+    task_id: str
+    cursor: int = Field(ge=0)
+    checkpoints: tuple[WorkerTurnCheckpoint, ...]
+    pending_action: Literal["undo", "redo"] | None = None
+
+
+class WorkerTaskExport(StrictModel):
+    export_version: Literal["v1"] = "v1"
+    task: TaskRecord
+    public_context: dict[str, Any]
+    session_ledger: tuple[WorkerSessionLedgerEntry, ...]
+    questions: tuple[WorkerQuestion, ...]
+    turn_history: WorkerTurnHistory
+    evidence: tuple[WorkerEvidence, ...]
+    artifact_index: tuple[dict[str, Any], ...]
+    workspace_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    workspace_diff_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    workspace_diff_base64: str = Field(max_length=3 * 1024 * 1024)
     created_at: float
 
 

@@ -30,11 +30,19 @@ from .provider import (
     ProviderSession,
     PROVIDER_TOOL_NAMES,
     ProviderUsage,
+    provider_message_with_repository_instructions,
 )
 
 
 OPENCODE_VERSION = "1.18.9"
 TOOL_BROKER_MCP_NAME = "modelmirror-tool-broker"
+OPENCODE_SECURITY_ENVIRONMENT = {
+    "OPENCODE_DISABLE_DEFAULT_PLUGINS": "1",
+    "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1",
+    "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1",
+    "OPENCODE_DISABLE_LSP_DOWNLOAD": "1",
+    "OPENCODE_DISABLE_SHARE": "1",
+}
 DIRECT_TOOL_NAMES = frozenset(
     {
         "bash",
@@ -63,7 +71,9 @@ class OpenCodeRoute(StrictModel):
     base_url: str
     api_key: str = Field(min_length=1, repr=False, exclude=True)
     context_tokens: int = Field(default=128_000, ge=8_192, le=2_000_000)
-    output_tokens: int = Field(default=32_000, ge=1_024, le=262_144)
+    # Keep the per-turn ceiling below common gateway credit/rate limits. The
+    # task-level output budget remains independent and spans all turns.
+    output_tokens: int = Field(default=8_192, ge=1_024, le=262_144)
 
 
 @dataclass(slots=True)
@@ -192,6 +202,7 @@ class OpenCodeProvider(CodingAgentProvider):
             raise ValueError("provider message cannot be blank")
         handle, request = self._require_session(session)
         route = self._require_route(request.model_route)
+        provider_prompt = provider_message_with_repository_instructions(request, text)
         event_response: httpx.Response | None = None
         try:
             event_request = handle.client.build_request(
@@ -208,7 +219,12 @@ class OpenCodeProvider(CodingAgentProvider):
                     },
                     "agent": "modelmirror-worker",
                     "tools": self._prompt_tools(request.tool_allowlist),
-                    "parts": [{"type": "text", "text": text}],
+                    "parts": [
+                        {
+                            "type": "text",
+                            "text": provider_prompt,
+                        }
+                    ],
                 },
             )
             prompt.raise_for_status()
@@ -219,6 +235,12 @@ class OpenCodeProvider(CodingAgentProvider):
                 if mapped.kind is ProviderEventKind.MESSAGE:
                     text_part = mapped.data.get("text")
                     if isinstance(text_part, str) and text_part:
+                        # OpenCode may echo the submitted user part on the shared
+                        # event stream. It contains ModelMirror's private broker
+                        # contract and is neither assistant output nor public
+                        # conversation state.
+                        if text_part == provider_prompt:
+                            continue
                         public = self._public_context.setdefault(session.session_id, [])
                         public.append(text_part[:16_384])
                         if len(public) > 64:
@@ -404,6 +426,7 @@ class OpenCodeProvider(CodingAgentProvider):
             "CODING_WORKER_ROUTE_KEY": route.api_key,
             "NO_PROXY": "127.0.0.1,localhost,new-api",
             "no_proxy": "127.0.0.1,localhost,new-api",
+            **OPENCODE_SECURITY_ENVIRONMENT,
             **broker_environment,
         }
         try:

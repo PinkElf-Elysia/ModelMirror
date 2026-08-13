@@ -9,15 +9,18 @@ import re
 import shutil
 import tempfile
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from time import time
 from typing import Any, Protocol
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
+
+import httpx
 
 from pydantic import Field, ValidationError
 
 from .contracts import (
+    ApprovalStatus,
     CapabilityLease,
     CapabilityName,
     CodeLocation,
@@ -28,6 +31,10 @@ from .contracts import (
     ShellApprovalScope,
     ShellMode,
     StrictModel,
+    SubtaskKind,
+    SubtaskMergeState,
+    SubtaskRecord,
+    SubtaskRequest,
     TaskState,
     WorkerDiagnostic,
 )
@@ -119,6 +126,15 @@ class ToolBroker:
         egress_proxy_url: str | None = None,
         max_output_bytes: int = MAX_TOOL_OUTPUT_BYTES,
         executor: ToolExecutor | None = None,
+        documentation_resources: Mapping[str, str] | None = None,
+        subtask_handler: Callable[
+            [str, SubtaskRequest], Awaitable[SubtaskRecord]
+        ]
+        | None = None,
+        subtask_merge_handler: Callable[
+            [str, str, str], Awaitable[SubtaskRecord]
+        ]
+        | None = None,
     ) -> None:
         if not 1024 <= max_output_bytes <= 16 * 1024 * 1024:
             raise ValueError("tool output limit is invalid")
@@ -130,6 +146,11 @@ class ToolBroker:
         self.egress_proxy_url = self._validate_proxy_url(egress_proxy_url)
         self.max_output_bytes = max_output_bytes
         self.executor = executor
+        self.documentation_resources = self._validate_documentation_resources(
+            documentation_resources or {}
+        )
+        self.subtask_handler = subtask_handler
+        self.subtask_merge_handler = subtask_merge_handler
         self.changesets = ChangesetEngine(workspace_broker)
 
     async def execute(
@@ -152,6 +173,16 @@ class ToolBroker:
             "workspace_id": task.workspace_id,
         }
         intent_sha256 = self._intent_sha256(tool_name, request)
+        if task.state is TaskState.WAITING_APPROVAL:
+            existing_operation_ids = {
+                operation.operation_id
+                for operation in self.store.list_operations(task_id)
+            }
+            if operation_id not in existing_operation_ids:
+                raise ToolBrokerError(
+                    "Task is parked for another exact approval.",
+                    code="task_state_conflict",
+                )
         try:
             operation = self.store.create_operation(
                 task_id=task_id,
@@ -161,7 +192,14 @@ class ToolBroker:
                 request=request,
             )
         except WorkerConflictError as exc:
-            raise ToolBrokerError("Tool operation was rejected.", code=exc.code) from exc
+            message = "Tool operation was rejected."
+            if exc.code == "operation_intent_conflict":
+                message = (
+                    "This operation_id is already bound to different tool input. "
+                    "Use a new operation_id for the changed intent; reuse the old id "
+                    "only with the exact original tool and arguments."
+                )
+            raise ToolBrokerError(message, code=exc.code) from exc
         if operation.state is OperationState.COMPLETED:
             if self._result_has_changeset(operation.tool_name, operation.result):
                 self.changesets.finalize(
@@ -182,6 +220,45 @@ class ToolBroker:
                 "Tool operation cannot be replayed.", code="operation_not_replayable"
             )
         try:
+            task_state = self.store.get_task(task_id).state
+            if task_state is TaskState.WAITING_SUBTASKS:
+                raise ToolBrokerError(
+                    "Task is parked while controlled subtasks run.",
+                    code="task_state_conflict",
+                )
+            if task_state is TaskState.WAITING_APPROVAL:
+                pending_approvals = tuple(
+                    approval
+                    for approval in self.store.list_approvals(task_id)
+                    if approval.status is ApprovalStatus.PENDING
+                )
+                if pending_approvals and not any(
+                    approval.operation_id == operation_id
+                    for approval in pending_approvals
+                ):
+                    raise ToolBrokerError(
+                        "Task is parked for another exact approval.",
+                        code="task_state_conflict",
+                    )
+            ready_implementation = any(
+                relation.kind is SubtaskKind.IMPLEMENT
+                and relation.merge_state is SubtaskMergeState.READY
+                for relation in self.store.list_subtasks(task_id)
+            )
+            direct_workspace_mutation = tool_name in {
+                "write_file",
+                "delete_file",
+                "apply_changeset",
+            } or (
+                tool_name == "run_shell"
+                and request["arguments"].get("mode") == ShellMode.MUTATE.value
+            )
+            if ready_implementation and direct_workspace_mutation:
+                raise ToolBrokerError(
+                    "Merge or resolve the ready implementation subtask before "
+                    "modifying the parent Workspace.",
+                    code="subtask_merge_required",
+                )
             network_lease = self._authorize(
                 task.spec.policy_profile,
                 tool_name,
@@ -212,13 +289,30 @@ class ToolBroker:
                     expected_state=OperationState.RUNNING,
                 )
             except Exception as exc:
-                if self._tool_can_publish_changeset(tool_name) and self.changesets.is_applied(
-                    task_id=task_id,
-                    workspace_id=task.workspace_id,
-                    operation_id=operation_id,
-                ):
+                durable_result = (
+                    self._tool_can_publish_changeset(tool_name)
+                    and self.changesets.is_applied(
+                        task_id=task_id,
+                        workspace_id=task.workspace_id,
+                        operation_id=operation_id,
+                    )
+                ) or (
+                    tool_name == "create_subtask"
+                    and self.store.get_subtask(
+                        task_id, str(arguments.get("client_subtask_id", ""))
+                    )
+                    is not None
+                ) or (
+                    tool_name == "merge_subtask"
+                    and self._subtask_merge_is_settled(
+                        task_id,
+                        str(arguments.get("child_task_id", "")),
+                        operation_id,
+                    )
+                )
+                if durable_result:
                     raise ToolBrokerError(
-                        "Changeset result must be reconciled.",
+                        "Durable tool result must be reconciled.",
                         code="operation_result_unknown",
                     ) from exc
                 raise
@@ -386,6 +480,51 @@ class ToolBroker:
             )
         elif operation.tool_name == "run_shell":
             return self._reconcile_shell(operation_id)
+        elif operation.tool_name == "create_subtask":
+            relation = self.store.get_subtask(
+                operation.task_id,
+                str(arguments.get("client_subtask_id", "")),
+            )
+            if relation is not None:
+                resolved = self.store.transition_operation(
+                    operation_id,
+                    OperationState.COMPLETED,
+                    result={"subtask": relation.model_dump(mode="json")},
+                    expected_state=OperationState.UNKNOWN,
+                )
+                return ToolResult(
+                    operation_id=operation_id,
+                    tool_name=operation.tool_name,
+                    state=resolved.state,
+                    data=resolved.result or {},
+                )
+        elif operation.tool_name == "merge_subtask":
+            relation = self.store.subtask_for_child(
+                str(arguments.get("child_task_id", ""))
+            )
+            if (
+                relation is None
+                or relation.parent_task_id != operation.task_id
+                or relation.merge_operation_id != operation_id
+                or relation.merge_state
+                not in {SubtaskMergeState.MERGED, SubtaskMergeState.CONFLICTED}
+            ):
+                raise ToolBrokerError(
+                    "Subtask merge result remains unknown.",
+                    code="operation_result_unknown",
+                )
+            resolved = self.store.transition_operation(
+                operation_id,
+                OperationState.COMPLETED,
+                result={"subtask": relation.model_dump(mode="json")},
+                expected_state=OperationState.UNKNOWN,
+            )
+            return ToolResult(
+                operation_id=operation_id,
+                tool_name=operation.tool_name,
+                state=resolved.state,
+                data=resolved.result or {},
+            )
         raise ToolBrokerError(
             "Tool result is unknown and must not be replayed.",
             code="operation_result_unknown",
@@ -405,6 +544,7 @@ class ToolBroker:
             "read_file_range",
             "glob_files",
             "search_regex",
+            "read_operation_output",
             "apply_changeset",
             "run_shell",
             "code_symbols",
@@ -413,6 +553,58 @@ class ToolBroker:
             "code_hover",
             "code_diagnostics",
         }
+        if tool_name in {"create_subtask", "merge_subtask"}:
+            if (
+                os.getenv("CODING_WORKER_V16_ENABLED", "false").strip().lower()
+                not in {"1", "true", "yes", "on"}
+                or os.getenv("CODING_WORKER_SUBAGENTS_ENABLED", "false")
+                .strip()
+                .lower()
+                not in {"1", "true", "yes", "on"}
+            ):
+                raise ToolBrokerError(
+                    "Controlled subtasks are disabled.", code="tool_not_allowed"
+                )
+            if tool_name == "create_subtask":
+                try:
+                    subtask = SubtaskRequest.model_validate(request["arguments"])
+                except ValidationError as exc:
+                    raise ToolBrokerError(
+                        "Subtask input is invalid.", code="tool_input_invalid"
+                    ) from exc
+                requires_write = subtask.kind is SubtaskKind.IMPLEMENT
+            else:
+                child_task_id = request["arguments"].get("child_task_id")
+                if (
+                    set(request["arguments"]) != {"child_task_id"}
+                    or not isinstance(child_task_id, str)
+                    or re.fullmatch(r"task_[a-f0-9]{32}", child_task_id) is None
+                ):
+                    raise ToolBrokerError(
+                        "Subtask merge input is invalid.", code="tool_input_invalid"
+                    )
+                requires_write = True
+            if requires_write and profile not in {
+                    PolicyProfile.DEVELOP,
+                    PolicyProfile.DEVELOP_NETWORKED,
+                }:
+                raise ToolBrokerError(
+                    "Read-only tasks cannot modify or merge implementation.",
+                    code="task_policy_readonly",
+                )
+            return None
+        if tool_name == "query_documentation" and (
+            os.getenv("CODING_WORKER_V16_ENABLED", "false").strip().lower()
+            not in {"1", "true", "yes", "on"}
+            or os.getenv(
+                "CODING_WORKER_DOCUMENTATION_EGRESS_ENABLED", "false"
+            ).strip().lower()
+            not in {"1", "true", "yes", "on"}
+        ):
+            raise ToolBrokerError(
+                "Controlled documentation egress is disabled.",
+                code="tool_not_allowed",
+            )
         if tool_name in v15_tools and os.getenv(
             "CODING_WORKER_V15_ENABLED", "false"
         ).strip().lower() not in {"1", "true", "yes", "on"}:
@@ -435,6 +627,7 @@ class ToolBroker:
             "search_text",
             "search_regex",
             "diff",
+            "read_operation_output",
             "list_acceptance_checks",
             "service_status",
             "code_symbols",
@@ -484,14 +677,32 @@ class ToolBroker:
                     "Dependency installation requires networked development policy.",
                     code="approval_required",
                 )
+            policy = self._require_egress_policy()
             capability = "dependency_install"
+            plan = self._dependency_plan(
+                str(request["workspace_id"]), request["arguments"]
+            )
+            approval_scope = plan["approval_scope"]
+        elif tool_name == "query_documentation":
+            if profile is not PolicyProfile.DEVELOP_NETWORKED:
+                raise ToolBrokerError(
+                    "Documentation queries require networked development policy.",
+                    code="approval_required",
+                )
+            capability = "documentation_query"
+            plan = self._documentation_plan(request["arguments"])
+            approval_scope = plan["approval_scope"]
         else:
             raise ToolBrokerError("Tool is not available.", code="tool_not_allowed")
         network_scope: dict[str, object] | None = None
         if tool_name == "install_dependencies":
+            network_scope = policy.approval_scope(
+                domains=plan["domains"], purpose="dependency-install"
+            )
+        elif tool_name == "query_documentation":
             policy = self._require_egress_policy()
             network_scope = policy.approval_scope(
-                domains=("registry.npmjs.org",), purpose="dependency-install"
+                domains=plan["domains"], purpose="documentation-query"
             )
         if lease_id is None:
             self.store.create_approval(
@@ -525,8 +736,8 @@ class ToolBroker:
             )
             self._require_egress_policy().validate_lease_scope(
                 lease=consumed_network_lease,
-                domains=("registry.npmjs.org",),
-                purpose="dependency-install",
+                domains=network_scope["domains"],
+                purpose=str(network_scope["purpose"]),
             )
         return consumed_network_lease
 
@@ -540,8 +751,32 @@ class ToolBroker:
         *,
         network_lease: CapabilityLease | None,
     ) -> dict[str, Any]:
+        if tool_name == "create_subtask":
+            if self.subtask_handler is None:
+                raise ToolBrokerError(
+                    "Subtask scheduler is unavailable.", code="subtask_unavailable"
+                )
+            try:
+                request = SubtaskRequest.model_validate(arguments)
+                relation = await self.subtask_handler(task_id, request)
+            except ValidationError as exc:
+                raise ToolBrokerError(
+                    "Subtask input is invalid.", code="tool_input_invalid"
+                ) from exc
+            return {"subtask": relation.model_dump(mode="json")}
+        if tool_name == "merge_subtask":
+            if self.subtask_merge_handler is None:
+                raise ToolBrokerError(
+                    "Subtask merge scheduler is unavailable.",
+                    code="subtask_unavailable",
+                )
+            relation = await self.subtask_merge_handler(
+                task_id, str(arguments["child_task_id"]), operation_id
+            )
+            return {"subtask": relation.model_dump(mode="json")}
         if tool_name == "list_files":
             return {
+                "tree_hash": self.workspace_broker.current_tree_hash(workspace_id),
                 "entries": [
                     entry.model_dump(mode="json")
                     for entry in self.workspace_broker.tree(workspace_id)
@@ -560,8 +795,15 @@ class ToolBroker:
                     "binary": True,
                     "size": len(content),
                     "sha256": hashlib.sha256(content).hexdigest(),
+                    "tree_hash": self.workspace_broker.current_tree_hash(workspace_id),
                 }
-            return {"path": str(arguments["path"]), "binary": False, "content": text}
+            return {
+                "path": str(arguments["path"]),
+                "binary": False,
+                "content": text,
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "tree_hash": self.workspace_broker.current_tree_hash(workspace_id),
+            }
         if tool_name == "read_file_range":
             return self._read_file_range(workspace_id, arguments)
         if tool_name == "glob_files":
@@ -589,7 +831,12 @@ class ToolBroker:
             return self._search_regex(workspace_id, arguments)
         if tool_name == "diff":
             value = self.workspace_broker.diff(workspace_id, max_bytes=self.max_output_bytes)
-            return {"diff": value.decode("utf-8", errors="replace")}
+            return {
+                "diff": value.decode("utf-8", errors="replace"),
+                "tree_hash": self.workspace_broker.current_tree_hash(workspace_id),
+            }
+        if tool_name == "read_operation_output":
+            return self._read_operation_output(task_id, arguments)
         if tool_name == "list_acceptance_checks":
             task = self.store.get_task(task_id)
             return {
@@ -664,7 +911,17 @@ class ToolBroker:
                 raise ToolBrokerError("Command argv is invalid.", code="tool_input_invalid")
             if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 1800:
                 raise ToolBrokerError("Command timeout is invalid.", code="tool_input_invalid")
-            return await self._run_process(task_id, workspace_id, tuple(argv), timeout)
+            # Commands are observational compatibility tools. Execute them in a
+            # disposable clone so test caches, formatter output, or failed
+            # commands cannot mutate the authoritative Workspace outside the
+            # atomic changeset path.
+            return await self._run_process(
+                task_id,
+                workspace_id,
+                tuple(argv),
+                timeout,
+                isolated=True,
+            )
         if tool_name == "start_service":
             argv = arguments.get("argv")
             ttl = arguments.get("ttl_seconds", 900)
@@ -750,11 +1007,7 @@ class ToolBroker:
             )
             return record.model_dump(mode="json")
         if tool_name == "install_dependencies":
-            if arguments != {"manager": "npm", "action": "ci"}:
-                raise ToolBrokerError(
-                    "Only frozen npm lockfile installation is supported.",
-                    code="dependency_plan_invalid",
-                )
+            plan = self._dependency_plan(workspace_id, arguments)
             if self.egress_proxy_url is None:
                 raise ToolBrokerError("Egress proxy is unavailable.", code="network_disabled")
             if network_lease is None:
@@ -770,22 +1023,20 @@ class ToolBroker:
             result = await self._run_process(
                 task_id,
                 workspace_id,
-                ("npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"),
+                plan["argv"],
                 1800,
                 environment_overrides={
                     "HTTPS_PROXY": authenticated_proxy,
                     "HTTP_PROXY": authenticated_proxy,
                     "NO_PROXY": "",
-                    "npm_config_registry": "https://registry.npmjs.org/",
-                    "npm_config_ignore_scripts": "true",
-                    "npm_config_audit": "false",
-                    "npm_config_fund": "false",
+                    **plan["environment"],
                 },
             )
             source = {
-                "manager": "npm",
-                "action": "ci",
-                "registry_domains": ["registry.npmjs.org"],
+                "manager": plan["manager"],
+                "action": plan["action"],
+                "lock_sha256": plan["lock_sha256"],
+                "registry_domains": list(plan["domains"]),
                 "exit_code": result["exit_code"],
             }
             artifact = self.store.create_artifact(
@@ -795,7 +1046,263 @@ class ToolBroker:
                 metadata={"kind": "dependency_source"},
             )
             return {**result, "source_artifact_id": artifact.artifact_id}
+        if tool_name == "query_documentation":
+            plan = self._documentation_plan(arguments)
+            if self.egress_proxy_url is None or network_lease is None:
+                raise ToolBrokerError(
+                    "Documentation network lease is unavailable.",
+                    code="network_lease_invalid",
+                )
+            authenticated_proxy = self._require_egress_policy().proxy_url(
+                base_url=self.egress_proxy_url,
+                lease=network_lease,
+                task_id=task_id,
+                purpose="documentation-query",
+            )
+            fetched = await self._fetch_documentation(
+                plan["url"], proxy=authenticated_proxy
+            )
+            receipt = {
+                "resource_id": plan["resource_id"],
+                "document_path": plan["document_path"],
+                "domain": plan["domains"][0],
+                "sha256": hashlib.sha256(fetched["content"]).hexdigest(),
+            }
+            artifact = self.store.create_artifact(
+                task_id=task_id,
+                media_type="application/json",
+                content=json.dumps(
+                    receipt, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8"),
+                metadata={"kind": "documentation_source"},
+            )
+            return {
+                "resource_id": plan["resource_id"],
+                "document_path": plan["document_path"],
+                "content": fetched["content"].decode("utf-8", errors="replace"),
+                "content_sha256": receipt["sha256"],
+                "source_artifact_id": artifact.artifact_id,
+            }
         raise ToolBrokerError("Tool is not available.", code="tool_not_allowed")
+
+    def _dependency_plan(
+        self, workspace_id: str, arguments: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        manager = arguments.get("manager")
+        action = arguments.get("action")
+        if arguments == {"manager": "npm", "action": "ci"}:
+            lockfiles = ("package.json", "package-lock.json")
+            argv = ("npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund")
+            domains = ("registry.npmjs.org",)
+            environment = {
+                "npm_config_registry": "https://registry.npmjs.org/",
+                "npm_config_ignore_scripts": "true",
+                "npm_config_audit": "false",
+                "npm_config_fund": "false",
+            }
+        elif arguments == {"manager": "uv", "action": "sync"}:
+            lockfiles = ("pyproject.toml", "uv.lock")
+            argv = ("uv", "sync", "--frozen")
+            domains = ("pypi.org", "files.pythonhosted.org")
+            environment = {
+                "UV_DEFAULT_INDEX": "https://pypi.org/simple",
+                "UV_NO_PROGRESS": "1",
+            }
+        elif arguments == {
+            "manager": "pip",
+            "action": "install",
+            "requirements": "requirements.txt",
+        }:
+            lockfiles = ("requirements.txt",)
+            argv = (
+                "python",
+                "-m",
+                "pip",
+                "install",
+                "--require-hashes",
+                "-r",
+                "requirements.txt",
+            )
+            domains = ("pypi.org", "files.pythonhosted.org")
+            environment = {
+                "PIP_INDEX_URL": "https://pypi.org/simple",
+                "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+                "PIP_NO_INPUT": "1",
+                "PIP_REQUIRE_HASHES": "1",
+            }
+        else:
+            raise ToolBrokerError(
+                "Dependency plan is not frozen.", code="dependency_plan_invalid"
+            )
+        contents: list[bytes] = []
+        for path in lockfiles:
+            try:
+                target = self._target(workspace_id, path)
+                content = target.read_bytes()
+            except (OSError, WorkspaceError) as exc:
+                raise ToolBrokerError(
+                    "Dependency lock input is unavailable.",
+                    code="dependency_plan_invalid",
+                ) from exc
+            if len(content) > 8 * 1024 * 1024:
+                raise ToolBrokerError(
+                    "Dependency lock input is too large.",
+                    code="dependency_plan_invalid",
+                )
+            contents.append(content)
+        if manager == "pip":
+            self._validate_hashed_requirements(contents[0])
+        digest = hashlib.sha256()
+        for path, content in zip(lockfiles, contents, strict=True):
+            digest.update(path.encode("utf-8") + b"\0")
+            digest.update(hashlib.sha256(content).digest())
+        return {
+            "manager": manager,
+            "action": action,
+            "argv": argv,
+            "domains": domains,
+            "environment": environment,
+            "lock_sha256": digest.hexdigest(),
+            "approval_scope": {
+                **dict(arguments),
+                "lock_sha256": digest.hexdigest(),
+            },
+        }
+
+    @staticmethod
+    def _validate_hashed_requirements(content: bytes) -> None:
+        try:
+            text = content.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise ToolBrokerError(
+                "Requirements file is not UTF-8 text.",
+                code="dependency_plan_invalid",
+            ) from exc
+        blocks: list[str] = []
+        current = ""
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            current += (" " if current else "") + line.rstrip("\\").strip()
+            if not line.endswith("\\"):
+                blocks.append(current)
+                current = ""
+        if current or not blocks:
+            raise ToolBrokerError(
+                "Requirements file is not a complete frozen plan.",
+                code="dependency_plan_invalid",
+            )
+        pattern = re.compile(
+            r"^[A-Za-z0-9_.-]+==[^\s;]+(?:\s+--hash=sha256:[a-fA-F0-9]{64})+$"
+        )
+        if any(pattern.fullmatch(block) is None for block in blocks):
+            raise ToolBrokerError(
+                "Every Python requirement must be pinned with SHA-256 hashes.",
+                code="dependency_plan_invalid",
+            )
+
+    def _documentation_plan(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
+        if set(arguments) != {"resource_id", "document_path"}:
+            raise ToolBrokerError(
+                "Documentation query is invalid.", code="tool_input_invalid"
+            )
+        resource_id = arguments.get("resource_id")
+        document_path = arguments.get("document_path")
+        if not isinstance(resource_id, str) or not isinstance(document_path, str):
+            raise ToolBrokerError(
+                "Documentation query is invalid.", code="tool_input_invalid"
+            )
+        base = self.documentation_resources.get(resource_id)
+        path = PurePosixPath(document_path)
+        if (
+            base is None
+            or not document_path
+            or len(document_path) > 1024
+            or path.is_absolute()
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or "?" in document_path
+            or "#" in document_path
+        ):
+            raise ToolBrokerError(
+                "Documentation resource is unavailable.",
+                code="documentation_resource_unavailable",
+            )
+        parsed = urlsplit(base)
+        assert parsed.hostname is not None
+        encoded_path = "/".join(quote(part, safe="-._~") for part in path.parts)
+        url = base.rstrip("/") + "/" + encoded_path
+        return {
+            "resource_id": resource_id,
+            "document_path": path.as_posix(),
+            "url": url,
+            "domains": (parsed.hostname.lower(),),
+            "approval_scope": {
+                "resource_id": resource_id,
+                "document_path": path.as_posix(),
+            },
+        }
+
+    @staticmethod
+    def _validate_documentation_resources(
+        resources: Mapping[str, str]
+    ) -> dict[str, str]:
+        validated: dict[str, str] = {}
+        for resource_id, base in resources.items():
+            parsed = urlsplit(base)
+            if (
+                re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", resource_id)
+                is None
+                or parsed.scheme != "https"
+                or parsed.hostname is None
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.port not in {None, 443}
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError("documentation resource catalog is invalid")
+            validated[resource_id] = base.rstrip("/")
+        return validated
+
+    @staticmethod
+    async def _fetch_documentation(url: str, *, proxy: str) -> dict[str, bytes]:
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        async with httpx.AsyncClient(
+            proxy=proxy,
+            timeout=timeout,
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
+            async with client.stream(
+                "GET",
+                url,
+                headers={
+                    "Accept": "text/html,text/plain,application/json,application/xml",
+                    "User-Agent": "ModelMirror-Coding-Worker/1",
+                },
+            ) as response:
+                content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+                if response.status_code != 200 or not (
+                    content_type.startswith("text/")
+                    or content_type
+                    in {"application/json", "application/xml", "application/xhtml+xml"}
+                ):
+                    raise ToolBrokerError(
+                        "Documentation response is unavailable.",
+                        code="documentation_response_invalid",
+                    )
+                chunks: list[bytes] = []
+                size = 0
+                async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+                    size += len(chunk)
+                    if size > 1024 * 1024:
+                        raise ToolBrokerError(
+                            "Documentation response is too large.",
+                            code="tool_output_too_large",
+                        )
+                    chunks.append(chunk)
+        return {"content": b"".join(chunks)}
 
     async def _run_code_intelligence(
         self,
@@ -1485,6 +1992,18 @@ class ToolBroker:
     def _tool_can_publish_changeset(tool_name: str) -> bool:
         return tool_name in {"apply_changeset", "run_shell"}
 
+    def _subtask_merge_is_settled(
+        self, task_id: str, child_task_id: str, operation_id: str
+    ) -> bool:
+        relation = self.store.subtask_for_child(child_task_id)
+        return (
+            relation is not None
+            and relation.parent_task_id == task_id
+            and relation.merge_operation_id == operation_id
+            and relation.merge_state
+            in {SubtaskMergeState.MERGED, SubtaskMergeState.CONFLICTED}
+        )
+
     @staticmethod
     def _result_has_changeset(
         tool_name: str, result: Mapping[str, Any] | None
@@ -1565,6 +2084,77 @@ class ToolBroker:
             "total_lines": len(lines),
             "content": selected,
             "sha256": hashlib.sha256(content).hexdigest(),
+        }
+
+    def _read_operation_output(
+        self, task_id: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        operation_id = arguments.get("operation_id")
+        after = arguments.get("after", 0)
+        if (
+            not isinstance(operation_id, str)
+            or not operation_id
+            or len(operation_id) > 128
+            or isinstance(after, bool)
+            or not isinstance(after, int)
+            or after < 0
+        ):
+            raise ToolBrokerError(
+                "Operation output input is invalid.", code="tool_input_invalid"
+            )
+        try:
+            operation = self.store.get_operation(operation_id)
+        except Exception as exc:
+            raise ToolBrokerError(
+                "Operation output was not found.", code="operation_not_found"
+            ) from exc
+        if operation.task_id != task_id:
+            raise ToolBrokerError(
+                "Operation output was not found.", code="operation_not_found"
+            )
+        chunks: list[dict[str, Any]] = []
+        cursor = after
+        scanned = 0
+        output_size = 0
+        truncated = False
+        while len(chunks) < 256 and scanned < 10_000:
+            events = self.store.list_events(task_id, after=cursor, limit=1000)
+            if not events:
+                break
+            cursor = events[-1].sequence
+            scanned += len(events)
+            for event in events:
+                if (
+                    event.type != "operation_output"
+                    or event.payload.get("operation_id") != operation_id
+                ):
+                    continue
+                text = event.payload.get("text")
+                stream = event.payload.get("stream")
+                if not isinstance(text, str) or stream not in {"stdout", "stderr"}:
+                    continue
+                encoded_size = len(text.encode("utf-8"))
+                if output_size + encoded_size > self.max_output_bytes:
+                    truncated = True
+                    break
+                output_size += encoded_size
+                chunks.append(
+                    {
+                        "sequence": event.sequence,
+                        "stream": stream,
+                        "text": text,
+                    }
+                )
+                if len(chunks) >= 256:
+                    truncated = True
+                    break
+            if truncated or len(events) < 1000:
+                break
+        return {
+            "operation_id": operation_id,
+            "chunks": chunks,
+            "next_after": chunks[-1]["sequence"] if chunks else after,
+            "truncated": truncated,
         }
 
     def _glob_files(

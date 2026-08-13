@@ -3,6 +3,8 @@ export type CodingWorkerTaskState =
   | "preparing"
   | "running"
   | "waiting_approval"
+  | "waiting_input"
+  | "waiting_subtasks"
   | "paused"
   | "testing"
   | "interrupted"
@@ -87,6 +89,11 @@ export interface CodingWorkerCapabilities {
   operation_output: boolean;
   changesets: boolean;
   code_intelligence: boolean;
+  structured_plan: boolean;
+  user_questions: boolean;
+  context_compaction: boolean;
+  turn_history: boolean;
+  subtasks: boolean;
 }
 
 export interface CodingWorkerStatus {
@@ -213,4 +220,71 @@ export interface CodingWorkerDiagnosticsSnapshot {
   current_tree_hash: string;
   stale: boolean;
   diagnostics: CodingWorkerDiagnostic[];
+}
+
+export interface CodingWorkerPlan {
+  task_id: string;
+  sequence: number;
+  turn_id: string;
+  explanation: string | null;
+  items: Array<{
+    step: string;
+    status: "pending" | "in_progress" | "completed";
+  }>;
+  updated_at: number;
+}
+
+export interface CodingWorkerQuestion {
+  task_id: string;
+  question_id: string;
+  turn_id: string;
+  status: "pending" | "resolved";
+  prompt: string;
+  options: Array<{ option_id: string; label: string }>;
+  answer: string | null;
+  selected_option_id: string | null;
+  created_at: number;
+  resolved_at: number | null;
+}
+
+export interface CodingWorkerTurnCheckpoint {
+  checkpoint_id: string;
+  task_id: string;
+  ordinal: number;
+  turn_id: string;
+  before_tree_hash: string;
+  before_tree_oid: string;
+  after_tree_hash: string;
+  after_tree_oid: string;
+  ledger_sequence: number;
+  created_at: number;
+}
+
+export interface CodingWorkerTurnHistory {
+  task_id: string;
+  cursor: number;
+  checkpoints: CodingWorkerTurnCheckpoint[];
+  pending_action: "undo" | "redo" | null;
+}
+
+export interface CodingWorkerSubtask {
+  parent_task_id: string;
+  child_task_id: string;
+  client_subtask_id: string;
+  kind: "explore" | "implement" | "review";
+  objective: string;
+  base_tree_hash: string;
+  merge_state: "not_applicable" | "pending" | "ready" | "merged" | "conflicted" | "failed";
+  result_tree_hash: string | null;
+  merge_operation_id: string | null;
+  merged_tree_hash: string | null;
+  changed_paths: string[];
+  summary: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface CodingWorkerChildren {
+  tasks: CodingWorkerTask[];
+  subtasks: CodingWorkerSubtask[];
 }

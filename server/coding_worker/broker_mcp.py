@@ -2,12 +2,166 @@ from __future__ import annotations
 
 import hashlib
 import os
+from pathlib import Path
+from pathlib import PurePosixPath
+import re
+import stat
 import uuid
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field, model_validator
 
 from .broker_rpc import BrokerRPCClient
+from .contracts import StrictModel
+
+
+_DIGEST = r"^[a-f0-9]{64}$"
+
+
+class BrokerWriteChange(StrictModel):
+    kind: Literal["write"]
+    path: str = Field(min_length=1, max_length=1024)
+    expected_sha256: str | None = Field(default=None, pattern=_DIGEST)
+    expected_absent: bool = False
+    content: str
+
+    @model_validator(mode="after")
+    def exact_preimage(self) -> "BrokerWriteChange":
+        if self.expected_absent == (self.expected_sha256 is not None):
+            raise ValueError("write requires one exact preimage condition")
+        return self
+
+
+class BrokerDeleteChange(StrictModel):
+    kind: Literal["delete"]
+    path: str = Field(min_length=1, max_length=1024)
+    expected_sha256: str = Field(pattern=_DIGEST)
+
+
+class BrokerMoveChange(StrictModel):
+    kind: Literal["move"]
+    path: str = Field(min_length=1, max_length=1024)
+    destination: str = Field(min_length=1, max_length=1024)
+    expected_sha256: str = Field(pattern=_DIGEST)
+    destination_expected_absent: Literal[True] = True
+
+
+class BrokerPatchChange(StrictModel):
+    kind: Literal["patch"]
+    path: str = Field(min_length=1, max_length=1024)
+    expected_sha256: str = Field(pattern=_DIGEST)
+    patch: str = Field(min_length=1)
+
+
+class BrokerReplaceChange(StrictModel):
+    """Replace one unique UTF-8 fragment while preserving all other bytes."""
+
+    kind: Literal["replace"]
+    path: str = Field(min_length=1, max_length=1024)
+    expected_sha256: str = Field(pattern=_DIGEST)
+    old_text: str = Field(min_length=1, max_length=32 * 1024 * 1024)
+    new_text: str = Field(max_length=32 * 1024 * 1024)
+
+
+BrokerChange = Annotated[
+    BrokerWriteChange
+    | BrokerDeleteChange
+    | BrokerMoveChange
+    | BrokerPatchChange
+    | BrokerReplaceChange,
+    Field(discriminator="kind"),
+]
+
+
+def _replace_change_as_write(
+    change: BrokerReplaceChange, *, workspace: Path | None = None
+) -> dict[str, Any]:
+    """Resolve a unique replace inside the trusted adapter.
+
+    The model supplies the exact tree and file preimage bindings. This adapter
+    reads only the current task workspace and converts the focused replacement
+    into the private write contract; the Broker still performs the authoritative
+    tree/preimage CAS before publishing the batch.
+    """
+    relative = PurePosixPath(change.path)
+    if (
+        relative.is_absolute()
+        or relative.as_posix() != change.path
+        or any(part in {"", ".", ".."} for part in relative.parts)
+        or relative.parts[0] == ".git"
+        or "\\" in change.path
+        or "\x00" in change.path
+    ):
+        raise ValueError("replace path must be a canonical workspace-relative path")
+    root = (workspace or Path.cwd()).resolve(strict=True)
+    lexical = root.joinpath(*relative.parts)
+    current = root
+    for part in relative.parts:
+        current = current / part
+        metadata = current.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ValueError("replace path cannot traverse a symbolic link")
+    candidate = lexical.resolve(strict=True)
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("replace path escapes the task workspace") from exc
+    metadata = candidate.stat()
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 32 * 1024 * 1024:
+        raise ValueError("replace target must be a bounded regular file")
+    raw = candidate.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != change.expected_sha256:
+        raise ValueError("replace target no longer matches expected_sha256")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("replace target must be UTF-8 text") from exc
+    if text.count(change.old_text) != 1:
+        raise ValueError("old_text must occur exactly once")
+    updated = text.replace(change.old_text, change.new_text, 1)
+    return {
+        "kind": "write",
+        "path": change.path,
+        "expected_sha256": change.expected_sha256,
+        "expected_absent": False,
+        "content": updated,
+        "content_sha256": hashlib.sha256(updated.encode("utf-8")).hexdigest(),
+    }
+
+
+def _workspace_relative_shell_script(
+    script: str, *, workspace: Path | None = None
+) -> str:
+    """Replace only exact references to the current task root with ``.``.
+
+    Providers run inside the task workspace and can therefore observe its private
+    process path. The Executor intentionally runs shell scripts in a separate
+    operation-owned clone. Carrying the provider path into that clone would either
+    escape the clone or be rejected by its sandbox. Other absolute paths remain
+    unchanged and are rejected by the normal Broker/Executor policy.
+    """
+    root = (workspace or Path.cwd()).resolve(strict=True)
+    values = {str(root), root.as_posix()}
+    normalized = script
+    for value in sorted(values, key=len, reverse=True):
+        pattern = re.compile(
+            rf"(?<![A-Za-z0-9_.-]){re.escape(value)}(?=$|[/\\\s'\";&|()<>])"
+        )
+        normalized = pattern.sub(".", normalized)
+    return normalized
+
+
+def _workspace_relative_cwd(value: str, *, workspace: Path | None = None) -> str:
+    root = (workspace or Path.cwd()).resolve(strict=True)
+    for spelling in {str(root), root.as_posix()}:
+        if value == spelling:
+            return "."
+        prefix = spelling.rstrip("/\\")
+        if value.startswith(prefix + "/") or value.startswith(prefix + "\\"):
+            relative = value[len(prefix) + 1 :].replace("\\", "/")
+            return relative or "."
+    return value
 
 
 def build_server(client: BrokerRPCClient) -> FastMCP:
@@ -77,6 +231,16 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         return await call("diff", {})
 
     @mcp.tool()
+    async def read_operation_output(
+        operation_id: str, after: int = 0
+    ) -> dict[str, Any]:
+        """Read bounded streamed output for one task-owned operation."""
+        return await call(
+            "read_operation_output",
+            {"operation_id": operation_id, "after": after},
+        )
+
+    @mcp.tool()
     async def code_symbols(entry_id: str) -> dict[str, Any]:
         """List symbols for one opaque Python or TypeScript workspace entry."""
         return await call("code_symbols", {"entry_id": entry_id})
@@ -141,12 +305,27 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
     async def apply_changeset(
         operation_id: str,
         base_tree_hash: str,
-        changes: list[dict[str, Any]],
+        changes: list[BrokerChange],
     ) -> dict[str, Any]:
-        """Atomically publish a preimage-bound write, patch, move, or delete batch."""
+        """Atomically publish a preimage-bound write, replace, patch, move, or delete batch."""
+        encoded_changes: list[dict[str, Any]] = []
+        for change in changes:
+            if isinstance(change, BrokerReplaceChange):
+                encoded_changes.append(_replace_change_as_write(change))
+                continue
+            encoded = change.model_dump(mode="json", exclude_none=True)
+            if isinstance(change, BrokerWriteChange):
+                encoded["content_sha256"] = hashlib.sha256(
+                    change.content.encode("utf-8")
+                ).hexdigest()
+            elif isinstance(change, BrokerPatchChange):
+                encoded["patch_sha256"] = hashlib.sha256(
+                    change.patch.encode("utf-8")
+                ).hexdigest()
+            encoded_changes.append(encoded)
         return await call(
             "apply_changeset",
-            {"base_tree_hash": base_tree_hash, "changes": changes},
+            {"base_tree_hash": base_tree_hash, "changes": encoded_changes},
             operation_id=operation_id,
         )
 
@@ -181,12 +360,14 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         mode: str = "inspect",
         timeout_seconds: int = 300,
     ) -> dict[str, Any]:
-        """Run one exact approved Bash script in a disposable task clone."""
+        """Run an approved Bash script in a disposable clone; use relative paths only."""
+        normalized_script = _workspace_relative_shell_script(script)
+        normalized_cwd = _workspace_relative_cwd(cwd)
         return await call(
             "run_shell",
             {
-                "script": script,
-                "cwd": cwd,
+                "script": normalized_script,
+                "cwd": normalized_cwd,
                 "mode": mode,
                 "timeout_seconds": timeout_seconds,
             },
@@ -194,11 +375,32 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         )
 
     @mcp.tool()
-    async def install_dependencies(operation_id: str) -> dict[str, Any]:
-        """Request approval, then run frozen npm-ci through controlled egress."""
+    async def install_dependencies(
+        operation_id: str,
+        manager: str = "npm",
+        action: str = "ci",
+        requirements: str | None = None,
+    ) -> dict[str, Any]:
+        """Run one platform-frozen npm, uv, or hash-locked pip dependency plan."""
+        arguments: dict[str, Any] = {"manager": manager, "action": action}
+        if requirements is not None:
+            arguments["requirements"] = requirements
         return await call(
             "install_dependencies",
-            {"manager": "npm", "action": "ci"},
+            arguments,
+            operation_id=operation_id,
+        )
+
+    @mcp.tool()
+    async def query_documentation(
+        operation_id: str,
+        resource_id: str,
+        document_path: str,
+    ) -> dict[str, Any]:
+        """Fetch one registered official document through exact approval and egress leases."""
+        return await call(
+            "query_documentation",
+            {"resource_id": resource_id, "document_path": document_path},
             operation_id=operation_id,
         )
 
@@ -233,6 +435,35 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         return await call(
             "service_input",
             {"service_id": service_id, "data": data},
+            operation_id=operation_id,
+        )
+
+    @mcp.tool()
+    async def create_subtask(
+        operation_id: str,
+        client_subtask_id: str,
+        kind: str,
+        objective: str,
+    ) -> dict[str, Any]:
+        """Delegate one depth-one explore, implement, or review task to an isolated fork."""
+        return await call(
+            "create_subtask",
+            {
+                "client_subtask_id": client_subtask_id,
+                "kind": kind,
+                "objective": objective,
+            },
+            operation_id=operation_id,
+        )
+
+    @mcp.tool()
+    async def merge_subtask(
+        operation_id: str, child_task_id: str
+    ) -> dict[str, Any]:
+        """Merge a ready implement subtask by exact preimage and parent-tree CAS."""
+        return await call(
+            "merge_subtask",
+            {"child_task_id": child_task_id},
             operation_id=operation_id,
         )
 

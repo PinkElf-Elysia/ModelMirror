@@ -426,3 +426,15 @@ curl http://localhost:5173/models
 56. **Console 展示的输出必须可补发且有界。** operation output 按序号重连，完整内容从受限 Artifact 获取；
     大输出、长路径和 diagnostics 不得阻塞主线程或破坏移动端。精确 Shell 批准要可键盘操作、带明确焦点
     与状态反馈，Coding 领域动作仍只在 Coding 上下文出现。
+57. **子任务是平台所有的一级隔离任务。** 只允许 `explore`、`implement`、`review`，深度一、每父任务最多四个；
+    父任务 checkpoint 后停车释放槽位。子任务不得继承审批、网络租约、operation、预算、Artifact、Evidence、
+    Provider session 或隐藏上下文，也不得创建子任务。
+58. **Fork 合并必须保守失败。** `implement` 结果同时绑定 fork H0、结果 tree 与 changed paths；父任务按文件
+    preimage 和当前 tree CAS 原子合并。同文件冲突不得自动覆盖，子 Fork 保留；子 Evidence 不能替代父任务
+    必需检查，合并后必须在父 Workspace 重跑。
+59. **会话控制只发生在完整安全边界。** 问题只能结算一次；compaction 只在完整工具调用边界；undo/redo/fork
+    只在没有命令、服务、审批、问题或子任务运行时开放。它们只改变 Workspace 与公开会话，不声称撤销外部
+    服务副作用，也不保存隐藏思维链。
+60. **能力等效只能由冻结真实对照证明。** Fake、确定性 Harness、Compose、CLI 版本探针和单次人工任务均不
+    能支持“接近 OpenCode”结论。必须满足任务卡中的 144 次、连续两轮、成功率/时长/token、安全与人工 UX
+    全部门禁；任一失败时只能以 Experimental、默认关闭交付。

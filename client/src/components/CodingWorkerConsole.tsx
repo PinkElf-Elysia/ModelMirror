@@ -35,29 +35,41 @@ import type {
   CodingWorkerEvent,
   CodingWorkerEvidence,
   CodingWorkerOperationOutputChunk,
+  CodingWorkerPlan,
+  CodingWorkerQuestion,
   CodingWorkerStatus,
+  CodingWorkerSubtask,
   CodingWorkerTask,
   CodingWorkerTaskSpec,
+  CodingWorkerTurnHistory,
 } from "../types/codingWorker";
 import {
   changeCodingWorkerTask,
+  answerCodingWorkerQuestion,
   codingWorkerArtifactUrl,
   connectCodingWorkerEvents,
   createCodingWorkerTask,
   decideCodingWorkerApproval,
   getCodingWorkerChangeset,
   getCodingWorkerDiagnostics,
+  getCodingWorkerPlan,
   getCodingWorkerTask,
   getCodingWorkerStatus,
+  getCodingWorkerTurnHistory,
   handoffCodingWorkerTask,
   listCodingWorkerApprovals,
   listCodingWorkerArtifacts,
+  listCodingWorkerChildren,
   listCodingWorkerEvidence,
   listCodingWorkerOperationOutput,
+  listCodingWorkerQuestions,
   listCodingWorkerTasks,
   listCodingWorkerTree,
   readCodingWorkerDiff,
   readCodingWorkerEntry,
+  forkCodingWorkerTask,
+  mergeCodingWorkerSubtask,
+  navigateCodingWorkerTurn,
   sendCodingWorkerMessage,
   type CodingWorkerHandoffResult,
 } from "../utils/codingWorkerApi";
@@ -84,7 +96,12 @@ import {
 } from "./coding-worker/viewModel";
 
 type ConsoleContext = "coding" | "agent";
-type InspectorTab = "files" | "diff" | "changesets" | "diagnostics" | "evidence" | "terminal";
+type InspectorTab = "session" | "files" | "diff" | "changesets" | "diagnostics" | "evidence" | "terminal";
+type WorkerTodoItem = {
+  todo_id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+};
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -98,6 +115,28 @@ function publicPlanText(event: CodingWorkerEvent) {
   const record = data as Record<string, unknown>;
   const value = [record.summary, record.message, record.text].find((item) => typeof item === "string");
   return typeof value === "string" ? value : "计划已更新。";
+}
+
+function publicTodoItems(event: CodingWorkerEvent) {
+  if (event.type !== "provider_event" || event.payload.kind !== "todo") return null;
+  const data = event.payload.data;
+  if (!data || typeof data !== "object") return null;
+  const items = (data as Record<string, unknown>).items;
+  if (!Array.isArray(items)) return null;
+  return items.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const value = item as Record<string, unknown>;
+    if (
+      typeof value.todo_id !== "string"
+      || typeof value.content !== "string"
+      || !["pending", "in_progress", "completed", "cancelled"].includes(String(value.status))
+    ) return [];
+    return [{
+      todo_id: value.todo_id,
+      content: value.content,
+      status: value.status as "pending" | "in_progress" | "completed" | "cancelled",
+    } satisfies WorkerTodoItem];
+  }).slice(0, 256);
 }
 
 function approvalField(request: Record<string, unknown>, key: string) {
@@ -127,11 +166,32 @@ const progressStages: Array<{ value: WorkerProgressStage; label: string }> = [
 
 function taskStateTone(state: CodingWorkerTask["state"]) {
   if (["completed"].includes(state)) return "text-emerald-200";
-  if (["waiting_approval", "interrupted", "blocked", "budget_limited"].includes(state)) return "text-amber-200";
+  if (["waiting_approval", "waiting_input", "interrupted", "blocked", "budget_limited"].includes(state)) return "text-amber-200";
   if (["failed", "cancelled", "expired"].includes(state)) return "text-rose-200";
-  if (["running", "testing", "preparing"].includes(state)) return "text-cyan-200";
+  if (["running", "testing", "preparing", "waiting_subtasks"].includes(state)) return "text-cyan-200";
   return "text-slate-300";
 }
+
+const planStateCopy = {
+  pending: "待处理",
+  in_progress: "进行中",
+  completed: "已完成",
+} as const;
+
+const subtaskKindCopy = {
+  explore: "探索",
+  implement: "实现",
+  review: "审查",
+} as const;
+
+const mergeStateCopy = {
+  not_applicable: "无需合并",
+  pending: "执行中",
+  ready: "待合并",
+  merged: "已合并",
+  conflicted: "合并冲突",
+  failed: "子任务失败",
+} as const;
 
 function approvalSummary(approval: CodingWorkerApproval) {
   const command = approval.request.command ?? approval.request.script;
@@ -165,6 +225,12 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
   const [operationOutputs, setOperationOutputs] = useState<Record<string, CodingWorkerOperationOutputChunk[]>>({});
   const [changesets, setChangesets] = useState<CodingWorkerChangeset[]>([]);
   const [diagnostics, setDiagnostics] = useState<CodingWorkerDiagnosticsSnapshot[]>([]);
+  const [structuredPlan, setStructuredPlan] = useState<CodingWorkerPlan | null>(null);
+  const [questions, setQuestions] = useState<CodingWorkerQuestion[]>([]);
+  const [turnHistory, setTurnHistory] = useState<CodingWorkerTurnHistory | null>(null);
+  const [subtasks, setSubtasks] = useState<CodingWorkerSubtask[]>([]);
+  const [childTasks, setChildTasks] = useState<CodingWorkerTask[]>([]);
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
   const [inspectorLoading, setInspectorLoading] = useState(false);
   const [preview, setPreview] = useState<{ path: string; content: string } | null>(null);
   const [diff, setDiff] = useState("");
@@ -203,6 +269,18 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
   }, [events]);
   const latestPlan = useMemo(
     () => events.map(publicPlanText).filter((item): item is string => Boolean(item)).at(-1) ?? null,
+    [events],
+  );
+  const latestCompaction = useMemo(
+    () => events.filter((event) => event.type === "context_compacted").at(-1) ?? null,
+    [events],
+  );
+  const pendingQuestions = useMemo(
+    () => questions.filter((question) => question.status === "pending"),
+    [questions],
+  );
+  const latestTodos = useMemo(
+    () => events.map(publicTodoItems).filter((items): items is WorkerTodoItem[] => items !== null).at(-1) ?? [],
     [events],
   );
   const routeOptions = useMemo(
@@ -268,13 +346,28 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
   }, []);
 
   const refreshTaskPanels = useCallback(async (taskId: string) => {
-    const [task, approvalItems, evidenceItems, artifactItems, tree, nextDiff] = await Promise.all([
+    const [
+      task,
+      approvalItems,
+      evidenceItems,
+      artifactItems,
+      tree,
+      nextDiff,
+      nextPlan,
+      nextQuestions,
+      nextHistory,
+      nextChildren,
+    ] = await Promise.all([
       getCodingWorkerTask(taskId),
       listCodingWorkerApprovals(taskId),
       listCodingWorkerEvidence(taskId),
       listCodingWorkerArtifacts(taskId),
       listCodingWorkerTree(taskId).catch(() => null),
       readCodingWorkerDiff(taskId).catch(() => ""),
+      getCodingWorkerPlan(taskId).catch(() => null),
+      listCodingWorkerQuestions(taskId).catch(() => []),
+      getCodingWorkerTurnHistory(taskId).catch(() => null),
+      listCodingWorkerChildren(taskId).catch(() => ({ tasks: [], subtasks: [] })),
     ]);
     setTasks((current) => current.map((item) => item.task_id === taskId ? task : item));
     setApprovals(approvalItems);
@@ -283,6 +376,11 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     setEntries(tree?.entries ?? []);
     setTreeHash(tree?.tree_hash ?? "");
     setDiff(nextDiff);
+    setStructuredPlan(nextPlan);
+    setQuestions(nextQuestions);
+    setTurnHistory(nextHistory);
+    setSubtasks(nextChildren.subtasks);
+    setChildTasks(nextChildren.tasks);
   }, []);
 
   useEffect(() => {
@@ -352,6 +450,7 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
       setEvents([]); setApprovals([]); setEvidence([]); setArtifacts([]);
       setEntries([]); setPreview(null); setDiff(""); setTreeHash("");
       setOperationOutputs({}); setChangesets([]); setDiagnostics([]);
+      setStructuredPlan(null); setQuestions([]); setTurnHistory(null); setSubtasks([]); setChildTasks([]);
       return;
     }
     let active = true;
@@ -361,22 +460,64 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     setOperationOutputs({});
     setChangesets([]);
     setDiagnostics([]);
+    setStructuredPlan(null);
+    setQuestions([]);
+    setTurnHistory(null);
+    setSubtasks([]);
+    setChildTasks([]);
+    setQuestionAnswers({});
     setTransportWarning(false);
     void refreshTaskPanels(selectedTaskId).catch((caught) => {
       if (active) setError(errorMessage(caught, "任务详情加载失败"));
     });
-    const disconnect = connectCodingWorkerEvents(selectedTaskId, cursor, {
+    if (selectedTask && terminalTaskStates.has(selectedTask.state)) {
+      return () => {
+        active = false;
+        if (refreshTimerRef.current !== null) {
+          window.clearTimeout(refreshTimerRef.current);
+          refreshTimerRef.current = null;
+        }
+      };
+    }
+    let disconnect: () => void = () => undefined;
+    disconnect = connectCodingWorkerEvents(selectedTaskId, cursor, {
       onEvent: (event) => {
         if (!active || event.sequence <= cursor) return;
         cursor = event.sequence;
         setEvents((current) => [...current, event].slice(-400));
         setTransportWarning(false);
+        const nextState = event.type === "task_state" && typeof event.payload.to === "string"
+          ? event.payload.to as CodingWorkerTask["state"]
+          : null;
+        if (nextState && terminalTaskStates.has(nextState)) {
+          disconnect();
+          void refreshTaskPanels(selectedTaskId).catch(() => {
+            if (active) setTransportWarning(true);
+          });
+          return;
+        }
         if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = window.setTimeout(() => {
           void refreshTaskPanels(selectedTaskId).catch(() => setTransportWarning(true));
         }, 350);
       },
-      onTransportError: () => { if (active) setTransportWarning(true); },
+      onTransportError: () => {
+        if (!active) return;
+        void getCodingWorkerTask(selectedTaskId)
+          .then((task) => {
+            if (!active) return;
+            setTasks((current) => current.map((item) => item.task_id === task.task_id ? task : item));
+            if (terminalTaskStates.has(task.state)) {
+              disconnect();
+              setTransportWarning(false);
+              return;
+            }
+            setTransportWarning(true);
+          })
+          .catch(() => {
+            if (active) setTransportWarning(true);
+          });
+      },
     });
     return () => {
       active = false;
@@ -504,6 +645,47 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
   const decide = (approvalId: string, decision: "approve_once" | "approve_task" | "reject") => run(async () => {
     if (!selectedTask) return;
     await decideCodingWorkerApproval(selectedTask.task_id, approvalId, decision);
+    await refreshTaskPanels(selectedTask.task_id);
+  });
+
+  const answerQuestion = (
+    question: CodingWorkerQuestion,
+    answer: { answer: string } | { option_id: string },
+  ) => run(async () => {
+    if (!selectedTask) return;
+    await answerCodingWorkerQuestion(
+      selectedTask.task_id,
+      question.question_id,
+      answer,
+    );
+    setQuestionAnswers((current) => ({ ...current, [question.question_id]: "" }));
+    await refreshTaskPanels(selectedTask.task_id);
+  });
+
+  const navigateTurn = (action: "undo" | "redo") => run(async () => {
+    if (!selectedTask) return;
+    const history = await navigateCodingWorkerTurn(selectedTask.task_id, action);
+    setTurnHistory(history);
+    await refreshTaskPanels(selectedTask.task_id);
+  });
+
+  const forkTask = () => run(async () => {
+    if (!selectedTask) return;
+    const cursor = turnHistory?.cursor ?? 0;
+    const clientForkId = `console_${selectedTask.task_id.slice(-24)}_${cursor}`;
+    const child = await forkCodingWorkerTask(selectedTask.task_id, clientForkId);
+    await refreshTasks(child.task_id);
+  });
+
+  const mergeSubtask = (subtask: CodingWorkerSubtask) => run(async () => {
+    if (!selectedTask) return;
+    const operationId = subtask.merge_operation_id
+      ?? `merge_${subtask.child_task_id.slice(-32)}`;
+    await mergeCodingWorkerSubtask(
+      selectedTask.task_id,
+      subtask.child_task_id,
+      operationId,
+    );
     await refreshTaskPanels(selectedTask.task_id);
   });
 
@@ -701,9 +883,113 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
         <aside className="min-w-0 border-t border-white/10 py-3 lg:col-span-2 xl:col-span-1 xl:border-l xl:border-t-0 xl:pl-4" aria-label="任务检查器">
           {selectedTask?.state === "completed" && <section className="mb-4 rounded-xl bg-emerald-300/10 p-4" aria-labelledby="worker-result-heading"><div className="flex gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-300 text-slate-950"><CheckCircle2 className="h-5 w-5" /></span><div><h2 id="worker-result-heading" className="font-semibold text-emerald-50">任务完成</h2><p className="mt-1 text-xs leading-5 text-emerald-100/75">必需检查已通过，结果绑定当前 Workspace tree。</p></div></div><button type="button" onClick={() => setTab("diff")} className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-emerald-200/25 text-sm text-emerald-50"><Eye className="h-4 w-4" />检查完整 Diff</button></section>}
           <div className="flex overflow-x-auto border-b border-white/10" role="tablist" aria-label="任务检查器视图">
-            {([ ["files", FolderTree, "文件"], ["diff", GitCompareArrows, "Diff"], ["changesets", Archive, "变更"], ["diagnostics", CircleAlert, "诊断"], ["evidence", TestTube2, "测试"], ["terminal", TerminalSquare, "终端"] ] as const).map(([value, Icon, label]) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)} className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 px-3 text-sm ${tab === value ? "border-b-2 border-cyan-300 text-white" : "text-slate-400 hover:text-slate-200"}`}><Icon className="h-4 w-4" />{label}</button>)}
+            {([ ["session", History, "会话"], ["files", FolderTree, "文件"], ["diff", GitCompareArrows, "Diff"], ["changesets", Archive, "变更"], ["diagnostics", CircleAlert, "诊断"], ["evidence", TestTube2, "测试"], ["terminal", TerminalSquare, "终端"] ] as const).map(([value, Icon, label]) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)} className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 px-3 text-sm ${tab === value ? "border-b-2 border-cyan-300 text-white" : "text-slate-400 hover:text-slate-200"}`}><Icon className="h-4 w-4" />{label}</button>)}
           </div>
           <div className="max-h-[34rem] overflow-auto py-3 text-sm xl:max-h-[calc(100vh-20rem)]">
+            {tab === "session" && (
+              <div className="space-y-5" aria-live="polite">
+                <section aria-labelledby="worker-structured-plan-heading">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 id="worker-structured-plan-heading" className="font-semibold text-white">计划与待办</h3>
+                    <span className="text-xs text-slate-500">{structuredPlan?.items.length ?? 0} 项</span>
+                  </div>
+                  {structuredPlan ? (
+                    <div className="mt-3">
+                      {structuredPlan.explanation && <p className="mb-3 whitespace-pre-wrap break-words text-xs leading-5 text-slate-400">{structuredPlan.explanation}</p>}
+                      <ol className="divide-y divide-white/10 border-y border-white/10">
+                        {structuredPlan.items.map((item, index) => (
+                          <li key={`${index}-${item.step}`} className="flex gap-3 py-3">
+                            <span className="w-16 shrink-0 text-xs text-slate-500">{planStateCopy[item.status]}</span>
+                            <span className={`min-w-0 break-words ${item.status === "completed" ? "text-slate-500 line-through" : "text-slate-200"}`}>{item.step}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  ) : <p className="mt-3 text-slate-400">Worker 尚未发布结构化计划。</p>}
+                  {latestTodos.length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="text-xs font-medium uppercase tracking-wide text-slate-500">当前待办</h4>
+                      <ul className="mt-2 divide-y divide-white/10 border-y border-white/10">
+                        {latestTodos.map((item) => (
+                          <li key={item.todo_id} className="flex gap-3 py-3">
+                            <span className="w-16 shrink-0 text-xs text-slate-500">{item.status === "in_progress" ? "进行中" : item.status === "completed" ? "已完成" : item.status === "cancelled" ? "已取消" : "待处理"}</span>
+                            <span className={`min-w-0 break-words ${item.status === "completed" || item.status === "cancelled" ? "text-slate-500 line-through" : "text-slate-200"}`}>{item.content}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </section>
+
+                <section className="border-t border-white/10 pt-5" aria-labelledby="worker-questions-heading">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 id="worker-questions-heading" className="font-semibold text-white">待回答问题</h3>
+                    <span className="text-xs text-slate-500">{pendingQuestions.length} 个待处理</span>
+                  </div>
+                  {pendingQuestions.length === 0 ? <p className="mt-3 text-slate-400">当前没有等待回答的问题。</p> : (
+                    <ul className="mt-2 divide-y divide-white/10 border-y border-white/10">
+                      {pendingQuestions.map((question) => (
+                        <li key={question.question_id} className="py-4">
+                          <p className="whitespace-pre-wrap break-words font-medium text-slate-100">{question.prompt}</p>
+                          {question.options.length > 0 ? (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {question.options.map((option) => <button key={option.option_id} type="button" disabled={busy} onClick={() => void answerQuestion(question, { option_id: option.option_id })} className="min-h-11 rounded-lg border border-white/15 px-3 text-left text-slate-200 hover:border-cyan-300/60 hover:text-white disabled:opacity-50">{option.label}</button>)}
+                            </div>
+                          ) : (
+                            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                              <label className="sr-only" htmlFor={`question-${question.question_id}`}>回答</label>
+                              <textarea id={`question-${question.question_id}`} value={questionAnswers[question.question_id] ?? ""} onChange={(event) => setQuestionAnswers((current) => ({ ...current, [question.question_id]: event.target.value }))} disabled={busy} className="min-h-11 flex-1 resize-y rounded-lg border border-white/15 bg-slate-950/80 px-3 py-2 text-white" placeholder="输入回答" />
+                              <button type="button" disabled={busy || !(questionAnswers[question.question_id] ?? "").trim()} onClick={() => void answerQuestion(question, { answer: (questionAnswers[question.question_id] ?? "").trim() })} className="min-h-11 rounded-lg bg-cyan-300 px-4 font-semibold text-slate-950 disabled:opacity-50">提交回答</button>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+
+                <section className="border-t border-white/10 pt-5" aria-labelledby="worker-turn-history-heading">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 id="worker-turn-history-heading" className="font-semibold text-white">回合历史</h3>
+                    <span className="text-xs text-slate-500">{turnHistory ? `${turnHistory.cursor}/${turnHistory.checkpoints.length}` : "不可用"}</span>
+                  </div>
+                  {latestCompaction && <p className="mt-3 border-l-2 border-cyan-300/60 pl-3 text-xs leading-5 text-slate-300">上下文已在完整工具边界压缩 · 事件 #{latestCompaction.sequence}</p>}
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    <button type="button" disabled={busy || !status.capabilities.turn_history || !turnHistory || turnHistory.cursor <= 0 || turnHistory.pending_action !== null} onClick={() => void navigateTurn("undo")} className="min-h-11 rounded-lg border border-white/15 px-3 text-slate-200 disabled:opacity-40">撤销上一回合</button>
+                    <button type="button" disabled={busy || !status.capabilities.turn_history || !turnHistory || turnHistory.cursor >= turnHistory.checkpoints.length || turnHistory.pending_action !== null} onClick={() => void navigateTurn("redo")} className="min-h-11 rounded-lg border border-white/15 px-3 text-slate-200 disabled:opacity-40">重做下一回合</button>
+                    <button type="button" disabled={busy || !status.capabilities.turn_history || !turnHistory || turnHistory.checkpoints.length === 0 || turnHistory.pending_action !== null} onClick={() => void forkTask()} className="min-h-11 rounded-lg border border-white/15 px-3 text-slate-200 disabled:opacity-40">从当前回合派生任务</button>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">仅回退 Workspace 与公开会话；外部服务副作用不会被撤销。</p>
+                </section>
+
+                <section className="border-t border-white/10 pt-5" aria-labelledby="worker-subtasks-heading">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 id="worker-subtasks-heading" className="font-semibold text-white">子任务</h3>
+                    <span className="text-xs text-slate-500">{subtasks.length}/4</span>
+                  </div>
+                  {subtasks.length === 0 ? <p className="mt-3 text-slate-400">尚未委派子任务。</p> : (
+                    <ul className="mt-2 divide-y divide-white/10 border-y border-white/10">
+                      {subtasks.map((subtask) => {
+                        const child = childTasks.find((item) => item.task_id === subtask.child_task_id);
+                        return (
+                          <li key={subtask.child_task_id} className="py-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="min-w-0 break-words font-medium text-slate-100">{subtaskKindCopy[subtask.kind]} · {subtask.objective}</p>
+                              <span className={`text-xs ${subtask.merge_state === "merged" ? "text-emerald-300" : subtask.merge_state === "conflicted" || subtask.merge_state === "failed" ? "text-rose-300" : "text-amber-300"}`}>{mergeStateCopy[subtask.merge_state]}</span>
+                            </div>
+                            <p className="mt-1 break-all text-xs text-slate-500">{child ? taskStateCopy[child.state] : "子任务状态待刷新"} · {shortId(subtask.child_task_id)}</p>
+                            {subtask.summary && <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">{subtask.summary}</p>}
+                            {subtask.changed_paths.length > 0 && <p className="mt-2 break-all text-xs text-slate-500">变更：{subtask.changed_paths.join("、")}</p>}
+                            {subtask.merge_state === "ready" && <button type="button" disabled={busy} onClick={() => void mergeSubtask(subtask)} className="mt-3 min-h-11 rounded-lg bg-cyan-300 px-4 font-semibold text-slate-950 disabled:opacity-50">合并变更</button>}
+                            {subtask.merge_state === "conflicted" && <p className="mt-3 border-l-2 border-rose-300/70 pl-3 text-xs leading-5 text-rose-100">父 Workspace 未被覆盖；子任务 Fork 已保留，可检查冲突后重新委派。</p>}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </section>
+              </div>
+            )}
             {tab === "files" && <div><p className="mb-2 break-all text-xs text-slate-400">tree {treeHash || "尚未创建"}</p>{preview ? <div><button type="button" className="mb-2 min-h-11 text-cyan-200" onClick={() => setPreview(null)}>返回文件树</button><p className="mb-2 break-all text-slate-300">{preview.path}</p><pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950/80 p-3 text-xs text-slate-200">{preview.content}</pre></div> : <ul className="space-y-1">{entries.map((entry) => <li key={entry.entry_id}><button type="button" disabled={entry.kind !== "file" || busy} onClick={() => void openEntry(entry)} className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-slate-300 hover:bg-white/5 disabled:cursor-default"><FileCode2 className="h-4 w-4 shrink-0" /><span className="min-w-0 break-all">{entry.display_path}</span></button></li>)}</ul>}</div>}
             {tab === "diff" && <pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950/80 p-3 text-xs text-slate-200">{diff || "工作区还没有变更。"}</pre>}
             {tab === "changesets" && (

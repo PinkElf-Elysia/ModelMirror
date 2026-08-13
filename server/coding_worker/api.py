@@ -28,7 +28,14 @@ from .contracts import (
     WorkerChangeset,
     WorkerEvidence,
     WorkerDiagnostic,
+    WorkerPlan,
+    WorkerQuestion,
+    WorkerQuestionAnswer,
+    WorkerTurnHistory,
+    WorkerTaskExport,
     OperationOutputChunk,
+    SubtaskRecord,
+    SubtaskRequest,
 )
 from .service import CodingWorkerService
 from .runtime import CodingWorkerRuntime, build_runtime_from_environment
@@ -44,6 +51,19 @@ class ApprovalDecisionRequest(StrictModel):
     approval_id: str = Field(pattern=r"^approval_[a-f0-9]{32}$")
     decision: Literal["approve_once", "approve_task", "reject"]
     ttl_seconds: int = Field(default=900, ge=30, le=3600)
+
+
+class TaskForkRequest(StrictModel):
+    client_fork_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+
+
+class SubtaskMergeRequest(StrictModel):
+    operation_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+
+
+class TaskChildrenResponse(StrictModel):
+    tasks: tuple[TaskRecord, ...]
+    subtasks: tuple[SubtaskRecord, ...] = ()
 
 
 _service: CodingWorkerService | None = None
@@ -106,6 +126,8 @@ def _feature_enabled(name: str) -> bool:
 def coding_worker_capabilities() -> WorkerCapabilities:
     task_runtime = is_coding_worker_enabled() and _service is not None
     v15 = task_runtime and _feature_enabled("CODING_WORKER_V15_ENABLED")
+    v16 = task_runtime and _feature_enabled("CODING_WORKER_V16_ENABLED")
+    interaction = v16 and _feature_enabled("CODING_WORKER_INTERACTION_ENABLED")
     return WorkerCapabilities(
         task_runtime=task_runtime,
         professional_file_tools=v15,
@@ -115,7 +137,57 @@ def coding_worker_capabilities() -> WorkerCapabilities:
         code_intelligence=(
             v15 and _feature_enabled("CODING_WORKER_CODE_INTELLIGENCE_ENABLED")
         ),
+        structured_plan=interaction,
+        user_questions=interaction,
+        context_compaction=v16,
+        turn_history=(
+            v16 and _feature_enabled("CODING_WORKER_SESSION_CONTROLS_ENABLED")
+        ),
+        subtasks=(v16 and _feature_enabled("CODING_WORKER_SUBAGENTS_ENABLED")),
     )
+
+
+def _require_interaction_enabled() -> None:
+    if not (
+        _feature_enabled("CODING_WORKER_V16_ENABLED")
+        and _feature_enabled("CODING_WORKER_INTERACTION_ENABLED")
+    ):
+        raise HTTPException(
+            status_code=404, detail="Coding Worker V16 interaction is disabled"
+        )
+
+
+def _require_session_controls_enabled() -> None:
+    if not (
+        _feature_enabled("CODING_WORKER_V16_ENABLED")
+        and _feature_enabled("CODING_WORKER_SESSION_CONTROLS_ENABLED")
+    ):
+        raise HTTPException(
+            status_code=404, detail="Coding Worker V16 session controls are disabled"
+        )
+
+
+def _require_subtasks_enabled() -> None:
+    if not (
+        _feature_enabled("CODING_WORKER_V16_ENABLED")
+        and _feature_enabled("CODING_WORKER_SUBAGENTS_ENABLED")
+    ):
+        raise HTTPException(
+            status_code=404, detail="Coding Worker V16 subtasks are disabled"
+        )
+
+
+def _require_children_enabled() -> None:
+    if not (
+        _feature_enabled("CODING_WORKER_V16_ENABLED")
+        and (
+            _feature_enabled("CODING_WORKER_SESSION_CONTROLS_ENABLED")
+            or _feature_enabled("CODING_WORKER_SUBAGENTS_ENABLED")
+        )
+    ):
+        raise HTTPException(
+            status_code=404, detail="Coding Worker V16 task children are disabled"
+        )
 
 
 def configure_coding_worker_for_tests(
@@ -260,6 +332,46 @@ async def task_events(
 async def append_task_message(task_id: str, payload: TaskMessageRequest) -> TaskRecord:
     try:
         return await get_coding_worker_service().append_message(task_id, payload.message)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/plan", response_model=WorkerPlan | None)
+async def task_plan(task_id: str) -> WorkerPlan | None:
+    _require_interaction_enabled()
+    try:
+        return get_coding_worker_service().store.latest_plan(task_id)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get(
+    "/tasks/{task_id}/questions",
+    response_model=dict[str, list[WorkerQuestion]],
+)
+async def task_questions(task_id: str) -> dict[str, list[WorkerQuestion]]:
+    _require_interaction_enabled()
+    try:
+        return {
+            "questions": get_coding_worker_service().store.list_questions(task_id)
+        }
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post(
+    "/tasks/{task_id}/questions/{question_id}",
+    response_model=WorkerQuestion,
+    status_code=202,
+)
+async def answer_task_question(
+    task_id: str, question_id: str, payload: WorkerQuestionAnswer
+) -> WorkerQuestion:
+    _require_interaction_enabled()
+    try:
+        return await get_coding_worker_service().answer_question(
+            task_id, question_id, payload
+        )
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -569,6 +681,95 @@ async def task_artifact(task_id: str, artifact_id: str) -> Response:
 async def pause_task(task_id: str) -> TaskRecord:
     try:
         return await get_coding_worker_service().pause(task_id)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/turns", response_model=WorkerTurnHistory)
+async def task_turn_history(task_id: str) -> WorkerTurnHistory:
+    _require_session_controls_enabled()
+    try:
+        return get_coding_worker_service().store.turn_history(task_id)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post("/tasks/{task_id}/undo", response_model=WorkerTurnHistory)
+async def undo_task_turn(task_id: str) -> WorkerTurnHistory:
+    _require_session_controls_enabled()
+    try:
+        return await get_coding_worker_service().navigate_turn(task_id, "undo")
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post("/tasks/{task_id}/redo", response_model=WorkerTurnHistory)
+async def redo_task_turn(task_id: str) -> WorkerTurnHistory:
+    _require_session_controls_enabled()
+    try:
+        return await get_coding_worker_service().navigate_turn(task_id, "redo")
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post("/tasks/{task_id}/fork", response_model=TaskRecord, status_code=202)
+async def fork_task(task_id: str, payload: TaskForkRequest) -> TaskRecord:
+    _require_session_controls_enabled()
+    try:
+        return await get_coding_worker_service().fork_task(
+            task_id, payload.client_fork_id
+        )
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post(
+    "/tasks/{task_id}/subtasks", response_model=SubtaskRecord, status_code=202
+)
+async def create_task_subtask(
+    task_id: str, payload: SubtaskRequest
+) -> SubtaskRecord:
+    _require_subtasks_enabled()
+    try:
+        return await get_coding_worker_service().create_subtask(task_id, payload)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post(
+    "/tasks/{task_id}/subtasks/{child_task_id}/merge",
+    response_model=SubtaskRecord,
+)
+async def merge_task_subtask(
+    task_id: str, child_task_id: str, payload: SubtaskMergeRequest
+) -> SubtaskRecord:
+    _require_subtasks_enabled()
+    try:
+        return await get_coding_worker_service().merge_subtask(
+            task_id, child_task_id, payload.operation_id
+        )
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/children", response_model=TaskChildrenResponse)
+async def task_children(task_id: str) -> TaskChildrenResponse:
+    _require_children_enabled()
+    try:
+        service = get_coding_worker_service()
+        return TaskChildrenResponse(
+            tasks=tuple(service.store.list_children(task_id)),
+            subtasks=tuple(service.store.list_subtasks(task_id)),
+        )
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/export", response_model=WorkerTaskExport)
+async def export_task(task_id: str) -> WorkerTaskExport:
+    _require_session_controls_enabled()
+    try:
+        return await get_coding_worker_service().export_task(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 

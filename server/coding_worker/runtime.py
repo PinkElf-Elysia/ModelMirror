@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -51,6 +52,7 @@ class CodingWorkerRuntime:
         sidecar_uid: int = 65532,
         sidecar_gid: int = 65532,
         route_slots: Mapping[str, Sequence[str]] | None = None,
+        documentation_resources: Mapping[str, str] | None = None,
     ) -> None:
         if (
             set(slot_roots) != set(provider_endpoints)
@@ -81,8 +83,11 @@ class CodingWorkerRuntime:
                 grant_key=network_grant_key,
             ),
             egress_proxy_url=egress_proxy_url,
+            documentation_resources=documentation_resources,
         )
         self.broker_rpc = BrokerRPCServer(self.tool_broker)
+        controller_id = f"controller_{uuid.uuid4().hex}"
+        controller_generation = self.store.allocate_controller_generation()
         executor_pool = None
         if executor_endpoints is not None or executor_tokens is not None:
             if (
@@ -100,6 +105,8 @@ class CodingWorkerRuntime:
                 tokens=executor_tokens,
                 workspace_slot_resolver=self.workspace_broker.workspace_slot,
                 auto_rebind=True,
+                controller_id=controller_id,
+                controller_generation=controller_generation,
             )
         self.provider = ProviderSidecarClientPool(
             endpoints=provider_endpoints,
@@ -107,6 +114,8 @@ class CodingWorkerRuntime:
             workspace_slot_resolver=self.workspace_broker.workspace_slot,
             broker_rpc=self.broker_rpc,
             executor_pool=executor_pool,
+            controller_id=controller_id,
+            controller_generation=controller_generation,
         )
         self.tool_broker.executor = executor_pool or self.provider
         self.harness = HarnessRunner(
@@ -123,6 +132,8 @@ class CodingWorkerRuntime:
             tool_broker=self.tool_broker,
             route_slots=route_slots,
         )
+        self.tool_broker.subtask_handler = self.service.create_subtask
+        self.tool_broker.subtask_merge_handler = self.service.merge_subtask
         self.broker_socket_path = broker_socket_path
         self.sidecar_gid = sidecar_gid
         self.network_enabled = network_enabled
@@ -345,7 +356,30 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         egress_proxy_url=os.getenv("CODING_WORKER_EGRESS_PROXY_URL") or None,
         network_grant_key=os.getenv("CODING_WORKER_EGRESS_GRANT_KEY") or None,
         route_slots=route_slots,
+        documentation_resources=_documentation_resources_from_environment(),
     )
+
+
+def _documentation_resources_from_environment() -> dict[str, str]:
+    encoded = os.getenv("CODING_WORKER_DOCUMENTATION_RESOURCES_JSON", "").strip()
+    if not encoded:
+        return {}
+    try:
+        value = json.loads(encoded)
+    except json.JSONDecodeError as exc:
+        raise CodingWorkerRuntimeError(
+            "Documentation resource catalog is invalid.",
+            code="coding_worker_config_invalid",
+        ) from exc
+    if not isinstance(value, dict) or any(
+        not isinstance(key, str) or not isinstance(item, str)
+        for key, item in value.items()
+    ):
+        raise CodingWorkerRuntimeError(
+            "Documentation resource catalog is invalid.",
+            code="coding_worker_config_invalid",
+        )
+    return dict(value)
 
 
 def _route_slots_from_environment(

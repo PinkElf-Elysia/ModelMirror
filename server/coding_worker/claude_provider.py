@@ -28,6 +28,7 @@ from .provider import (
     ProviderSession,
     ProviderUsage,
     PROVIDER_TOOL_NAMES,
+    provider_message_with_repository_instructions,
 )
 
 
@@ -223,7 +224,12 @@ class ClaudeCodeProvider(CodingAgentProvider):
                         "Claude stream is unavailable.",
                         code="provider_unavailable",
                     )
-                frame = self.build_input_frame(session.session_id, text)
+                frame = self.build_input_frame(
+                    session.session_id,
+                    provider_message_with_repository_instructions(
+                        handle.request, text
+                    ),
+                )
                 process.stdin.write(
                     json.dumps(frame, ensure_ascii=False, separators=(",", ":")).encode(
                         "utf-8"
