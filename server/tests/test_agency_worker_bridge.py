@@ -44,6 +44,21 @@ def agents() -> list[AgencyAgentDefinition]:
     ]
 
 
+def three_agents() -> list[AgencyAgentDefinition]:
+    return [
+        *agents(),
+        AgencyAgentDefinition(
+            id="agent-gamma",
+            path="agent-gamma",
+            name="增长专家",
+            department="增长部",
+            description="负责增长策略",
+            system_prompt="你是增长专家。",
+            emoji="📈",
+        ),
+    ]
+
+
 def test_expert_adapter_uses_real_id_and_bounds_prompt() -> None:
     adapted = adapt_expert_catalog(
         [
@@ -71,6 +86,49 @@ def test_health_reports_pinned_protocol_and_fixed_argv() -> None:
     assert health["max_model_calls"] == 3
     assert client.argv[1] == "--max-old-space-size=256"
     assert len(client.argv) == 3
+
+
+def test_asset_bridge_uses_only_host_owned_root_and_upstream_records(tmp_path) -> None:
+    client = AgencyWorkerClient(asset_root=tmp_path, timeout_seconds=10)
+    saved = run(
+        client.assets(
+            "save_team",
+            {
+                "team": {
+                    "name": "发布阵容",
+                    "description": "跨浏览器复用",
+                    "roles": [
+                        {"role": "agent-alpha", "name": "研究专家"},
+                        {"role": "agent-beta", "name": "交付专家"},
+                    ],
+                }
+            },
+        )
+    )
+    assert saved["team"]["name"] == "发布阵容"
+    run(
+        client.assets(
+            "save_template",
+            {
+                "template": {
+                    "name": "发布任务",
+                    "content": "请形成一份包含验收标准的发布计划。",
+                    "note": "first",
+                }
+            },
+        )
+    )
+    listed = run(client.assets("list"))
+    assert listed["teams"][0]["roles"][0]["role"] == "agent-alpha"
+    assert listed["templates"][0]["version_count"] == 1
+    assert listed["garden"]
+    assert (tmp_path / "teams").is_dir()
+    assert (tmp_path / "prompts").is_dir()
+
+    unavailable = AgencyWorkerClient(timeout_seconds=10)
+    with pytest.raises(AgencyWorkerError) as exc_info:
+        run(unavailable.assets("list"))
+    assert exc_info.value.code == "agency_asset_store_unavailable"
 
 
 def test_compose_runs_initial_role_repair_and_variable_repair_with_fake_gateway() -> None:
@@ -140,6 +198,7 @@ steps:
         )
     )
     assert len(requests) == 3
+    assert {request.max_tokens for request in requests} == {8192}
     assert result["model_calls"] == 3
     assert result["repair_used"] is True
     assert result["validation"]["valid"] is True
@@ -207,6 +266,72 @@ steps:
     assert result["model_calls"] == 2
     assert result["repair_used"] is True
     assert result["validation"]["valid"] is True
+    assert result["selected_agent_ids"] == ["agent-alpha", "agent-beta"]
+
+
+def test_compose_repairs_auto_lineup_that_exceeds_max_agents() -> None:
+    responses = [
+        """```yaml
+name: 超额初稿
+agents_dir: modelmirror-experts
+llm:
+  provider: modelmirror
+  model: fake-model
+steps:
+  - id: research
+    role: agent-alpha
+    task: 调研
+    output: research_output
+  - id: delivery
+    role: agent-beta
+    task: 交付
+    output: delivery_output
+  - id: growth
+    role: agent-gamma
+    depends_on: [research, delivery]
+    task: 整合
+    acceptance: 可执行
+    output: final_output
+```""",
+        """```yaml
+name: 限额修复稿
+agents_dir: modelmirror-experts
+llm:
+  provider: modelmirror
+  model: fake-model
+steps:
+  - id: research
+    role: agent-alpha
+    task: 调研
+    output: research_output
+  - id: delivery
+    role: agent-beta
+    depends_on: [research]
+    task: 基于 {{research_output}} 交付
+    acceptance: 可执行
+    output: final_output
+```""",
+    ]
+    requests = []
+
+    async def fake_gateway(request):
+        requests.append(request)
+        return responses[len(requests) - 1]
+
+    result = run(
+        AgencyWorkerClient(model_runner=fake_gateway, timeout_seconds=20).compose(
+            goal="为新产品制定研究与交付计划",
+            model_id="fake-model",
+            agents=three_agents(),
+            mode="auto",
+            max_agents=2,
+            temperature=0.2,
+        )
+    )
+
+    assert len(requests) == 2
+    assert "at most 2 role ids" in requests[1].messages[0].content
+    assert result["repair_used"] is True
     assert result["selected_agent_ids"] == ["agent-alpha", "agent-beta"]
 
 
@@ -441,7 +566,9 @@ def test_main_model_adapter_reuses_collect_chat_completion_text(
     async def fake_collect(model_id, messages, **kwargs):
         observed["model_id"] = model_id
         observed["messages"] = messages
+        observed["reasoning"] = kwargs.get("reasoning")
         kwargs["usage_observer"]({"prompt_tokens": 12, "completion_tokens": 7})
+        kwargs["completion_metadata_observer"]({"finish_reason": "stop"})
         return "gateway-result"
 
     monkeypatch.setattr(main_module, "collect_chat_completion_text", fake_collect)
@@ -461,5 +588,88 @@ def test_main_model_adapter_reuses_collect_chat_completion_text(
     )
     assert observed["model_id"] == "gateway-model"
     assert [message.role for message in observed["messages"]] == ["system", "user"]
+    assert observed["reasoning"] == {"effort": "low"}
     assert response.content == "gateway-result"
     assert response.usage == {"input_tokens": 12, "output_tokens": 7}
+    assert response.finish_reason == "stop"
+
+
+def test_main_model_adapter_classifies_empty_truncated_response(monkeypatch) -> None:
+    import server.main as main_module
+
+    async def fake_collect(_model_id, _messages, **kwargs):
+        kwargs["completion_metadata_observer"]({"finish_reason": "length"})
+        raise RuntimeError("模型没有返回可用内容。")
+
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", fake_collect)
+    with pytest.raises(main_module.AgencyWorkerError) as exc_info:
+        run(
+            main_module.collect_agency_worker_model(
+                AgencyModelRequest(
+                    request_id="model-truncated",
+                    model_id="gateway-model",
+                    messages=[{"role": "user", "content": "user"}],
+                    temperature=0.3,
+                    max_tokens=4096,
+                )
+            )
+        )
+    assert exc_info.value.code == "model_output_truncated"
+    assert "token 上限" in str(exc_info.value)
+
+
+def test_main_model_adapter_enables_reasoning_fallback_for_json_review(
+    monkeypatch,
+) -> None:
+    import server.main as main_module
+
+    observed = {}
+
+    async def fake_collect(_model_id, _messages, **kwargs):
+        observed.update(kwargs)
+        kwargs["usage_observer"]({"prompt_tokens": 9, "completion_tokens": 3})
+        kwargs["completion_metadata_observer"]({"finish_reason": "stop"})
+        return '{"pass":false,"failed":[{"criterion":"owner","why":"TBD"}]}'
+
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", fake_collect)
+    response = run(
+        main_module.collect_agency_worker_model(
+            AgencyModelRequest(
+                request_id="model-json-review",
+                model_id="gateway-model",
+                messages=[{"role": "user", "content": "review"}],
+                temperature=0,
+                max_tokens=800,
+                json_response=True,
+            )
+        )
+    )
+    assert observed["allow_json_reasoning_fallback"] is True
+    assert observed["json_required_top_level_key"] == "pass"
+    assert observed["response_format"] == {"type": "json_object"}
+    assert response.content.startswith('{"pass":false')
+    assert response.usage == {"input_tokens": 9, "output_tokens": 3}
+
+
+def test_main_model_adapter_classifies_gateway_quota_without_leaking_body(monkeypatch) -> None:
+    import server.main as main_module
+
+    async def fake_collect(_model_id, _messages, **_kwargs):
+        raise RuntimeError("OpenRouter 额度不足，请充值或更换可用连接后重试。 secret-body")
+
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", fake_collect)
+    with pytest.raises(main_module.AgencyWorkerError) as exc_info:
+        run(
+            main_module.collect_agency_worker_model(
+                AgencyModelRequest(
+                    request_id="model-quota",
+                    model_id="gateway-model",
+                    messages=[{"role": "user", "content": "user"}],
+                    temperature=0.3,
+                    max_tokens=4096,
+                )
+            )
+        )
+    assert exc_info.value.code == "model_gateway_quota_exceeded"
+    assert "充值或更换" in str(exc_info.value)
+    assert "secret-body" not in str(exc_info.value)

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 try:
     from server.workflow_native.node_contracts import WorkflowAgentPlannerConfig
@@ -85,6 +86,16 @@ class MetaPlannerTask(BaseModel):
     output_contract: str = Field(min_length=1, max_length=1_000)
     agent_id: str | None = Field(default=None, min_length=1, max_length=160)
     acceptance: str = Field(default="", max_length=2_000)
+    method_skill_ids: list[str] = Field(default_factory=list, max_length=1)
+
+    @field_validator("method_skill_ids")
+    @classmethod
+    def validate_method_skill_ids(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("method_skill_ids must be unique")
+        if any(not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,159}", item) for item in value):
+            raise ValueError("method_skill_ids contains an invalid Skill id")
+        return value
 
 
 class MetaPlannerTaskPlan(BaseModel):

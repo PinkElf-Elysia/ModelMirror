@@ -277,6 +277,7 @@ def legacy_blueprint_to_typed_ir(
                     task_input=task_input,
                     model_id=agent.model_id,
                     source_agent_id=agent.source_agent_id,
+                    method_skill_ids=task.method_skill_ids,
                 ).model_dump(mode="json", exclude_none=True),
             )
         )
@@ -427,13 +428,18 @@ def validate_blueprint_authorization(
             )
         for task_id in set(node.task_ids) & plan_ids:
             task_nodes[task_id].append(node)
-            assigned = next(
-                task.agent_id for task in plan.tasks if task.task_id == task_id
+            planned_task = next(
+                task for task in plan.tasks if task.task_id == task_id
             )
+            assigned = planned_task.agent_id
             if assigned and config.source_agent_id != assigned:
                 issues.append(
                     f"Node {node.ref} must keep assigned expert {assigned} "
                     f"for task {task_id}."
+                )
+            if config.method_skill_ids != planned_task.method_skill_ids:
+                issues.append(
+                    f"Node {node.ref} must keep method Skills for task {task_id}."
                 )
         source_agent_id = config.source_agent_id
         if source_agent_id and source_agent_id not in authorized_agents:
@@ -747,6 +753,11 @@ def _compile_xpert_candidate_legacy(
                     **(
                         {"acceptanceCriteria": task.acceptance}
                         if task.acceptance
+                        else {}
+                    ),
+                    **(
+                        {"methodSkillIds": task.method_skill_ids}
+                        if task.method_skill_ids
                         else {}
                     ),
                 },

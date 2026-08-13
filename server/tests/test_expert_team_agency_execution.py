@@ -18,6 +18,7 @@ from server.orchestration_worker import (
     AgencyAgentDefinition,
     AgencyExecutionClient,
     AgencyModelResponse,
+    AgencySkillDefinition,
     AgencyWorkerError,
 )
 from server.workflow_native.schemas import NativeWorkflowDefinition
@@ -154,6 +155,137 @@ def test_prepare_execution_compiles_only_server_owned_experts_and_plain_steps():
     assert prepared.workflow["steps"][1]["depends_on"] == ["research"]
     assert "llm" not in prepared.workflow["steps"][1]
     assert prepared.agents[0].system_prompt == "你是研究专家。"
+    assert prepared.skills == []
+
+
+def test_prepare_execution_does_not_duplicate_existing_input_references():
+    plan, workflow = valid_plan_and_workflow()
+    plan.tasks[0].objective = "研究用户目标 {{user_input}}"
+    workflow.nodes[1].data["description"] = plan.tasks[0].objective
+    workflow.nodes[1].data["taskInput"] = plan.tasks[0].objective
+    plan.tasks[1].objective = "形成执行方案 {{research_output}}"
+    workflow.nodes[2].data["description"] = plan.tasks[1].objective
+    workflow.nodes[2].data["taskInput"] = plan.tasks[1].objective
+
+    prepared = prepare_agency_execution(
+        plan=plan, workflow=workflow, expert_records=experts()
+    )
+
+    assert prepared.workflow["steps"][0]["task"].count("{{user_input}}") == 1
+    assert prepared.workflow["steps"][1]["task"].count("{{research_output}}") == 1
+
+
+def test_prepare_execution_accepts_transitive_ancestor_variables():
+    plan, workflow = valid_plan_and_workflow()
+    process = plan.tasks[1].model_copy(
+        deep=True,
+        update={
+            "task_id": "process",
+            "title": "过程设计",
+            "objective": "根据研究形成过程 {{research_output}}",
+            "depends_on": ["research"],
+            "input_contract": ["research_output"],
+            "output_contract": "过程结果",
+            "acceptance": "",
+        },
+    )
+    plan.tasks[1].objective = (
+        "结合传递上游研究与直接过程结果 "
+        "{{research_output}} {{process_output}}"
+    )
+    plan.tasks[1].depends_on = ["process"]
+    plan.tasks[1].input_contract = ["process_output"]
+
+    process_node = workflow.nodes[2].model_copy(deep=True)
+    process_node.id = "agent_process"
+    process_node.data.update(
+        {
+            "title": process.title,
+            "description": process.objective,
+            "taskInput": process.objective,
+            "outputVariable": "process_output",
+            "acceptanceCriteria": "",
+        }
+    )
+    workflow.nodes.insert(2, process_node)
+    delivery_node = workflow.nodes[3]
+    delivery_node.data["description"] = plan.tasks[1].objective
+    delivery_node.data["taskInput"] = plan.tasks[1].objective
+    workflow.edges = [
+        workflow.edges[0],
+        workflow.edges[1].model_copy(
+            update={
+                "id": "research-process",
+                "source": "agent_research",
+                "target": "agent_process",
+            }
+        ),
+        workflow.edges[1].model_copy(
+            update={
+                "id": "process-delivery",
+                "source": "agent_process",
+                "target": "agent_delivery",
+            }
+        ),
+        workflow.edges[2],
+    ]
+    plan.tasks.insert(1, process)
+
+    prepared = prepare_agency_execution(
+        plan=plan, workflow=workflow, expert_records=experts()
+    )
+
+    assert prepared.workflow["steps"][2]["depends_on"] == ["process"]
+    assert "{{research_output}}" in prepared.workflow["steps"][2]["task"]
+
+
+def test_prepare_execution_rejects_undefined_variable_before_runtime_compile():
+    plan, workflow = valid_plan_and_workflow()
+    workflow.nodes[2].data["taskInput"] += " {{unrelated_output}}"
+
+    with pytest.raises(AgencyExecutionValidationError, match="unrelated_output"):
+        prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+
+
+def test_prepare_execution_binds_only_server_resolved_method_skills():
+    plan, workflow = valid_plan_and_workflow()
+    plan.tasks[0].method_skill_ids = ["data-analysis"]
+    workflow.nodes[1].data["methodSkillIds"] = ["data-analysis"]
+    skill = AgencySkillDefinition(
+        skill_id="data-analysis",
+        name="Data Analysis",
+        description="证据优先的数据分析方法。",
+        body="先核对数据语义，再形成结论。",
+        digest="a" * 64,
+    )
+    prepared = prepare_agency_execution(
+        plan=plan,
+        workflow=workflow,
+        expert_records=experts(),
+        method_skills={"data-analysis": skill},
+    )
+    assert prepared.workflow["steps"][0]["skills"] == ["data-analysis"]
+    assert prepared.skills == [skill]
+
+    with pytest.raises(AgencyExecutionValidationError) as missing:
+        prepare_agency_execution(
+            plan=plan,
+            workflow=workflow,
+            expert_records=experts(),
+            method_skills={},
+        )
+    assert missing.value.code == "agency_method_skill_changed"
+
+    workflow.nodes[1].data["methodSkillIds"] = []
+    with pytest.raises(AgencyExecutionValidationError, match="工作方法与计划不一致"):
+        prepare_agency_execution(
+            plan=plan,
+            workflow=workflow,
+            expert_records=experts(),
+            method_skills={"data-analysis": skill},
+        )
 
 
 @pytest.mark.parametrize(
@@ -314,6 +446,56 @@ class HangingClient:
             raise
 
 
+class ResumeClient:
+    worker_entry = Path(__file__)
+
+    def __init__(self):
+        self.resume = None
+
+    async def execute(self, *, on_event, resume=None, **_kwargs):
+        self.resume = resume
+        await on_event(
+            {
+                "event": "agency.step.completed",
+                "task_id": "research",
+                "status": "completed",
+                "output": "已有研究",
+                "reused": True,
+                "model_calls": 2,
+                "cumulative_usage": {
+                    "input_tokens": 20,
+                    "output_tokens": 10,
+                },
+            }
+        )
+        await on_event(
+            {
+                "event": "agency.run.completed",
+                "status": "completed",
+                "final_output": "续跑结果",
+                "model_calls": 4,
+                "usage": {"input_tokens": 40, "output_tokens": 20},
+            }
+        )
+        return SimpleNamespace(
+            payload={
+                "final_output": "续跑结果",
+                "model_calls": 4,
+                "usage": {"input_tokens": 40, "output_tokens": 20},
+            }
+        )
+
+
+class HangingResumeClient(HangingClient):
+    def __init__(self):
+        super().__init__()
+        self.resume = None
+
+    async def execute(self, *, on_event, resume=None, **kwargs):
+        self.resume = resume
+        return await super().execute(on_event=on_event, **kwargs)
+
+
 async def _noop_model(_request):
     return "unused"
 
@@ -417,6 +599,149 @@ def test_completed_worker_event_wins_over_late_cancel(tmp_path):
     asyncio.run(scenario())
 
 
+def test_failed_run_retries_only_incomplete_steps_and_keeps_live_usage(tmp_path):
+    async def scenario():
+        plan, workflow = valid_plan_and_workflow()
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        client = ResumeClient()
+        runtime = coordinator(tmp_path, client)
+        source = runtime.store.create(
+            task_id="failed-source",
+            run_id="source-run",
+            run_type="expert_team",
+            workflow=prepared.workflow,
+            inputs={"goal": "制定一个可执行的专家协作方案。"},
+            source_kind="expert_team_agency",
+            runtime_metadata={
+                "model_id": "fake-model",
+                "upstream_revision": "revision",
+                "capability_snapshot_version": "snapshot-v1",
+                "capability_snapshot_hash": "hash",
+                "sink_task_id": prepared.sink_task_id,
+                "selected_agent_ids": prepared.selected_agent_ids,
+                "method_skill_digests": {},
+            },
+        )
+        runtime.store.append_event(
+            source.task_id,
+            {
+                "event": "agency.step.completed",
+                "task_id": "research",
+                "status": "completed",
+                "output": "已有研究",
+                "model_calls": 1,
+                "cumulative_usage": {
+                    "input_tokens": 12,
+                    "output_tokens": 8,
+                },
+            },
+        )
+        runtime.store.append_event(
+            source.task_id,
+            {
+                "event": "agency.run.failed",
+                "status": "failed",
+                "error": "agency_execution_step_failed",
+                "model_calls": 2,
+                "usage": {"input_tokens": 20, "output_tokens": 10},
+            },
+        )
+        runtime.store.fail(source.task_id, error="agency_execution_step_failed")
+
+        serialized = runtime.get(source.task_id)
+        assert serialized["retryable"] is True
+        assert serialized["model_calls"] == 2
+        assert serialized["usage"] == {"input_tokens": 20, "output_tokens": 10}
+        retried = await runtime.retry(
+            source_task_id=source.task_id,
+            prepared=prepared,
+        )
+        assert retried["resumed_from_task_id"] == source.task_id
+        assert retried["model_calls"] == 2
+        assert retried["usage"] == {"input_tokens": 20, "output_tokens": 10}
+        for _ in range(50):
+            current = runtime.get(retried["task_id"])
+            if current["status"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+        assert client.resume["completed_steps"] == [
+            {
+                "task_id": "research",
+                "output": "已有研究",
+                "output_variable": "research_output",
+                "acceptance": "列出证据",
+            }
+        ]
+        assert client.resume["prior_model_calls"] == 2
+        assert current["steps"][0]["reused"] is True
+        assert current["model_calls"] == 4
+
+    asyncio.run(scenario())
+
+
+def test_retry_is_idempotent_while_the_resume_run_is_active(tmp_path):
+    async def scenario():
+        plan, workflow = valid_plan_and_workflow()
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        client = HangingResumeClient()
+        runtime = coordinator(tmp_path, client)
+        source = runtime.store.create(
+            task_id="idempotent-source",
+            run_id="source-run",
+            run_type="expert_team",
+            workflow=prepared.workflow,
+            inputs={"goal": "制定一个可执行的专家协作方案。"},
+            source_kind="expert_team_agency",
+            runtime_metadata={
+                "model_id": "fake-model",
+                "upstream_revision": "revision",
+                "capability_snapshot_version": "snapshot-v1",
+                "capability_snapshot_hash": "hash",
+                "sink_task_id": prepared.sink_task_id,
+                "selected_agent_ids": prepared.selected_agent_ids,
+                "method_skill_digests": {},
+            },
+        )
+        runtime.store.append_event(
+            source.task_id,
+            {
+                "event": "agency.step.completed",
+                "task_id": "research",
+                "status": "completed",
+                "output": "已有研究",
+                "model_calls": 1,
+                "cumulative_usage": {"input_tokens": 5, "output_tokens": 3},
+            },
+        )
+        runtime.store.append_event(
+            source.task_id,
+            {
+                "event": "agency.run.failed",
+                "status": "failed",
+                "error": "agency_execution_step_failed",
+                "model_calls": 1,
+                "usage": {"input_tokens": 5, "output_tokens": 3},
+            },
+        )
+        runtime.store.fail(source.task_id, error="agency_execution_step_failed")
+        first = await runtime.retry(
+            source_task_id=source.task_id, prepared=prepared
+        )
+        await asyncio.wait_for(client.started.wait(), timeout=1)
+        second = await runtime.retry(
+            source_task_id=source.task_id, prepared=prepared
+        )
+        assert first["task_id"] == second["task_id"]
+        assert len(runtime._tasks) == 1
+        await runtime.cancel(first["task_id"])
+
+    asyncio.run(scenario())
+
+
 def test_capacity_and_interrupted_recovery(tmp_path):
     async def scenario():
         plan, workflow = valid_plan_and_workflow()
@@ -480,12 +805,19 @@ def test_execution_store_redacts_unapproved_event_fields(tmp_path):
             "output": "x" * (70 * 1024),
             "api_key": "must-not-persist",
             "usage": {"input_tokens": 3, "secret": 4},
+            "cumulative_usage": {"input_tokens": 5, "output_tokens": 2, "secret": 9},
+            "reused": True,
         },
     )
     event = store.require("safe-event").events[0]
     assert len(event["output"]) == 64 * 1024
     assert "api_key" not in event
     assert event["usage"] == {"input_tokens": 3}
+    assert event["cumulative_usage"] == {
+        "input_tokens": 5,
+        "output_tokens": 2,
+    }
+    assert event["reused"] is True
 
     non_agency = store.create(
         task_id="ordinary-xpert",
@@ -788,6 +1120,94 @@ def test_execution_api_reports_disabled_and_stale_contracts(monkeypatch):
     non_text = client.post("/api/expert-team/dag-runs", json=payload)
     assert non_text.status_code == 422
     assert non_text.json()["code"] == "agency_execution_plan_invalid"
+
+
+def test_execution_retry_api_rebuilds_server_owned_contract(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import server.main as main_module
+
+    store = WorkflowExecutionStore(tmp_path)
+    agent_id = main_module.AGENT_RECORDS[0].id
+    source = store.create(
+        task_id="retry-source",
+        run_id="retry-source-run",
+        run_type="expert_team",
+        workflow={
+            "name": "冻结计划",
+            "steps": [
+                {
+                    "id": "final",
+                    "role": agent_id,
+                    "task": "形成结论",
+                    "output": "final_output",
+                    "depends_on": [],
+                    "acceptance": "结论可执行",
+                    "skills": [],
+                }
+            ],
+        },
+        inputs={"goal": "形成一个可执行且可审计的专家结论。"},
+        source_kind="expert_team_agency",
+        runtime_metadata={
+            "model_id": "fake-model",
+            "upstream_revision": main_module.AGENCY_UPSTREAM_REVISION,
+            "capability_snapshot_version": "snapshot-v1",
+            "capability_snapshot_hash": "snapshot-hash",
+            "sink_task_id": "final",
+            "selected_agent_ids": [agent_id],
+            "method_skill_digests": {},
+        },
+    )
+    store.fail(source.task_id, error="agency_execution_step_failed")
+    monkeypatch.setattr(main_module, "workflow_execution_store", store)
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_EXECUTION_ENABLED", "1")
+    monkeypatch.setattr(
+        main_module.agency_execution_coordinator, "worker_available", lambda: True
+    )
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(
+        main_module,
+        "build_meta_planner_capability_snapshot",
+        lambda _agents: SimpleNamespace(
+            version="snapshot-v1", snapshot_hash="snapshot-hash"
+        ),
+    )
+
+    async def text_model(_model_id):
+        return True
+
+    captured = {}
+
+    async def fake_retry(*, source_task_id, prepared):
+        captured["source_task_id"] = source_task_id
+        captured["prepared"] = prepared
+        return {
+            "task_id": "retry-new",
+            "run_id": "retry-new-run",
+            "status": "running",
+            "sequence": 0,
+            "events": [],
+            "steps": [],
+            "warnings": [],
+            "model_calls": 1,
+            "usage": {},
+        }
+
+    monkeypatch.setattr(
+        main_module, "expert_team_execution_model_is_text", text_model
+    )
+    monkeypatch.setattr(main_module.agency_execution_coordinator, "retry", fake_retry)
+
+    response = TestClient(main_module.app).post(
+        f"/api/expert-team/dag-runs/{source.task_id}/retry"
+    )
+    assert response.status_code == 202
+    assert response.json()["task_id"] == "retry-new"
+    assert response.json()["retry_url"].endswith("/retry-new/retry")
+    assert captured["source_task_id"] == source.task_id
+    assert captured["prepared"].selected_agent_ids == [agent_id]
+    assert captured["prepared"].workflow == source.workflow
 
 
 def test_execution_sse_replays_only_events_after_sequence(tmp_path, monkeypatch):

@@ -59,6 +59,40 @@ recorded upstream Blob SHA. There are no inline modifications in round 0.
 - Provider, Studio, website, doctor, sponsor and unrelated CLI changes in the
   audited range remain excluded.
 
+## Round 5 reusable expert-team assets
+
+- `src/cli/prompt.ts`
+  - Imported byte-for-byte from upstream Blob SHA
+    `e788c12d0bce68ad2bc33e6be098408ca187084e`.
+  - ModelMirror reuses Prompt Record version history, persistence helpers and
+    Prompt Garden through the host-owned Worker bridge.
+  - Prompt optimization, testing and scoring are not exposed by the Expert
+    Team product API in this round. If used later, the existing connector
+    factory boundary still requires explicit host injection.
+- `src/cli/team.ts`
+  - The already-vendored upstream Team/Loadout storage is exposed through a
+    bounded Worker asset method. The storage root is injected only by the
+    Python host, and ModelMirror validates current expert IDs before saving.
+- `src/skills/loader.ts`
+  - Original upstream Blob SHA:
+    `25aaca6547ce041adcf61b1369725cffae4c55a9`.
+  - Adds an optional host-owned in-memory Skill resolver while keeping the
+    upstream directory loader as the default.
+  - The Skill injector is used only for prompt-method text in constrained LLM
+    steps. Tools, scripts, network access and side effects stay disabled.
+- `src/core/executor.ts`
+  - Reuses the same original upstream Blob SHA recorded for Round 3 and adds
+    the optional in-memory Skill resolver beside the existing Agent resolver.
+  - Adds an optional host-owned template-context view. ModelMirror uses it only
+    to bound the dependency excerpts rendered into a final synthesis step;
+    complete upstream results remain stored and reusable. Omitting the hook
+    preserves upstream template rendering byte-for-byte.
+  - Adds an optional host-owned deterministic acceptance hook. ModelMirror uses
+    it for explicit final character-count limits before delegating all semantic
+    checks to the upstream verifier and its existing one-rework path.
+  - Scheduling, template rendering, verification and rework logic remain the
+    upstream implementation; omitting the resolver preserves file loading.
+
 ## Deliberately excluded
 
 The upstream Provider Factory and all provider implementations, website/Web

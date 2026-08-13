@@ -7,9 +7,11 @@ import {
   type AgencyPlanPreview,
   type AgencyPlanTask,
   type AgencyPlannerCapabilities,
+  type AgencyTeamAsset,
   type AgencyValidationIssue,
   type AgencyWorkflow,
 } from "../components/AgencyExpertTeamTypes";
+import { useAgencyAssets } from "../components/useAgencyAssets";
 import { useAgencyDagRun } from "../components/useAgencyDagRun";
 import { DEFAULT_CHAT_MODEL_ID } from "../context/ModelPreferenceContext";
 import { agents, agentDepartments, type AgentProfile } from "../data/agents";
@@ -173,10 +175,6 @@ function readSavedTeams(): TeamSavedConfig[] {
   }
 }
 
-function saveTeams(teams: TeamSavedConfig[]) {
-  window.localStorage.setItem(savedTeamStorageKey, JSON.stringify(teams));
-}
-
 async function responseJson<T>(response: Response): Promise<T> {
   const payload = (await response.json()) as T & { error?: string };
   if (!response.ok) {
@@ -219,6 +217,7 @@ function syncWorkflowToPlan(
           ? `${task.objective}\n\n依赖结果：\n${dependencyText}`
           : `${task.objective}\n\n用户任务：\n{{user_input}}`,
         acceptanceCriteria: task.acceptance,
+        methodSkillIds: task.method_skill_ids || [],
       },
     };
   });
@@ -407,8 +406,12 @@ export default function ExpertTeamPage() {
     useState<AgencyPlanPreview | null>(null);
   const [loadedAgencyGoal, setLoadedAgencyGoal] = useState("");
   const [loadedAgencyPlanInvalid, setLoadedAgencyPlanInvalid] = useState(false);
-  const [dagConfirmOpen, setDagConfirmOpen] = useState(false);
+  const [dagConfirmMode, setDagConfirmMode] = useState<"start" | "retry" | null>(null);
   const agencyDag = useAgencyDagRun();
+  const agencyAssets = useAgencyAssets();
+  const [agencyMethodSkillId, setAgencyMethodSkillId] = useState("");
+  const [taskTemplateName, setTaskTemplateName] = useState("");
+  const [assetNotice, setAssetNotice] = useState("");
 
   const [teamTask, setTeamTask] = useState(
     "为一个新上线的 AI 模型浏览器制定产品发布方案，包括技术风险、设计亮点和增长打法。",
@@ -423,7 +426,7 @@ export default function ExpertTeamPage() {
   const [teamOutputs, setTeamOutputs] = useState<TeamAgentOutput[]>([]);
   const [teamFinal, setTeamFinal] = useState("");
   const [teamStatus, setTeamStatus] = useState<RunStatus>("idle");
-  const [savedTeams, setSavedTeams] = useState<TeamSavedConfig[]>(readSavedTeams);
+  const [savedTeams] = useState<TeamSavedConfig[]>(readSavedTeams);
   const [teamName, setTeamName] = useState("产品发布专家组");
 
   useEffect(() => {
@@ -487,6 +490,9 @@ export default function ExpertTeamPage() {
           task.objective,
           task.depends_on.length ? `依赖：${task.depends_on.join("、")}` : "",
           task.acceptance ? `验收：${task.acceptance}` : "",
+          task.method_skill_ids?.length
+            ? `方法 Skill：${task.method_skill_ids.join("、")}`
+            : "",
         ].filter(Boolean).join("\n");
         grouped.set(task.agent_id, [...existing, details]);
       }
@@ -564,7 +570,7 @@ export default function ExpertTeamPage() {
 
   function invalidateLoadedAgencyPlan() {
     if (loadedAgencyPlan) setLoadedAgencyPlanInvalid(true);
-    setDagConfirmOpen(false);
+    setDagConfirmMode(null);
   }
 
   function updateRouteMessage(value: string) {
@@ -583,11 +589,53 @@ export default function ExpertTeamPage() {
     invalidateLoadedAgencyPlan();
   }
 
+  function selectAgencyTemplate(reference: string) {
+    if (!reference) return;
+    const template = agencyAssets.assets.templates.find(
+      (item) => item.ref === reference,
+    );
+    const garden = agencyAssets.assets.garden.find(
+      (item) => `garden:${item.id}` === reference,
+    );
+    const content = template?.content || garden?.content;
+    if (!content) return;
+    updateRouteMessage(content);
+    setAgencyPreview(null);
+    setAgencyValidationStale(false);
+    setAgencyStatus("idle");
+    setAssetNotice(
+      template ? `已载入任务模板：${template.name}` : `已载入 Prompt Garden：${garden?.name}`,
+    );
+  }
+
+  function loadServerTeam(team: AgencyTeamAsset) {
+    if (teamMode === "dag") return;
+    const memberIds = team.roles
+      .map((role) => role.role)
+      .filter((id, index, values) =>
+        values.indexOf(id) === index && agents.some((agent) => agent.id === id),
+      )
+      .slice(0, 6);
+    setTeamName(team.name);
+    setSelectedAgentIds(memberIds);
+    setAgencyLineupMode("pinned");
+    setAssetNotice(`已载入固定阵容：${team.name}`);
+    invalidateLoadedAgencyPlan();
+  }
+
+  function updateAgencyMethodSkill(value: string) {
+    setAgencyMethodSkillId(value);
+    setAgencyPreview(null);
+    setAgencyValidationStale(false);
+    setAgencyStatus("idle");
+    invalidateLoadedAgencyPlan();
+  }
+
   function updateTeamTask(value: string) {
     setTeamTask(value);
     if (teamMode === "dag" && value !== loadedAgencyGoal) {
       setLoadedAgencyPlanInvalid(true);
-      setDagConfirmOpen(false);
+      setDagConfirmMode(null);
     }
   }
 
@@ -612,15 +660,35 @@ export default function ExpertTeamPage() {
     invalidateLoadedAgencyPlan();
   }
 
-  function saveCurrentTeam() {
-    const nextTeam: TeamSavedConfig = {
-      id: `team-${Date.now()}`,
-      name: teamName.trim() || "未命名专家团",
-      members: selectedAgentIds,
-    };
-    const nextTeams = [nextTeam, ...savedTeams].slice(0, 8);
-    setSavedTeams(nextTeams);
-    saveTeams(nextTeams);
+  async function saveCurrentTeam() {
+    if (selectedAgentIds.length === 0) return;
+    const name = teamName.trim() || "未命名专家团";
+    try {
+      await agencyAssets.saveTeam({
+        name,
+        description: teamTask.trim(),
+        agent_ids: selectedAgentIds,
+      });
+      setAssetNotice(`固定阵容“${name}”已保存到服务端。`);
+    } catch {
+      // The hook exposes the server message next to the asset controls.
+    }
+  }
+
+  async function saveCurrentTaskTemplate() {
+    const name = taskTemplateName.trim();
+    if (!name || !routeMessage.trim()) return;
+    try {
+      await agencyAssets.saveTemplate({
+        name,
+        content: routeMessage.trim(),
+        note: "由专家团智能组队保存",
+      });
+      setTaskTemplateName("");
+      setAssetNotice(`任务模板“${name}”已保存；同名保存会保留版本历史。`);
+    } catch {
+      // The hook exposes the server message next to the asset controls.
+    }
   }
 
   function loadTeam(team: TeamSavedConfig) {
@@ -776,6 +844,7 @@ export default function ExpertTeamPage() {
           knowledge_base_id: agencyKnowledgeBaseId || null,
           allow_knowledge_context:
             Boolean(agencyKnowledgeBaseId) && agencyKnowledgeConsent,
+          method_skill_id: agencyMethodSkillId || null,
         }),
       });
       const preview = await responseJson<AgencyPlanPreviewWithKnowledge>(response);
@@ -791,7 +860,12 @@ export default function ExpertTeamPage() {
 
   function updateAgencyTask(
     taskId: string,
-    patch: Partial<Pick<AgencyPlanTask, "title" | "objective" | "acceptance">>,
+    patch: Partial<
+      Pick<
+        AgencyPlanTask,
+        "title" | "objective" | "acceptance" | "method_skill_ids"
+      >
+    >,
   ) {
     setAgencyPreview((current) => {
       if (!current) return current;
@@ -898,6 +972,9 @@ export default function ExpertTeamPage() {
           ? `依赖：${task.depends_on.join("、")}`
           : "",
         task.acceptance ? `验收：${task.acceptance}` : "",
+        task.method_skill_ids?.length
+          ? `方法 Skill：${task.method_skill_ids.join("、")}`
+          : "",
       ]
         .filter(Boolean)
         .join("\n");
@@ -928,6 +1005,16 @@ export default function ExpertTeamPage() {
 
   async function startAgencyDag() {
     if (!loadedAgencyPlan || loadedAgencyPlanInvalid) return;
+    const methodSkillIds = new Set(
+      loadedAgencyPlan.plan.tasks.flatMap(
+        (task) => task.method_skill_ids || [],
+      ),
+    );
+    const method_skill_digests = Object.fromEntries(
+      agencyAssets.assets.method_skills
+        .filter((skill) => methodSkillIds.has(skill.skill_id))
+        .map((skill) => [skill.skill_id, skill.digest]),
+    );
     try {
       await agencyDag.start({
         goal: loadedAgencyGoal,
@@ -938,8 +1025,18 @@ export default function ExpertTeamPage() {
           loadedAgencyPlan.capability_snapshot_version,
         capability_snapshot_hash: loadedAgencyPlan.capability_snapshot_hash,
         upstream_revision: loadedAgencyPlan.upstream_revision,
+        method_skill_digests,
       });
-      setDagConfirmOpen(false);
+      setDagConfirmMode(null);
+    } catch {
+      // The hook exposes the actionable server message in the DAG panel.
+    }
+  }
+
+  async function retryAgencyDag() {
+    try {
+      await agencyDag.retry();
+      setDagConfirmMode(null);
     } catch {
       // The hook exposes the actionable server message in the DAG panel.
     }
@@ -954,7 +1051,7 @@ export default function ExpertTeamPage() {
       ) {
         return;
       }
-      setDagConfirmOpen(true);
+      setDagConfirmMode("start");
       return;
     }
     if (!teamTask.trim() || selectedAgentIds.length === 0) return;
@@ -1372,6 +1469,62 @@ export default function ExpertTeamPage() {
                   placeholder="描述需要拆解并组队的目标"
                   value={routeMessage}
                 />
+                <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-400">
+                      任务模板
+                    </span>
+                    <select
+                      aria-label="载入任务模板"
+                      className="mt-2 h-10 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 text-xs text-white outline-none focus:border-hire-300/70"
+                      defaultValue=""
+                      onChange={(event) => {
+                        selectAgencyTemplate(event.target.value);
+                        event.target.value = "";
+                      }}
+                    >
+                      <option value="">选择已保存模板或 Prompt Garden</option>
+                      {agencyAssets.assets.templates.map((template) => (
+                        <option key={template.ref} value={template.ref}>
+                          已保存 · {template.name} · v{template.version_count}
+                        </option>
+                      ))}
+                      {agencyAssets.assets.garden
+                        .filter((seed) => seed.mode === "user")
+                        .map((seed) => (
+                          <option key={seed.id} value={`garden:${seed.id}`}>
+                            Prompt Garden · {seed.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-400">
+                      保存当前目标
+                    </span>
+                    <input
+                      className="mt-2 h-10 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 text-xs text-white outline-none placeholder:text-slate-500 focus:border-hire-300/70"
+                      onChange={(event) => setTaskTemplateName(event.target.value)}
+                      placeholder="模板名称"
+                      value={taskTemplateName}
+                    />
+                  </label>
+                  <button
+                    className="self-end rounded-full border border-white/10 bg-white/[0.06] px-4 py-2.5 text-xs font-semibold text-slate-100 transition hover:border-hire-300/35 hover:text-hire-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={
+                      agencyAssets.busy ||
+                      !taskTemplateName.trim() ||
+                      !routeMessage.trim()
+                    }
+                    onClick={() => void saveCurrentTaskTemplate()}
+                    type="button"
+                  >
+                    保存模板
+                  </button>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  复用 Agency Prompt 版本存储；同名再次保存会追加版本，不会调用模型。
+                </p>
                 <label className="mt-4 block">
                   <span className="text-xs font-semibold text-slate-400">
                     参考资料库（可选）
@@ -1431,6 +1584,27 @@ export default function ExpertTeamPage() {
                   />
                 </div>
 
+                <label className="mt-4 block">
+                  <span className="text-xs font-semibold text-slate-400">
+                    方法 Skill（可选）
+                  </span>
+                  <select
+                    className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 text-sm text-white outline-none focus:border-hire-300/70 focus:ring-4 focus:ring-hire-300/10"
+                    onChange={(event) => updateAgencyMethodSkill(event.target.value)}
+                    value={agencyMethodSkillId}
+                  >
+                    <option value="">不注入方法 Skill</option>
+                    {agencyAssets.assets.method_skills.map((skill) => (
+                      <option key={skill.skill_id} value={skill.skill_id}>
+                        {skill.name} · {skill.description}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-2 block text-xs leading-5 text-slate-500">
+                    仅提供方法说明，不开放工具或外部副作用；服务端会在执行前核对 Skill 摘要。
+                  </span>
+                </label>
+
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <label className="block">
                     <span className="text-xs font-semibold text-slate-400">
@@ -1482,9 +1656,45 @@ export default function ExpertTeamPage() {
                         .filter(Boolean)
                         .join("、") || "请先在 AI Team 选择专家。"}
                     </p>
+                    {agencyAssets.assets.teams.length > 0 ? (
+                      <label className="mt-3 block">
+                        <span className="text-xs font-semibold text-slate-400">
+                          载入服务端固定阵容
+                        </span>
+                        <select
+                          aria-label="载入服务端固定阵容"
+                          className="mt-2 h-10 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 text-xs text-white outline-none focus:border-hire-300/70"
+                          defaultValue=""
+                          onChange={(event) => {
+                            const team = agencyAssets.assets.teams.find(
+                              (item) => item.ref === event.target.value,
+                            );
+                            if (team) loadServerTeam(team);
+                            event.target.value = "";
+                          }}
+                        >
+                          <option value="">选择已保存阵容</option>
+                          {agencyAssets.assets.teams.map((team) => (
+                            <option key={team.ref} value={team.ref}>
+                              {team.name} · {team.roles.length} 位
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
                   </div>
                 ) : null}
 
+                {agencyAssets.error ? (
+                  <p className="mt-4 rounded-lg border border-amber-300/20 bg-amber-300/[0.07] p-3 text-xs leading-5 text-amber-100">
+                    可复用资产暂不可用：{agencyAssets.error}
+                  </p>
+                ) : null}
+                {assetNotice ? (
+                  <p className="mt-4 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.07] p-3 text-xs leading-5 text-emerald-100">
+                    {assetNotice}
+                  </p>
+                ) : null}
                 {agencyError ? (
                   <p className="mt-4 rounded-lg border border-red-300/20 bg-red-300/10 p-3 text-sm text-red-100">
                     {agencyError}
@@ -1603,6 +1813,30 @@ export default function ExpertTeamPage() {
                               }
                               value={task.objective}
                             />
+                            <label className="mt-3 block">
+                              <span className="text-xs font-semibold text-slate-400">
+                                此步骤的方法 Skill
+                              </span>
+                              <select
+                                aria-label={`${task.task_id} 方法 Skill`}
+                                className="mt-2 h-10 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 text-xs text-white outline-none focus:border-hire-300/70"
+                                onChange={(event) =>
+                                  updateAgencyTask(task.task_id, {
+                                    method_skill_ids: event.target.value
+                                      ? [event.target.value]
+                                      : [],
+                                  })
+                                }
+                                value={task.method_skill_ids?.[0] || ""}
+                              >
+                                <option value="">不注入方法 Skill</option>
+                                {agencyAssets.assets.method_skills.map((skill) => (
+                                  <option key={skill.skill_id} value={skill.skill_id}>
+                                    {skill.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
                             <fieldset className="mt-3">
                               <legend className="text-xs font-semibold text-slate-400">
                                 依赖任务
@@ -1716,6 +1950,17 @@ export default function ExpertTeamPage() {
                           ))}
                         </ul>
                       ) : null}
+                      <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.035] p-3 text-xs leading-5 text-slate-300">
+                        <p className="font-semibold text-slate-200">计划假设</p>
+                        <ul className="mt-1 space-y-1">
+                          {agencyPreview.plan.assumptions.map((assumption) => (
+                            <li key={assumption}>· {assumption}</li>
+                          ))}
+                        </ul>
+                        <p className="mt-2 text-slate-400">
+                          本次规划：{agencyPreview.model_calls || 0} 次调用 · {(agencyPreview.usage.input_tokens || 0).toLocaleString()} 入 / {(agencyPreview.usage.output_tokens || 0).toLocaleString()} 出
+                        </p>
+                      </div>
                       <div className="mt-4 flex flex-wrap gap-2">
                         <button
                           className="rounded-full border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm font-semibold text-slate-100 transition hover:border-hire-300/35 hover:text-hire-100 disabled:opacity-50"
@@ -1964,27 +2209,66 @@ export default function ExpertTeamPage() {
               </button>
               <button
                 className="rounded-full border border-white/10 bg-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-hire-300/35 hover:text-hire-100"
-                disabled={teamMode === "dag"}
-                onClick={saveCurrentTeam}
+                disabled={
+                  teamMode === "dag" ||
+                  agencyAssets.busy ||
+                  selectedAgentIds.length === 0
+                }
+                onClick={() => void saveCurrentTeam()}
                 type="button"
               >
-                保存团队
+                {agencyAssets.busy ? "正在保存..." : "保存固定阵容"}
               </button>
             </div>
 
+            {agencyAssets.error ? (
+              <p className="mt-4 rounded-lg border border-amber-300/20 bg-amber-300/[0.07] p-3 text-xs leading-5 text-amber-100">
+                服务端阵容暂不可用：{agencyAssets.error}
+              </p>
+            ) : null}
+            {assetNotice ? (
+              <p className="mt-4 text-xs leading-5 text-emerald-100">
+                {assetNotice}
+              </p>
+            ) : null}
+            {agencyAssets.assets.teams.length > 0 ? (
+              <div className="mt-4">
+                <p className="text-xs font-semibold text-slate-400">
+                  服务端固定阵容
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {agencyAssets.assets.teams.map((team) => (
+                    <button
+                      className="rounded-full border border-hire-300/20 bg-hire-300/[0.07] px-3 py-1.5 text-xs text-hire-100 transition hover:border-hire-300/45 disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={teamMode === "dag"}
+                      key={team.ref}
+                      onClick={() => loadServerTeam(team)}
+                      type="button"
+                    >
+                      载入：{team.name} · {team.roles.length} 位
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {savedTeams.length > 0 ? (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {savedTeams.map((team) => (
-                  <button
-                    className="rounded-full border border-white/10 bg-white/[0.045] px-3 py-1.5 text-xs text-slate-300 transition hover:border-hire-300/35 hover:text-hire-100 disabled:cursor-not-allowed disabled:opacity-40"
-                    disabled={teamMode === "dag"}
-                    key={team.id}
-                    onClick={() => loadTeam(team)}
-                    type="button"
-                  >
-                    载入：{team.name}
-                  </button>
-                ))}
+              <div className="mt-4">
+                <p className="text-xs font-semibold text-slate-500">
+                  此浏览器旧阵容
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {savedTeams.map((team) => (
+                    <button
+                      className="rounded-full border border-white/10 bg-white/[0.045] px-3 py-1.5 text-xs text-slate-300 transition hover:border-hire-300/35 hover:text-hire-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={teamMode === "dag"}
+                      key={team.id}
+                      onClick={() => loadTeam(team)}
+                      type="button"
+                    >
+                      载入：{team.name}
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : null}
           </div>
@@ -1995,14 +2279,21 @@ export default function ExpertTeamPage() {
                 agentCatalog={agents}
                 busy={agencyDag.busy}
                 capabilities={agencyCapabilities?.execution}
-                confirmOpen={dagConfirmOpen}
+                confirmMode={dagConfirmMode}
                 error={agencyDag.error}
                 estimatedCostCny={dagEstimatedCostCny}
                 invalid={loadedAgencyPlanInvalid}
                 modelName={modelLabel(agencyDag.run?.model_id || sharedModelId)}
                 onCancel={() => void agencyDag.cancel()}
-                onConfirm={() => void startAgencyDag()}
-                onDismissConfirm={() => setDagConfirmOpen(false)}
+                onConfirm={() => {
+                  if (dagConfirmMode === "retry") {
+                    void retryAgencyDag();
+                  } else {
+                    void startAgencyDag();
+                  }
+                }}
+                onDismissConfirm={() => setDagConfirmMode(null)}
+                onRetryRequest={() => setDagConfirmMode("retry")}
                 preview={loadedAgencyPlan}
                 run={agencyDag.run}
               />

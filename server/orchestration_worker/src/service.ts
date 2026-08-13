@@ -15,6 +15,7 @@ import type {
   WorkflowDefinition,
 } from '../../vendor/agency-orchestrator/src/types.js';
 
+import { handleAssetRequest } from './assets.js';
 import { BridgeConnector } from './bridge_connector.js';
 import { JsonlChannel } from './channel.js';
 import {
@@ -24,6 +25,7 @@ import {
   BridgeRequest,
   MAX_MESSAGE_BYTES,
   MAX_MODEL_CALLS,
+  MAX_PLANNING_OUTPUT_TOKENS,
   asObject,
 } from './protocol.js';
 
@@ -163,6 +165,8 @@ async function repairInvalidWorkflowOnce(options: {
   validation: Record<string, unknown>;
   llmConfig: LLMConfig;
   allowedRoleIds: string[];
+  pinned: boolean;
+  maxAgents: number;
   goal: string;
 }): Promise<string | null> {
   const errors = validationErrors(options.validation);
@@ -174,12 +178,16 @@ unique step ids and output variables, scalar-string acceptance fields, boolean v
 references sourced only from upstream step outputs. Do not create a top-level inputs section and do not use
 approval or human_input steps. Embed the supplied planning goal directly into the regular expert task text.
 Every final DAG sink step must define concrete, non-empty acceptance criteria.
-Use only these exact role ids and keep every listed role represented: ${options.allowedRoleIds.join(', ')}.`;
+Do not invent dates, markets, traffic, user counts, infrastructure, cloud providers, databases, GPUs, or named people.
+When the goal does not provide such facts, label them as pending assumptions instead of presenting them as facts.
+${options.pinned
+    ? `Use exactly these role ids and keep every listed role represented: ${options.allowedRoleIds.join(', ')}.`
+    : `Select at most ${options.maxAgents} role ids from this allowed set: ${options.allowedRoleIds.join(', ')}.`}`;
   const userPrompt = `Planning goal:\n${options.goal}\n\nValidator errors:\n${errors.map(error => `- ${error}`).join('\n')}\n\nPrevious YAML:\n\n\`\`\`yaml\n${options.yaml}\n\`\`\``;
   const result = await options.connector.chat(systemPrompt, userPrompt, {
     ...options.llmConfig,
     temperature: 0,
-    max_tokens: options.llmConfig.max_tokens || 4096,
+    max_tokens: options.llmConfig.max_tokens || MAX_PLANNING_OUTPUT_TOKENS,
   });
   const repaired = extractYamlFromResponse(result.content);
   return repaired && repaired.includes('steps:') ? repaired : null;
@@ -227,7 +235,10 @@ async function compose(
   const boundedGoal = `${goal}\n\nModelMirror constraints: select at most ${maxAgents} experts from the catalog; `
     + `generate no more than ${MAX_WORKFLOW_STEPS} regular expert task steps; do not generate approval or human_input steps. `
     + 'Every acceptance value must be a YAML scalar string, every final step must have non-empty acceptance criteria, '
-    + 'and the DAG must be acyclic.';
+    + 'and the DAG must be acyclic. Do not invent dates, markets, user counts, traffic, infrastructure, cloud providers, '
+    + 'databases, GPUs, or named people. Mark missing facts as pending assumptions and use role names instead of personal names. '
+    + 'Keep the workflow YAML compact: include only facts relevant to each step, do not repeat the entire goal in every task, '
+    + 'and keep each acceptance criterion to one checkable line.';
   setConnectorFactory(() => connector);
   try {
     const generated = await composeWorkflow({
@@ -237,7 +248,7 @@ async function compose(
       llmConfig: {
         provider: 'modelmirror',
         model: modelId,
-        max_tokens: 4096,
+        max_tokens: MAX_PLANNING_OUTPUT_TOKENS,
         temperature,
         retry: 0,
       },
@@ -252,10 +263,28 @@ async function compose(
     let validation = validateWorkflowText(finalYaml, agents);
     const warnings = [...generated.warnings];
     let repairUsed = generated.repairUsed;
-    if (validation.valid !== true && connector.calls < MAX_MODEL_CALLS) {
+    const initialWorkflow = asObject(asObject(validation).workflow);
+    const initialSteps = Array.isArray(initialWorkflow.steps) ? initialWorkflow.steps : [];
+    const known = new Set(agents.map(agent => agent.id));
+    const initialRoleIds = [...new Set(
+      initialSteps
+        .map(step => asObject(step).role)
+        .filter(role => typeof role === 'string' && known.has(role)),
+    )] as string[];
+    const maxAgentsExceeded = !pins && initialRoleIds.length > maxAgents;
+    if ((validation.valid !== true || maxAgentsExceeded) && connector.calls < MAX_MODEL_CALLS) {
+      const repairValidation = maxAgentsExceeded
+        ? {
+          ...asObject(validation),
+          valid: false,
+          errors: [
+            ...validationErrors(asObject(validation)),
+            `Workflow selects ${initialRoleIds.length} experts but max_agents is ${maxAgents}.`,
+          ],
+        }
+        : asObject(validation);
       const workflow = asObject(validation.workflow);
       const steps = Array.isArray(workflow.steps) ? workflow.steps : [];
-      const known = new Set(agents.map(agent => agent.id));
       const generatedRoleIds = [...new Set(
         steps
           .map(step => asObject(step).role)
@@ -267,15 +296,17 @@ async function compose(
           const repaired = await repairInvalidWorkflowOnce({
             connector,
             yaml: finalYaml,
-            validation,
+            validation: repairValidation,
             llmConfig: {
               provider: 'modelmirror',
               model: modelId,
-              max_tokens: 4096,
+              max_tokens: MAX_PLANNING_OUTPUT_TOKENS,
               temperature,
               retry: 0,
             },
             allowedRoleIds,
+            pinned: Boolean(pins),
+            maxAgents,
             goal,
           });
           if (repaired) {
@@ -312,6 +343,7 @@ async function compose(
       warnings,
       repair_used: repairUsed,
       model_calls: connector.calls,
+      usage: connector.usage,
       validation,
       selected_agent_ids: selectedIds,
       selected_agents: agents.filter(agent => selectedIds.includes(agent.id)),
@@ -331,7 +363,7 @@ export async function handleRequest(
       status: 'ok',
       protocol: AGENCY_BRIDGE_PROTOCOL,
       upstream_revision: AGENCY_UPSTREAM_REVISION,
-      methods: ['health', 'compose', 'validate'],
+      methods: ['health', 'compose', 'validate', 'assets'],
       max_message_bytes: MAX_MESSAGE_BYTES,
       max_model_calls: MAX_MODEL_CALLS,
     };
@@ -339,6 +371,9 @@ export async function handleRequest(
   if (request.method === 'validate') {
     const yamlText = stringField(request.params, 'yaml', MAX_MESSAGE_BYTES - 1024);
     return validateWorkflowText(yamlText, parseExperts(request.params.agents));
+  }
+  if (request.method === 'assets') {
+    return handleAssetRequest(request.params);
   }
   return compose(request, channel);
 }

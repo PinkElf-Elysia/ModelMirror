@@ -74,6 +74,79 @@ def test_agency_mapping_reuses_meta_planner_contracts() -> None:
     assert blueprint.agents[0].role_prompt == experts[0].prompt.strip()[:20_000]
     assert [item["id"] for item in selected] == [experts[0].id, experts[1].id]
 
+    plan, _, _ = build_meta_planner_inputs(
+        result,
+        experts,
+        default_agent_model_id="model/agent",
+        goal="研究新产品并形成可执行的发布方案。",
+        method_skill_id="data-analysis",
+    )
+    assert [task.method_skill_ids for task in plan.tasks] == [
+        ["data-analysis"],
+        ["data-analysis"],
+    ]
+
+
+def test_expert_team_assets_reuse_worker_storage_and_current_expert_ids(
+    monkeypatch,
+) -> None:
+    expert = main_module.AGENT_RECORDS[0]
+    calls: list[tuple[str, dict | None]] = []
+
+    async def fake_assets(action, payload=None):
+        calls.append((action, payload))
+        if action == "list":
+            return {"teams": [], "templates": [], "garden": []}
+        return {"ok": True}
+
+    monkeypatch.setattr(main_module.agency_worker_client, "assets", fake_assets)
+    monkeypatch.setattr(
+        main_module,
+        "expert_team_method_skills",
+        lambda: {
+            "data-analysis": {
+                "skill_id": "data-analysis",
+                "name": "Data Analysis",
+                "description": "证据优先的数据分析方法。",
+                "digest": "a" * 64,
+            }
+        },
+    )
+
+    listed = client.get("/api/expert-team/assets")
+    assert listed.status_code == 200
+    assert listed.json()["method_skills"][0]["skill_id"] == "data-analysis"
+
+    saved_team = client.post(
+        "/api/expert-team/teams",
+        json={
+            "name": "发布阵容",
+            "description": "用于发布任务",
+            "agent_ids": [expert.id],
+        },
+    )
+    assert saved_team.status_code == 201
+    assert calls[-1][0] == "save_team"
+    assert calls[-1][1]["team"]["roles"][0]["role"] == expert.id
+
+    saved_template = client.post(
+        "/api/expert-team/templates",
+        json={
+            "name": "发布模板",
+            "content": "请为当前产品形成一份可验收的发布计划。",
+            "note": "first",
+        },
+    )
+    assert saved_template.status_code == 201
+    assert calls[-1][0] == "save_template"
+
+    unknown = client.post(
+        "/api/expert-team/teams",
+        json={"name": "坏阵容", "agent_ids": ["missing-agent"]},
+    )
+    assert unknown.status_code == 422
+    assert unknown.json()["code"] == "unknown_agent"
+
 
 def test_agency_mapping_rejects_reverse_variable_and_unknown_expert() -> None:
     experts = main_module.AGENT_RECORDS[:2]
@@ -206,6 +279,63 @@ def test_plan_preview_auto_compiles_without_authoring_proposal(
     expert_run = next(run for run in runs if run.source_id == "expert_team")
     assert expert_run.metadata["surface"] == "expert_team"
     assert expert_run.metadata["backend"] == "agency_orchestrator"
+
+
+def test_plan_preview_applies_only_allowlisted_method_skill(
+    monkeypatch,
+) -> None:
+    experts = main_module.AGENT_RECORDS[:2]
+
+    async def fake_compose(**_kwargs):
+        return agency_result(experts[0].id, experts[1].id)
+
+    catalog = {
+        "data-analysis": {
+            "skill_id": "data-analysis",
+            "name": "Data Analysis",
+            "description": "证据优先的数据分析方法。",
+            "digest": "b" * 64,
+        }
+    }
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_PLANNER_ENABLED", "1")
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module.agency_worker_client, "compose", fake_compose)
+    monkeypatch.setattr(main_module, "expert_team_method_skills", lambda: catalog)
+
+    response = client.post(
+        "/api/expert-team/plan-preview",
+        json={
+            "goal": "研究新产品并形成可执行的发布方案。",
+            "planner_model_id": "model/planner",
+            "default_agent_model_id": "model/agent",
+            "method_skill_id": "data-analysis",
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["method_skill"] == catalog["data-analysis"]
+    assert all(
+        task["method_skill_ids"] == ["data-analysis"]
+        for task in payload["plan"]["tasks"]
+    )
+    assert all(
+        node["data"].get("methodSkillIds") == ["data-analysis"]
+        for node in payload["workflow"]["nodes"]
+        if node.get("type") == "workflow_agent"
+    )
+
+    rejected = client.post(
+        "/api/expert-team/plan-preview",
+        json={
+            "goal": "研究新产品并形成可执行的发布方案。",
+            "planner_model_id": "model/planner",
+            "default_agent_model_id": "model/agent",
+            "method_skill_id": "unapproved-skill",
+        },
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["code"] == "agency_method_skill_unavailable"
 
 
 def test_plan_preview_requires_explicit_knowledge_consent_and_bounds_context(

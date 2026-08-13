@@ -4,6 +4,7 @@ export const AGENCY_BRIDGE_PROTOCOL = 'mm-agency-bridge/v1' as const;
 export const AGENCY_EXECUTION_PROTOCOL = 'mm-agency-bridge/v2' as const;
 export const MAX_MESSAGE_BYTES = 2 * 1024 * 1024;
 export const MAX_MODEL_CALLS = 3;
+export const MAX_PLANNING_OUTPUT_TOKENS = 8192;
 export const MAX_EXECUTION_MODEL_CALLS = 10;
 export const MAX_EXECUTION_STEPS = 6;
 export const MAX_EXECUTION_CONCURRENCY = 2;
@@ -23,7 +24,7 @@ export interface BridgeRequest {
   protocol: typeof AGENCY_BRIDGE_PROTOCOL | typeof AGENCY_EXECUTION_PROTOCOL;
   type: 'request';
   id: string;
-  method: 'health' | 'compose' | 'validate' | 'execute';
+  method: 'health' | 'compose' | 'validate' | 'assets' | 'execute';
   params: Record<string, unknown>;
 }
 
@@ -49,7 +50,7 @@ export function parseRequest(value: unknown): BridgeRequest {
   const protocol = message.protocol as BridgeRequest['protocol'];
   const method = String(message.method);
   const methodAllowed = protocol === AGENCY_BRIDGE_PROTOCOL
-    ? ['health', 'compose', 'validate'].includes(method)
+    ? ['health', 'compose', 'validate', 'assets'].includes(method)
     : method === 'execute';
   if (!methodAllowed) {
     throw new AgencyBridgeError('worker_method_invalid', 'Bridge method is not supported.');

@@ -117,6 +117,11 @@ def _compile_workflow_agent(
                 if context.acceptance_criteria
                 else {}
             ),
+            **(
+                {"methodSkillIds": config.method_skill_ids}
+                if config.method_skill_ids
+                else {}
+            ),
         },
     )
 
@@ -148,6 +153,11 @@ def _decompile_workflow_agent(node: NativeWorkflowNode) -> MetaPlannerIRNode:
                 "task_input": str(data.get("taskInput") or ""),
                 "model_id": str(data.get("modelId") or "") or None,
                 "source_agent_id": str(data.get("sourceAgentId") or "") or None,
+                "method_skill_ids": (
+                    data.get("methodSkillIds")
+                    if isinstance(data.get("methodSkillIds"), list)
+                    else []
+                ),
             },
         }
     )

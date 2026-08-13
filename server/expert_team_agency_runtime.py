@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 try:
     from server.expert_team_agency import AGENCY_UPSTREAM_PROJECT
@@ -18,6 +18,7 @@ try:
         AgencyExecutionClient,
         AgencyModelRequest,
         AgencyModelResponse,
+        AgencySkillDefinition,
         AgencyWorkerError,
         adapt_expert_catalog,
     )
@@ -33,6 +34,7 @@ except ModuleNotFoundError:
         AgencyExecutionClient,
         AgencyModelRequest,
         AgencyModelResponse,
+        AgencySkillDefinition,
         AgencyWorkerError,
         adapt_expert_catalog,
     )
@@ -68,6 +70,18 @@ class ExpertTeamDagRunRequest(StrictModel):
     capability_snapshot_version: str = Field(min_length=1, max_length=200)
     capability_snapshot_hash: str = Field(min_length=1, max_length=256)
     upstream_revision: str = Field(min_length=7, max_length=80)
+    method_skill_digests: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_method_skill_digests(self) -> "ExpertTeamDagRunRequest":
+        if len(self.method_skill_digests) > 3:
+            raise ValueError("method_skill_digests cannot contain more than 3 Skills")
+        for skill_id, digest in self.method_skill_digests.items():
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,159}", skill_id):
+                raise ValueError("method_skill_digests contains an invalid Skill id")
+            if not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise ValueError("method_skill_digests contains an invalid digest")
+        return self
 
 
 class AgencyExecutionCapabilities(BaseModel):
@@ -81,6 +95,7 @@ class AgencyExecutionCapabilities(BaseModel):
     timeout_seconds: int = MAX_EXECUTION_SECONDS
     supports_replay: bool = True
     supports_cancel: bool = True
+    supports_retry: bool = True
     supports_restart_resume: bool = False
 
 
@@ -98,6 +113,7 @@ class AgencyExecutionCapacityError(RuntimeError):
 class PreparedAgencyExecution:
     workflow: dict[str, Any]
     agents: list[AgencyAgentDefinition]
+    skills: list[AgencySkillDefinition]
     sink_task_id: str
     selected_agent_ids: list[str]
 
@@ -130,6 +146,10 @@ def _task_map(plan: MetaPlannerTaskPlan) -> dict[str, MetaPlannerTask]:
         if len(task.depends_on) != len(set(task.depends_on)):
             raise AgencyExecutionValidationError(
                 f"任务 {task.task_id} 存在重复依赖。"
+            )
+        if len(task.method_skill_ids) != len(set(task.method_skill_ids)):
+            raise AgencyExecutionValidationError(
+                f"任务 {task.task_id} 包含重复工作方法。"
             )
         unknown = [item for item in task.depends_on if item not in tasks]
         if unknown or task.task_id in task.depends_on:
@@ -164,17 +184,35 @@ def _assert_acyclic(tasks: dict[str, MetaPlannerTask]) -> None:
         visit(task_id)
 
 
+def _ancestor_task_ids(
+    tasks: Mapping[str, MetaPlannerTask], task_id: str
+) -> set[str]:
+    """Return every direct and transitive dependency of a task."""
+
+    ancestors: set[str] = set()
+    pending = list(tasks[task_id].depends_on)
+    while pending:
+        dependency = pending.pop()
+        if dependency in ancestors:
+            continue
+        ancestors.add(dependency)
+        pending.extend(tasks[dependency].depends_on)
+    return ancestors
+
+
 def prepare_agency_execution(
     *,
     plan: MetaPlannerTaskPlan,
     workflow: NativeWorkflowDefinition,
     expert_records: Iterable[Any],
+    method_skills: Mapping[str, AgencySkillDefinition] | None = None,
 ) -> PreparedAgencyExecution:
     """Validate the native preview and compile a constrained upstream DAG."""
 
     tasks = _task_map(plan)
     _assert_acyclic(tasks)
     records = {_record_id(record): record for record in expert_records}
+    method_skills = dict(method_skills or {})
     validation = validate_workflow_graph(workflow)
     if not validation.valid:
         messages = "; ".join(issue.message for issue in validation.issues[:6])
@@ -248,6 +286,26 @@ def prepare_agency_execution(
             raise AgencyExecutionValidationError(
                 f"任务 {task_id} 的验收标准与计划不一致。"
             )
+        raw_method_skill_ids = node.data.get("methodSkillIds") or []
+        if not isinstance(raw_method_skill_ids, list):
+            raise AgencyExecutionValidationError(
+                f"任务 {task_id} 的工作方法配置无效。"
+            )
+        node_method_skill_ids = [str(item).strip() for item in raw_method_skill_ids]
+        if node_method_skill_ids != task.method_skill_ids:
+            raise AgencyExecutionValidationError(
+                f"任务 {task_id} 的工作方法与计划不一致。"
+            )
+        unavailable_skills = [
+            skill_id
+            for skill_id in task.method_skill_ids
+            if skill_id not in method_skills
+        ]
+        if unavailable_skills:
+            raise AgencyExecutionValidationError(
+                f"任务 {task_id} 引用了不可用工作方法：{', '.join(unavailable_skills)}。",
+                code="agency_method_skill_changed",
+            )
         output = str(node.data.get("outputVariable") or "").strip()
         if not VARIABLE_PATTERN.fullmatch(output) or output in outputs.values():
             raise AgencyExecutionValidationError(
@@ -259,18 +317,29 @@ def prepare_agency_execution(
         node = nodes[f"agent_{task_id}"]
         task_input = str(node.data.get("taskInput") or "")
         references = set(TEMPLATE_PATTERN.findall(task_input))
-        allowed = (
-            {outputs[dependency] for dependency in task.depends_on}
-            if task.depends_on
-            else {"user_input"}
-        )
+        if task.depends_on:
+            required = {outputs[dependency] for dependency in task.depends_on}
+            allowed = {
+                outputs[dependency]
+                for dependency in _ancestor_task_ids(tasks, task_id)
+            }
+        else:
+            required = {"user_input"}
+            allowed = {"user_input"}
         if not task.objective.strip() or task.objective.strip() not in task_input:
             raise AgencyExecutionValidationError(
                 f"任务 {task_id} 的执行输入未包含当前目标。"
             )
-        if references != allowed:
+        missing = required - references
+        unexpected = references - allowed
+        if missing or unexpected:
+            details = []
+            if missing:
+                details.append(f"缺少 {', '.join(sorted(missing))}")
+            if unexpected:
+                details.append(f"非上游变量 {', '.join(sorted(unexpected))}")
             raise AgencyExecutionValidationError(
-                f"任务 {task_id} 的输入变量与依赖不一致。"
+                f"任务 {task_id} 的输入变量与依赖不一致：{'；'.join(details)}。"
             )
 
     depended_on = {dependency for task in plan.tasks for dependency in task.depends_on}
@@ -311,14 +380,16 @@ def prepare_agency_execution(
 
     upstream_steps = []
     for task in plan.tasks:
+        task_text = task.objective.strip()
+        referenced_variables = set(TEMPLATE_PATTERN.findall(task_text))
         dependencies = [
             f"{dependency}: {{{{{outputs[dependency]}}}}}"
             for dependency in task.depends_on
+            if outputs[dependency] not in referenced_variables
         ]
-        task_text = task.objective.strip()
         if dependencies:
             task_text += "\n\n依赖结果：\n" + "\n".join(dependencies)
-        else:
+        elif not task.depends_on and "user_input" not in referenced_variables:
             task_text += "\n\n用户任务：\n{{user_input}}"
         upstream_steps.append(
             {
@@ -330,8 +401,16 @@ def prepare_agency_execution(
                 "output": outputs[task.task_id],
                 "depends_on": list(task.depends_on),
                 "type": "normal",
+                "skills": list(task.method_skill_ids),
             }
         )
+    selected_skill_ids = list(
+        dict.fromkeys(
+            skill_id
+            for task in plan.tasks
+            for skill_id in task.method_skill_ids
+        )
+    )
     return PreparedAgencyExecution(
         workflow={
             "name": workflow.title,
@@ -339,6 +418,7 @@ def prepare_agency_execution(
             "steps": upstream_steps,
         },
         agents=agents,
+        skills=[method_skills[skill_id] for skill_id in selected_skill_ids],
         sink_task_id=sink.task_id,
         selected_agent_ids=selected_agent_ids,
     )
@@ -377,6 +457,8 @@ class AgencyExecutionCoordinator:
         capability_snapshot_version: str,
         capability_snapshot_hash: str,
         upstream_revision: str,
+        resume: Mapping[str, Any] | None = None,
+        resumed_from_task_id: str | None = None,
     ) -> dict[str, Any]:
         async with self._lock:
             self._prune_finished_unlocked()
@@ -399,6 +481,13 @@ class AgencyExecutionCoordinator:
                     "max_steps": MAX_EXECUTION_STEPS,
                     "max_concurrency": MAX_EXECUTION_CONCURRENCY,
                     "max_model_calls": MAX_EXECUTION_MODEL_CALLS,
+                    "resumed_from_task_id": resumed_from_task_id,
+                    "initial_model_calls": int(
+                        (resume or {}).get("prior_model_calls") or 0
+                    ),
+                    "initial_usage": dict(
+                        (resume or {}).get("prior_usage") or {}
+                    ),
                 },
             )
             task_id = f"agency_dag_{uuid.uuid4().hex}"
@@ -417,6 +506,16 @@ class AgencyExecutionCoordinator:
                     "capability_snapshot_hash": capability_snapshot_hash,
                     "sink_task_id": prepared.sink_task_id,
                     "selected_agent_ids": prepared.selected_agent_ids,
+                    "method_skill_digests": {
+                        skill.skill_id: skill.digest for skill in prepared.skills
+                    },
+                    "resumed_from_task_id": resumed_from_task_id,
+                    "initial_model_calls": int(
+                        (resume or {}).get("prior_model_calls") or 0
+                    ),
+                    "initial_usage": dict(
+                        (resume or {}).get("prior_usage") or {}
+                    ),
                 },
             )
             task = asyncio.create_task(
@@ -425,12 +524,105 @@ class AgencyExecutionCoordinator:
                     goal=goal,
                     model_id=model_id,
                     prepared=prepared,
+                    resume=resume,
                 ),
                 name=f"expert-team-agency:{task_id}",
             )
             self._tasks[task_id] = task
             task.add_done_callback(lambda _task: self._tasks.pop(task_id, None))
             return self.serialize(item)
+
+    async def retry(
+        self,
+        *,
+        source_task_id: str,
+        prepared: PreparedAgencyExecution,
+    ) -> dict[str, Any]:
+        source = self.store.require(source_task_id)
+        if source.source_kind != "expert_team_agency" or source.status != "failed":
+            raise AgencyExecutionValidationError(
+                "只有失败的专家团 DAG 可以续跑。",
+                code="agency_execution_not_retryable",
+            )
+        existing_retry = next(
+            (
+                item
+                for item in self.store.list_items(limit=1_000)
+                if item.source_kind == "expert_team_agency"
+                and item.status not in TERMINAL_STATUSES
+                and str(
+                    item.runtime_metadata.get("resumed_from_task_id") or ""
+                )
+                == source_task_id
+            ),
+            None,
+        )
+        if existing_retry is not None:
+            return self.serialize(existing_retry)
+        serialized = self.serialize(source)
+        if not serialized.get("retryable"):
+            raise AgencyExecutionValidationError(
+                "该任务没有可安全复用的已完成步骤，或累计调用额度已耗尽。",
+                code="agency_execution_not_retryable",
+            )
+        workflow_steps = {
+            str(step.get("id") or ""): step
+            for step in (
+                source.workflow.get("steps", [])
+                if isinstance(source.workflow, dict)
+                else []
+            )
+            if isinstance(step, dict)
+        }
+        completed_steps: list[dict[str, Any]] = []
+        for event in serialized.get("steps", []):
+            if event.get("status") != "completed" or not event.get("output"):
+                continue
+            task_id = str(event.get("task_id") or "")
+            definition = workflow_steps.get(task_id)
+            if definition is None:
+                raise AgencyExecutionValidationError(
+                    "已完成步骤与冻结工作流不一致，不能续跑。",
+                    code="agency_execution_not_retryable",
+                )
+            completed_steps.append(
+                {
+                    "task_id": task_id,
+                    "output": str(event["output"])[: 64 * 1024],
+                    "output_variable": str(definition.get("output") or ""),
+                    "acceptance": str(
+                        event.get("acceptance")
+                        or definition.get("acceptance")
+                        or ""
+                    )[:4_000],
+                }
+            )
+        if not completed_steps:
+            raise AgencyExecutionValidationError(
+                "没有可复用的已完成步骤，不能执行安全续跑。",
+                code="agency_execution_not_retryable",
+            )
+        resume = {
+            "source_task_id": source_task_id,
+            "completed_steps": completed_steps,
+            "prior_model_calls": int(serialized.get("model_calls") or 0),
+            "prior_usage": dict(serialized.get("usage") or {}),
+        }
+        metadata = source.runtime_metadata
+        return await self.start(
+            goal=str(source.inputs.get("goal") or ""),
+            model_id=str(metadata.get("model_id") or ""),
+            prepared=prepared,
+            capability_snapshot_version=str(
+                metadata.get("capability_snapshot_version") or ""
+            ),
+            capability_snapshot_hash=str(
+                metadata.get("capability_snapshot_hash") or ""
+            ),
+            upstream_revision=str(metadata.get("upstream_revision") or ""),
+            resume=resume,
+            resumed_from_task_id=source_task_id,
+        )
 
     async def cancel(self, task_id: str) -> dict[str, Any]:
         item = self.store.require(task_id)
@@ -492,6 +684,7 @@ class AgencyExecutionCoordinator:
         goal: str,
         model_id: str,
         prepared: PreparedAgencyExecution,
+        resume: Mapping[str, Any] | None = None,
     ) -> None:
         item = self.store.require(task_id)
 
@@ -517,6 +710,8 @@ class AgencyExecutionCoordinator:
                 model_id=model_id,
                 workflow=prepared.workflow,
                 agents=prepared.agents,
+                skills=prepared.skills,
+                resume=resume,
                 on_event=on_event,
             )
             payload = result.payload
@@ -609,12 +804,38 @@ class AgencyExecutionCoordinator:
             step_id = str(event.get("task_id") or "")
             if step_id and event_name.startswith("agency.step."):
                 latest_steps[step_id] = dict(event)
+            if isinstance(event.get("model_calls"), (int, float)):
+                summary["model_calls"] = max(
+                    0, int(event.get("model_calls") or 0)
+                )
+            cumulative_usage = event.get("cumulative_usage")
+            if isinstance(cumulative_usage, dict):
+                summary["usage"] = dict(cumulative_usage)
             if event_name in {
                 "agency.run.completed",
                 "agency.run.failed",
                 "agency.run.cancelled",
             }:
                 summary.update(event)
+        completed_outputs = [
+            event
+            for event in latest_steps.values()
+            if event.get("status") == "completed" and event.get("output")
+        ]
+        retryable_codes = {
+            "agency_execution_step_failed",
+            "model_output_truncated",
+            "model_response_empty",
+            "model_response_invalid",
+            "model_gateway_timeout",
+            "model_gateway_failed",
+        }
+        retryable = (
+            item.status == "failed"
+            and str(item.error or "") in retryable_codes
+            and bool(completed_outputs)
+            and int(summary.get("model_calls") or 0) < MAX_EXECUTION_MODEL_CALLS
+        )
         raw_steps = item.workflow.get("steps") if isinstance(item.workflow, dict) else []
         def dependencies(step: dict[str, Any]) -> list[str]:
             raw = step.get("depends_on")
@@ -630,6 +851,12 @@ class AgencyExecutionCoordinator:
                 "depends_on": dependencies(step),
                 "agent_id": str(step.get("role") or "")[:160],
                 "acceptance": str(step.get("acceptance") or "")[:4_000],
+                "method_skill_ids": [
+                    str(value)[:160]
+                    for value in (
+                        step.get("skills") if isinstance(step.get("skills"), list) else []
+                    )[:1]
+                ],
             }
             for step in (raw_steps if isinstance(raw_steps, list) else [])[:6]
             if isinstance(step, dict)
@@ -640,10 +867,23 @@ class AgencyExecutionCoordinator:
             "final_output": item.result,
             "quality_status": summary.get("quality_status"),
             "warnings": summary.get("warnings") or [],
-            "model_calls": int(summary.get("model_calls") or 0),
-            "usage": summary.get("usage") or {},
+            "model_calls": int(
+                summary.get("model_calls")
+                or item.runtime_metadata.get("initial_model_calls")
+                or 0
+            ),
+            "usage": summary.get("usage")
+            or item.runtime_metadata.get("initial_usage")
+            or {},
             "estimated_cost": None,
             "error_code": item.error,
+            "error_message": str(
+                summary.get("message") or summary.get("error") or ""
+            )[:4_000] or None,
+            "retryable": retryable,
+            "resumed_from_task_id": str(
+                item.runtime_metadata.get("resumed_from_task_id") or ""
+            ) or None,
             "task_definitions": task_definitions,
             "model_id": str(item.runtime_metadata.get("model_id") or "")[:300],
             "goal": str(item.inputs.get("goal") or "")[:20_000],
