@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,9 @@ from server.coding_worker.provider import (
     FakeCodingAgentProvider,
     INSPECT_PROVIDER_TOOLS,
     PROVIDER_TOOL_NAMES,
+    ProviderEvent,
+    ProviderEventKind,
+    ProviderSession,
 )
 from server.coding_worker.api import (
     coding_worker_capabilities,
@@ -81,6 +85,32 @@ def _create(
         workspace_id=f"workspace-{client_subtask_id}",
         base_tree_hash="1" * 64,
     )
+
+
+class _DelegatingProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.delegate: Callable[[str, SubtaskRequest], Awaitable[object]] | None = None
+        self.continued_after_delegation = False
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        assert self.delegate is not None
+        await self.delegate(
+            session.task_id,
+            SubtaskRequest(
+                client_subtask_id="delegated-exploration",
+                kind=SubtaskKind.EXPLORE,
+                objective="Inspect the relevant module.",
+            ),
+        )
+        yield ProviderEvent(
+            kind=ProviderEventKind.MESSAGE,
+            data={"text": "Delegated the bounded exploration."},
+        )
+        self.continued_after_delegation = True
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
 
 
 def test_subtask_relation_is_encrypted_idempotent_and_restart_safe(
@@ -180,6 +210,136 @@ def test_subtasks_are_depth_one_and_limited_to_four(tmp_path: Path) -> None:
     assert depth.value.code == "subtask_depth_exceeded"
 
 
+@pytest.mark.asyncio
+async def test_ready_implementation_must_be_resolved_before_another_is_created(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_SUBAGENTS_ENABLED", "true")
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    broker = WorkspaceBroker(
+        tmp_path / "worker",
+        {"manifest": InMemoryWorkspaceSourceAdapter(
+            {("source", "revision"): {"src/main.py": b"print('ok')\n"}}
+        )},
+        id_key=b"s" * 32,
+    )
+    service = CodingWorkerService(
+        store=store,
+        workspace_broker=broker,
+        provider=FakeCodingAgentProvider(),
+    )
+    parent = store.create_task(_spec())
+    workspace = await broker.prepare(parent.spec.workspace_source)
+    store.transition(parent.task_id, TaskState.PREPARING)
+    store.transition(
+        parent.task_id,
+        TaskState.RUNNING,
+        workspace_id=workspace.workspace_id,
+    )
+    first = await service.create_subtask(
+        parent.task_id,
+        SubtaskRequest(
+            client_subtask_id="first",
+            kind=SubtaskKind.IMPLEMENT,
+            objective="Fix the async boundary.",
+        ),
+    )
+    store.finish_subtask(
+        first.child_task_id,
+        result_tree_hash=first.base_tree_hash,
+        changed_paths=("src/main.py",),
+        summary="Ready to merge.",
+    )
+
+    with pytest.raises(WorkerConflictError) as blocked:
+        await service.create_subtask(
+            parent.task_id,
+            SubtaskRequest(
+                client_subtask_id="second",
+                kind=SubtaskKind.IMPLEMENT,
+                objective="Rewrite the same request in different words.",
+            ),
+        )
+    assert blocked.value.code == "subtask_merge_required"
+
+
+@pytest.mark.asyncio
+async def test_ready_implementation_blocks_parent_mutation_and_acceptance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_SUBAGENTS_ENABLED", "true")
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    workspace_broker = WorkspaceBroker(
+        tmp_path / "worker",
+        {
+            "manifest": InMemoryWorkspaceSourceAdapter(
+                {("source", "revision"): {"main.py": b"VALUE = 1\n"}}
+            )
+        },
+        id_key=b"s" * 32,
+    )
+    tool_broker = ToolBroker(store=store, workspace_broker=workspace_broker)
+    service = CodingWorkerService(
+        store=store,
+        workspace_broker=workspace_broker,
+        provider=FakeCodingAgentProvider(),
+        tool_broker=tool_broker,
+    )
+    parent = store.create_task(_spec())
+    workspace = await workspace_broker.prepare(parent.spec.workspace_source)
+    store.transition(parent.task_id, TaskState.PREPARING)
+    store.transition(
+        parent.task_id,
+        TaskState.RUNNING,
+        workspace_id=workspace.workspace_id,
+    )
+    relation = await service.create_subtask(
+        parent.task_id,
+        SubtaskRequest(
+            client_subtask_id="implementation",
+            kind=SubtaskKind.IMPLEMENT,
+            objective="Change main.py",
+        ),
+    )
+    child = store.get_task(relation.child_task_id)
+    child_path = (
+        workspace_broker.repository_path(child.workspace_id or "") / "main.py"
+    )
+    child_path.write_text("VALUE = 2\n", encoding="utf-8")
+    store.finish_subtask(
+        child.task_id,
+        result_tree_hash=workspace_broker.current_tree_hash(child.workspace_id or ""),
+        changed_paths=("main.py",),
+        summary="Changed main.py",
+    )
+    store.transition(parent.task_id, TaskState.QUEUED)
+    store.transition(parent.task_id, TaskState.PREPARING)
+    store.transition(parent.task_id, TaskState.RUNNING)
+
+    with pytest.raises(ToolBrokerError) as direct_write:
+        await tool_broker.execute(
+            task_id=parent.task_id,
+            operation_id="direct-parent-write",
+            tool_name="write_file",
+            arguments={"path": "main.py", "content": "VALUE = 2\n"},
+        )
+    assert direct_write.value.code == "subtask_merge_required"
+    current_parent = store.get_task(parent.task_id)
+    parent_path = (
+        workspace_broker.repository_path(current_parent.workspace_id or "") / "main.py"
+    )
+    assert parent_path.read_text(encoding="utf-8") == "VALUE = 1\n"
+
+    feedback, _ = await service._evaluate_acceptance(
+        store.get_task(parent.task_id), 1, message_cursor=0
+    )
+    assert feedback is not None
+    assert "merge_subtask" in feedback
+    assert store.get_task(parent.task_id).state is TaskState.RUNNING
+
+
 @pytest.mark.parametrize(
     ("kind", "expected"),
     [
@@ -256,13 +416,124 @@ def test_service_parks_parent_spreads_fork_and_resumes_with_public_result(
 
         completed = store.get_task(child.task_id)
         settled = store.subtask_for_child(child.task_id)
-        assert completed.state is TaskState.COMPLETED
+        assert completed.state is TaskState.BLOCKED
+        assert completed.reason == "subtask_no_changes"
         assert settled is not None
-        assert settled.merge_state is SubtaskMergeState.READY
+        assert settled.merge_state is SubtaskMergeState.FAILED
         assert settled.changed_paths == ()
         assert store.get_task(parent.task_id).state is TaskState.QUEUED
         parent_messages = store.list_messages(parent.task_id)
         assert "child Evidence does not satisfy parent acceptance" in parent_messages[-1].content
+        assert settled.child_task_id in parent_messages[-1].content
+        restored_message = service._subtask_results_message(parent.task_id)
+        assert settled.child_task_id in restored_message
+        assert "merge=failed" in restored_message
+
+    asyncio.run(scenario())
+
+
+def test_terminal_subtask_failure_settles_relation_and_wakes_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+        monkeypatch.setenv("CODING_WORKER_SUBAGENTS_ENABLED", "true")
+        store = CodingWorkerStore(
+            tmp_path / "worker", master_key=Fernet.generate_key()
+        )
+        adapter = InMemoryWorkspaceSourceAdapter(
+            {("source", "revision"): {"main.py": b"VALUE = 1\n"}}
+        )
+        workspace_broker = WorkspaceBroker(
+            tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
+        )
+        service = CodingWorkerService(
+            store=store,
+            workspace_broker=workspace_broker,
+            provider=FakeCodingAgentProvider(),
+        )
+        parent = store.create_task(_spec())
+        workspace = await workspace_broker.prepare(parent.spec.workspace_source)
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(
+            parent.task_id,
+            TaskState.RUNNING,
+            workspace_id=workspace.workspace_id,
+        )
+        relation = await service.create_subtask(
+            parent.task_id,
+            SubtaskRequest(
+                client_subtask_id="broken",
+                kind=SubtaskKind.IMPLEMENT,
+                objective="Change main.py",
+            ),
+        )
+        child = store.get_task(relation.child_task_id)
+        child_repo = workspace_broker.repository_path(child.workspace_id or "")
+        (child_repo / "main.py").write_text("VALUE = 2\n", encoding="utf-8")
+        assert workspace_broker.changed_paths(child.workspace_id or "") == ("main.py",)
+        store.transition(child.task_id, TaskState.PREPARING)
+        store.transition(child.task_id, TaskState.RUNNING)
+        store.transition(child.task_id, TaskState.TESTING)
+        store.transition(child.task_id, TaskState.FAILED, reason="worker_failed")
+
+        service._settle_terminal_subtask(child.task_id)
+
+        settled = store.subtask_for_child(child.task_id)
+        assert settled is not None
+        assert settled.merge_state is SubtaskMergeState.FAILED
+        assert settled.changed_paths == ("main.py",)
+        assert store.get_task(parent.task_id).state is TaskState.QUEUED
+        assert "worker_failed" in (settled.summary or "")
+
+    asyncio.run(scenario())
+
+
+def test_equivalent_active_subtask_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+        monkeypatch.setenv("CODING_WORKER_SUBAGENTS_ENABLED", "true")
+        store = CodingWorkerStore(
+            tmp_path / "worker", master_key=Fernet.generate_key()
+        )
+        adapter = InMemoryWorkspaceSourceAdapter(
+            {("source", "revision"): {"main.py": b"VALUE = 1\n"}}
+        )
+        workspace_broker = WorkspaceBroker(
+            tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
+        )
+        service = CodingWorkerService(
+            store=store,
+            workspace_broker=workspace_broker,
+            provider=FakeCodingAgentProvider(),
+        )
+        parent = store.create_task(_spec())
+        workspace = await workspace_broker.prepare(parent.spec.workspace_source)
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(
+            parent.task_id,
+            TaskState.RUNNING,
+            workspace_id=workspace.workspace_id,
+        )
+        request = SubtaskRequest(
+            client_subtask_id="first",
+            kind=SubtaskKind.IMPLEMENT,
+            objective="Change main.py",
+        )
+        await service.create_subtask(parent.task_id, request)
+        store.transition(parent.task_id, TaskState.QUEUED)
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(parent.task_id, TaskState.RUNNING)
+
+        with pytest.raises(WorkerConflictError) as duplicate:
+            await service.create_subtask(
+                parent.task_id,
+                request.model_copy(update={"client_subtask_id": "second"}),
+            )
+        assert duplicate.value.code == "subtask_duplicate_intent"
+        assert len(store.list_subtasks(parent.task_id)) == 1
 
     asyncio.run(scenario())
 
@@ -322,6 +593,72 @@ def test_provider_tool_delegates_exact_idempotent_subtask(
         assert len(store.list_subtasks(parent.task_id)) == 1
         assert "create_subtask" in PROVIDER_TOOL_NAMES
         assert "create_subtask" in INSPECT_PROVIDER_TOOLS
+
+        with pytest.raises(ToolBrokerError) as parked:
+            await broker.execute(
+                task_id=parent.task_id,
+                operation_id="parked-read",
+                tool_name="read_file",
+                arguments={"path": "main.py"},
+            )
+        assert parked.value.code == "task_state_conflict"
+
+    asyncio.run(scenario())
+
+
+def test_provider_parks_immediately_after_delegation_and_resumes_after_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+        monkeypatch.setenv("CODING_WORKER_SUBAGENTS_ENABLED", "true")
+        store = CodingWorkerStore(
+            tmp_path / "worker", master_key=Fernet.generate_key()
+        )
+        adapter = InMemoryWorkspaceSourceAdapter(
+            {("source", "revision"): {"main.py": b"print('ok')\n"}}
+        )
+        workspace_broker = WorkspaceBroker(
+            tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
+        )
+        provider = _DelegatingProvider()
+        service = CodingWorkerService(
+            store=store,
+            workspace_broker=workspace_broker,
+            provider=provider,
+        )
+        provider.delegate = service.create_subtask
+        parent = store.create_task(_spec())
+        store.transition(parent.task_id, TaskState.PREPARING)
+
+        await service._run_task(parent.task_id)
+
+        parked = store.get_task(parent.task_id)
+        assert parked.state is TaskState.WAITING_SUBTASKS
+        assert provider.continued_after_delegation is False
+        checkpoint = store.latest_checkpoint(parent.task_id)
+        assert checkpoint is not None, (
+            parked.reason,
+            [(event.type, event.payload) for event in store.list_events(parent.task_id)],
+        )
+        assert checkpoint.payload["phase"] == "waiting_subtasks"
+        relation = store.list_subtasks(parent.task_id)[0]
+        child = store.get_task(relation.child_task_id)
+        store.finish_subtask(
+            child.task_id,
+            result_tree_hash=workspace_broker.current_tree_hash(
+                child.workspace_id or ""
+            ),
+            changed_paths=(),
+            summary="Inspected the module.",
+        )
+
+        service._active[parent.task_id] = asyncio.current_task()  # type: ignore[assignment]
+        service._resume_parent_after_subtasks(parent.task_id)
+        assert store.get_task(parent.task_id).state is TaskState.WAITING_SUBTASKS
+        service._active.pop(parent.task_id)
+        service._resume_parent_after_subtasks(parent.task_id)
+        assert store.get_task(parent.task_id).state is TaskState.QUEUED
 
     asyncio.run(scenario())
 
