@@ -40,7 +40,10 @@ function isContained(root, candidate) {
 function collectScripts(root = godotRoot) {
   const scripts = [];
   const stack = [root];
-  const excludedVendor = path.resolve(root, "addons", "gdUnit4");
+  const excludedVendors = new Set([
+    path.resolve(root, "addons", "gdUnit4"),
+    path.resolve(root, "addons", "gdgs"),
+  ]);
   while (stack.length > 0) {
     const current = stack.pop();
     const entries = fs.readdirSync(current, { withFileTypes: true });
@@ -51,7 +54,7 @@ function collectScripts(root = godotRoot) {
         throw new GodotBoundaryError("GODOT_FIRST_PARTY_SYMLINK");
       }
       if (entry.isDirectory()) {
-        if (path.resolve(absolute) !== excludedVendor && entry.name !== ".godot") {
+        if (!excludedVendors.has(path.resolve(absolute)) && entry.name !== ".godot") {
           stack.push(absolute);
         }
         continue;
@@ -69,7 +72,7 @@ function hasUnsafeAbsoluteLiteral(source) {
   for (const match of literals) {
     const value = match[2];
     const prefix = source.slice(Math.max(0, match.index - 32), match.index);
-    const safeJsonPointer = /^\/(?:runtimePack|receipt|scenePack)(?:\/[^\r\n]*)?$/u.test(value) ||
+    const safeJsonPointer = /^\/(?:runtimePack|receipt|scenePack|spatialAssembly)(?:\/[^\r\n]*)?$/u.test(value) ||
       /^\/(?:prepared|options|actionId|runtime)$/u.test(value) ||
       /^\/snapshot(?:\/(?:pack|status|stepCount|variables))?$/u.test(value) ||
       (/\b(?:path|action_path)\s*\+\s*$/u.test(prefix) && /^(?:\/[A-Za-z][A-Za-z0-9]*)+$/u.test(value)) ||
