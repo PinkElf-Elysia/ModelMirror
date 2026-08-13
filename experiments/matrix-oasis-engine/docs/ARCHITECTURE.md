@@ -1,6 +1,6 @@
 # 架构
 
-状态：R11 空间环境体验收口
+状态：R12 末班地铁初版闭环实施中
 
 ```text
 R10 frozen prototype run

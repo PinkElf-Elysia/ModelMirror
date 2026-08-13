@@ -1,7 +1,7 @@
 export const MODULE_PREFIX = "experiments/matrix-oasis-engine";
-export const ACTIVE_ROUND = "R11";
+export const ACTIVE_ROUND = "R12";
 export const ACTIVE_ROUND_BASELINE_SHA =
-  "da2a914a2ff131507750a0afb8d8881180530f62";
+  "6a88c648f3db2afc39574a57066a14c341c161f9";
 
 export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "AGENTS.md",
@@ -17,26 +17,34 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "docs/KNOWN_LIMITATIONS.md",
   "docs/PRODUCT.md",
   "docs/V1_CRITICAL_PATH.md",
-  "docs/PROTOTYPE_SPATIAL_ENVIRONMENT.md",
-  "docs/PROTOTYPE_SPATIAL_THREAT_MODEL.md",
-  "docs/adr/0012-r11-spatial-environment-governance.md",
-  "docs/rounds/R11_ACCEPTANCE.md",
+  "docs/MVP_STATUS.json",
+  "docs/R12_MVP_THREAT_MODEL.md",
+  "docs/R12_PROVIDER_CALL_APPROVAL.md",
+  "docs/adr/0013-r12-last-train-mvp-governance.md",
+  "docs/rounds/R12_ACCEPTANCE.md",
   "apps/creator-web/package.json",
   "apps/creator-web/src/App.tsx",
   "apps/creator-web/src/styles.css",
   "apps/creator-web/src/prototype-builder.ts",
+  "apps/runtime-godot/spatial_prototype/spatial_assembly_loader.gd",
+  "apps/runtime-godot/spatial_prototype/spatial_lab.gd",
+  "apps/runtime-godot/spatial_prototype/spatial_lab.tscn",
   "scripts/check-round-scope.mjs",
+  "scripts/check-mvp-claim.mjs",
   "scripts/check-godot-boundary.mjs",
-  "scripts/qualify-spatial-environment.mjs",
   "scripts/import-spatial-prototype-cache.mjs",
   "scripts/preview-spatial-prototype.mjs",
-  "scripts/verify-spatial-environment.mjs",
-  "scripts/verify-spatial-assembly.mjs",
-  "scripts/verify-godot-splat.mjs",
   "scripts/verify-spatial-builder.mjs",
-  "scripts/verify-r11.mjs",
+  "scripts/plan-r12-call.mjs",
+  "scripts/qualify-r12.mjs",
+  "scripts/preview-r12.mjs",
+  "scripts/verify-r12.mjs",
   "scripts/lib/boundary-core.mjs",
+  "scripts/lib/mvp-claim-core.mjs",
   "scripts/lib/parent-scope-core.mjs",
+  "scripts/lib/prototype-host-core.mjs",
+  "scripts/lib/r12-host-core.mjs",
+  "scripts/lib/r12-qualification-core.mjs",
   "scripts/lib/spatial-cache-core.mjs",
   "scripts/lib/scope-policy.mjs",
   "scripts/run-verify.mjs",
@@ -44,25 +52,29 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "tests/boundary.test.mjs",
   "tests/godot-boundary.test.mjs",
   "tests/extraction-contract.test.mjs",
-  "tests/spatial-environment.test.mjs",
-  "tests/spatial-assembly.test.mjs",
-  "tests/godot-splat.test.mjs",
+  "tests/mvp-claim.test.mjs",
+  "tests/prototype-builder.test.mjs",
+  "tests/prototype-host.test.mjs",
   "tests/spatial-builder.test.mjs",
-  "tests/r11-qualification.test.mjs",
+  "tests/r12-acceptance-profile.test.mjs",
+  "tests/r12-multi-asset.test.mjs",
+  "tests/r12-spatial-materialization.test.mjs",
+  "tests/r12-generalization.test.mjs",
+  "tests/r12-host.test.mjs",
+  "tests/r12-qualification.test.mjs",
   "tests/round-scope.test.mjs",
-  "third-party/godot-gaussian-splatting.lock.json",
-  "third-party/godot-gaussian-splatting/LICENSE",
 ]);
 
 export const ROUND_ALLOWED_MODULE_PREFIXES = Object.freeze([
+  "packages/prototype-generator",
+  "packages/prototype-assembler",
+  "packages/prototype-environment-pipeline",
   "packages/prototype-spatial-environment",
   "packages/prototype-spatial-assembler",
-  "apps/runtime-godot/spatial_prototype",
-  "apps/runtime-godot/addons/gdgs",
 ]);
 
 // Exact allowlist entries above intentionally override these broad frozen roots.
-// Everything inherited from R1-R10 therefore remains frozen unless R11 names it.
+// Everything inherited from R1-R11 therefore remains frozen unless R12 names it.
 export const ROUND_FROZEN_MODULE_PATHS = Object.freeze([
   "apps",
   "docs",

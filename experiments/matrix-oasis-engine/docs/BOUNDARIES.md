@@ -1,16 +1,17 @@
-# R11边界
+# R12边界
 
 ## 允许
 
-- 两个新私有workspace、明确R11 CLI/测试/文档；
-- `apps/runtime-godot/spatial_prototype/**`新wrapper；
-- 原样vendored `apps/runtime-godot/addons/gdgs/**`与精确供应链锁；
-- 明确列出的Creator package、App、styles和prototype-builder文件；
-- `@playcanvas/splat-transform@3.3.0`与`@adobe/spz@0.2.2`离线转换；
-- 仓外`C:\tmp`输入、转换缓存、run、截图与性能证据。
+- 现有Generator、Assembler、Environment/Spatial包的兼容扩展；
+- 明确R12宿主、CLI、测试和文档；
+- 指定Creator审批展示与Godot空间wrapper接线；
+- 仓外`C:\tmp`提示、供应商资产、资格run、截图和日志；
+- 经当次批准的OpenAI官方模型调用，以及另一批次批准的Marble与Meshy有界调用。
 
 ## 冻结
 
-R1–R10 contracts、validator、compiler、simulator、Blueprint、Asset/Environment Bundle、Scene Pack、examples、既有Godot、历史vendor、历史ADR/验收和Creator旧模式均冻结。精确allowlist优先于冻结根，未知路径fail-closed。
+R1–R11公共合同、Runtime语义、Scene Pack、examples、历史Creator/Godot模式、vendor、ADR和验收记录均冻结。精确allowlist优先于冻结根，未知路径fail-closed。
 
-schema v11固定`activeRound=R11`与基线`da2a914a2ff131507750a0afb8d8881180530f62`。所有父仓路径、Docker、共享栈、父服务、数据库和父凭据存储禁止修改或依赖；普通验证禁止供应商网络调用。
+schema v12固定`activeRound=R12`和基线`6a88c648f3db2afc39574a57066a14c341c161f9`。所有父仓路径、Docker、共享栈、父服务、数据库和父凭据存储禁止修改或依赖；普通验证禁止供应商网络调用。
+
+初版状态只能由`docs/MVP_STATUS.json`、R12验收记录和`check:mvp-claim`共同改变；任何单独文案声明均视为治理失败。
