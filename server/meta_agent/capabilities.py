@@ -81,11 +81,16 @@ def build_capability_snapshot(
     for section in node_payload.get("sections", []):
         for item in section.get("items", []):
             planner = dict(item.get("planner") or {})
+            contract = dict(item.get("contract") or {})
             compiler = planner_capability_metadata(str(item.get("kind") or ""))
             if (
                 not item.get("enabled")
                 or not planner.get("enabled")
                 or compiler is None
+                or contract.get("contract_status") != "complete"
+                or contract.get("checksum") != compiler["contract_checksum"]
+                or contract.get("compiler_checksum")
+                != compiler["compiler_checksum"]
             ):
                 continue
             nodes.append(
@@ -101,18 +106,31 @@ def build_capability_snapshot(
                         "compilable": True,
                         "ir_version": compiler["ir_version"],
                         "adapter_version": compiler["adapter_version"],
+                        "contract_version": compiler["contract_version"],
+                        "contract_checksum": compiler["contract_checksum"],
+                        "compiler_checksum": compiler["compiler_checksum"],
                         "default_data": dict(planner.get("default_data") or {}),
                         "config_constraints": dict(
                             planner.get("config_constraints") or {}
                         ),
                     },
                     "contracts": dict(item.get("contracts") or {}),
+                    "contract": contract,
                 }
             )
     for item in node_payload.get("knowledge_pipeline", {}).get("items", []):
         planner = dict(item.get("planner") or {})
+        contract = dict(item.get("contract") or {})
         compiler = planner_capability_metadata(str(item.get("kind") or ""))
-        if item.get("enabled") and planner.get("enabled") and compiler is not None:
+        if (
+            item.get("enabled")
+            and planner.get("enabled")
+            and compiler is not None
+            and contract.get("contract_status") == "complete"
+            and contract.get("checksum") == compiler["contract_checksum"]
+            and contract.get("compiler_checksum")
+            == compiler["compiler_checksum"]
+        ):
             nodes.append(
                 {
                     "kind": item["kind"],
@@ -126,12 +144,16 @@ def build_capability_snapshot(
                         "compilable": True,
                         "ir_version": compiler["ir_version"],
                         "adapter_version": compiler["adapter_version"],
+                        "contract_version": compiler["contract_version"],
+                        "contract_checksum": compiler["contract_checksum"],
+                        "compiler_checksum": compiler["compiler_checksum"],
                         "default_data": dict(planner.get("default_data") or {}),
                         "config_constraints": dict(
                             planner.get("config_constraints") or {}
                         ),
                     },
                     "contracts": dict(item.get("contracts") or {}),
+                    "contract": contract,
                 }
             )
     nodes.sort(key=lambda item: item["kind"])
@@ -291,7 +313,10 @@ def build_capability_snapshot(
         agent_ids=[item["id"] for item in expert_summaries],
     )
     payload = {
-        "version": "evoagentx-meta-planner-capabilities-v2",
+        "version": "evoagentx-meta-planner-capabilities-v3",
+        "ir_version": 2,
+        "contract_version": int(node_payload.get("contract_version") or 0),
+        "contract_checksum": str(node_payload.get("contract_checksum") or ""),
         "node_registry_version": workflow_registry.version,
         "nodes": nodes,
         "middleware": middleware,

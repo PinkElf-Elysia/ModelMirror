@@ -4,6 +4,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+try:
+    from server.workflow_native.node_contracts import WorkflowAgentPlannerConfig
+except ModuleNotFoundError:
+    from workflow_native.node_contracts import WorkflowAgentPlannerConfig
+
 
 class MetaAgentGenerateRequest(BaseModel):
     goal: str = Field(min_length=10, max_length=20_000)
@@ -203,11 +208,7 @@ class MetaPlannerIRFinalOutput(BaseModel):
     variable: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 
-class MetaPlannerWorkflowAgentConfig(BaseModel):
-    role_prompt: str = Field(min_length=1, max_length=20_000)
-    task_input: str = Field(min_length=1, max_length=8_000)
-    model_id: str | None = Field(default=None, max_length=300)
-    source_agent_id: str | None = Field(default=None, min_length=1, max_length=160)
+MetaPlannerWorkflowAgentConfig = WorkflowAgentPlannerConfig
 
 
 class MetaPlannerTypedBlueprintV2(BaseModel):
@@ -232,6 +233,11 @@ class MetaPlannerTypedBlueprintV2(BaseModel):
 
 class MetaPlannerCapabilitySnapshot(BaseModel):
     version: str
+    ir_version: Literal[2] = 2
+    # Persisted V2 proposals did not carry NodeContract metadata. Keep them
+    # readable; newly built snapshots always set the V3 values explicitly.
+    contract_version: int = 2
+    contract_checksum: str = ""
     snapshot_hash: str
     generated_at: float
     node_registry_version: str

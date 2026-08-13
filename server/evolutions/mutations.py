@@ -9,6 +9,7 @@ from typing import Any
 
 try:
     from server.meta_agent.schemas import MetaPlannerCapabilitySnapshot
+    from server.workflow_native.node_contracts import node_policy_service
     from server.workflow_native.schemas import (
         NativeWorkflowDefinition,
         NativeWorkflowEdge,
@@ -23,6 +24,7 @@ try:
     from server.xperts.models import XpertDefinition
 except ModuleNotFoundError:
     from meta_agent.schemas import MetaPlannerCapabilitySnapshot
+    from workflow_native.node_contracts import node_policy_service
     from workflow_native.schemas import (
         NativeWorkflowDefinition,
         NativeWorkflowEdge,
@@ -44,18 +46,7 @@ from .models import (
 from .store import EvolutionStateError
 
 
-SAFE_CONTROL_NODE_KINDS = {
-    "condition",
-    "iteration",
-    "list_operation",
-    "llm",
-    "parameter_extractor",
-    "question_classifier",
-    "template_transform",
-    "variable_aggregator",
-    "variable_assign",
-    "workflow_agent",
-}
+SAFE_CONTROL_NODE_KINDS = frozenset(node_policy_service.evolution_control_kinds())
 RESOURCE_KINDS = {
     "external_xpert",
     "knowledge_base",

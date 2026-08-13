@@ -31,7 +31,9 @@ def _registry() -> WorkflowNodeRegistry:
 def test_workflow_node_registry_returns_workflow_and_knowledge_tabs() -> None:
     payload = _registry().to_payload()
 
-    assert payload["version"] == "xpert-workflow-node-registry-v2"
+    assert payload["version"] == "xpert-workflow-node-registry-v3"
+    assert payload["contract_version"] == 3
+    assert len(payload["contract_checksum"]) == 64
     assert {tab["id"] for tab in payload["tabs"]} == {"workflow", "knowledge"}
     assert payload["sections"]
     knowledge_items = payload["knowledge_pipeline"]["items"]
@@ -44,15 +46,14 @@ def test_workflow_node_registry_returns_workflow_and_knowledge_tabs() -> None:
 
     knowledge_base, retrieval, vision = knowledge_items
     assert knowledge_base["planner"]["support"] == "binding_only"
-    assert knowledge_base["contracts"]["resources"] == ["knowledge_base"]
+    assert knowledge_base["contracts"]["resources"][0]["kind"] == "knowledge_base"
     assert retrieval["planner"]["enabled"] is False
     assert retrieval["planner"]["support"] == "unsupported"
-    assert retrieval["contracts"]["outputs"] == {
-        "context": "string",
-        "result": "object",
-    }
+    assert retrieval["contracts"]["outputs"][0]["name"] == "result"
+    assert retrieval["contracts"]["outputs"][0]["value_schema"]["type"] == "any"
+    assert len(retrieval["contracts"]["outputs"][0]["value_schema"]["any_of"]) == 2
     assert vision["planner"]["support"] == "unsupported"
-    assert vision["contracts"]["outputs"] == {"outputVariable": "object"}
+    assert vision["contracts"]["outputs"][0]["value_schema"]["type"] == "object"
     assert vision["metadata"]["private_only"] is True
 
 
@@ -97,7 +98,9 @@ def test_document_extractor_palette_follows_file_asset_gate(monkeypatch) -> None
     )
     assert item.enabled is True
     assert item.metadata == {}
-    assert item.planner_default_data["assetIdVariable"] == "document_asset_id"
+    projection = item.to_payload()
+    assert projection["contract"]["contract_status"] == "compatibility"
+    assert projection["planner"]["enabled"] is False
 
 
 def test_placeholders_are_disabled_and_do_not_declare_kind() -> None:
@@ -121,7 +124,9 @@ async def test_workflow_node_registry_api_returns_stable_shape(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "xpert-workflow-node-registry-v2"
+    assert payload["version"] == "xpert-workflow-node-registry-v3"
+    assert payload["contract_version"] == 3
+    assert len(payload["contract_checksum"]) == 64
     assert isinstance(payload["tabs"], list)
     assert isinstance(payload["sections"], list)
     assert isinstance(payload["knowledge_pipeline"], dict)

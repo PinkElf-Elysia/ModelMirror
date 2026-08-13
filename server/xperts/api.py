@@ -48,6 +48,7 @@ try:
     from server.skills.api import get_skill_manager
     from server.skills.skill_manager import SkillManagerError
     from server.workflow_native.schemas import NativeWorkflowDefinition, ValidationIssue
+    from server.workflow_native.node_contracts import node_policy_service
 except ModuleNotFoundError:
     from file_assets.contracts import FileInputKind, FilePurpose
     from file_assets.registry import get_file_format_registry
@@ -60,6 +61,7 @@ except ModuleNotFoundError:
     from skills.api import get_skill_manager
     from skills.skill_manager import SkillManagerError
     from workflow_native.schemas import NativeWorkflowDefinition, ValidationIssue
+    from workflow_native.node_contracts import node_policy_service
 
 
 router = APIRouter(prefix="/api/xperts", tags=["xperts"])
@@ -742,6 +744,19 @@ def preview_xpert_for_publish(
         validate_xpert_definition(candidate),
     )
     feature_issues: list[ValidationIssue] = []
+    for node in candidate.draft.workflow.nodes:
+        data = node.data if isinstance(node.data, dict) else {}
+        kind = str(data.get("kind") or node.type or "")
+        policy = node_policy_service.decision(kind, "xpert")
+        if not policy.allowed:
+            feature_issues.append(
+                ValidationIssue(
+                    code=policy.code or "xpert_node_forbidden",
+                    message=policy.message
+                    or f"Xpert publish does not allow node kind: {kind}.",
+                    node_id=node.id,
+                )
+            )
     features = candidate.draft.features
     if (
         features.text_to_speech.enabled

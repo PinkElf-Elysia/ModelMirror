@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
+from .node_contracts import workflow_node_contract_registry
 from .schemas import (
     NativeWorkflowDefinition,
     NativeWorkflowEdge,
@@ -100,45 +101,7 @@ NODE_KIND_ALIASES = {
 }
 
 TEMPLATE_PATTERN = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
-SUPPORTED_NODE_KINDS = {
-    "input",
-    "llm",
-    "condition",
-    "code",
-    "variable_assign",
-    "template_transform",
-    "variable_aggregator",
-    "parameter_extractor",
-    "knowledge_retrieval",
-    "knowledge_citation",
-    "document_extractor",
-    "vision_understanding",
-    "human_intervention",
-    "question_classifier",
-    "agent",
-    "workflow_agent",
-    "external_xpert",
-    "knowledge_base",
-    "toolset_resource",
-    "plugin_resource",
-    "agent_task",
-    "agent_handoff",
-    "handoff_router",
-    "mcp_tool",
-    "time_tool",
-    "http_request",
-    "list_operation",
-    "iteration",
-    "json_serialize",
-    "json_deserialize",
-    "data_table_query",
-    "data_table_insert",
-    "data_table_update",
-    "data_table_delete",
-    "annotation",
-    "runtime_middleware",
-    "output",
-}
+SUPPORTED_NODE_KINDS = workflow_node_contract_registry.kinds()
 
 
 def node_kind(node: NativeWorkflowNode) -> str:
@@ -406,7 +369,7 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
     kinds_by_id = {node.id: node_kind(node) for node in workflow.nodes}
     for node in workflow.nodes:
         kind = kinds_by_id[node.id]
-        if kind not in SUPPORTED_NODE_KINDS:
+        if workflow_node_contract_registry.get(kind) is None:
             issues.append(
                 ValidationIssue(
                     code="unknown_node_kind",
@@ -3236,7 +3199,26 @@ def validate_edges(
             )
             continue
         valid_edges.append(edge)
+        source_contract = workflow_node_contract_registry.get(
+            kinds_by_id.get(edge.source, "")
+        )
         if is_non_control_binding_edge(edge):
+            if source_contract is not None and (
+                not source_contract.edge.supports("binding")
+                or str(edge.sourceHandle or "").strip()
+                not in source_contract.edge.allowed_source_handles
+                or str(edge.targetHandle or "").strip()
+                not in source_contract.edge.allowed_target_handles
+            ):
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_node_contract_binding",
+                        message=(
+                            "Binding edge handles do not match the source node contract."
+                        ),
+                        edge_id=edge.id,
+                    )
+                )
             bindings_by_source[edge.source].append(edge)
             source_kind = kinds_by_id.get(edge.source)
             target_kind = kinds_by_id.get(edge.target)
@@ -3272,6 +3254,33 @@ def validate_edges(
                     )
                 )
         else:
+            if (
+                source_contract is not None
+                and not source_contract.edge.supports("control")
+            ):
+                issues.append(
+                    ValidationIssue(
+                        code="node_contract_control_edge_forbidden",
+                        message=(
+                            "The source node contract does not allow control-flow edges."
+                        ),
+                        edge_id=edge.id,
+                    )
+                )
+            source_handle = str(edge.sourceHandle or "").strip()
+            if (
+                source_contract is not None
+                and source_handle
+                and source_contract.edge.allowed_source_handles
+                and source_handle not in source_contract.edge.allowed_source_handles
+            ):
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_node_contract_source_handle",
+                        message="Edge sourceHandle is not declared by the source node contract.",
+                        edge_id=edge.id,
+                    )
+                )
             control_node_ids.update({edge.source, edge.target})
             if str(edge.sourceHandle or "").strip() in {
                 "middleware-binding",

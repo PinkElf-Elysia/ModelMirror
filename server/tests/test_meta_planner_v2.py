@@ -323,7 +323,10 @@ def test_capability_api_returns_stable_safe_contract():
     response = client.get("/api/meta-agent/capabilities")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "evoagentx-meta-planner-capabilities-v2"
+    assert payload["version"] == "evoagentx-meta-planner-capabilities-v3"
+    assert payload["ir_version"] == 2
+    assert payload["contract_version"] == 3
+    assert len(payload["contract_checksum"]) == 64
     assert payload["snapshot_hash"]
     assert isinstance(payload["nodes"], list)
     assert isinstance(payload["middleware"], list)
@@ -345,6 +348,11 @@ def test_capability_snapshot_only_exposes_compilable_node_kinds():
     }
     assert all(item["planner"]["compilable"] for item in snapshot.nodes)
     assert all(item["planner"]["ir_version"] == 2 for item in snapshot.nodes)
+    assert all(item["contract"]["contract_status"] == "complete" for item in snapshot.nodes)
+    assert all(
+        item["planner"]["contract_checksum"] == item["contract"]["checksum"]
+        for item in snapshot.nodes
+    )
 
 
 def test_compiler_creates_control_and_five_binding_edge_shapes():

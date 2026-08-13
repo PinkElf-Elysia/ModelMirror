@@ -115,6 +115,11 @@ def _raise_app_error(exc: Exception) -> None:
 
 
 def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict:
+    try:
+        from server.workflow_native.node_contracts import node_policy_service
+    except ModuleNotFoundError:
+        from workflow_native.node_contracts import node_policy_service
+
     issues: list[dict[str, str]] = []
     warnings: list[dict[str, str]] = []
     has_tool_call = False
@@ -134,11 +139,8 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
     has_file_memory_writeback = False
     has_datax_runtime = False
     has_datax_write = False
-    has_external_xpert = False
-    has_plugin_resource = False
     has_toolset_resource = False
-    has_agent_table = False
-    has_vision_understanding = False
+    node_policy_issues: dict[str, dict[str, str]] = {}
     toolset_resource_issues: list[dict[str, str]] = []
     datax_project_ids: set[str] = set()
     datax_model_ids: set[str] = set()
@@ -160,6 +162,17 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
     for node in version.workflow.nodes:
         data = node.data if isinstance(node.data, dict) else {}
         kind = str(data.get("kind") or node.type)
+        node_policy = node_policy_service.decision(kind, "app")
+        if not node_policy.allowed and kind != "human_intervention":
+            code = node_policy.code or "app_node_forbidden"
+            node_policy_issues.setdefault(
+                code,
+                {
+                    "code": code,
+                    "message": node_policy.message
+                    or f"Public Xpert Apps cannot deploy node kind: {kind}.",
+                },
+            )
         middleware_id = str(data.get("runtimeMiddlewareId") or "")
         if (
             kind == "runtime_middleware"
@@ -169,20 +182,8 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
             contract_forbidden_middleware.add(middleware_id)
         if kind == "mcp_tool":
             has_tool_call = True
-        if kind in {
-            "data_table_query",
-            "data_table_insert",
-            "data_table_update",
-            "data_table_delete",
-        }:
-            has_agent_table = True
-        if kind == "vision_understanding":
-            has_vision_understanding = True
         if kind == "external_xpert":
-            has_external_xpert = True
             has_tool_call = True
-        if kind == "plugin_resource":
-            has_plugin_resource = True
         if kind == "toolset_resource":
             has_toolset_resource = True
             has_tool_call = True
@@ -349,42 +350,7 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
                 "message": "This Xpert version uses Handoff, but App Handoff access is disabled.",
             }
         )
-    if has_external_xpert:
-        issues.append(
-            {
-                "code": "app_external_xpert_forbidden",
-                "message": "Public Xpert Apps cannot deploy external Xpert collaborators.",
-            }
-        )
-    if has_agent_table:
-        issues.append(
-            {
-                "code": "app_agent_table_forbidden",
-                "message": (
-                    "Public Xpert Apps cannot deploy private Agent Table nodes."
-                ),
-            }
-        )
-    if has_vision_understanding:
-        issues.append(
-            {
-                "code": "app_vision_understanding_forbidden",
-                "message": (
-                    "Public Xpert Apps cannot deploy vision understanding nodes "
-                    "because public attachment upload is disabled."
-                ),
-            }
-        )
-    if has_plugin_resource:
-        issues.append(
-            {
-                "code": "app_plugin_resource_forbidden",
-                "message": (
-                    "Public Xpert Apps cannot deploy declarative Plugin resources. "
-                    "Bind public-safe Prompt Profiles directly instead."
-                ),
-            }
-        )
+    issues.extend(node_policy_issues.values())
     unsafe_prompts = [
         profile.name
         for profile in version.prompt_profiles

@@ -17,6 +17,41 @@ export interface WorkflowRegistryTab {
   label: string;
 }
 
+export interface WorkflowValueSchemaProjection {
+  type: "any" | "null" | "string" | "number" | "integer" | "boolean" | "object" | "array";
+  nullable?: boolean;
+  items?: WorkflowValueSchemaProjection | null;
+  properties?: Record<string, WorkflowValueSchemaProjection>;
+  required?: string[];
+  any_of?: WorkflowValueSchemaProjection[];
+}
+
+export interface WorkflowNodePortProjection {
+  name: string;
+  direction: "input" | "output";
+  value_schema: WorkflowValueSchemaProjection;
+  required: boolean;
+  cardinality: "one" | "many";
+  binding: "variable" | "literal" | "resource" | "none";
+}
+
+export interface WorkflowNodeContractProjection {
+  kind: WorkflowPaletteNodeKind | "runtime_middleware";
+  contract_status: "complete" | "compatibility";
+  config_schema: Record<string, unknown>;
+  ports: WorkflowNodePortProjection[];
+  edge: Record<string, unknown>;
+  execution: Record<string, unknown>;
+  availability: Record<string, unknown>;
+  resources: Array<Record<string, unknown>>;
+  planner: Record<string, unknown>;
+  contract_version: number;
+  checksum: string;
+  compiler_checksum: string;
+  deprecated?: boolean;
+  replacement_kind?: string | null;
+}
+
 export interface WorkflowPaletteItem {
   kind: WorkflowPaletteNodeKind;
   icon: string;
@@ -26,6 +61,9 @@ export interface WorkflowPaletteItem {
   tags?: string[];
   enabled?: boolean;
   metadata?: Record<string, unknown>;
+  contract?: WorkflowNodeContractProjection;
+  planner?: Record<string, unknown>;
+  contracts?: Record<string, unknown>;
 }
 
 export interface WorkflowPalettePlaceholder {
@@ -56,6 +94,8 @@ export interface WorkflowKnowledgePipelinePalette {
 
 export interface WorkflowNodeRegistryResponse {
   version: string;
+  contract_version: number;
+  contract_checksum: string;
   tabs: WorkflowRegistryTab[];
   sections: WorkflowPaletteSection[];
   knowledge_pipeline: WorkflowKnowledgePipelinePalette;
@@ -145,6 +185,20 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["json", "extract"],
       },
       {
+        kind: "json_serialize",
+        icon: "JSON",
+        title: "JSON 序列化",
+        description: "把类型化变量序列化为 JSON 字符串。",
+        tags: ["json", "serialize", "typed-value"],
+      },
+      {
+        kind: "json_deserialize",
+        icon: "JSON",
+        title: "JSON 反序列化",
+        description: "把 JSON 字符串解析为类型化变量。",
+        tags: ["json", "deserialize", "typed-value"],
+      },
+      {
         kind: "document_extractor",
         icon: "□",
         title: "文档提取器",
@@ -170,24 +224,7 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["output", "answer"],
       },
     ],
-    placeholders: [
-      {
-        id: "json_serialize",
-        icon: "JSON",
-        title: "JSON 序列化",
-        description: "待接入：把变量对象序列化为 JSON。",
-        statusLabel: "待接入",
-        tags: ["json", "serialize"],
-      },
-      {
-        id: "json_deserialize",
-        icon: "JSON",
-        title: "JSON 反序列化",
-        description: "待接入：把 JSON 字符串解析为结构化变量。",
-        statusLabel: "待接入",
-        tags: ["json", "deserialize"],
-      },
-    ],
+    placeholders: [],
   },
   {
     id: "resource",
@@ -291,33 +328,52 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
     id: "memory",
     label: "记忆",
     description: "数据库、长期记忆和写入能力。",
-    items: [],
-    placeholders: [
+    items: [
       {
-        id: "database_memory",
-        icon: "DB",
-        title: "数据库",
-        description: "待接入：读写结构化数据和长期记忆。",
-        statusLabel: "待接入",
-        tags: ["database", "memory"],
+        kind: "data_table_query",
+        icon: "DB?",
+        title: "查询数据表",
+        description: "读取固定 Schema 的 Agent Table 记录。",
+        tags: ["database", "agent-table", "query"],
+      },
+      {
+        kind: "data_table_insert",
+        icon: "DB+",
+        title: "新增数据",
+        description: "向 Agent Table 插入一条类型化记录。",
+        tags: ["database", "agent-table", "insert"],
+      },
+      {
+        kind: "data_table_update",
+        icon: "DB~",
+        title: "更新数据",
+        description: "按非空条件更新 Agent Table 记录。",
+        tags: ["database", "agent-table", "update"],
+      },
+      {
+        kind: "data_table_delete",
+        icon: "DB-",
+        title: "删除数据",
+        description: "按非空条件删除 Agent Table 记录。",
+        tags: ["database", "agent-table", "delete"],
       },
     ],
+    placeholders: [],
   },
   {
     id: "other",
     label: "其他",
     description: "画布辅助节点。",
-    items: [],
-    placeholders: [
+    items: [
       {
-        id: "annotation",
+        kind: "annotation",
         icon: "※",
         title: "注释",
-        description: "待接入：仅用于画布说明，不参与运行。",
-        statusLabel: "待接入",
+        description: "仅用于画布说明，不参与拓扑或运行。",
         tags: ["note", "annotation"],
       },
     ],
+    placeholders: [],
   },
 ];
 
@@ -368,6 +424,8 @@ export function matchesWorkflowPaletteQuery(
 
 export const workflowNodeRegistryFallback: WorkflowNodeRegistryResponse = {
   version: "local-workflow-node-registry-fallback",
+  contract_version: 0,
+  contract_checksum: "",
   tabs: [
     { id: "workflow", label: "工作流" },
     { id: "knowledge", label: "知识流水线" },
@@ -379,10 +437,40 @@ export const workflowNodeRegistryFallback: WorkflowNodeRegistryResponse = {
   },
 };
 
+export function hasNodeContractV3(
+  registry: WorkflowNodeRegistryResponse,
+): boolean {
+  if (
+    registry.version !== "xpert-workflow-node-registry-v3" ||
+    registry.contract_version !== 3 ||
+    !registry.contract_checksum
+  ) {
+    return false;
+  }
+  const items = [
+    ...registry.sections.flatMap((section) => section.items),
+    ...registry.knowledge_pipeline.items,
+  ].filter((item) => item.enabled !== false);
+  if (items.length === 0) {
+    return false;
+  }
+  return items.every(
+    (item) =>
+      item.contract?.contract_version === 3 &&
+      item.contract.kind === item.kind &&
+      Boolean(item.contract.checksum) &&
+      Boolean(item.contract.compiler_checksum),
+  );
+}
+
 export async function fetchWorkflowNodeRegistry(): Promise<WorkflowNodeRegistryResponse> {
   const response = await fetch("/api/workflow/node-registry");
   if (!response.ok) {
     throw new Error(`Failed to fetch workflow node registry: ${response.status}`);
   }
-  return response.json();
+  const payload = (await response.json()) as WorkflowNodeRegistryResponse;
+  if (!hasNodeContractV3(payload)) {
+    throw new Error("Workflow node registry does not provide NodeContract V3.");
+  }
+  return payload;
 }

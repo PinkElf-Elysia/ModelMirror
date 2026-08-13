@@ -4,14 +4,19 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+try:
+    from server.workflow_native.node_contracts import (
+        NODE_CONTRACT_VERSION,
+        workflow_node_contract_registry,
+    )
+except ModuleNotFoundError:
+    from workflow_native.node_contracts import (
+        NODE_CONTRACT_VERSION,
+        workflow_node_contract_registry,
+    )
+
 
 WorkflowNodeRegistryTab = Literal["workflow", "knowledge"]
-WorkflowPlannerSupport = Literal[
-    "full",
-    "binding_only",
-    "metadata_only",
-    "unsupported",
-]
 WorkflowNodeCategory = Literal[
     "logic",
     "transform",
@@ -41,17 +46,16 @@ class WorkflowPaletteItem:
     tags: list[str] = field(default_factory=list)
     enabled: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
-    planner_enabled: bool = True
-    planner_support: WorkflowPlannerSupport = "full"
-    planner_default_data: dict[str, Any] = field(default_factory=dict)
-    planner_config_constraints: dict[str, Any] = field(default_factory=dict)
-    input_contract: dict[str, Any] = field(default_factory=dict)
-    output_contract: dict[str, Any] = field(default_factory=dict)
-    resource_requirements: list[str] = field(default_factory=list)
-    deprecated: bool = False
-    replacement_kind: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
+        contract = workflow_node_contract_registry.require(self.kind)
+        contract_payload = contract.to_safe_payload()
+        input_ports = [
+            port for port in contract_payload["ports"] if port["direction"] == "input"
+        ]
+        output_ports = [
+            port for port in contract_payload["ports"] if port["direction"] == "output"
+        ]
         return {
             "kind": self.kind,
             "title": self.title,
@@ -62,22 +66,28 @@ class WorkflowPaletteItem:
             "enabled": self.enabled,
             "metadata": dict(self.metadata),
             "contracts": {
-                "inputs": dict(self.input_contract),
-                "outputs": dict(self.output_contract),
-                "resources": list(self.resource_requirements),
-                "deprecated": self.deprecated,
-                "replacement_kind": self.replacement_kind,
+                "inputs": input_ports,
+                "outputs": output_ports,
+                "resources": list(contract_payload["resources"]),
+                "deprecated": contract.deprecated,
+                "replacement_kind": contract.replacement_kind,
             },
             "planner": {
-                "enabled": self.enabled and self.planner_enabled,
-                "support": self.planner_support,
+                "enabled": self.enabled and contract.planner.enabled,
+                "support": contract.planner.support,
+                "compilation_mode": contract.planner.compilation_mode,
+                "ir_version": contract.planner.ir_version,
+                "adapter_version": contract.planner.adapter_version,
+                "contract_checksum": contract.checksum,
+                "compiler_checksum": contract.compiler_checksum,
                 "default_data": {
                     "kind": self.kind,
                     "title": self.title,
-                    **dict(self.planner_default_data),
+                    **dict(contract.planner.default_data),
                 },
-                "config_constraints": dict(self.planner_config_constraints),
+                "config_constraints": dict(contract.planner.config_constraints),
             },
+            "contract": contract_payload,
         }
 
 
@@ -143,7 +153,8 @@ class WorkflowNodeRegistry:
     """Xpert-style metadata registry for classic workflow palette nodes."""
 
     def __init__(self) -> None:
-        self.version = "xpert-workflow-node-registry-v2"
+        self.version = "xpert-workflow-node-registry-v3"
+        self.contract_registry = workflow_node_contract_registry
         self._tabs: list[WorkflowPaletteTab] = []
         self._sections: list[WorkflowPaletteSection] = []
         self._knowledge_pipeline = KnowledgePipelinePalette()
@@ -181,6 +192,8 @@ class WorkflowNodeRegistry:
     def to_payload(self) -> dict[str, Any]:
         return {
             "version": self.version,
+            "contract_version": NODE_CONTRACT_VERSION,
+            "contract_checksum": self.contract_registry.checksum,
             "tabs": [tab.to_payload() for tab in self._tabs],
             "sections": [section.to_payload() for section in self._sections],
             "knowledge_pipeline": self._knowledge_pipeline.to_payload(),
@@ -309,16 +322,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="将一个类型化工作流变量转换为 JSON 字符串。",
                     category="transform",
                     tags=["json", "serialize", "typed-value"],
-                    planner_default_data={
-                        "inputVariable": "json_value",
-                        "outputVariable": "json_text",
-                        "format": "compact",
-                    },
-                    planner_config_constraints={
-                        "required": ["inputVariable", "outputVariable"],
-                        "format": ["compact", "pretty"],
-                    },
-                    planner_enabled=False,
                 ),
                 WorkflowPaletteItem(
                     kind="json_deserialize",
@@ -327,14 +330,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="将 JSON 字符串解析为真实的类型化工作流变量。",
                     category="transform",
                     tags=["json", "deserialize", "typed-value"],
-                    planner_default_data={
-                        "inputVariable": "json_text",
-                        "outputVariable": "json_value",
-                    },
-                    planner_config_constraints={
-                        "required": ["inputVariable", "outputVariable"],
-                    },
-                    planner_enabled=False,
                 ),
                 WorkflowPaletteItem(
                     kind="document_extractor",
@@ -351,10 +346,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                             "status_reason": "Workflow 文件资产变量当前未启用。"
                         }
                     ),
-                    planner_default_data={
-                        "assetIdVariable": "document_asset_id",
-                        "outputVariable": "document_text",
-                    },
                 ),
                 WorkflowPaletteItem(
                     kind="llm",
@@ -390,14 +381,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="Expose a pinned published Xpert as a synchronous collaborator tool.",
                     category="resource",
                     tags=["xpert", "expert", "resource", "binding"],
-                    planner_default_data={
-                        "versionPolicy": "pinned",
-                        "pinnedVersion": None,
-                    },
-                    planner_config_constraints={
-                        "required": ["xpertId", "toolName"],
-                        "target_handle": "expert",
-                    },
                 ),
                 WorkflowPaletteItem(
                     kind="toolset_resource",
@@ -409,14 +392,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     ),
                     category="resource",
                     tags=["mcp", "toolset", "resource", "binding"],
-                    planner_default_data={
-                        "versionPolicy": "pinned",
-                        "pinnedVersion": None,
-                    },
-                    planner_config_constraints={
-                        "required": ["toolsetId"],
-                        "target_handle": "toolset",
-                    },
                 ),
                 WorkflowPaletteItem(
                     kind="plugin_resource",
@@ -428,14 +403,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     ),
                     category="resource",
                     tags=["plugin", "prompt", "skill", "toolset", "binding"],
-                    planner_default_data={
-                        "versionPolicy": "pinned",
-                        "pinnedVersion": None,
-                    },
-                    planner_config_constraints={
-                        "required": ["pluginId"],
-                        "target_handle": "plugin",
-                    },
                 ),
             ],
         )
@@ -479,19 +446,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="执行一个模型驱动的 Agent 步骤，并写入输出变量。",
                     category="tool",
                     tags=["workflow-agent", "agent"],
-                    planner_default_data={
-                        "toolMode": "none",
-                        "maxIterations": "6",
-                        "outputVariable": "agent_output",
-                    },
-                    planner_config_constraints={
-                        "required": [
-                            "modelId",
-                            "rolePrompt",
-                            "taskInput",
-                            "outputVariable",
-                        ],
-                    },
                 ),
                 WorkflowPaletteItem(
                     kind="agent_task",
@@ -551,22 +505,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="按字段、条件和排序读取固定 Schema 的 Agent Table 记录。",
                     category="memory",
                     tags=["database", "agent-table", "query", "typed-value"],
-                    planner_default_data={
-                        "versionPolicy": "latest",
-                        "selectFields": [],
-                        "filter": None,
-                        "sort": [],
-                        "limit": 20,
-                        "returnMode": "list",
-                        "outputVariable": "table_records",
-                    },
-                    planner_config_constraints={
-                        "required": ["tableId", "outputVariable"],
-                        "versionPolicy": ["latest", "pinned"],
-                        "returnMode": ["list", "first"],
-                        "limit": {"minimum": 1, "maximum": 200},
-                    },
-                    planner_enabled=False,
                     metadata={"private_only": True, "side_effect": "read"},
                 ),
                 WorkflowPaletteItem(
@@ -576,16 +514,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="按类型化字段绑定向 Agent Table 插入一条记录。",
                     category="memory",
                     tags=["database", "agent-table", "insert", "typed-value"],
-                    planner_default_data={
-                        "versionPolicy": "latest",
-                        "valueBindings": {},
-                        "outputVariable": "inserted_record",
-                    },
-                    planner_config_constraints={
-                        "required": ["tableId", "valueBindings", "outputVariable"],
-                        "versionPolicy": ["latest", "pinned"],
-                    },
-                    planner_enabled=False,
                     metadata={"private_only": True, "side_effect": "write"},
                 ),
                 WorkflowPaletteItem(
@@ -595,18 +523,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="使用非空条件批量更新 Agent Table，单次最多 100 行。",
                     category="memory",
                     tags=["database", "agent-table", "update", "typed-value"],
-                    planner_default_data={
-                        "versionPolicy": "latest",
-                        "filter": None,
-                        "valueBindings": {},
-                        "outputVariable": "update_result",
-                    },
-                    planner_config_constraints={
-                        "required": ["tableId", "filter", "valueBindings", "outputVariable"],
-                        "versionPolicy": ["latest", "pinned"],
-                        "maxAffectedRows": 100,
-                    },
-                    planner_enabled=False,
                     metadata={"private_only": True, "side_effect": "write"},
                 ),
                 WorkflowPaletteItem(
@@ -616,17 +532,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="使用非空条件删除 Agent Table 记录，单次最多 100 行。",
                     category="memory",
                     tags=["database", "agent-table", "delete", "typed-value"],
-                    planner_default_data={
-                        "versionPolicy": "latest",
-                        "filter": None,
-                        "outputVariable": "delete_result",
-                    },
-                    planner_config_constraints={
-                        "required": ["tableId", "filter", "outputVariable"],
-                        "versionPolicy": ["latest", "pinned"],
-                        "maxAffectedRows": 100,
-                    },
-                    planner_enabled=False,
                     metadata={"private_only": True, "side_effect": "write"},
                 ),
             ],
@@ -652,8 +557,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                         "runtime": "ignored",
                         "max_content_length": 20_000,
                     },
-                    planner_default_data={"content": ""},
-                    planner_enabled=False,
                 )
             ],
         )
@@ -669,15 +572,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="将一个知识库绑定到工作流智能体的只读知识工具。",
                     category="resource",
                     tags=["knowledge", "rag", "resource", "binding"],
-                    planner_support="binding_only",
-                    planner_default_data={"topK": "5", "scoreThreshold": "0"},
-                    planner_config_constraints={
-                        "required": ["knowledgeBaseId"],
-                        "target_handle": "knowledge",
-                    },
-                    input_contract={"binding": "knowledge_base"},
-                    output_contract={"control_flow": False},
-                    resource_requirements=["knowledge_base"],
                 ),
                 WorkflowPaletteItem(
                     kind="knowledge_retrieval",
@@ -686,33 +580,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="检索指定知识库的活动版本并输出文本或类型化结果。",
                     category="transform",
                     tags=["rag", "knowledge", "retrieval"],
-                    planner_enabled=False,
-                    planner_support="unsupported",
-                    planner_default_data={
-                        "contractVersion": 2,
-                        "knowledgeBaseId": "",
-                        "queryVariable": "user_input",
-                        "top_k": "5",
-                        "returnMode": "result",
-                        "outputVariable": "knowledge_result",
-                    },
-                    planner_config_constraints={
-                        "required": [
-                            "knowledgeBaseId",
-                            "queryVariable",
-                            "outputVariable",
-                        ],
-                        "return_mode": ["context", "result"],
-                    },
-                    input_contract={
-                        "queryVariable": "string",
-                        "knowledgeBaseId": "resource:knowledge_base",
-                    },
-                    output_contract={
-                        "context": "string",
-                        "result": "object",
-                    },
-                    resource_requirements=["knowledge_base"],
                 ),
                 WorkflowPaletteItem(
                     kind="vision_understanding",
@@ -724,35 +591,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     ),
                     category="knowledge-pipeline",
                     tags=["vision", "ocr", "image", "pdf", "typed-value"],
-                    planner_enabled=False,
-                    planner_support="unsupported",
-                    planner_default_data={
-                        "assetIdVariable": "selected_file_asset_id",
-                        "visionModelId": "",
-                        "pdfPageStrategy": "auto",
-                        "maxPages": 100,
-                        "maxImageEdge": 2048,
-                        "failurePolicy": "continue_on_error",
-                        "outputVariable": "vision_result",
-                    },
-                    planner_config_constraints={
-                        "required": [
-                            "assetIdVariable",
-                            "visionModelId",
-                            "outputVariable",
-                        ],
-                        "pdfPageStrategy": ["auto", "all", "scanned_only"],
-                        "maxPages": {"minimum": 1, "maximum": 200},
-                        "maxImageEdge": {"minimum": 512, "maximum": 4096},
-                        "failurePolicy": ["continue_on_error", "strict"],
-                    },
-                    input_contract={
-                        "assetIdVariable": "resource:file_asset_id",
-                    },
-                    output_contract={
-                        "outputVariable": "object",
-                    },
-                    resource_requirements=["file_asset"],
                     metadata={
                         "private_only": True,
                         "supported_formats": ["png", "jpeg", "webp", "pdf"],

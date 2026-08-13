@@ -314,6 +314,17 @@ cd client
 npm.cmd run build
 ```
 
+### 8.1.1 NodeContract V3 护栏
+
+- 所有 `NativeNodeKind` 必须在 `NodeContractRegistry` 中唯一登记；未知或缺失契约必须 fail-closed。
+- `contract_status=complete` 不等于 Planner、Evaluator、Evolution 或 App 可用。入口许可必须由契约显式声明。
+- Capability Snapshot 只允许完整契约、真实 Adapter、Adapter 版本和 compiler checksum 一致的节点；当前范围仍严格为既有七类。
+- NodeContract 版本与 Typed IR 版本独立。V3 Snapshot 必须继续声明 `ir_version=2`，直到独立 IR 升级轮次完成。
+- `checksum` 覆盖完整契约，`compiler_checksum` 仅覆盖编译关键事实；标题、图标和分类不得使 Adapter 失效。
+- 前端 fallback 只能保存展示信息，不得伪造 Planner 状态、端口、安全策略或 checksum。
+- 发布、Evaluator、App 和 Evolution 的静态节点策略必须查询 `NodePolicyService`；资源、Toolset、循环和中间件领域检查不得被删除。
+- 修改节点契约至少运行 `test_workflow_node_contracts.py`、Workflow Registry/Validator、Meta Planner、Xpert Publish、Evaluator、App、Evolution 和前端构建。
+
 ### 8.2 EvoAgentX Evaluator 护栏
 
 - Dataset 草稿必须使用 revision，Evaluation Run 只能引用不可变 DatasetVersion。

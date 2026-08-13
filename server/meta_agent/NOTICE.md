@@ -53,6 +53,11 @@ implementation uses its own Pydantic contracts, Workflow Node Registry,
 Runtime Middleware Registry, AuthoringProposalStore, XpertStore, workflow
 validator, and publish preflight.
 
+NodeContract V3 independently applies the audited parameter-schema and layered
+validation concepts to ModelMirror's own node, entrypoint-policy, and compiler
+adapter contracts. No EvoAgentX schema or runtime object is copied. Typed IR
+remains a ModelMirror contract and EvoAgentX is not used to execute workflows.
+
 No EvoAgentX source file is copied into this package and EvoAgentX is not a
 runtime dependency. Provider, RAG, storage, HITL, memory, tool, workflow, and
 publication runtimes remain ModelMirror implementations.

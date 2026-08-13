@@ -334,6 +334,20 @@ Queries do not accept SQL. `DataXService` compiles a bounded DSL of published in
 
 The `datax_indicators` Agent middleware compiles explicit project/model scopes into `datax_tools`. Workflow, Xpert Chat, Goal, Handoff, and Automation share this provider. Agent writes are proposal-only; approval creates a draft and explicit publication remains a separate operation. Public Apps require `allow_datax_read`, an active tool policy, and valid project/model scope, and never receive proposal tools. See `docs/XPERT_DATAX.md`.
 
+## Workflow NodeContract V3
+
+Workflow node static facts are centralized in `NodeContractRegistry`. The
+workflow Registry API, Meta Planner Capability Snapshot, Xpert publish
+preflight, Evaluator, public App deployment, and Structure Evolution consume
+the same safe projection or `NodePolicyService` decision. Resource pinning,
+Toolset safety, middleware validation, and cycle checks remain in their domain
+services.
+
+A complete contract does not enable a node in Planner or a public entrypoint.
+Compatibility contracts preserve classic runner behavior and default Planner
+to disabled. See `docs/NODE_CONTRACT_V3.md` for the checksum and migration
+contract.
+
 ## Versioned MCP And API Toolset Runtime
 
 `ToolsetStore` persists editable MCP, OpenAPI, OData, and builtin Provider Toolset definitions plus immutable published versions. A version fixes the transport, API, or Provider profile, credential references, enabled tools, aliases, default arguments, JSON Schema hashes, tool semantics, prefix, and release metadata. Xpert publication resolves `latest` to a concrete Toolset version; later discovery, import, or draft edits cannot expand an already published Xpert.
