@@ -67,6 +67,7 @@ def _service(
     provider: FakeCodingAgentProvider,
     *,
     files: dict[str, bytes] | None = None,
+    route_context_tokens: dict[str, int] | None = None,
 ) -> CodingWorkerService:
     store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
     adapter = InMemoryWorkspaceSourceAdapter(
@@ -78,7 +79,12 @@ def _service(
     broker = WorkspaceBroker(
         tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
     )
-    return CodingWorkerService(store=store, workspace_broker=broker, provider=provider)
+    return CodingWorkerService(
+        store=store,
+        workspace_broker=broker,
+        provider=provider,
+        route_context_tokens=route_context_tokens,
+    )
 
 
 class _RepairingProvider(FakeCodingAgentProvider):
@@ -380,6 +386,37 @@ class _V17CompactionParkingProvider(FakeCodingAgentProvider):
         yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
 
 
+class _V17UsageCompactionProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        self.messages.append(text)
+        if len(self.messages) == 1:
+            yield ProviderEvent(
+                kind=ProviderEventKind.USAGE,
+                data={
+                    "usage": {
+                        "input_tokens": 7_500,
+                        "output_tokens": 100,
+                        "cache_read_tokens": 0,
+                        "cache_write_tokens": 0,
+                        "cost_microusd": None,
+                    }
+                },
+            )
+            for index in range(10):
+                yield ProviderEvent(
+                    kind=ProviderEventKind.MESSAGE,
+                    data={"text": f"late usage event {index}"},
+                )
+            return
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+
 class _CompactionRestoreProvider(_RestoreTrackingProvider):
     def __init__(self) -> None:
         super().__init__()
@@ -573,6 +610,47 @@ async def test_v17_compaction_parks_and_requeues_without_a_user_action(
     ledger = service.store.list_session_ledger(task.task_id)
     assert [item.kind for item in ledger].count(SessionLedgerKind.COMPACTION) == 1
     assert [item for item in service.store.list_messages(task.task_id) if item.role == "assistant"] == []
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_usage_at_seventy_five_percent_uses_controlled_compaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "CODING_WORKER_V16_ENABLED",
+        "CODING_WORKER_INTERACTION_ENABLED",
+        "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+        "CODING_WORKER_SUBAGENTS_ENABLED",
+        "CODING_WORKER_V17_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    provider = _V17UsageCompactionProvider()
+    service = _service(
+        tmp_path,
+        provider,
+        route_context_tokens={"coding/default": 10_000},
+    )
+    task = await service.create_task(
+        Origin(module="test", object_id="v17-usage-compaction"),
+        _request("v17-usage-compaction"),
+    )
+
+    terminal = await service.wait_for(
+        task.task_id,
+        lambda item: item.state in {TaskState.BLOCKED, TaskState.COMPLETED},
+    )
+
+    assert terminal.state is TaskState.BLOCKED
+    assert len(provider.messages) == 2
+    assert "controlled compaction boundary" in provider.messages[1]
+    assert not any(
+        item.content.startswith("late usage event")
+        for item in service.store.list_messages(task.task_id)
+    )
+    assert [
+        item.kind for item in service.store.list_session_ledger(task.task_id)
+    ].count(SessionLedgerKind.COMPACTION) == 1
     await service.shutdown()
 
 

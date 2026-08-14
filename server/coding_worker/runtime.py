@@ -52,6 +52,7 @@ class CodingWorkerRuntime:
         sidecar_uid: int = 65532,
         sidecar_gid: int = 65532,
         route_slots: Mapping[str, Sequence[str]] | None = None,
+        route_context_tokens: Mapping[str, int] | None = None,
         documentation_resources: Mapping[str, str] | None = None,
     ) -> None:
         if (
@@ -131,6 +132,7 @@ class CodingWorkerRuntime:
             max_active_tasks=max_active_tasks,
             tool_broker=self.tool_broker,
             route_slots=route_slots,
+            route_context_tokens=route_context_tokens,
         )
         self.tool_broker.subtask_handler = self.service.create_subtask
         self.tool_broker.subtask_merge_handler = self.service.merge_subtask
@@ -356,6 +358,7 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         egress_proxy_url=os.getenv("CODING_WORKER_EGRESS_PROXY_URL") or None,
         network_grant_key=os.getenv("CODING_WORKER_EGRESS_GRANT_KEY") or None,
         route_slots=route_slots,
+        route_context_tokens=_route_context_tokens_from_environment(),
         documentation_resources=_documentation_resources_from_environment(),
     )
 
@@ -377,6 +380,32 @@ def _documentation_resources_from_environment() -> dict[str, str]:
     ):
         raise CodingWorkerRuntimeError(
             "Documentation resource catalog is invalid.",
+            code="coding_worker_config_invalid",
+        )
+    return dict(value)
+
+
+def _route_context_tokens_from_environment() -> dict[str, int]:
+    encoded = os.getenv("CODING_WORKER_ROUTE_CONTEXT_TOKENS_JSON", "").strip()
+    if not encoded:
+        return {}
+    try:
+        value = json.loads(encoded)
+    except json.JSONDecodeError as exc:
+        raise CodingWorkerRuntimeError(
+            "Worker route context catalog is invalid.",
+            code="coding_worker_config_invalid",
+        ) from exc
+    if not isinstance(value, dict) or any(
+        not isinstance(route_id, str)
+        or not route_id
+        or isinstance(tokens, bool)
+        or not isinstance(tokens, int)
+        or not 8_192 <= tokens <= 2_000_000
+        for route_id, tokens in value.items()
+    ):
+        raise CodingWorkerRuntimeError(
+            "Worker route context catalog is invalid.",
             code="coding_worker_config_invalid",
         )
     return dict(value)

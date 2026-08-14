@@ -85,6 +85,7 @@ class CodingWorkerService:
         max_active_tasks: int = 2,
         tool_broker: ToolBroker | None = None,
         route_slots: Mapping[str, Sequence[str]] | None = None,
+        route_context_tokens: Mapping[str, int] | None = None,
     ) -> None:
         if not 1 <= max_active_tasks <= 16:
             raise ValueError("active task capacity is outside the allowed range")
@@ -111,6 +112,15 @@ class CodingWorkerService:
                 for route_id, slot_ids in self._route_slots.items()
             ):
                 raise ValueError("provider route slot configuration is invalid")
+        self._route_context_tokens = dict(route_context_tokens or {})
+        if any(
+            not route_id
+            or isinstance(tokens, bool)
+            or not isinstance(tokens, int)
+            or not 8_192 <= tokens <= 2_000_000
+            for route_id, tokens in self._route_context_tokens.items()
+        ):
+            raise ValueError("provider route context configuration is invalid")
         self._active: dict[str, asyncio.Task[None]] = {}
         self._task_slots: dict[str, str] = {}
         self._sessions: dict[str, ProviderSession] = {}
@@ -1806,6 +1816,19 @@ class CodingWorkerService:
                         {"kind": event.kind.value, "data": event.data},
                     )
                     self._record_provider_session_event(task_id, turn_id, event)
+                    if self._should_auto_compact(task, event):
+                        transaction = self.store.current_turn_transaction(task_id)
+                        if transaction is not None and transaction.state in {
+                            TurnTransactionState.OPEN,
+                            TurnTransactionState.RESUMING,
+                        }:
+                            self.store.begin_turn_parking(
+                                task_id=task_id,
+                                turn_id=transaction.turn_id,
+                                barrier=TurnBarrier.COMPACTION,
+                            )
+                            outcome = "turn_parking"
+                            break
                     if self.store.get_task(task_id).state is TaskState.WAITING_SUBTASKS:
                         outcome = "waiting_subtasks"
                         break
@@ -2413,6 +2436,7 @@ class CodingWorkerService:
                     "summary": data["summary"],
                 },
             )
+
         elif kind is ProviderEventKind.TOOL_COMPLETED:
             self.store.append_session_ledger(
                 task_id,
@@ -2433,6 +2457,27 @@ class CodingWorkerService:
                 turn_id=turn_id,
                 payload=data,
             )
+
+    def _should_auto_compact(
+        self, task: TaskRecord, event: ProviderEvent
+    ) -> bool:
+        if (
+            task.runtime_protocol is not RuntimeProtocol.V17
+            or event.kind is not ProviderEventKind.USAGE
+        ):
+            return False
+        context_tokens = self._route_context_tokens.get(task.spec.model_route)
+        if context_tokens is None:
+            return False
+        usage = event.data.get("usage")
+        if not isinstance(usage, dict):
+            return False
+        input_tokens = usage.get("input_tokens")
+        return (
+            isinstance(input_tokens, int)
+            and not isinstance(input_tokens, bool)
+            and input_tokens * 4 >= context_tokens * 3
+        )
 
     async def _record_controlled_compaction(
         self,
