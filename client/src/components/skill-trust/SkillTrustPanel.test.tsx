@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import SkillTrustPanel, { SkillTrustBadge } from "./SkillTrustPanel";
 import type { SkillTrustReceipt } from "../../data/skillTrustIndex";
@@ -61,7 +62,8 @@ describe("SkillTrustPanel", () => {
     expect(screen.getByText("不纳入自动发现")).toBeInTheDocument();
     expect(screen.getByText(/trust_shell_required/)).toBeInTheDocument();
     expect(screen.getByText(/固定 SHA/)).toHaveTextContent("b".repeat(40));
-    const install = screen.getByRole("button", { name: "确认风险并安装" });
+    expect(screen.getByRole("dialog", { name: "事故复盘" })).toBeInTheDocument();
+    const install = screen.getByRole("button", { name: "接受风险并安装" });
     expect(install).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(install);
@@ -96,8 +98,37 @@ describe("SkillTrustPanel", () => {
       />,
     );
 
-    expect(screen.getByText("本地导入 Skill 信任凭据")).toBeInTheDocument();
+    expect(screen.getByText("信任凭据")).toBeInTheDocument();
+    expect(screen.getByText(/本地 ZIP导入/)).toBeInTheDocument();
     expect(screen.getByText(/skillimport_local/)).toBeInTheDocument();
     expect(screen.queryByText(/固定 SHA/)).not.toBeInTheDocument();
+  });
+
+  it("closes with Escape and restores focus to the trigger", async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)} type="button">查看凭据</button>
+          {open ? (
+            <SkillTrustPanel
+              action="inspect"
+              onCancel={() => setOpen(false)}
+              receipt={receipt}
+              title="事故复盘"
+            />
+          ) : null}
+        </>
+      );
+    }
+
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "查看凭据" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole("button", { name: "关闭信任凭据" })).toHaveFocus());
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 });

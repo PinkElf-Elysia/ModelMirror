@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import ModelWorkbenchSidebar from "../components/ModelWorkbenchSidebar";
 import PageContainer from "../components/PageContainer";
 import {
   getFriendlyRunStatusLabel,
@@ -242,37 +243,6 @@ function severityCounts(checkpoints: RuntimeCheckpointPayload[]) {
       return acc;
     },
     { error: 0, info: 0, warning: 0 },
-  );
-}
-
-function Sidebar() {
-  return (
-    <div>
-      <p className="text-sm font-semibold text-white">Runtime Ops</p>
-      <p className="mt-2 text-sm leading-6 text-slate-400">
-        这里先做只读运维总览：MCP Runtime、全局工具、RunRegistry 与 Skill 安装状态。
-      </p>
-      <div className="mt-4 space-y-2">
-        <Link
-          className="block rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100"
-          to="/mcps"
-        >
-          管理 MCP 工具
-        </Link>
-        <Link
-          className="block rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100"
-          to="/skills"
-        >
-          管理 Skill
-        </Link>
-        <Link
-          className="block rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100"
-          to="/studio"
-        >
-          返回工作空间
-        </Link>
-      </div>
-    </div>
   );
 }
 
@@ -667,7 +637,10 @@ export default function RuntimeOpsPage() {
     <PageContainer
       activeResource="runtime"
       maxWidthClassName="max-w-[1760px]"
-      sidebar={<Sidebar />}
+      mobileSidebar={<ModelWorkbenchSidebar compact />}
+      showSystemCapabilityBar={false}
+      sidebar={<ModelWorkbenchSidebar />}
+      sidebarGridClassName="xl:grid-cols-[230px_minmax(0,1fr)] xl:gap-x-[54px]"
     >
       <header className="mb-6 border-y border-hire-300/20 py-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
