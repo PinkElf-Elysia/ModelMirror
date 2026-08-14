@@ -239,6 +239,89 @@ def test_restart_preserves_durably_parked_v17_approval_turn(tmp_path: Path) -> N
     assert resuming is not None
     assert resuming.state is TurnTransactionState.RESUMING
 
+    resumed_again = CodingWorkerStore(root, master_key=key)
+    assert resumed_again.get_task(task.task_id).state is TaskState.QUEUED
+    resumed_turn = resumed_again.current_turn_transaction(task.task_id)
+    assert resumed_turn is not None
+    assert resumed_turn.state is TurnTransactionState.RESUMING
+    assert resumed_turn.checkpoint_id == checkpoint.checkpoint_id
+
+
+def test_restart_interrupts_v17_parking_before_checkpoint(tmp_path: Path) -> None:
+    root = tmp_path / "worker"
+    key = Fernet.generate_key()
+    store = CodingWorkerStore(root, master_key=key)
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_parking_restart",
+        workspace_tree_hash="a" * 64,
+    )
+    store.begin_turn_parking(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        barrier=TurnBarrier.INPUT,
+    )
+
+    restarted = CodingWorkerStore(root, master_key=key)
+
+    interrupted = restarted.get_task(task.task_id)
+    assert interrupted.state is TaskState.INTERRUPTED
+    assert interrupted.reason == "server_restart"
+    assert restarted.get_turn_transaction(
+        task.task_id, turn.turn_id
+    ).state is TurnTransactionState.INTERRUPTED
+
+
+@pytest.mark.parametrize(
+    ("barrier", "waiting_state"),
+    (
+        (TurnBarrier.INPUT, TaskState.WAITING_INPUT),
+        (TurnBarrier.SUBTASKS, TaskState.WAITING_SUBTASKS),
+    ),
+)
+def test_restart_preserves_v17_parked_input_and_subtask_turns(
+    tmp_path: Path, barrier: TurnBarrier, waiting_state: TaskState
+) -> None:
+    root = tmp_path / barrier.value
+    key = Fernet.generate_key()
+    store = CodingWorkerStore(root, master_key=key)
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id=f"turn_v17_{barrier.value}_restart",
+        workspace_tree_hash="a" * 64,
+    )
+    store.begin_turn_parking(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        barrier=barrier,
+    )
+    checkpoint = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash="a" * 64,
+        payload={"phase": f"waiting_{barrier.value}"},
+    )
+    store.park_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    store.transition(task.task_id, waiting_state)
+
+    restarted = CodingWorkerStore(root, master_key=key)
+
+    assert restarted.get_task(task.task_id).state is waiting_state
+    parked = restarted.current_turn_transaction(task.task_id)
+    assert parked is not None
+    assert parked.state is TurnTransactionState.PARKED
+    assert parked.barrier is barrier
+    assert parked.checkpoint_id == checkpoint.checkpoint_id
+
 
 def test_restart_parks_unknown_v17_operation_on_its_entry_checkpoint(
     tmp_path: Path,
