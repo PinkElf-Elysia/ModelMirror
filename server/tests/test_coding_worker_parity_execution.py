@@ -37,6 +37,7 @@ def _request() -> ParityRunRequest:
         hidden_checker_bundle_sha256=manifest.hidden_checker_bundle_sha256,
         runner_image_digest=manifest.runner_images.native_opencode,
         model_route_catalog_sha256=manifest.model_route_catalog_sha256,
+        model_route=manifest.model_route,
         budget=task.budget,
         model_route_receipt_sha256=ROUTE_RECEIPT,
         candidate_sha=CANDIDATE,

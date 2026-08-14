@@ -348,6 +348,7 @@ def test_subprocess_runner_accepts_only_exact_json_bound_outcome() -> None:
         model_route_catalog_sha256=(
             load_frozen_manifest(FIXTURE).model_route_catalog_sha256
         ),
+        model_route=load_frozen_manifest(FIXTURE).model_route,
         budget=task.budget,
         model_route_receipt_sha256=ROUTE_RECEIPT,
         candidate_sha=CANDIDATE,
