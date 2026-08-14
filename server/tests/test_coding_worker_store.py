@@ -10,6 +10,7 @@ from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
     Origin,
+    OperationState,
     RuntimeProtocol,
     SessionLedgerKind,
     TaskSpec,
@@ -288,6 +289,46 @@ def test_v17_question_resolution_atomically_resumes_parked_turn(
     transaction = store.current_turn_transaction(task.task_id)
     assert transaction is not None
     assert transaction.state is TurnTransactionState.RESUMING
+
+
+def test_unknown_operation_emits_one_reconciliation_receipt(tmp_path: Path) -> None:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    task = store.create_task(_spec())
+    operation = store.create_operation(
+        task_id=task.task_id,
+        operation_id="operation_reconcile_receipt",
+        tool_name="run_shell",
+        intent_sha256="a" * 64,
+        request={"workspace_id": "workspace_1", "arguments": {}},
+    )
+    store.transition_operation(
+        operation.operation_id,
+        OperationState.RUNNING,
+        expected_state=OperationState.PREPARED,
+    )
+    store.transition_operation(
+        operation.operation_id,
+        OperationState.UNKNOWN,
+        expected_state=OperationState.RUNNING,
+    )
+    store.transition_operation(
+        operation.operation_id,
+        OperationState.COMPLETED,
+        result={"exit_code": 0},
+        expected_state=OperationState.UNKNOWN,
+    )
+
+    receipts = [
+        event
+        for event in store.list_events(task.task_id)
+        if event.type == "operation_reconciled"
+    ]
+    assert [event.payload for event in receipts] == [
+        {
+            "operation_id": operation.operation_id,
+            "state": OperationState.COMPLETED.value,
+        }
+    ]
 
 
 def test_restart_interrupts_inflight_without_replaying_it(tmp_path: Path) -> None:

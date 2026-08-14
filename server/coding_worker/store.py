@@ -2244,6 +2244,20 @@ class CodingWorkerStore:
                 payload={"operation_id": operation_id, "state": target.value},
                 created_at=now,
             )
+            if current is OperationState.UNKNOWN and target in {
+                OperationState.COMPLETED,
+                OperationState.FAILED,
+            }:
+                self._append_event_locked(
+                    connection,
+                    task_id=str(row["task_id"]),
+                    event_type="operation_reconciled",
+                    payload={
+                        "operation_id": operation_id,
+                        "state": target.value,
+                    },
+                    created_at=now,
+                )
         return self.get_operation(operation_id)
 
     def mark_inflight_operations_unknown(self) -> int:

@@ -345,6 +345,34 @@ class _V17TurnParkingProvider(FakeCodingAgentProvider):
         return await super().interrupt_turn(session)
 
 
+class _V17CompactionParkingProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.store: CodingWorkerStore | None = None
+        self.messages: list[str] = []
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        assert self.store is not None
+        self.messages.append(text)
+        if len(self.messages) == 1:
+            turn = self.store.current_turn_transaction(session.task_id)
+            assert turn is not None
+            self.store.begin_turn_parking(
+                task_id=session.task_id,
+                turn_id=turn.turn_id,
+                barrier=TurnBarrier.COMPACTION,
+            )
+            for index in range(10):
+                yield ProviderEvent(
+                    kind=ProviderEventKind.MESSAGE,
+                    data={"text": f"late compaction event {index}"},
+                )
+            return
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+
 class _CompactionRestoreProvider(_RestoreTrackingProvider):
     def __init__(self) -> None:
         super().__init__()
@@ -477,6 +505,80 @@ async def test_v17_turn_parks_once_and_resumes_exact_checkpoint(
     )
     assert transaction.state is TurnTransactionState.COMPLETED
     await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_compaction_parks_and_requeues_without_a_user_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "CODING_WORKER_V16_ENABLED",
+        "CODING_WORKER_INTERACTION_ENABLED",
+        "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+        "CODING_WORKER_SUBAGENTS_ENABLED",
+        "CODING_WORKER_V17_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    provider = _V17CompactionParkingProvider()
+    service = _service(tmp_path, provider)
+    provider.store = service.store
+    task = await service.create_task(
+        Origin(module="test", object_id="v17-compaction"),
+        _request("v17-compaction"),
+    )
+
+    terminal = await service.wait_for(
+        task.task_id,
+        lambda item: item.state in {TaskState.BLOCKED, TaskState.COMPLETED},
+    )
+
+    assert terminal.state is TaskState.BLOCKED
+    assert len(provider.messages) == 2
+    assert "controlled compaction boundary" in provider.messages[1]
+    transactions = service.store.list_turn_transactions(task.task_id)
+    assert len(transactions) == 1
+    assert transactions[0].state is TurnTransactionState.COMPLETED
+    ledger = service.store.list_session_ledger(task.task_id)
+    assert [item.kind for item in ledger].count(SessionLedgerKind.COMPACTION) == 1
+    assert [item for item in service.store.list_messages(task.task_id) if item.role == "assistant"] == []
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_acceptance_rejects_an_unsettled_turn(tmp_path: Path) -> None:
+    service = _service(tmp_path, FakeCodingAgentProvider())
+    request = _request("v17-unsettled-acceptance")
+    task = service.store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="v17-unsettled-acceptance"),
+        ),
+        runtime_protocol=RuntimeProtocol.V17,
+    )
+    service.store.transition(task.task_id, TaskState.PREPARING)
+    running = service.store.transition(task.task_id, TaskState.RUNNING)
+    turn = service.store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_unsettled_acceptance",
+        workspace_tree_hash="a" * 64,
+    )
+    service.store.create_operation(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        operation_id="operation_unsettled_acceptance",
+        tool_name="run_shell",
+        intent_sha256="b" * 64,
+        request={"workspace_id": "workspace_1", "arguments": {}},
+    )
+
+    feedback, cursor = await service._evaluate_acceptance(
+        running, 1, message_cursor=0
+    )
+
+    assert feedback is None and cursor == 0
+    blocked = service.store.get_task(task.task_id)
+    assert blocked.state is TaskState.BLOCKED
+    assert blocked.reason == "turn_settlement_incomplete"
 
 
 @pytest.mark.asyncio

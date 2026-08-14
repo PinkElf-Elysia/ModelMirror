@@ -403,16 +403,22 @@ class CodingWorkerService:
                     raise WorkerConflictError(
                         "Parked turn has no checkpoint.", code="turn_checkpoint_invalid"
                     )
-                if turn.barrier in {TurnBarrier.APPROVAL, TurnBarrier.INPUT}:
+                if turn.barrier in {
+                    TurnBarrier.APPROVAL,
+                    TurnBarrier.INPUT,
+                    TurnBarrier.SUBTASKS,
+                }:
                     raise WorkerConflictError(
                         "Turn still requires user settlement.",
                         code="turn_barrier_unresolved",
                     )
-                self.store.resume_turn_transaction(
+                resumed = self.store.settle_parked_turn(
                     task_id=task_id,
-                    turn_id=turn.turn_id,
-                    checkpoint_id=turn.checkpoint_id,
+                    barrier=TurnBarrier.OPERATION_UNKNOWN,
+                    expected_state=TaskState.INTERRUPTED,
                 )
+                self._wake.set()
+                return resumed
         resumed = self.store.transition(task_id, TaskState.QUEUED)
         self._wake.set()
         return resumed
@@ -2246,21 +2252,10 @@ class CodingWorkerService:
             checkpoint_id=checkpoint.checkpoint_id,
         )
         if transaction.barrier is TurnBarrier.COMPACTION:
-            self.store.transition(
-                task.task_id,
-                TaskState.INTERRUPTED,
-                reason="turn_parked_compaction",
-                expected_state=TaskState.RUNNING,
-            )
-            self.store.resume_turn_transaction(
+            self.store.settle_parked_turn(
                 task_id=task.task_id,
-                turn_id=turn_id,
-                checkpoint_id=checkpoint.checkpoint_id,
-            )
-            self.store.transition(
-                task.task_id,
-                TaskState.QUEUED,
-                expected_state=TaskState.INTERRUPTED,
+                barrier=TurnBarrier.COMPACTION,
+                expected_state=TaskState.RUNNING,
             )
             self._wake.set()
             return
@@ -2553,6 +2548,30 @@ class CodingWorkerService:
     ) -> tuple[str | None, int]:
         task_id = task.task_id
         turns = max(turns, self.store.budget_usage(task_id).turns_started)
+        if task.runtime_protocol is RuntimeProtocol.V17:
+            unsettled = any(
+                item.state
+                in {
+                    OperationState.PREPARED,
+                    OperationState.RUNNING,
+                    OperationState.UNKNOWN,
+                }
+                for item in self.store.list_operations(task_id)
+            ) or any(
+                item.status is ApprovalStatus.PENDING
+                for item in self.store.list_approvals(task_id)
+            ) or any(
+                item.status is QuestionStatus.PENDING
+                for item in self.store.list_questions(task_id)
+            ) or self.store.current_turn_transaction(task_id) is not None
+            if unsettled:
+                self.store.transition(
+                    task_id,
+                    TaskState.BLOCKED,
+                    reason="turn_settlement_incomplete",
+                    expected_state=TaskState.RUNNING,
+                )
+                return None, message_cursor
         ready_implementations = tuple(
             relation
             for relation in self.store.list_subtasks(task_id)
