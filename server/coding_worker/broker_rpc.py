@@ -13,6 +13,7 @@ from pydantic import Field
 from .contracts import (
     ApprovalStatus,
     OperationState,
+    RuntimeProtocol,
     StrictModel,
     TaskState,
     TERMINAL_STATES,
@@ -136,6 +137,15 @@ class BrokerRPCServer:
         except ToolBrokerError as exc:
             if exc.code != "approval_required" or request.lease_id is not None:
                 raise
+        task = self.broker.store.get_task(request.task_id)
+        if task.runtime_protocol is RuntimeProtocol.V17:
+            operation = self.broker.store.get_operation(request.operation_id)
+            return ToolResult(
+                operation_id=operation.operation_id,
+                tool_name=operation.tool_name,
+                state=operation.state,
+                data={"control": "turn_parking", "barrier": "approval"},
+            )
         lease_id, network_lease_id = await self._wait_for_approval(request)
         return await self.broker.execute(
             task_id=request.task_id,

@@ -28,6 +28,8 @@ from .contracts import (
     DiagnosticSeverity,
     OperationState,
     PolicyProfile,
+    RuntimeProtocol,
+    SessionLedgerKind,
     ShellApprovalScope,
     ShellMode,
     StrictModel,
@@ -36,7 +38,12 @@ from .contracts import (
     SubtaskRecord,
     SubtaskRequest,
     TaskState,
+    TurnBarrier,
+    TurnTransactionState,
     WorkerDiagnostic,
+    WorkerPlanItem,
+    WorkerQuestionOption,
+    WorkerTodoItem,
 )
 from .changeset import ChangesetEngine, ChangesetError
 from .process_manager import BackgroundProcessManager, ProcessManagerError
@@ -173,6 +180,11 @@ class ToolBroker:
             "workspace_id": task.workspace_id,
         }
         intent_sha256 = self._intent_sha256(tool_name, request)
+        current_turn = (
+            self.store.current_turn_transaction(task_id)
+            if task.runtime_protocol is RuntimeProtocol.V17
+            else None
+        )
         if task.state is TaskState.WAITING_APPROVAL:
             existing_operation_ids = {
                 operation.operation_id
@@ -190,6 +202,7 @@ class ToolBroker:
                 tool_name=tool_name,
                 intent_sha256=intent_sha256,
                 request=request,
+                turn_id=current_turn.turn_id if current_turn is not None else None,
             )
         except WorkerConflictError as exc:
             message = "Tool operation was rejected."
@@ -358,6 +371,12 @@ class ToolBroker:
                     result={"code": "operation_result_unknown"},
                     expected_state=current.state,
                 )
+                if task.runtime_protocol is RuntimeProtocol.V17 and current_turn is not None:
+                    self.store.begin_turn_parking(
+                        task_id=task_id,
+                        turn_id=current_turn.turn_id,
+                        barrier=TurnBarrier.OPERATION_UNKNOWN,
+                    )
             elif not awaiting_approval and current.state in {
                 OperationState.PREPARED,
                 OperationState.RUNNING,
@@ -635,6 +654,10 @@ class ToolBroker:
             "code_references",
             "code_hover",
             "code_diagnostics",
+            "update_plan",
+            "update_todo",
+            "request_user_input",
+            "compact_context",
         }
         if tool_name in readonly:
             return None
@@ -723,7 +746,19 @@ class ToolBroker:
             )
         if lease_id is None or (network_scope is not None and network_lease_id is None):
             task = self.store.get_task(task_id)
-            if task.state is TaskState.RUNNING:
+            if task.runtime_protocol is RuntimeProtocol.V17:
+                current_turn = self.store.current_turn_transaction(task_id)
+                if current_turn is None:
+                    raise ToolBrokerError(
+                        "V17 approval has no current turn.",
+                        code="operation_turn_required",
+                    )
+                self.store.begin_turn_parking(
+                    task_id=task_id,
+                    turn_id=current_turn.turn_id,
+                    barrier=TurnBarrier.APPROVAL,
+                )
+            elif task.state is TaskState.RUNNING:
                 self.store.transition(task_id, TaskState.WAITING_APPROVAL)
             raise ToolBrokerError("Tool requires approval.", code="approval_required")
         lease = self.store.consume_lease(lease_id, task_id=task_id, capability=capability)
@@ -751,6 +786,18 @@ class ToolBroker:
         *,
         network_lease: CapabilityLease | None,
     ) -> dict[str, Any]:
+        if tool_name in {
+            "update_plan",
+            "update_todo",
+            "request_user_input",
+            "compact_context",
+        }:
+            return self._dispatch_platform_interaction(
+                task_id=task_id,
+                operation_id=operation_id,
+                tool_name=tool_name,
+                arguments=arguments,
+            )
         if tool_name == "create_subtask":
             if self.subtask_handler is None:
                 raise ToolBrokerError(
@@ -1084,6 +1131,127 @@ class ToolBroker:
                 "source_artifact_id": artifact.artifact_id,
             }
         raise ToolBrokerError("Tool is not available.", code="tool_not_allowed")
+
+    def _dispatch_platform_interaction(
+        self,
+        *,
+        task_id: str,
+        operation_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        task = self.store.get_task(task_id)
+        if task.runtime_protocol is not RuntimeProtocol.V17:
+            raise ToolBrokerError(
+                "Platform interaction tools require V17.",
+                code="tool_not_allowed",
+            )
+        turn = self.store.current_turn_transaction(task_id)
+        if turn is None or turn.state not in {
+            TurnTransactionState.OPEN,
+            TurnTransactionState.RESUMING,
+        }:
+            raise ToolBrokerError("Turn is parked.", code="turn_parked")
+        if tool_name == "update_plan":
+            try:
+                items = tuple(
+                    WorkerPlanItem.model_validate(item)
+                    for item in arguments.get("items", ())
+                )
+                explanation = arguments.get("explanation")
+                if not items or len(items) > 128 or (
+                    explanation is not None
+                    and (not isinstance(explanation, str) or len(explanation) > 16_384)
+                ):
+                    raise ValueError
+            except (TypeError, ValueError, ValidationError) as exc:
+                raise ToolBrokerError(
+                    "Plan input is invalid.", code="tool_input_invalid"
+                ) from exc
+            payload = {
+                "explanation": explanation,
+                "items": [item.model_dump(mode="json") for item in items],
+            }
+            entry = self.store.append_session_ledger(
+                task_id,
+                kind=SessionLedgerKind.PLAN,
+                turn_id=turn.turn_id,
+                payload=payload,
+            )
+            self.store.append_event(
+                task_id,
+                "plan_updated",
+                {"turn_id": turn.turn_id, "sequence": entry.sequence},
+            )
+            return {"plan": payload, "sequence": entry.sequence}
+        if tool_name == "update_todo":
+            try:
+                items = tuple(
+                    WorkerTodoItem.model_validate(item)
+                    for item in arguments.get("items", ())
+                )
+                if len(items) > 256 or len({item.todo_id for item in items}) != len(items):
+                    raise ValueError
+            except (TypeError, ValueError, ValidationError) as exc:
+                raise ToolBrokerError(
+                    "Todo input is invalid.", code="tool_input_invalid"
+                ) from exc
+            payload = {"items": [item.model_dump(mode="json") for item in items]}
+            entry = self.store.append_session_ledger(
+                task_id,
+                kind=SessionLedgerKind.TODO,
+                turn_id=turn.turn_id,
+                payload=payload,
+            )
+            self.store.append_event(
+                task_id,
+                "todo_updated",
+                {"turn_id": turn.turn_id, "sequence": entry.sequence},
+            )
+            return {"todo": payload, "sequence": entry.sequence}
+        if tool_name == "request_user_input":
+            try:
+                question_id = str(arguments["question_id"])
+                prompt = str(arguments["prompt"])
+                options = tuple(
+                    WorkerQuestionOption.model_validate(item)
+                    for item in arguments.get("options", ())
+                )
+            except (KeyError, TypeError, ValueError, ValidationError) as exc:
+                raise ToolBrokerError(
+                    "Question input is invalid.", code="tool_input_invalid"
+                ) from exc
+            question = self.store.create_question(
+                task_id=task_id,
+                question_id=question_id,
+                turn_id=turn.turn_id,
+                prompt=prompt,
+                options=options,
+            )
+            self.store.begin_turn_parking(
+                task_id=task_id,
+                turn_id=turn.turn_id,
+                barrier=TurnBarrier.INPUT,
+            )
+            return {
+                "control": "turn_parking",
+                "barrier": TurnBarrier.INPUT.value,
+                "question_id": question.question_id,
+            }
+        note = arguments.get("note")
+        if note is not None and (not isinstance(note, str) or len(note) > 16_384):
+            raise ToolBrokerError(
+                "Compaction note is invalid.", code="tool_input_invalid"
+            )
+        self.store.begin_turn_parking(
+            task_id=task_id,
+            turn_id=turn.turn_id,
+            barrier=TurnBarrier.COMPACTION,
+        )
+        return {
+            "control": "turn_parking",
+            "barrier": TurnBarrier.COMPACTION.value,
+        }
 
     def _dependency_plan(
         self, workspace_id: str, arguments: Mapping[str, Any]

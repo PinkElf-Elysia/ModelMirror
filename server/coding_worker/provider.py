@@ -49,6 +49,10 @@ PROVIDER_TOOL_NAMES = (
     "stop_service",
     "create_subtask",
     "merge_subtask",
+    "update_plan",
+    "update_todo",
+    "request_user_input",
+    "compact_context",
 )
 INSPECT_PROVIDER_TOOLS = PROVIDER_TOOL_NAMES[:13] + (
     "list_acceptance_checks",

@@ -15,9 +15,13 @@ from server.coding_worker.contracts import (
     Origin,
     PolicyProfile,
     OperationState,
+    RuntimeProtocol,
+    SessionLedgerKind,
     TaskSpec,
     TaskState,
     WorkspaceSource,
+    TurnBarrier,
+    TurnTransactionState,
 )
 from server.coding_worker.store import CodingWorkerStore
 from server.coding_worker.process_manager import BackgroundProcessManager
@@ -28,7 +32,10 @@ from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, Works
 
 
 async def _broker(
-    tmp_path: Path, *, profile: PolicyProfile = PolicyProfile.DEVELOP
+    tmp_path: Path,
+    *,
+    profile: PolicyProfile = PolicyProfile.DEVELOP,
+    runtime_protocol: RuntimeProtocol = RuntimeProtocol.V16,
 ) -> tuple[ToolBroker, CodingWorkerStore, str, Path]:
     source = WorkspaceSource(kind="manifest", source_id="source", revision="h0")
     workspace = WorkspaceBroker(
@@ -50,10 +57,23 @@ async def _broker(
             ),
             policy_profile=profile,
             model_route="coding/default",
-        )
+        ),
+        runtime_protocol=runtime_protocol,
     )
     store.transition(task.task_id, TaskState.PREPARING)
     store.transition(task.task_id, TaskState.RUNNING, workspace_id=prepared.workspace_id)
+    if runtime_protocol is RuntimeProtocol.V17:
+        store.open_turn_transaction(
+            task_id=task.task_id,
+            turn_id="turn_broker_v17",
+            workspace_tree_hash=workspace.current_tree_hash(prepared.workspace_id),
+        )
+        store.append_session_ledger(
+            task.task_id,
+            kind=SessionLedgerKind.TURN_STARTED,
+            turn_id="turn_broker_v17",
+            payload={},
+        )
     broker = ToolBroker(
         store=store,
         workspace_broker=workspace,
@@ -62,6 +82,66 @@ async def _broker(
         },
     )
     return broker, store, task.task_id, workspace.repository_path(prepared.workspace_id)
+
+
+@pytest.mark.asyncio
+async def test_v17_platform_plan_todo_and_question_are_turn_bound(tmp_path: Path) -> None:
+    broker, store, task_id, _ = await _broker(
+        tmp_path, runtime_protocol=RuntimeProtocol.V17
+    )
+    plan = await broker.execute(
+        task_id=task_id,
+        operation_id="platform-plan",
+        tool_name="update_plan",
+        arguments={
+            "explanation": "Reproduce first.",
+            "items": [{"step": "run tests", "status": "in_progress"}],
+        },
+    )
+    assert plan.data["sequence"] >= 1
+    assert store.latest_plan(task_id).items[0].step == "run tests"
+    todo = await broker.execute(
+        task_id=task_id,
+        operation_id="platform-todo",
+        tool_name="update_todo",
+        arguments={
+            "items": [
+                {"todo_id": "todo_repro", "content": "reproduce", "status": "pending"}
+            ]
+        },
+    )
+    assert todo.data["todo"]["items"][0]["todo_id"] == "todo_repro"
+    parked = await broker.execute(
+        task_id=task_id,
+        operation_id="platform-question",
+        tool_name="request_user_input",
+        arguments={
+            "question_id": "question_scope",
+            "prompt": "Which scope?",
+            "options": [{"option_id": "scope_small", "label": "Small"}],
+        },
+    )
+    assert parked.data == {
+        "control": "turn_parking",
+        "barrier": TurnBarrier.INPUT.value,
+        "question_id": "question_scope",
+    }
+    turn = store.current_turn_transaction(task_id)
+    assert turn is not None
+    assert turn.state is TurnTransactionState.PARKING
+    assert turn.barrier is TurnBarrier.INPUT
+    assert store.list_questions(task_id)[0].question_id == "question_scope"
+    with pytest.raises(ToolBrokerError) as late:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="platform-late-plan",
+            tool_name="update_plan",
+            arguments={"items": [{"step": "late", "status": "pending"}]},
+        )
+    assert late.value.code == "turn_parked"
+    assert "platform-late-plan" not in {
+        operation.operation_id for operation in store.list_operations(task_id)
+    }
 
 
 @pytest.mark.asyncio
