@@ -43,6 +43,12 @@ export const SEEDREAM_5_PRO_PRICING: ImagePricingItem[] = [
   },
 ];
 
+// Verified against the dedicated Seedream endpoint on 2026-08-14. The Lite
+// endpoint currently charges a flat rate per output image for both 2K and 4K.
+export const SEEDREAM_5_LITE_PRICING: ImagePricingItem[] = [
+  { billable: "output_image", unit: "image", cost_usd: 0.035 },
+];
+
 function normalized(value?: string) {
   return value?.trim().toLowerCase() ?? "";
 }

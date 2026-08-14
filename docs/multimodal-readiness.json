@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-08-13",
+  "reviewed_at": "2026-08-14",
   "catalog": {
-    "snapshot_total": 537,
-    "serving_variant_total": 62,
+    "snapshot_total": 543,
+    "serving_variant_total": 63,
     "serving_variants_by_type": {
-      "batch": 62
+      "batch": 63
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 477,
+    "live": 483,
     "uncertain": 55,
     "expired": 5,
-    "onsite_openrouter": 532,
-    "adaptation_denominator": 532,
+    "onsite_openrouter": 538,
+    "adaptation_denominator": 538,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
@@ -69,6 +69,30 @@
       "verification_status": "manual_required",
       "support_level": "native",
       "status_reason": "OpenRouter 转写契约与常用音频格式已适配；尚未完成本地短音频人工验收，不计为已验证可调用。"
+    },
+    {
+      "model_id": "mistralai/voxtral-mini-3b-2507",
+      "operation": "transcribe",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "OpenRouter JSON Base64 转写契约与常用音频格式已适配；尚未完成本地短音频人工验收，不计为已验证可调用。"
+    },
+    {
+      "model_id": "mistralai/voxtral-small-24b-2507-stt",
+      "operation": "transcribe",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "OpenRouter JSON Base64 转写契约与常用音频格式已适配；尚未完成本地短音频人工验收，不计为已验证可调用。"
+    },
+    {
+      "model_id": "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+      "operation": "transcribe",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "OpenRouter JSON Base64 转写契约与常用音频格式已适配；尚未完成本地短音频人工验收，不计为已验证可调用。"
     },
     {
       "model_id": "meta/muse-spark-1.2",

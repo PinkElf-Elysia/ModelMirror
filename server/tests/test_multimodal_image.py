@@ -348,6 +348,113 @@ async def test_seedream_5_pro_uses_the_dedicated_images_contract(
 
 
 @pytest.mark.asyncio
+async def test_seedream_5_lite_uses_the_dedicated_images_contract(
+    tmp_path: Path,
+) -> None:
+    model_id = "bytedance-seed/seedream-5-0-lite"
+    aspect_ratios = [
+        "1:1",
+        "1:2",
+        "2:1",
+        "2:3",
+        "3:2",
+        "3:4",
+        "4:3",
+        "4:5",
+        "5:4",
+        "9:16",
+        "16:9",
+        "9:19.5",
+        "19.5:9",
+        "9:20",
+        "20:9",
+        "9:21",
+        "21:9",
+        "auto",
+    ]
+
+    def handler(request: Request) -> Response:
+        if request.url.path.endswith(f"/images/models/{model_id}/endpoints"):
+            return Response(
+                200,
+                json={
+                    "id": model_id,
+                    "endpoints": [
+                        {
+                            "pricing": [
+                                {
+                                    "billable": "output_image",
+                                    "unit": "image",
+                                    "cost_usd": 0.035,
+                                }
+                            ]
+                        }
+                    ],
+                },
+            )
+        if request.url.path.endswith("/images/models"):
+            return Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": model_id,
+                            "name": "ByteDance Seed: Seedream 5.0 Lite",
+                            "architecture": {
+                                "input_modalities": ["text", "image"],
+                                "output_modalities": ["image"],
+                            },
+                            "supported_parameters": {
+                                "resolution": {
+                                    "type": "enum",
+                                    "values": ["2K", "4K"],
+                                },
+                                "aspect_ratio": {
+                                    "type": "enum",
+                                    "values": aspect_ratios,
+                                },
+                                "n": {"type": "range", "min": 1, "max": 4},
+                                "input_references": {
+                                    "type": "range",
+                                    "min": 0,
+                                    "max": 14,
+                                },
+                                "seed": {"type": "boolean"},
+                            },
+                            "supports_streaming": False,
+                        }
+                    ]
+                },
+            )
+        return Response(200, json={"data": []})
+
+    catalog = ImageCatalogService(
+        openrouter_service(tmp_path),
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(handler)
+        ),
+    )
+    result = await catalog.get_catalog()
+    profile = next(item for item in result.profiles if item.model_id == model_id)
+
+    assert profile.operation == "generate_image"
+    assert profile.interaction_status == "ready"
+    assert profile.supports_streaming is False
+    assert profile.supported_parameters["resolution"].values == ["2K", "4K"]
+    assert profile.supported_parameters["aspect_ratio"].values == aspect_ratios
+    assert profile.supported_parameters["n"].max == 4
+    assert profile.supported_parameters["input_references"].max == 14
+    assert [item.model_dump() for item in profile.pricing] == [
+        {
+            "billable": "output_image",
+            "unit": "image",
+            "cost_usd": 0.035,
+            "variant": None,
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_image_catalog_fetches_pricing_for_every_generation_model(
     tmp_path: Path,
 ) -> None:

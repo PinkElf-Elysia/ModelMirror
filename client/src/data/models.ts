@@ -1,8 +1,8 @@
-﻿// Merged with OpenRouter model catalog on 2026-08-13T07:25:13.212Z.
-// Current OpenRouter refresh verified on 2026-08-13 against the live all-modalities catalog.
-// Refreshed with entries published through 2026-08-13T05:08:04.000Z.
+﻿// Merged with OpenRouter model catalog on 2026-08-14T08:45:39.998Z.
+// Current OpenRouter refresh verified on 2026-08-14 against the live all-modalities catalog.
+// Refreshed with entries published through 2026-08-13T20:52:51.000Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
-// Full OpenRouter catalog audit refresh: 2026-08-13. Batch catalog entries are
+// Full OpenRouter catalog audit refresh: 2026-08-14. Batch catalog entries are
 // attached to their canonical models as serving variants and excluded from
 // snapshot totals; media-only records are cross-checked against their dedicated
 // Images, Speech, and Video API catalogs instead of the text-only model list.
@@ -191,6 +191,200 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+    "canonical_slug": "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b-20260813",
+    "name": "NVIDIA: Nemotron 3.5 ASR Streaming Multilingual 0.6B",
+    "raw_description": "Nemotron 3.5 ASR Streaming Multilingual 0.6B is a speech recognition model from NVIDIA. Its prompt-conditioned, cache-aware FastConformer-RNNT design targets low-latency transcription across more than 40 languages for real-time captioning, voice...",
+    "context_length": 0,
+    "pricing": {
+      "input": 3.33,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "temperature",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1786654371,
+    "expiration_date": null,
+    "model_author": "NVIDIA"
+  },
+  {
+    "id": "mistralai/voxtral-small-24b-2507-stt",
+    "canonical_slug": "mistralai/voxtral-small-24b-2507-stt-20260813",
+    "name": "Mistral: Voxtral Small 24B 2507 STT",
+    "raw_description": "Voxtral Small 24B 2507 STT is a speech transcription model from Mistral AI. It is suited for transcription, translation, and audio understanding workloads that benefit from its larger model capacity.",
+    "context_length": 0,
+    "pricing": {
+      "input": 50,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Mistral",
+    "supported_parameters": [
+      "frequency_penalty",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "temperature",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1786654002,
+    "expiration_date": null,
+    "model_author": "Mistral AI"
+  },
+  {
+    "id": "mistralai/voxtral-mini-3b-2507",
+    "canonical_slug": "mistralai/voxtral-mini-3b-2507-20260813",
+    "name": "Mistral: Voxtral Mini 3B 2507",
+    "raw_description": "Voxtral Mini 3B 2507 is a speech and audio understanding model from Mistral AI. It is suited for transcription, translation, and compact audio processing workloads.",
+    "context_length": 0,
+    "pricing": {
+      "input": 16.666700000000002,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Mistral",
+    "supported_parameters": [
+      "frequency_penalty",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "temperature",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1786653980,
+    "expiration_date": null,
+    "model_author": "Mistral AI"
+  },
+  {
+    "id": "bytedance-seed/seedream-5-0-lite",
+    "canonical_slug": "bytedance-seed/seedream-5-0-lite-20260812",
+    "name": "ByteDance Seed: Seedream 5.0 Lite",
+    "raw_description": "Seedream 5.0 Lite is an image generation model from ByteDance Seed. It is suited for professional visual creation that benefits from web-connected retrieval, complex-prompt comprehension, visual references, and broad knowledge...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "n",
+      "input_references",
+      "seed"
+    ],
+    "created": 1786650094,
+    "expiration_date": null,
+    "model_author": "ByteDance Seed",
+    "note": "OpenRouter 专用 Images API：非流式；支持 2K/4K、18 种宽高比、1–4 张输出、最多 14 张参考图和 seed；当前输出价格为 $0.035/张。"
+  },
+  {
+    "id": "google/gemini-3.7-flash",
+    "canonical_slug": "google/gemini-3.7-flash-20260813",
+    "name": "Google: Gemini 3.7 Flash",
+    "raw_description": "Gemini 3.7 Flash is a multimodal model from Google for fast agentic workflows, coding, and complex multi-step reasoning. It is designed for tasks that require responsive performance and reliable multi-step...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.375,
+      "output": 1.875
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "file",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1786640581,
+    "expiration_date": null,
+    "model_author": "Google",
+    "reasoning_declared": true
+  },
+  {
+    "id": "voyageai/voyage-code-4",
+    "canonical_slug": "voyageai/voyage-code-4-20260812",
+    "name": "VoyageAI by MongoDB: voyage-code-4",
+    "raw_description": "voyage-code-4 is a code embedding model from Voyage AI, a MongoDB company. It is designed for coding agents and code retrieval, with Matryoshka embeddings at 2048, 1024, 512, and 256...",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0.12,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1786636912,
+    "expiration_date": null,
+    "model_author": "Voyageai"
+  },
   {
     "id": "qwen/qwen3-reranker-8b",
     "canonical_slug": "qwen/qwen3-reranker-8b",
@@ -428,7 +622,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "qwen/qwen3.8-2.4t-a95b-20260812",
     "name": "Qwen: Qwen3.8 2.4T A95B",
     "raw_description": "Qwen3.8 2.4T A95B is an open-weight sparse mixture-of-experts model from Qwen and the open-weight variant of [Qwen3.8 Max](/qwen/qwen3.8-max), with 95 billion active parameters out of 2.4 trillion total. It is...",
-    "context_length": 1000000,
+    "context_length": 1010000,
     "pricing": {
       "input": 2,
       "output": 6
@@ -532,16 +726,22 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
       "logprobs",
       "max_tokens",
+      "min_p",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
+      "repetition_penalty",
       "response_format",
+      "seed",
       "stop",
+      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
+      "top_k",
       "top_logprobs",
       "top_p"
     ],
@@ -677,7 +877,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "nvidia/nemotron-3.5-lightning-20260807",
     "name": "NVIDIA: Nemotron 3.5 Lightning",
     "raw_description": "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
-    "context_length": 1048576,
+    "context_length": 1000000,
     "pricing": {
       "input": 0.09999999999999999,
       "output": 0.25
@@ -784,7 +984,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "id": "upstage/solar-pro4",
     "canonical_slug": "upstage/solar-pro4-20260810",
     "name": "Upstage: Solar Pro 4",
-    "raw_description": "Solar Pro 4 is a large language model from Upstage. It is suited for agentic workflows, office productivity, document-intensive work, and coding.",
+    "raw_description": "Solar Pro 4 is Upstage's cost-efficient large language model, featuring a 524K context window. It is built for long-horizon tasks and agentic workflows, with strong capabilities in office productivity, document-intensive...",
     "context_length": 524288,
     "pricing": {
       "input": 0.03,
@@ -1181,8 +1381,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.08,
-      "output": 0.18
+      "input": 0.14,
+      "output": 0.28
     },
     "input_modalities": [
       "text"
@@ -1999,8 +2199,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemini 3.6 Flash is a high-efficiency model from Google for coding, agentic workflows, and web and app development. It is designed to produce polished outputs with fewer unnecessary edits and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.5,
-      "output": 7.5
+      "input": 0.75,
+      "output": 3.75
     },
     "input_modalities": [
       "text",
@@ -2535,7 +2735,6 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Other",
     "supported_parameters": [
-      "frequency_penalty",
       "logprobs",
       "max_tokens",
       "presence_penalty",
@@ -2570,7 +2769,6 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Other",
     "supported_parameters": [
-      "frequency_penalty",
       "logprobs",
       "max_tokens",
       "presence_penalty",
@@ -3578,8 +3776,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.5,
-      "output": 3.15
+      "input": 0.63,
+      "output": 1.9800000000000002
     },
     "input_modalities": [
       "text"
@@ -5188,7 +5386,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Whisper Large V3 is OpenAI's open-source automatic speech recognition model offering both audio transcription and translation. It supports 99+ languages and accepts common audio formats including mp3, mp4, wav, webm,...",
     "context_length": 0,
     "pricing": {
-      "input": 1500,
+      "input": 7.5,
       "output": 0
     },
     "input_modalities": [
@@ -5223,7 +5421,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Whisper Large V3 Turbo is an optimized version of OpenAI's Whisper Large V3 speech recognition model, designed for speed and cost efficiency. It supports transcription across 99+ languages with a...",
     "context_length": 0,
     "pricing": {
-      "input": 40000,
+      "input": 3.33,
       "output": 0
     },
     "input_modalities": [
@@ -5234,11 +5432,16 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "GPT",
     "supported_parameters": [
+      "frequency_penalty",
       "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "repetition_penalty",
       "response_format",
       "seed",
       "stop",
       "temperature",
+      "top_k",
       "top_p"
     ],
     "created": 1777642266,
@@ -5828,8 +6031,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Google Gemini Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.5,
-      "output": 7.5
+      "input": 0.375,
+      "output": 1.875
     },
     "input_modalities": [
       "text",
@@ -12841,8 +13044,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-VL-30B-A3B-Instruct is a multimodal model that unifies strong text generation with visual understanding for images and videos. Its Instruct variant optimizes instruction-following for general multimodal tasks. It excels in perception...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6
+      "input": 0.13,
+      "output": 0.52
     },
     "input_modalities": [
       "text",
@@ -13492,7 +13695,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-Next-80B-A3B-Instruct is an instruction-tuned chat model in the Qwen3-Next series optimized for fast, stable responses without “thinking” traces. It targets complex tasks across reasoning, code generation, knowledge QA, and multilingual...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09,
+      "input": 0.09999999999999999,
       "output": 1.1
     },
     "input_modalities": [
@@ -17097,7 +17300,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "deepseek/deepseek-r1",
     "name": "DeepSeek: R1",
     "raw_description": "DeepSeek R1 is here: Performance on par with [OpenAI o1](/openai/o1), but open-sourced and with fully open reasoning tokens. It's 671B parameters in size, with 37B active in an inference pass....",
-    "context_length": 163840,
+    "context_length": 64000,
     "pricing": {
       "input": 0.7,
       "output": 2.5
@@ -17112,7 +17315,6 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "max_completion_tokens",
       "max_tokens",
       "presence_penalty",
       "reasoning",
@@ -19295,6 +19497,44 @@ const rawCatalogModels: RawCatalogModel[] = [
 
 const rawBatchServingVariants: RawCatalogModel[] = [
   {
+    "id": "google/gemini-3.7-flash:batch",
+    "canonical_slug": "google/gemini-3.7-flash-20260813",
+    "name": "Google: Gemini 3.7 Flash (batch)",
+    "raw_description": "Gemini 3.7 Flash is a multimodal model from Google for fast agentic workflows, coding, and complex multi-step reasoning. It is designed for tasks that require responsive performance and reliable multi-step...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.1875,
+      "output": 0.9375
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "file",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1786640581,
+    "expiration_date": null,
+    "model_author": "Google",
+    "reasoning_declared": true
+  },
+  {
     "id": "anthropic/claude-opus-5:batch",
     "canonical_slug": "anthropic/claude-opus-5-20260723",
     "name": "Claude Opus 5 (batch)",
@@ -19337,8 +19577,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "Gemini 3.6 Flash is a high-efficiency model from Google for coding, agentic workflows, and web and app development. It is designed to produce polished outputs with fewer unnecessary edits and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.75,
-      "output": 3.75
+      "input": 0.375,
+      "output": 1.875
     },
     "input_modalities": [
       "text",
@@ -22463,6 +22703,12 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+  "mistralai/voxtral-small-24b-2507-stt",
+  "mistralai/voxtral-mini-3b-2507",
+  "bytedance-seed/seedream-5-0-lite",
+  "google/gemini-3.7-flash",
+  "voyageai/voyage-code-4",
   "qwen/qwen3-reranker-8b",
   "qwen/qwen3-asr-1.7b",
   "qwen/qwen3-asr-0.6b",

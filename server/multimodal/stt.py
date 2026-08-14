@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import re
 import time
@@ -36,7 +37,7 @@ ALLOWED_AUDIO_FORMATS: dict[str, tuple[str, ...]] = {
     "webm": ("audio/webm", "video/webm", "application/octet-stream"),
     "aac": ("audio/aac", "audio/x-aac", "application/octet-stream"),
 }
-TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-08-13-c1"
+TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-08-14-c2"
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,9 @@ VERIFIED_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
 MANUAL_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
     model_id: _STANDARD_TRANSCRIPTION_PROFILE
     for model_id in (
+        "mistralai/voxtral-mini-3b-2507",
+        "mistralai/voxtral-small-24b-2507-stt",
+        "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
         "qwen/qwen3-asr-0.6b",
         "qwen/qwen3-asr-1.7b",
     )
@@ -149,22 +153,21 @@ class OpenRouterSttAdapter:
     ) -> tuple[str, str, TranscriptionUsage]:
         await self._verify_transcription_model(target, model_id)
         headers = self._headers(target.api_key)
-        data = {"model": model_id, "response_format": "json"}
+        payload: dict[str, Any] = {
+            "model": model_id,
+            "input_audio": {
+                "data": base64.b64encode(content).decode("ascii"),
+                "format": audio_format,
+            },
+        }
         if language:
-            data["language"] = language
+            payload["language"] = language
         async with self._client_factory() as client:
             try:
                 response = await client.post(
                     self._api_url(target.base_url, "audio/transcriptions"),
                     headers=headers,
-                    data=data,
-                    files={
-                        "file": (
-                            filename,
-                            content,
-                            ALLOWED_AUDIO_FORMATS[audio_format][0],
-                        )
-                    },
+                    json=payload,
                 )
             except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout) as exc:
                 raise MultimodalServiceError(

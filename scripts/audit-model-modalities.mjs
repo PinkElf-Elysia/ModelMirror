@@ -13,6 +13,7 @@ const CURRENT_TIME_MARKER = "const CURRENT_TIME_SECONDS";
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "bytedance-seed/seedream-5-0-pro",
+  "bytedance-seed/seedream-5-0-lite",
   "bytedance/seedance-2.0-mini",
   "deepgram/flux-tts:free",
   "x-ai/grok-imagine-image-2.0",
@@ -305,6 +306,7 @@ async function main() {
     expired_model_ids: expiredIds,
     specialized_metadata_exceptions: [
       "bytedance-seed/seedream-5-0-pro uses the dedicated image catalog contract",
+      "bytedance-seed/seedream-5-0-lite uses the dedicated image catalog contract",
       "bytedance/seedance-2.0-mini uses the dedicated video catalog contract",
       "deepgram/flux-tts:free uses the dedicated speech catalog contract",
       "x-ai/grok-imagine-image-2.0 uses the dedicated image catalog contract",

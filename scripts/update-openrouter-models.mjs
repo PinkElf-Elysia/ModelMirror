@@ -22,6 +22,7 @@ const ALLOWED_INPUT_MODALITIES = new Set([
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "bytedance-seed/seedream-5-0-pro",
+  "bytedance-seed/seedream-5-0-lite",
   "bytedance/seedance-2.0-mini",
   "deepgram/flux-tts:free",
   "x-ai/grok-imagine-image-2.0",

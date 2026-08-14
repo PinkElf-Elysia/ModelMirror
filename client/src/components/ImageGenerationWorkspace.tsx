@@ -10,6 +10,7 @@ import type { Model } from "../data/models";
 import {
   estimateImageCost,
   GROK_IMAGINE_IMAGE_2_PRICING,
+  SEEDREAM_5_LITE_PRICING,
   SEEDREAM_5_PRO_PRICING,
   type ImagePricingItem,
 } from "../utils/imageCostEstimate";
@@ -136,6 +137,8 @@ export default function ImageGenerationWorkspace({
           ? GROK_IMAGINE_IMAGE_2_PRICING
           : model.id === "bytedance-seed/seedream-5-0-pro"
             ? SEEDREAM_5_PRO_PRICING
+          : model.id === "bytedance-seed/seedream-5-0-lite"
+            ? SEEDREAM_5_LITE_PRICING
           : [];
       return estimateImageCost(pricing, {
         outputCount: Number(parameters.n || 1),
