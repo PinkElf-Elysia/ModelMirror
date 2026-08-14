@@ -187,11 +187,11 @@ def _provider_supports_feature(
     if feature is WorkerFeatureName.CODE_INTELLIGENCE:
         return "code_diagnostics" in tools
     if feature is WorkerFeatureName.STRUCTURED_PLAN:
-        return capabilities.supports_structured_plan or "update_plan" in tools
+        return "update_plan" in tools
     if feature is WorkerFeatureName.USER_QUESTIONS:
-        return capabilities.supports_questions or "request_user_input" in tools
+        return "request_user_input" in tools
     if feature is WorkerFeatureName.CONTEXT_COMPACTION:
-        return capabilities.supports_compaction or "compact_context" in tools
+        return "compact_context" in tools
     if feature is WorkerFeatureName.TURN_HISTORY:
         return True
     if feature is WorkerFeatureName.SUBTASKS:
@@ -239,6 +239,7 @@ def _task_capability_status(
     current: ProviderCapabilities | None,
     binding_matches: bool,
     current_reason: str | None,
+    v17_task: bool = False,
 ) -> WorkerCapabilityStatus:
     enabled = _feature_flag_enabled(feature)
     platform_owned = feature is WorkerFeatureName.TURN_HISTORY
@@ -252,6 +253,13 @@ def _task_capability_status(
             and _provider_supports_feature(current, feature)
         )
     )
+    if (
+        v17_task
+        and basic_runtime
+        and snapshot is not None
+        and not snapshot.supports_turn_interrupt
+    ):
+        supported = False
     reason: WorkerCapabilityReason | None = None
     if not enabled:
         reason = WorkerCapabilityReason.FEATURE_DISABLED
@@ -288,7 +296,9 @@ def _task_capability_status(
             if current_reason == "route_unavailable"
             else WorkerCapabilityReason.PROVIDER_UNAVAILABLE
         )
-    elif not _provider_supports_feature(current, feature):
+    elif not _provider_supports_feature(current, feature) or (
+        v17_task and basic_runtime and not current.supports_turn_interrupt
+    ):
         reason = WorkerCapabilityReason.PROVIDER_UNSUPPORTED
     return WorkerCapabilityStatus(
         name=feature,
@@ -485,6 +495,7 @@ async def get_task_capabilities(task_id: str) -> TaskCapabilities:
                     current=observation.capabilities,
                     binding_matches=binding_matches,
                     current_reason=observation.reason,
+                    v17_task=task.runtime_protocol.value == "v17",
                 )
                 for feature in WorkerFeatureName
             ),

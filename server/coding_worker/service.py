@@ -242,9 +242,17 @@ class CodingWorkerService:
         observation = await self.provider_capability_observation(
             request.model_route, force=True
         )
+        runtime_protocol = self._runtime_protocol()
+        if runtime_protocol is RuntimeProtocol.V17 and not self._v17_route_ready(
+            observation.capabilities
+        ):
+            raise WorkerConflictError(
+                "Model route does not support the V17 interaction contract.",
+                code="v17_route_unavailable",
+            )
         task = self.store.create_task(
             spec,
-            runtime_protocol=self._runtime_protocol(),
+            runtime_protocol=runtime_protocol,
             capability_binding_sha256=observation.binding_sha256,
             capability_snapshot={
                 "available": observation.capabilities is not None,
@@ -259,6 +267,23 @@ class CodingWorkerService:
         )
         self._wake.set()
         return task
+
+    @staticmethod
+    def _v17_route_ready(capabilities: ProviderCapabilities | None) -> bool:
+        if capabilities is None:
+            return False
+        required_tools = {
+            "update_plan",
+            "update_todo",
+            "request_user_input",
+            "compact_context",
+        }
+        return (
+            capabilities.supports_checkpoint
+            and capabilities.supports_restore
+            and capabilities.supports_turn_interrupt
+            and required_tools.issubset(capabilities.tool_names)
+        )
 
     async def provider_capability_observation(
         self, model_route: str, *, force: bool = False
@@ -2871,6 +2896,9 @@ def _intersect_provider_capabilities(
         supports_compaction=all(item.supports_compaction for item in values),
         supports_tool_boundaries=all(
             item.supports_tool_boundaries for item in values
+        ),
+        supports_turn_interrupt=all(
+            item.supports_turn_interrupt for item in values
         ),
         tool_names=tuple(
             tool_name for tool_name in values[0].tool_names if tool_name in tool_names

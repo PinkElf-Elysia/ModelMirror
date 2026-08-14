@@ -151,6 +151,26 @@ class _UnavailableProvider(FakeCodingAgentProvider):
         return await super().capabilities()
 
 
+class _NativeInteractionOnlyProvider(FakeCodingAgentProvider):
+    async def capabilities(self) -> ProviderCapabilities:
+        capabilities = await super().capabilities()
+        return capabilities.model_copy(
+            update={
+                "tool_names": tuple(
+                    name
+                    for name in capabilities.tool_names
+                    if name
+                    not in {
+                        "update_plan",
+                        "update_todo",
+                        "request_user_input",
+                        "compact_context",
+                    }
+                )
+            }
+        )
+
+
 def teardown_function() -> None:
     configure_coding_worker_for_tests(None, enabled=None)
 
@@ -181,6 +201,23 @@ def test_feature_flag_is_default_deny(monkeypatch: pytest.MonkeyPatch) -> None:
         "subtasks": False,
     }
     assert client.post("/api/coding-worker/v1/tasks", json=_payload()).status_code == 404
+
+
+def test_native_provider_hints_do_not_enable_platform_interaction_capabilities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_INTERACTION_ENABLED", "true")
+    client, _service = _client(
+        tmp_path, provider=_NativeInteractionOnlyProvider()
+    )
+
+    with client:
+        capabilities = client.get("/api/coding-worker/v1/capabilities").json()
+
+    assert capabilities["structured_plan"] is False
+    assert capabilities["user_questions"] is False
+    assert capabilities["context_compaction"] is False
 
 
 def test_v15_capabilities_are_vendor_neutral_and_independently_gated(

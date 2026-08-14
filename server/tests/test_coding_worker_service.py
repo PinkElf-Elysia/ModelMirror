@@ -127,6 +127,13 @@ class _OpenTrackingProvider(FakeCodingAgentProvider):
         return await super().open(request)
 
 
+class _NoTurnInterruptProvider(FakeCodingAgentProvider):
+    async def capabilities(self) -> ProviderCapabilities:
+        return (await super().capabilities()).model_copy(
+            update={"supports_turn_interrupt": False}
+        )
+
+
 class _LostTurnReceiptProvider(FakeCodingAgentProvider):
     def __init__(self) -> None:
         super().__init__()
@@ -504,6 +511,31 @@ async def test_v17_turn_parks_once_and_resumes_exact_checkpoint(
         task.task_id, transaction.turn_id
     )
     assert transaction.state is TurnTransactionState.COMPLETED
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_task_creation_rejects_a_route_without_turn_interrupt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "CODING_WORKER_V16_ENABLED",
+        "CODING_WORKER_INTERACTION_ENABLED",
+        "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+        "CODING_WORKER_SUBAGENTS_ENABLED",
+        "CODING_WORKER_V17_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    service = _service(tmp_path, _NoTurnInterruptProvider())
+
+    with pytest.raises(WorkerConflictError) as rejected:
+        await service.create_task(
+            Origin(module="test", object_id="v17-route-unavailable"),
+            _request("v17-route-unavailable"),
+        )
+
+    assert rejected.value.code == "v17_route_unavailable"
+    assert service.store.list_tasks() == []
     await service.shutdown()
 
 
