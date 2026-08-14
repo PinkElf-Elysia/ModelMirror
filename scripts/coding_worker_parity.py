@@ -267,6 +267,7 @@ def _command_smoke(args: argparse.Namespace) -> int:
         runners=runners,
         candidate_sha=args.candidate_sha,
         model_route_receipt_sha256=args.route_receipt_sha256,
+        round_id=args.round_id,
     )
     payload = _round_result(
         round_id=args.round_id,
@@ -300,6 +301,7 @@ def _command_run_round(args: argparse.Namespace) -> int:
         runners=runners,
         candidate_sha=args.candidate_sha,
         model_route_receipt_sha256=args.route_receipt_sha256,
+        round_id=args.round_id,
     )
     result = _round_result(
         round_id=args.round_id,

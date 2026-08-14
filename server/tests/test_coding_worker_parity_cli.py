@@ -53,6 +53,7 @@ def _full_round(round_id: str) -> ParityRoundResult:
         },
         candidate_sha=CANDIDATE,
         model_route_receipt_sha256=ROUTE_RECEIPT,
+        round_id=round_id,
     )
     return ParityRoundResult(
         round_id=round_id,

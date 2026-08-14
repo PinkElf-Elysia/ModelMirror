@@ -359,12 +359,14 @@ def run_parity_matrix(
     runners: Mapping[ParityEngine, ParityRunner],
     candidate_sha: str,
     model_route_receipt_sha256: str,
+    round_id: str,
 ) -> tuple[ParityRunOutcome, ...]:
     return _run_cells(
         manifest=manifest,
         runners=runners,
         candidate_sha=candidate_sha,
         model_route_receipt_sha256=model_route_receipt_sha256,
+        round_id=round_id,
         tasks=manifest.tasks,
         attempts=range(1, ATTEMPTS_PER_ENGINE + 1),
     )
@@ -376,6 +378,7 @@ def run_parity_smoke(
     runners: Mapping[ParityEngine, ParityRunner],
     candidate_sha: str,
     model_route_receipt_sha256: str,
+    round_id: str,
 ) -> tuple[ParityRunOutcome, ...]:
     categories: dict[str, FrozenParityTask] = {}
     for task in manifest.tasks:
@@ -385,6 +388,7 @@ def run_parity_smoke(
         runners=runners,
         candidate_sha=candidate_sha,
         model_route_receipt_sha256=model_route_receipt_sha256,
+        round_id=round_id,
         tasks=tuple(categories.values()),
         attempts=(1,),
     )
@@ -396,6 +400,7 @@ def _run_cells(
     runners: Mapping[ParityEngine, ParityRunner],
     candidate_sha: str,
     model_route_receipt_sha256: str,
+    round_id: str,
     tasks: Sequence[FrozenParityTask],
     attempts: Sequence[int] | range,
 ) -> tuple[ParityRunOutcome, ...]:
@@ -413,8 +418,13 @@ def _run_cells(
         for attempt in attempts
         for engine in ParityEngine
     ]
+    if SAFE_ID.fullmatch(round_id) is None:
+        raise ValueError("parity round id is invalid")
     seed = int.from_bytes(
-        bytes.fromhex(manifest_sha)[:16] + bytes.fromhex(candidate_sha)[:16], "big"
+        bytes.fromhex(manifest_sha)[:12]
+        + bytes.fromhex(candidate_sha)[:12]
+        + hashlib.sha256(round_id.encode("utf-8")).digest()[:8],
+        "big",
     )
     random.Random(seed).shuffle(cells)
     outcomes: list[ParityRunOutcome] = []
@@ -427,6 +437,7 @@ def _run_cells(
             candidate_sha=candidate_sha,
             manifest_sha=manifest_sha,
             model_route_receipt_sha256=model_route_receipt_sha256,
+            round_id=round_id,
         )
         outcome = runners[engine].execute(request)
         _assert_bound_outcome(request, outcome)
@@ -443,9 +454,13 @@ def _request_for_cell(
     candidate_sha: str,
     manifest_sha: str,
     model_route_receipt_sha256: str,
+    round_id: str,
 ) -> ParityRunRequest:
+    cell_id = hashlib.sha256(
+        f"{round_id}\0{engine.value}\0{task.task_id}\0{attempt}".encode("utf-8")
+    ).hexdigest()[:32]
     return ParityRunRequest(
-        run_id=f"run_{engine.value}_{task.task_id}_{attempt}",
+        run_id=f"run_{cell_id}",
         task_id=task.task_id,
         engine=engine,
         attempt=attempt,
