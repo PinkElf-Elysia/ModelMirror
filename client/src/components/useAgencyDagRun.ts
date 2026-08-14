@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AgencyDagEvent,
   AgencyDagRun,
+  AgencyDagRevisionPayload,
   AgencyDagStartPayload,
   AgencyDagStatus,
 } from "./AgencyExpertTeamTypes";
@@ -101,6 +102,24 @@ function mergeEvent(run: AgencyDagRun, event: AgencyDagEvent): AgencyDagRun {
   if (event.event === "agency.run.completed") status = "completed";
   if (event.event === "agency.run.failed") status = "failed";
   if (event.event === "agency.run.cancelled") status = "cancelled";
+  const modelCalls = event.model_calls ?? run.model_calls;
+  const usage = event.cumulative_usage ?? (
+    event.event.startsWith("agency.run.") ? event.usage ?? run.usage : run.usage
+  );
+  const lineageCallsBefore = Math.max(
+    0,
+    (run.lineage_model_calls ?? run.model_calls) - run.model_calls,
+  );
+  const lineageInputBefore = Math.max(
+    0,
+    (run.lineage_usage?.input_tokens ?? run.usage.input_tokens ?? 0)
+      - (run.usage.input_tokens ?? 0),
+  );
+  const lineageOutputBefore = Math.max(
+    0,
+    (run.lineage_usage?.output_tokens ?? run.usage.output_tokens ?? 0)
+      - (run.usage.output_tokens ?? 0),
+  );
   return {
     ...run,
     status,
@@ -110,10 +129,17 @@ function mergeEvent(run: AgencyDagRun, event: AgencyDagEvent): AgencyDagRun {
     final_output: event.final_output ?? run.final_output,
     quality_status: event.quality_status ?? run.quality_status,
     warnings: event.warnings ?? run.warnings,
-    model_calls: event.model_calls ?? run.model_calls,
-    usage: event.cumulative_usage ?? (
-      event.event.startsWith("agency.run.") ? event.usage ?? run.usage : run.usage
-    ),
+    model_calls: modelCalls,
+    usage,
+    lineage_model_calls: run.lineage_model_calls === undefined
+      ? undefined
+      : lineageCallsBefore + modelCalls,
+    lineage_usage: run.lineage_usage === undefined
+      ? undefined
+      : {
+          input_tokens: lineageInputBefore + (usage.input_tokens ?? 0),
+          output_tokens: lineageOutputBefore + (usage.output_tokens ?? 0),
+        },
     error_code:
       event.event === "agency.run.failed" ? event.error || run.error_code : run.error_code,
     error_message:
@@ -306,6 +332,35 @@ export function useAgencyDagRun() {
     }
   }, [closeEvents, connectEvents, setCurrentRun]);
 
+  const revise = useCallback(async (payload: AgencyDagRevisionPayload) => {
+    const taskId = runRef.current?.task_id;
+    if (!taskId) return;
+    setBusy(true);
+    setError("");
+    closeEvents();
+    try {
+      const response = await fetch(
+        `/api/expert-team/dag-runs/${taskId}/revise`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      const created = await responseJson<AgencyDagRun>(response);
+      setCurrentRun(created);
+      persistRecentTask(created.task_id);
+      writeTaskToUrl(created.task_id);
+      connectEvents(created.task_id);
+      return created;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "DAG 返工启动失败。");
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }, [closeEvents, connectEvents, setCurrentRun]);
+
   const clear = useCallback(() => {
     const taskId = runRef.current?.task_id || recentTaskFromBrowser();
     closeEvents();
@@ -314,5 +369,5 @@ export function useAgencyDagRun() {
     if (taskId) forgetTask(taskId);
   }, [closeEvents, setCurrentRun]);
 
-  return { run, error, busy, start, retry, cancel, restore, refresh, clear };
+  return { run, error, busy, start, retry, revise, cancel, restore, refresh, clear };
 }

@@ -281,6 +281,33 @@ def test_plan_preview_auto_compiles_without_authoring_proposal(
     assert expert_run.metadata["backend"] == "agency_orchestrator"
 
 
+def test_plan_preview_reports_planning_specific_token_limit(monkeypatch) -> None:
+    async def fake_compose(**_kwargs):
+        raise main_module.AgencyWorkerError(
+            "模型输出达到 token 上限，未作为完整结果保存。可缩短目标后仅重试失败步骤。",
+            code="model_output_truncated",
+        )
+
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_PLANNER_ENABLED", "1")
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module.agency_worker_client, "compose", fake_compose)
+
+    response = client.post(
+        "/api/expert-team/plan-preview",
+        json={
+            "goal": "研究社区活动并形成可执行的运营方案。",
+            "planner_model_id": "model/planner",
+            "default_agent_model_id": "model/agent",
+        },
+    )
+
+    assert response.status_code == 502
+    assert response.json()["code"] == "model_output_truncated"
+    assert "未生成可执行计划" in response.json()["error"]
+    assert "失败步骤" not in response.json()["error"]
+
+
 def test_plan_preview_applies_only_allowlisted_method_skill(
     monkeypatch,
 ) -> None:

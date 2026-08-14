@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from orchestration_worker import (
     AGENCY_UPSTREAM_REVISION,
@@ -57,7 +57,9 @@ from expert_team_agency_runtime import (
     AgencyExecutionCapacityError,
     AgencyExecutionCapabilities,
     AgencyExecutionCoordinator,
+    AgencyRevisionCapabilities,
     AgencyExecutionValidationError,
+    ExpertTeamDagRevisionRequest,
     ExpertTeamDagRunRequest,
     PreparedAgencyExecution,
     prepare_agency_execution,
@@ -4932,6 +4934,15 @@ def expert_team_agency_execution_enabled() -> bool:
     }
 
 
+def expert_team_agency_revision_enabled() -> bool:
+    return os.getenv("EXPERT_TEAM_AGENCY_REVISION_ENABLED", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 EXPERT_TEAM_METHOD_SKILL_ALLOWLIST = {
     "data-analysis",
     "software-engineering",
@@ -5095,6 +5106,9 @@ async def get_expert_team_planner_capabilities():
     execution = AgencyExecutionCapabilities(
         enabled=expert_team_agency_execution_enabled(),
         worker_available=agency_execution_coordinator.worker_available(),
+        revision=AgencyRevisionCapabilities(
+            enabled=expert_team_agency_revision_enabled()
+        ),
     )
     return ExpertTeamAgencyCapabilities(
         enabled=expert_team_agency_planner_enabled(),
@@ -5430,9 +5444,15 @@ async def preview_expert_team_plan(
             status="failed",
             error=f"{exc.code}: {exc}"[:500],
         )
+        error_message = str(exc)
+        if exc.code == "model_output_truncated":
+            error_message = (
+                "规划模型输出达到当前 token 上限，未生成可执行计划。"
+                "请精简目标、减少最大专家数或更换更适合结构化规划的模型后重试。"
+            )
         return JSONResponse(
             status_code=agency_worker_http_status(exc.code),
-            content={"error": str(exc), "code": exc.code},
+            content={"error": error_message, "code": exc.code},
         )
     except ValueError as exc:
         await run_registry.update_run(
@@ -5579,6 +5599,7 @@ async def start_expert_team_dag_run(
         "events_url": f"/api/expert-team/dag-runs/{task_id}/events",
         "cancel_url": f"/api/expert-team/dag-runs/{task_id}/cancel",
         "retry_url": f"/api/expert-team/dag-runs/{task_id}/retry",
+        "revise_url": f"/api/expert-team/dag-runs/{task_id}/revise",
     }
 
 
@@ -5605,6 +5626,17 @@ async def list_expert_team_dag_runs(
     for item in items[:bounded_limit]:
         payload = agency_execution_coordinator.serialize(item)
         final_output = str(payload.get("final_output") or "")
+        revision = payload.get("revision")
+        revision_summary = None
+        if isinstance(revision, dict):
+            revision_summary = {
+                "parent_task_id": revision.get("parent_task_id"),
+                "root_task_id": revision.get("root_task_id"),
+                "revision_index": revision.get("revision_index"),
+                "target_task_id": revision.get("target_task_id"),
+                "feedback_preview": revision.get("feedback_preview") or "",
+                "affected_task_ids": revision.get("affected_task_ids") or [],
+            }
         summaries.append(
             {
                 "task_id": payload["task_id"],
@@ -5617,6 +5649,10 @@ async def list_expert_team_dag_runs(
                 "selected_agent_ids": payload.get("selected_agent_ids") or [],
                 "model_calls": payload.get("model_calls") or 0,
                 "usage": payload.get("usage") or {},
+                "lineage_model_calls": payload.get("lineage_model_calls") or 0,
+                "lineage_usage": payload.get("lineage_usage") or {},
+                "revisable": bool(payload.get("revisable")),
+                "revision": revision_summary,
                 "quality_status": payload.get("quality_status"),
                 "error_code": payload.get("error_code"),
                 "final_output_preview": final_output[:500],
@@ -5674,6 +5710,66 @@ async def stream_expert_team_dag_run_events(
         event_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+async def prepare_historical_agency_execution(source: Any) -> PreparedAgencyExecution:
+    metadata = source.runtime_metadata
+    if str(metadata.get("upstream_revision") or "") != AGENCY_UPSTREAM_REVISION:
+        raise AgencyExecutionValidationError(
+            "Agency Orchestrator 上游版本已变化，请重新生成计划。",
+            code="upstream_revision_changed",
+        )
+    snapshot = build_meta_planner_capability_snapshot(AGENT_RECORDS)
+    if (
+        str(metadata.get("capability_snapshot_version") or "") != snapshot.version
+        or str(metadata.get("capability_snapshot_hash") or "")
+        != snapshot.snapshot_hash
+    ):
+        raise AgencyExecutionValidationError(
+            "专家能力快照已变化，请重新生成计划。",
+            code="capability_snapshot_changed",
+        )
+    model_id = str(metadata.get("model_id") or "")
+    if not await expert_team_execution_model_is_text(model_id):
+        raise AgencyExecutionValidationError(
+            "原执行模型已不再是可用的文本聊天模型。",
+            code="agency_execution_not_revisable",
+        )
+    raw_selected = metadata.get("selected_agent_ids")
+    selected_ids = [
+        str(value)
+        for value in (raw_selected if isinstance(raw_selected, list) else [])
+    ]
+    current_agents = {agent.id: agent for agent in adapt_expert_catalog(AGENT_RECORDS)}
+    if not selected_ids or any(agent_id not in current_agents for agent_id in selected_ids):
+        raise AgencyExecutionValidationError(
+            "原计划中的专家已变化，请重新生成计划。",
+            code="capability_snapshot_changed",
+        )
+    raw_digests = metadata.get("method_skill_digests")
+    expected_digests = {
+        str(key): str(value)
+        for key, value in (
+            raw_digests.items() if isinstance(raw_digests, dict) else []
+        )
+    }
+    method_skills = resolve_expert_team_method_skill_definitions(
+        expected_digests.keys(), expected_digests
+    )
+    workflow = dict(source.workflow) if isinstance(source.workflow, dict) else {}
+    sink_task_id = str(metadata.get("sink_task_id") or "")
+    if not workflow.get("steps") or not sink_task_id:
+        raise AgencyExecutionValidationError(
+            "原执行工作流不完整，不能安全继续。",
+            code="agency_execution_not_revisable",
+        )
+    return PreparedAgencyExecution(
+        workflow=workflow,
+        agents=[current_agents[agent_id] for agent_id in selected_ids],
+        skills=list(method_skills.values()),
+        sink_task_id=sink_task_id,
+        selected_agent_ids=selected_ids,
     )
 
 
@@ -5795,6 +5891,85 @@ async def retry_expert_team_dag_run(task_id: str, request: Request):
         "events_url": f"/api/expert-team/dag-runs/{new_task_id}/events",
         "cancel_url": f"/api/expert-team/dag-runs/{new_task_id}/cancel",
         "retry_url": f"/api/expert-team/dag-runs/{new_task_id}/retry",
+        "revise_url": f"/api/expert-team/dag-runs/{new_task_id}/revise",
+    }
+
+
+@app.post("/api/expert-team/dag-runs/{task_id}/revise", status_code=202)
+async def revise_expert_team_dag_run(
+    task_id: str,
+    payload: dict[str, Any],
+    request: Request,
+):
+    if (
+        not expert_team_agency_execution_enabled()
+        or not expert_team_agency_revision_enabled()
+    ):
+        return agency_execution_error(
+            503,
+            "agency_revision_disabled",
+            "专家团对话式返工当前未启用。",
+        )
+    if not agency_execution_coordinator.worker_available() or not get_llm_gateway_config()[0]:
+        return agency_execution_error(
+            503,
+            "agency_worker_unavailable",
+            "Agency Worker 或 LLM 网关当前不可用。",
+        )
+    source = workflow_execution_store.get(task_id)
+    if source is None or source.source_kind != "expert_team_agency":
+        return agency_execution_error(
+            404, "agency_execution_not_found", "DAG 执行任务不存在。"
+        )
+    if source.status not in {"completed", "failed"}:
+        return agency_execution_error(
+            409,
+            "agency_execution_not_revisable",
+            "只有已完成或失败的专家团 DAG 可以返工。",
+        )
+    try:
+        revision_request = ExpertTeamDagRevisionRequest.model_validate(payload)
+    except ValidationError:
+        return agency_execution_error(
+            422,
+            "agency_execution_revision_invalid",
+            "返工目标或反馈无效；反馈必须为 10-4000 个字符。",
+        )
+    try:
+        rate_limit_or_raise(client_ip(request))
+    except HTTPException as exc:
+        return agency_execution_error(
+            exc.status_code, "agency_execution_not_revisable", str(exc.detail)
+        )
+    try:
+        prepared = await prepare_historical_agency_execution(source)
+        result = await agency_execution_coordinator.revise(
+            source_task_id=task_id,
+            target_task_id=revision_request.target_task_id,
+            feedback=revision_request.feedback,
+            prepared=prepared,
+        )
+    except AgencyExecutionCapacityError as exc:
+        return agency_execution_error(
+            429, "agency_execution_capacity_reached", str(exc)
+        )
+    except AgencyExecutionValidationError as exc:
+        status = 409 if exc.code in {
+            "agency_execution_not_revisable",
+            "agency_revision_in_progress",
+            "agency_method_skill_changed",
+            "capability_snapshot_changed",
+            "upstream_revision_changed",
+        } else 422
+        return agency_execution_error(status, exc.code, str(exc))
+    new_task_id = str(result["task_id"])
+    return {
+        **result,
+        "status_url": f"/api/expert-team/dag-runs/{new_task_id}",
+        "events_url": f"/api/expert-team/dag-runs/{new_task_id}/events",
+        "cancel_url": f"/api/expert-team/dag-runs/{new_task_id}/cancel",
+        "retry_url": f"/api/expert-team/dag-runs/{new_task_id}/retry",
+        "revise_url": f"/api/expert-team/dag-runs/{new_task_id}/revise",
     }
 
 

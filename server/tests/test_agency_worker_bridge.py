@@ -198,7 +198,7 @@ steps:
         )
     )
     assert len(requests) == 3
-    assert {request.max_tokens for request in requests} == {8192}
+    assert {request.max_tokens for request in requests} == {10240}
     assert result["model_calls"] == 3
     assert result["repair_used"] is True
     assert result["validation"]["valid"] is True

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type {
   AgencyDagEvent,
+  AgencyDagRevisionPayload,
   AgencyDagRun,
   AgencyAgentSummary,
   AgencyExecutionCapabilities,
@@ -20,6 +21,10 @@ interface AgencyDagRunSummary {
   quality_status?: string | null;
   model_calls: number;
   usage: AgencyDagRun["usage"];
+  lineage_model_calls?: number;
+  lineage_usage?: AgencyDagRun["usage"];
+  revisable?: boolean;
+  revision?: AgencyDagRun["revision"];
   error_code?: string | null;
   created_at: number;
   updated_at: number;
@@ -63,6 +68,36 @@ function historyHref(taskId: string) {
   return `${url.pathname}${url.search}`;
 }
 
+function revisionStepSets(
+  tasks: Array<{ task_id: string; title: string; depends_on: string[] }>,
+  events: AgencyDagEvent[],
+  targetTaskId: string,
+) {
+  const affected = new Set([targetTaskId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const task of tasks) {
+      if (!affected.has(task.task_id) && task.depends_on.some((id) => affected.has(id))) {
+        affected.add(task.task_id);
+        changed = true;
+      }
+    }
+  }
+  const completed = new Set(
+    events
+      .filter((event) => event.status === "completed" && event.output)
+      .map((event) => event.task_id),
+  );
+  for (const task of tasks) {
+    if (!completed.has(task.task_id)) affected.add(task.task_id);
+  }
+  return {
+    affected: tasks.filter((task) => affected.has(task.task_id)),
+    reused: tasks.filter((task) => completed.has(task.task_id) && !affected.has(task.task_id)),
+  };
+}
+
 function downloadMarkdown(run: AgencyDagRun) {
   if (!run.final_output) return;
   const title = (run.team_name || "专家团成果").replace(/[\\/:*?"<>|]+/g, "-");
@@ -85,11 +120,13 @@ interface AgencyDagRunPanelProps {
   run: AgencyDagRun | null;
   error: string;
   busy: boolean;
-  confirmMode: "start" | "retry" | null;
+  confirmMode: "start" | "retry" | "revise" | null;
+  pendingRevision: AgencyDagRevisionPayload | null;
   onConfirm: () => void;
   onDismissConfirm: () => void;
   onCancel: () => void;
   onRetryRequest: () => void;
+  onRevisionRequest: (payload: AgencyDagRevisionPayload) => void;
 }
 
 export default function AgencyDagRunPanel({
@@ -107,11 +144,16 @@ export default function AgencyDagRunPanel({
   onDismissConfirm,
   onCancel,
   onRetryRequest,
+  onRevisionRequest,
+  pendingRevision,
 }: AgencyDagRunPanelProps) {
   const [history, setHistory] = useState<AgencyDagRunSummary[]>([]);
   const [historyError, setHistoryError] = useState("");
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
+  const [revisionTargetId, setRevisionTargetId] = useState("");
+  const [revisionFeedback, setRevisionFeedback] = useState("");
+  const [revisionFormError, setRevisionFormError] = useState("");
   const stepsById = new Map((run?.steps || []).map((event) => [event.task_id, event]));
   const agentsById = new Map(
     [...agentCatalog, ...(preview?.selected_agents || [])].map((agent) => [agent.id, agent]),
@@ -119,6 +161,38 @@ export default function AgencyDagRunPanel({
   const taskDefinitions = preview?.plan.tasks || run?.task_definitions || [];
   const totalInput = run?.usage?.input_tokens || 0;
   const totalOutput = run?.usage?.output_tokens || 0;
+  const dependedOn = new Set(taskDefinitions.flatMap((task) => task.depends_on));
+  const sinkTaskId = [...taskDefinitions].reverse().find((task) => !dependedOn.has(task.task_id))?.task_id || "";
+  const revisionSets = revisionTargetId
+    ? revisionStepSets(taskDefinitions, run?.steps || [], revisionTargetId)
+    : { affected: [], reused: [] };
+  const revisionTargetTask = taskDefinitions.find((task) => task.task_id === revisionTargetId);
+  const revisionTargetEvent = stepsById.get(revisionTargetId);
+  const revisionTargetAgent = revisionTargetTask?.agent_id
+    ? agentsById.get(revisionTargetTask.agent_id)
+    : undefined;
+
+  useEffect(() => {
+    setRevisionTargetId("");
+    setRevisionFeedback("");
+    setRevisionFormError("");
+  }, [run?.task_id]);
+
+  function beginRevision(taskId: string) {
+    setRevisionTargetId(taskId);
+    setRevisionFeedback("");
+    setRevisionFormError("");
+  }
+
+  function requestRevision() {
+    const feedback = revisionFeedback.trim();
+    if (!revisionTargetId || feedback.length < 10 || feedback.length > 4000) {
+      setRevisionFormError("请输入 10–4000 个字符的具体修改意见。");
+      return;
+    }
+    setRevisionFormError("");
+    onRevisionRequest({ target_task_id: revisionTargetId, feedback });
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -165,7 +239,9 @@ export default function AgencyDagRunPanel({
           <p className="mt-2 text-sm leading-6 text-amber-50/90">
             {confirmMode === "retry"
               ? `将使用 ${modelName} 创建新的续跑任务，复用已完成步骤，只重新执行失败及下游步骤。累计还可调用 ${Math.max(0, (capabilities?.max_model_calls || 10) - (run?.model_calls || 0))} 次；复用内容不会再次调用模型，但续跑仍可能产生费用。`
-              : `将使用 ${modelName} 执行受控 DAG。最多 ${capabilities?.max_model_calls || 10} 次模型调用，并发 ${capabilities?.max_concurrency || 2}，最长 ${Math.round((capabilities?.timeout_seconds || 900) / 60)} 分钟，可能产生费用。`}
+              : confirmMode === "revise"
+                ? `将使用原模型 ${modelName} 修改步骤 ${pendingRevision?.target_task_id || ""}。本次返工新开最多 ${capabilities?.revision?.max_model_calls || 10} 次调用，并发 ${capabilities?.max_concurrency || 2}，最长 ${Math.round((capabilities?.timeout_seconds || 900) / 60)} 分钟；源任务用量不会挤占本次预算，但返工仍可能产生费用。`
+                : `将使用 ${modelName} 执行受控 DAG。最多 ${capabilities?.max_model_calls || 10} 次模型调用，并发 ${capabilities?.max_concurrency || 2}，最长 ${Math.round((capabilities?.timeout_seconds || 900) / 60)} 分钟，可能产生费用。`}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
@@ -174,7 +250,13 @@ export default function AgencyDagRunPanel({
               onClick={onConfirm}
               type="button"
             >
-              {busy ? "正在提交..." : confirmMode === "retry" ? "确认并续跑" : "确认并启动"}
+              {busy
+                ? "正在提交..."
+                : confirmMode === "retry"
+                  ? "确认并续跑"
+                  : confirmMode === "revise"
+                    ? "确认并返工"
+                    : "确认并启动"}
             </button>
             <button
               className="rounded-full border border-white/15 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-white/30"
@@ -197,6 +279,71 @@ export default function AgencyDagRunPanel({
         <div className="rounded-lg border border-red-300/25 bg-red-300/10 p-4 text-sm leading-6 text-red-100">
           {error}
         </div>
+      ) : null}
+
+      {run?.revision ? (
+        <section className="rounded-lg border border-cyan-300/25 bg-cyan-300/10 p-4 text-sm leading-6 text-cyan-50">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p>
+              修订 {run.revision.revision_index} · 修改步骤 {run.revision.target_task_id}
+            </p>
+            <a
+              className="rounded-full border border-cyan-200/30 px-3 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-200/10"
+              href={historyHref(run.revision.parent_task_id)}
+            >
+              查看父版本
+            </a>
+          </div>
+          {run.revision.feedback ? (
+            <p className="mt-2 whitespace-pre-wrap text-xs text-cyan-50/85">
+              修改意见：{run.revision.feedback}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {revisionTargetId && run ? (
+        <section className="rounded-lg border border-hire-300/30 bg-hire-300/10 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-hire-100">要求专家修改</h3>
+              <p className="mt-1 text-sm text-slate-300">
+                {revisionTargetAgent?.emoji || "专"} {revisionTargetAgent?.name || revisionTargetTask?.agent_id || "未绑定专家"}
+                {" · "}{revisionTargetTask?.title || revisionTargetId} · {revisionTargetId}
+              </p>
+            </div>
+            <button
+              className="rounded-full border border-white/15 px-3 py-1 text-xs text-slate-300"
+              onClick={() => setRevisionTargetId("")}
+              type="button"
+            >
+              关闭
+            </button>
+          </div>
+          <p className="mt-3 line-clamp-4 whitespace-pre-wrap text-xs leading-5 text-slate-400">
+            上一版输出：{revisionTargetEvent?.output || "未找到可返工输出"}
+          </p>
+          <textarea
+            className="mt-4 min-h-28 w-full rounded-lg border border-white/10 bg-ink-950/80 p-3 text-sm leading-6 text-white outline-none focus:border-hire-300/70"
+            maxLength={4000}
+            onChange={(event) => setRevisionFeedback(event.target.value)}
+            placeholder="说明需要保留、删除或改写的内容，以及新的约束。"
+            value={revisionFeedback}
+          />
+          <p className="mt-2 text-xs text-slate-400">
+            将执行：{revisionSets.affected.map((task) => task.title).join("、") || "无"}；
+            将复用：{revisionSets.reused.map((task) => task.title).join("、") || "无"}。
+          </p>
+          {revisionFormError ? <p className="mt-2 text-xs text-red-200">{revisionFormError}</p> : null}
+          <button
+            className="mt-4 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
+            disabled={busy || confirmMode === "revise"}
+            onClick={requestRevision}
+            type="button"
+          >
+            检查费用并继续
+          </button>
+        </section>
       ) : null}
 
       <section className="surface-panel rounded-lg p-5">
@@ -250,9 +397,21 @@ export default function AgencyDagRunPanel({
                       {agent?.emoji || "专"} {agent?.name || task.agent_id || "未绑定专家"}
                     </p>
                   </div>
-                  <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusClasses(event?.status)}`}>
-                    {event?.reused ? "已复用" : statusLabel(event?.status)}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {run?.revisable && event?.status === "completed" && event.output && capabilities?.revision?.enabled ? (
+                      <button
+                        className="rounded-full border border-hire-300/30 px-2.5 py-1 text-[11px] font-semibold text-hire-100 hover:bg-hire-300/10"
+                        disabled={busy || Boolean(confirmMode)}
+                        onClick={() => beginRevision(task.task_id)}
+                        type="button"
+                      >
+                        要求修改
+                      </button>
+                    ) : null}
+                    <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusClasses(event?.status)}`}>
+                      {event?.reused ? "已复用" : statusLabel(event?.status)}
+                    </span>
+                  </div>
                 </div>
                 <dl className="mt-3 grid gap-2 text-xs leading-5 text-slate-400 sm:grid-cols-2">
                   <div><dt className="text-slate-500">依赖</dt><dd className="break-words text-slate-300">{task.depends_on.join("、") || "无"}</dd></div>
@@ -315,6 +474,16 @@ export default function AgencyDagRunPanel({
               >
                 下载 Markdown
               </button>
+              {run.revisable && sinkTaskId && capabilities?.revision?.enabled ? (
+                <button
+                  className="rounded-full border border-cyan-300/30 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/10"
+                  disabled={busy || Boolean(confirmMode)}
+                  onClick={() => beginRevision(sinkTaskId)}
+                  type="button"
+                >
+                  继续完善
+                </button>
+              ) : null}
             </div>
           ) : null}
           {copyError ? <p className="mt-2 text-xs text-amber-100">{copyError}</p> : null}
@@ -324,6 +493,14 @@ export default function AgencyDagRunPanel({
           <p>Token：{totalInput.toLocaleString()} 入 / {totalOutput.toLocaleString()} 出</p>
           <p>预估费用：{estimatedCostCny === null ? "价格数据缺失" : `¥${estimatedCostCny.toFixed(4)}`}</p>
         </div>
+        {run?.lineage_model_calls !== undefined ? (
+          <p className="mt-2 text-xs text-cyan-100">
+            版本链累计：{run.lineage_model_calls} 次调用 · {(run.lineage_usage?.input_tokens || 0).toLocaleString()} 输入 / {(run.lineage_usage?.output_tokens || 0).toLocaleString()} 输出 token
+          </p>
+        ) : null}
+        {run?.revisable && !capabilities?.revision?.enabled ? (
+          <p className="mt-2 text-xs text-slate-500">对话式返工当前未启用；历史结果仍可查看和下载。</p>
+        ) : null}
         {run?.warnings?.length ? (
           <ul className="mt-3 space-y-1 text-xs leading-5 text-amber-100">
             {run.warnings.map((warning) => <li key={warning}>· {warning}</li>)}
@@ -345,24 +522,41 @@ export default function AgencyDagRunPanel({
         {historyError ? <p className="mt-3 text-sm text-red-200">{historyError}</p> : null}
         <div className="mt-4 space-y-2">
           {history.map((item) => (
-            <a
-              className="block rounded-lg border border-white/10 bg-white/[0.035] p-3 transition hover:border-hire-300/30 hover:bg-white/[0.06]"
-              href={historyHref(item.task_id)}
+            <article
+              className="rounded-lg border border-white/10 bg-white/[0.035] p-3 transition hover:border-hire-300/30 hover:bg-white/[0.06]"
               key={item.task_id}
             >
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-white">{item.team_name || item.goal || "未命名专家团"}</p>
-                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{item.final_output_preview || item.goal}</p>
+              <a className="block" href={historyHref(item.task_id)}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-white">
+                      {item.revision ? `修订 ${item.revision.revision_index}` : "原版"} · {item.team_name || item.goal || "未命名专家团"}
+                    </p>
+                    {item.revision?.feedback_preview ? (
+                      <p className="mt-1 line-clamp-1 text-[11px] text-cyan-100">
+                        {item.revision.target_task_id}：{item.revision.feedback_preview}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{item.final_output_preview || item.goal}</p>
+                  </div>
+                  <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusClasses(item.status)}`}>
+                    {statusLabel(item.status)}
+                  </span>
                 </div>
-                <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusClasses(item.status)}`}>
-                  {statusLabel(item.status)}
-                </span>
-              </div>
-              <p className="mt-2 text-[11px] text-slate-500">
-                {new Date(item.updated_at * 1000).toLocaleString()} · {item.model_calls} 次调用
-              </p>
-            </a>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  {new Date(item.updated_at * 1000).toLocaleString()} · 本次 {item.model_calls} 次调用
+                  {item.lineage_model_calls !== undefined ? ` · 版本链 ${item.lineage_model_calls} 次` : ""}
+                </p>
+              </a>
+              {item.revision?.parent_task_id ? (
+                <a
+                  className="mt-2 inline-flex text-[11px] font-semibold text-cyan-100 hover:text-cyan-50"
+                  href={historyHref(item.revision.parent_task_id)}
+                >
+                  查看父版本
+                </a>
+              ) : null}
+            </article>
           ))}
           {!historyError && history.length === 0 ? (
             <p className="py-5 text-center text-sm text-slate-500">还没有服务端 DAG 历史。</p>

@@ -4,15 +4,20 @@ import PageContainer from "../components/PageContainer";
 import AgencyDagRunPanel from "../components/AgencyDagRunPanel";
 import {
   type AgencyAgentSummary,
+  type AgencyDagRevisionPayload,
   type AgencyPlanPreview,
   type AgencyPlanTask,
   type AgencyPlannerCapabilities,
   type AgencyTeamAsset,
   type AgencyValidationIssue,
-  type AgencyWorkflow,
 } from "../components/AgencyExpertTeamTypes";
 import { useAgencyAssets } from "../components/useAgencyAssets";
 import { useAgencyDagRun } from "../components/useAgencyDagRun";
+import {
+  readAgencyPlanDraft,
+  writeAgencyPlanDraft,
+} from "../components/agencyPlanDraftStorage";
+import { syncWorkflowToPlan } from "../components/agencyWorkflowPlanSync";
 import { DEFAULT_CHAT_MODEL_ID } from "../context/ModelPreferenceContext";
 import { agents, agentDepartments, type AgentProfile } from "../data/agents";
 import { models, USD_TO_CNY } from "../data/models";
@@ -153,6 +158,45 @@ function modelLabel(modelId: string) {
   return model ? `${model.name} · ${model.id}` : modelId;
 }
 
+function selectedAgentIdsFromAgencyPlan(preview: AgencyPlanPreview) {
+  return preview.selected_agents
+    .map((agent) => agent.id)
+    .filter((id) => agents.some((agent) => agent.id === id))
+    .slice(0, 6);
+}
+
+function agentTasksFromAgencyPlan(
+  preview: AgencyPlanPreview,
+  selectedIds: string[],
+) {
+  const tasksByAgent: Record<string, string[]> = {};
+  preview.plan.tasks.forEach((task) => {
+    if (!task.agent_id || !selectedIds.includes(task.agent_id)) return;
+    const details = [
+      task.objective,
+      task.depends_on.length > 0
+        ? `依赖：${task.depends_on.join("、")}`
+        : "",
+      task.acceptance ? `验收：${task.acceptance}` : "",
+      task.method_skill_ids?.length
+        ? `方法 Skill：${task.method_skill_ids.join("、")}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    tasksByAgent[task.agent_id] = [
+      ...(tasksByAgent[task.agent_id] || []),
+      details,
+    ];
+  });
+  return Object.fromEntries(
+    Object.entries(tasksByAgent).map(([agentId, tasks]) => [
+      agentId,
+      tasks.join("\n\n"),
+    ]),
+  );
+}
+
 function readSavedTeams(): TeamSavedConfig[] {
   if (typeof window === "undefined") return [];
   try {
@@ -181,78 +225,6 @@ async function responseJson<T>(response: Response): Promise<T> {
     throw new Error(payload.error || `请求失败（${response.status}）`);
   }
   return payload;
-}
-
-function syncWorkflowToPlan(
-  workflow: AgencyWorkflow,
-  tasks: AgencyPlanTask[],
-): AgencyWorkflow {
-  const taskIds = new Set(tasks.map((task) => task.task_id));
-  const nodeId = (taskId: string) => `agent_${taskId}`;
-  const outputVariables = new Map(
-    tasks.map((task) => {
-      const node = workflow.nodes.find((item) => item.id === nodeId(task.task_id));
-      return [
-        task.task_id,
-        String(node?.data.outputVariable || `${task.task_id}_output`),
-      ] as const;
-    }),
-  );
-  const nodes = workflow.nodes.map((node) => {
-    const task = tasks.find((item) => node.id === nodeId(item.task_id));
-    if (!task) return node;
-    const dependencyText = task.depends_on
-      .map((dependency) => {
-        const variable = outputVariables.get(dependency) || `${dependency}_output`;
-        return `${dependency}: {{${variable}}}`;
-      })
-      .join("\n");
-    return {
-      ...node,
-      data: {
-        ...node.data,
-        title: task.title,
-        description: task.objective,
-        taskInput: dependencyText
-          ? `${task.objective}\n\n依赖结果：\n${dependencyText}`
-          : `${task.objective}\n\n用户任务：\n{{user_input}}`,
-        acceptanceCriteria: task.acceptance,
-        methodSkillIds: task.method_skill_ids || [],
-      },
-    };
-  });
-  const preservedEdges = workflow.edges.filter(
-    (edge) =>
-      edge.id.startsWith("edge_resource_") ||
-      edge.id.startsWith("edge_middleware_"),
-  );
-  const controlEdges = tasks.flatMap((task) =>
-    task.depends_on.length > 0
-      ? task.depends_on
-          .filter((dependency) => taskIds.has(dependency))
-          .map((dependency) => ({
-            id: `edge_${dependency}_${task.task_id}`,
-            source: nodeId(dependency),
-            target: nodeId(task.task_id),
-          }))
-      : [
-          {
-            id: `edge_input_${task.task_id}`,
-            source: "input",
-            target: nodeId(task.task_id),
-          },
-        ],
-  );
-  const dependedOn = new Set(tasks.flatMap((task) => task.depends_on));
-  const sink = [...tasks].reverse().find((task) => !dependedOn.has(task.task_id));
-  if (sink) {
-    controlEdges.push({
-      id: `edge_${sink.task_id}_output`,
-      source: nodeId(sink.task_id),
-      target: "output",
-    });
-  }
-  return { ...workflow, nodes, edges: [...preservedEdges, ...controlEdges] };
 }
 
 function FeatureTab({
@@ -334,6 +306,7 @@ function ModelSelector({
 
 export default function ExpertTeamPage() {
   const [searchParams] = useSearchParams();
+  const [initialAgencyDraft] = useState(readAgencyPlanDraft);
   const textModelIds = useMemo(
     () => recommendedChatModels().map((model) => model.id),
     [],
@@ -354,10 +327,14 @@ export default function ExpertTeamPage() {
     const desk = searchParams.get("desk");
     return desk === "route" || desk === "team" || desk === "fusion"
       ? desk
-      : "fusion";
+      : initialAgencyDraft?.loaded_plan
+        ? "team"
+        : "fusion";
   });
   const [judgeModelId, setJudgeModelId] = useState(DEFAULT_CHAT_MODEL_ID);
-  const [sharedModelId, setSharedModelId] = useState(DEFAULT_CHAT_MODEL_ID);
+  const [sharedModelId, setSharedModelId] = useState(
+    initialAgencyDraft?.execution_model_id || DEFAULT_CHAT_MODEL_ID,
+  );
 
   const [fusionQuestion, setFusionQuestion] = useState(
     "请比较低代码工作流和传统定制开发，给出适合中小团队的落地建议。",
@@ -374,21 +351,22 @@ export default function ExpertTeamPage() {
   const [useNativeFusion, setUseNativeFusion] = useState(true);
 
   const [routeMessage, setRouteMessage] = useState(
-    "我想做一个 SaaS 产品的首页改版，需要兼顾转化、性能和移动端体验。",
+    initialAgencyDraft?.goal ||
+      "我想做一个 SaaS 产品的首页改版，需要兼顾转化、性能和移动端体验。",
   );
   const [routeMatches, setRouteMatches] = useState<AgentSummary[]>([]);
   const [routeAnswer, setRouteAnswer] = useState("");
   const [routeStatus, setRouteStatus] = useState<RunStatus>("idle");
   const [routeError, setRouteError] = useState("");
   const [routePlannerMode, setRoutePlannerMode] =
-    useState<RoutePlannerMode>("quick");
+    useState<RoutePlannerMode>(initialAgencyDraft?.preview ? "agency" : "quick");
   const [agencyCapabilities, setAgencyCapabilities] =
     useState<AgencyPlannerCapabilities | null>(null);
   const [agencyCapabilitiesError, setAgencyCapabilitiesError] = useState("");
   const [agencyPlannerModelId, setAgencyPlannerModelId] =
-    useState(DEFAULT_CHAT_MODEL_ID);
+    useState(initialAgencyDraft?.planner_model_id || DEFAULT_CHAT_MODEL_ID);
   const [agencyAgentModelId, setAgencyAgentModelId] =
-    useState(DEFAULT_CHAT_MODEL_ID);
+    useState(initialAgencyDraft?.agent_model_id || DEFAULT_CHAT_MODEL_ID);
   const [agencyLineupMode, setAgencyLineupMode] =
     useState<"auto" | "pinned">("auto");
   const [agencyMaxAgents, setAgencyMaxAgents] = useState(5);
@@ -396,17 +374,29 @@ export default function ExpertTeamPage() {
   const [knowledgeBasesError, setKnowledgeBasesError] = useState("");
   const [agencyKnowledgeBaseId, setAgencyKnowledgeBaseId] = useState("");
   const [agencyKnowledgeConsent, setAgencyKnowledgeConsent] = useState(false);
-  const [agencyStatus, setAgencyStatus] = useState<RunStatus>("idle");
+  const [agencyStatus, setAgencyStatus] = useState<RunStatus>(
+    initialAgencyDraft?.preview ? "done" : "idle",
+  );
   const [agencyError, setAgencyError] = useState("");
   const [agencyPreview, setAgencyPreview] =
-    useState<AgencyPlanPreviewWithKnowledge | null>(null);
-  const [agencyValidationStale, setAgencyValidationStale] = useState(false);
+    useState<AgencyPlanPreviewWithKnowledge | null>(
+      initialAgencyDraft?.preview ?? null,
+    );
+  const [agencyValidationStale, setAgencyValidationStale] = useState(
+    initialAgencyDraft?.validation_stale ?? false,
+  );
   const [agencyAppliedNotice, setAgencyAppliedNotice] = useState(false);
   const [loadedAgencyPlan, setLoadedAgencyPlan] =
-    useState<AgencyPlanPreview | null>(null);
-  const [loadedAgencyGoal, setLoadedAgencyGoal] = useState("");
-  const [loadedAgencyPlanInvalid, setLoadedAgencyPlanInvalid] = useState(false);
-  const [dagConfirmMode, setDagConfirmMode] = useState<"start" | "retry" | null>(null);
+    useState<AgencyPlanPreview | null>(initialAgencyDraft?.loaded_plan ?? null);
+  const [loadedAgencyGoal, setLoadedAgencyGoal] = useState(
+    initialAgencyDraft?.loaded_goal ?? "",
+  );
+  const [loadedAgencyPlanInvalid, setLoadedAgencyPlanInvalid] = useState(
+    initialAgencyDraft?.loaded_invalid ?? false,
+  );
+  const [dagConfirmMode, setDagConfirmMode] = useState<"start" | "retry" | "revise" | null>(null);
+  const [pendingDagRevision, setPendingDagRevision] =
+    useState<AgencyDagRevisionPayload | null>(null);
   const agencyDag = useAgencyDagRun();
   const agencyAssets = useAgencyAssets();
   const [agencyMethodSkillId, setAgencyMethodSkillId] = useState("");
@@ -414,24 +404,67 @@ export default function ExpertTeamPage() {
   const [assetNotice, setAssetNotice] = useState("");
 
   const [teamTask, setTeamTask] = useState(
-    "为一个新上线的 AI 模型浏览器制定产品发布方案，包括技术风险、设计亮点和增长打法。",
+    initialAgencyDraft?.loaded_goal ||
+      "为一个新上线的 AI 模型浏览器制定产品发布方案，包括技术风险、设计亮点和增长打法。",
   );
-  const [teamMode, setTeamMode] = useState<"serial" | "debate" | "dag">("serial");
+  const [teamMode, setTeamMode] = useState<"serial" | "debate" | "dag">(
+    initialAgencyDraft?.loaded_plan && !initialAgencyDraft.loaded_invalid
+      ? "dag"
+      : "serial",
+  );
   const [selectedDepartment, setSelectedDepartment] = useState("全部");
   const [agentSearch, setAgentSearch] = useState("");
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>(
-    agents.slice(0, 3).map((agent) => agent.id),
+    initialAgencyDraft?.loaded_plan
+      ? selectedAgentIdsFromAgencyPlan(initialAgencyDraft.loaded_plan)
+      : agents.slice(0, 3).map((agent) => agent.id),
   );
-  const [agentTasks, setAgentTasks] = useState<Record<string, string>>({});
+  const [agentTasks, setAgentTasks] = useState<Record<string, string>>(() => {
+    if (!initialAgencyDraft?.loaded_plan) return {};
+    const selectedIds = selectedAgentIdsFromAgencyPlan(
+      initialAgencyDraft.loaded_plan,
+    );
+    return agentTasksFromAgencyPlan(initialAgencyDraft.loaded_plan, selectedIds);
+  });
   const [teamOutputs, setTeamOutputs] = useState<TeamAgentOutput[]>([]);
   const [teamFinal, setTeamFinal] = useState("");
   const [teamStatus, setTeamStatus] = useState<RunStatus>("idle");
   const [savedTeams] = useState<TeamSavedConfig[]>(readSavedTeams);
-  const [teamName, setTeamName] = useState("产品发布专家组");
+  const [teamName, setTeamName] = useState(
+    initialAgencyDraft?.team_name ||
+      initialAgencyDraft?.loaded_plan?.candidate.name ||
+      "产品发布专家组",
+  );
 
   useEffect(() => {
     document.title = "模镜 - 专家团会诊室";
   }, []);
+
+  useEffect(() => {
+    writeAgencyPlanDraft({
+      goal: routeMessage,
+      preview: agencyPreview,
+      validation_stale: agencyValidationStale,
+      loaded_plan: loadedAgencyPlan,
+      loaded_goal: loadedAgencyGoal,
+      loaded_invalid: loadedAgencyPlanInvalid,
+      planner_model_id: agencyPlannerModelId,
+      agent_model_id: agencyAgentModelId,
+      execution_model_id: sharedModelId,
+      team_name: teamName,
+    });
+  }, [
+    agencyAgentModelId,
+    agencyPlannerModelId,
+    agencyPreview,
+    agencyValidationStale,
+    loadedAgencyGoal,
+    loadedAgencyPlan,
+    loadedAgencyPlanInvalid,
+    routeMessage,
+    sharedModelId,
+    teamName,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -958,40 +991,10 @@ export default function ExpertTeamPage() {
     if (!agencyPreview || agencyValidationStale || !agencyPreview.validation.valid) {
       return;
     }
-    const selectedIds = agencyPreview.selected_agents
-      .map((agent) => agent.id)
-      .filter((id) => agents.some((agent) => agent.id === id))
-      .slice(0, 6);
+    const selectedIds = selectedAgentIdsFromAgencyPlan(agencyPreview);
     agencyDag.clear();
-    const tasksByAgent: Record<string, string[]> = {};
-    agencyPreview.plan.tasks.forEach((task) => {
-      if (!task.agent_id || !selectedIds.includes(task.agent_id)) return;
-      const details = [
-        task.objective,
-        task.depends_on.length > 0
-          ? `依赖：${task.depends_on.join("、")}`
-          : "",
-        task.acceptance ? `验收：${task.acceptance}` : "",
-        task.method_skill_ids?.length
-          ? `方法 Skill：${task.method_skill_ids.join("、")}`
-          : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-      tasksByAgent[task.agent_id] = [
-        ...(tasksByAgent[task.agent_id] || []),
-        details,
-      ];
-    });
     setSelectedAgentIds(selectedIds);
-    setAgentTasks(
-      Object.fromEntries(
-        Object.entries(tasksByAgent).map(([agentId, tasks]) => [
-          agentId,
-          tasks.join("\n\n"),
-        ]),
-      ),
-    );
+    setAgentTasks(agentTasksFromAgencyPlan(agencyPreview, selectedIds));
     setTeamTask(routeMessage);
     setTeamName(agencyPreview.candidate.name || "智能组队专家团");
     setSharedModelId(agencyAgentModelId);
@@ -1037,6 +1040,17 @@ export default function ExpertTeamPage() {
     try {
       await agencyDag.retry();
       setDagConfirmMode(null);
+    } catch {
+      // The hook exposes the actionable server message in the DAG panel.
+    }
+  }
+
+  async function reviseAgencyDag() {
+    if (!pendingDagRevision) return;
+    try {
+      await agencyDag.revise(pendingDagRevision);
+      setDagConfirmMode(null);
+      setPendingDagRevision(null);
     } catch {
       // The hook exposes the actionable server message in the DAG panel.
     }
@@ -2288,12 +2302,22 @@ export default function ExpertTeamPage() {
                 onConfirm={() => {
                   if (dagConfirmMode === "retry") {
                     void retryAgencyDag();
+                  } else if (dagConfirmMode === "revise") {
+                    void reviseAgencyDag();
                   } else {
                     void startAgencyDag();
                   }
                 }}
-                onDismissConfirm={() => setDagConfirmMode(null)}
+                onDismissConfirm={() => {
+                  if (dagConfirmMode === "revise") setPendingDagRevision(null);
+                  setDagConfirmMode(null);
+                }}
                 onRetryRequest={() => setDagConfirmMode("retry")}
+                onRevisionRequest={(payload) => {
+                  setPendingDagRevision(payload);
+                  setDagConfirmMode("revise");
+                }}
+                pendingRevision={pendingDagRevision}
                 preview={loadedAgencyPlan}
                 run={agencyDag.run}
               />

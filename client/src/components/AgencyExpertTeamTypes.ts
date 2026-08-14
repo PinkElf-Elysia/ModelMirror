@@ -11,6 +11,14 @@ export interface AgencyExecutionCapabilities {
   supports_cancel: boolean;
   supports_retry: boolean;
   supports_restart_resume: boolean;
+  revision: {
+    enabled: boolean;
+    supports_feedback: boolean;
+    supports_intermediate_steps: boolean;
+    max_feedback_chars: number;
+    max_model_calls: number;
+    budget_mode: "fresh";
+  };
 }
 
 export interface AgencyPlannerCapabilities {
@@ -194,6 +202,8 @@ export interface AgencyDagEvent {
   usage?: AgencyDagUsage;
   cumulative_usage?: AgencyDagUsage;
   reused?: boolean;
+  revision_parent_task_id?: string;
+  revision_target_task_id?: string;
   warnings?: string[];
   model_calls?: number;
   quality_status?: string;
@@ -230,13 +240,31 @@ export interface AgencyDagRun {
   error_code?: string | null;
   error_message?: string | null;
   retryable?: boolean;
+  revisable?: boolean;
   resumed_from_task_id?: string | null;
+  revision?: {
+    parent_task_id: string;
+    root_task_id: string;
+    revision_index: number;
+    target_task_id: string;
+    feedback?: string;
+    feedback_preview?: string;
+    affected_task_ids: string[];
+  } | null;
+  lineage_model_calls?: number;
+  lineage_usage?: AgencyDagUsage;
   created_at: number;
   updated_at: number;
   status_url?: string;
   events_url?: string;
   cancel_url?: string;
   retry_url?: string;
+  revise_url?: string;
+}
+
+export interface AgencyDagRevisionPayload {
+  target_task_id: string;
+  feedback: string;
 }
 
 export interface AgencyDagStartPayload {

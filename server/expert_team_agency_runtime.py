@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 import uuid
 from collections.abc import Awaitable, Callable, Iterable, Mapping
@@ -49,6 +50,7 @@ MAX_EXECUTION_MODEL_CALLS = 10
 MAX_EXECUTION_TOKENS = 4096
 MAX_EXECUTION_SECONDS = 900
 MAX_ACTIVE_EXECUTIONS = 2
+MAX_REVISION_FEEDBACK_CHARS = 4_000
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 VARIABLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 TEMPLATE_PATTERN = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
@@ -84,6 +86,28 @@ class ExpertTeamDagRunRequest(StrictModel):
         return self
 
 
+class ExpertTeamDagRevisionRequest(StrictModel):
+    target_task_id: str = Field(min_length=1, max_length=64)
+    feedback: str = Field(min_length=10, max_length=MAX_REVISION_FEEDBACK_CHARS)
+
+    @model_validator(mode="after")
+    def normalize_feedback(self) -> "ExpertTeamDagRevisionRequest":
+        self.target_task_id = self.target_task_id.strip()
+        self.feedback = self.feedback.strip()
+        if not self.target_task_id or len(self.feedback) < 10:
+            raise ValueError("Revision target and feedback are required")
+        return self
+
+
+class AgencyRevisionCapabilities(BaseModel):
+    enabled: bool = False
+    supports_feedback: bool = True
+    supports_intermediate_steps: bool = True
+    max_feedback_chars: int = MAX_REVISION_FEEDBACK_CHARS
+    max_model_calls: int = MAX_EXECUTION_MODEL_CALLS
+    budget_mode: Literal["fresh"] = "fresh"
+
+
 class AgencyExecutionCapabilities(BaseModel):
     enabled: bool = False
     worker_available: bool = False
@@ -97,6 +121,9 @@ class AgencyExecutionCapabilities(BaseModel):
     supports_cancel: bool = True
     supports_retry: bool = True
     supports_restart_resume: bool = False
+    revision: AgencyRevisionCapabilities = Field(
+        default_factory=AgencyRevisionCapabilities
+    )
 
 
 class AgencyExecutionValidationError(ValueError):
@@ -200,6 +227,61 @@ def _ancestor_task_ids(
     return ancestors
 
 
+def _task_nodes_by_plan_task(
+    tasks: Mapping[str, MetaPlannerTask],
+    task_nodes: list[Any],
+) -> dict[str, Any]:
+    """Bind plan tasks to compiled nodes without guessing normalized node IDs."""
+
+    has_planner_task_ids = ["plannerTaskIds" in node.data for node in task_nodes]
+    if any(has_planner_task_ids):
+        if not all(has_planner_task_ids):
+            raise AgencyExecutionValidationError(
+                "工作流任务节点混用了不同版本的规划元数据。"
+            )
+        mapped: dict[str, Any] = {}
+        for node in task_nodes:
+            raw_task_ids = node.data.get("plannerTaskIds")
+            if not isinstance(raw_task_ids, list) or len(raw_task_ids) != 1:
+                raise AgencyExecutionValidationError(
+                    f"工作流任务节点 {node.id} 的规划任务绑定无效。"
+                )
+            task_id = raw_task_ids[0]
+            if not isinstance(task_id, str) or task_id not in tasks:
+                raise AgencyExecutionValidationError(
+                    f"工作流任务节点 {node.id} 引用了未知规划任务。"
+                )
+            if task_id in mapped:
+                raise AgencyExecutionValidationError(
+                    f"工作流包含重复的任务节点：{task_id}。"
+                )
+            if str(node.data.get("plannerRef") or "").strip() != f"agent_{task_id}":
+                raise AgencyExecutionValidationError(
+                    f"工作流任务节点 {node.id} 的规划引用与任务 {task_id} 不一致。"
+                )
+            mapped[task_id] = node
+        missing = [task_id for task_id in tasks if task_id not in mapped]
+        if missing:
+            raise AgencyExecutionValidationError(
+                f"工作流缺少任务节点 {missing[0]}。"
+            )
+        return mapped
+
+    # Backward compatibility for previews compiled before planner round-trip
+    # metadata was added. The old path remains exact and does not normalize IDs.
+    nodes_by_id = {node.id: node for node in task_nodes}
+    mapped = {}
+    for task_id in tasks:
+        expected_node_id = f"agent_{task_id}"
+        node = nodes_by_id.get(expected_node_id)
+        if node is None:
+            raise AgencyExecutionValidationError(
+                f"工作流缺少任务节点 {expected_node_id}。"
+            )
+        mapped[task_id] = node
+    return mapped
+
+
 def prepare_agency_execution(
     *,
     plan: MetaPlannerTaskPlan,
@@ -220,7 +302,6 @@ def prepare_agency_execution(
             f"工作流未通过静态校验：{messages or 'unknown validation error'}"
         )
 
-    nodes = {node.id: node for node in workflow.nodes}
     input_nodes = [node for node in workflow.nodes if node_kind(node) == "input"]
     output_nodes = [node for node in workflow.nodes if node_kind(node) == "output"]
     task_nodes = [
@@ -236,13 +317,11 @@ def prepare_agency_execution(
             "DAG Beta 仅接受一个输入、一个输出和普通专家任务节点。"
         )
 
+    task_nodes_by_id = _task_nodes_by_plan_task(tasks, task_nodes)
+
     outputs: dict[str, str] = {}
     for task_id, task in tasks.items():
-        node = nodes.get(f"agent_{task_id}")
-        if node is None or node_kind(node) != "workflow_agent":
-            raise AgencyExecutionValidationError(
-                f"工作流缺少任务节点 agent_{task_id}。"
-            )
+        node = task_nodes_by_id[task_id]
         source_agent_id = str(node.data.get("sourceAgentId") or "").strip()
         if source_agent_id != task.agent_id:
             raise AgencyExecutionValidationError(
@@ -314,7 +393,7 @@ def prepare_agency_execution(
         outputs[task_id] = output
 
     for task_id, task in tasks.items():
-        node = nodes[f"agent_{task_id}"]
+        node = task_nodes_by_id[task_id]
         task_input = str(node.data.get("taskInput") or "")
         references = set(TEMPLATE_PATTERN.findall(task_input))
         if task.depends_on:
@@ -346,16 +425,19 @@ def prepare_agency_execution(
     sink = next(task for task in plan.tasks if task.task_id not in depended_on)
     expected_edges = {
         *{
-            (f"agent_{dependency}", f"agent_{task.task_id}")
+            (
+                task_nodes_by_id[dependency].id,
+                task_nodes_by_id[task.task_id].id,
+            )
             for task in plan.tasks
             for dependency in task.depends_on
         },
         *{
-            (input_nodes[0].id, f"agent_{task.task_id}")
+            (input_nodes[0].id, task_nodes_by_id[task.task_id].id)
             for task in plan.tasks
             if not task.depends_on
         },
-        (f"agent_{sink.task_id}", output_nodes[0].id),
+        (task_nodes_by_id[sink.task_id].id, output_nodes[0].id),
     }
     actual_edges = {(edge.source, edge.target) for edge in workflow.edges}
     if actual_edges != expected_edges or len(actual_edges) != len(workflow.edges):
@@ -458,14 +540,65 @@ class AgencyExecutionCoordinator:
         capability_snapshot_hash: str,
         upstream_revision: str,
         resume: Mapping[str, Any] | None = None,
+        revision: Mapping[str, Any] | None = None,
+        revision_metadata: Mapping[str, Any] | None = None,
         resumed_from_task_id: str | None = None,
     ) -> dict[str, Any]:
+        if resume is not None and revision is not None:
+            raise AgencyExecutionValidationError(
+                "Agency execution cannot combine retry and revision."
+            )
+        revision_metadata = dict(revision_metadata or {})
         async with self._lock:
             self._prune_finished_unlocked()
+            revision_parent_task_id = str(
+                revision_metadata.get("revision_parent_task_id") or ""
+            )
+            if revision_parent_task_id:
+                active_revision = next(
+                    (
+                        existing
+                        for existing in self.store.list_items(limit=1_000)
+                        if existing.source_kind == "expert_team_agency"
+                        and existing.status not in TERMINAL_STATUSES
+                        and str(
+                            existing.runtime_metadata.get(
+                                "revision_parent_task_id"
+                            )
+                            or ""
+                        )
+                        == revision_parent_task_id
+                    ),
+                    None,
+                )
+                if active_revision is not None:
+                    if str(
+                        active_revision.runtime_metadata.get(
+                            "revision_request_digest"
+                        )
+                        or ""
+                    ) == str(
+                        revision_metadata.get("revision_request_digest") or ""
+                    ):
+                        return self.serialize(active_revision)
+                    raise AgencyExecutionValidationError(
+                        "该源任务已有另一项返工正在执行，请等待完成或先取消。",
+                        code="agency_revision_in_progress",
+                    )
             if len(self._tasks) >= MAX_ACTIVE_EXECUTIONS:
                 raise AgencyExecutionCapacityError(
                     "当前已有两个 DAG 正在执行，请等待其中一个结束。"
                 )
+            public_revision_metadata = {
+                key: value
+                for key, value in revision_metadata.items()
+                if key
+                not in {
+                    "revision_feedback",
+                    "revision_feedback_preview",
+                    "revision_request_digest",
+                }
+            }
             run = await self.run_registry.create_run(
                 "expert_team",
                 f"Expert Team DAG: {goal[:80]}",
@@ -482,6 +615,7 @@ class AgencyExecutionCoordinator:
                     "max_concurrency": MAX_EXECUTION_CONCURRENCY,
                     "max_model_calls": MAX_EXECUTION_MODEL_CALLS,
                     "resumed_from_task_id": resumed_from_task_id,
+                    **public_revision_metadata,
                     "initial_model_calls": int(
                         (resume or {}).get("prior_model_calls") or 0
                     ),
@@ -510,6 +644,7 @@ class AgencyExecutionCoordinator:
                         skill.skill_id: skill.digest for skill in prepared.skills
                     },
                     "resumed_from_task_id": resumed_from_task_id,
+                    **revision_metadata,
                     "initial_model_calls": int(
                         (resume or {}).get("prior_model_calls") or 0
                     ),
@@ -525,6 +660,7 @@ class AgencyExecutionCoordinator:
                     model_id=model_id,
                     prepared=prepared,
                     resume=resume,
+                    revision=revision,
                 ),
                 name=f"expert-team-agency:{task_id}",
             )
@@ -624,6 +760,194 @@ class AgencyExecutionCoordinator:
             resumed_from_task_id=source_task_id,
         )
 
+    async def revise(
+        self,
+        *,
+        source_task_id: str,
+        target_task_id: str,
+        feedback: str,
+        prepared: PreparedAgencyExecution,
+    ) -> dict[str, Any]:
+        source = self.store.require(source_task_id)
+        if (
+            source.source_kind != "expert_team_agency"
+            or source.status not in {"completed", "failed"}
+        ):
+            raise AgencyExecutionValidationError(
+                "只有已完成或失败的专家团 DAG 可以返工。",
+                code="agency_execution_not_revisable",
+            )
+        normalized_feedback = feedback.strip()
+        if not 10 <= len(normalized_feedback) <= MAX_REVISION_FEEDBACK_CHARS:
+            raise AgencyExecutionValidationError(
+                "返工意见必须为 10-4000 个字符。",
+                code="agency_execution_revision_invalid",
+            )
+        signature = hashlib.sha256(
+            f"{source_task_id}\0{target_task_id}\0{normalized_feedback}".encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        active_revision = next(
+            (
+                item
+                for item in self.store.list_items(limit=1_000)
+                if item.source_kind == "expert_team_agency"
+                and item.status not in TERMINAL_STATUSES
+                and str(
+                    item.runtime_metadata.get("revision_parent_task_id") or ""
+                )
+                == source_task_id
+            ),
+            None,
+        )
+        if active_revision is not None:
+            if str(
+                active_revision.runtime_metadata.get("revision_request_digest")
+                or ""
+            ) == signature:
+                return self.serialize(active_revision)
+            raise AgencyExecutionValidationError(
+                "该源任务已有另一项返工正在执行，请等待完成或先取消。",
+                code="agency_revision_in_progress",
+            )
+
+        serialized = self.serialize(source)
+        workflow_steps = [
+            step
+            for step in (
+                source.workflow.get("steps", [])
+                if isinstance(source.workflow, dict)
+                else []
+            )
+            if isinstance(step, dict)
+        ]
+        steps_by_id = {
+            str(step.get("id") or ""): step for step in workflow_steps
+        }
+        if target_task_id not in steps_by_id:
+            raise AgencyExecutionValidationError(
+                "返工目标步骤不在冻结工作流中。",
+                code="agency_execution_revision_invalid",
+            )
+        completed_events = {
+            str(event.get("task_id") or ""): event
+            for event in serialized.get("steps", [])
+            if event.get("status") == "completed"
+            and str(event.get("output") or "").strip()
+        }
+        target_event = completed_events.get(target_task_id)
+        if target_event is None:
+            raise AgencyExecutionValidationError(
+                "返工目标步骤尚未完成或没有可复用输出。",
+                code="agency_execution_not_revisable",
+            )
+
+        affected_ids = {target_task_id}
+        changed = True
+        while changed:
+            changed = False
+            for step in workflow_steps:
+                step_id = str(step.get("id") or "")
+                dependencies = step.get("depends_on")
+                dependencies = dependencies if isinstance(dependencies, list) else []
+                if step_id not in affected_ids and any(
+                    str(dependency) in affected_ids for dependency in dependencies
+                ):
+                    affected_ids.add(step_id)
+                    changed = True
+        # Previously incomplete steps must execute even when they are not downstream
+        # of the feedback target. Every other completed step remains reusable.
+        affected_ids.update(
+            step_id for step_id in steps_by_id if step_id not in completed_events
+        )
+        completed_steps: list[dict[str, Any]] = []
+        for step in workflow_steps:
+            task_id = str(step.get("id") or "")
+            event = completed_events.get(task_id)
+            if event is None or task_id in affected_ids:
+                continue
+            restored_output = str(event["output"])
+            if len(restored_output.encode("utf-8")) > 64 * 1024:
+                raise AgencyExecutionValidationError(
+                    f"步骤 {task_id} 的历史输出超过 64 KiB，不能安全返工。",
+                    code="agency_execution_revision_invalid",
+                )
+            completed_steps.append(
+                {
+                    "task_id": task_id,
+                    "output": restored_output,
+                    "output_variable": str(step.get("output") or ""),
+                    "acceptance": str(
+                        event.get("acceptance") or step.get("acceptance") or ""
+                    )[:4_000],
+                    "agent_name": str(event.get("agent_name") or "")[:200],
+                    "agent_emoji": str(event.get("agent_emoji") or "")[:16],
+                }
+            )
+        previous_output = str(target_event["output"])
+        if len(previous_output.encode("utf-8")) > 64 * 1024:
+            raise AgencyExecutionValidationError(
+                f"步骤 {target_task_id} 的上一版输出超过 64 KiB，不能安全返工。",
+                code="agency_execution_revision_invalid",
+            )
+        revision = {
+            "source_task_id": source_task_id,
+            "target_task_id": target_task_id,
+            "feedback": normalized_feedback,
+            "previous_output": previous_output,
+            "completed_steps": completed_steps,
+        }
+        source_metadata = source.runtime_metadata
+        root_task_id = str(
+            source_metadata.get("revision_root_task_id") or source_task_id
+        )
+        revision_index = int(
+            source_metadata.get("revision_index") or 0
+        ) + 1
+        source_lineage_calls = int(
+            serialized.get("lineage_model_calls")
+            or serialized.get("model_calls")
+            or 0
+        )
+        source_lineage_usage = serialized.get("lineage_usage") or serialized.get(
+            "usage"
+        ) or {}
+        revision_metadata = {
+            "revision_parent_task_id": source_task_id,
+            "revision_root_task_id": root_task_id,
+            "revision_index": revision_index,
+            "revision_target_task_id": target_task_id,
+            "revision_feedback": normalized_feedback,
+            "revision_feedback_preview": normalized_feedback[:160],
+            "revision_affected_task_ids": [
+                str(step.get("id") or "")
+                for step in workflow_steps
+                if str(step.get("id") or "") in affected_ids
+            ],
+            "revision_request_digest": signature,
+            "revision_lineage_model_calls_before": source_lineage_calls,
+            "revision_lineage_usage_before": {
+                "input_tokens": int(source_lineage_usage.get("input_tokens") or 0),
+                "output_tokens": int(source_lineage_usage.get("output_tokens") or 0),
+            },
+        }
+        metadata = source.runtime_metadata
+        return await self.start(
+            goal=str(source.inputs.get("goal") or ""),
+            model_id=str(metadata.get("model_id") or ""),
+            prepared=prepared,
+            capability_snapshot_version=str(
+                metadata.get("capability_snapshot_version") or ""
+            ),
+            capability_snapshot_hash=str(
+                metadata.get("capability_snapshot_hash") or ""
+            ),
+            upstream_revision=str(metadata.get("upstream_revision") or ""),
+            revision=revision,
+            revision_metadata=revision_metadata,
+        )
+
     async def cancel(self, task_id: str) -> dict[str, Any]:
         item = self.store.require(task_id)
         if item.source_kind != "expert_team_agency":
@@ -685,6 +1009,7 @@ class AgencyExecutionCoordinator:
         model_id: str,
         prepared: PreparedAgencyExecution,
         resume: Mapping[str, Any] | None = None,
+        revision: Mapping[str, Any] | None = None,
     ) -> None:
         item = self.store.require(task_id)
 
@@ -712,6 +1037,7 @@ class AgencyExecutionCoordinator:
                 agents=prepared.agents,
                 skills=prepared.skills,
                 resume=resume,
+                revision=revision,
                 on_event=on_event,
             )
             payload = result.payload
@@ -820,7 +1146,8 @@ class AgencyExecutionCoordinator:
         completed_outputs = [
             event
             for event in latest_steps.values()
-            if event.get("status") == "completed" and event.get("output")
+            if event.get("status") == "completed"
+            and str(event.get("output") or "").strip()
         ]
         retryable_codes = {
             "agency_execution_step_failed",
@@ -861,26 +1188,85 @@ class AgencyExecutionCoordinator:
             for step in (raw_steps if isinstance(raw_steps, list) else [])[:6]
             if isinstance(step, dict)
         ]
+        current_model_calls = int(
+            summary.get("model_calls")
+            or item.runtime_metadata.get("initial_model_calls")
+            or 0
+        )
+        current_usage = summary.get("usage") or item.runtime_metadata.get(
+            "initial_usage"
+        ) or {}
+        lineage_calls_before = int(
+            item.runtime_metadata.get("revision_lineage_model_calls_before") or 0
+        )
+        lineage_usage_before = item.runtime_metadata.get(
+            "revision_lineage_usage_before"
+        )
+        lineage_usage_before = (
+            lineage_usage_before
+            if isinstance(lineage_usage_before, dict)
+            else {}
+        )
+        lineage_usage = {
+            "input_tokens": int(lineage_usage_before.get("input_tokens") or 0)
+            + int(current_usage.get("input_tokens") or 0),
+            "output_tokens": int(lineage_usage_before.get("output_tokens") or 0)
+            + int(current_usage.get("output_tokens") or 0),
+        }
+        revision_parent_task_id = str(
+            item.runtime_metadata.get("revision_parent_task_id") or ""
+        )
+        revision = None
+        if revision_parent_task_id:
+            revision = {
+                "parent_task_id": revision_parent_task_id,
+                "root_task_id": str(
+                    item.runtime_metadata.get("revision_root_task_id") or ""
+                ),
+                "revision_index": int(
+                    item.runtime_metadata.get("revision_index") or 0
+                ),
+                "target_task_id": str(
+                    item.runtime_metadata.get("revision_target_task_id") or ""
+                ),
+                "feedback": str(
+                    item.runtime_metadata.get("revision_feedback") or ""
+                )[:MAX_REVISION_FEEDBACK_CHARS],
+                "feedback_preview": str(
+                    item.runtime_metadata.get("revision_feedback_preview") or ""
+                )[:160],
+                "affected_task_ids": [
+                    str(value)[:64]
+                    for value in (
+                        item.runtime_metadata.get("revision_affected_task_ids")
+                        if isinstance(
+                            item.runtime_metadata.get("revision_affected_task_ids"),
+                            list,
+                        )
+                        else []
+                    )[:MAX_EXECUTION_STEPS]
+                ],
+            }
         return {
             **public,
             "steps": list(latest_steps.values()),
             "final_output": item.result,
             "quality_status": summary.get("quality_status"),
             "warnings": summary.get("warnings") or [],
-            "model_calls": int(
-                summary.get("model_calls")
-                or item.runtime_metadata.get("initial_model_calls")
-                or 0
-            ),
-            "usage": summary.get("usage")
-            or item.runtime_metadata.get("initial_usage")
-            or {},
+            "model_calls": current_model_calls,
+            "usage": current_usage,
+            "lineage_model_calls": lineage_calls_before + current_model_calls,
+            "lineage_usage": lineage_usage,
             "estimated_cost": None,
             "error_code": item.error,
             "error_message": str(
                 summary.get("message") or summary.get("error") or ""
             )[:4_000] or None,
             "retryable": retryable,
+            "revisable": (
+                item.status in {"completed", "failed"} and bool(completed_outputs)
+            ),
+            "revision": revision,
             "resumed_from_task_id": str(
                 item.runtime_metadata.get("resumed_from_task_id") or ""
             ) or None,
