@@ -348,6 +348,7 @@ class CodingWorkerStore:
         spec: TaskSpec,
         workspace_id: str,
         base_tree_hash: str,
+        parent_turn_id: str | None = None,
     ) -> SubtaskRecord:
         now = self._now()
         expires_at = now + self.retention_seconds
@@ -356,7 +357,7 @@ class CodingWorkerStore:
         encrypted_objective = self._codec.encrypt(objective)
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            self._require_task_row(connection, parent_task_id)
+            parent_row = self._require_task_row(connection, parent_task_id)
             if connection.execute(
                 "SELECT 1 FROM worker_subtasks WHERE child_task_id = ?",
                 (parent_task_id,),
@@ -382,6 +383,14 @@ class CodingWorkerStore:
                     raise WorkerConflictError(
                         "Subtask id is bound to another intent.",
                         code="subtask_intent_conflict",
+                    )
+                if parent_turn_id is not None:
+                    self._begin_turn_parking_locked(
+                        connection,
+                        task_id=parent_task_id,
+                        turn_id=parent_turn_id,
+                        barrier=TurnBarrier.SUBTASKS,
+                        now=now,
                     )
                 return current
             count = int(
@@ -459,6 +468,19 @@ class CodingWorkerStore:
                 },
                 created_at=now,
             )
+            if parent_turn_id is not None:
+                if RuntimeProtocol(str(parent_row["runtime_protocol"])) is not RuntimeProtocol.V17:
+                    raise WorkerConflictError(
+                        "Only V17 subtasks can park a parent turn.",
+                        code="turn_protocol_mismatch",
+                    )
+                self._begin_turn_parking_locked(
+                    connection,
+                    task_id=parent_task_id,
+                    turn_id=parent_turn_id,
+                    barrier=TurnBarrier.SUBTASKS,
+                    now=now,
+                )
         return self.get_subtask(parent_task_id, client_subtask_id)  # type: ignore[return-value]
 
     def finish_subtask(
@@ -1323,6 +1345,96 @@ class CodingWorkerStore:
             )
         return pending
 
+    def create_question_and_begin_turn_parking(
+        self,
+        *,
+        task_id: str,
+        question_id: str,
+        turn_id: str,
+        prompt: str,
+        options: tuple[WorkerQuestionOption, ...],
+    ) -> WorkerQuestion:
+        """Create the authoritative question and close the V17 turn atomically."""
+
+        now = self._now()
+        pending = WorkerQuestion(
+            task_id=task_id,
+            question_id=question_id,
+            turn_id=turn_id,
+            status=QuestionStatus.PENDING,
+            prompt=prompt,
+            options=options,
+            created_at=now,
+        )
+        request = {
+            "prompt": pending.prompt,
+            "options": [item.model_dump(mode="json") for item in pending.options],
+        }
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            task_row = self._require_task_row(connection, task_id)
+            if (
+                RuntimeProtocol(str(task_row["runtime_protocol"]))
+                is not RuntimeProtocol.V17
+                or TaskState(str(task_row["state"])) is not TaskState.RUNNING
+            ):
+                raise WorkerConflictError(
+                    "Task is not accepting a V17 provider question.",
+                    code="task_state_conflict",
+                )
+            existing = connection.execute(
+                "SELECT * FROM worker_questions WHERE task_id = ? AND question_id = ?",
+                (task_id, question_id),
+            ).fetchone()
+            if existing is not None:
+                current = self._question(existing)
+                if (
+                    current.turn_id != turn_id
+                    or current.prompt != pending.prompt
+                    or current.options != pending.options
+                ):
+                    raise WorkerConflictError(
+                        "Question identifier is already bound to another request.",
+                        code="question_intent_conflict",
+                    )
+                pending = current
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO worker_questions (
+                        task_id, question_id, turn_id, status, request_ciphertext,
+                        answer_ciphertext, created_at, resolved_at
+                    ) VALUES (?, ?, ?, ?, ?, NULL, ?, NULL)
+                    """,
+                    (
+                        task_id,
+                        question_id,
+                        turn_id,
+                        QuestionStatus.PENDING.value,
+                        self._codec.encrypt(request),
+                        now,
+                    ),
+                )
+                self._append_event_locked(
+                    connection,
+                    task_id=task_id,
+                    event_type="question_requested",
+                    payload={
+                        "question_id": question_id,
+                        "prompt": pending.prompt,
+                        "options": request["options"],
+                    },
+                    created_at=now,
+                )
+            self._begin_turn_parking_locked(
+                connection,
+                task_id=task_id,
+                turn_id=turn_id,
+                barrier=TurnBarrier.INPUT,
+                now=now,
+            )
+        return pending
+
     def list_questions(self, task_id: str) -> list[WorkerQuestion]:
         with self._connect() as connection:
             self._require_task_row(connection, task_id)
@@ -1534,6 +1646,80 @@ class CodingWorkerStore:
                 created_at=now,
             )
         return self.get_approval(approval_id)
+
+    def create_approvals_and_begin_turn_parking(
+        self,
+        *,
+        task_id: str,
+        turn_id: str,
+        requests: tuple[tuple[str, CapabilityName, dict[str, Any]], ...],
+    ) -> tuple[WorkerApproval, ...]:
+        """Create all exact approvals and close the V17 turn in one transaction."""
+
+        if not requests:
+            raise ValueError("approval requests cannot be empty")
+        now = self._now()
+        approval_ids: list[str] = []
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            task_row = self._require_task_row(connection, task_id)
+            if RuntimeProtocol(str(task_row["runtime_protocol"])) is not RuntimeProtocol.V17:
+                raise WorkerConflictError(
+                    "Atomic approval parking requires V17.",
+                    code="turn_protocol_mismatch",
+                )
+            for operation_id, capability, request in requests:
+                existing = connection.execute(
+                    "SELECT * FROM worker_approvals WHERE operation_id = ?",
+                    (operation_id,),
+                ).fetchone()
+                if existing is not None:
+                    approval = self._approval(existing)
+                    if (
+                        approval.task_id != task_id
+                        or approval.capability != capability
+                        or approval.request != request
+                    ):
+                        raise WorkerConflictError(
+                            "Approval operation id is bound to another intent.",
+                            code="approval_intent_conflict",
+                        )
+                    approval_ids.append(approval.approval_id)
+                    continue
+                approval_id = f"approval_{uuid.uuid4().hex}"
+                connection.execute(
+                    """
+                    INSERT INTO worker_approvals (
+                        approval_id, task_id, operation_id, capability, status,
+                        request_ciphertext, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        approval_id,
+                        task_id,
+                        operation_id,
+                        capability,
+                        ApprovalStatus.PENDING.value,
+                        self._codec.encrypt(request),
+                        now,
+                    ),
+                )
+                self._append_event_locked(
+                    connection,
+                    task_id=task_id,
+                    event_type="approval_requested",
+                    payload={"approval_id": approval_id, "capability": capability},
+                    created_at=now,
+                )
+                approval_ids.append(approval_id)
+            self._begin_turn_parking_locked(
+                connection,
+                task_id=task_id,
+                turn_id=turn_id,
+                barrier=TurnBarrier.APPROVAL,
+                now=now,
+            )
+        return tuple(self.get_approval(item) for item in approval_ids)
 
     def get_approval(self, approval_id: str) -> WorkerApproval:
         with self._connect() as connection:
@@ -1767,44 +1953,61 @@ class CodingWorkerStore:
         now = self._now()
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = self._require_turn_row(connection, task_id, turn_id)
-            current = self._turn_transaction(row)
-            if current.state is TurnTransactionState.PARKING:
-                if current.barrier is not barrier:
-                    raise WorkerConflictError(
-                        "Turn is parking for another barrier.",
-                        code="turn_barrier_conflict",
-                    )
-                return current
-            if current.state not in {
-                TurnTransactionState.OPEN,
-                TurnTransactionState.RESUMING,
-            }:
-                raise WorkerConflictError(
-                    "Turn cannot start parking.", code="turn_state_conflict"
-                )
-            connection.execute(
-                """
-                UPDATE worker_turn_transactions
-                SET state = ?, barrier = ?, updated_at = ?
-                WHERE task_id = ? AND turn_id = ?
-                """,
-                (
-                    TurnTransactionState.PARKING.value,
-                    barrier.value,
-                    now,
-                    task_id,
-                    turn_id,
-                ),
-            )
-            self._append_event_locked(
+            self._begin_turn_parking_locked(
                 connection,
                 task_id=task_id,
-                event_type="turn_parking",
-                payload={"turn_id": turn_id, "barrier": barrier.value},
-                created_at=now,
+                turn_id=turn_id,
+                barrier=barrier,
+                now=now,
             )
         return self.get_turn_transaction(task_id, turn_id)
+
+    def _begin_turn_parking_locked(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        task_id: str,
+        turn_id: str,
+        barrier: TurnBarrier,
+        now: float,
+    ) -> None:
+        row = self._require_turn_row(connection, task_id, turn_id)
+        current = self._turn_transaction(row)
+        if current.state is TurnTransactionState.PARKING:
+            if current.barrier is not barrier:
+                raise WorkerConflictError(
+                    "Turn is parking for another barrier.",
+                    code="turn_barrier_conflict",
+                )
+            return
+        if current.state not in {
+            TurnTransactionState.OPEN,
+            TurnTransactionState.RESUMING,
+        }:
+            raise WorkerConflictError(
+                "Turn cannot start parking.", code="turn_state_conflict"
+            )
+        connection.execute(
+            """
+            UPDATE worker_turn_transactions
+            SET state = ?, barrier = ?, updated_at = ?
+            WHERE task_id = ? AND turn_id = ?
+            """,
+            (
+                TurnTransactionState.PARKING.value,
+                barrier.value,
+                now,
+                task_id,
+                turn_id,
+            ),
+        )
+        self._append_event_locked(
+            connection,
+            task_id=task_id,
+            event_type="turn_parking",
+            payload={"turn_id": turn_id, "barrier": barrier.value},
+            created_at=now,
+        )
 
     def bind_turn_recovery_checkpoint(
         self, *, task_id: str, turn_id: str, checkpoint_id: str

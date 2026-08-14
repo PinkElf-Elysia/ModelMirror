@@ -744,23 +744,14 @@ class ToolBroker:
             network_scope = policy.approval_scope(
                 domains=plan["domains"], purpose="documentation-query"
             )
+        pending_requests: list[tuple[str, CapabilityName, dict[str, Any]]] = []
         if lease_id is None:
-            self.store.create_approval(
-                task_id=task_id,
-                operation_id=operation_id,
-                capability=capability,
-                request=approval_scope,
-            )
+            pending_requests.append((operation_id, capability, approval_scope))
         if network_scope is not None and network_lease_id is None:
             network_operation_id = "network_" + hashlib.sha256(
                 operation_id.encode("utf-8")
             ).hexdigest()[:32]
-            self.store.create_approval(
-                task_id=task_id,
-                operation_id=network_operation_id,
-                capability="network",
-                request=network_scope,
-            )
+            pending_requests.append((network_operation_id, "network", network_scope))
         if lease_id is None or (network_scope is not None and network_lease_id is None):
             task = self.store.get_task(task_id)
             if task.runtime_protocol is RuntimeProtocol.V17:
@@ -770,13 +761,21 @@ class ToolBroker:
                         "V17 approval has no current turn.",
                         code="operation_turn_required",
                     )
-                self.store.begin_turn_parking(
+                self.store.create_approvals_and_begin_turn_parking(
                     task_id=task_id,
                     turn_id=current_turn.turn_id,
-                    barrier=TurnBarrier.APPROVAL,
+                    requests=tuple(pending_requests),
                 )
-            elif task.state is TaskState.RUNNING:
-                self.store.transition(task_id, TaskState.WAITING_APPROVAL)
+            else:
+                for pending_operation_id, pending_capability, pending_request in pending_requests:
+                    self.store.create_approval(
+                        task_id=task_id,
+                        operation_id=pending_operation_id,
+                        capability=pending_capability,
+                        request=pending_request,
+                    )
+                if task.state is TaskState.RUNNING:
+                    self.store.transition(task_id, TaskState.WAITING_APPROVAL)
             raise ToolBrokerError("Tool requires approval.", code="approval_required")
         lease = self.store.consume_lease(lease_id, task_id=task_id, capability=capability)
         if lease.scope != approval_scope:
@@ -1238,17 +1237,12 @@ class ToolBroker:
                 raise ToolBrokerError(
                     "Question input is invalid.", code="tool_input_invalid"
                 ) from exc
-            question = self.store.create_question(
+            question = self.store.create_question_and_begin_turn_parking(
                 task_id=task_id,
                 question_id=question_id,
                 turn_id=turn.turn_id,
                 prompt=prompt,
                 options=options,
-            )
-            self.store.begin_turn_parking(
-                task_id=task_id,
-                turn_id=turn.turn_id,
-                barrier=TurnBarrier.INPUT,
             )
             return {
                 "control": "turn_parking",

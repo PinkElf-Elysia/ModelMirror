@@ -131,6 +131,13 @@ async def test_v17_platform_plan_todo_and_question_are_turn_bound(tmp_path: Path
     assert turn.state is TurnTransactionState.PARKING
     assert turn.barrier is TurnBarrier.INPUT
     assert store.list_questions(task_id)[0].question_id == "question_scope"
+    question_event = next(
+        item for item in store.list_events(task_id) if item.type == "question_requested"
+    )
+    parking_event = next(
+        item for item in store.list_events(task_id) if item.type == "turn_parking"
+    )
+    assert question_event.sequence + 1 == parking_event.sequence
     with pytest.raises(ToolBrokerError) as late:
         await broker.execute(
             task_id=task_id,
@@ -206,6 +213,39 @@ async def test_v17_unresolved_unknown_operation_reparks_the_same_turn(
     assert "late-after-unknown" not in {
         item.operation_id for item in store.list_operations(task_id)
     }
+
+
+@pytest.mark.asyncio
+async def test_v17_approval_and_turn_parking_are_one_durable_boundary(
+    tmp_path: Path,
+) -> None:
+    broker, store, task_id, _ = await _broker(
+        tmp_path, runtime_protocol=RuntimeProtocol.V17
+    )
+
+    with pytest.raises(ToolBrokerError) as required:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="v17-command-approval",
+            tool_name="run_command",
+            arguments={"argv": ["python", "-V"], "timeout_seconds": 30},
+        )
+
+    assert required.value.code == "approval_required"
+    approvals = store.list_approvals(task_id)
+    assert len(approvals) == 1
+    assert approvals[0].operation_id == "v17-command-approval"
+    turn = store.current_turn_transaction(task_id)
+    assert turn is not None
+    assert turn.state is TurnTransactionState.PARKING
+    assert turn.barrier is TurnBarrier.APPROVAL
+    approval_event = next(
+        item for item in store.list_events(task_id) if item.type == "approval_requested"
+    )
+    parking_event = next(
+        item for item in store.list_events(task_id) if item.type == "turn_parking"
+    )
+    assert approval_event.sequence + 1 == parking_event.sequence
 
 
 @pytest.mark.asyncio

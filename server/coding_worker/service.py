@@ -622,6 +622,15 @@ class CodingWorkerService:
             ),
         )
         try:
+            parent_turn_id: str | None = None
+            if parent.runtime_protocol is RuntimeProtocol.V17:
+                turn = self.store.current_turn_transaction(parent_task_id)
+                if turn is None:
+                    raise WorkerConflictError(
+                        "V17 subtask has no current turn.",
+                        code="operation_turn_required",
+                    )
+                parent_turn_id = turn.turn_id
             subtask = self.store.create_subtask_task(
                 parent_task_id=parent_task_id,
                 client_subtask_id=request.client_subtask_id,
@@ -630,6 +639,7 @@ class CodingWorkerService:
                 spec=child_spec,
                 workspace_id=workspace.workspace_id,
                 base_tree_hash=base_tree_hash,
+                parent_turn_id=parent_turn_id,
             )
         except Exception:
             self.workspace_broker.delete(workspace.workspace_id)
@@ -638,16 +648,6 @@ class CodingWorkerService:
             self.workspace_broker.delete(workspace.workspace_id)
         current_parent = self.store.get_task(parent_task_id)
         if current_parent.runtime_protocol is RuntimeProtocol.V17:
-            turn = self.store.current_turn_transaction(parent_task_id)
-            if turn is None:
-                raise WorkerConflictError(
-                    "V17 subtask has no current turn.", code="operation_turn_required"
-                )
-            self.store.begin_turn_parking(
-                task_id=parent_task_id,
-                turn_id=turn.turn_id,
-                barrier=TurnBarrier.SUBTASKS,
-            )
             self._wake.set()
             return subtask
         if current_parent.state in {
