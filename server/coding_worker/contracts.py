@@ -1330,8 +1330,6 @@ class WorkerTurnTransaction(StrictModel):
         if self.state is TurnTransactionState.PARKED and self.checkpoint_id is None:
             raise ValueError("parked turn requires a checkpoint")
         if self.state in {
-            TurnTransactionState.OPEN,
-            TurnTransactionState.PARKING,
             TurnTransactionState.COMPLETED,
             TurnTransactionState.INTERRUPTED,
         } and self.checkpoint_id is not None:

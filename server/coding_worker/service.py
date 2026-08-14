@@ -1414,6 +1414,7 @@ class CodingWorkerService:
                 if (
                     resume_phase
                     not in {
+                        "turn_open",
                         "testing",
                         "waiting_approval",
                         "waiting_input",
@@ -1427,6 +1428,13 @@ class CodingWorkerService:
                     raise WorkerConflictError(
                         "Checkpoint phase is invalid.", code="checkpoint_invalid"
                     )
+                current_turn = self.store.current_turn_transaction(task_id)
+                if (
+                    current_turn is not None
+                    and current_turn.state is TurnTransactionState.RESUMING
+                    and current_turn.barrier is TurnBarrier.OPERATION_UNKNOWN
+                ):
+                    resume_phase = "operation_unknown"
                 session = await self.provider.restore(request, provider_checkpoint)
             else:
                 session = await self.provider.open(request)
@@ -1588,7 +1596,14 @@ class CodingWorkerService:
         task_id = task.task_id
         message = task.spec.objective
         turns = completed_turns
-        if resume_phase == "testing":
+        if resume_phase == "turn_open":
+            message = self._restored_context_message(
+                resume_context,
+                "The previous turn stopped before a deterministic completion. "
+                "Continue from the durable turn boundary and do not infer that "
+                "any unreceipted side effect failed.",
+            )
+        elif resume_phase == "testing":
             steering, message_cursor = self._next_steering(
                 task_id, after_sequence=message_cursor
             )
@@ -1707,6 +1722,55 @@ class CodingWorkerService:
                     turn_id=turn_id,
                     payload={},
                 )
+                if task.runtime_protocol is RuntimeProtocol.V17:
+                    try:
+                        provider_checkpoint = await self.provider.checkpoint(session)
+                        entry_tree_hash = self.workspace_broker.current_tree_hash(
+                            workspace_id or ""
+                        )
+                        checkpoint = self.store.create_checkpoint(
+                            task_id=task_id,
+                            workspace_tree_hash=entry_tree_hash,
+                            payload={
+                                "phase": "turn_open",
+                                "turn_id": turn_id,
+                                "completed_turns": turns,
+                                "message_cursor": message_cursor,
+                                "provider": provider_checkpoint.model_dump(mode="json"),
+                                "context_summary": self._context_summary(
+                                    task_id,
+                                    tree_hash=entry_tree_hash,
+                                    public_output="",
+                                ),
+                                "turn_before": (
+                                    turn_before.model_dump(mode="json")
+                                    if turn_before is not None
+                                    else None
+                                ),
+                                "turn_public_before": turn_public_before,
+                            },
+                        )
+                        self.store.bind_turn_recovery_checkpoint(
+                            task_id=task_id,
+                            turn_id=turn_id,
+                            checkpoint_id=checkpoint.checkpoint_id,
+                        )
+                    except Exception:
+                        self.store.finish_session_turn(
+                            task_id, turn_id=turn_id, result_state="interrupted"
+                        )
+                        self.store.finish_turn_transaction(
+                            task_id=task_id,
+                            turn_id=turn_id,
+                            state=TurnTransactionState.INTERRUPTED,
+                        )
+                        self.store.transition(
+                            task_id,
+                            TaskState.BLOCKED,
+                            reason="turn_entry_checkpoint_failed",
+                            expected_state=TaskState.RUNNING,
+                        )
+                        return
             outcome = "interrupted"
             question_data: dict[str, object] | None = None
             compaction_failed = False

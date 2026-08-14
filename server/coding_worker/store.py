@@ -118,8 +118,8 @@ class CodingWorkerStore:
         self.workspaces_root.mkdir(parents=True, exist_ok=True)
         self._initialize()
         self.mark_open_session_boundaries_interrupted()
-        self.mark_inflight_interrupted()
         self.mark_inflight_operations_unknown()
+        self.mark_inflight_interrupted()
 
     def allocate_controller_generation(self) -> int:
         """Allocate one durable, monotonic Server-to-sidecar fencing generation."""
@@ -1786,7 +1786,7 @@ class CodingWorkerStore:
             connection.execute(
                 """
                 UPDATE worker_turn_transactions
-                SET state = ?, barrier = ?, checkpoint_id = NULL, updated_at = ?
+                SET state = ?, barrier = ?, updated_at = ?
                 WHERE task_id = ? AND turn_id = ?
                 """,
                 (
@@ -1803,6 +1803,54 @@ class CodingWorkerStore:
                 event_type="turn_parking",
                 payload={"turn_id": turn_id, "barrier": barrier.value},
                 created_at=now,
+            )
+        return self.get_turn_transaction(task_id, turn_id)
+
+    def bind_turn_recovery_checkpoint(
+        self, *, task_id: str, turn_id: str, checkpoint_id: str
+    ) -> WorkerTurnTransaction:
+        """Bind the deterministic entry checkpoint before a V17 turn can use tools."""
+
+        if SAFE_ID.fullmatch(checkpoint_id) is None:
+            raise ValueError("turn checkpoint identifier is invalid")
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._require_turn_row(connection, task_id, turn_id)
+            current = self._turn_transaction(row)
+            if current.state is not TurnTransactionState.OPEN:
+                raise WorkerConflictError(
+                    "Turn entry checkpoint can no longer be bound.",
+                    code="turn_state_conflict",
+                )
+            checkpoint = connection.execute(
+                "SELECT task_id, workspace_tree_hash FROM worker_checkpoints WHERE checkpoint_id = ?",
+                (checkpoint_id,),
+            ).fetchone()
+            if (
+                checkpoint is None
+                or str(checkpoint["task_id"]) != task_id
+                or str(checkpoint["workspace_tree_hash"])
+                != current.workspace_tree_hash
+            ):
+                raise WorkerConflictError(
+                    "Turn entry checkpoint binding is invalid.",
+                    code="turn_checkpoint_invalid",
+                )
+            if current.checkpoint_id is not None:
+                if current.checkpoint_id != checkpoint_id:
+                    raise WorkerConflictError(
+                        "Turn entry checkpoint changed.",
+                        code="turn_checkpoint_conflict",
+                    )
+                return current
+            connection.execute(
+                """
+                UPDATE worker_turn_transactions
+                SET checkpoint_id = ?, updated_at = ?
+                WHERE task_id = ? AND turn_id = ?
+                """,
+                (checkpoint_id, now, task_id, turn_id),
             )
         return self.get_turn_transaction(task_id, turn_id)
 
@@ -2918,10 +2966,59 @@ class CodingWorkerStore:
                     and str(turn_row["barrier"]) == TurnBarrier.APPROVAL.value
                 ):
                     continue
+                unknown_operation = (
+                    connection.execute(
+                        """
+                        SELECT operation_id FROM worker_operations
+                        WHERE task_id = ? AND turn_id = ? AND state = ?
+                        ORDER BY created_at LIMIT 1
+                        """,
+                        (
+                            task_id,
+                            str(turn_row["turn_id"]),
+                            OperationState.UNKNOWN.value,
+                        ),
+                    ).fetchone()
+                    if (
+                        str(row["runtime_protocol"]) == RuntimeProtocol.V17.value
+                        and turn_row is not None
+                    )
+                    else None
+                )
+                if unknown_operation is not None and turn_row["checkpoint_id"] is not None:
+                    connection.execute(
+                        """
+                        UPDATE worker_turn_transactions
+                        SET state = ?, barrier = ?, updated_at = ?
+                        WHERE task_id = ? AND turn_id = ?
+                        """,
+                        (
+                            TurnTransactionState.PARKED.value,
+                            TurnBarrier.OPERATION_UNKNOWN.value,
+                            now,
+                            task_id,
+                            str(turn_row["turn_id"]),
+                        ),
+                    )
+                    self._append_event_locked(
+                        connection,
+                        task_id=task_id,
+                        event_type="turn_parked",
+                        payload={
+                            "turn_id": str(turn_row["turn_id"]),
+                            "barrier": TurnBarrier.OPERATION_UNKNOWN.value,
+                            "checkpoint_id": str(turn_row["checkpoint_id"]),
+                            "operation_id": str(unknown_operation["operation_id"]),
+                        },
+                        created_at=now,
+                    )
+                    reason = "operation_result_unknown"
+                else:
+                    reason = "server_restart"
                 if turn_row is not None and str(turn_row["state"]) in {
                     TurnTransactionState.OPEN.value,
                     TurnTransactionState.PARKING.value,
-                }:
+                } and unknown_operation is None:
                     connection.execute(
                         """
                         UPDATE worker_turn_transactions
@@ -2946,7 +3043,7 @@ class CodingWorkerStore:
                     "UPDATE worker_tasks SET state = ?, reason_ciphertext = ?, updated_at = ? WHERE task_id = ?",
                     (
                         TaskState.INTERRUPTED.value,
-                        self._codec.encrypt("server_restart"),
+                        self._codec.encrypt(reason),
                         now,
                         task_id,
                     ),
@@ -2958,7 +3055,7 @@ class CodingWorkerStore:
                     payload={
                         "from": str(row["state"]),
                         "to": TaskState.INTERRUPTED.value,
-                        "reason": "server_restart",
+                        "reason": reason,
                     },
                     created_at=now,
                 )

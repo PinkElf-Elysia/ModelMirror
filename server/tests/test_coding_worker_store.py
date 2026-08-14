@@ -240,6 +240,62 @@ def test_restart_preserves_durably_parked_v17_approval_turn(tmp_path: Path) -> N
     assert resuming.state is TurnTransactionState.RESUMING
 
 
+def test_restart_parks_unknown_v17_operation_on_its_entry_checkpoint(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "worker"
+    key = Fernet.generate_key()
+    store = CodingWorkerStore(root, master_key=key)
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_unknown_restart",
+        workspace_tree_hash="c" * 64,
+    )
+    checkpoint = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash="c" * 64,
+        payload={
+            "phase": "turn_open",
+            "completed_turns": 1,
+            "provider": {"checkpoint_id": "provider_entry", "payload": {}},
+        },
+    )
+    store.bind_turn_recovery_checkpoint(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    operation = store.create_operation(
+        task_id=task.task_id,
+        operation_id="operation_v17_unknown_restart",
+        tool_name="write_file",
+        intent_sha256="d" * 64,
+        request={"path": "result.txt"},
+        turn_id=turn.turn_id,
+    )
+    store.transition_operation(
+        operation.operation_id,
+        OperationState.RUNNING,
+        expected_state=OperationState.PREPARED,
+    )
+
+    restarted = CodingWorkerStore(root, master_key=key)
+
+    assert restarted.get_operation(operation.operation_id).state is OperationState.UNKNOWN
+    interrupted = restarted.get_task(task.task_id)
+    assert interrupted.state is TaskState.INTERRUPTED
+    assert interrupted.reason == "operation_result_unknown"
+    parked = restarted.current_turn_transaction(task.task_id)
+    assert parked is not None
+    assert parked.turn_id == turn.turn_id
+    assert parked.state is TurnTransactionState.PARKED
+    assert parked.barrier is TurnBarrier.OPERATION_UNKNOWN
+    assert parked.checkpoint_id == checkpoint.checkpoint_id
+
+
 def test_v17_question_resolution_atomically_resumes_parked_turn(
     tmp_path: Path,
 ) -> None:
