@@ -10,10 +10,16 @@ from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
     Origin,
+    OperationState,
+    RuntimeProtocol,
     SessionLedgerKind,
     TaskSpec,
     TaskState,
+    TurnBarrier,
+    TurnTransactionState,
     WorkspaceSource,
+    WorkerQuestionAnswer,
+    WorkerQuestionOption,
     WorkerSessionLedgerEntry,
 )
 from server.coding_worker.crypto import WorkerCryptoError
@@ -70,6 +76,398 @@ def test_idempotency_key_rejects_changed_intent(tmp_path: Path) -> None:
     with pytest.raises(WorkerConflictError) as raised:
         store.create_task(_spec(objective="Different"))
     assert raised.value.code == "task_intent_conflict"
+
+
+def test_v17_turn_transaction_parks_and_rejects_new_operations(tmp_path: Path) -> None:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    tree_hash = "a" * 64
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_1",
+        workspace_tree_hash=tree_hash,
+    )
+    assert turn.generation == 1
+    operation = store.create_operation(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        operation_id="operation_v17_1",
+        tool_name="run_command",
+        intent_sha256="b" * 64,
+        request={"arguments": {"argv": ["pytest"]}, "workspace_id": "workspace_1"},
+    )
+    assert operation.turn_id == turn.turn_id
+
+    parking = store.begin_turn_parking(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        barrier=TurnBarrier.APPROVAL,
+    )
+    assert parking.state is TurnTransactionState.PARKING
+    with pytest.raises(WorkerConflictError) as rejected:
+        store.create_operation(
+            task_id=task.task_id,
+            turn_id=turn.turn_id,
+            operation_id="operation_v17_2",
+            tool_name="run_command",
+            intent_sha256="c" * 64,
+            request={"arguments": {"argv": ["pytest", "-q"]}, "workspace_id": "workspace_1"},
+        )
+    assert rejected.value.code == "turn_parked"
+    assert (
+        store.create_operation(
+            task_id=task.task_id,
+            turn_id=turn.turn_id,
+            operation_id=operation.operation_id,
+            tool_name=operation.tool_name,
+            intent_sha256=operation.intent_sha256,
+            request=operation.request,
+        )
+        == operation
+    )
+
+    checkpoint = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash=tree_hash,
+        payload={"phase": "approval"},
+    )
+    parked = store.park_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    assert parked.state is TurnTransactionState.PARKED
+    resumed = store.resume_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    assert resumed.state is TurnTransactionState.RESUMING
+    completed = store.finish_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        state=TurnTransactionState.COMPLETED,
+    )
+    assert completed.state is TurnTransactionState.COMPLETED
+    assert [event.type for event in store.list_events(task.task_id)] == [
+        "task_created",
+        "task_state",
+        "task_state",
+        "turn_started",
+        "turn_parking",
+        "checkpoint_created",
+        "turn_parked",
+        "turn_resumed",
+        "turn_completed",
+    ]
+
+
+def test_existing_tasks_default_to_v16_and_reject_turn_transactions(tmp_path: Path) -> None:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    task = store.create_task(_spec())
+    assert task.runtime_protocol is RuntimeProtocol.V16
+    with pytest.raises(WorkerConflictError) as rejected:
+        store.open_turn_transaction(
+            task_id=task.task_id,
+            turn_id="turn_legacy",
+            workspace_tree_hash="d" * 64,
+        )
+    assert rejected.value.code == "turn_protocol_mismatch"
+
+
+def test_restart_preserves_durably_parked_v17_approval_turn(tmp_path: Path) -> None:
+    root = tmp_path / "worker"
+    key = Fernet.generate_key()
+    store = CodingWorkerStore(root, master_key=key)
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_restart",
+        workspace_tree_hash="a" * 64,
+    )
+    store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TURN_STARTED,
+        turn_id=turn.turn_id,
+        payload={},
+    )
+    approval = store.create_approval(
+        task_id=task.task_id,
+        operation_id="operation_v17_restart",
+        capability="command",
+        request={"argv": ["pytest"]},
+    )
+    store.begin_turn_parking(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        barrier=TurnBarrier.APPROVAL,
+    )
+    with pytest.raises(WorkerConflictError) as too_early:
+        store.decide_approval(approval.approval_id, approved=True)
+    assert too_early.value.code == "task_state_conflict"
+    assert store.get_approval(approval.approval_id).status.value == "pending"
+    checkpoint = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash="b" * 64,
+        payload={"phase": "waiting_approval"},
+    )
+    store.park_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    store.transition(task.task_id, TaskState.WAITING_APPROVAL)
+
+    restarted = CodingWorkerStore(root, master_key=key)
+
+    assert restarted.get_task(task.task_id).state is TaskState.WAITING_APPROVAL
+    parked = restarted.current_turn_transaction(task.task_id)
+    assert parked is not None
+    assert parked.state is TurnTransactionState.PARKED
+    assert parked.workspace_tree_hash == "b" * 64
+    assert [item.kind for item in restarted.list_session_ledger(task.task_id)] == [
+        SessionLedgerKind.TURN_STARTED
+    ]
+    decided = restarted.decide_approval(approval.approval_id, approved=True)
+    assert decided.status.value == "approved"
+    assert restarted.get_task(task.task_id).state is TaskState.QUEUED
+    resuming = restarted.current_turn_transaction(task.task_id)
+    assert resuming is not None
+    assert resuming.state is TurnTransactionState.RESUMING
+
+    resumed_again = CodingWorkerStore(root, master_key=key)
+    assert resumed_again.get_task(task.task_id).state is TaskState.QUEUED
+    resumed_turn = resumed_again.current_turn_transaction(task.task_id)
+    assert resumed_turn is not None
+    assert resumed_turn.state is TurnTransactionState.RESUMING
+    assert resumed_turn.checkpoint_id == checkpoint.checkpoint_id
+
+
+def test_restart_interrupts_v17_parking_before_checkpoint(tmp_path: Path) -> None:
+    root = tmp_path / "worker"
+    key = Fernet.generate_key()
+    store = CodingWorkerStore(root, master_key=key)
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_parking_restart",
+        workspace_tree_hash="a" * 64,
+    )
+    store.begin_turn_parking(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        barrier=TurnBarrier.INPUT,
+    )
+
+    restarted = CodingWorkerStore(root, master_key=key)
+
+    interrupted = restarted.get_task(task.task_id)
+    assert interrupted.state is TaskState.INTERRUPTED
+    assert interrupted.reason == "server_restart"
+    assert restarted.get_turn_transaction(
+        task.task_id, turn.turn_id
+    ).state is TurnTransactionState.INTERRUPTED
+
+
+@pytest.mark.parametrize(
+    ("barrier", "waiting_state"),
+    (
+        (TurnBarrier.INPUT, TaskState.WAITING_INPUT),
+        (TurnBarrier.SUBTASKS, TaskState.WAITING_SUBTASKS),
+    ),
+)
+def test_restart_preserves_v17_parked_input_and_subtask_turns(
+    tmp_path: Path, barrier: TurnBarrier, waiting_state: TaskState
+) -> None:
+    root = tmp_path / barrier.value
+    key = Fernet.generate_key()
+    store = CodingWorkerStore(root, master_key=key)
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id=f"turn_v17_{barrier.value}_restart",
+        workspace_tree_hash="a" * 64,
+    )
+    store.begin_turn_parking(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        barrier=barrier,
+    )
+    checkpoint = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash="a" * 64,
+        payload={"phase": f"waiting_{barrier.value}"},
+    )
+    store.park_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    store.transition(task.task_id, waiting_state)
+
+    restarted = CodingWorkerStore(root, master_key=key)
+
+    assert restarted.get_task(task.task_id).state is waiting_state
+    parked = restarted.current_turn_transaction(task.task_id)
+    assert parked is not None
+    assert parked.state is TurnTransactionState.PARKED
+    assert parked.barrier is barrier
+    assert parked.checkpoint_id == checkpoint.checkpoint_id
+
+
+def test_restart_parks_unknown_v17_operation_on_its_entry_checkpoint(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "worker"
+    key = Fernet.generate_key()
+    store = CodingWorkerStore(root, master_key=key)
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_unknown_restart",
+        workspace_tree_hash="c" * 64,
+    )
+    checkpoint = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash="c" * 64,
+        payload={
+            "phase": "turn_open",
+            "completed_turns": 1,
+            "provider": {"checkpoint_id": "provider_entry", "payload": {}},
+        },
+    )
+    store.bind_turn_recovery_checkpoint(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    operation = store.create_operation(
+        task_id=task.task_id,
+        operation_id="operation_v17_unknown_restart",
+        tool_name="write_file",
+        intent_sha256="d" * 64,
+        request={"path": "result.txt"},
+        turn_id=turn.turn_id,
+    )
+    store.transition_operation(
+        operation.operation_id,
+        OperationState.RUNNING,
+        expected_state=OperationState.PREPARED,
+    )
+
+    restarted = CodingWorkerStore(root, master_key=key)
+
+    assert restarted.get_operation(operation.operation_id).state is OperationState.UNKNOWN
+    interrupted = restarted.get_task(task.task_id)
+    assert interrupted.state is TaskState.INTERRUPTED
+    assert interrupted.reason == "operation_result_unknown"
+    parked = restarted.current_turn_transaction(task.task_id)
+    assert parked is not None
+    assert parked.turn_id == turn.turn_id
+    assert parked.state is TurnTransactionState.PARKED
+    assert parked.barrier is TurnBarrier.OPERATION_UNKNOWN
+    assert parked.checkpoint_id == checkpoint.checkpoint_id
+
+
+def test_v17_question_resolution_atomically_resumes_parked_turn(
+    tmp_path: Path,
+) -> None:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_input",
+        workspace_tree_hash="a" * 64,
+    )
+    store.create_question(
+        task_id=task.task_id,
+        question_id="question_v17_input",
+        turn_id=turn.turn_id,
+        prompt="Choose a repair.",
+        options=(
+            WorkerQuestionOption(option_id="safe", label="Safe repair"),
+        ),
+    )
+    store.begin_turn_parking(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        barrier=TurnBarrier.INPUT,
+    )
+    checkpoint = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash="a" * 64,
+        payload={"phase": "waiting_input"},
+    )
+    store.park_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    store.transition(task.task_id, TaskState.WAITING_INPUT)
+
+    resolved = store.resolve_question(
+        task.task_id,
+        "question_v17_input",
+        WorkerQuestionAnswer(option_id="safe"),
+    )
+
+    assert resolved.status.value == "resolved"
+    assert store.get_task(task.task_id).state is TaskState.QUEUED
+    transaction = store.current_turn_transaction(task.task_id)
+    assert transaction is not None
+    assert transaction.state is TurnTransactionState.RESUMING
+
+
+def test_unknown_operation_emits_one_reconciliation_receipt(tmp_path: Path) -> None:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    task = store.create_task(_spec())
+    operation = store.create_operation(
+        task_id=task.task_id,
+        operation_id="operation_reconcile_receipt",
+        tool_name="run_shell",
+        intent_sha256="a" * 64,
+        request={"workspace_id": "workspace_1", "arguments": {}},
+    )
+    store.transition_operation(
+        operation.operation_id,
+        OperationState.RUNNING,
+        expected_state=OperationState.PREPARED,
+    )
+    store.transition_operation(
+        operation.operation_id,
+        OperationState.UNKNOWN,
+        expected_state=OperationState.RUNNING,
+    )
+    store.transition_operation(
+        operation.operation_id,
+        OperationState.COMPLETED,
+        result={"exit_code": 0},
+        expected_state=OperationState.UNKNOWN,
+    )
+
+    receipts = [
+        event
+        for event in store.list_events(task.task_id)
+        if event.type == "operation_reconciled"
+    ]
+    assert [event.payload for event in receipts] == [
+        {
+            "operation_id": operation.operation_id,
+            "state": OperationState.COMPLETED.value,
+        }
+    ]
 
 
 def test_restart_interrupts_inflight_without_replaying_it(tmp_path: Path) -> None:

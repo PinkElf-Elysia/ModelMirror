@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
 
@@ -323,6 +324,7 @@ def test_session_control_capability_is_independently_gated(
     monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
     monkeypatch.setenv("CODING_WORKER_SESSION_CONTROLS_ENABLED", "true")
     try:
+        asyncio.run(service.refresh_provider_capabilities())
         assert coding_worker_capabilities().turn_history is True
         monkeypatch.setenv("CODING_WORKER_SESSION_CONTROLS_ENABLED", "false")
         assert coding_worker_capabilities().turn_history is False

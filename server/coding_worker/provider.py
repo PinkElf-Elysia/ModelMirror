@@ -18,7 +18,7 @@ from .contracts import (
 )
 
 
-PROVIDER_CONTRACT_VERSION = 3
+PROVIDER_CONTRACT_VERSION = 4
 PROVIDER_CHECKPOINT_FORMAT_VERSION = 2
 PROVIDER_TOOL_NAMES = (
     "list_files",
@@ -49,6 +49,10 @@ PROVIDER_TOOL_NAMES = (
     "stop_service",
     "create_subtask",
     "merge_subtask",
+    "update_plan",
+    "update_todo",
+    "request_user_input",
+    "compact_context",
 )
 INSPECT_PROVIDER_TOOLS = PROVIDER_TOOL_NAMES[:13] + (
     "list_acceptance_checks",
@@ -211,18 +215,19 @@ class ProviderCheckpointCompatibility(StrictModel):
 
 class ProviderCapabilities(StrictModel):
     contract_version: int = PROVIDER_CONTRACT_VERSION
-    supports_streaming: bool = True
-    supports_cancel: bool = True
+    supports_streaming: bool = False
+    supports_cancel: bool = False
     supports_checkpoint: bool = False
     supports_restore: bool = False
-    supports_steering: bool = True
-    supports_usage: bool = True
-    supports_structured_plan: bool = True
-    supports_todo: bool = True
-    supports_questions: bool = True
-    supports_compaction: bool = True
-    supports_tool_boundaries: bool = True
-    tool_names: tuple[str, ...] = PROVIDER_TOOL_NAMES
+    supports_steering: bool = False
+    supports_usage: bool = False
+    supports_structured_plan: bool = False
+    supports_todo: bool = False
+    supports_questions: bool = False
+    supports_compaction: bool = False
+    supports_tool_boundaries: bool = False
+    supports_turn_interrupt: bool = False
+    tool_names: tuple[str, ...] = ()
 
 
 class ProviderOpenRequest(StrictModel):
@@ -367,6 +372,8 @@ class CodingAgentProvider(Protocol):
 
     async def cancel(self, session: ProviderSession) -> bool: ...
 
+    async def interrupt_turn(self, session: ProviderSession) -> bool: ...
+
     async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint: ...
 
     async def restore(
@@ -401,7 +408,21 @@ class FakeCodingAgentProvider:
         self._requests: dict[str, ProviderOpenRequest] = {}
 
     async def capabilities(self) -> ProviderCapabilities:
-        return ProviderCapabilities(supports_checkpoint=True, supports_restore=True)
+        return ProviderCapabilities(
+            supports_streaming=True,
+            supports_cancel=True,
+            supports_checkpoint=True,
+            supports_restore=True,
+            supports_steering=True,
+            supports_usage=True,
+            supports_structured_plan=True,
+            supports_todo=True,
+            supports_questions=True,
+            supports_compaction=True,
+            supports_tool_boundaries=True,
+            supports_turn_interrupt=True,
+            tool_names=PROVIDER_TOOL_NAMES,
+        )
 
     async def open(self, request: ProviderOpenRequest) -> ProviderSession:
         session = ProviderSession(
@@ -431,6 +452,9 @@ class FakeCodingAgentProvider:
             return False
         self._cancelled.add(session.session_id)
         return True
+
+    async def interrupt_turn(self, session: ProviderSession) -> bool:
+        return await self.cancel(session)
 
     async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint:
         request = self._requests.get(session.session_id)

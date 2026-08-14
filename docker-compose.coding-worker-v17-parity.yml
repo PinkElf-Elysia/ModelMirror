@@ -1,0 +1,172 @@
+services:
+  server:
+    environment:
+      CODING_WORKER_PARITY_ENABLED: "true"
+      CODING_WORKER_PARITY_PUBLIC_FIXTURES: /parity/public-fixtures.json
+    volumes:
+      - type: bind
+        source: ./server/tests/fixtures/coding_worker_v17_parity_assets.json
+        target: /parity/public-fixtures.json
+        read_only: true
+
+  coding-worker-parity-native:
+    profiles: [coding-worker-parity]
+    image: modelmirror-coding-worker-v17-parity:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.v14
+    command:
+      - python
+      - -m
+      - coding_worker.parity_sidecar
+      - native-runner
+      - --socket
+      - /run/modelmirror-parity/native.sock
+      - --token
+      - ${CODING_PARITY_NATIVE_TOKEN:?set a random parity native token}
+    networks: [coding_internal]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 192
+    mem_limit: 2g
+    cpus: 2.0
+    tmpfs:
+      - /tmp:rw,nosuid,size=256m,uid=65532,gid=65532,mode=0700
+      - /parity/workspaces:rw,nosuid,size=1g,uid=65532,gid=65532,mode=0700
+      - /home/coding:rw,nosuid,size=128m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_PARITY_PUBLIC_FIXTURES: /parity/public-fixtures.json
+      CODING_PARITY_WORKSPACE_ROOT: /parity/workspaces
+      CODING_PARITY_EXPORT_ROOT: /parity/exports
+      CODING_PARITY_MODEL_ROUTE: coding/default
+      CODING_PARITY_ROUTE_CATALOG_SHA256: ${CODING_PARITY_ROUTE_CATALOG_SHA256:?set the frozen route catalog digest}
+      CODING_PARITY_ROUTE_RECEIPT_SHA256: ${CODING_PARITY_ROUTE_RECEIPT_SHA256:?set the one-round route receipt digest}
+      CODING_PARITY_MODEL_ID: ${CODING_WORKER_MODEL_ID:?set the controlled model id}
+      CODING_PARITY_MODEL_BASE_URL: ${CODING_WORKER_MODEL_BASE_URL:-http://new-api:3000/v1}
+      CODING_PARITY_ROUTE_KEY: ${CODING_WORKER_ROUTE_KEY:?set the dedicated Worker route key}
+    volumes:
+      - type: bind
+        source: ./server/tests/fixtures/coding_worker_v17_parity_assets.json
+        target: /parity/public-fixtures.json
+        read_only: true
+      - coding_worker_parity_exports:/parity/exports
+      - coding_worker_parity_native_socket:/run/modelmirror-parity
+    restart: "no"
+
+  coding-worker-parity-worker:
+    profiles: [coding-worker-parity]
+    image: modelmirror-coding-worker-v17-parity:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.v14
+    command:
+      - python
+      - -m
+      - coding_worker.parity_sidecar
+      - worker-runner
+      - --socket
+      - /run/modelmirror-parity/worker.sock
+      - --token
+      - ${CODING_PARITY_WORKER_TOKEN:?set a random parity Worker token}
+    networks: [default]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_PARITY_PUBLIC_FIXTURES: /parity/public-fixtures.json
+      CODING_PARITY_EXPORT_ROOT: /parity/exports
+      CODING_PARITY_WORKER_API: http://server:8000
+      CODING_PARITY_MODEL_ROUTE: coding/default
+      CODING_PARITY_ROUTE_CATALOG_SHA256: ${CODING_PARITY_ROUTE_CATALOG_SHA256:?set the frozen route catalog digest}
+      CODING_PARITY_ROUTE_RECEIPT_SHA256: ${CODING_PARITY_ROUTE_RECEIPT_SHA256:?set the one-round route receipt digest}
+    volumes:
+      - type: bind
+        source: ./server/tests/fixtures/coding_worker_v17_parity_assets.json
+        target: /parity/public-fixtures.json
+        read_only: true
+      - coding_worker_parity_exports:/parity/exports
+      - coding_worker_parity_worker_socket:/run/modelmirror-parity
+    restart: "no"
+
+  coding-worker-parity-checker:
+    profiles: [coding-worker-parity]
+    image: modelmirror-coding-worker-v17-parity:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.v14
+    command:
+      - python
+      - -m
+      - coding_worker.parity_sidecar
+      - checker
+      - --socket
+      - /run/modelmirror-parity/checker.sock
+      - --token
+      - ${CODING_PARITY_CHECKER_TOKEN:?set a random parity checker token}
+    network_mode: none
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,nosuid,size=256m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_PARITY_CHECKER_BUNDLE: /parity/checker.bundle
+      CODING_PARITY_EXPORT_ROOT: /parity/exports
+    volumes:
+      - type: bind
+        source: ${CODING_PARITY_CHECKER_BUNDLE:?set the absolute sealed checker bundle}
+        target: /parity/checker.bundle
+        read_only: true
+      - coding_worker_parity_exports:/parity/exports:ro
+      - coding_worker_parity_checker_socket:/run/modelmirror-parity
+    restart: "no"
+
+  coding-worker-parity-controller:
+    profiles: [coding-worker-parity]
+    image: modelmirror-coding-worker-v17-parity:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.v14
+    command: ["sleep", "infinity"]
+    network_mode: none
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 32
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /parity/output:rw,nosuid,noexec,size=256m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - type: bind
+        source: ./server/tests/fixtures/coding_worker_v16_parity.json
+        target: /parity/manifest.json
+        read_only: true
+      - type: bind
+        source: ./server/tests/fixtures/coding_worker_v17_parity_assets.json
+        target: /parity/public-fixtures.json
+        read_only: true
+      - coding_worker_parity_native_socket:/run/modelmirror-parity-native:ro
+      - coding_worker_parity_worker_socket:/run/modelmirror-parity-worker:ro
+      - coding_worker_parity_checker_socket:/run/modelmirror-parity-checker:ro
+    restart: "no"
+
+volumes:
+  coding_worker_parity_exports:
+  coding_worker_parity_native_socket:
+  coding_worker_parity_worker_socket:
+  coding_worker_parity_checker_socket:

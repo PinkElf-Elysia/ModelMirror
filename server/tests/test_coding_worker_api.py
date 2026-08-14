@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
+import tarfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -16,6 +18,7 @@ from server.coding_worker.api import configure_coding_worker_for_tests, router
 import server.coding_worker.api as worker_api
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
+    ProviderCapabilities,
     ProviderCheckpoint,
     ProviderEvent,
     ProviderEventKind,
@@ -107,6 +110,18 @@ class _QuestionProvider(FakeCodingAgentProvider):
                 },
             )
             yield ProviderEvent(
+                kind=ProviderEventKind.TODO,
+                data={
+                    "items": [
+                        {
+                            "todo_id": "confirm-scope",
+                            "content": "Confirm the repair scope",
+                            "status": "in_progress",
+                        }
+                    ]
+                },
+            )
+            yield ProviderEvent(
                 kind=ProviderEventKind.QUESTION,
                 data={
                     "question_id": "question_scope",
@@ -125,6 +140,37 @@ class _QuestionProvider(FakeCodingAgentProvider):
     ) -> ProviderSession:
         self.restore_count += 1
         return await super().restore(request, checkpoint)
+
+
+class _UnavailableProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.available = True
+
+    async def capabilities(self) -> ProviderCapabilities:
+        if not self.available:
+            raise RuntimeError("provider unavailable")
+        return await super().capabilities()
+
+
+class _NativeInteractionOnlyProvider(FakeCodingAgentProvider):
+    async def capabilities(self) -> ProviderCapabilities:
+        capabilities = await super().capabilities()
+        return capabilities.model_copy(
+            update={
+                "tool_names": tuple(
+                    name
+                    for name in capabilities.tool_names
+                    if name
+                    not in {
+                        "update_plan",
+                        "update_todo",
+                        "request_user_input",
+                        "compact_context",
+                    }
+                )
+            }
+        )
 
 
 def teardown_function() -> None:
@@ -159,6 +205,23 @@ def test_feature_flag_is_default_deny(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.post("/api/coding-worker/v1/tasks", json=_payload()).status_code == 404
 
 
+def test_native_provider_hints_do_not_enable_platform_interaction_capabilities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_INTERACTION_ENABLED", "true")
+    client, _service = _client(
+        tmp_path, provider=_NativeInteractionOnlyProvider()
+    )
+
+    with client:
+        capabilities = client.get("/api/coding-worker/v1/capabilities").json()
+
+    assert capabilities["structured_plan"] is False
+    assert capabilities["user_questions"] is False
+    assert capabilities["context_compaction"] is False
+
+
 def test_v15_capabilities_are_vendor_neutral_and_independently_gated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -186,6 +249,87 @@ def test_v15_capabilities_are_vendor_neutral_and_independently_gated(
     }
     encoded = response.text.lower()
     assert "opencode" not in encoded and "claude" not in encoded
+
+
+def test_task_capabilities_are_bound_and_legacy_advanced_features_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = FakeCodingAgentProvider(block=asyncio.Event())
+    client, service = _client(tmp_path, provider=provider)
+    monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_SHELL_ENABLED", "true")
+    request = TaskCreateRequest.model_validate(_payload("legacy-capability-task"))
+    legacy = service.store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="worker-console", object_id="local-user"),
+        )
+    )
+
+    with client:
+        created = client.post(
+            "/api/coding-worker/v1/tasks", json=_payload("capability-task")
+        ).json()
+        response = client.get(
+            f"/api/coding-worker/v1/tasks/{created['task_id']}/capabilities"
+        )
+        assert response.status_code == 200
+        statuses = {
+            item["name"]: item for item in response.json()["capabilities"]
+        }
+        assert statuses["task_runtime"]["available"] is True
+        assert statuses["professional_file_tools"]["available"] is True
+        assert statuses["shell"]["available"] is True
+        assert statuses["code_intelligence"]["reason"] == "feature_disabled"
+
+        legacy_response = client.get(
+            f"/api/coding-worker/v1/tasks/{legacy.task_id}/capabilities"
+        )
+        assert legacy_response.status_code == 200
+        legacy_statuses = {
+            item["name"]: item
+            for item in legacy_response.json()["capabilities"]
+        }
+        assert legacy_statuses["task_runtime"]["available"] is True
+        assert legacy_statuses["professional_file_tools"] == {
+            "name": "professional_file_tools",
+            "enabled": True,
+            "supported": False,
+            "available": False,
+            "reason": "legacy_task",
+        }
+
+
+def test_task_capabilities_reject_stale_binding_and_global_flags_follow_health(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = _UnavailableProvider()
+    client, service = _client(tmp_path, provider=provider)
+    monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
+
+    with client:
+        created = client.post(
+            "/api/coding-worker/v1/tasks", json=_payload("binding-task")
+        ).json()
+        provider.controller_generation = 7
+        asyncio.run(service.refresh_provider_capabilities(force=True))
+        response = client.get(
+            f"/api/coding-worker/v1/tasks/{created['task_id']}/capabilities"
+        )
+        statuses = {
+            item["name"]: item for item in response.json()["capabilities"]
+        }
+        assert statuses["professional_file_tools"]["reason"] == (
+            "provider_binding_changed"
+        )
+
+        provider.available = False
+        asyncio.run(service.refresh_provider_capabilities(force=True))
+        capabilities = client.get(
+            "/api/coding-worker/v1/capabilities"
+        ).json()
+        assert capabilities["task_runtime"] is False
+        assert capabilities["professional_file_tools"] is False
 
 
 def test_v16_plan_and_question_resume_once_from_encrypted_waiting_state(
@@ -218,6 +362,15 @@ def test_v16_plan_and_question_resume_once_from_encrypted_waiting_state(
         assert [item["step"] for item in plan.json()["items"]] == [
             "inspect",
             "repair",
+        ]
+        todo = client.get(f"/api/coding-worker/v1/tasks/{task_id}/todo")
+        assert todo.status_code == 200
+        assert todo.json()["items"] == [
+            {
+                "todo_id": "confirm-scope",
+                "content": "Confirm the repair scope",
+                "status": "in_progress",
+            }
         ]
         questions = client.get(
             f"/api/coding-worker/v1/tasks/{task_id}/questions"
@@ -338,6 +491,36 @@ def test_workspace_endpoints_use_task_and_opaque_entry_ids(tmp_path: Path) -> No
         assert preview.text == "print('ok')\n"
         diff = client.get(f"/api/coding-worker/v1/tasks/{task_id}/workspace/diff")
         assert diff.status_code == 200 and diff.content == b""
+
+
+def test_parity_workspace_export_is_flagged_terminal_and_path_free(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, service = _client(tmp_path)
+    with client:
+        created = client.post("/api/coding-worker/v1/tasks", json=_payload()).json()
+        task_id = created["task_id"]
+        disabled = client.post(
+            f"/api/coding-worker/v1/tasks/{task_id}/workspace/parity-export"
+        )
+        assert disabled.status_code == 404
+        monkeypatch.setenv("CODING_WORKER_PARITY_ENABLED", "true")
+        asyncio.run(service.wait_for(task_id, lambda item: item.state.value == "blocked"))
+        exported = client.post(
+            f"/api/coding-worker/v1/tasks/{task_id}/workspace/parity-export"
+        )
+        assert exported.status_code == 200
+        artifact = exported.json()
+        assert artifact["metadata"]["kind"] == "parity_workspace_export"
+        assert "workspace_tree_hash" in artifact["metadata"]
+        assert "path" not in exported.text.lower()
+        download = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/artifacts/{artifact['artifact_id']}"
+        )
+        with tarfile.open(fileobj=io.BytesIO(download.content), mode="r:") as archive:
+            member = archive.getmember("main.py")
+            assert member.mtime == 0 and member.uid == member.gid == 0
+            assert archive.extractfile(member).read() == b"print('ok')\n"
 
 
 def test_pin_unpin_and_delete_keep_active_task_safe(tmp_path: Path) -> None:

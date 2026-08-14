@@ -438,3 +438,16 @@ curl http://localhost:5173/models
 60. **能力等效只能由冻结真实对照证明。** Fake、确定性 Harness、Compose、CLI 版本探针和单次人工任务均不
     能支持“接近 OpenCode”结论。必须满足任务卡中的 144 次、连续两轮、成功率/时长/token、安全与人工 UX
     全部门禁；任一失败时只能以 Experimental、默认关闭交付。
+61. **交互屏障必须是 Turn Transaction。** approval、input、subtask、compaction 或未知结果出现后，Provider
+    turn 先进入 `parking`，停止活动请求并写入精确 checkpoint；只有 durable `parked` 才能结算。屏障后的同批
+    工具调用不得创建新 operation。恢复只能使用原 turn、operation、tree 与 checkpoint。
+62. **平台数据优先于 Provider 提示。** Plan、Todo、Question、Turn、capability 和 Evidence 由 Store/API 权威
+    提供。Provider 原生 plan/question/compaction 帧只可作为公开提示，不能改变任务状态、开放动作或满足验收。
+63. **任务能力必须实时失败关闭。** `enabled`、`supported`、`available`、`reason` 绑定固定路由、sidecar generation
+    与健康窗口。离线、旧版本、缺工具、开关关闭、绑定改变或旧任务缺快照时不能用全局布尔值误报高级能力。
+64. **认证角色必须隔离。** Controller 不读取隐藏检查、模型 key 或 Workspace；runner 不读取隐藏 bundle；checker
+    无网络且是唯一读取隐藏正文的进程。任何 fixture、bundle、image、route、candidate 或 tree digest 不一致都必须
+    在隐藏检查前拒绝。runner 自报 passed 不能替代 checker receipt。
+65. **两轮认证必须拥有不同运行身份。** 每个 round 的 run ID 纳入 round ID、engine、task 与 attempt；跨 round
+    复用幂等任务是无效认证。两轮必须绑定同一候选、manifest、route、bundle 与 runner image，并连续完成共 288 次
+    真实运行。未运行、部分运行或人工修复过的矩阵不得写成绿色。

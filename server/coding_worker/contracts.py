@@ -44,6 +44,28 @@ class TaskState(StrEnum):
     EXPIRED = "expired"
 
 
+class RuntimeProtocol(StrEnum):
+    V16 = "v16"
+    V17 = "v17"
+
+
+class TurnTransactionState(StrEnum):
+    OPEN = "open"
+    PARKING = "parking"
+    PARKED = "parked"
+    RESUMING = "resuming"
+    COMPLETED = "completed"
+    INTERRUPTED = "interrupted"
+
+
+class TurnBarrier(StrEnum):
+    APPROVAL = "approval"
+    INPUT = "input"
+    SUBTASKS = "subtasks"
+    COMPACTION = "compaction"
+    OPERATION_UNKNOWN = "operation_unknown"
+
+
 BUDGET_ACTIVE_STATES = frozenset(
     {TaskState.PREPARING, TaskState.RUNNING, TaskState.TESTING}
 )
@@ -77,6 +99,7 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     ),
     TaskState.RUNNING: frozenset(
         {
+            TaskState.QUEUED,
             TaskState.WAITING_APPROVAL,
             TaskState.WAITING_INPUT,
             TaskState.WAITING_SUBTASKS,
@@ -91,6 +114,7 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     ),
     TaskState.WAITING_APPROVAL: frozenset(
         {
+            TaskState.QUEUED,
             TaskState.RUNNING,
             TaskState.PAUSED,
             TaskState.INTERRUPTED,
@@ -395,6 +419,74 @@ class WorkerCapabilities(StrictModel):
     subtasks: bool = False
 
 
+class WorkerFeatureName(StrEnum):
+    TASK_RUNTIME = "task_runtime"
+    PROFESSIONAL_FILE_TOOLS = "professional_file_tools"
+    SHELL = "shell"
+    OPERATION_OUTPUT = "operation_output"
+    CHANGESETS = "changesets"
+    CODE_INTELLIGENCE = "code_intelligence"
+    STRUCTURED_PLAN = "structured_plan"
+    USER_QUESTIONS = "user_questions"
+    CONTEXT_COMPACTION = "context_compaction"
+    TURN_HISTORY = "turn_history"
+    SUBTASKS = "subtasks"
+
+
+class WorkerCapabilityReason(StrEnum):
+    FEATURE_DISABLED = "feature_disabled"
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
+    PROVIDER_UNSUPPORTED = "provider_unsupported"
+    PROVIDER_BINDING_CHANGED = "provider_binding_changed"
+    ROUTE_UNAVAILABLE = "route_unavailable"
+    LEGACY_TASK = "legacy_task"
+
+
+class WorkerCapabilityStatus(StrictModel):
+    name: WorkerFeatureName
+    enabled: bool
+    supported: bool
+    available: bool
+    reason: WorkerCapabilityReason | None = None
+
+    @model_validator(mode="after")
+    def validate_availability(self) -> "WorkerCapabilityStatus":
+        if self.available and not (self.enabled and self.supported):
+            raise ValueError("capability availability is inconsistent")
+        if self.available != (self.reason is None):
+            raise ValueError("capability reason is inconsistent")
+        return self
+
+
+class TaskCapabilities(StrictModel):
+    task_id: str
+    observed_at: float | None = None
+    expires_at: float | None = None
+    capabilities: tuple[WorkerCapabilityStatus, ...]
+
+    @field_validator("task_id")
+    @classmethod
+    def validate_task_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("task capability identifier is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_capability_set(self) -> "TaskCapabilities":
+        names = [item.name for item in self.capabilities]
+        if len(names) != len(set(names)) or set(names) != set(WorkerFeatureName):
+            raise ValueError("task capability set is incomplete")
+        if (self.observed_at is None) != (self.expires_at is None):
+            raise ValueError("task capability observation is incomplete")
+        if (
+            self.observed_at is not None
+            and self.expires_at is not None
+            and self.expires_at <= self.observed_at
+        ):
+            raise ValueError("task capability observation expiry is invalid")
+        return self
+
+
 class SubtaskKind(StrEnum):
     EXPLORE = "explore"
     IMPLEMENT = "implement"
@@ -669,6 +761,7 @@ class TaskRecord(StrictModel):
     pinned: bool = False
     last_event_sequence: int = 0
     reason: str | None = None
+    runtime_protocol: RuntimeProtocol = RuntimeProtocol.V16
 
     @field_validator("task_id", "workspace_id", "provider_session_id")
     @classmethod
@@ -771,6 +864,34 @@ class WorkerPlan(StrictModel):
     def validate_plan_id(cls, value: str) -> str:
         if SAFE_ID.fullmatch(value) is None:
             raise ValueError("plan identifier is invalid")
+        return value
+
+
+class WorkerTodoItem(StrictModel):
+    todo_id: str
+    content: str = Field(min_length=1, max_length=4096)
+    status: Literal["pending", "in_progress", "completed", "cancelled"]
+
+    @field_validator("todo_id")
+    @classmethod
+    def validate_todo_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("todo identifier is invalid")
+        return value
+
+
+class WorkerTodo(StrictModel):
+    task_id: str
+    sequence: int = Field(ge=1)
+    turn_id: str
+    items: tuple[WorkerTodoItem, ...] = Field(max_length=256)
+    updated_at: float
+
+    @field_validator("task_id", "turn_id")
+    @classmethod
+    def validate_todo_binding(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("todo binding is invalid")
         return value
 
 
@@ -1167,5 +1288,50 @@ class WorkerOperation(StrictModel):
     state: OperationState
     request: dict[str, Any]
     result: dict[str, Any] | None = None
+    turn_id: str | None = None
     created_at: float
     updated_at: float
+
+    @field_validator("turn_id")
+    @classmethod
+    def validate_operation_turn_id(cls, value: str | None) -> str | None:
+        if value is not None and SAFE_ID.fullmatch(value) is None:
+            raise ValueError("operation turn identifier is invalid")
+        return value
+
+
+class WorkerTurnTransaction(StrictModel):
+    task_id: str
+    turn_id: str
+    generation: int = Field(ge=1)
+    state: TurnTransactionState
+    barrier: TurnBarrier | None = None
+    workspace_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    checkpoint_id: str | None = None
+    created_at: float
+    updated_at: float
+
+    @field_validator("task_id", "turn_id", "checkpoint_id")
+    @classmethod
+    def validate_turn_transaction_id(cls, value: str | None) -> str | None:
+        if value is not None and SAFE_ID.fullmatch(value) is None:
+            raise ValueError("turn transaction identifier is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_turn_transaction_state(self) -> "WorkerTurnTransaction":
+        waiting = self.state in {
+            TurnTransactionState.PARKING,
+            TurnTransactionState.PARKED,
+            TurnTransactionState.RESUMING,
+        }
+        if waiting != (self.barrier is not None):
+            raise ValueError("turn barrier is inconsistent with state")
+        if self.state is TurnTransactionState.PARKED and self.checkpoint_id is None:
+            raise ValueError("parked turn requires a checkpoint")
+        if self.state in {
+            TurnTransactionState.COMPLETED,
+            TurnTransactionState.INTERRUPTED,
+        } and self.checkpoint_id is not None:
+            raise ValueError("turn checkpoint is inconsistent with state")
+        return self

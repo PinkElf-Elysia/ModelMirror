@@ -787,3 +787,21 @@ V16 只做向前兼容扩展，公共事件和响应继续隐藏供应商帧、P
 新增状态为 `waiting_input` 与 `waiting_subtasks`；新增事件包括 plan/todo、question、compaction、subtask 与 changeset merge/conflict。父任务委派后停车并释放槽位；子任务深度固定一、每父任务最多四个，全局执行并发仍为二。模块与浏览器不能提交子 Agent 类型以外的 Provider、系统提示词、权限或 MCP。
 
 Console 的“会话”检查器显示 plan/todo、待回答问题、压缩边界、turn history、undo/redo/fork 和子任务合并状态。冲突时必须明确显示父 Workspace 未被覆盖，并保留子 Fork；任何合并后都由父任务重新执行冻结 AcceptanceContract。
+
+## V17 Turn Transaction 与认证接口
+
+新建 V17 任务后，以下读取面属于平台权威数据；Provider 原生帧不能替代它们：
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /tasks/{task_id}/capabilities` | 任务固定路由的 `enabled/supported/available/reason` 能力快照；不暴露供应商、版本、端口或凭据 |
+| `GET /tasks/{task_id}/plan` | 平台持久结构化计划 |
+| `GET /tasks/{task_id}/todo` | 平台持久 Todo 与 turn 绑定 |
+| `GET /tasks/{task_id}/questions` | durable parked 后可一次结算的问题 |
+| `POST /tasks/{task_id}/workspace/parity-export` | 仅认证开关启用且任务终态时，导出绑定当前 tree 的不透明 Workspace Artifact |
+
+V17 公共事件新增 `turn_started`、`turn_parking`、`turn_parked`、`turn_resumed`、`turn_completed`、`capability_changed` 与 `operation_reconciled`。Console 按 turn 与 operation intent 聚合尝试、审批、恢复和对账状态；waiting、parking、parked、resuming 都用中立状态提示，不渲染成工具失败。SSE 断线仍按 sequence 补发，Provider 的 `plan/todo/turn_completed` 原生提示不再驱动按钮、计划或完成状态。
+
+Turn Transaction 每个任务最多一个未完成 turn。审批、输入、子任务、压缩或未知结果出现时，Tool Broker 原子创建对应对象并关闭本轮新 operation 接收；后续同批工具调用只得到稳定 `turn_parked` 控制结果。用户只能在 checkpoint 已持久化后的 `parked` 状态结算；任务随后重新排队，从原 checkpoint 和 tree 恢复。acceptance testing 前不得存在运行、待批准或未知 operation。
+
+Parity v2 的公开 fixture、目标和可见检查可进入 runner；隐藏检查正文只能由 checker 的只读密封 bundle 读取。Native OpenCode runner 与 Worker runner 都使用全新 Workspace/session，并把终态 tree 导出为 Artifact；checker 在无网络环境复核 digest 和绑定后执行隐藏检查。Claude 只参与六项真实交互兼容门禁，不进入 OpenCode 成功率差值。
