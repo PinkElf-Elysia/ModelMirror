@@ -73,6 +73,9 @@ def _runs(*, worker_failures: set[str] | None = None) -> tuple[ParityRunOutcome,
                         raw_artifact_manifest_sha256=hashlib.sha256(
                             run_id.encode("utf-8")
                         ).hexdigest(),
+                        checker_receipt_sha256=hashlib.sha256(
+                            f"checker:{run_id}".encode("utf-8")
+                        ).hexdigest(),
                         candidate_sha=CANDIDATE,
                         task_manifest_sha256=manifest_hash,
                         initial_tree_hash=task.initial_tree_hash,
@@ -249,6 +252,9 @@ class _RecordingRunner:
             raw_artifact_manifest_sha256=hashlib.sha256(
                 request.run_id.encode("utf-8")
             ).hexdigest(),
+            checker_receipt_sha256=hashlib.sha256(
+                f"checker:{request.run_id}".encode("utf-8")
+            ).hexdigest(),
             candidate_sha=request.candidate_sha,
             task_manifest_sha256=request.task_manifest_sha256,
             initial_tree_hash=request.initial_tree_hash,
@@ -358,6 +364,7 @@ print(json.dumps({
   'hidden_checker_bundle_sha256':r['hidden_checker_bundle_sha256'],
   'runner_image_digest':r['runner_image_digest'],
   'raw_artifact_manifest_sha256':'a'*64,
+  'checker_receipt_sha256':'b'*64,
   'candidate_sha':r['candidate_sha'],'task_manifest_sha256':r['task_manifest_sha256'],
   'initial_tree_hash':r['initial_tree_hash'],'final_tree_hash':'f'*64,
   'hidden_checks_passed':True,'allowed_diff':True,'policy_violations':[],
