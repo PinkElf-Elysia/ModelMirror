@@ -1398,14 +1398,16 @@ class CodingWorkerStore:
                 payload={"role": "user", "text": provider_message},
                 created_at=now,
             )
-            connection.execute(
-                """
-                UPDATE worker_tasks
-                SET state = ?, reason_ciphertext = NULL, updated_at = ?
-                WHERE task_id = ?
-                """,
-                (TaskState.QUEUED.value, now, task_id),
-            )
+            runtime_protocol = RuntimeProtocol(str(task_row["runtime_protocol"]))
+            if runtime_protocol is RuntimeProtocol.V16:
+                connection.execute(
+                    """
+                    UPDATE worker_tasks
+                    SET state = ?, reason_ciphertext = NULL, updated_at = ?
+                    WHERE task_id = ?
+                    """,
+                    (TaskState.QUEUED.value, now, task_id),
+                )
             self._append_event_locked(
                 connection,
                 task_id=task_id,
@@ -1413,17 +1415,18 @@ class CodingWorkerStore:
                 payload={"question_id": question_id},
                 created_at=now,
             )
-            self._append_event_locked(
-                connection,
-                task_id=task_id,
-                event_type="task_state",
-                payload={
-                    "from": TaskState.WAITING_INPUT.value,
-                    "to": TaskState.QUEUED.value,
-                    "reason": None,
-                },
-                created_at=now,
-            )
+            if runtime_protocol is RuntimeProtocol.V16:
+                self._append_event_locked(
+                    connection,
+                    task_id=task_id,
+                    event_type="task_state",
+                    payload={
+                        "from": TaskState.WAITING_INPUT.value,
+                        "to": TaskState.QUEUED.value,
+                        "reason": None,
+                    },
+                    created_at=now,
+                )
             resolved = connection.execute(
                 "SELECT * FROM worker_questions WHERE task_id = ? AND question_id = ?",
                 (task_id, question_id),
@@ -1792,8 +1795,6 @@ class CodingWorkerStore:
             if (
                 checkpoint is None
                 or str(checkpoint["task_id"]) != task_id
-                or str(checkpoint["workspace_tree_hash"])
-                != current.workspace_tree_hash
             ):
                 raise WorkerConflictError(
                     "Turn checkpoint binding is invalid.",
@@ -1802,11 +1803,12 @@ class CodingWorkerStore:
             connection.execute(
                 """
                 UPDATE worker_turn_transactions
-                SET state = ?, checkpoint_id = ?, updated_at = ?
+                SET state = ?, workspace_tree_hash = ?, checkpoint_id = ?, updated_at = ?
                 WHERE task_id = ? AND turn_id = ?
                 """,
                 (
                     TurnTransactionState.PARKED.value,
+                    str(checkpoint["workspace_tree_hash"]),
                     checkpoint_id,
                     now,
                     task_id,
@@ -2749,11 +2751,52 @@ class CodingWorkerStore:
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             rows = connection.execute(
-                f"SELECT task_id, state FROM worker_tasks WHERE state IN ({','.join('?' for _ in ACTIVE_ON_RESTART)})",
+                "SELECT task_id, state, runtime_protocol FROM worker_tasks "
+                f"WHERE state IN ({','.join('?' for _ in ACTIVE_ON_RESTART)})",
                 tuple(state.value for state in ACTIVE_ON_RESTART),
             ).fetchall()
             for row in rows:
                 task_id = str(row["task_id"])
+                turn_row = connection.execute(
+                    """
+                    SELECT * FROM worker_turn_transactions
+                    WHERE task_id = ? AND state IN ('open', 'parking', 'parked', 'resuming')
+                    ORDER BY generation DESC LIMIT 1
+                    """,
+                    (task_id,),
+                ).fetchone()
+                if (
+                    str(row["runtime_protocol"]) == RuntimeProtocol.V17.value
+                    and str(row["state"]) == TaskState.WAITING_APPROVAL.value
+                    and turn_row is not None
+                    and str(turn_row["state"]) == TurnTransactionState.PARKED.value
+                    and str(turn_row["barrier"]) == TurnBarrier.APPROVAL.value
+                ):
+                    continue
+                if turn_row is not None and str(turn_row["state"]) in {
+                    TurnTransactionState.OPEN.value,
+                    TurnTransactionState.PARKING.value,
+                }:
+                    connection.execute(
+                        """
+                        UPDATE worker_turn_transactions
+                        SET state = ?, barrier = NULL, checkpoint_id = NULL, updated_at = ?
+                        WHERE task_id = ? AND turn_id = ?
+                        """,
+                        (
+                            TurnTransactionState.INTERRUPTED.value,
+                            now,
+                            task_id,
+                            str(turn_row["turn_id"]),
+                        ),
+                    )
+                    self._append_event_locked(
+                        connection,
+                        task_id=task_id,
+                        event_type="turn_interrupted",
+                        payload={"turn_id": str(turn_row["turn_id"])},
+                        created_at=now,
+                    )
                 connection.execute(
                     "UPDATE worker_tasks SET state = ?, reason_ciphertext = ?, updated_at = ? WHERE task_id = ?",
                     (
@@ -2791,7 +2834,11 @@ class CodingWorkerStore:
                   ON finished.task_id = started.task_id
                  AND finished.turn_id = started.turn_id
                  AND finished.kind = ?
+                LEFT JOIN worker_turn_transactions AS transaction_state
+                  ON transaction_state.task_id = started.task_id
+                 AND transaction_state.turn_id = started.turn_id
                 WHERE started.kind = ? AND finished.ledger_id IS NULL
+                  AND COALESCE(transaction_state.state, '') NOT IN ('parked', 'resuming')
                 ORDER BY started.task_id, started.sequence
                 """,
                 (

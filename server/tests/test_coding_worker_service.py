@@ -16,11 +16,14 @@ from server.coding_worker.contracts import (
     AcceptanceContract,
     Origin,
     PolicyProfile,
+    RuntimeProtocol,
     SessionLedgerKind,
     TaskBudget,
     TaskCreateRequest,
     TaskSpec,
     TaskState,
+    TurnBarrier,
+    TurnTransactionState,
     WorkspaceSource,
 )
 from server.coding_worker.evidence import HarnessRunner
@@ -303,6 +306,45 @@ class _ApprovalParkingProvider(FakeCodingAgentProvider):
         yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
 
 
+class _V17TurnParkingProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.store: CodingWorkerStore | None = None
+        self.messages: list[str] = []
+        self.interruptions = 0
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        assert self.store is not None
+        self.messages.append(text)
+        if len(self.messages) == 1:
+            turn = self.store.current_turn_transaction(session.task_id)
+            assert turn is not None
+            self.store.create_approval(
+                task_id=session.task_id,
+                operation_id="operation-v17-approval",
+                capability="command",
+                request={"argv": ["pytest"]},
+            )
+            self.store.begin_turn_parking(
+                task_id=session.task_id,
+                turn_id=turn.turn_id,
+                barrier=TurnBarrier.APPROVAL,
+            )
+            for index in range(10):
+                yield ProviderEvent(
+                    kind=ProviderEventKind.MESSAGE,
+                    data={"text": f"late event {index}"},
+                )
+            return
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+    async def interrupt_turn(self, session: ProviderSession) -> bool:
+        self.interruptions += 1
+        return await super().interrupt_turn(session)
+
+
 class _CompactionRestoreProvider(_RestoreTrackingProvider):
     def __init__(self) -> None:
         super().__init__()
@@ -380,6 +422,60 @@ async def test_provider_stream_parks_while_exact_approval_is_pending(
     )
     await asyncio.wait_for(provider.resume_requested.wait(), timeout=1)
     assert "exact pending tool operation" in provider.messages[1]
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_turn_parks_once_and_resumes_exact_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "CODING_WORKER_V16_ENABLED",
+        "CODING_WORKER_INTERACTION_ENABLED",
+        "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+        "CODING_WORKER_SUBAGENTS_ENABLED",
+        "CODING_WORKER_V17_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    provider = _V17TurnParkingProvider()
+    service = _service(tmp_path, provider)
+    provider.store = service.store
+    task = await service.create_task(
+        Origin(module="test", object_id="v17-turn-parking"),
+        _request("v17-turn-parking"),
+    )
+
+    parked_task = await service.wait_for(
+        task.task_id,
+        lambda item: item.state is TaskState.WAITING_APPROVAL,
+    )
+    assert parked_task.runtime_protocol is RuntimeProtocol.V17
+    transaction = service.store.current_turn_transaction(task.task_id)
+    assert transaction is not None
+    assert transaction.state is TurnTransactionState.PARKED
+    assert transaction.barrier is TurnBarrier.APPROVAL
+    assert transaction.checkpoint_id is not None
+    assert provider.interruptions == 1
+    assistants = [
+        item
+        for item in service.store.list_messages(task.task_id)
+        if item.role == "assistant"
+    ]
+    assert assistants == []
+
+    approval = service.store.list_approvals(task.task_id)[0]
+    service.store.decide_approval(approval.approval_id, approved=True)
+    assert service.settle_approval_state(task.task_id).state is TaskState.QUEUED
+    resumed = await service.wait_for(
+        task.task_id,
+        lambda item: item.state in {TaskState.BLOCKED, TaskState.COMPLETED},
+    )
+    assert resumed.state is TaskState.BLOCKED
+    assert len(provider.messages) == 2
+    transaction = service.store.get_turn_transaction(
+        task.task_id, transaction.turn_id
+    )
+    assert transaction.state is TurnTransactionState.COMPLETED
     await service.shutdown()
 
 

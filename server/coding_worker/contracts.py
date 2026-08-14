@@ -113,6 +113,7 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     ),
     TaskState.WAITING_APPROVAL: frozenset(
         {
+            TaskState.QUEUED,
             TaskState.RUNNING,
             TaskState.PAUSED,
             TaskState.INTERRUPTED,

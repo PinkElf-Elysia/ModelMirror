@@ -174,6 +174,59 @@ def test_existing_tasks_default_to_v16_and_reject_turn_transactions(tmp_path: Pa
     assert rejected.value.code == "turn_protocol_mismatch"
 
 
+def test_restart_preserves_durably_parked_v17_approval_turn(tmp_path: Path) -> None:
+    root = tmp_path / "worker"
+    key = Fernet.generate_key()
+    store = CodingWorkerStore(root, master_key=key)
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_restart",
+        workspace_tree_hash="a" * 64,
+    )
+    store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TURN_STARTED,
+        turn_id=turn.turn_id,
+        payload={},
+    )
+    store.create_approval(
+        task_id=task.task_id,
+        operation_id="operation_v17_restart",
+        capability="command",
+        request={"argv": ["pytest"]},
+    )
+    store.begin_turn_parking(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        barrier=TurnBarrier.APPROVAL,
+    )
+    checkpoint = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash="b" * 64,
+        payload={"phase": "waiting_approval"},
+    )
+    store.park_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    store.transition(task.task_id, TaskState.WAITING_APPROVAL)
+
+    restarted = CodingWorkerStore(root, master_key=key)
+
+    assert restarted.get_task(task.task_id).state is TaskState.WAITING_APPROVAL
+    parked = restarted.current_turn_transaction(task.task_id)
+    assert parked is not None
+    assert parked.state is TurnTransactionState.PARKED
+    assert parked.workspace_tree_hash == "b" * 64
+    assert [item.kind for item in restarted.list_session_ledger(task.task_id)] == [
+        SessionLedgerKind.TURN_STARTED
+    ]
+
+
 def test_restart_interrupts_inflight_without_replaying_it(tmp_path: Path) -> None:
     root = tmp_path / "worker"
     key = Fernet.generate_key()
