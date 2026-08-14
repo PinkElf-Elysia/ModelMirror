@@ -8,6 +8,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +75,15 @@ class WorkerConflictError(WorkerStoreError):
     pass
 
 
+@dataclass(frozen=True)
+class StoredTaskCapabilitySnapshot:
+    task_id: str
+    binding_sha256: str
+    snapshot: dict[str, Any]
+    observed_at: float
+    expires_at: float
+
+
 class CodingWorkerStore:
     """Encrypted SQLite task/event store with durable idempotency and replay."""
 
@@ -124,7 +134,35 @@ class CodingWorkerStore:
             )
             return generation
 
-    def create_task(self, spec: TaskSpec) -> TaskRecord:
+    def create_task(
+        self,
+        spec: TaskSpec,
+        *,
+        capability_binding_sha256: str | None = None,
+        capability_snapshot: dict[str, Any] | None = None,
+        capability_observed_at: float | None = None,
+        capability_expires_at: float | None = None,
+    ) -> TaskRecord:
+        capability_values = (
+            capability_binding_sha256,
+            capability_snapshot,
+            capability_observed_at,
+            capability_expires_at,
+        )
+        if any(value is not None for value in capability_values):
+            if (
+                any(value is None for value in capability_values)
+                or capability_binding_sha256 is None
+                or len(capability_binding_sha256) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in capability_binding_sha256
+                )
+                or capability_observed_at is None
+                or capability_expires_at is None
+                or capability_expires_at <= capability_observed_at
+            ):
+                raise ValueError("task capability snapshot is invalid")
         now = self._now()
         expires_at = now + self.retention_seconds
         task_id = f"task_{uuid.uuid4().hex}"
@@ -165,6 +203,22 @@ class CodingWorkerStore:
                     expires_at,
                 ),
             )
+            if capability_snapshot is not None:
+                connection.execute(
+                    """
+                    INSERT INTO worker_task_capabilities (
+                        task_id, binding_sha256, snapshot_ciphertext,
+                        observed_at, expires_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        task_id,
+                        capability_binding_sha256,
+                        self._codec.encrypt(capability_snapshot),
+                        capability_observed_at,
+                        capability_expires_at,
+                    ),
+                )
             self._append_event_locked(
                 connection,
                 task_id=task_id,
@@ -173,6 +227,31 @@ class CodingWorkerStore:
                 created_at=now,
             )
         return self.get_task(task_id)
+
+    def get_task_capability_snapshot(
+        self, task_id: str
+    ) -> StoredTaskCapabilitySnapshot | None:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            row = connection.execute(
+                "SELECT * FROM worker_task_capabilities WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            payload = self._codec.decrypt(str(row["snapshot_ciphertext"]))
+            if not isinstance(payload, dict):
+                raise WorkerStoreError(
+                    "Task capability snapshot is invalid.",
+                    code="operation_log_unavailable",
+                )
+            return StoredTaskCapabilitySnapshot(
+                task_id=task_id,
+                binding_sha256=str(row["binding_sha256"]),
+                snapshot=payload,
+                observed_at=float(row["observed_at"]),
+                expires_at=float(row["expires_at"]),
+            )
 
     def get_task(self, task_id: str) -> TaskRecord:
         with self._connect() as connection:
@@ -2461,6 +2540,14 @@ class CodingWorkerStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_worker_tasks_state
                     ON worker_tasks(state, created_at);
+                CREATE TABLE IF NOT EXISTS worker_task_capabilities (
+                    task_id TEXT PRIMARY KEY,
+                    binding_sha256 TEXT NOT NULL,
+                    snapshot_ciphertext TEXT NOT NULL,
+                    observed_at REAL NOT NULL,
+                    expires_at REAL NOT NULL,
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+                );
                 CREATE TABLE IF NOT EXISTS worker_events (
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
                     task_id TEXT NOT NULL,

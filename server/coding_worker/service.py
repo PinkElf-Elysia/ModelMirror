@@ -10,6 +10,7 @@ import re
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 
 from .contracts import (
     AcceptanceCheck,
@@ -42,6 +43,7 @@ from .contracts import (
 from .evidence import HarnessRunner
 from .provider import (
     CodingAgentProvider,
+    ProviderCapabilities,
     ProviderCheckpoint,
     ProviderEvent,
     ProviderEventKind,
@@ -53,6 +55,18 @@ from .store import CodingWorkerStore, WorkerConflictError
 from .changeset import ChangesetError
 from .tool_broker import ToolBroker, ToolBrokerError
 from .workspace import WorkspaceBroker, WorkspaceError, WorkspaceSnapshot
+
+
+PROVIDER_CAPABILITY_TTL_SECONDS = 30.0
+
+
+@dataclass(frozen=True)
+class ProviderCapabilityObservation:
+    capabilities: ProviderCapabilities | None
+    binding_sha256: str
+    observed_at: float
+    expires_at: float
+    reason: str | None
 
 
 class CodingWorkerService:
@@ -99,6 +113,9 @@ class CodingWorkerService:
         self._sessions: dict[str, ProviderSession] = {}
         self._wake = asyncio.Event()
         self._scheduler: asyncio.Task[None] | None = None
+        self._capability_refresher: asyncio.Task[None] | None = None
+        self._capability_lock = asyncio.Lock()
+        self._route_capabilities: dict[str, ProviderCapabilityObservation] = {}
         self._started = False
         self._closing = False
 
@@ -144,6 +161,10 @@ class CodingWorkerService:
         self._scheduler = asyncio.create_task(
             self._scheduler_loop(), name="coding-worker-scheduler"
         )
+        self._capability_refresher = asyncio.create_task(
+            self._capability_refresh_loop(),
+            name="coding-worker-capabilities",
+        )
         self._wake.set()
 
     async def shutdown(self) -> None:
@@ -165,10 +186,15 @@ class CodingWorkerService:
             self._scheduler.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._scheduler
+        if self._capability_refresher is not None:
+            self._capability_refresher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._capability_refresher
         self._active.clear()
         self._task_slots.clear()
         self._sessions.clear()
         self._scheduler = None
+        self._capability_refresher = None
         self._started = False
 
     async def create_task(self, origin: Origin, request: TaskCreateRequest) -> TaskRecord:
@@ -191,9 +217,130 @@ class CodingWorkerService:
                 )
         await self.start()
         spec = TaskSpec(**request.model_dump(), origin=origin)
-        task = self.store.create_task(spec)
+        observation = await self.provider_capability_observation(
+            request.model_route, force=True
+        )
+        task = self.store.create_task(
+            spec,
+            capability_binding_sha256=observation.binding_sha256,
+            capability_snapshot={
+                "available": observation.capabilities is not None,
+                "capabilities": (
+                    observation.capabilities.model_dump(mode="json")
+                    if observation.capabilities is not None
+                    else None
+                ),
+            },
+            capability_observed_at=observation.observed_at,
+            capability_expires_at=observation.expires_at,
+        )
         self._wake.set()
         return task
+
+    async def provider_capability_observation(
+        self, model_route: str, *, force: bool = False
+    ) -> "ProviderCapabilityObservation":
+        await self.refresh_provider_capabilities(force=force)
+        observation = self._route_capabilities.get(model_route)
+        if observation is not None:
+            return observation
+        default = self._route_capabilities.get("*")
+        if default is not None:
+            return ProviderCapabilityObservation(
+                capabilities=default.capabilities,
+                binding_sha256=self._capability_binding(model_route, ("*",)),
+                observed_at=default.observed_at,
+                expires_at=default.expires_at,
+                reason=default.reason,
+            )
+        now = time.time()
+        return ProviderCapabilityObservation(
+            capabilities=None,
+            binding_sha256=self._capability_binding(model_route, ()),
+            observed_at=now,
+            expires_at=now + PROVIDER_CAPABILITY_TTL_SECONDS,
+            reason="route_unavailable",
+        )
+
+    async def refresh_provider_capabilities(self, *, force: bool = False) -> None:
+        now = time.time()
+        if (
+            not force
+            and self._route_capabilities
+            and all(item.expires_at > now for item in self._route_capabilities.values())
+        ):
+            return
+        async with self._capability_lock:
+            now = time.time()
+            if (
+                not force
+                and self._route_capabilities
+                and all(
+                    item.expires_at > now
+                    for item in self._route_capabilities.values()
+                )
+            ):
+                return
+            observations: dict[str, ProviderCapabilityObservation] = {}
+            slot_reader = getattr(self.provider, "slot_capabilities", None)
+            if self._route_slots is not None and callable(slot_reader):
+                slot_values = await slot_reader()
+                for route_id, slot_ids in self._route_slots.items():
+                    values = [slot_values.get(slot_id) for slot_id in slot_ids]
+                    capabilities = (
+                        _intersect_provider_capabilities(
+                            tuple(value for value in values if value is not None)
+                        )
+                        if values and all(value is not None for value in values)
+                        else None
+                    )
+                    observations[route_id] = ProviderCapabilityObservation(
+                        capabilities=capabilities,
+                        binding_sha256=self._capability_binding(route_id, slot_ids),
+                        observed_at=now,
+                        expires_at=now + PROVIDER_CAPABILITY_TTL_SECONDS,
+                        reason=(
+                            None
+                            if capabilities is not None
+                            else "provider_unavailable"
+                        ),
+                    )
+            else:
+                try:
+                    capabilities = await self.provider.capabilities()
+                    reason = None
+                except Exception:
+                    capabilities = None
+                    reason = "provider_unavailable"
+                observations["*"] = ProviderCapabilityObservation(
+                    capabilities=capabilities,
+                    binding_sha256=self._capability_binding("*", ("*",)),
+                    observed_at=now,
+                    expires_at=now + PROVIDER_CAPABILITY_TTL_SECONDS,
+                    reason=reason,
+                )
+            self._route_capabilities = observations
+
+    async def _capability_refresh_loop(self) -> None:
+        while not self._closing:
+            with contextlib.suppress(Exception):
+                await self.refresh_provider_capabilities(force=True)
+            await asyncio.sleep(PROVIDER_CAPABILITY_TTL_SECONDS)
+
+    def _capability_binding(
+        self, route_id: str, slot_ids: Sequence[str]
+    ) -> str:
+        generation = getattr(self.provider, "controller_generation", 0)
+        encoded = json.dumps(
+            {
+                "route": route_id,
+                "slots": list(slot_ids),
+                "generation": generation,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     async def resume(self, task_id: str) -> TaskRecord:
         await self.start()
@@ -2264,3 +2411,34 @@ class CodingWorkerService:
             lines.append("\nMissing required artifacts: " + ", ".join(missing))
         return "\n".join(lines)[:16_384]
     OperationState,
+
+
+def _intersect_provider_capabilities(
+    values: tuple[ProviderCapabilities, ...],
+) -> ProviderCapabilities | None:
+    if not values or len({item.contract_version for item in values}) != 1:
+        return None
+    tool_names = set(values[0].tool_names)
+    for item in values[1:]:
+        tool_names.intersection_update(item.tool_names)
+    return ProviderCapabilities(
+        contract_version=values[0].contract_version,
+        supports_streaming=all(item.supports_streaming for item in values),
+        supports_cancel=all(item.supports_cancel for item in values),
+        supports_checkpoint=all(item.supports_checkpoint for item in values),
+        supports_restore=all(item.supports_restore for item in values),
+        supports_steering=all(item.supports_steering for item in values),
+        supports_usage=all(item.supports_usage for item in values),
+        supports_structured_plan=all(
+            item.supports_structured_plan for item in values
+        ),
+        supports_todo=all(item.supports_todo for item in values),
+        supports_questions=all(item.supports_questions for item in values),
+        supports_compaction=all(item.supports_compaction for item in values),
+        supports_tool_boundaries=all(
+            item.supports_tool_boundaries for item in values
+        ),
+        tool_names=tuple(
+            tool_name for tool_name in values[0].tool_names if tool_name in tool_names
+        ),
+    )
