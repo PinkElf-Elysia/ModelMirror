@@ -10,6 +10,7 @@ from server.coding_worker.broker_rpc import BrokerRPCServer
 from server.coding_worker.contracts import PolicyProfile, TaskBudget
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
+    ProviderCapabilities,
     ProviderEvent,
     ProviderEventKind,
     ProviderOpenRequest,
@@ -59,6 +60,55 @@ class _AbortTrackingProvider(FakeCodingAgentProvider):
         self.cancel_count += 1
         self.release.set()
         return True
+
+
+class _NoShellProvider(FakeCodingAgentProvider):
+    async def capabilities(self) -> ProviderCapabilities:
+        capabilities = await super().capabilities()
+        return capabilities.model_copy(
+            update={
+                "tool_names": tuple(
+                    item for item in capabilities.tool_names if item != "run_shell"
+                )
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_provider_pool_observes_slots_independently_and_fails_closed(
+    tmp_path: Path,
+) -> None:
+    store = CodingWorkerStore(
+        tmp_path / "control", master_key=Fernet.generate_key()
+    )
+    workspace = WorkspaceBroker(tmp_path / "workspace", {}, id_key=b"c" * 32)
+    broker_rpc = BrokerRPCServer(ToolBroker(store=store, workspace_broker=workspace))
+    await broker_rpc.start_tcp_for_tests()
+    first = ProviderRPCServer(FakeCodingAgentProvider(), token="a" * 48)
+    second = ProviderRPCServer(_NoShellProvider(), token="b" * 48)
+    first_endpoint = await first.start_tcp_for_tests()
+    second_endpoint = await second.start_tcp_for_tests()
+    pool = ProviderSidecarClientPool(
+        endpoints={"slot-a": first_endpoint, "slot-b": second_endpoint},
+        tokens={"slot-a": "a" * 48, "slot-b": "b" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        broker_rpc=broker_rpc,
+    )
+
+    observations = await pool.slot_capabilities()
+    first_capabilities = observations["slot-a"]
+    second_capabilities = observations["slot-b"]
+    assert first_capabilities is not None
+    assert second_capabilities is not None
+    assert "run_shell" in first_capabilities.tool_names
+    assert "run_shell" not in second_capabilities.tool_names
+    with pytest.raises(ProviderRPCError) as mismatch:
+        await pool.capabilities()
+    assert mismatch.value.code == "provider_capability_mismatch"
+
+    await first.close()
+    await second.close()
+    await broker_rpc.close()
 
 
 @pytest.mark.asyncio

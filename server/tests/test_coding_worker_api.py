@@ -16,6 +16,7 @@ from server.coding_worker.api import configure_coding_worker_for_tests, router
 import server.coding_worker.api as worker_api
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
+    ProviderCapabilities,
     ProviderCheckpoint,
     ProviderEvent,
     ProviderEventKind,
@@ -127,6 +128,17 @@ class _QuestionProvider(FakeCodingAgentProvider):
         return await super().restore(request, checkpoint)
 
 
+class _UnavailableProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.available = True
+
+    async def capabilities(self) -> ProviderCapabilities:
+        if not self.available:
+            raise RuntimeError("provider unavailable")
+        return await super().capabilities()
+
+
 def teardown_function() -> None:
     configure_coding_worker_for_tests(None, enabled=None)
 
@@ -186,6 +198,87 @@ def test_v15_capabilities_are_vendor_neutral_and_independently_gated(
     }
     encoded = response.text.lower()
     assert "opencode" not in encoded and "claude" not in encoded
+
+
+def test_task_capabilities_are_bound_and_legacy_advanced_features_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = FakeCodingAgentProvider(block=asyncio.Event())
+    client, service = _client(tmp_path, provider=provider)
+    monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_SHELL_ENABLED", "true")
+    request = TaskCreateRequest.model_validate(_payload("legacy-capability-task"))
+    legacy = service.store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="worker-console", object_id="local-user"),
+        )
+    )
+
+    with client:
+        created = client.post(
+            "/api/coding-worker/v1/tasks", json=_payload("capability-task")
+        ).json()
+        response = client.get(
+            f"/api/coding-worker/v1/tasks/{created['task_id']}/capabilities"
+        )
+        assert response.status_code == 200
+        statuses = {
+            item["name"]: item for item in response.json()["capabilities"]
+        }
+        assert statuses["task_runtime"]["available"] is True
+        assert statuses["professional_file_tools"]["available"] is True
+        assert statuses["shell"]["available"] is True
+        assert statuses["code_intelligence"]["reason"] == "feature_disabled"
+
+        legacy_response = client.get(
+            f"/api/coding-worker/v1/tasks/{legacy.task_id}/capabilities"
+        )
+        assert legacy_response.status_code == 200
+        legacy_statuses = {
+            item["name"]: item
+            for item in legacy_response.json()["capabilities"]
+        }
+        assert legacy_statuses["task_runtime"]["available"] is True
+        assert legacy_statuses["professional_file_tools"] == {
+            "name": "professional_file_tools",
+            "enabled": True,
+            "supported": False,
+            "available": False,
+            "reason": "legacy_task",
+        }
+
+
+def test_task_capabilities_reject_stale_binding_and_global_flags_follow_health(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = _UnavailableProvider()
+    client, service = _client(tmp_path, provider=provider)
+    monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
+
+    with client:
+        created = client.post(
+            "/api/coding-worker/v1/tasks", json=_payload("binding-task")
+        ).json()
+        provider.controller_generation = 7
+        asyncio.run(service.refresh_provider_capabilities(force=True))
+        response = client.get(
+            f"/api/coding-worker/v1/tasks/{created['task_id']}/capabilities"
+        )
+        statuses = {
+            item["name"]: item for item in response.json()["capabilities"]
+        }
+        assert statuses["professional_file_tools"]["reason"] == (
+            "provider_binding_changed"
+        )
+
+        provider.available = False
+        asyncio.run(service.refresh_provider_capabilities(force=True))
+        capabilities = client.get(
+            "/api/coding-worker/v1/capabilities"
+        ).json()
+        assert capabilities["task_runtime"] is False
+        assert capabilities["professional_file_tools"] is False
 
 
 def test_v16_plan_and_question_resume_once_from_encrypted_waiting_state(

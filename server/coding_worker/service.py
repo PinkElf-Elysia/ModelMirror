@@ -262,6 +262,22 @@ class CodingWorkerService:
             reason="route_unavailable",
         )
 
+    def cached_provider_capabilities(self) -> tuple[ProviderCapabilities, ...]:
+        """Return only live, explicitly reported route capabilities.
+
+        This method deliberately does not perform I/O. HTTP handlers refresh the
+        cache before using it, while synchronous callers fail closed when no
+        recent provider observation exists.
+        """
+
+        now = time.time()
+        return tuple(
+            observation.capabilities
+            for observation in self._route_capabilities.values()
+            if observation.expires_at > now
+            and observation.capabilities is not None
+        )
+
     async def refresh_provider_capabilities(self, *, force: bool = False) -> None:
         now = time.time()
         if (
