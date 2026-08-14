@@ -296,6 +296,8 @@ class ProviderRPCServer:
         self._require_active_session(session, controller_id, controller_generation)
         if request.action == "cancel":
             return {"cancelled": await self.provider.cancel(session)}
+        if request.action == "interrupt_turn":
+            return {"interrupted": await self.provider.interrupt_turn(session)}
         if request.action == "checkpoint":
             return (await self.provider.checkpoint(session)).model_dump(mode="json")
         if request.action == "close":
@@ -552,7 +554,7 @@ class ProviderSidecarClientPool(CodingAgentProvider):
             await writer.wait_closed()
             if not completed:
                 with contextlib.suppress(Exception):
-                    await self.cancel(session)
+                    await self.interrupt_turn(session)
 
     async def cancel(self, session: ProviderSession) -> bool:
         slot_id = self._require_session(session)
@@ -560,6 +562,15 @@ class ProviderSidecarClientPool(CodingAgentProvider):
             slot_id, "cancel", {"session": session.model_dump(mode="json")}
         )
         return result.get("cancelled") is True
+
+    async def interrupt_turn(self, session: ProviderSession) -> bool:
+        slot_id = self._require_session(session)
+        result = await self._call(
+            slot_id,
+            "interrupt_turn",
+            {"session": session.model_dump(mode="json")},
+        )
+        return result.get("interrupted") is True
 
     async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint:
         slot_id = self._require_session(session)
