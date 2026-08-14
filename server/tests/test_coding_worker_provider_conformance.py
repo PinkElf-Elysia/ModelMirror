@@ -26,6 +26,7 @@ from server.coding_worker.provider import (
     FakeCodingAgentProvider,
     PROVIDER_CHECKPOINT_FORMAT_VERSION,
     PROVIDER_CONTRACT_VERSION,
+    ProviderCapabilities,
     ProviderEventKind,
     ProviderEvent,
     ProviderOpenRequest,
@@ -174,11 +175,18 @@ async def test_provider_v3_conformance(
     assert capabilities.supports_streaming is True
     assert capabilities.supports_checkpoint is True
     assert capabilities.supports_restore is True
-    assert capabilities.supports_structured_plan is True
-    assert capabilities.supports_todo is True
-    assert capabilities.supports_questions is True
-    assert capabilities.supports_compaction is True
     assert capabilities.supports_tool_boundaries is True
+    assert capabilities.tool_names
+    if isinstance(provider, FakeCodingAgentProvider):
+        assert capabilities.supports_structured_plan is True
+        assert capabilities.supports_todo is True
+        assert capabilities.supports_questions is True
+        assert capabilities.supports_compaction is True
+    else:
+        assert capabilities.supports_structured_plan is False
+        assert capabilities.supports_todo is False
+        assert capabilities.supports_questions is False
+        assert capabilities.supports_compaction is False
 
     session = await provider.open(request)
     events = [event async for event in provider.message(session, "continue")]
@@ -222,6 +230,25 @@ def test_provider_v3_rejects_raw_or_malformed_event_data() -> None:
             kind=ProviderEventKind.MESSAGE,
             data={"text": "ok", "session_id": "supplier-session"},
         )
+
+
+def test_provider_capabilities_fail_closed_until_explicitly_declared() -> None:
+    capabilities = ProviderCapabilities()
+    assert capabilities.model_dump(mode="json") == {
+        "contract_version": PROVIDER_CONTRACT_VERSION,
+        "supports_streaming": False,
+        "supports_cancel": False,
+        "supports_checkpoint": False,
+        "supports_restore": False,
+        "supports_steering": False,
+        "supports_usage": False,
+        "supports_structured_plan": False,
+        "supports_todo": False,
+        "supports_questions": False,
+        "supports_compaction": False,
+        "supports_tool_boundaries": False,
+        "tool_names": [],
+    }
 
 
 def test_provider_v3_structured_event_vocabulary_is_canonical() -> None:

@@ -211,18 +211,18 @@ class ProviderCheckpointCompatibility(StrictModel):
 
 class ProviderCapabilities(StrictModel):
     contract_version: int = PROVIDER_CONTRACT_VERSION
-    supports_streaming: bool = True
-    supports_cancel: bool = True
+    supports_streaming: bool = False
+    supports_cancel: bool = False
     supports_checkpoint: bool = False
     supports_restore: bool = False
-    supports_steering: bool = True
-    supports_usage: bool = True
-    supports_structured_plan: bool = True
-    supports_todo: bool = True
-    supports_questions: bool = True
-    supports_compaction: bool = True
-    supports_tool_boundaries: bool = True
-    tool_names: tuple[str, ...] = PROVIDER_TOOL_NAMES
+    supports_steering: bool = False
+    supports_usage: bool = False
+    supports_structured_plan: bool = False
+    supports_todo: bool = False
+    supports_questions: bool = False
+    supports_compaction: bool = False
+    supports_tool_boundaries: bool = False
+    tool_names: tuple[str, ...] = ()
 
 
 class ProviderOpenRequest(StrictModel):
@@ -401,7 +401,20 @@ class FakeCodingAgentProvider:
         self._requests: dict[str, ProviderOpenRequest] = {}
 
     async def capabilities(self) -> ProviderCapabilities:
-        return ProviderCapabilities(supports_checkpoint=True, supports_restore=True)
+        return ProviderCapabilities(
+            supports_streaming=True,
+            supports_cancel=True,
+            supports_checkpoint=True,
+            supports_restore=True,
+            supports_steering=True,
+            supports_usage=True,
+            supports_structured_plan=True,
+            supports_todo=True,
+            supports_questions=True,
+            supports_compaction=True,
+            supports_tool_boundaries=True,
+            tool_names=PROVIDER_TOOL_NAMES,
+        )
 
     async def open(self, request: ProviderOpenRequest) -> ProviderSession:
         session = ProviderSession(
