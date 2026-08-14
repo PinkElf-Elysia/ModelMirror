@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,23 @@ def test_qwen3_asr_snapshots_are_adapted_for_manual_verification() -> None:
     assert expected_models <= MANUAL_TRANSCRIPTION_PROFILES.keys()
     assert not expected_models & VERIFIED_TRANSCRIPTION_PROFILES.keys()
     for profile in MANUAL_TRANSCRIPTION_PROFILES.values():
+        assert {"mp3", "wav", "m4a", "webm"} <= set(
+            profile.input_formats
+        )
+        assert profile.smoke_languages == ("zh", "en")
+
+
+def test_august_14_stt_snapshots_are_adapted_for_manual_verification() -> None:
+    expected_models = {
+        "mistralai/voxtral-mini-3b-2507",
+        "mistralai/voxtral-small-24b-2507-stt",
+        "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+    }
+
+    assert expected_models <= MANUAL_TRANSCRIPTION_PROFILES.keys()
+    assert not expected_models & VERIFIED_TRANSCRIPTION_PROFILES.keys()
+    for model_id in expected_models:
+        profile = MANUAL_TRANSCRIPTION_PROFILES[model_id]
         assert {"mp3", "wav", "m4a", "webm"} <= set(
             profile.input_formats
         )
@@ -171,7 +189,7 @@ async def test_transcription_service_uses_openrouter_and_records_safe_audit(
 
 
 @pytest.mark.asyncio
-async def test_openrouter_adapter_forwards_multipart_and_caches_catalog() -> None:
+async def test_openrouter_adapter_forwards_base64_json_and_caches_catalog() -> None:
     requests: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -192,11 +210,15 @@ async def test_openrouter_adapter_forwards_multipart_and_caches_catalog() -> Non
                     ]
                 },
             )
-        body = await request.aread()
+        body = json.loads((await request.aread()).decode("utf-8"))
         assert request.url.path.endswith("/audio/transcriptions")
         assert request.headers["authorization"] == "Bearer test-key"
-        assert b'name="model"' in body
-        assert b"openai/whisper-1" in body
+        assert request.headers["content-type"] == "application/json"
+        assert body["model"] == "openai/whisper-1"
+        assert body["input_audio"] == {
+            "data": base64.b64encode(WAV_BYTES).decode("ascii"),
+            "format": "wav",
+        }
         if len(
             [
                 item
@@ -204,11 +226,9 @@ async def test_openrouter_adapter_forwards_multipart_and_caches_catalog() -> Non
                 if item.url.path.endswith("/audio/transcriptions")
             ]
         ) == 1:
-            assert b'name="language"' in body
+            assert body["language"] == "en"
         else:
-            assert b'name="language"' not in body
-        assert b'name="file"; filename="sample.wav"' in body
-        assert WAV_BYTES in body
+            assert "language" not in body
         return httpx.Response(
             200,
             json={

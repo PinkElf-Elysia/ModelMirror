@@ -25,6 +25,16 @@ const august13ModelIds = [
   "bytedance/seedance-2.0-mini",
 ];
 
+const august14ModelIds = [
+  "qwen/qwen3-reranker-8b",
+  "voyageai/voyage-code-4",
+  "google/gemini-3.7-flash",
+  "bytedance-seed/seedream-5-0-lite",
+  "mistralai/voxtral-mini-3b-2507",
+  "mistralai/voxtral-small-24b-2507-stt",
+  "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+];
+
 describe("OpenRouter 2026-08-13 model refresh", () => {
   it("restores V4 Flash ahead of V4 Pro and keeps Seedream in row four", () => {
     expect(models[2]?.id).toBe("deepseek/deepseek-v4-flash-0731");
@@ -61,6 +71,62 @@ describe("OpenRouter 2026-08-13 model refresh", () => {
         active: true,
       });
     }
+  });
+
+  it("adds or refreshes all seven August 14 models exactly once", () => {
+    for (const modelId of august14ModelIds) {
+      const matches = models.filter((model) => model.id === modelId);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]).toMatchObject({
+        catalog_status: "live",
+        catalog_counted: true,
+        active: true,
+      });
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
+        2 + 5 * 3,
+      );
+    }
+  });
+
+  it("routes the August 14 specialized models by their dedicated contracts", () => {
+    for (const modelId of [
+      "mistralai/voxtral-mini-3b-2507",
+      "mistralai/voxtral-small-24b-2507-stt",
+      "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+    ]) {
+      expect(models.find((model) => model.id === modelId)).toMatchObject({
+        input_modalities: ["audio"],
+        output_modalities: ["transcription"],
+        primary_operation: "transcribe",
+        ui_entrypoint: "chat",
+      });
+    }
+
+    expect(
+      models.find((model) => model.id === "bytedance-seed/seedream-5-0-lite"),
+    ).toMatchObject({
+      input_modalities: ["text", "image"],
+      output_modalities: ["image"],
+      primary_operation: "generate_image",
+      pricing_basis: "media",
+      supported_parameters: [
+        "resolution",
+        "aspect_ratio",
+        "n",
+        "input_references",
+        "seed",
+      ],
+    });
+    expect(
+      models.find((model) => model.id === "voyageai/voyage-code-4"),
+    ).toMatchObject({
+      input_modalities: ["text"],
+      output_modalities: ["embeddings"],
+      primary_operation: "embed",
+      ui_entrypoint: "rag",
+      context_length: 32_000,
+      pricing: { input: 0.12, output: 0 },
+    });
   });
 
   it("scatters non-positioned refresh cards below the sixth row", () => {
@@ -193,10 +259,10 @@ describe("OpenRouter 2026-08-13 model refresh", () => {
     const byId = new Map(models.map((model) => [model.id, model]));
 
     expect(byId.get("qwen/qwen3.8-2.4t-a95b")?.context_length).toBe(
-      1_000_000,
+      1_010_000,
     );
     expect(byId.get("nvidia/nemotron-3.5-lightning")).toMatchObject({
-      context_length: 1_048_576,
+      context_length: 1_000_000,
       supported_parameters: expect.arrayContaining(["tool_choice", "tools"]),
     });
     expect(
@@ -206,7 +272,7 @@ describe("OpenRouter 2026-08-13 model refresh", () => {
     );
     expect(
       byId.get("deepseek/deepseek-v4-pro-0813")?.supported_parameters,
-    ).not.toEqual(
+    ).toEqual(
       expect.arrayContaining([
         "logit_bias",
         "min_p",
@@ -222,8 +288,8 @@ describe("OpenRouter 2026-08-13 model refresh", () => {
       output: 0.252,
     });
     expect(byId.get("z-ai/glm-5.2")?.pricing).toEqual({
-      input: 0.5,
-      output: 3.15,
+      input: 0.63,
+      output: 1.9800000000000002,
     });
     expect(byId.get("moonshotai/kimi-k2.7-code")?.pricing).toEqual({
       input: 0.67,
@@ -351,7 +417,14 @@ describe("OpenRouter 2026-08-13 model refresh", () => {
     );
 
     expect(models.some((model) => model.id.endsWith(":batch"))).toBe(false);
-    expect(batchVariants).toHaveLength(62);
+    const gemini37 = models.find(
+      (model) => model.id === "google/gemini-3.7-flash",
+    );
+    const gemini37Batch = gemini37?.serving_variants.find(
+      (variant) => variant.type === "batch",
+    );
+
+    expect(batchVariants).toHaveLength(63);
     expect(geminiBatch).toMatchObject({
       catalog_id: "google/gemini-2.5-flash:batch",
       request_model_id: "google/gemini-2.5-flash",
@@ -367,6 +440,16 @@ describe("OpenRouter 2026-08-13 model refresh", () => {
     expect(geminiBatch?.pricing.output).toBeCloseTo(
       (gemini?.pricing.output ?? 0) / 2,
     );
+    expect(gemini37Batch).toMatchObject({
+      catalog_id: "google/gemini-3.7-flash:batch",
+      request_model_id: "google/gemini-3.7-flash",
+      endpoint: "/v1/chat/completions",
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+      pricing: { input: 0.1875, output: 0.9375 },
+      completion_window: "24h",
+      data_retention_days: 30,
+    });
   });
 
   it("keeps only explicitly expired models inactive", () => {

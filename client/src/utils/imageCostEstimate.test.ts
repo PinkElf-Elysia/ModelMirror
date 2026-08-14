@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   estimateImageCost,
   GROK_IMAGINE_IMAGE_2_PRICING,
+  SEEDREAM_5_LITE_PRICING,
   SEEDREAM_5_PRO_PRICING,
 } from "./imageCostEstimate";
 
@@ -58,6 +59,21 @@ describe("estimateImageCost", () => {
       minUsd: 0.096,
       maxUsd: 0.096,
       inputUsd: 0.006,
+      exact: true,
+    });
+  });
+
+  it("uses Seedream Lite's flat per-image rate for 4K output", () => {
+    expect(
+      estimateImageCost(SEEDREAM_5_LITE_PRICING, {
+        outputCount: 4,
+        referenceCount: 0,
+        resolution: "4K",
+      }),
+    ).toEqual({
+      minUsd: 0.14,
+      maxUsd: 0.14,
+      inputUsd: 0,
       exact: true,
     });
   });
