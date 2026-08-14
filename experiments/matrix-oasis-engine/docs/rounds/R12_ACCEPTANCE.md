@@ -9,8 +9,8 @@
 - [x] R12.1 治理与初版声明门（`a0085fc7`）
 - [x] R12.2 通用候选验收与修复（`21a45323`）
 - [x] R12.3 六资产组装与宿主扩容（`4e8fee93`）
-- [x] R12.4 Marble SPZ自动空间化（已验证，等待本地提交；SHA在R12.5记录）
-- [ ] R12.5 离线端到端与泛化复验
+- [x] R12.4 Marble SPZ自动空间化（`52c56075`）
+- [x] R12.5 离线端到端与泛化复验（已验证，等待本地提交；SHA在R12.6记录）
 - [ ] R12.6 末班地铁真实资格链
 - [ ] R12.7 验收与初版收口
 
@@ -54,6 +54,16 @@
 - 定向门：prototype environment 9/9、spatial environment 10/10、spatial assembly 10/10、spatial builder 10/10、Godot 4.6.3 headless import通过。完整`npm.cmd test`最终为707/707；首次仅冻结R9 loopback超时计数用例在全套高并发负载下得到0/1，该原用例单独复现1/1，未改冻结代码，随后同一完整命令稳定707/707。
 - 最终树完整`npm.cmd run verify`为20/20步骤，Node 707/707、Godot 4.6.3的R4–R11 source/import/runtime/parity/3D/Scene/splat回归、Creator build与HTTP smoke均通过；boundary为checked=1080/tracked=1079，round/parent scope均通过，`git diff --check`通过。
 - 本批只使用官方文档确认字段形状并以loopback假服务验证；未调用真实Marble、模型或Meshy，未读取供应商凭据，未创建远程world或下载真实资产。回退为单独revert R12.4提交；原R10双资产API、R11显式校准和v1 spatial overlay继续可用。
+
+## R12.5证据
+
+- 新增题材无关的Runtime黑盒可达性证明器，只调用冻结R3公开入口准备、创建和单步执行；状态键仅含location与variables，不硬编码action/ending ID。它按声明顺序自动发现全部ending路径和至少一个可达循环，设有10,000步与16,384状态硬上限，失败仅返回静态诊断。
+- 中性2-node/2-ending夹具证明两个ending和循环均可自动发现；同一Runtime/Receipt并发执行20次的冻结结果字节一致，非canonical输入fail closed。一方qualification源码扫描不含地铁、学生、护士、通勤者、车票或时钟分支。
+- R10宿主状态机新增`spatializing`可观察阶段，R10调用仍按原`normalizing -> assembling`工作；R12操作组合器固定执行environment、assets、normalization、spatialization、prototype publish、spatial overlay publish，任一阶段失败均阻断后续发布且不回显底层异常。Creator只增加对应阶段标签，旧Runtime/Parity/Builder模式保持可用。
+- 显式只读复验仓外中性真实缓存`C:\tmp\matrix-oasis-r10-runs`与`C:\tmp\matrix-oasis-r11-spatial-primary-density-v8-overlay`成功：交集run为`321ec351...bac488`，模型记录为`gpt-5.6-luna`，Runtime声明1个ending且通用BFS到达1个；复验逐字重算prototype assembly、spatial assembly、Scene/Runtime/Receipt、GLB和compressed PLY身份，不读取API key、不访问网络。
+- 定向`npm.cmd run test:r12`为12/12，包含实际存在的profile、六资产、空间源、泛化和宿主入口；宿主与Creator回归20/20，Creator TypeScript/Vite build为248 modules。完整`npm.cmd test`最终为707/707；首轮明确失败仅为新增测试含本机绝对临时路径字面量触发boundary，改为卷根动态路径后`check:boundary`通过，同一完整命令复跑707/707。
+- 最终树完整`npm.cmd run verify`为21/21步骤：doctor、R12 scope/boundary/MVP claim、Godot 4.6.3的R4-R11 source/import/runtime/parity/3D/Scene/splat、全部Pack/Generator/Asset/Spatial门、R12定向门、707项Node、Creator 248 modules build及HTTP smoke全部通过；round scope为checked=70/changed=64，MVP状态继续诚实保持`pending-r12-qualification / claimAllowed=false`。
+- 本批未调用真实模型、Marble或Meshy，未读取供应商凭据，未创建远程任务或下载新资产，也未启动父服务、Docker或共享栈。回退为单独revert R12.5提交；已发布R10/R11缓存及R1-R11冻结行为不受影响。
 
 ## 最终硬门
 

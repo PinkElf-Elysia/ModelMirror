@@ -24,6 +24,7 @@ const steps = [
   ["spatial-assembly", ["run", "verify:spatial-assembly"]],
   ["spatial-builder", ["run", "verify:spatial-builder"]],
   ["prototype-builder", ["run", "verify:prototype-builder"]],
+  ["r12", ["run", "verify:r12"]],
   ["tests", ["test"]],
   ["creator-build", ["run", "build:creator"]],
   ["creator-smoke", ["run", "smoke:creator"]],

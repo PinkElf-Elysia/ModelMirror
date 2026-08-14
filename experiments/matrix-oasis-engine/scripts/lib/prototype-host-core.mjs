@@ -9,7 +9,7 @@ export const PROTOTYPE_HOST_MARKER = "MATRIX_OASIS_R10_PROTOTYPE_HOST";
 const TERMINAL = new Set(["ready", "failed"]);
 const STATES = new Set([
   "awaiting_model_approval", "generating", "awaiting_asset_approval", "acquiring",
-  "normalizing", "assembling", "ready", "failed",
+  "normalizing", "spatializing", "assembling", "ready", "failed",
 ]);
 const COOKIE_NAME = "matrix_oasis_r10_session";
 const RUN_ID = /^r10-run-[1-9][0-9]*$/u;
@@ -188,8 +188,9 @@ function sanitizeRecovered(value) {
   return output;
 }
 
-export function createPrototypeHost({ configuration, operations, webAssets, createServer = createNodeServer }) {
+export function createPrototypeHost({ configuration, operations, webAssets, profile = "r10", createServer = createNodeServer }) {
   const config = parseConfiguration(configuration); const op = parseOperations(operations);
+  if (!["r10", "r12"].includes(profile)) throw new PrototypeHostOperationalError();
   const creatorAssets = parseWebAssets(webAssets);
   if (typeof createServer !== "function") throw new PrototypeHostOperationalError();
   let server = null; let sessionToken = null; let runCounter = 0; let currentRunId = null;
@@ -214,7 +215,8 @@ export function createPrototypeHost({ configuration, operations, webAssets, crea
       const summary = {
         blueprintSha256: description.blueprintSha256,
         marble: { model: "marble-1.1", environmentPrompt: description.environmentPrompt,
-          maxCreates: 1, maxPolls: 180, maxDownloads: 2, creditLimit: 1600, usdLimitCents: 150 },
+          maxCreates: 1, maxPolls: 180, maxDownloads: profile === "r12" ? 3 : 2,
+          creditLimit: 1600, usdLimitCents: 150 },
         meshy: { model: "meshy-6", briefs: description.briefs.map((brief) => ({ id: brief.id, kind: brief.kind, prompt: brief.prompt })),
           maxTasks: description.briefs.length * 2, creditLimit: description.briefs.length * 30 },
       };
@@ -226,7 +228,10 @@ export function createPrototypeHost({ configuration, operations, webAssets, crea
   const finishAssets = async (run) => {
     try {
       const acquired = await op.acquire({ artifacts: run.artifacts, approval: run.assetApproval.summary,
-        onStage(stage) { if (stage === "normalizing" && run.status === "acquiring") run.status = "normalizing"; } });
+        onStage(stage) {
+          if (stage === "normalizing" && run.status === "acquiring") run.status = "normalizing";
+          if (stage === "spatializing" && ["acquiring", "normalizing"].includes(run.status)) run.status = "spatializing";
+        } });
       if (!acquired?.ok) return failRun(run, acquired?.diagnostics, "PROTOTYPE_HOST_ACQUISITION_FAILED");
       run.acquisition = acquired; run.status = "assembling";
       const published = await op.publish({ prompt: run.prompt, artifacts: run.artifacts, acquisition: acquired });

@@ -114,6 +114,8 @@
     "verify:spatial-assembly": "npm run test:spatial-assembly",
     "test:spatial-builder": "node --test tests/spatial-builder.test.mjs tests/r11-qualification.test.mjs",
     "verify:spatial-builder": "npm run test:spatial-builder && npm run build:creator && node scripts/verify-spatial-builder.mjs",
-    "verify:r11": "npm run verify:spatial-environment && npm run verify:spatial-assembly && npm run verify:spatial-builder"
+    "verify:r11": "npm run verify:spatial-environment && npm run verify:spatial-assembly && npm run verify:spatial-builder",
+    "test:r12": "node --test tests/r12-acceptance-profile.test.mjs tests/r12-multi-asset.test.mjs tests/r12-spatial-materialization.test.mjs tests/r12-generalization.test.mjs tests/r12-host.test.mjs",
+    "verify:r12": "npm run test:r12"
   }
 }

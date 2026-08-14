@@ -7,6 +7,7 @@ export const PROTOTYPE_RUN_STATES = Object.freeze([
   "awaiting_asset_approval",
   "acquiring",
   "normalizing",
+  "spatializing",
   "assembling",
   "ready",
   "failed",

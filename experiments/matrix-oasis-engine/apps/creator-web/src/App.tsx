@@ -37,6 +37,7 @@ const RUN_STATE_LABELS: Readonly<Record<PrototypeRunStatus, string>> = {
   awaiting_asset_approval: "等待环境与资产审批",
   acquiring: "获取环境与资产",
   normalizing: "规范化 3D 资产",
+  spatializing: "生成空间环境",
   assembling: "组装 Scene Pack",
   ready: "原型可运行",
   failed: "本次生成失败",

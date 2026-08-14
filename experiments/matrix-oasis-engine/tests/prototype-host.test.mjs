@@ -227,18 +227,23 @@ test("only one nonterminal run exists and a cache hit requires no approval or pr
   const current = await request("/api/runs/current", { cookie }); assert.equal(current.body.currentRunId, SECOND_RUN);
 });
 
-test("acquiring, normalizing, and assembling are separately observable in the fixed order", async (t) => {
-  let releaseAcquire; let releaseNormalize; let releasePublish;
+test("acquiring, normalizing, spatializing, and assembling are separately observable in the fixed order", async (t) => {
+  let releaseAcquire; let releaseNormalize; let releaseSpatialize; let releasePublish;
   const acquireGate = new Promise((resolve) => { releaseAcquire = resolve; });
   const normalizeGate = new Promise((resolve) => { releaseNormalize = resolve; });
+  const spatializeGate = new Promise((resolve) => { releaseSpatialize = resolve; });
   const publishGate = new Promise((resolve) => { releasePublish = resolve; });
   let normalized; const normalizedSignal = new Promise((resolve) => { normalized = resolve; });
   let assembling; const assemblingSignal = new Promise((resolve) => { assembling = resolve; });
+  let spatialized; const spatializedSignal = new Promise((resolve) => { spatialized = resolve; });
   const { host } = await startHost({
-    async acquire({ onStage }) { await acquireGate; onStage("normalizing"); normalized(); await normalizeGate; return { ok: true }; },
+    async acquire({ onStage }) {
+      await acquireGate; onStage("normalizing"); normalized(); await normalizeGate;
+      onStage("spatializing"); spatialized(); await spatializeGate; return { ok: true };
+    },
     async publish() { assembling(); await publishGate; return { ok: true, runId: VALID_RUN }; },
   });
-  t.after(async () => { releaseAcquire(); releaseNormalize(); releasePublish(); await host.stop(); });
+  t.after(async () => { releaseAcquire(); releaseNormalize(); releaseSpatialize(); releasePublish(); await host.stop(); });
   const { cookie } = await session(); const created = await createRun(cookie);
   await request(`/api/runs/${created.body.run.id}/approve-model`, { method: "POST", cookie,
     body: { approvalHash: created.body.run.modelApproval.approvalHash } });
@@ -248,7 +253,9 @@ test("acquiring, normalizing, and assembling are separately observable in the fi
   assert.equal((await getRun(cookie, created.body.run.id)).body.run.status, "acquiring");
   releaseAcquire(); await normalizedSignal;
   assert.equal((await getRun(cookie, created.body.run.id)).body.run.status, "normalizing");
-  releaseNormalize(); await assemblingSignal;
+  releaseNormalize(); await spatializedSignal;
+  assert.equal((await getRun(cookie, created.body.run.id)).body.run.status, "spatializing");
+  releaseSpatialize(); await assemblingSignal;
   assert.equal((await getRun(cookie, created.body.run.id)).body.run.status, "assembling");
   releasePublish(); await waitFor(cookie, created.body.run.id, "ready");
 });
