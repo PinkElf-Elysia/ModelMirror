@@ -11,7 +11,7 @@ from typing import Protocol, TypeVar
 
 from pydantic import Field, field_validator
 
-from .contracts import SAFE_ID, StrictModel
+from .contracts import SAFE_ID, SAFE_ROUTE, StrictModel
 from .parity import (
     ATTEMPTS_PER_ENGINE,
     PARITY_PROTOCOL,
@@ -49,6 +49,7 @@ class ParityRunRequest(StrictModel):
     hidden_checker_bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     runner_image_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
     model_route_catalog_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    model_route: str
     budget: FrozenParityBudget
     model_route_receipt_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     candidate_sha: str = Field(pattern=r"^[a-f0-9]{40}$")
@@ -59,6 +60,13 @@ class ParityRunRequest(StrictModel):
     def validate_ids(cls, value: str) -> str:
         if SAFE_ID.fullmatch(value) is None:
             raise ValueError("runner identifiers must be opaque safe ids")
+        return value
+
+    @field_validator("model_route")
+    @classmethod
+    def validate_route(cls, value: str) -> str:
+        if SAFE_ROUTE.fullmatch(value) is None:
+            raise ValueError("model route is invalid")
         return value
 
 
@@ -77,6 +85,7 @@ class ParityExecutionRequest(StrictModel):
     fixture_bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     runner_image_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
     model_route_catalog_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    model_route: str
     budget: FrozenParityBudget
     model_route_receipt_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     candidate_sha: str = Field(pattern=r"^[a-f0-9]{40}$")
@@ -87,6 +96,13 @@ class ParityExecutionRequest(StrictModel):
     def validate_ids(cls, value: str) -> str:
         if SAFE_ID.fullmatch(value) is None:
             raise ValueError("runner identifiers must be opaque safe ids")
+        return value
+
+    @field_validator("model_route")
+    @classmethod
+    def validate_route(cls, value: str) -> str:
+        if SAFE_ROUTE.fullmatch(value) is None:
+            raise ValueError("model route is invalid")
         return value
 
 
@@ -447,6 +463,7 @@ def _request_for_cell(
             else manifest.runner_images.modelmirror_worker
         ),
         model_route_catalog_sha256=manifest.model_route_catalog_sha256,
+        model_route=manifest.model_route,
         budget=task.budget,
         model_route_receipt_sha256=model_route_receipt_sha256,
         candidate_sha=candidate_sha,
@@ -500,6 +517,7 @@ def _execution_request(request: ParityRunRequest) -> ParityExecutionRequest:
         fixture_bundle_sha256=request.fixture_bundle_sha256,
         runner_image_digest=request.runner_image_digest,
         model_route_catalog_sha256=request.model_route_catalog_sha256,
+        model_route=request.model_route,
         budget=request.budget,
         model_route_receipt_sha256=request.model_route_receipt_sha256,
         candidate_sha=request.candidate_sha,
