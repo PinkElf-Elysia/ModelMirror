@@ -227,7 +227,24 @@ class ToolBroker:
                 data=operation.result or {},
             )
         if operation.state is OperationState.UNKNOWN:
-            return self.reconcile(operation_id)
+            try:
+                return self.reconcile(operation_id)
+            except ToolBrokerError as exc:
+                if (
+                    exc.code == "operation_result_unknown"
+                    and task.runtime_protocol is RuntimeProtocol.V17
+                    and current_turn is not None
+                    and current_turn.state in {
+                        TurnTransactionState.OPEN,
+                        TurnTransactionState.RESUMING,
+                    }
+                ):
+                    self.store.begin_turn_parking(
+                        task_id=task_id,
+                        turn_id=current_turn.turn_id,
+                        barrier=TurnBarrier.OPERATION_UNKNOWN,
+                    )
+                raise
         if operation.state is not OperationState.PREPARED:
             raise ToolBrokerError(
                 "Tool operation cannot be replayed.", code="operation_not_replayable"

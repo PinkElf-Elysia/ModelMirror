@@ -145,6 +145,70 @@ async def test_v17_platform_plan_todo_and_question_are_turn_bound(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_v17_unresolved_unknown_operation_reparks_the_same_turn(
+    tmp_path: Path,
+) -> None:
+    broker, store, task_id, _ = await _broker(
+        tmp_path, runtime_protocol=RuntimeProtocol.V17
+    )
+    task = store.get_task(task_id)
+    turn = store.current_turn_transaction(task_id)
+    assert task.workspace_id is not None and turn is not None
+    content = "print('unconfirmed')\n"
+    arguments = {
+        "path": "app.py",
+        "content": content,
+        "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
+    }
+    request = {"arguments": arguments, "workspace_id": task.workspace_id}
+    operation = store.create_operation(
+        task_id=task_id,
+        operation_id="unknown-write-v17",
+        tool_name="write_file",
+        intent_sha256=broker._intent_sha256("write_file", request),
+        request=request,
+        turn_id=turn.turn_id,
+    )
+    store.transition_operation(
+        operation.operation_id,
+        OperationState.RUNNING,
+        expected_state=OperationState.PREPARED,
+    )
+    store.transition_operation(
+        operation.operation_id,
+        OperationState.UNKNOWN,
+        result={"code": "operation_result_unknown"},
+        expected_state=OperationState.RUNNING,
+    )
+
+    with pytest.raises(ToolBrokerError) as unresolved:
+        await broker.execute(
+            task_id=task_id,
+            operation_id=operation.operation_id,
+            tool_name="write_file",
+            arguments=arguments,
+        )
+    assert unresolved.value.code == "operation_result_unknown"
+    parked = store.current_turn_transaction(task_id)
+    assert parked is not None
+    assert parked.turn_id == turn.turn_id
+    assert parked.state is TurnTransactionState.PARKING
+    assert parked.barrier is TurnBarrier.OPERATION_UNKNOWN
+
+    with pytest.raises(ToolBrokerError) as late:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="late-after-unknown",
+            tool_name="read_file",
+            arguments={"path": "app.py"},
+        )
+    assert late.value.code == "turn_parked"
+    assert "late-after-unknown" not in {
+        item.operation_id for item in store.list_operations(task_id)
+    }
+
+
+@pytest.mark.asyncio
 async def test_develop_can_write_search_diff_and_run_frozen_check(tmp_path: Path) -> None:
     broker, _, task_id, repository = await _broker(tmp_path)
     content = "print('new')\n"
