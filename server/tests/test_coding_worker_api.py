@@ -108,6 +108,18 @@ class _QuestionProvider(FakeCodingAgentProvider):
                 },
             )
             yield ProviderEvent(
+                kind=ProviderEventKind.TODO,
+                data={
+                    "items": [
+                        {
+                            "todo_id": "confirm-scope",
+                            "content": "Confirm the repair scope",
+                            "status": "in_progress",
+                        }
+                    ]
+                },
+            )
+            yield ProviderEvent(
                 kind=ProviderEventKind.QUESTION,
                 data={
                     "question_id": "question_scope",
@@ -311,6 +323,15 @@ def test_v16_plan_and_question_resume_once_from_encrypted_waiting_state(
         assert [item["step"] for item in plan.json()["items"]] == [
             "inspect",
             "repair",
+        ]
+        todo = client.get(f"/api/coding-worker/v1/tasks/{task_id}/todo")
+        assert todo.status_code == 200
+        assert todo.json()["items"] == [
+            {
+                "todo_id": "confirm-scope",
+                "content": "Confirm the repair scope",
+                "status": "in_progress",
+            }
         ]
         questions = client.get(
             f"/api/coding-worker/v1/tasks/{task_id}/questions"

@@ -40,6 +40,8 @@ from .contracts import (
     WorkerMessage,
     WorkerPlan,
     WorkerPlanItem,
+    WorkerTodo,
+    WorkerTodoItem,
     WorkerQuestion,
     WorkerTurnCheckpoint,
     WorkerTurnHistory,
@@ -1226,6 +1228,25 @@ class CodingWorkerStore:
             updated_at=entry.created_at,
         )
 
+    def latest_todo(self, task_id: str) -> WorkerTodo | None:
+        entry = self.latest_session_entry(task_id, SessionLedgerKind.TODO)
+        if entry is None:
+            return None
+        if entry.turn_id is None:
+            raise WorkerStoreError(
+                "Worker todo data is corrupt.", code="worker_data_corrupt"
+            )
+        return WorkerTodo(
+            task_id=task_id,
+            sequence=entry.sequence,
+            turn_id=entry.turn_id,
+            items=tuple(
+                WorkerTodoItem.model_validate(item)
+                for item in entry.payload["items"]
+            ),
+            updated_at=entry.created_at,
+        )
+
     def create_question(
         self,
         *,
@@ -1427,6 +1448,14 @@ class CodingWorkerStore:
                     },
                     created_at=now,
                 )
+            else:
+                self._settle_parked_turn_locked(
+                    connection,
+                    task_id=task_id,
+                    barrier=TurnBarrier.INPUT,
+                    expected_state=TaskState.WAITING_INPUT,
+                    now=now,
+                )
             resolved = connection.execute(
                 "SELECT * FROM worker_questions WHERE task_id = ? AND question_id = ?",
                 (task_id, question_id),
@@ -1546,13 +1575,15 @@ class CodingWorkerStore:
                 raise WorkerConflictError(
                     "Approval has already been decided.", code="approval_already_decided"
                 )
+            task_id = str(row["task_id"])
+            task_row = self._require_task_row(connection, task_id)
+            runtime_protocol = RuntimeProtocol(str(task_row["runtime_protocol"]))
             lease: CapabilityLease | None = None
             status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
             if approved:
-                task_row = self._require_task_row(connection, str(row["task_id"]))
                 lease = CapabilityLease(
                     lease_id=f"lease_{uuid.uuid4().hex}",
-                    task_id=str(row["task_id"]),
+                    task_id=task_id,
                     capability=str(row["capability"]),  # type: ignore[arg-type]
                     scope=self._decrypt_dict(row["request_ciphertext"]),
                     issued_at=now,
@@ -1590,11 +1621,19 @@ class CodingWorkerStore:
             )
             self._append_event_locked(
                 connection,
-                task_id=str(row["task_id"]),
+                task_id=task_id,
                 event_type="approval_decided",
                 payload={"approval_id": approval_id, "status": status.value},
                 created_at=now,
             )
+            if runtime_protocol is RuntimeProtocol.V17:
+                self._settle_parked_turn_locked(
+                    connection,
+                    task_id=task_id,
+                    barrier=TurnBarrier.APPROVAL,
+                    expected_state=TaskState.WAITING_APPROVAL,
+                    now=now,
+                )
         return self.get_approval(approval_id)
 
     def consume_lease(
@@ -1861,6 +1900,98 @@ class CodingWorkerStore:
                 created_at=now,
             )
         return self.get_turn_transaction(task_id, turn_id)
+
+    def settle_parked_turn(
+        self,
+        *,
+        task_id: str,
+        barrier: TurnBarrier,
+        expected_state: TaskState,
+    ) -> TaskRecord:
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._settle_parked_turn_locked(
+                connection,
+                task_id=task_id,
+                barrier=barrier,
+                expected_state=expected_state,
+                now=now,
+            )
+        return self.get_task(task_id)
+
+    def _settle_parked_turn_locked(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        task_id: str,
+        barrier: TurnBarrier,
+        expected_state: TaskState,
+        now: float,
+    ) -> None:
+        task_row = self._require_task_row(connection, task_id)
+        if TaskState(str(task_row["state"])) is not expected_state:
+            raise WorkerConflictError(
+                "Task is not ready to settle this turn.", code="task_state_conflict"
+            )
+        turn_row = connection.execute(
+            """
+            SELECT * FROM worker_turn_transactions
+            WHERE task_id = ? AND state = ? ORDER BY generation DESC LIMIT 1
+            """,
+            (task_id, TurnTransactionState.PARKED.value),
+        ).fetchone()
+        if turn_row is None:
+            raise WorkerConflictError(
+                "Turn is not durably parked.", code="turn_not_parked"
+            )
+        turn = self._turn_transaction(turn_row)
+        if turn.barrier is not barrier or turn.checkpoint_id is None:
+            raise WorkerConflictError(
+                "Turn is parked for another barrier.", code="turn_barrier_conflict"
+            )
+        require_transition(expected_state, TaskState.QUEUED)
+        connection.execute(
+            """
+            UPDATE worker_turn_transactions SET state = ?, updated_at = ?
+            WHERE task_id = ? AND turn_id = ?
+            """,
+            (
+                TurnTransactionState.RESUMING.value,
+                now,
+                task_id,
+                turn.turn_id,
+            ),
+        )
+        connection.execute(
+            """
+            UPDATE worker_tasks
+            SET state = ?, reason_ciphertext = NULL, updated_at = ?
+            WHERE task_id = ?
+            """,
+            (TaskState.QUEUED.value, now, task_id),
+        )
+        self._append_event_locked(
+            connection,
+            task_id=task_id,
+            event_type="turn_resumed",
+            payload={
+                "turn_id": turn.turn_id,
+                "checkpoint_id": turn.checkpoint_id,
+            },
+            created_at=now,
+        )
+        self._append_event_locked(
+            connection,
+            task_id=task_id,
+            event_type="task_state",
+            payload={
+                "from": expected_state.value,
+                "to": TaskState.QUEUED.value,
+                "reason": None,
+            },
+            created_at=now,
+        )
 
     def finish_turn_transaction(
         self,

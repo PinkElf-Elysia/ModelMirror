@@ -465,29 +465,6 @@ class CodingWorkerService:
         self, task_id: str, question_id: str, answer: WorkerQuestionAnswer
     ) -> WorkerQuestion:
         resolved = self.store.resolve_question(task_id, question_id, answer)
-        task = self.store.get_task(task_id)
-        if task.runtime_protocol is RuntimeProtocol.V17:
-            turn = self.store.current_turn_transaction(task_id)
-            if (
-                turn is None
-                or turn.state is not TurnTransactionState.PARKED
-                or turn.barrier is not TurnBarrier.INPUT
-                or turn.checkpoint_id is None
-            ):
-                raise WorkerConflictError(
-                    "Question turn is not durably parked.",
-                    code="turn_not_parked",
-                )
-            self.store.resume_turn_transaction(
-                task_id=task_id,
-                turn_id=turn.turn_id,
-                checkpoint_id=turn.checkpoint_id,
-            )
-            self.store.transition(
-                task_id,
-                TaskState.QUEUED,
-                expected_state=TaskState.WAITING_INPUT,
-            )
         self._wake.set()
         return resolved
 
@@ -2788,25 +2765,18 @@ class CodingWorkerService:
             content=self._subtask_results_message(parent_task_id),
         )
         if parent.runtime_protocol is RuntimeProtocol.V17:
-            turn = self.store.current_turn_transaction(parent_task_id)
-            if (
-                turn is None
-                or turn.state is not TurnTransactionState.PARKED
-                or turn.barrier is not TurnBarrier.SUBTASKS
-                or turn.checkpoint_id is None
-            ):
-                return
-            self.store.resume_turn_transaction(
+            self.store.settle_parked_turn(
                 task_id=parent_task_id,
-                turn_id=turn.turn_id,
-                checkpoint_id=turn.checkpoint_id,
+                barrier=TurnBarrier.SUBTASKS,
+                expected_state=TaskState.WAITING_SUBTASKS,
             )
-        self.store.transition(
-            parent_task_id,
-            TaskState.QUEUED,
-            reason="subtasks_settled",
-            expected_state=TaskState.WAITING_SUBTASKS,
-        )
+        else:
+            self.store.transition(
+                parent_task_id,
+                TaskState.QUEUED,
+                reason="subtasks_settled",
+                expected_state=TaskState.WAITING_SUBTASKS,
+            )
         self._wake.set()
 
     def _subtask_results_message(self, parent_task_id: str) -> str:

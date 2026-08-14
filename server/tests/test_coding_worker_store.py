@@ -17,6 +17,8 @@ from server.coding_worker.contracts import (
     TurnBarrier,
     TurnTransactionState,
     WorkspaceSource,
+    WorkerQuestionAnswer,
+    WorkerQuestionOption,
     WorkerSessionLedgerEntry,
 )
 from server.coding_worker.crypto import WorkerCryptoError
@@ -192,7 +194,7 @@ def test_restart_preserves_durably_parked_v17_approval_turn(tmp_path: Path) -> N
         turn_id=turn.turn_id,
         payload={},
     )
-    store.create_approval(
+    approval = store.create_approval(
         task_id=task.task_id,
         operation_id="operation_v17_restart",
         capability="command",
@@ -203,6 +205,10 @@ def test_restart_preserves_durably_parked_v17_approval_turn(tmp_path: Path) -> N
         turn_id=turn.turn_id,
         barrier=TurnBarrier.APPROVAL,
     )
+    with pytest.raises(WorkerConflictError) as too_early:
+        store.decide_approval(approval.approval_id, approved=True)
+    assert too_early.value.code == "task_state_conflict"
+    assert store.get_approval(approval.approval_id).status.value == "pending"
     checkpoint = store.create_checkpoint(
         task_id=task.task_id,
         workspace_tree_hash="b" * 64,
@@ -225,6 +231,63 @@ def test_restart_preserves_durably_parked_v17_approval_turn(tmp_path: Path) -> N
     assert [item.kind for item in restarted.list_session_ledger(task.task_id)] == [
         SessionLedgerKind.TURN_STARTED
     ]
+    decided = restarted.decide_approval(approval.approval_id, approved=True)
+    assert decided.status.value == "approved"
+    assert restarted.get_task(task.task_id).state is TaskState.QUEUED
+    resuming = restarted.current_turn_transaction(task.task_id)
+    assert resuming is not None
+    assert resuming.state is TurnTransactionState.RESUMING
+
+
+def test_v17_question_resolution_atomically_resumes_parked_turn(
+    tmp_path: Path,
+) -> None:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_input",
+        workspace_tree_hash="a" * 64,
+    )
+    store.create_question(
+        task_id=task.task_id,
+        question_id="question_v17_input",
+        turn_id=turn.turn_id,
+        prompt="Choose a repair.",
+        options=(
+            WorkerQuestionOption(option_id="safe", label="Safe repair"),
+        ),
+    )
+    store.begin_turn_parking(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        barrier=TurnBarrier.INPUT,
+    )
+    checkpoint = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash="a" * 64,
+        payload={"phase": "waiting_input"},
+    )
+    store.park_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    store.transition(task.task_id, TaskState.WAITING_INPUT)
+
+    resolved = store.resolve_question(
+        task.task_id,
+        "question_v17_input",
+        WorkerQuestionAnswer(option_id="safe"),
+    )
+
+    assert resolved.status.value == "resolved"
+    assert store.get_task(task.task_id).state is TaskState.QUEUED
+    transaction = store.current_turn_transaction(task.task_id)
+    assert transaction is not None
+    assert transaction.state is TurnTransactionState.RESUMING
 
 
 def test_restart_interrupts_inflight_without_replaying_it(tmp_path: Path) -> None:

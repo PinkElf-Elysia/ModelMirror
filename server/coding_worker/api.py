@@ -33,6 +33,7 @@ from .contracts import (
     WorkerEvidence,
     WorkerDiagnostic,
     WorkerPlan,
+    WorkerTodo,
     WorkerQuestion,
     WorkerQuestionAnswer,
     WorkerTurnHistory,
@@ -538,6 +539,15 @@ async def task_plan(task_id: str) -> WorkerPlan | None:
     _require_interaction_enabled()
     try:
         return get_coding_worker_service().store.latest_plan(task_id)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/todo", response_model=WorkerTodo | None)
+async def task_todo(task_id: str) -> WorkerTodo | None:
+    _require_interaction_enabled()
+    try:
+        return get_coding_worker_service().store.latest_todo(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 
