@@ -282,6 +282,7 @@ def test_matrix_uses_independent_bound_runners_and_randomized_order() -> None:
         },
         candidate_sha=CANDIDATE,
         model_route_receipt_sha256=ROUTE_RECEIPT,
+        round_id="round_1",
     )
 
     assert len(outcomes) == 144
@@ -290,6 +291,22 @@ def test_matrix_uses_independent_bound_runners_and_randomized_order() -> None:
         item.task_id for item in manifest.tasks[:6]
     ]
     assert all(request.fixture_id.startswith("fixture_") for request in native.requests)
+
+    second_native = _RecordingRunner(ParityEngine.NATIVE_OPENCODE)
+    second_worker = _RecordingRunner(ParityEngine.MODELMIRROR_WORKER)
+    second = run_parity_matrix(
+        manifest=manifest,
+        runners={
+            ParityEngine.NATIVE_OPENCODE: second_native,
+            ParityEngine.MODELMIRROR_WORKER: second_worker,
+        },
+        candidate_sha=CANDIDATE,
+        model_route_receipt_sha256=ROUTE_RECEIPT,
+        round_id="round_2",
+    )
+    assert {item.run_id for item in outcomes}.isdisjoint(
+        {item.run_id for item in second}
+    )
 
 
 def test_matrix_rejects_shared_runner_and_foreign_outcome() -> None:
@@ -304,6 +321,7 @@ def test_matrix_rejects_shared_runner_and_foreign_outcome() -> None:
             },
             candidate_sha=CANDIDATE,
             model_route_receipt_sha256=ROUTE_RECEIPT,
+            round_id="round_1",
         )
 
     class _ForeignRunner(_RecordingRunner):
@@ -322,6 +340,7 @@ def test_matrix_rejects_shared_runner_and_foreign_outcome() -> None:
             },
             candidate_sha=CANDIDATE,
             model_route_receipt_sha256=ROUTE_RECEIPT,
+            round_id="round_1",
         )
 
 
