@@ -10,9 +10,12 @@ from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
     Origin,
+    RuntimeProtocol,
     SessionLedgerKind,
     TaskSpec,
     TaskState,
+    TurnBarrier,
+    TurnTransactionState,
     WorkspaceSource,
     WorkerSessionLedgerEntry,
 )
@@ -70,6 +73,105 @@ def test_idempotency_key_rejects_changed_intent(tmp_path: Path) -> None:
     with pytest.raises(WorkerConflictError) as raised:
         store.create_task(_spec(objective="Different"))
     assert raised.value.code == "task_intent_conflict"
+
+
+def test_v17_turn_transaction_parks_and_rejects_new_operations(tmp_path: Path) -> None:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    tree_hash = "a" * 64
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_1",
+        workspace_tree_hash=tree_hash,
+    )
+    assert turn.generation == 1
+    operation = store.create_operation(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        operation_id="operation_v17_1",
+        tool_name="run_command",
+        intent_sha256="b" * 64,
+        request={"arguments": {"argv": ["pytest"]}, "workspace_id": "workspace_1"},
+    )
+    assert operation.turn_id == turn.turn_id
+
+    parking = store.begin_turn_parking(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        barrier=TurnBarrier.APPROVAL,
+    )
+    assert parking.state is TurnTransactionState.PARKING
+    with pytest.raises(WorkerConflictError) as rejected:
+        store.create_operation(
+            task_id=task.task_id,
+            turn_id=turn.turn_id,
+            operation_id="operation_v17_2",
+            tool_name="run_command",
+            intent_sha256="c" * 64,
+            request={"arguments": {"argv": ["pytest", "-q"]}, "workspace_id": "workspace_1"},
+        )
+    assert rejected.value.code == "turn_parked"
+    assert (
+        store.create_operation(
+            task_id=task.task_id,
+            turn_id=turn.turn_id,
+            operation_id=operation.operation_id,
+            tool_name=operation.tool_name,
+            intent_sha256=operation.intent_sha256,
+            request=operation.request,
+        )
+        == operation
+    )
+
+    checkpoint = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash=tree_hash,
+        payload={"phase": "approval"},
+    )
+    parked = store.park_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    assert parked.state is TurnTransactionState.PARKED
+    resumed = store.resume_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    assert resumed.state is TurnTransactionState.RESUMING
+    completed = store.finish_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        state=TurnTransactionState.COMPLETED,
+    )
+    assert completed.state is TurnTransactionState.COMPLETED
+    assert [event.type for event in store.list_events(task.task_id)] == [
+        "task_created",
+        "task_state",
+        "task_state",
+        "turn_started",
+        "turn_parking",
+        "checkpoint_created",
+        "turn_parked",
+        "turn_resumed",
+        "turn_completed",
+    ]
+
+
+def test_existing_tasks_default_to_v16_and_reject_turn_transactions(tmp_path: Path) -> None:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    task = store.create_task(_spec())
+    assert task.runtime_protocol is RuntimeProtocol.V16
+    with pytest.raises(WorkerConflictError) as rejected:
+        store.open_turn_transaction(
+            task_id=task.task_id,
+            turn_id="turn_legacy",
+            workspace_tree_hash="d" * 64,
+        )
+    assert rejected.value.code == "turn_protocol_mismatch"
 
 
 def test_restart_interrupts_inflight_without_replaying_it(tmp_path: Path) -> None:

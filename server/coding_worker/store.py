@@ -19,6 +19,8 @@ from .contracts import (
     EvidenceStatus,
     CapabilityLease,
     OperationState,
+    RuntimeProtocol,
+    SAFE_ID,
     TERMINAL_STATES,
     Origin,
     SubtaskKind,
@@ -27,6 +29,8 @@ from .contracts import (
     TaskRecord,
     TaskSpec,
     TaskState,
+    TurnBarrier,
+    TurnTransactionState,
     WorkerEvent,
     WorkerEvidence,
     WorkerArtifact,
@@ -43,6 +47,7 @@ from .contracts import (
     WorkerQuestionOption,
     QuestionStatus,
     WorkerOperation,
+    WorkerTurnTransaction,
     WorkerSessionLedgerEntry,
     SessionLedgerKind,
     require_transition,
@@ -142,6 +147,7 @@ class CodingWorkerStore:
         capability_snapshot: dict[str, Any] | None = None,
         capability_observed_at: float | None = None,
         capability_expires_at: float | None = None,
+        runtime_protocol: RuntimeProtocol = RuntimeProtocol.V16,
     ) -> TaskRecord:
         capability_values = (
             capability_binding_sha256,
@@ -178,7 +184,7 @@ class CodingWorkerStore:
             ).fetchone()
             if existing is not None:
                 current = self._task(existing, connection)
-                if current.spec != spec:
+                if current.spec != spec or current.runtime_protocol is not runtime_protocol:
                     raise WorkerConflictError(
                         "The idempotency key is already bound to another task.",
                         code="task_intent_conflict",
@@ -188,8 +194,9 @@ class CodingWorkerStore:
                 """
                 INSERT INTO worker_tasks (
                     task_id, origin_module, origin_object_id, client_task_id,
-                    state, spec_ciphertext, created_at, updated_at, expires_at, pinned
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    state, spec_ciphertext, created_at, updated_at, expires_at, pinned,
+                    runtime_protocol
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
                 """,
                 (
                     task_id,
@@ -201,6 +208,7 @@ class CodingWorkerStore:
                     now,
                     now,
                     expires_at,
+                    runtime_protocol.value,
                 ),
             )
             if capability_snapshot is not None:
@@ -1635,6 +1643,300 @@ class CodingWorkerStore:
                 is not None
             )
 
+    def open_turn_transaction(
+        self, *, task_id: str, turn_id: str, workspace_tree_hash: str
+    ) -> WorkerTurnTransaction:
+        candidate = WorkerTurnTransaction(
+            task_id=task_id,
+            turn_id=turn_id,
+            generation=1,
+            state=TurnTransactionState.OPEN,
+            workspace_tree_hash=workspace_tree_hash,
+            created_at=self._now(),
+            updated_at=self._now(),
+        )
+        now = candidate.created_at
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            task = self._task(self._require_task_row(connection, task_id), connection)
+            if task.runtime_protocol is not RuntimeProtocol.V17:
+                raise WorkerConflictError(
+                    "Turn transactions require a V17 task.",
+                    code="turn_protocol_mismatch",
+                )
+            existing = connection.execute(
+                """
+                SELECT * FROM worker_turn_transactions
+                WHERE task_id = ? AND state IN ('open', 'parking', 'parked', 'resuming')
+                """,
+                (task_id,),
+            ).fetchone()
+            if existing is not None:
+                current = self._turn_transaction(existing)
+                if current.turn_id != turn_id:
+                    raise WorkerConflictError(
+                        "Task already has an unfinished turn.",
+                        code="turn_already_open",
+                    )
+                if current.workspace_tree_hash != workspace_tree_hash:
+                    raise WorkerConflictError(
+                        "Turn tree binding changed.", code="turn_tree_changed"
+                    )
+                return current
+            generation = int(
+                connection.execute(
+                    "SELECT COALESCE(MAX(generation), 0) + 1 FROM worker_turn_transactions WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()[0]
+            )
+            connection.execute(
+                """
+                INSERT INTO worker_turn_transactions (
+                    task_id, turn_id, generation, state, barrier,
+                    workspace_tree_hash, checkpoint_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, NULL, ?, NULL, ?, ?)
+                """,
+                (
+                    task_id,
+                    turn_id,
+                    generation,
+                    TurnTransactionState.OPEN.value,
+                    workspace_tree_hash,
+                    now,
+                    now,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="turn_started",
+                payload={
+                    "turn_id": turn_id,
+                    "generation": generation,
+                    "workspace_tree_hash": workspace_tree_hash,
+                },
+                created_at=now,
+            )
+        return self.get_turn_transaction(task_id, turn_id)
+
+    def begin_turn_parking(
+        self, *, task_id: str, turn_id: str, barrier: TurnBarrier
+    ) -> WorkerTurnTransaction:
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._require_turn_row(connection, task_id, turn_id)
+            current = self._turn_transaction(row)
+            if current.state is TurnTransactionState.PARKING:
+                if current.barrier is not barrier:
+                    raise WorkerConflictError(
+                        "Turn is parking for another barrier.",
+                        code="turn_barrier_conflict",
+                    )
+                return current
+            if current.state not in {
+                TurnTransactionState.OPEN,
+                TurnTransactionState.RESUMING,
+            }:
+                raise WorkerConflictError(
+                    "Turn cannot start parking.", code="turn_state_conflict"
+                )
+            connection.execute(
+                """
+                UPDATE worker_turn_transactions
+                SET state = ?, barrier = ?, checkpoint_id = NULL, updated_at = ?
+                WHERE task_id = ? AND turn_id = ?
+                """,
+                (
+                    TurnTransactionState.PARKING.value,
+                    barrier.value,
+                    now,
+                    task_id,
+                    turn_id,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="turn_parking",
+                payload={"turn_id": turn_id, "barrier": barrier.value},
+                created_at=now,
+            )
+        return self.get_turn_transaction(task_id, turn_id)
+
+    def park_turn_transaction(
+        self, *, task_id: str, turn_id: str, checkpoint_id: str
+    ) -> WorkerTurnTransaction:
+        if SAFE_ID.fullmatch(checkpoint_id) is None:
+            raise ValueError("turn checkpoint identifier is invalid")
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._require_turn_row(connection, task_id, turn_id)
+            current = self._turn_transaction(row)
+            if current.state is TurnTransactionState.PARKED:
+                if current.checkpoint_id != checkpoint_id:
+                    raise WorkerConflictError(
+                        "Parked turn checkpoint changed.",
+                        code="turn_checkpoint_conflict",
+                    )
+                return current
+            if current.state is not TurnTransactionState.PARKING:
+                raise WorkerConflictError(
+                    "Turn is not parking.", code="turn_state_conflict"
+                )
+            checkpoint = connection.execute(
+                "SELECT task_id, workspace_tree_hash FROM worker_checkpoints WHERE checkpoint_id = ?",
+                (checkpoint_id,),
+            ).fetchone()
+            if (
+                checkpoint is None
+                or str(checkpoint["task_id"]) != task_id
+                or str(checkpoint["workspace_tree_hash"])
+                != current.workspace_tree_hash
+            ):
+                raise WorkerConflictError(
+                    "Turn checkpoint binding is invalid.",
+                    code="turn_checkpoint_invalid",
+                )
+            connection.execute(
+                """
+                UPDATE worker_turn_transactions
+                SET state = ?, checkpoint_id = ?, updated_at = ?
+                WHERE task_id = ? AND turn_id = ?
+                """,
+                (
+                    TurnTransactionState.PARKED.value,
+                    checkpoint_id,
+                    now,
+                    task_id,
+                    turn_id,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="turn_parked",
+                payload={
+                    "turn_id": turn_id,
+                    "barrier": current.barrier.value if current.barrier else None,
+                    "checkpoint_id": checkpoint_id,
+                },
+                created_at=now,
+            )
+        return self.get_turn_transaction(task_id, turn_id)
+
+    def resume_turn_transaction(
+        self, *, task_id: str, turn_id: str, checkpoint_id: str
+    ) -> WorkerTurnTransaction:
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._require_turn_row(connection, task_id, turn_id)
+            current = self._turn_transaction(row)
+            if current.state is TurnTransactionState.RESUMING:
+                return current
+            if (
+                current.state is not TurnTransactionState.PARKED
+                or current.checkpoint_id != checkpoint_id
+            ):
+                raise WorkerConflictError(
+                    "Turn cannot resume from this checkpoint.",
+                    code="turn_checkpoint_conflict",
+                )
+            connection.execute(
+                """
+                UPDATE worker_turn_transactions SET state = ?, updated_at = ?
+                WHERE task_id = ? AND turn_id = ?
+                """,
+                (TurnTransactionState.RESUMING.value, now, task_id, turn_id),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="turn_resumed",
+                payload={"turn_id": turn_id, "checkpoint_id": checkpoint_id},
+                created_at=now,
+            )
+        return self.get_turn_transaction(task_id, turn_id)
+
+    def finish_turn_transaction(
+        self,
+        *,
+        task_id: str,
+        turn_id: str,
+        state: TurnTransactionState,
+    ) -> WorkerTurnTransaction:
+        if state not in {
+            TurnTransactionState.COMPLETED,
+            TurnTransactionState.INTERRUPTED,
+        }:
+            raise ValueError("turn terminal state is invalid")
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._require_turn_row(connection, task_id, turn_id)
+            current = self._turn_transaction(row)
+            if current.state in {
+                TurnTransactionState.COMPLETED,
+                TurnTransactionState.INTERRUPTED,
+            }:
+                if current.state is not state:
+                    raise WorkerConflictError(
+                        "Turn terminal state changed.", code="turn_state_conflict"
+                    )
+                return current
+            connection.execute(
+                """
+                UPDATE worker_turn_transactions
+                SET state = ?, barrier = NULL, checkpoint_id = NULL, updated_at = ?
+                WHERE task_id = ? AND turn_id = ?
+                """,
+                (state.value, now, task_id, turn_id),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type=(
+                    "turn_completed"
+                    if state is TurnTransactionState.COMPLETED
+                    else "turn_interrupted"
+                ),
+                payload={"turn_id": turn_id},
+                created_at=now,
+            )
+        return self.get_turn_transaction(task_id, turn_id)
+
+    def get_turn_transaction(
+        self, task_id: str, turn_id: str
+    ) -> WorkerTurnTransaction:
+        with self._connect() as connection:
+            row = self._require_turn_row(connection, task_id, turn_id)
+        return self._turn_transaction(row)
+
+    def current_turn_transaction(
+        self, task_id: str
+    ) -> WorkerTurnTransaction | None:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            row = connection.execute(
+                """
+                SELECT * FROM worker_turn_transactions
+                WHERE task_id = ? AND state IN ('open', 'parking', 'parked', 'resuming')
+                """,
+                (task_id,),
+            ).fetchone()
+        return self._turn_transaction(row) if row is not None else None
+
+    def list_turn_transactions(self, task_id: str) -> list[WorkerTurnTransaction]:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            rows = connection.execute(
+                "SELECT * FROM worker_turn_transactions WHERE task_id = ? ORDER BY generation",
+                (task_id,),
+            ).fetchall()
+        return [self._turn_transaction(row) for row in rows]
+
     def create_operation(
         self,
         *,
@@ -1643,11 +1945,47 @@ class CodingWorkerStore:
         tool_name: str,
         intent_sha256: str,
         request: dict[str, Any],
+        turn_id: str | None = None,
     ) -> WorkerOperation:
         now = self._now()
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             task = self._task(self._require_task_row(connection, task_id), connection)
+            if task.runtime_protocol is RuntimeProtocol.V17:
+                if turn_id is None or SAFE_ID.fullmatch(turn_id) is None:
+                    raise WorkerConflictError(
+                        "V17 operations require the current turn.",
+                        code="operation_turn_required",
+                    )
+                turn_row = connection.execute(
+                    """
+                    SELECT * FROM worker_turn_transactions
+                    WHERE task_id = ? AND state IN ('open', 'parking', 'parked', 'resuming')
+                    """,
+                    (task_id,),
+                ).fetchone()
+                if turn_row is None:
+                    raise WorkerConflictError(
+                        "V17 task has no current turn.", code="operation_turn_required"
+                    )
+                current_turn = self._turn_transaction(turn_row)
+                if current_turn.turn_id != turn_id:
+                    raise WorkerConflictError(
+                        "Operation is bound to a stale turn.", code="operation_turn_stale"
+                    )
+                if current_turn.state not in {
+                    TurnTransactionState.OPEN,
+                    TurnTransactionState.RESUMING,
+                }:
+                    existing = connection.execute(
+                        "SELECT * FROM worker_operations WHERE operation_id = ?",
+                        (operation_id,),
+                    ).fetchone()
+                    if existing is None or str(existing["turn_id"]) != turn_id:
+                        raise WorkerConflictError(
+                            "Turn is parked and rejects new operations.",
+                            code="turn_parked",
+                        )
             existing = connection.execute(
                 "SELECT * FROM worker_operations WHERE operation_id = ?", (operation_id,)
             ).fetchone()
@@ -1658,6 +1996,7 @@ class CodingWorkerStore:
                     or operation.tool_name != tool_name
                     or operation.intent_sha256 != intent_sha256
                     or operation.request != request
+                    or operation.turn_id != turn_id
                 ):
                     raise WorkerConflictError(
                         "Tool operation id is bound to another intent.",
@@ -1679,8 +2018,8 @@ class CodingWorkerStore:
                 """
                 INSERT INTO worker_operations (
                     operation_id, task_id, tool_name, intent_sha256, state,
-                    request_ciphertext, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    request_ciphertext, created_at, updated_at, turn_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     operation_id,
@@ -1691,6 +2030,7 @@ class CodingWorkerStore:
                     self._codec.encrypt(request),
                     now,
                     now,
+                    turn_id,
                 ),
             )
         return self.get_operation(operation_id)
@@ -2536,6 +2876,7 @@ class CodingWorkerStore:
                     updated_at REAL NOT NULL,
                     expires_at REAL NOT NULL,
                     pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
+                    runtime_protocol TEXT NOT NULL DEFAULT 'v16',
                     UNIQUE(origin_module, origin_object_id, client_task_id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_worker_tasks_state
@@ -2642,6 +2983,7 @@ class CodingWorkerStore:
                     result_ciphertext TEXT,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
+                    turn_id TEXT,
                     FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
                 );
                 CREATE INDEX IF NOT EXISTS idx_worker_operations_task
@@ -2684,6 +3026,24 @@ class CodingWorkerStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_worker_checkpoints_task
                     ON worker_checkpoints(task_id, created_at);
+                CREATE TABLE IF NOT EXISTS worker_turn_transactions (
+                    task_id TEXT NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    generation INTEGER NOT NULL CHECK (generation >= 1),
+                    state TEXT NOT NULL,
+                    barrier TEXT,
+                    workspace_tree_hash TEXT NOT NULL,
+                    checkpoint_id TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY(task_id, turn_id),
+                    UNIQUE(task_id, generation),
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE,
+                    FOREIGN KEY(checkpoint_id) REFERENCES worker_checkpoints(checkpoint_id)
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_turn_unfinished
+                    ON worker_turn_transactions(task_id)
+                    WHERE state IN ('open', 'parking', 'parked', 'resuming');
                 CREATE TABLE IF NOT EXISTS worker_turn_checkpoints (
                     checkpoint_id TEXT PRIMARY KEY,
                     task_id TEXT NOT NULL,
@@ -2758,6 +3118,26 @@ class CodingWorkerStore:
                     VALUES (1, 0);
                 """
             )
+            task_columns = {
+                str(row["name"])
+                for row in connection.execute(
+                    "PRAGMA table_info(worker_tasks)"
+                ).fetchall()
+            }
+            if "runtime_protocol" not in task_columns:
+                connection.execute(
+                    "ALTER TABLE worker_tasks ADD COLUMN runtime_protocol TEXT NOT NULL DEFAULT 'v16'"
+                )
+            operation_columns = {
+                str(row["name"])
+                for row in connection.execute(
+                    "PRAGMA table_info(worker_operations)"
+                ).fetchall()
+            }
+            if "turn_id" not in operation_columns:
+                connection.execute(
+                    "ALTER TABLE worker_operations ADD COLUMN turn_id TEXT"
+                )
             subtask_columns = {
                 str(row["name"])
                 for row in connection.execute(
@@ -2852,6 +3232,7 @@ class CodingWorkerStore:
             pinned=bool(row["pinned"]),
             last_event_sequence=last_sequence,
             reason=reason,
+            runtime_protocol=RuntimeProtocol(str(row["runtime_protocol"])),
         )
 
     def _append_event_locked(
@@ -3096,12 +3477,40 @@ class CodingWorkerStore:
                 state=OperationState(row["state"]),
                 request=self._decrypt_dict(row["request_ciphertext"]),
                 result=result,
+                turn_id=(str(row["turn_id"]) if row["turn_id"] is not None else None),
                 created_at=float(row["created_at"]),
                 updated_at=float(row["updated_at"]),
             )
         except (WorkerCryptoError, ValueError) as exc:
             raise WorkerStoreError(
                 "Worker operation data is corrupt.", code="worker_data_corrupt"
+            ) from exc
+
+    @staticmethod
+    def _turn_transaction(row: sqlite3.Row) -> WorkerTurnTransaction:
+        try:
+            return WorkerTurnTransaction(
+                task_id=str(row["task_id"]),
+                turn_id=str(row["turn_id"]),
+                generation=int(row["generation"]),
+                state=TurnTransactionState(str(row["state"])),
+                barrier=(
+                    TurnBarrier(str(row["barrier"]))
+                    if row["barrier"] is not None
+                    else None
+                ),
+                workspace_tree_hash=str(row["workspace_tree_hash"]),
+                checkpoint_id=(
+                    str(row["checkpoint_id"])
+                    if row["checkpoint_id"] is not None
+                    else None
+                ),
+                created_at=float(row["created_at"]),
+                updated_at=float(row["updated_at"]),
+            )
+        except (TypeError, ValueError) as exc:
+            raise WorkerStoreError(
+                "Worker turn transaction is corrupt.", code="worker_data_corrupt"
             ) from exc
 
     def _artifact(self, row: sqlite3.Row) -> WorkerArtifact:
@@ -3216,6 +3625,20 @@ class CodingWorkerStore:
         ).fetchone()
         if row is None:
             raise WorkerNotFoundError("Worker task was not found.", code="task_not_found")
+        return row
+
+    @staticmethod
+    def _require_turn_row(
+        connection: sqlite3.Connection, task_id: str, turn_id: str
+    ) -> sqlite3.Row:
+        row = connection.execute(
+            "SELECT * FROM worker_turn_transactions WHERE task_id = ? AND turn_id = ?",
+            (task_id, turn_id),
+        ).fetchone()
+        if row is None:
+            raise WorkerNotFoundError(
+                "Worker turn was not found.", code="turn_not_found"
+            )
         return row
 
     def _decrypt_dict(self, ciphertext: str) -> dict[str, Any]:
