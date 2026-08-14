@@ -19,6 +19,12 @@ export interface WorkerActivity {
   operationId: string | null;
 }
 
+interface PendingActivity extends WorkerActivity {
+  groupKey: string;
+  firstSequence: number;
+  count: number;
+}
+
 export const terminalTaskStates = new Set<CodingWorkerTaskState>([
   "completed", "blocked", "failed", "cancelled", "budget_limited", "expired",
 ]);
@@ -110,6 +116,13 @@ function eventTitle(event: CodingWorkerEvent) {
   if (event.type === "subtask_failed") return "子任务执行失败";
   if (event.type === "changeset_merged") return "子任务变更已合并";
   if (event.type === "changeset_conflicted") return "子任务变更存在冲突";
+  if (event.type === "turn_started") return "新回合已开始";
+  if (event.type === "turn_parking") return "当前回合正在安全停车";
+  if (event.type === "turn_parked") return "当前回合已停车";
+  if (event.type === "turn_resumed") return "当前回合已恢复";
+  if (event.type === "turn_completed") return "当前回合已完成";
+  if (event.type === "capability_changed") return "任务能力已更新";
+  if (event.type === "operation_reconciled") return "工具结果已核对";
   if (event.type === "tool_operation") {
     const state = event.payload.state;
     if (state === "completed") return "工具操作已完成";
@@ -122,16 +135,15 @@ function eventTitle(event: CodingWorkerEvent) {
   if (event.type === "acceptance_retry") return "检查未通过，开始修复";
   if (event.type === "steering_queued") return "追加指令已排队";
   if (event.type === "provider_event") {
-    if (event.payload.kind === "plan") return "执行计划已更新";
     if (event.payload.kind === "message") return "Worker 回复";
-    if (event.payload.kind === "tool_call") return "Worker 请求工具";
-    if (event.payload.kind === "turn_completed") return "本轮执行完成";
   }
   return event.type.replaceAll("_", " ");
 }
 
 function eventTone(event: CodingWorkerEvent): WorkerActivityTone {
   const combined = `${event.type} ${String(event.payload.state ?? "")}`;
+  if (/turn_(parking|parked|resumed)|capability_changed/.test(combined)) return "warning";
+  if (/operation_reconciled/.test(combined)) return "success";
   if (/failed|blocked|rejected/.test(combined)) return "danger";
   if (/unknown|approval|interrupted|retry/.test(combined)) return "warning";
   if (/completed|decided|evaluated/.test(combined)) return "success";
@@ -140,22 +152,50 @@ function eventTone(event: CodingWorkerEvent): WorkerActivityTone {
 }
 
 export function activitiesFromEvents(events: CodingWorkerEvent[]): WorkerActivity[] {
-  return events.filter((event) => {
+  const visible = events.filter((event) => {
     if (event.type !== "provider_event") return event.type !== "artifact_created";
-    return event.payload.kind === "message" || event.payload.kind === "turn_completed";
-  }).map((event) => {
+    return event.payload.kind === "message";
+  });
+  const grouped = new Map<string, PendingActivity>();
+  visible.forEach((event) => {
     const operationId = typeof event.payload.operation_id === "string"
       ? event.payload.operation_id
       : null;
-    return {
+    const turnId = typeof event.payload.turn_id === "string" ? event.payload.turn_id : null;
+    const intent = typeof event.payload.intent === "string"
+      ? event.payload.intent
+      : typeof event.payload.capability === "string"
+        ? event.payload.capability
+        : null;
+    const groupKey = operationId
+      ? `operation:${turnId ?? "none"}:${operationId}:${intent ?? "default"}`
+      : turnId && event.type.startsWith("turn_")
+        ? `turn:${turnId}`
+        : `event:${event.sequence}`;
+    const previous = grouped.get(groupKey);
+    const activity: PendingActivity = {
       sequence: event.sequence,
       title: eventTitle(event),
       detail: eventPayloadText(event) ?? eventDetail(event),
-      meta: `#${event.sequence}`,
+      meta: "",
       tone: eventTone(event),
       operationId,
+      groupKey,
+      firstSequence: previous?.firstSequence ?? event.sequence,
+      count: (previous?.count ?? 0) + 1,
     };
+    grouped.set(groupKey, activity);
   });
+  return [...grouped.values()].sort((a, b) => a.sequence - b.sequence).map((activity) => ({
+    sequence: activity.sequence,
+    title: activity.title,
+    detail: activity.detail,
+    meta: activity.count > 1
+      ? `#${activity.firstSequence}–#${activity.sequence} · ${activity.count} 次状态`
+      : `#${activity.sequence}`,
+    tone: activity.tone,
+    operationId: activity.operationId,
+  }));
 }
 
 function eventDetail(event: CodingWorkerEvent) {
@@ -169,6 +209,11 @@ function eventDetail(event: CodingWorkerEvent) {
   }
   if (event.type === "approval_requested") return "一次性审批已进入 Action Center。";
   if (event.type === "approval_decided") return "审批决定已持久保存。";
+  if (event.type === "turn_parking") return "正在停止 Provider 请求并写入精确 checkpoint。";
+  if (event.type === "turn_parked") return "任务已释放执行槽，等待审批、回答或核对结果。";
+  if (event.type === "turn_resumed") return "任务从绑定 Workspace tree 的 checkpoint 继续。";
+  if (event.type === "operation_reconciled") return "原 operation 已完成一次性核对，没有生成新的副作用 ID。";
+  if (event.type === "capability_changed") return "任务固定路由的能力状态已重新观测。";
   if (event.type === "acceptance_evaluated") {
     const evidence = event.payload.evidence;
     if (Array.isArray(evidence)) return `已记录 ${evidence.length} 项检查结果。`;

@@ -13,7 +13,9 @@ import type {
   CodingWorkerStatus,
   CodingWorkerSubtask,
   CodingWorkerTask,
+  CodingWorkerTaskCapabilities,
   CodingWorkerTaskSpec,
+  CodingWorkerTodo,
   CodingWorkerTurnHistory,
 } from "../types/codingWorker";
 
@@ -71,6 +73,8 @@ const taskEventTypes = [
   "plan_updated", "todo_updated", "question_requested", "question_resolved",
   "context_compacted", "subtask_created", "subtask_completed", "subtask_failed",
   "changeset_merge_started", "changeset_merged", "changeset_conflicted",
+  "turn_started", "turn_parking", "turn_parked", "turn_resumed", "turn_completed",
+  "capability_changed", "operation_reconciled",
 ] as const;
 
 export const getCodingWorkerStatus = () => request<CodingWorkerStatus>(API_ROOT);
@@ -81,6 +85,11 @@ export async function listCodingWorkerTasks() {
 
 export const getCodingWorkerTask = (taskId: string) =>
   request<CodingWorkerTask>(`${API_ROOT}/tasks/${encodeURIComponent(taskId)}`);
+
+export const getCodingWorkerTaskCapabilities = (taskId: string) =>
+  request<CodingWorkerTaskCapabilities>(
+    `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/capabilities`,
+  );
 
 export const createCodingWorkerTask = (spec: CodingWorkerTaskSpec) =>
   request<CodingWorkerTask>(`${API_ROOT}/tasks`, {
@@ -105,6 +114,11 @@ export const sendCodingWorkerMessage = (taskId: string, message: string) =>
 export const getCodingWorkerPlan = (taskId: string) =>
   request<CodingWorkerPlan | null>(
     `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/plan`,
+  );
+
+export const getCodingWorkerTodo = (taskId: string) =>
+  request<CodingWorkerTodo | null>(
+    `${API_ROOT}/tasks/${encodeURIComponent(taskId)}/todo`,
   );
 
 export async function listCodingWorkerQuestions(taskId: string) {
