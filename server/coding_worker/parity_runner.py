@@ -41,6 +41,10 @@ class ParityRunRequest(StrictModel):
     initial_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     hidden_check_bundle_id: str
     hidden_check_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    fixture_bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    hidden_checker_bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    runner_image_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    model_route_catalog_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     budget: FrozenParityBudget
     model_route_receipt_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     candidate_sha: str = Field(pattern=r"^[a-f0-9]{40}$")
@@ -154,6 +158,7 @@ def run_parity_matrix(
             task=task,
             engine=engine,
             attempt=attempt,
+            manifest=manifest,
             candidate_sha=candidate_sha,
             manifest_sha=manifest_sha,
             model_route_receipt_sha256=model_route_receipt_sha256,
@@ -169,6 +174,7 @@ def _request_for_cell(
     task: FrozenParityTask,
     engine: ParityEngine,
     attempt: int,
+    manifest: FrozenParityManifest,
     candidate_sha: str,
     manifest_sha: str,
     model_route_receipt_sha256: str,
@@ -184,6 +190,14 @@ def _request_for_cell(
         initial_tree_hash=task.initial_tree_hash,
         hidden_check_bundle_id=task.hidden_check_bundle_id,
         hidden_check_sha256=task.hidden_check_sha256,
+        fixture_bundle_sha256=manifest.fixture_bundle_sha256,
+        hidden_checker_bundle_sha256=manifest.hidden_checker_bundle_sha256,
+        runner_image_digest=(
+            manifest.runner_images.native_opencode
+            if engine is ParityEngine.NATIVE_OPENCODE
+            else manifest.runner_images.modelmirror_worker
+        ),
+        model_route_catalog_sha256=manifest.model_route_catalog_sha256,
         budget=task.budget,
         model_route_receipt_sha256=model_route_receipt_sha256,
         candidate_sha=candidate_sha,
@@ -203,6 +217,9 @@ def _assert_bound_outcome(
         request.candidate_sha,
         request.task_manifest_sha256,
         request.initial_tree_hash,
+        request.fixture_bundle_sha256,
+        request.hidden_checker_bundle_sha256,
+        request.runner_image_digest,
     )
     observed = (
         outcome.run_id,
@@ -213,6 +230,9 @@ def _assert_bound_outcome(
         outcome.candidate_sha,
         outcome.task_manifest_sha256,
         outcome.initial_tree_hash,
+        outcome.fixture_bundle_sha256,
+        outcome.hidden_checker_bundle_sha256,
+        outcome.runner_image_digest,
     )
     if observed != expected:
         raise ParityRunnerError("parity outcome binding is invalid")
