@@ -190,7 +190,7 @@ describe("Skill local import pages", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: "核对风险并安装" }));
-    const confirmButton = screen.getByRole("button", { name: "确认风险并安装" });
+    const confirmButton = screen.getByRole("button", { name: "接受风险并安装" });
     expect(confirmButton).toBeDisabled();
     await user.click(screen.getByRole("checkbox"));
     await user.click(confirmButton);
