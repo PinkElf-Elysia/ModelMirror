@@ -358,6 +358,21 @@ class _V17TurnParkingProvider(FakeCodingAgentProvider):
         return await super().interrupt_turn(session)
 
 
+class _SlowCloseV17TurnParkingProvider(_V17TurnParkingProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.close_started = asyncio.Event()
+        self.release_close = asyncio.Event()
+        self.close_count = 0
+
+    async def close(self, session: ProviderSession) -> None:
+        self.close_count += 1
+        if self.close_count == 1:
+            self.close_started.set()
+            await self.release_close.wait()
+        await super().close(session)
+
+
 class _V17CompactionParkingProvider(FakeCodingAgentProvider):
     def __init__(self) -> None:
         super().__init__()
@@ -548,6 +563,48 @@ async def test_v17_turn_parks_once_and_resumes_exact_checkpoint(
         task.task_id, transaction.turn_id
     )
     assert transaction.state is TurnTransactionState.COMPLETED
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_resume_waits_for_the_parked_runner_to_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "CODING_WORKER_V16_ENABLED",
+        "CODING_WORKER_INTERACTION_ENABLED",
+        "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+        "CODING_WORKER_SUBAGENTS_ENABLED",
+        "CODING_WORKER_V17_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    provider = _SlowCloseV17TurnParkingProvider()
+    service = _service(tmp_path, provider)
+    provider.store = service.store
+    task = await service.create_task(
+        Origin(module="test", object_id="v17-runner-release"),
+        _request("v17-runner-release"),
+    )
+
+    await service.wait_for(
+        task.task_id,
+        lambda item: item.state is TaskState.WAITING_APPROVAL,
+    )
+    await asyncio.wait_for(provider.close_started.wait(), timeout=2)
+    approval = service.store.list_approvals(task.task_id)[0]
+    service.store.decide_approval(approval.approval_id, approved=True)
+    assert service.settle_approval_state(task.task_id).state is TaskState.QUEUED
+    await asyncio.sleep(0.1)
+    assert service.store.get_task(task.task_id).state is TaskState.QUEUED
+    assert len(provider.messages) == 1
+
+    provider.release_close.set()
+    resumed = await service.wait_for(
+        task.task_id,
+        lambda item: item.state is TaskState.BLOCKED,
+    )
+    assert resumed.reason == "acceptance_runner_pending"
+    assert len(provider.messages) == 2
     await service.shutdown()
 
 

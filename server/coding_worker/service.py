@@ -1229,7 +1229,13 @@ class CodingWorkerService:
 
     async def _scheduler_loop(self) -> None:
         while True:
-            await self._wake.wait()
+            try:
+                await asyncio.wait_for(self._wake.wait(), timeout=0.25)
+            except TimeoutError:
+                # The queue is durable. Polling prevents a persisted runnable
+                # task from depending on one in-memory wakeup surviving a
+                # runner completion/settlement race.
+                pass
             self._wake.clear()
             capacity = min(
                 self.max_active_tasks,
@@ -1264,7 +1270,11 @@ class CodingWorkerService:
                 )
 
     def _select_queued_task(self) -> tuple[TaskRecord, str | None] | None:
-        queued = self.store.list_queued_tasks(limit=128)
+        queued = [
+            record
+            for record in self.store.list_queued_tasks(limit=128)
+            if record.task_id not in self._active
+        ]
         if not queued:
             return None
         if not self.workspace_broker.dedicated_slots:
@@ -1327,11 +1337,14 @@ class CodingWorkerService:
         return self._route_slots.get(model_route)
 
     def _task_finished(self, task_id: str, _task: asyncio.Task[None]) -> None:
-        self._active.pop(task_id, None)
-        self._task_slots.pop(task_id, None)
-        self._sessions.pop(task_id, None)
+        owned_runner = self._active.get(task_id) is _task
+        if owned_runner:
+            self._active.pop(task_id, None)
+            self._task_slots.pop(task_id, None)
+            self._sessions.pop(task_id, None)
         if not self._closing:
-            self._resume_parent_after_subtasks(task_id)
+            if owned_runner:
+                self._resume_parent_after_subtasks(task_id)
             self._wake.set()
 
     async def _run_task(self, task_id: str, *, slot_id: str | None = None) -> None:
