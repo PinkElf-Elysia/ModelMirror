@@ -7,7 +7,9 @@ const api = vi.hoisted(() => ({
   getCodingWorkerStatus: vi.fn(),
   listCodingWorkerTasks: vi.fn(),
   getCodingWorkerTask: vi.fn(),
+  getCodingWorkerTaskCapabilities: vi.fn(),
   getCodingWorkerPlan: vi.fn(),
+  getCodingWorkerTodo: vi.fn(),
   listCodingWorkerQuestions: vi.fn(),
   answerCodingWorkerQuestion: vi.fn(),
   getCodingWorkerTurnHistory: vi.fn(),
@@ -69,7 +71,27 @@ const task = {
   pinned: false,
   last_event_sequence: 1,
   reason: null,
+  runtime_protocol: "v17",
 } as const;
+
+const taskCapabilities = {
+  task_id: task.task_id,
+  observed_at: 1,
+  expires_at: 31,
+  capabilities: [
+    "task_runtime",
+    "professional_file_tools",
+    "shell",
+    "operation_output",
+    "changesets",
+    "code_intelligence",
+    "structured_plan",
+    "user_questions",
+    "context_compaction",
+    "turn_history",
+    "subtasks",
+  ].map((name) => ({ name, enabled: true, supported: true, available: true, reason: null })),
+};
 
 beforeEach(() => {
   Object.values(api).forEach((mock) => "mockReset" in mock && mock.mockReset());
@@ -78,7 +100,9 @@ beforeEach(() => {
   api.getCodingWorkerStatus.mockResolvedValue({ enabled: true, available: true, version: "v1", max_active_tasks: 2, retention_seconds: 604800, network_enabled: false, acceptance_checks: ["python-pytest", "react-build"], model_routes: ["coding/default", "coding/quality"], reason: null, capabilities: { api_version: "v1", task_runtime: true, professional_file_tools: true, shell: true, operation_output: true, changesets: true, code_intelligence: true, structured_plan: true, user_questions: true, context_compaction: true, turn_history: true, subtasks: true } });
   api.listCodingWorkerTasks.mockResolvedValue([task]);
   api.getCodingWorkerTask.mockResolvedValue(task);
+  api.getCodingWorkerTaskCapabilities.mockResolvedValue(taskCapabilities);
   api.getCodingWorkerPlan.mockResolvedValue(null);
+  api.getCodingWorkerTodo.mockResolvedValue(null);
   api.listCodingWorkerQuestions.mockResolvedValue([]);
   api.answerCodingWorkerQuestion.mockResolvedValue({});
   api.getCodingWorkerTurnHistory.mockResolvedValue({ task_id: task.task_id, cursor: 0, checkpoints: [], pending_action: null });
@@ -210,6 +234,14 @@ describe("CodingWorkerConsole", () => {
   });
 
   it("shows public plans, exact shell approval, replayed output, changesets and diagnostics", async () => {
+    api.getCodingWorkerPlan.mockResolvedValue({
+      task_id: task.task_id,
+      sequence: 1,
+      turn_id: "turn_1",
+      explanation: "先复现失败，再修复并复测。",
+      items: [{ step: "复现失败", status: "in_progress" }],
+      updated_at: 1,
+    });
     api.listCodingWorkerApprovals.mockResolvedValue([{
       approval_id: "approval_1234567890abcdef1234567890abcdef",
       task_id: task.task_id,
@@ -261,9 +293,12 @@ describe("CodingWorkerConsole", () => {
     });
     api.connectCodingWorkerEvents.mockImplementation((_taskId, _after, handlers) => {
       queueMicrotask(() => {
-        handlers.onEvent({ sequence: 1, task_id: task.task_id, type: "provider_event", payload: { kind: "plan", data: { summary: "先复现失败，再修复并复测。" } }, created_at: 1 });
+        handlers.onEvent({ sequence: 1, task_id: task.task_id, type: "provider_event", payload: { kind: "plan", data: { summary: "供应商原生计划不应成为权威状态。" } }, created_at: 1 });
         handlers.onEvent({ sequence: 2, task_id: task.task_id, type: "tool_operation", payload: { operation_id: "operation_shell_1", state: "completed" }, created_at: 2 });
         handlers.onEvent({ sequence: 3, task_id: task.task_id, type: "provider_event", payload: { kind: "internal_frame" }, created_at: 3 });
+        handlers.onEvent({ sequence: 4, task_id: task.task_id, type: "turn_parking", payload: { turn_id: "turn_1", barrier: "approval" }, created_at: 4 });
+        handlers.onEvent({ sequence: 5, task_id: task.task_id, type: "turn_parked", payload: { turn_id: "turn_1", barrier: "approval" }, created_at: 5 });
+        handlers.onEvent({ sequence: 6, task_id: task.task_id, type: "operation_reconciled", payload: { turn_id: "turn_1", operation_id: "operation_shell_1", state: "completed" }, created_at: 6 });
       });
       return () => undefined;
     });
@@ -272,7 +307,10 @@ describe("CodingWorkerConsole", () => {
     render(<CodingWorkerConsole context="agent" />);
 
     expect((await screen.findAllByText("先复现失败，再修复并复测。")).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("供应商原生计划不应成为权威状态。")).not.toBeInTheDocument();
     expect(screen.queryByText("provider event")).not.toBeInTheDocument();
+    expect(await screen.findByText("当前回合已停车")).toBeInTheDocument();
+    expect(await screen.findByText("工具结果已核对")).toBeInTheDocument();
     expect(await screen.findByText("Shell 单次审批")).toBeInTheDocument();
     await user.click(screen.getByText("查看操作绑定"));
     expect(screen.getByText((content) => content.includes("c".repeat(64)))).toBeInTheDocument();
@@ -312,6 +350,13 @@ describe("CodingWorkerConsole", () => {
         { step: "修复状态逻辑", status: "in_progress" },
       ],
       updated_at: 2,
+    });
+    api.getCodingWorkerTodo.mockResolvedValue({
+      task_id: task.task_id,
+      sequence: 4,
+      turn_id: "turn_1",
+      items: [{ todo_id: "todo_1", content: "复跑父任务必需检查", status: "pending" }],
+      updated_at: 3,
     });
     api.listCodingWorkerQuestions.mockResolvedValue([{
       task_id: task.task_id,
@@ -377,7 +422,7 @@ describe("CodingWorkerConsole", () => {
           sequence: 8,
           task_id: task.task_id,
           type: "provider_event",
-          payload: { kind: "todo", data: { items: [{ todo_id: "todo_1", content: "复跑父任务必需检查", status: "pending" }] } },
+          payload: { kind: "todo", data: { items: [{ todo_id: "todo_provider", content: "供应商待办不应成为权威状态", status: "pending" }] } },
           created_at: 3,
         });
         handlers.onEvent({
@@ -397,6 +442,8 @@ describe("CodingWorkerConsole", () => {
 
     expect(await screen.findByText("修复状态逻辑")).toBeInTheDocument();
     expect(screen.getByText("复跑父任务必需检查")).toBeInTheDocument();
+    expect(screen.queryByText("供应商待办不应成为权威状态")).not.toBeInTheDocument();
+    expect(screen.getByText("V17 · 固定路由")).toBeInTheDocument();
     expect(screen.getByText("上下文已在完整工具边界压缩", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("父 Workspace 未被覆盖", { exact: false })).toBeInTheDocument();
     expect(screen.getAllByText("src/state.ts", { exact: false })).toHaveLength(2);
