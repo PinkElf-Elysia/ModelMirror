@@ -14,6 +14,7 @@ from cryptography.fernet import Fernet
 from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
+    OperationState,
     Origin,
     PolicyProfile,
     RuntimeProtocol,
@@ -33,12 +34,13 @@ from server.coding_worker.provider import (
     ProviderEvent,
     ProviderEventKind,
     ProviderCheckpoint,
+    ProviderCheckpointCompatibility,
     ProviderOpenRequest,
     ProviderSession,
 )
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.store import CodingWorkerStore, WorkerConflictError
-from server.coding_worker.tool_broker import FrozenCheck, ToolBroker
+from server.coding_worker.tool_broker import FrozenCheck, ToolBroker, ToolBrokerError
 from server.coding_worker.workspace import (
     InMemoryWorkspaceSourceAdapter,
     WorkspaceBroker,
@@ -746,6 +748,201 @@ async def test_v17_acceptance_rejects_an_unsettled_turn(tmp_path: Path) -> None:
     blocked = service.store.get_task(task.task_id)
     assert blocked.state is TaskState.BLOCKED
     assert blocked.reason == "turn_settlement_incomplete"
+
+
+@pytest.mark.asyncio
+async def test_v17_frozen_acceptance_operations_are_bound_to_platform_turns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "CODING_WORKER_V16_ENABLED",
+        "CODING_WORKER_INTERACTION_ENABLED",
+        "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+        "CODING_WORKER_SUBAGENTS_ENABLED",
+        "CODING_WORKER_V17_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    provider = _RepairingProvider()
+    service, broker = _service_with_harness(tmp_path, provider)
+    request = _request("v17-acceptance-turn").model_copy(
+        update={"policy_profile": PolicyProfile.DEVELOP}
+    )
+    task = await service.create_task(
+        Origin(module="test", object_id="v17-acceptance-turn"), request
+    )
+
+    async def repair() -> None:
+        content = "print('fixed')\n"
+        await broker.execute(
+            task_id=task.task_id,
+            operation_id="repair-v17-main",
+            tool_name="write_file",
+            arguments={
+                "path": "main.py",
+                "content": content,
+                "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
+            },
+        )
+
+    provider.repair = repair
+    completed = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.COMPLETED
+    )
+
+    assert completed.runtime_protocol is RuntimeProtocol.V17
+    acceptance_operations = [
+        operation
+        for operation in service.store.list_operations(task.task_id)
+        if operation.tool_name == "run_check"
+        and operation.operation_id.startswith("acceptance_")
+    ]
+    assert len(acceptance_operations) == 2
+    assert all(operation.turn_id is not None for operation in acceptance_operations)
+    assert all(
+        service.store.get_turn_transaction(task.task_id, operation.turn_id or "").state
+        is TurnTransactionState.COMPLETED
+        for operation in acceptance_operations
+    )
+    assert service.store.current_turn_transaction(task.task_id) is None
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_acceptance_failure_interrupts_its_platform_turn(
+    tmp_path: Path,
+) -> None:
+    class _FailingHarness:
+        async def run_required_checks(self, _task_id: str) -> list[object]:
+            raise RuntimeError("harness unavailable")
+
+    service = _service(tmp_path, FakeCodingAgentProvider())
+    request = _request("v17-acceptance-failure")
+    prepared = await service.workspace_broker.prepare(request.workspace_source)
+    task = service.store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="v17-acceptance-failure"),
+        ),
+        runtime_protocol=RuntimeProtocol.V17,
+    )
+    service.store.transition(task.task_id, TaskState.PREPARING)
+    running = service.store.transition(
+        task.task_id, TaskState.RUNNING, workspace_id=prepared.workspace_id
+    )
+    service.harness_runner = _FailingHarness()  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="harness unavailable"):
+        await service._evaluate_acceptance(running, 1, message_cursor=0)
+
+    transactions = service.store.list_turn_transactions(task.task_id)
+    assert len(transactions) == 1
+    assert transactions[0].state is TurnTransactionState.INTERRUPTED
+    assert service.store.current_turn_transaction(task.task_id) is None
+
+
+@pytest.mark.asyncio
+async def test_v17_approved_operation_executes_once_before_provider_resume(
+    tmp_path: Path,
+) -> None:
+    class _CommandExecutor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+
+        async def run_process(self, **kwargs: object) -> dict[str, object]:
+            argv = tuple(str(item) for item in kwargs["argv"])  # type: ignore[index]
+            self.calls.append(argv)
+            return {"exit_code": 0, "output": "approved once\n"}
+
+    service, broker = _service_with_harness(tmp_path, FakeCodingAgentProvider())
+    executor = _CommandExecutor()
+    broker.executor = executor
+    request = _request("v17-approved-resume").model_copy(
+        update={"policy_profile": PolicyProfile.DEVELOP}
+    )
+    task = service.store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="v17-approved-resume"),
+        ),
+        runtime_protocol=RuntimeProtocol.V17,
+    )
+    workspace = await service.workspace_broker.prepare(request.workspace_source)
+    service.store.transition(task.task_id, TaskState.PREPARING)
+    service.store.transition(
+        task.task_id, TaskState.RUNNING, workspace_id=workspace.workspace_id
+    )
+    turn = service.store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_approved_resume",
+        workspace_tree_hash=workspace.baseline_tree_hash,
+    )
+    with pytest.raises(ToolBrokerError) as pending:
+        await broker.execute(
+                task_id=task.task_id,
+                operation_id="operation_v17_approved_resume",
+                tool_name="run_command",
+                arguments={"argv": ["python", "-V"], "timeout_seconds": 30},
+        )
+    assert pending.value.code == "approval_required"
+    checkpoint = service.store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash=workspace.baseline_tree_hash,
+        payload={"phase": "waiting_approval"},
+    )
+    service.store.park_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    service.store.transition(
+        task.task_id,
+        TaskState.WAITING_APPROVAL,
+        expected_state=TaskState.RUNNING,
+    )
+    approval = service.store.list_approvals(task.task_id)[0]
+    service.store.decide_approval(approval.approval_id, approved=True)
+
+    summary = await service._resume_approved_operation(
+        task.task_id, turn_id=turn.turn_id
+    )
+
+    assert "completed once" in summary
+    assert executor.calls == [("python", "-V")]
+    operation = service.store.get_operation("operation_v17_approved_resume")
+    assert operation.state is OperationState.COMPLETED
+    assert [
+        item.type
+        for item in service.store.list_events(task.task_id)
+        if item.type == "operation_reconciled"
+    ] == ["operation_reconciled"]
+    await service.shutdown()
+
+
+def test_provider_checkpoint_is_rebound_to_the_current_authenticated_tree() -> None:
+    checkpoint = ProviderCheckpoint(
+        checkpoint_id="checkpoint_tree_binding",
+        compatibility=ProviderCheckpointCompatibility(
+            provider_family="opencode",
+            provider_version="1.18.9",
+            task_id="task_tree_binding",
+            workspace_tree_hash="a" * 64,
+        ),
+        payload={"public_output": "safe"},
+    )
+
+    rebound = CodingWorkerService._bind_provider_checkpoint_tree(
+        checkpoint, task_id="task_tree_binding", tree_hash="b" * 64
+    )
+
+    assert rebound.compatibility is not None
+    assert rebound.compatibility.workspace_tree_hash == "b" * 64
+    assert checkpoint.compatibility is not None
+    assert checkpoint.compatibility.workspace_tree_hash == "a" * 64
+    with pytest.raises(WorkerConflictError) as mismatched:
+        CodingWorkerService._bind_provider_checkpoint_tree(
+            checkpoint, task_id="task_other", tree_hash="b" * 64
+        )
+    assert mismatched.value.code == "checkpoint_invalid"
 
 
 @pytest.mark.asyncio

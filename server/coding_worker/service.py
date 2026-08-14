@@ -1523,11 +1523,17 @@ class CodingWorkerService:
             current = self.store.get_task(task_id)
             if current.state not in TERMINAL_STATES:
                 self.store.transition(task_id, TaskState.FAILED, reason=exc.code)
-        except Exception:
+        except Exception as exc:
             current = self.store.get_task(task_id)
             if current.state not in TERMINAL_STATES:
+                code = getattr(exc, "code", "worker_failed")
+                reason = (
+                    code
+                    if isinstance(code, str) and SAFE_ID.fullmatch(code) is not None
+                    else "worker_failed"
+                )
                 with contextlib.suppress(WorkerConflictError):
-                    self.store.transition(task_id, TaskState.FAILED, reason="worker_failed")
+                    self.store.transition(task_id, TaskState.FAILED, reason=reason)
         finally:
             with contextlib.suppress(Exception):
                 self._settle_terminal_subtask(task_id)
@@ -1732,6 +1738,54 @@ class CodingWorkerService:
                 if resuming_turn and current_turn is not None
                 else f"turn_{uuid.uuid4().hex}"
             )
+            if (
+                resume_phase == "waiting_approval"
+                and resuming_turn
+                and current_turn is not None
+            ):
+                try:
+                    message = await self._resume_approved_operation(
+                        task_id, turn_id=current_turn.turn_id
+                    )
+                    resume_phase = None
+                except ToolBrokerError as exc:
+                    if exc.code == "operation_result_unknown":
+                        try:
+                            await self._park_v17_turn(
+                                task,
+                                session,
+                                turn_id=current_turn.turn_id,
+                                turns=turns,
+                                message_cursor=message_cursor,
+                                turn_before=turn_before,
+                                turn_public_before=turn_public_before,
+                            )
+                        except Exception:
+                            with contextlib.suppress(WorkerConflictError):
+                                self.store.finish_turn_transaction(
+                                    task_id=task_id,
+                                    turn_id=current_turn.turn_id,
+                                    state=TurnTransactionState.INTERRUPTED,
+                                )
+                            self.store.transition(
+                                task_id,
+                                TaskState.BLOCKED,
+                                reason="turn_checkpoint_failed",
+                                expected_state=TaskState.RUNNING,
+                            )
+                        return
+                    self.store.finish_turn_transaction(
+                        task_id=task_id,
+                        turn_id=current_turn.turn_id,
+                        state=TurnTransactionState.INTERRUPTED,
+                    )
+                    self.store.transition(
+                        task_id,
+                        TaskState.BLOCKED,
+                        reason=exc.code,
+                        expected_state=TaskState.RUNNING,
+                    )
+                    return
             if not resuming_turn:
                 if task.runtime_protocol is RuntimeProtocol.V17:
                     self.store.open_turn_transaction(
@@ -1756,6 +1810,11 @@ class CodingWorkerService:
                         provider_checkpoint = await self.provider.checkpoint(session)
                         entry_tree_hash = self.workspace_broker.current_tree_hash(
                             workspace_id or ""
+                        )
+                        provider_checkpoint = self._bind_provider_checkpoint_tree(
+                            provider_checkpoint,
+                            task_id=task_id,
+                            tree_hash=entry_tree_hash,
                         )
                         checkpoint = self.store.create_checkpoint(
                             task_id=task_id,
@@ -1970,6 +2029,9 @@ class CodingWorkerService:
                     tree_hash = self.workspace_broker.current_tree_hash(
                         self.store.get_task(task_id).workspace_id or ""
                     )
+                    provider_checkpoint = self._bind_provider_checkpoint_tree(
+                        provider_checkpoint, task_id=task_id, tree_hash=tree_hash
+                    )
                     self.store.create_checkpoint(
                         task_id=task_id,
                         workspace_tree_hash=tree_hash,
@@ -2034,6 +2096,9 @@ class CodingWorkerService:
                     tree_hash = self.workspace_broker.current_tree_hash(
                         current.workspace_id or ""
                     )
+                    provider_checkpoint = self._bind_provider_checkpoint_tree(
+                        provider_checkpoint, task_id=task_id, tree_hash=tree_hash
+                    )
                     self.store.create_checkpoint(
                         task_id=task_id,
                         workspace_tree_hash=tree_hash,
@@ -2075,6 +2140,9 @@ class CodingWorkerService:
                     tree_hash = self.workspace_broker.current_tree_hash(
                         current.workspace_id or ""
                     )
+                    provider_checkpoint = self._bind_provider_checkpoint_tree(
+                        provider_checkpoint, task_id=task_id, tree_hash=tree_hash
+                    )
                     self.store.create_checkpoint(
                         task_id=task_id,
                         workspace_tree_hash=tree_hash,
@@ -2106,6 +2174,9 @@ class CodingWorkerService:
                 provider_checkpoint = await self.provider.checkpoint(session)
                 tree_hash = self.workspace_broker.current_tree_hash(
                     self.store.get_task(task_id).workspace_id or ""
+                )
+                provider_checkpoint = self._bind_provider_checkpoint_tree(
+                    provider_checkpoint, task_id=task_id, tree_hash=tree_hash
                 )
                 self.store.create_checkpoint(
                     task_id=task_id,
@@ -2274,6 +2345,107 @@ class CodingWorkerService:
             "operation for the same intent."
         )
 
+    async def _resume_approved_operation(self, task_id: str, *, turn_id: str) -> str:
+        if self.tool_broker is None:
+            return self._approval_resume_message(task_id)
+        operations = {
+            operation.operation_id: operation
+            for operation in self.store.list_operations(task_id)
+            if operation.turn_id == turn_id
+        }
+        approvals = [
+            approval
+            for approval in self.store.list_approvals(task_id)
+            if approval.operation_id in operations
+        ]
+        if len(approvals) != 1:
+            raise ToolBrokerError(
+                "Approval does not bind one exact operation.",
+                code="approval_operation_conflict",
+            )
+        approval = approvals[0]
+        operation = operations[approval.operation_id]
+        if approval.status in {
+            ApprovalStatus.REJECTED,
+            ApprovalStatus.CANCELLED,
+            ApprovalStatus.EXPIRED,
+        }:
+            if operation.state is OperationState.PREPARED:
+                self.store.transition_operation(
+                    operation.operation_id,
+                    OperationState.FAILED,
+                    result={"code": "approval_rejected"},
+                    expected_state=OperationState.PREPARED,
+                )
+            return (
+                f"Approval was not granted for exact operation {operation.operation_id}. "
+                "The operation was not executed; do not retry it under another id."
+            )
+        if operation.state is OperationState.COMPLETED:
+            return (
+                f"Exact approved operation {operation.operation_id} is already complete. "
+                "Do not execute it again."
+            )
+        if (
+            operation.state is not OperationState.PREPARED
+            or approval.status is not ApprovalStatus.APPROVED
+            or approval.lease is None
+        ):
+            raise ToolBrokerError(
+                "Approved operation is not ready to resume.",
+                code="approval_operation_unavailable",
+            )
+        network_lease_id: str | None = None
+        if operation.tool_name in {"install_dependencies", "query_documentation"}:
+            network_operation_id = "network_" + hashlib.sha256(
+                operation.operation_id.encode("utf-8")
+            ).hexdigest()[:32]
+            network = next(
+                (
+                    item
+                    for item in self.store.list_approvals(task_id)
+                    if item.operation_id == network_operation_id
+                ),
+                None,
+            )
+            if (
+                network is None
+                or network.status is not ApprovalStatus.APPROVED
+                or network.lease is None
+            ):
+                raise ToolBrokerError(
+                    "Approved network operation is unavailable.",
+                    code="approval_operation_unavailable",
+                )
+            network_lease_id = network.lease.lease_id
+        result = await self.tool_broker.execute(
+            task_id=task_id,
+            operation_id=operation.operation_id,
+            tool_name=operation.tool_name,
+            arguments=operation.request.get("arguments", {}),
+            lease_id=approval.lease.lease_id,
+            network_lease_id=network_lease_id,
+        )
+        self.store.append_event(
+            task_id,
+            "operation_reconciled",
+            {
+                "operation_id": operation.operation_id,
+                "state": result.state.value,
+                "source": "approved_resume",
+            },
+        )
+        output = str(result.data.get("output", ""))[:4096]
+        exit_code = result.data.get("exit_code")
+        summary = (
+            f"Exact approved operation {operation.operation_id} completed once"
+            + (f" with exit code {exit_code}" if exit_code is not None else "")
+            + ". Do not execute it again."
+        )
+        if output:
+            summary += f"\n\nBounded operation output:\n{output}"
+        return summary
+
     async def _park_v17_turn(
         self,
         task: TaskRecord,
@@ -2297,6 +2469,9 @@ class CodingWorkerService:
         tree_hash = self.workspace_broker.current_tree_hash(workspace_id)
         await self.provider.interrupt_turn(session)
         provider_checkpoint = await self.provider.checkpoint(session)
+        provider_checkpoint = self._bind_provider_checkpoint_tree(
+            provider_checkpoint, task_id=task.task_id, tree_hash=tree_hash
+        )
         context = self._context_summary(
             task.task_id,
             tree_hash=tree_hash,
@@ -2529,6 +2704,9 @@ class CodingWorkerService:
                 code="context_compaction_too_large",
             )
         provider_checkpoint = await self.provider.checkpoint(session)
+        provider_checkpoint = self._bind_provider_checkpoint_tree(
+            provider_checkpoint, task_id=task_id, tree_hash=tree_hash
+        )
         self.store.create_checkpoint(
             task_id=task_id,
             workspace_tree_hash=tree_hash,
@@ -2553,6 +2731,26 @@ class CodingWorkerService:
                 "boundary_sequence": boundary,
                 "workspace_tree_hash": tree_hash,
             },
+        )
+
+    @staticmethod
+    def _bind_provider_checkpoint_tree(
+        checkpoint: ProviderCheckpoint, *, task_id: str, tree_hash: str
+    ) -> ProviderCheckpoint:
+        compatibility = checkpoint.compatibility
+        if compatibility is None:
+            return checkpoint
+        if compatibility.task_id != task_id:
+            raise WorkerConflictError(
+                "Provider checkpoint task binding changed.",
+                code="checkpoint_invalid",
+            )
+        return checkpoint.model_copy(
+            update={
+                "compatibility": compatibility.model_copy(
+                    update={"workspace_tree_hash": tree_hash}
+                )
+            }
         )
 
     def _controlled_compaction_summary(
@@ -2763,9 +2961,24 @@ class CodingWorkerService:
                 expected_state=TaskState.TESTING,
             )
             return None, message_cursor
+        acceptance_turn_id: str | None = None
+        if task.runtime_protocol is RuntimeProtocol.V17:
+            workspace_id = self.store.get_task(task_id).workspace_id or ""
+            acceptance_turn_id = f"turn_acceptance_{uuid.uuid4().hex}"
+            self.store.open_turn_transaction(
+                task_id=task_id,
+                turn_id=acceptance_turn_id,
+                workspace_tree_hash=self.workspace_broker.current_tree_hash(workspace_id),
+            )
         try:
             evidence = await self.harness_runner.run_required_checks(task_id)
         except ToolBrokerError as exc:
+            if acceptance_turn_id is not None:
+                self.store.finish_turn_transaction(
+                    task_id=task_id,
+                    turn_id=acceptance_turn_id,
+                    state=TurnTransactionState.INTERRUPTED,
+                )
             self.store.transition(
                 task_id,
                 TaskState.BLOCKED,
@@ -2773,6 +2986,20 @@ class CodingWorkerService:
                 expected_state=TaskState.TESTING,
             )
             return None, message_cursor
+        except Exception:
+            if acceptance_turn_id is not None:
+                self.store.finish_turn_transaction(
+                    task_id=task_id,
+                    turn_id=acceptance_turn_id,
+                    state=TurnTransactionState.INTERRUPTED,
+                )
+            raise
+        if acceptance_turn_id is not None:
+            self.store.finish_turn_transaction(
+                task_id=task_id,
+                turn_id=acceptance_turn_id,
+                state=TurnTransactionState.COMPLETED,
+            )
         self.store.append_event(
             task_id,
             "acceptance_evaluated",
