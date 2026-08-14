@@ -31,7 +31,7 @@ from server.coding_worker.parity import (
 from server.coding_worker.parity_runner import (
     ParityRunRequest,
     ParityRunner,
-    SubprocessParityRunner,
+    SeparatedParityRunner,
     run_parity_matrix,
     run_parity_smoke,
 )
@@ -53,10 +53,12 @@ class RouteCatalogLock(StrictModel):
 class RunnerConfig(StrictModel):
     engine: ParityEngine
     image_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
-    argv: tuple[str, ...] = Field(min_length=1, max_length=32)
+    runner_argv: tuple[str, ...] = Field(min_length=1, max_length=32)
+    checker_argv: tuple[str, ...] = Field(min_length=1, max_length=32)
     timeout_seconds: int = Field(default=7200, ge=30, le=14_400)
+    checker_timeout_seconds: int = Field(default=900, ge=10, le=3600)
 
-    @field_validator("argv")
+    @field_validator("runner_argv", "checker_argv")
     @classmethod
     def validate_argv(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if any(not item or "\0" in item or len(item) > 2048 for item in value):
@@ -118,6 +120,9 @@ class DeterministicFakeRunner(ParityRunner):
             hidden_checker_bundle_sha256=request.hidden_checker_bundle_sha256,
             runner_image_digest=request.runner_image_digest,
             raw_artifact_manifest_sha256=artifact_sha,
+            checker_receipt_sha256=_canonical_sha256(
+                {"run_id": request.run_id, "checker": "fake-smoke"}
+            ),
             candidate_sha=request.candidate_sha,
             task_manifest_sha256=request.task_manifest_sha256,
             initial_tree_hash=request.initial_tree_hash,
@@ -195,7 +200,7 @@ def _validate_assets(
 
 def _runner_from_config(
     path: Path, engine: ParityEngine, manifest: FrozenParityManifest
-) -> SubprocessParityRunner:
+) -> SeparatedParityRunner:
     config = RunnerConfig.model_validate_json(path.read_text(encoding="utf-8"))
     expected_digest = (
         manifest.runner_images.native_opencode
@@ -204,10 +209,12 @@ def _runner_from_config(
     )
     if config.engine is not engine or config.image_digest != expected_digest:
         raise ValueError("runner configuration binding is invalid")
-    return SubprocessParityRunner(
+    return SeparatedParityRunner(
         engine=engine,
-        argv=config.argv,
+        runner_argv=config.runner_argv,
+        checker_argv=config.checker_argv,
         timeout_seconds=config.timeout_seconds,
+        checker_timeout_seconds=config.checker_timeout_seconds,
     )
 
 
