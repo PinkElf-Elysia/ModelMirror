@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
+import tarfile
 from pathlib import PurePosixPath
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -1084,6 +1086,61 @@ async def workspace_diff(task_id: str) -> Response:
         )
     except Exception as exc:
         _raise_worker_error(exc)
+
+
+@router.post(
+    "/tasks/{task_id}/workspace/parity-export",
+    response_model=WorkerArtifact,
+)
+async def export_parity_workspace(task_id: str) -> WorkerArtifact:
+    """Create an opaque, deterministic terminal Workspace artifact for Checker.
+
+    The endpoint is absent unless the isolated parity profile is enabled. It
+    never exposes a Workspace path and cannot export a still-running task.
+    """
+
+    if not _feature_enabled("CODING_WORKER_PARITY_ENABLED"):
+        raise HTTPException(status_code=404, detail="Not found")
+    service, task = _task_workspace(task_id)
+    try:
+        if task.state not in TERMINAL_STATES:
+            raise WorkerConflictError(
+                "Parity export requires a terminal task.",
+                code="parity_task_not_terminal",
+            )
+        snapshot = service.workspace_broker.capture_snapshot(task.workspace_id)
+        files = service.workspace_broker.snapshot_files(task.workspace_id, snapshot)
+        content = _deterministic_workspace_tar(files)
+        usage = service.store.budget_usage(task_id)
+        return service.store.create_artifact(
+            task_id=task_id,
+            media_type="application/vnd.modelmirror.parity-workspace+tar",
+            content=content,
+            metadata={
+                "kind": "parity_workspace_export",
+                "workspace_tree_hash": snapshot.tree_hash,
+                "file_count": len(files),
+                "active_seconds": usage.active_seconds,
+                "tool_calls": usage.tool_calls,
+                "turns_started": usage.turns_started,
+            },
+        )
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+def _deterministic_workspace_tar(files: tuple[Any, ...]) -> bytes:
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+        for entry in sorted(files, key=lambda item: item.path):
+            info = tarfile.TarInfo(entry.path)
+            info.size = len(entry.content)
+            info.mode = 0o755 if entry.executable else 0o644
+            info.mtime = 0
+            info.uid = info.gid = 0
+            info.uname = info.gname = ""
+            archive.addfile(info, io.BytesIO(entry.content))
+    return output.getvalue()
 
 
 @router.get("/tasks/{task_id}/services/{service_id}/preview/{preview_path:path}")
