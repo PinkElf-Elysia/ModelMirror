@@ -25,6 +25,7 @@ function request(
   workflow: Record<string, unknown>,
   skills: Array<Record<string, unknown>> = [],
   resume?: Record<string, unknown>,
+  revision?: Record<string, unknown>,
 ): BridgeRequest {
   return {
     protocol: AGENCY_EXECUTION_PROTOCOL,
@@ -38,6 +39,7 @@ function request(
       skills,
       workflow,
       ...(resume ? { resume } : {}),
+      ...(revision ? { revision } : {}),
     },
   };
 }
@@ -305,6 +307,185 @@ test('v2 execution resumes from completed steps without billing them again', asy
   )));
   assert.ok(events.some(event => event.event === 'agency.run.completed' && event.resumed_from_task_id === 'agency_dag_previous'));
   channel.close();
+});
+
+test('v2 revision reruns the target and downstream while reusing an independent sibling', async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const channel = new JsonlChannel(input, output);
+  const requestedUsers: string[] = [];
+  const events: Record<string, unknown>[] = [];
+  let outputBuffer = '';
+  output.on('data', chunk => {
+    outputBuffer += chunk.toString('utf8');
+    const lines = outputBuffer.split('\n');
+    outputBuffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line) continue;
+      const message = JSON.parse(line) as Record<string, unknown>;
+      if (message.type === 'event') events.push(message.event as Record<string, unknown>);
+      if (message.type !== 'model_request') continue;
+      const rawMessages = message.messages as Array<Record<string, unknown>>;
+      const system = String(rawMessages?.[0]?.content ?? '');
+      const user = String(rawMessages?.[1]?.content ?? '');
+      requestedUsers.push(user);
+      const content = system.includes('reviewer') || system.includes('验收员')
+        ? '{"pass":true,"failed":[]}'
+        : user.includes('TARGET_TASK')
+          ? 'revised-target-output'
+          : 'revised-final-output';
+      input.write(`${JSON.stringify({
+        protocol: AGENCY_EXECUTION_PROTOCOL,
+        type: 'model_response',
+        id: message.id,
+        request_id: message.request_id,
+        ok: true,
+        result: { content, usage: { input_tokens: 3, output_tokens: 4 } },
+      })}\n`);
+    }
+  });
+
+  const workflow = {
+    name: 'revision fan-out fan-in',
+    steps: [
+      { id: 'root', role: 'agent-alpha', task: 'ROOT_TASK', output: 'root_output', depends_on: [] },
+      { id: 'target', role: 'agent-alpha', task: 'TARGET_TASK {{root_output}}', output: 'target_output', depends_on: ['root'] },
+      { id: 'sibling', role: 'agent-beta', task: 'SIBLING_TASK {{root_output}}', output: 'sibling_output', depends_on: ['root'] },
+      {
+        id: 'final', role: 'agent-beta',
+        task: 'FINAL_TASK {{target_output}} {{sibling_output}}', output: 'final_output',
+        acceptance: 'Must integrate both branches', depends_on: ['target', 'sibling'],
+      },
+    ],
+  };
+  const feedback = 'Keep the evidence and tighten the budget recommendation.';
+  const result = await executeRequest(request(workflow, [], undefined, {
+    source_task_id: 'agency_dag_source',
+    target_task_id: 'target',
+    feedback,
+    previous_output: 'previous-target-output',
+    completed_steps: [
+      { task_id: 'root', output_variable: 'root_output', output: 'existing-root-output' },
+      { task_id: 'sibling', output_variable: 'sibling_output', output: 'existing-sibling-output' },
+    ],
+  }), channel);
+
+  assert.equal(result.success, true);
+  assert.equal(result.model_calls, 3);
+  assert.deepEqual(result.usage, { input_tokens: 9, output_tokens: 12 });
+  assert.deepEqual(new Set(result.reused_task_ids as string[]), new Set(['root', 'sibling']));
+  const targetPrompt = requestedUsers.find(value => value.includes('TARGET_TASK')) ?? '';
+  assert.match(targetPrompt, /previous-target-output/);
+  assert.match(targetPrompt, /tighten the budget recommendation/);
+  const nonTargetPrompts = requestedUsers.filter(value => !value.includes('TARGET_TASK'));
+  assert.ok(nonTargetPrompts.every(value => !value.includes(feedback)));
+  assert.ok(events.some(event => event.task_id === 'root' && event.reused === true));
+  assert.ok(events.some(event => event.task_id === 'sibling' && event.reused === true));
+  assert.ok(events.some(event => event.task_id === 'target' && event.reused !== true));
+  assert.ok(events.some(event => (
+    event.event === 'agency.run.completed'
+    && event.revision_parent_task_id === 'agency_dag_source'
+    && event.revision_target_task_id === 'target'
+    && event.resumed_from_task_id === undefined
+  )));
+  channel.close();
+});
+
+test('v2 revision supports a single-step DAG with no restored steps', async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const channel = new JsonlChannel(input, output);
+  const prompts: string[] = [];
+  let outputBuffer = '';
+  output.on('data', chunk => {
+    outputBuffer += chunk.toString('utf8');
+    const lines = outputBuffer.split('\n');
+    outputBuffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line) continue;
+      const message = JSON.parse(line) as Record<string, unknown>;
+      if (message.type !== 'model_request') continue;
+      const rawMessages = message.messages as Array<Record<string, unknown>>;
+      const system = String(rawMessages?.[0]?.content ?? '');
+      prompts.push(String(rawMessages?.[1]?.content ?? ''));
+      input.write(`${JSON.stringify({
+        protocol: AGENCY_EXECUTION_PROTOCOL,
+        type: 'model_response',
+        id: message.id,
+        request_id: message.request_id,
+        ok: true,
+        result: {
+          content: system.includes('reviewer') || system.includes('验收员')
+            ? '{"pass":true,"failed":[]}'
+            : 'single-revision-output',
+          usage: { input_tokens: 1, output_tokens: 2 },
+        },
+      })}\n`);
+    }
+  });
+
+  const result = await executeRequest(request({
+    name: 'single revision',
+    steps: [{
+      id: 'only', role: 'agent-alpha', task: 'ONLY_TASK', output: 'final_output',
+      acceptance: 'Must be concrete', depends_on: [],
+    }],
+  }, [], undefined, {
+    source_task_id: 'single-source',
+    target_task_id: 'only',
+    feedback: 'Please make the conclusion more concrete.',
+    previous_output: 'previous single output',
+    completed_steps: [],
+  }), channel);
+
+  assert.equal(result.success, true);
+  assert.equal(result.model_calls, 2);
+  assert.deepEqual(result.reused_task_ids, []);
+  const revisionPrompt = prompts.find(value => value.includes('ONLY_TASK')) ?? '';
+  assert.match(revisionPrompt, /previous single output/);
+  assert.match(revisionPrompt, /make the conclusion more concrete/);
+  channel.close();
+});
+
+test('v2 revision rejects conflicting or malformed revision state with stable errors', async () => {
+  const workflow = {
+    name: 'revision validation',
+    steps: [
+      { id: 'first', role: 'agent-alpha', task: 'FIRST', output: 'first_output', depends_on: [] },
+      {
+        id: 'final', role: 'agent-beta', task: 'FINAL {{first_output}}',
+        output: 'final_output', acceptance: 'Must be complete', depends_on: ['first'],
+      },
+    ],
+  };
+  const resume = {
+    source_task_id: 'source', prior_model_calls: 1,
+    prior_usage: { input_tokens: 1, output_tokens: 1 },
+    completed_steps: [{ task_id: 'first', output_variable: 'first_output', output: 'done' }],
+  };
+  const revision = {
+    source_task_id: 'source', target_task_id: 'first',
+    feedback: 'Please improve this completed output.', previous_output: 'done', completed_steps: [],
+  };
+  await assert.rejects(
+    executeRequest(request(workflow, [], resume, revision), new JsonlChannel(new PassThrough(), new PassThrough())),
+    (error: unknown) => error instanceof AgencyBridgeError && error.code === 'agency_execution_plan_invalid',
+  );
+  await assert.rejects(
+    executeRequest(request(workflow, [], undefined, { ...revision, target_task_id: 'unknown' }), new JsonlChannel(new PassThrough(), new PassThrough())),
+    (error: unknown) => error instanceof AgencyBridgeError && error.code === 'agency_execution_revision_invalid',
+  );
+  await assert.rejects(
+    executeRequest(request(workflow, [], undefined, { ...revision, feedback: 'short' }), new JsonlChannel(new PassThrough(), new PassThrough())),
+    (error: unknown) => error instanceof AgencyBridgeError && error.code === 'agency_execution_revision_invalid',
+  );
+  await assert.rejects(
+    executeRequest(request(workflow, [], undefined, {
+      ...revision,
+      completed_steps: [{ task_id: 'first', output_variable: 'first_output', output: 'done' }],
+    }), new JsonlChannel(new PassThrough(), new PassThrough())),
+    (error: unknown) => error instanceof AgencyBridgeError && error.code === 'agency_execution_revision_invalid',
+  );
 });
 
 test('v2 execution reports token-limit truncation as an actionable error', async () => {

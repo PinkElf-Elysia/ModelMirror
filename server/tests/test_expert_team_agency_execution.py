@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -140,6 +141,20 @@ def valid_plan_and_workflow():
     return plan, workflow
 
 
+def use_current_meta_planner_node_ids(plan, workflow):
+    task_ids = [task.task_id for task in plan.tasks]
+    renamed = {}
+    for task_id, node in zip(task_ids, workflow.nodes[1:-1], strict=True):
+        old_id = node.id
+        node.id = f"node_agent_{task_id}"
+        node.data["plannerRef"] = f"agent_{task_id}"
+        node.data["plannerTaskIds"] = [task_id]
+        renamed[old_id] = node.id
+    for edge in workflow.edges:
+        edge.source = renamed.get(edge.source, edge.source)
+        edge.target = renamed.get(edge.target, edge.target)
+
+
 def test_prepare_execution_compiles_only_server_owned_experts_and_plain_steps():
     plan, workflow = valid_plan_and_workflow()
     prepared = prepare_agency_execution(
@@ -156,6 +171,43 @@ def test_prepare_execution_compiles_only_server_owned_experts_and_plain_steps():
     assert "llm" not in prepared.workflow["steps"][1]
     assert prepared.agents[0].system_prompt == "你是研究专家。"
     assert prepared.skills == []
+
+
+def test_prepare_execution_uses_current_meta_planner_task_metadata():
+    plan, workflow = valid_plan_and_workflow()
+    plan.tasks[0].task_id = "audience_value_analysis"
+    plan.tasks[1].depends_on = ["audience_value_analysis"]
+    workflow.nodes[1].data["outputVariable"] = "audience_value_output"
+    workflow.nodes[2].data["taskInput"] = (
+        "形成执行方案\n\n依赖结果：\naudience: {{audience_value_output}}"
+    )
+    workflow.edges[0].id = "input-audience"
+    workflow.edges[1].id = "audience-delivery"
+    use_current_meta_planner_node_ids(plan, workflow)
+
+    prepared = prepare_agency_execution(
+        plan=plan, workflow=workflow, expert_records=experts()
+    )
+
+    assert [step["id"] for step in prepared.workflow["steps"]] == [
+        "audience_value_analysis",
+        "delivery",
+    ]
+    assert prepared.workflow["steps"][1]["depends_on"] == [
+        "audience_value_analysis"
+    ]
+
+
+def test_prepare_execution_rejects_tampered_meta_planner_task_metadata():
+    plan, workflow = valid_plan_and_workflow()
+    use_current_meta_planner_node_ids(plan, workflow)
+    workflow.nodes[1].data["plannerTaskIds"] = ["delivery"]
+    workflow.nodes[1].data["plannerRef"] = "agent_delivery"
+
+    with pytest.raises(AgencyExecutionValidationError, match="重复的任务节点"):
+        prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
 
 
 def test_prepare_execution_does_not_duplicate_existing_input_references():
@@ -496,6 +548,86 @@ class HangingResumeClient(HangingClient):
         return await super().execute(on_event=on_event, **kwargs)
 
 
+class RevisionClient:
+    worker_entry = Path(__file__)
+
+    def __init__(self):
+        self.revisions = []
+
+    async def execute(self, *, on_event, revision=None, **_kwargs):
+        self.revisions.append(revision)
+        for completed in revision["completed_steps"]:
+            await on_event(
+                {
+                    "event": "agency.step.completed",
+                    "task_id": completed["task_id"],
+                    "status": "completed",
+                    "output": completed["output"],
+                    "reused": True,
+                    "model_calls": 0,
+                    "cumulative_usage": {
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                    },
+                }
+            )
+        revision_number = len(self.revisions)
+        target_output = f"返工结果-{revision_number}"
+        await on_event(
+            {
+                "event": "agency.step.completed",
+                "task_id": revision["target_task_id"],
+                "status": "completed",
+                "output": target_output,
+                "model_calls": 1,
+                "cumulative_usage": {
+                    "input_tokens": 6,
+                    "output_tokens": 4,
+                },
+            }
+        )
+        if revision["target_task_id"] != "delivery":
+            await on_event(
+                {
+                    "event": "agency.step.completed",
+                    "task_id": "delivery",
+                    "status": "completed",
+                    "output": target_output,
+                    "model_calls": 2,
+                    "cumulative_usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 6,
+                    },
+                }
+            )
+        await on_event(
+            {
+                "event": "agency.run.completed",
+                "status": "completed",
+                "final_output": target_output,
+                "model_calls": 2,
+                "usage": {"input_tokens": 10, "output_tokens": 6},
+            }
+        )
+        return SimpleNamespace(
+            payload={
+                "final_output": target_output,
+                "model_calls": 2,
+                "usage": {"input_tokens": 10, "output_tokens": 6},
+            }
+        )
+
+
+class HangingRevisionClient(HangingClient):
+    def __init__(self):
+        super().__init__()
+        self.revision = None
+
+    async def execute(self, *, on_event, revision=None, **kwargs):
+        self.revision = revision
+        return await super().execute(on_event=on_event, **kwargs)
+
+
 async def _noop_model(_request):
     return "unused"
 
@@ -742,6 +874,322 @@ def test_retry_is_idempotent_while_the_resume_run_is_active(tmp_path):
     asyncio.run(scenario())
 
 
+def _seed_revisable_run(runtime, prepared, *, task_id="revision-source", failed=False):
+    source = runtime.store.create(
+        task_id=task_id,
+        run_id=f"{task_id}-run",
+        run_type="expert_team",
+        workflow=prepared.workflow,
+        inputs={"goal": "制定一个可执行的专家协作方案。"},
+        source_kind="expert_team_agency",
+        runtime_metadata={
+            "model_id": "fake-model",
+            "upstream_revision": "revision",
+            "capability_snapshot_version": "snapshot-v1",
+            "capability_snapshot_hash": "hash",
+            "sink_task_id": prepared.sink_task_id,
+            "selected_agent_ids": prepared.selected_agent_ids,
+            "method_skill_digests": {},
+        },
+    )
+    runtime.store.append_event(
+        source.task_id,
+        {
+            "event": "agency.step.completed",
+            "task_id": "research",
+            "status": "completed",
+            "output": "第一版研究",
+            "model_calls": 2,
+            "cumulative_usage": {"input_tokens": 20, "output_tokens": 8},
+        },
+    )
+    if not failed:
+        runtime.store.append_event(
+            source.task_id,
+            {
+                "event": "agency.step.completed",
+                "task_id": "delivery",
+                "status": "completed",
+                "output": "第一版交付",
+                "model_calls": 4,
+                "cumulative_usage": {"input_tokens": 40, "output_tokens": 16},
+            },
+        )
+        runtime.store.append_event(
+            source.task_id,
+            {
+                "event": "agency.run.completed",
+                "status": "completed",
+                "final_output": "第一版交付",
+                "model_calls": 5,
+                "usage": {"input_tokens": 50, "output_tokens": 20},
+            },
+        )
+        runtime.store.complete(source.task_id, result="第一版交付")
+    else:
+        runtime.store.append_event(
+            source.task_id,
+            {
+                "event": "agency.run.failed",
+                "status": "failed",
+                "error": "agency_execution_step_failed",
+                "model_calls": 3,
+                "usage": {"input_tokens": 30, "output_tokens": 12},
+            },
+        )
+        runtime.store.fail(source.task_id, error="agency_execution_step_failed")
+    return source
+
+
+def test_revision_creates_immutable_version_chain_with_fresh_usage(tmp_path):
+    async def scenario():
+        plan, workflow = valid_plan_and_workflow()
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        client = RevisionClient()
+        runtime = coordinator(tmp_path, client)
+        source = _seed_revisable_run(runtime, prepared)
+        original_events = json.loads(json.dumps(source.events, ensure_ascii=False))
+        feedback = "请保留证据，并把执行预算标为待确认。"
+
+        first = await runtime.revise(
+            source_task_id=source.task_id,
+            target_task_id="delivery",
+            feedback=feedback,
+            prepared=prepared,
+        )
+        for _ in range(50):
+            first = runtime.get(first["task_id"])
+            if first["status"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+
+        assert client.revisions[0]["target_task_id"] == "delivery"
+        assert client.revisions[0]["previous_output"] == "第一版交付"
+        assert client.revisions[0]["feedback"] == feedback
+        assert [
+            step["task_id"] for step in client.revisions[0]["completed_steps"]
+        ] == ["research"]
+        assert first["model_calls"] == 2
+        assert first["usage"] == {"input_tokens": 10, "output_tokens": 6}
+        assert first["lineage_model_calls"] == 7
+        assert first["lineage_usage"] == {
+            "input_tokens": 60,
+            "output_tokens": 26,
+        }
+        assert first["revision"] == {
+            "parent_task_id": source.task_id,
+            "root_task_id": source.task_id,
+            "revision_index": 1,
+            "target_task_id": "delivery",
+            "feedback": feedback,
+            "feedback_preview": feedback,
+            "affected_task_ids": ["delivery"],
+        }
+        assert runtime.get(source.task_id)["final_output"] == "第一版交付"
+        assert runtime.store.require(source.task_id).events == original_events
+        registry_run = await runtime.run_registry.get_run(first["run_id"])
+        assert registry_run is not None
+        assert "revision_feedback" not in registry_run.metadata
+        assert "revision_feedback_preview" not in registry_run.metadata
+
+        second = await runtime.revise(
+            source_task_id=first["task_id"],
+            target_task_id="delivery",
+            feedback="请进一步压缩结论，并明确未确认事项。",
+            prepared=prepared,
+        )
+        for _ in range(50):
+            second = runtime.get(second["task_id"])
+            if second["status"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+        assert client.revisions[1]["previous_output"] == "返工结果-1"
+        assert second["revision"]["parent_task_id"] == first["task_id"]
+        assert second["revision"]["root_task_id"] == source.task_id
+        assert second["revision"]["revision_index"] == 2
+        assert second["model_calls"] == 2
+        assert second["lineage_model_calls"] == 9
+        assert second["lineage_usage"] == {
+            "input_tokens": 70,
+            "output_tokens": 32,
+        }
+
+    asyncio.run(scenario())
+
+
+def test_failed_run_revision_reruns_target_and_all_incomplete_steps(tmp_path):
+    async def scenario():
+        plan, workflow = valid_plan_and_workflow()
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        client = RevisionClient()
+        runtime = coordinator(tmp_path, client)
+        source = _seed_revisable_run(
+            runtime, prepared, task_id="failed-revision-source", failed=True
+        )
+        revised = await runtime.revise(
+            source_task_id=source.task_id,
+            target_task_id="research",
+            feedback="请重新核对研究依据，并补齐后续交付。",
+            prepared=prepared,
+        )
+        for _ in range(50):
+            revised = runtime.get(revised["task_id"])
+            if revised["status"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+        assert client.revisions[0]["completed_steps"] == []
+        assert revised["revision"]["affected_task_ids"] == [
+            "research",
+            "delivery",
+        ]
+        assert revised["lineage_model_calls"] == 5
+        assert runtime.get(source.task_id)["status"] == "failed"
+
+    asyncio.run(scenario())
+
+
+def test_revision_rejects_invalid_state_and_oversized_history(tmp_path):
+    async def scenario():
+        plan, workflow = valid_plan_and_workflow()
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        runtime = coordinator(tmp_path, RevisionClient())
+        source = _seed_revisable_run(runtime, prepared, task_id="revision-invalid")
+        with pytest.raises(AgencyExecutionValidationError) as unknown:
+            await runtime.revise(
+                source_task_id=source.task_id,
+                target_task_id="unknown",
+                feedback="请修改一个不存在的步骤。",
+                prepared=prepared,
+            )
+        assert unknown.value.code == "agency_execution_revision_invalid"
+        with pytest.raises(AgencyExecutionValidationError) as short:
+            await runtime.revise(
+                source_task_id=source.task_id,
+                target_task_id="delivery",
+                feedback="过短",
+                prepared=prepared,
+            )
+        assert short.value.code == "agency_execution_revision_invalid"
+
+        running = runtime.store.create(
+            task_id="revision-running",
+            run_id="revision-running-run",
+            run_type="expert_team",
+            workflow=prepared.workflow,
+            inputs={"goal": "仍在运行"},
+            source_kind="expert_team_agency",
+        )
+        with pytest.raises(AgencyExecutionValidationError) as active:
+            await runtime.revise(
+                source_task_id=running.task_id,
+                target_task_id="research",
+                feedback="请修改仍在执行中的任务。",
+                prepared=prepared,
+            )
+        assert active.value.code == "agency_execution_not_revisable"
+        runtime.store.cancel(running.task_id, error="agency_execution_cancelled")
+        with pytest.raises(AgencyExecutionValidationError) as cancelled:
+            await runtime.revise(
+                source_task_id=running.task_id,
+                target_task_id="research",
+                feedback="请修改已经取消的任务结果。",
+                prepared=prepared,
+            )
+        assert cancelled.value.code == "agency_execution_not_revisable"
+
+        oversized = runtime.store.create(
+            task_id="revision-oversized",
+            run_id="revision-oversized-run",
+            run_type="expert_team",
+            workflow=prepared.workflow,
+            inputs={"goal": "检查历史输出上限"},
+            source_kind="expert_team_agency",
+        )
+        runtime.store.append_event(
+            oversized.task_id,
+            {
+                "event": "agency.step.completed",
+                "task_id": "research",
+                "status": "completed",
+                "output": "汉" * 30_000,
+            },
+        )
+        runtime.store.fail(oversized.task_id, error="agency_execution_step_failed")
+        with pytest.raises(AgencyExecutionValidationError) as too_large:
+            await runtime.revise(
+                source_task_id=oversized.task_id,
+                target_task_id="research",
+                feedback="请安全修改这一份过长的历史输出。",
+                prepared=prepared,
+            )
+        assert too_large.value.code == "agency_execution_revision_invalid"
+
+        empty = runtime.store.create(
+            task_id="revision-empty",
+            run_id="revision-empty-run",
+            run_type="expert_team",
+            workflow=prepared.workflow,
+            inputs={"goal": "检查空历史输出"},
+            source_kind="expert_team_agency",
+        )
+        runtime.store.append_event(
+            empty.task_id,
+            {
+                "event": "agency.step.completed",
+                "task_id": "research",
+                "status": "completed",
+                "output": "   ",
+            },
+        )
+        runtime.store.fail(empty.task_id, error="agency_execution_step_failed")
+        assert runtime.get(empty.task_id)["revisable"] is False
+        with pytest.raises(AgencyExecutionValidationError) as empty_output:
+            await runtime.revise(
+                source_task_id=empty.task_id,
+                target_task_id="research",
+                feedback="请修改这个没有有效产出的步骤。",
+                prepared=prepared,
+            )
+        assert empty_output.value.code == "agency_execution_not_revisable"
+
+    asyncio.run(scenario())
+
+
+def test_revision_is_idempotent_and_conflicting_feedback_is_rejected(tmp_path):
+    async def scenario():
+        plan, workflow = valid_plan_and_workflow()
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        client = HangingRevisionClient()
+        runtime = coordinator(tmp_path, client)
+        source = _seed_revisable_run(runtime, prepared, task_id="idempotent-revision")
+        kwargs = {
+            "source_task_id": source.task_id,
+            "target_task_id": "delivery",
+            "feedback": "请保持原结构并补充预算约束说明。",
+            "prepared": prepared,
+        }
+        first = await runtime.revise(**kwargs)
+        await asyncio.wait_for(client.started.wait(), timeout=1)
+        second = await runtime.revise(**kwargs)
+        assert first["task_id"] == second["task_id"]
+        with pytest.raises(AgencyExecutionValidationError) as conflict:
+            await runtime.revise(
+                **{**kwargs, "feedback": "请改为另一套完全不同的交付结构。"}
+            )
+        assert conflict.value.code == "agency_revision_in_progress"
+        await runtime.cancel(first["task_id"])
+
+    asyncio.run(scenario())
+
+
 def test_capacity_and_interrupted_recovery(tmp_path):
     async def scenario():
         plan, workflow = valid_plan_and_workflow()
@@ -932,6 +1380,93 @@ def test_execution_client_runs_real_worker_with_out_of_order_fake_gateway():
         assert result.payload["quality_status"] == "passed"
         assert result.model_calls == 4
         assert finished[:2] == ["beta", "alpha"]
+
+    asyncio.run(scenario())
+
+
+def test_execution_client_real_worker_revises_intermediate_and_reuses_sibling():
+    async def scenario():
+        prompts: list[str] = []
+
+        async def fake_gateway(request):
+            system = request.messages[0].content
+            user = request.messages[1].content
+            prompts.append(user)
+            if "验收员" in system or "reviewer" in system.lower():
+                content = '{"pass":true,"failed":[]}'
+            elif "Research" in user:
+                content = "研究返工版" if "用户对上一版的修改意见" in user else "研究第一版"
+            elif "Assess" in user:
+                content = "风险第一版"
+            else:
+                content = "整合返工版" if "研究返工版" in user else "整合第一版"
+            return AgencyModelResponse(
+                content=content,
+                usage={"input_tokens": 2, "output_tokens": 3},
+            )
+
+        configured_worker = os.getenv("MM_AGENCY_TEST_WORKER_ENTRY", "").strip()
+        client = AgencyExecutionClient(
+            model_runner=fake_gateway,
+            worker_entry=configured_worker or None,
+            timeout_seconds=10,
+        )
+        first = await client.execute(
+            goal="Build a reliable launch recommendation.",
+            model_id="fake-model",
+            workflow=execution_workflow(),
+            agents=execution_agents(),
+        )
+        first_steps = {
+            step["id"]: step
+            for step in first.payload["steps"]
+        }
+        events: list[dict] = []
+
+        async def collect_event(event):
+            events.append(event)
+
+        feedback = "请保留已有证据，并把预算结论标为待确认。"
+        revised = await client.execute(
+            goal="Build a reliable launch recommendation.",
+            model_id="fake-model",
+            workflow=execution_workflow(),
+            agents=execution_agents(),
+            revision={
+                "source_task_id": "agency_dag_source",
+                "target_task_id": "research",
+                "feedback": feedback,
+                "previous_output": first_steps["research"]["output"],
+                "completed_steps": [
+                    {
+                        "task_id": "risk",
+                        "output_variable": "risk_output",
+                        "output": first_steps["risk"]["output"],
+                    }
+                ],
+            },
+            on_event=collect_event,
+        )
+
+        assert revised.payload["final_output"]
+        assert revised.model_calls == 3
+        assert revised.payload["reused_task_ids"] == ["risk"]
+        assert any(
+            event.get("task_id") == "risk" and event.get("reused") is True
+            for event in events
+        )
+        revision_prompt = next(
+            prompt
+            for prompt in prompts
+            if "Research" in prompt and "用户对上一版的修改意见" in prompt
+        )
+        assert "研究第一版" in revision_prompt
+        assert feedback in revision_prompt
+        assert not any(
+            feedback in prompt
+            for prompt in prompts
+            if "Research" not in prompt
+        )
 
     asyncio.run(scenario())
 
@@ -1210,6 +1745,160 @@ def test_execution_retry_api_rebuilds_server_owned_contract(tmp_path, monkeypatc
     assert captured["prepared"].workflow == source.workflow
 
 
+def test_execution_revision_api_is_gated_and_rebuilds_frozen_contract(
+    tmp_path, monkeypatch
+):
+    from fastapi.testclient import TestClient
+    import server.main as main_module
+
+    store = WorkflowExecutionStore(tmp_path)
+    agent_id = main_module.AGENT_RECORDS[0].id
+    workflow = {
+        "name": "冻结返工计划",
+        "steps": [
+            {
+                "id": "final",
+                "role": agent_id,
+                "task": "形成结论",
+                "output": "final_output",
+                "depends_on": [],
+                "acceptance": "结论可执行",
+                "skills": [],
+            }
+        ],
+    }
+    source = store.create(
+        task_id="revision-api-source",
+        run_id="revision-api-source-run",
+        run_type="expert_team",
+        workflow=workflow,
+        inputs={"goal": "形成一个可执行且可审计的专家结论。"},
+        source_kind="expert_team_agency",
+        runtime_metadata={
+            "model_id": "fake-model",
+            "upstream_revision": main_module.AGENCY_UPSTREAM_REVISION,
+            "capability_snapshot_version": "snapshot-v1",
+            "capability_snapshot_hash": "snapshot-hash",
+            "sink_task_id": "final",
+            "selected_agent_ids": [agent_id],
+            "method_skill_digests": {},
+        },
+    )
+    store.append_event(
+        source.task_id,
+        {
+            "event": "agency.step.completed",
+            "task_id": "final",
+            "status": "completed",
+            "output": "第一版结论",
+        },
+    )
+    store.complete(source.task_id, result="第一版结论")
+    running = store.create(
+        task_id="revision-api-running",
+        run_id="revision-api-running-run",
+        run_type="expert_team",
+        workflow=workflow,
+        inputs={"goal": "仍在运行"},
+        source_kind="expert_team_agency",
+        runtime_metadata=source.runtime_metadata,
+    )
+    monkeypatch.setattr(main_module, "workflow_execution_store", store)
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_EXECUTION_ENABLED", "1")
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_REVISION_ENABLED", "0")
+    monkeypatch.setattr(
+        main_module.agency_execution_coordinator, "worker_available", lambda: True
+    )
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(
+        main_module,
+        "build_meta_planner_capability_snapshot",
+        lambda _agents: SimpleNamespace(
+            version="snapshot-v1", snapshot_hash="snapshot-hash"
+        ),
+    )
+
+    async def text_model(_model_id):
+        return True
+
+    monkeypatch.setattr(main_module, "expert_team_execution_model_is_text", text_model)
+    api = TestClient(main_module.app)
+    capabilities = api.get("/api/expert-team/planner-capabilities").json()
+    assert capabilities["execution"]["revision"] == {
+        "enabled": False,
+        "supports_feedback": True,
+        "supports_intermediate_steps": True,
+        "max_feedback_chars": 4000,
+        "max_model_calls": 10,
+        "budget_mode": "fresh",
+    }
+    disabled = api.post(
+        f"/api/expert-team/dag-runs/{source.task_id}/revise",
+        json={"target_task_id": "final", "feedback": "请完善第一版结论。"},
+    )
+    assert disabled.status_code == 503
+    assert disabled.json()["code"] == "agency_revision_disabled"
+
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_REVISION_ENABLED", "1")
+    invalid = api.post(
+        f"/api/expert-team/dag-runs/{source.task_id}/revise",
+        json={
+            "target_task_id": "final",
+            "feedback": "过短",
+            "model_id": "client-must-not-control-this",
+        },
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["code"] == "agency_execution_revision_invalid"
+
+    not_terminal = api.post(
+        f"/api/expert-team/dag-runs/{running.task_id}/revise",
+        json={"target_task_id": "final", "feedback": "请完善仍在运行的任务。"},
+    )
+    assert not_terminal.status_code == 409
+    assert not_terminal.json()["code"] == "agency_execution_not_revisable"
+
+    captured = {}
+
+    async def fake_revise(*, source_task_id, target_task_id, feedback, prepared):
+        captured.update(
+            source_task_id=source_task_id,
+            target_task_id=target_task_id,
+            feedback=feedback,
+            prepared=prepared,
+        )
+        return {
+            "task_id": "revision-api-new",
+            "run_id": "revision-api-new-run",
+            "status": "running",
+            "sequence": 0,
+            "events": [],
+            "steps": [],
+            "warnings": [],
+            "model_calls": 0,
+            "usage": {},
+        }
+
+    monkeypatch.setattr(
+        main_module.agency_execution_coordinator, "revise", fake_revise
+    )
+    response = api.post(
+        f"/api/expert-team/dag-runs/{source.task_id}/revise",
+        json={
+            "target_task_id": "final",
+            "feedback": "请保留证据并明确标出待确认事项。",
+        },
+    )
+    assert response.status_code == 202
+    assert response.json()["task_id"] == "revision-api-new"
+    assert response.json()["revise_url"].endswith("/revision-api-new/revise")
+    assert captured["source_task_id"] == source.task_id
+    assert captured["target_task_id"] == "final"
+    assert captured["prepared"].workflow == source.workflow
+    assert captured["prepared"].selected_agent_ids == [agent_id]
+
+
 def test_execution_sse_replays_only_events_after_sequence(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     import server.main as main_module
@@ -1275,7 +1964,22 @@ def test_execution_history_lists_only_agency_runs_without_full_events(tmp_path, 
         workflow={"name": "研究专家团", "steps": []},
         inputs={"goal": "研究一个真实用户问题"},
         source_kind="expert_team_agency",
-        runtime_metadata={"model_id": "fake-model", "selected_agent_ids": ["agent-alpha"]},
+        runtime_metadata={
+            "model_id": "fake-model",
+            "selected_agent_ids": ["agent-alpha"],
+            "revision_parent_task_id": "agency-parent",
+            "revision_root_task_id": "agency-parent",
+            "revision_index": 1,
+            "revision_target_task_id": "final",
+            "revision_feedback": "这是完整反馈，不应出现在历史列表。",
+            "revision_feedback_preview": "这是反馈摘要。",
+            "revision_affected_task_ids": ["final"],
+            "revision_lineage_model_calls_before": 3,
+            "revision_lineage_usage_before": {
+                "input_tokens": 30,
+                "output_tokens": 20,
+            },
+        },
     )
     store.append_event(
         agency.task_id,
@@ -1305,6 +2009,16 @@ def test_execution_history_lists_only_agency_runs_without_full_events(tmp_path, 
     assert [item["task_id"] for item in payload["items"]] == ["agency-history"]
     assert payload["items"][0]["final_output_preview"] == "可交付结论"
     assert payload["items"][0]["model_calls"] == 2
+    assert payload["items"][0]["lineage_model_calls"] == 5
+    assert payload["items"][0]["revision"] == {
+        "parent_task_id": "agency-parent",
+        "root_task_id": "agency-parent",
+        "revision_index": 1,
+        "target_task_id": "final",
+        "feedback_preview": "这是反馈摘要。",
+        "affected_task_ids": ["final"],
+    }
+    assert "完整反馈" not in json.dumps(payload, ensure_ascii=False)
     assert "events" not in payload["items"][0]
     assert "steps" not in payload["items"][0]
 

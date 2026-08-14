@@ -81,6 +81,11 @@ interface ResumeState {
   inputs: Map<string, string>;
   priorModelCalls: number;
   priorUsage: { input_tokens: number; output_tokens: number };
+  revision?: {
+    targetTaskId: string;
+    feedback: string;
+    previousOutput: string;
+  };
 }
 
 function emit(channel: JsonlChannel, requestId: string, event: ExecutionEvent): void {
@@ -429,45 +434,56 @@ function finiteCount(value: unknown, maximum: number, field: string): number {
   return parsed;
 }
 
-function parseResume(value: unknown, workflow: WorkflowDefinition, goal: string): ResumeState | null {
-  if (value === undefined || value === null) return null;
-  const raw = asObject(value, 'agency_execution_plan_invalid');
-  const sourceTaskId = stringField(raw, 'source_task_id', 200);
-  const priorModelCalls = finiteCount(raw.prior_model_calls, MAX_EXECUTION_MODEL_CALLS, 'prior_model_calls');
-  const rawUsage = asObject(raw.prior_usage ?? {}, 'agency_execution_plan_invalid');
-  const priorUsage = {
-    input_tokens: finiteCount(rawUsage.input_tokens, Number.MAX_SAFE_INTEGER, 'prior_usage.input_tokens'),
-    output_tokens: finiteCount(rawUsage.output_tokens, Number.MAX_SAFE_INTEGER, 'prior_usage.output_tokens'),
-  };
-  if (!Array.isArray(raw.completed_steps) || raw.completed_steps.length < 1 || raw.completed_steps.length > MAX_EXECUTION_STEPS) {
+function executionStringField(
+  source: Record<string, unknown>,
+  name: string,
+  maxLength: number,
+  code: string,
+): string {
+  const value = typeof source[name] === 'string' ? source[name].trim() : '';
+  if (!value || value.length > maxLength) {
+    throw new AgencyBridgeError(code, `${name} is invalid.`);
+  }
+  return value;
+}
+
+function parseCompletedSteps(
+  value: unknown,
+  workflow: WorkflowDefinition,
+  goal: string,
+  field: string,
+  minimum: number,
+  errorCode = 'agency_execution_plan_invalid',
+): Pick<ResumeState, 'completedStepIds' | 'restoredStepMeta' | 'inputs'> {
+  if (!Array.isArray(value) || value.length < minimum || value.length > MAX_EXECUTION_STEPS) {
     throw new AgencyBridgeError(
-      'agency_execution_plan_invalid',
-      `resume.completed_steps must contain 1-${MAX_EXECUTION_STEPS} completed steps.`,
+      errorCode,
+      `${field} must contain ${minimum}-${MAX_EXECUTION_STEPS} completed steps.`,
     );
   }
   const stepsById = new Map(workflow.steps.map(step => [step.id, step]));
   const completedStepIds = new Set<string>();
   const restoredStepMeta = new Map<string, Partial<StepResult>>();
   const inputs = new Map<string, string>([['user_input', goal], ['goal', goal]]);
-  for (const rawCompleted of raw.completed_steps) {
-    const completed = asObject(rawCompleted, 'agency_execution_plan_invalid');
-    const taskId = stringField(completed, 'task_id', 64);
+  for (const rawCompleted of value) {
+    const completed = asObject(rawCompleted, errorCode);
+    const taskId = executionStringField(completed, 'task_id', 64, errorCode);
     if (completedStepIds.has(taskId)) {
-      throw new AgencyBridgeError('agency_execution_plan_invalid', `Resume step "${taskId}" is duplicated.`);
+      throw new AgencyBridgeError(errorCode, `${field} step "${taskId}" is duplicated.`);
     }
     const step = stepsById.get(taskId);
     if (!step?.output) {
-      throw new AgencyBridgeError('agency_execution_plan_invalid', `Resume step "${taskId}" is not in the workflow.`);
+      throw new AgencyBridgeError(errorCode, `${field} step "${taskId}" is not in the workflow.`);
     }
-    const outputVariable = stringField(completed, 'output_variable', 128);
+    const outputVariable = executionStringField(completed, 'output_variable', 128, errorCode);
     if (outputVariable !== step.output) {
-      throw new AgencyBridgeError('agency_execution_plan_invalid', `Resume output for step "${taskId}" does not match the workflow.`);
+      throw new AgencyBridgeError(errorCode, `${field} output for step "${taskId}" does not match the workflow.`);
     }
-    const output = stringField(completed, 'output', MAX_EXECUTION_OUTPUT_BYTES);
+    const output = executionStringField(completed, 'output', MAX_EXECUTION_OUTPUT_BYTES, errorCode);
     if (Buffer.byteLength(output, 'utf8') > MAX_EXECUTION_OUTPUT_BYTES) {
       throw new AgencyBridgeError(
-        'agency_execution_plan_invalid',
-        `Resume output for step "${taskId}" exceeds the 64 KiB limit.`,
+        errorCode,
+        `${field} output for step "${taskId}" exceeds the 64 KiB limit.`,
       );
     }
     completedStepIds.add(taskId);
@@ -483,18 +499,86 @@ function parseResume(value: unknown, workflow: WorkflowDefinition, goal: string)
     const missingDependency = (step.depends_on ?? []).find(dependency => !completedStepIds.has(dependency));
     if (missingDependency) {
       throw new AgencyBridgeError(
-        'agency_execution_plan_invalid',
-        `Resume step "${taskId}" is missing completed dependency "${missingDependency}".`,
+        errorCode,
+        `${field} step "${taskId}" is missing completed dependency "${missingDependency}".`,
       );
     }
   }
+  return { completedStepIds, restoredStepMeta, inputs };
+}
+
+function parseResume(value: unknown, workflow: WorkflowDefinition, goal: string): ResumeState | null {
+  if (value === undefined || value === null) return null;
+  const raw = asObject(value, 'agency_execution_plan_invalid');
+  const sourceTaskId = stringField(raw, 'source_task_id', 200);
+  const priorModelCalls = finiteCount(raw.prior_model_calls, MAX_EXECUTION_MODEL_CALLS, 'prior_model_calls');
+  const rawUsage = asObject(raw.prior_usage ?? {}, 'agency_execution_plan_invalid');
+  const priorUsage = {
+    input_tokens: finiteCount(rawUsage.input_tokens, Number.MAX_SAFE_INTEGER, 'prior_usage.input_tokens'),
+    output_tokens: finiteCount(rawUsage.output_tokens, Number.MAX_SAFE_INTEGER, 'prior_usage.output_tokens'),
+  };
   return {
     sourceTaskId,
-    completedStepIds,
-    restoredStepMeta,
-    inputs,
+    ...parseCompletedSteps(raw.completed_steps, workflow, goal, 'resume.completed_steps', 1),
     priorModelCalls,
     priorUsage,
+  };
+}
+
+function parseRevision(value: unknown, workflow: WorkflowDefinition, goal: string): ResumeState | null {
+  if (value === undefined || value === null) return null;
+  const raw = asObject(value, 'agency_execution_revision_invalid');
+  const sourceTaskId = executionStringField(raw, 'source_task_id', 200, 'agency_execution_revision_invalid');
+  const targetTaskId = executionStringField(raw, 'target_task_id', 64, 'agency_execution_revision_invalid');
+  const feedback = executionStringField(raw, 'feedback', 4_000, 'agency_execution_revision_invalid');
+  if (feedback.length < 10) {
+    throw new AgencyBridgeError('agency_execution_revision_invalid', 'revision.feedback must contain 10-4000 characters.');
+  }
+  const previousOutput = executionStringField(
+    raw,
+    'previous_output',
+    MAX_EXECUTION_OUTPUT_BYTES,
+    'agency_execution_revision_invalid',
+  );
+  if (Buffer.byteLength(previousOutput, 'utf8') > MAX_EXECUTION_OUTPUT_BYTES) {
+    throw new AgencyBridgeError('agency_execution_revision_invalid', 'revision.previous_output exceeds the 64 KiB limit.');
+  }
+  const target = workflow.steps.find(step => step.id === targetTaskId);
+  if (!target) {
+    throw new AgencyBridgeError('agency_execution_revision_invalid', `Revision target "${targetTaskId}" is not in the workflow.`);
+  }
+  const restored = parseCompletedSteps(
+    raw.completed_steps ?? [],
+    workflow,
+    goal,
+    'revision.completed_steps',
+    0,
+    'agency_execution_revision_invalid',
+  );
+  const affected = new Set<string>([targetTaskId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const step of workflow.steps) {
+      if (!affected.has(step.id) && (step.depends_on ?? []).some(id => affected.has(id))) {
+        affected.add(step.id);
+        changed = true;
+      }
+    }
+  }
+  const invalidRestored = [...restored.completedStepIds].find(taskId => affected.has(taskId));
+  if (invalidRestored) {
+    throw new AgencyBridgeError(
+      'agency_execution_revision_invalid',
+      `Revision cannot restore affected step "${invalidRestored}".`,
+    );
+  }
+  return {
+    sourceTaskId,
+    ...restored,
+    priorModelCalls: 0,
+    priorUsage: { input_tokens: 0, output_tokens: 0 },
+    revision: { targetTaskId, feedback, previousOutput },
   };
 }
 
@@ -558,7 +642,11 @@ export async function executeRequest(
   const agents = parseExperts(params.agents);
   const skills = parseSkills(params.skills);
   const { workflow, sinkId } = parseWorkflow(params.workflow, agents, skills, modelId);
-  const resume = parseResume(params.resume, workflow, goal);
+  if (params.resume !== undefined && params.revision !== undefined) {
+    throw new AgencyBridgeError('agency_execution_plan_invalid', 'Execution cannot combine resume and revision.');
+  }
+  const resume = parseResume(params.resume, workflow, goal)
+    ?? parseRevision(params.revision, workflow, goal);
   const router = new ModelResponseRouter(channel, request.id);
   const connector = new ExecutionBridgeConnector(router, request.id, modelId, resume ? {
     calls: resume.priorModelCalls,
@@ -570,8 +658,10 @@ export async function executeRequest(
     status: 'running',
     step_count: workflow.steps.length,
     model_id: modelId,
-    resumed_from_task_id: resume?.sourceTaskId,
+    resumed_from_task_id: resume?.revision ? undefined : resume?.sourceTaskId,
     reused_task_ids: resume ? [...resume.completedStepIds] : [],
+    revision_parent_task_id: resume?.revision ? resume.sourceTaskId : undefined,
+    revision_target_task_id: resume?.revision?.targetTaskId,
     model_calls: connector.calls,
     cumulative_usage: { ...connector.usage },
   });
@@ -585,6 +675,11 @@ export async function executeRequest(
       verify: true,
       skipStepIds: resume?.completedStepIds,
       restoredStepMeta: resume?.restoredStepMeta,
+      feedback: resume?.revision ? {
+        stepId: resume.revision.targetTaskId,
+        text: resume.revision.feedback,
+        previousOutput: resume.revision.previousOutput,
+      } : undefined,
       resolveAgent: agentResolver(agents),
       resolveSkill: skillResolver(skills),
       prepareTemplateContext: sinkTemplateContext(workflow, sinkId),
@@ -640,8 +735,10 @@ export async function executeRequest(
       steps: stepResults,
       model_calls: connector.calls,
       usage: connector.usage,
-      resumed_from_task_id: resume?.sourceTaskId,
+      resumed_from_task_id: resume?.revision ? undefined : resume?.sourceTaskId,
       reused_task_ids: resume ? [...resume.completedStepIds] : [],
+      revision_parent_task_id: resume?.revision ? resume.sourceTaskId : undefined,
+      revision_target_task_id: resume?.revision?.targetTaskId,
       duration_ms: result.totalDuration,
       upstream_revision: AGENCY_UPSTREAM_REVISION,
     };
@@ -654,8 +751,10 @@ export async function executeRequest(
       warnings,
       model_calls: connector.calls,
       usage: connector.usage,
-      resumed_from_task_id: resume?.sourceTaskId,
+      resumed_from_task_id: resume?.revision ? undefined : resume?.sourceTaskId,
       reused_task_ids: resume ? [...resume.completedStepIds] : [],
+      revision_parent_task_id: resume?.revision ? resume.sourceTaskId : undefined,
+      revision_target_task_id: resume?.revision?.targetTaskId,
     });
     return payload;
   } catch (error) {

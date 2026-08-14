@@ -72,12 +72,18 @@ class AgencyExecutionClient:
         agents: Sequence[AgencyAgentDefinition],
         skills: Sequence[AgencySkillDefinition] = (),
         resume: Mapping[str, Any] | None = None,
+        revision: Mapping[str, Any] | None = None,
         on_event: ExecutionEventHandler | None = None,
     ) -> AgencyExecutionWorkerResult:
         if not self.worker_entry.is_file():
             raise AgencyWorkerError(
                 "Agency worker build output is unavailable.",
                 code="worker_unavailable",
+            )
+        if resume is not None and revision is not None:
+            raise AgencyWorkerError(
+                "Agency execution cannot combine resume and revision.",
+                code="agency_execution_plan_invalid",
             )
         request_id = f"agency_exec_{uuid.uuid4().hex}"
         request = {
@@ -92,6 +98,7 @@ class AgencyExecutionClient:
                 "agents": [agent.model_dump(mode="json") for agent in agents],
                 "skills": [skill.model_dump(mode="json") for skill in skills],
                 **({"resume": dict(resume)} if resume is not None else {}),
+                **({"revision": dict(revision)} if revision is not None else {}),
             },
         }
         encoded = AgencyWorkerClient._encode(

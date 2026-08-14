@@ -488,6 +488,8 @@ class WorkflowExecutionStore:
                     "reused",
                     "reused_task_ids",
                     "resumed_from_task_id",
+                    "revision_parent_task_id",
+                    "revision_target_task_id",
                     "quality_status",
                     "task_ids",
                     "step_count",
@@ -528,6 +530,9 @@ class WorkflowExecutionStore:
             clean["resumed_from_task_id"] = str(
                 clean["resumed_from_task_id"] or ""
             )[:200]
+        for key in ("revision_parent_task_id", "revision_target_task_id"):
+            if key in clean:
+                clean[key] = str(clean[key] or "")[:200]
         if "verification" in clean:
             raw_verification = (
                 clean["verification"]
