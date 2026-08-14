@@ -152,6 +152,10 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
             "stop_service",
             "create_subtask",
             "merge_subtask",
+            "update_plan",
+            "update_todo",
+            "request_user_input",
+            "compact_context",
         }
     write = next(tool for tool in tools if tool.name == "write_file")
     assert set(write.inputSchema["required"]) == {"operation_id", "path", "content"}

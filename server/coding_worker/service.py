@@ -477,6 +477,9 @@ class CodingWorkerService:
         if active is not None:
             active.cancel()
         paused = self.store.transition(task_id, TaskState.PAUSED, reason="user_paused")
+        if active is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await active
         self._wake.set()
         return paused
 
@@ -491,6 +494,9 @@ class CodingWorkerService:
         if active is not None:
             active.cancel()
         cancelled = self.store.transition(task_id, TaskState.CANCELLED, reason="user_cancelled")
+        if active is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await active
         self._wake.set()
         return cancelled
 
