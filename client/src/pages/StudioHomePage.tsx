@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import matrixOasisTeaser from "../assets/matrix-oasis/matrix-oasis-teaser-640.webp";
+import ModelWorkbenchSidebar from "../components/ModelWorkbenchSidebar";
 import PageContainer from "../components/PageContainer";
 import { agents } from "../data/agents";
 import { mcpProjects } from "../data/mcpProjects";
@@ -411,49 +412,6 @@ function ResourceCard({ card }: { card: ResourceCardModel }) {
   );
 }
 
-function WorkspaceSidebar() {
-  return (
-    <div>
-      <p className="text-sm font-semibold text-white">工作空间</p>
-      <p className="mt-2 text-sm leading-6 text-slate-400">
-        集中查看智能体、工作流、知识库、工具、模型服务与近期运行状态。
-      </p>
-      <div className="mt-4 space-y-2">
-        <Link
-          className="block rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/20"
-          to="/agents/goals"
-        >
-          打开长期 Goal
-        </Link>
-        <Link
-          className="block rounded-lg border border-hire-300/25 bg-hire-300/10 px-3 py-2 text-sm font-semibold text-hire-100 transition hover:bg-hire-300/20"
-          to="/agents/studio"
-        >
-          打开 Agent Studio
-        </Link>
-        <Link
-          className="block rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/35 hover:bg-hire-300/10"
-          to="/workflow"
-        >
-          打开工作流画布
-        </Link>
-        <Link
-          className="block rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/35 hover:bg-hire-300/10"
-          to="/agents/meta-agent"
-        >
-          进入任务工作台
-        </Link>
-        <Link
-          className="block rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/35 hover:bg-hire-300/10"
-          to="/runtime"
-        >
-          打开 Runtime 运维
-        </Link>
-      </div>
-    </div>
-  );
-}
-
 export default function StudioHomePage() {
   const [activeCategory, setActiveCategory] = useState<WorkspaceCategory>("all");
   const [activeTag, setActiveTag] = useState<ResourceTag>("all");
@@ -842,7 +800,10 @@ export default function StudioHomePage() {
   return (
     <PageContainer
       maxWidthClassName="max-w-[1760px]"
-      sidebar={<WorkspaceSidebar />}
+      mobileSidebar={<ModelWorkbenchSidebar compact />}
+      showSystemCapabilityBar={false}
+      sidebar={<ModelWorkbenchSidebar />}
+      sidebarGridClassName="xl:grid-cols-[230px_minmax(0,1fr)] xl:gap-x-[54px]"
     >
       <header className="mb-6 border-y border-hire-300/20 py-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">

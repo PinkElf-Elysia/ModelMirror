@@ -1,5 +1,18 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import {
+  CheckCircle2,
+  ExternalLink,
+  FileText,
+  Layers3,
+  PackageCheck,
+  Search,
+  ShieldAlert,
+  UsersRound,
+  X,
+} from "lucide-react";
 import { Link } from "react-router-dom";
+import ModelWorkbenchSidebar from "../components/ModelWorkbenchSidebar";
 import PageContainer from "../components/PageContainer";
 import AuthoringProposalPanel from "../components/authoring/AuthoringProposalPanel";
 import SkillDraftPanel from "../components/authoring/SkillDraftPanel";
@@ -77,7 +90,6 @@ interface SkillSetBatchProgress {
 }
 
 type SkillTab =
-  | "builtin"
   | "market"
   | "installed"
   | "imports"
@@ -88,6 +100,7 @@ type SkillAvailabilityFilter = "all" | SkillInstallStatus;
 type NeedSearchStatus = "idle" | "loading" | "ready" | "error";
 type FeedbackStatus = "" | "saving" | "relevant" | "not_relevant" | "error";
 type TrustIndexStatus = "loading" | "ready" | "error";
+type SkillSetMemberStatusFilter = "all" | "allow" | "confirm" | "installed";
 type PendingTrustAction =
   | {
       kind: "inspect";
@@ -116,6 +129,37 @@ const NEED_EXAMPLES = [
   "为 React 网页编写自动化测试",
   "审计 Postgres 数据库安全",
 ] as const;
+
+function builtinSkillSetProject(skillCount: number): SkillProject {
+  return {
+    id: "modelmirror-agent-builtin-skillset",
+    name: "Agent 内置技能集",
+    repoName: "ModelMirror 官方",
+    repoUrl: "",
+    category: "平台内置",
+    kind: "skillset",
+    description: "平台内置的通用技能集合，仅用于查看运行前能力与审计状态。",
+    readmeSummary: "",
+    stars: 0,
+    language: "",
+    updatedAt: "",
+    installCommand: "",
+    installNote: "只读集合，不支持从技能市场安装，也不会在此修改运行时配置。",
+    installStatus: "reference",
+    installMode: "none",
+    sourceDescription: "ModelMirror Agent Runtime",
+    tags: ["只读", "仅审计", `${skillCount || 16} 个技能`],
+    verification: {
+      status: "reference",
+      sourceUrl: "",
+      declaredKind: "skillset",
+      verifiedKind: "skillset",
+      installMode: "none",
+      reasonCode: "no-install-source",
+      reason: "平台内置只读集合，不提供市场安装入口。",
+    },
+  };
+}
 
 function needCandidateId(target: SkillNeedTarget) {
   return `catalog:${target.targetType}:${target.id}`;
@@ -226,7 +270,7 @@ function repositoryName(repoUrl: string) {
   return repoUrl.replace(/\.git$/i, "").split("/").filter(Boolean).slice(-2).join("/");
 }
 
-function MarketSkillCard({
+export function MarketSkillCard({
   gateMode,
   installingId,
   installed,
@@ -234,6 +278,7 @@ function MarketSkillCard({
   onInspectTrust,
   onOpenSkillSet,
   project,
+  readOnly,
   trustSummary,
 }: {
   gateMode: SkillTrustGateMode;
@@ -243,6 +288,7 @@ function MarketSkillCard({
   onInspectTrust: (title: string, receiptId: string) => void;
   onOpenSkillSet: (project: SkillProject) => void;
   project: SkillProject;
+  readOnly?: { notice: string; statusLabel: string };
   trustSummary: SkillTrustReceiptSummary | null;
 }) {
   const canInstall = project.installMode === "direct" && Boolean(project.installSource);
@@ -257,173 +303,310 @@ function MarketSkillCard({
   );
   const hasIncludedSkills =
     project.skillSet?.mode === "package" && (project.includedSkills?.length ?? 0) > 0;
+  const isSkillSet = project.kind === "skillset";
+  const visibleTags = project.tags.slice(0, 3);
+  const hiddenTagCount = Math.max(0, project.tags.length - visibleTags.length);
+  const visibleIncludedSkills = project.includedSkills?.slice(0, 3) ?? [];
+  const hiddenIncludedSkillCount = Math.max(
+    0,
+    (project.includedSkills?.length ?? 0) - visibleIncludedSkills.length,
+  );
+  const ProjectIcon = isSkillSet ? Layers3 : FileText;
+  const cardTone = isSkillSet
+    ? {
+        article: "border-accent-300/30 hover:border-accent-200/50",
+        header: "bg-accent-300/[0.075]",
+        icon: "border-accent-200/45 bg-accent-300/10 text-accent-100",
+        kind: "border-accent-300/35 bg-accent-300/10 text-accent-100",
+        source: "border-accent-300/15 bg-accent-300/[0.045]",
+      }
+    : {
+        article: "border-brand-300/30 hover:border-brand-200/50",
+        header: "bg-brand-300/[0.075]",
+        icon: "border-brand-200/45 bg-brand-300/10 text-brand-100",
+        kind: "border-brand-300/35 bg-brand-300/10 text-brand-100",
+        source: "border-brand-300/15 bg-brand-300/[0.045]",
+      };
 
   return (
-    <article className="group relative overflow-hidden rounded-lg border border-white/10 bg-ink-950/70 p-5 transition duration-200 hover:border-hire-300/35 hover:bg-white/[0.065]">
-      <div className="absolute inset-x-5 top-0 h-px bg-gradient-to-r from-transparent via-hire-300/80 to-transparent opacity-0 transition group-hover:opacity-100" />
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold text-hire-200">{project.category}</p>
-          <h3 className="mt-2 text-xl font-semibold text-white">{project.name}</h3>
-          <p className="mt-1 text-xs text-slate-400">
+    <article
+      className={`group relative isolate flex h-full flex-col overflow-hidden rounded-xl border bg-ink-950/90 shadow-[0_16px_38px_rgba(2,8,23,0.22)] transition duration-200 hover:-translate-y-0.5 hover:bg-ink-950 ${cardTone.article}`}
+      data-skill-kind={project.kind}
+    >
+      <div
+        className={`flex min-h-[9.5rem] items-start justify-between gap-4 border-b border-white/10 p-5 ${cardTone.header}`}
+        data-testid="skill-card-header"
+      >
+        <div className="flex min-w-0 items-start gap-4">
+          <span
+            aria-label={isSkillSet ? "SkillSet 技能包" : "单项 Skill"}
+            className={`grid h-16 w-16 shrink-0 place-items-center rounded-xl border shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] ${cardTone.icon}`}
+          >
+            <ProjectIcon aria-hidden="true" size={30} strokeWidth={1.65} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold tracking-wide text-hire-200">
+              {project.category}
+            </p>
+            <h3 className="mt-1.5 text-[1.375rem] font-semibold leading-tight text-white text-balance">
+              {project.name}
+            </h3>
+            <p className="mt-2 truncate text-sm text-slate-400">
             {project.repoName}
             {project.catalogName && project.catalogName !== project.repoName
               ? ` · ${project.catalogName}`
               : ""}
-            {` · ★ ${formatStars(project.stars)}`}
-          </p>
+              {project.stars > 0 ? ` · ★ ${formatStars(project.stars)}` : ""}
+            </p>
+          </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           <span
-            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-              project.kind === "skillset"
-                ? "border-accent-300/30 bg-accent-300/10 text-accent-100"
-                : "border-brand-300/25 bg-brand-300/10 text-brand-100"
-            }`}
+            className={`rounded-full border px-3.5 py-1.5 text-xs font-semibold ${cardTone.kind}`}
           >
             {formatProjectKind(project)}
           </span>
           <span
             className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${installStatus.className}`}
           >
-            {installStatus.label}
+            {readOnly?.statusLabel ?? installStatus.label}
           </span>
         </div>
       </div>
 
-      <p className="mt-4 min-h-20 text-sm leading-6 text-slate-300">
-        {project.description}
-      </p>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        {project.tags.map((tag) => (
-          <span
-            className="rounded-full border border-white/10 bg-white/[0.055] px-2.5 py-1 text-xs text-slate-300"
-            key={tag}
-          >
-            {tag}
-          </span>
-        ))}
-      </div>
-
-      <div className="mt-5 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-        <p className="text-xs font-semibold text-slate-300">
-          {project.skillSet?.mode === "members"
-            ? "成员集合来源"
-            : hasIncludedSkills
-              ? "技能包内容"
-              : project.kind === "skillset"
-                ? "技能包来源"
-                : "安装来源"}
+      <div className="flex flex-1 flex-col p-5">
+        <p className="line-clamp-2 min-h-12 text-sm leading-6 text-slate-200">
+          {project.description}
         </p>
-        {hasIncludedSkills ? (
-          <p className="mt-2 text-xs leading-5 text-slate-400">
-            {project.includedSkills?.join("、")}
-          </p>
-        ) : null}
-        <div className="mt-2 rounded-md bg-ink-950/80 p-2 text-xs leading-5 text-slate-300">
-          {project.skillSet?.mode === "members" ? (
-            <div>
-              <code className="break-all text-hire-100">
-                {project.skillSet.repoUrl} / {project.skillSet.scopeSubPath || "."}
-              </code>
-              <p className="mt-1 text-[11px] text-emerald-200/80">
-                已核验固定提交 {project.skillSet.verifiedCommit.slice(0, 12)}
-              </p>
-              <p className="mt-1 text-[11px] text-slate-400">
-                {project.skillSet.memberCount} 个顶层成员
-                {project.skillSet.nestedSkillCount > 0
-                  ? ` · ${project.skillSet.nestedSkillCount} 个嵌套技能`
-                  : ""}
-              </p>
+
+        <div className="mt-4 flex min-h-7 flex-wrap gap-1.5" data-testid="skill-card-tags">
+          {visibleTags.map((tag) => (
+            <span
+              className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs text-slate-200"
+              key={tag}
+            >
+              {tag}
+            </span>
+          ))}
+          {hiddenTagCount > 0 ? (
+            <span className="rounded-full border border-white/10 px-2.5 py-1 text-xs text-slate-400">
+              +{hiddenTagCount}
+            </span>
+          ) : null}
+        </div>
+
+        {!readOnly ? (
+          <div
+            className={`mt-5 border-t border-white/10 pt-4 ${hasIncludedSkills ? "pb-1" : ""}`}
+            data-testid="skill-card-source"
+          >
+            <p className="text-sm font-semibold text-slate-200">
+              {project.skillSet?.mode === "members"
+                ? "成员集合来源"
+                : hasIncludedSkills
+                  ? "技能包内容"
+                  : project.kind === "skillset"
+                    ? "技能包来源"
+                    : "安装来源"}
+            </p>
+            {hasIncludedSkills ? (
+              <div className="mt-2.5 flex flex-wrap gap-1.5" data-testid="skillset-members">
+                {visibleIncludedSkills.map((skill) => (
+                  <span
+                    className="rounded-lg border border-accent-300/20 bg-accent-300/[0.08] px-2.5 py-1 text-xs text-accent-100"
+                    key={skill}
+                  >
+                    {skill}
+                  </span>
+                ))}
+                {hiddenIncludedSkillCount > 0 ? (
+                  <span className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-400">
+                    +{hiddenIncludedSkillCount}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+            <div className={`mt-2.5 rounded-lg border px-3 py-2.5 text-xs leading-5 text-slate-300 ${cardTone.source}`}>
+              {project.skillSet?.mode === "members" ? (
+                <div>
+                  <code className="break-all text-sm text-hire-100">
+                    {project.skillSet.repoUrl} / {project.skillSet.scopeSubPath || "."}
+                  </code>
+                  <p className="mt-1 text-[11px] text-emerald-200/80">
+                    已核验固定提交 {project.skillSet.verifiedCommit.slice(0, 12)}
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    {project.skillSet.memberCount} 个顶层成员
+                    {project.skillSet.nestedSkillCount > 0
+                      ? ` · ${project.skillSet.nestedSkillCount} 个嵌套技能`
+                      : ""}
+                  </p>
+                </div>
+              ) : project.installSource ? (
+                <div>
+                  <code className="break-all text-sm text-hire-100">
+                    {project.installSource.repoUrl} / {project.installSource.subPath}
+                  </code>
+                  {project.installSource.verifiedCommit ? (
+                    <p className="mt-1 text-[11px] text-emerald-200/80">
+                      已核验固定提交 {project.installSource.verifiedCommit.slice(0, 12)}
+                    </p>
+                  ) : null}
+                </div>
+              ) : project.installStatus === "manual" && project.installCommand ? (
+                <code className="break-all text-sky-100">{project.installCommand}</code>
+              ) : (
+                project.installNote
+              )}
             </div>
-          ) : project.installSource ? (
-            <div>
-              <code className="break-all text-hire-100">
-                {project.installSource.repoUrl} / {project.installSource.subPath}
-              </code>
-              {project.installSource.verifiedCommit ? (
-                <p className="mt-1 text-[11px] text-emerald-200/80">
-                  已核验固定提交 {project.installSource.verifiedCommit.slice(0, 12)}
-                </p>
+          </div>
+        ) : null}
+
+        {canInstall ? (
+          <SkillTrustSummaryLine
+            gateMode={gateMode}
+            onInspect={() =>
+              trustSummary && onInspectTrust(project.name, trustSummary.receiptId)
+            }
+            summary={trustSummary}
+          />
+        ) : null}
+
+        <div
+          className="mt-auto flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between"
+          data-testid="skill-card-actions"
+        >
+          {readOnly ? (
+            <p className="text-sm leading-6 text-slate-400">{readOnly.notice}</p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <a
+                className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-slate-300 underline decoration-white/20 underline-offset-4 transition hover:text-white"
+                href={project.repoUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <ExternalLink aria-hidden="true" size={15} />
+                查看来源
+              </a>
+              {project.catalogUrl && project.catalogUrl !== project.repoUrl ? (
+                <a
+                  className="inline-flex min-h-10 items-center text-xs font-semibold text-slate-500 underline decoration-white/15 underline-offset-4 transition hover:text-white"
+                  href={project.catalogUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  查看索引
+                </a>
               ) : null}
             </div>
-          ) : project.installStatus === "manual" && project.installCommand ? (
-            <code className="break-all text-sky-100">{project.installCommand}</code>
-          ) : (
-            project.installNote
           )}
-        </div>
-      </div>
-
-      {canInstall ? (
-        <SkillTrustSummaryLine
-          gateMode={gateMode}
-          onInspect={() =>
-            trustSummary && onInspectTrust(project.name, trustSummary.receiptId)
-          }
-          summary={trustSummary}
-        />
-      ) : null}
-
-      <div className="mt-5 flex items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <a
-            className="text-xs font-semibold text-slate-400 underline decoration-white/20 underline-offset-4 transition hover:text-white"
-            href={project.repoUrl}
-            rel="noreferrer"
-            target="_blank"
-          >
-            查看来源
-          </a>
-          {project.catalogUrl && project.catalogUrl !== project.repoUrl ? (
+          {readOnly ? (
+            <span className="inline-flex min-h-11 items-center rounded-lg border border-white/15 bg-white/[0.04] px-5 py-2.5 text-sm font-semibold text-slate-300">
+              不可安装
+            </span>
+          ) : canInstall ? (
+            <button
+              className="min-h-11 rounded-lg bg-hire-300 px-5 py-2.5 text-sm font-bold text-ink-950 shadow-[0_8px_20px_rgba(251,146,60,0.14)] transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
+              disabled={
+                installed ||
+                Boolean(installingId) ||
+                effectivePolicy === "block"
+              }
+              onClick={() => onInstall(project)}
+              type="button"
+            >
+              {isInstalling
+                ? "安装中..."
+                : installed
+                  ? "已安装"
+                  : effectivePolicy === "block"
+                    ? "信任策略已阻断"
+                    : installLabel}
+            </button>
+          ) : canBrowseMembers ? (
+            <button
+              className="min-h-11 rounded-lg border border-accent-300/30 bg-accent-300/10 px-5 py-2.5 text-sm font-bold text-accent-100 transition hover:bg-accent-300/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-200"
+              onClick={() => onOpenSkillSet(project)}
+              type="button"
+            >
+              查看成员
+            </button>
+          ) : (
             <a
-              className="text-xs font-semibold text-slate-500 underline decoration-white/15 underline-offset-4 transition hover:text-white"
-              href={project.catalogUrl}
+              className="inline-flex min-h-11 items-center rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-white"
+              href={project.repoUrl}
               rel="noreferrer"
               target="_blank"
             >
-              查看索引
+              {installStatus.action}
             </a>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+export function BuiltinSkillSetAuditCard({
+  project,
+  skills,
+}: {
+  project: SkillProject;
+  skills: BuiltinSkill[];
+}) {
+  const visibleSkills = skills.slice(0, 6);
+
+  return (
+    <article
+      className="group flex min-h-48 flex-col rounded-xl border border-cyan-300/20 bg-[linear-gradient(135deg,rgba(34,211,238,0.08),rgba(15,23,42,0.92)_44%)] p-5 transition duration-200 hover:border-cyan-200/35 hover:bg-surface-900"
+      data-testid="builtin-skillset-audit-card"
+    >
+      <div className="flex items-start gap-4">
+        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg border border-cyan-200/30 bg-cyan-300/10 text-cyan-100">
+          <Layers3 aria-hidden="true" size={24} strokeWidth={1.7} />
+        </span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-xs font-semibold text-cyan-100">
+              仅审计
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/[0.045] px-2.5 py-1 text-xs font-semibold text-slate-300">
+              可查看
+            </span>
+          </div>
+          <h3 className="mt-3 text-lg font-semibold leading-tight text-white">
+            {project.name}
+          </h3>
+        </div>
+      </div>
+      <p className="mt-4 line-clamp-2 max-w-[62ch] text-sm leading-6 text-slate-300">
+        {project.description}
+      </p>
+      <div className="mt-4 border-t border-cyan-100/10 pt-4">
+        <p className="text-xs font-semibold text-cyan-100">内置技能</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {visibleSkills.length > 0 ? (
+            visibleSkills.map((skill) => (
+              <span
+                className="rounded-md border border-white/10 bg-ink-950/35 px-2.5 py-1 text-xs text-slate-200"
+                key={skill.skill_id}
+                title={skill.description}
+              >
+                {skill.name}
+              </span>
+            ))
+          ) : (
+            <span className="text-xs leading-5 text-slate-400">
+              正在读取运行时公开的技能名称与用途。
+            </span>
+          )}
+          {skills.length > visibleSkills.length ? (
+            <span className="rounded-md border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs text-cyan-100">
+              +{skills.length - visibleSkills.length}
+            </span>
           ) : null}
         </div>
-        {canInstall ? (
-          <button
-            className="rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_22px_rgba(251,146,60,0.22)] transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
-            disabled={
-              installed ||
-              Boolean(installingId) ||
-              effectivePolicy === "block"
-            }
-            onClick={() => onInstall(project)}
-            type="button"
-          >
-            {isInstalling
-              ? "安装中..."
-              : installed
-                ? "已安装"
-                : effectivePolicy === "block"
-                  ? "信任策略已阻断"
-                  : installLabel}
-          </button>
-        ) : canBrowseMembers ? (
-          <button
-            className="rounded-full border border-accent-300/30 bg-accent-300/10 px-4 py-2 text-sm font-semibold text-accent-100 transition hover:bg-accent-300/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-200"
-            onClick={() => onOpenSkillSet(project)}
-            type="button"
-          >
-            查看成员
-          </button>
-        ) : (
-          <a
-            className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-white"
-            href={project.repoUrl}
-            rel="noreferrer"
-            target="_blank"
-          >
-            {installStatus.action}
-          </a>
-        )}
       </div>
     </article>
   );
@@ -666,7 +849,7 @@ function NeedMatchCard({
   );
 }
 
-function SkillSetMemberPanel({
+export function SkillSetMemberPanel({
   batchProgress,
   focusedMemberId,
   installedSkills,
@@ -690,9 +873,13 @@ function SkillSetMemberPanel({
   trustIndex: SkillTrustSummaryIndex | null;
 }) {
   const panelRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  const batchInstallingRef = useRef(false);
   const [members, setMembers] = useState<SkillSetMemberSource[] | null>(null);
   const [loadError, setLoadError] = useState("");
   const [memberQuery, setMemberQuery] = useState("");
+  const [memberStatusFilter, setMemberStatusFilter] =
+    useState<SkillSetMemberStatusFilter>("all");
   const [memberPage, setMemberPage] = useState(1);
 
   useEffect(() => {
@@ -700,6 +887,7 @@ function SkillSetMemberPanel({
     setMembers(null);
     setLoadError("");
     setMemberQuery("");
+    setMemberStatusFilter("all");
     setMemberPage(1);
 
     void loadSkillSetMemberIndex()
@@ -730,30 +918,58 @@ function SkillSetMemberPanel({
         );
       });
 
-    window.requestAnimationFrame(() => {
-      panelRef.current?.focus({ preventScroll: true });
-      panelRef.current?.scrollIntoView({
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ? "auto"
-          : "smooth",
-        block: "start",
-      });
-    });
-
     return () => {
       isCurrent = false;
     };
   }, [focusedMemberId, project.id]);
 
+  const memberStates = useMemo(() => {
+    const states = new Map<
+      string,
+      {
+        installed: boolean;
+        policy: "allow" | "confirm" | "block";
+        status: Exclude<SkillSetMemberStatusFilter, "all"> | "blocked";
+        trustSummary: SkillTrustReceiptSummary | null;
+      }
+    >();
+    for (const member of members ?? []) {
+      const installed = isSourceInstalled(member, installedSkills);
+      const trustSummary =
+        trustSummaryForCandidate(trustIndex, memberTrustCandidateId(member.id)) ??
+        trustSummaryForSource(trustIndex, member);
+      const policy = effectiveTrustInstallPolicy(
+        trustIndex?.gateMode ?? "enforce",
+        trustSummary,
+      );
+      states.set(member.id, {
+        installed,
+        policy,
+        status: installed
+          ? "installed"
+          : policy === "allow" || policy === "confirm"
+            ? policy
+            : "blocked",
+        trustSummary,
+      });
+    }
+    return states;
+  }, [installedSkills, members, trustIndex]);
+
   const filteredMembers = useMemo(() => {
     const query = memberQuery.trim().toLocaleLowerCase("zh-CN");
-    if (!members || !query) return members ?? [];
-    return members.filter((member) =>
-      `${member.name} ${member.subPath}`
-        .toLocaleLowerCase("zh-CN")
-        .includes(query),
-    );
-  }, [memberQuery, members]);
+    return (members ?? []).filter((member) => {
+      const matchesQuery =
+        !query ||
+        `${member.name} ${member.subPath}`
+          .toLocaleLowerCase("zh-CN")
+          .includes(query);
+      const matchesStatus =
+        memberStatusFilter === "all" ||
+        memberStates.get(member.id)?.status === memberStatusFilter;
+      return matchesQuery && matchesStatus;
+    });
+  }, [memberQuery, memberStates, memberStatusFilter, members]);
   const pageCount = Math.max(
     1,
     Math.ceil(filteredMembers.length / SKILLSET_MEMBER_PAGE_SIZE),
@@ -770,51 +986,98 @@ function SkillSetMemberPanel({
     [installedSkills, members],
   );
   const memberTrustCounts = useMemo(() => {
-    const counts = { allow: 0, confirm: 0, blocked: 0 };
-    for (const member of members ?? []) {
-      if (isSourceInstalled(member, installedSkills)) continue;
-      const summary =
-        trustSummaryForCandidate(
-          trustIndex,
-          memberTrustCandidateId(member.id),
-        ) ?? trustSummaryForSource(trustIndex, member);
-      const policy = effectiveTrustInstallPolicy(
-        trustIndex?.gateMode ?? "enforce",
-        summary,
-      );
-      if (policy === "allow" || policy === "confirm") counts[policy] += 1;
-      else counts.blocked += 1;
-    }
+    const counts = { allow: 0, confirm: 0, blocked: 0, installed: 0 };
+    for (const state of memberStates.values()) counts[state.status] += 1;
     return counts;
-  }, [installedSkills, members, trustIndex]);
+  }, [memberStates]);
   const activeBatchProgress =
     batchProgress?.projectId === project.id ? batchProgress : null;
   const isBatchInstalling = Boolean(activeBatchProgress);
+  onCloseRef.current = onClose;
+  batchInstallingRef.current = isBatchInstalling;
+
+  useEffect(() => {
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.requestAnimationFrame(() => panelRef.current?.focus());
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (document.getElementById("skill-trust-panel")) return;
+      if (event.key === "Escape" && !batchInstallingRef.current) {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !panelRef.current) return;
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, [project.id]);
 
   useEffect(() => {
     setMemberPage(1);
-  }, [memberQuery]);
+  }, [memberQuery, memberStatusFilter]);
 
-  return (
+  const content = (
+    <div
+      className="fixed inset-0 z-[90] flex items-end justify-center bg-ink-950/80 px-0 pt-8 backdrop-blur-[2px] sm:items-center sm:p-5"
+      onMouseDown={(event) => {
+        if (
+          event.target === event.currentTarget &&
+          !batchInstallingRef.current
+        ) {
+          onCloseRef.current();
+        }
+      }}
+    >
     <section
       aria-labelledby="skillset-member-title"
-      className="mb-6 scroll-mt-4 rounded-lg border border-accent-300/25 bg-surface-900/80 p-5 shadow-prism focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-200"
+      aria-modal="true"
+      className="max-h-[calc(100dvh-1rem)] w-full max-w-6xl overflow-y-auto rounded-t-2xl border border-accent-300/20 bg-surface-900 shadow-[0_24px_80px_rgba(0,0,0,0.55)] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-200 sm:max-h-[min(820px,calc(100dvh-2.5rem))] sm:rounded-xl"
       id="skillset-member-panel"
       ref={panelRef}
+      role="dialog"
       tabIndex={-1}
     >
-      <div className="flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-start sm:justify-between">
+      <div className="sticky top-0 z-10 flex flex-col gap-4 border-b border-white/10 bg-surface-900 px-4 py-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-accent-100">SkillSet 成员</p>
-          <h2 className="mt-1 text-2xl font-semibold text-white" id="skillset-member-title">
+          <div className="flex items-center gap-2 text-xs font-semibold text-accent-100">
+            <UsersRound aria-hidden="true" size={16} />
+            SkillSet 成员
+          </div>
+          <h2 className="mt-2 text-xl font-semibold text-white sm:text-2xl" id="skillset-member-title">
             {project.name}
           </h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-            该集合没有可整体安装的父级 SKILL.md。低风险成员可批量安装，需确认成员必须逐项核对；不会下载集合中的其他目录。
+          <p className="mt-1.5 max-w-3xl text-sm leading-6 text-slate-400">
+            逐项选择集合内的独立 Skill；需确认的成员会在安装前显示固定版本与权限。
           </p>
         </div>
         <button
-          className="shrink-0 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/30 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+          className="min-h-10 shrink-0 rounded-full border border-white/15 px-4 text-sm font-semibold text-slate-200 transition hover:border-white/30 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
           disabled={isBatchInstalling}
           onClick={onClose}
           type="button"
@@ -823,40 +1086,30 @@ function SkillSetMemberPanel({
         </button>
       </div>
 
-      <div className="grid gap-3 border-b border-white/10 py-4 text-xs sm:grid-cols-2 xl:grid-cols-4">
-        <div>
-          <p className="text-slate-500">固定提交</p>
-          <p className="mt-1 font-mono text-emerald-100">
-            {summary?.verifiedCommit.slice(0, 12) ?? "—"}
-          </p>
-        </div>
-        <div>
-          <p className="text-slate-500">核验范围</p>
-          <p className="mt-1 break-all font-mono text-slate-200">
-            {summary?.scopeSubPath || "."}
-          </p>
-        </div>
-        <div>
-          <p className="text-slate-500">可安装成员</p>
-          <p className="mt-1 font-semibold text-white">
-            {summary?.memberCount ?? 0} 个
-          </p>
-        </div>
-        <div>
-          <p className="text-slate-500">包含结构</p>
-          <p className="mt-1 font-semibold text-white">
-            {summary?.skillDocumentCount ?? 0} 个 Skill 文档
-            {summary?.nestedSkillCount
-              ? ` · ${summary.nestedSkillCount} 个嵌套`
-              : ""}
-          </p>
-        </div>
+      <div className="grid grid-cols-2 border-b border-white/10 bg-white/[0.025] sm:grid-cols-4">
+        {[
+          ["成员", summary?.memberCount ?? 0, UsersRound],
+          ["可直接安装", memberTrustCounts.allow, CheckCircle2],
+          ["需确认", memberTrustCounts.confirm, ShieldAlert],
+          ["已安装", memberTrustCounts.installed, PackageCheck],
+        ].map(([label, value, Icon]) => {
+          const MetricIcon = Icon as typeof UsersRound;
+          return (
+            <div className="flex min-h-20 items-center gap-3 border-b border-white/10 px-4 py-3 last:border-b-0 even:border-l sm:border-b-0 sm:border-l sm:first:border-l-0" key={label as string}>
+              <MetricIcon aria-hidden="true" className="hidden shrink-0 text-slate-500 lg:block" size={17} />
+              <div>
+                <p className="text-xs text-slate-500">{label as string}</p>
+                <p className="mt-1 text-lg font-semibold text-white">{value as number}</p>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {members ? (
-        <div className="mt-5 flex flex-col gap-3 rounded-lg border border-hire-300/20 bg-hire-300/[0.07] p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
-            <p className="text-sm font-semibold text-white">安装整个成员集合</p>
+            <p className="text-sm font-semibold text-white">批量安装可直接使用的成员</p>
             <p aria-live="polite" className="mt-1 text-xs leading-5 text-slate-300">
               {activeBatchProgress
                 ? `正在安装 ${activeBatchProgress.completed} / ${activeBatchProgress.total}：${activeBatchProgress.currentMemberName}`
@@ -866,7 +1119,7 @@ function SkillSetMemberPanel({
             </p>
           </div>
           <button
-            className="shrink-0 rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+            className="min-h-10 shrink-0 rounded-full border border-hire-300/35 bg-hire-300/10 px-4 text-sm font-semibold text-hire-100 transition hover:bg-hire-300/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.03] disabled:text-slate-500"
             disabled={
               memberTrustCounts.allow === 0 ||
               Boolean(installingId) ||
@@ -886,11 +1139,12 @@ function SkillSetMemberPanel({
         </div>
       ) : null}
 
-      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <label className="block w-full max-w-xl" htmlFor="skillset-member-search">
-          <span className="text-xs font-semibold text-slate-300">搜索成员</span>
+      <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-4 sm:px-6">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <label className="relative block min-w-0 flex-1" htmlFor="skillset-member-search">
+            <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={17} />
           <input
-            className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 py-2.5 text-sm text-white placeholder:text-slate-500 transition focus:border-accent-300/50 focus:outline-none focus:ring-2 focus:ring-accent-300/15"
+              className="min-h-11 w-full rounded-lg border border-white/10 bg-ink-950/80 py-2.5 pl-10 pr-3 text-sm text-white placeholder:text-slate-500 transition focus:border-accent-300/50 focus:outline-none focus:ring-2 focus:ring-accent-300/15"
             id="skillset-member-search"
             onChange={(event) => setMemberQuery(event.target.value)}
             placeholder="输入成员名称或仓库路径"
@@ -898,22 +1152,44 @@ function SkillSetMemberPanel({
             value={memberQuery}
           />
         </label>
-        <a
-          className="w-fit text-xs font-semibold text-slate-400 underline decoration-white/20 underline-offset-4 transition hover:text-white"
-          href={project.repoUrl}
-          rel="noreferrer"
-          target="_blank"
-        >
-          查看来源仓库
-        </a>
+          <div aria-label="按安装状态筛选" className="flex flex-wrap gap-2">
+            {([
+              ["all", "全部", members?.length ?? 0],
+              ["allow", "可直接安装", memberTrustCounts.allow],
+              ["confirm", "需确认", memberTrustCounts.confirm],
+              ["installed", "已安装", memberTrustCounts.installed],
+            ] as const).map(([value, label, count]) => (
+              <button
+                aria-pressed={memberStatusFilter === value}
+                className={`min-h-10 rounded-full border px-3 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-200 ${memberStatusFilter === value ? "border-accent-300/40 bg-accent-300/15 text-accent-100" : "border-white/10 bg-white/[0.035] text-slate-300 hover:border-white/20 hover:text-white"}`}
+                key={value}
+                onClick={() => setMemberStatusFilter(value)}
+                type="button"
+              >
+                {label} {count}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+          <span>固定版本 {summary?.verifiedCommit.slice(0, 12) ?? "—"}</span>
+          <a
+            className="font-semibold text-slate-400 underline decoration-white/20 underline-offset-4 transition hover:text-white"
+            href={project.repoUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            查看来源仓库
+          </a>
+        </div>
       </div>
 
       {loadError ? (
-        <div className="mt-5 rounded-lg border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm text-rose-50">
+        <div className="m-4 rounded-lg border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm text-rose-50 sm:m-6">
           {loadError}
         </div>
       ) : members === null ? (
-        <div aria-live="polite" className="mt-5 space-y-2">
+        <div aria-live="polite" className="space-y-2 p-4 sm:p-6">
           {[0, 1, 2].map((item) => (
             <div
               className="h-16 animate-pulse rounded-md bg-white/[0.055] motion-reduce:animate-none"
@@ -923,7 +1199,7 @@ function SkillSetMemberPanel({
           <span className="sr-only">正在加载成员索引</span>
         </div>
       ) : filteredMembers.length === 0 ? (
-        <div className="mt-5 rounded-lg border border-dashed border-white/15 px-5 py-8 text-center">
+        <div className="m-4 rounded-lg border border-dashed border-white/15 px-5 py-8 text-center sm:m-6">
           <p className="text-sm font-semibold text-white">没有匹配的集合成员</p>
           <p className="mt-2 text-xs text-slate-400">请尝试名称片段或目录路径。</p>
         </div>
@@ -931,7 +1207,7 @@ function SkillSetMemberPanel({
         <>
           <div
             aria-live="polite"
-            className="mt-5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400"
+            className="flex flex-wrap items-center justify-between gap-2 px-4 pt-4 text-xs text-slate-400 sm:px-6"
           >
             <span>
               找到 <strong className="text-white">{filteredMembers.length}</strong> 个成员
@@ -942,23 +1218,17 @@ function SkillSetMemberPanel({
           </div>
           <ul className="mt-3 divide-y divide-white/10 border-y border-white/10">
             {visibleMembers.map((member) => {
-              const installed = isSourceInstalled(member, installedSkills);
+              const memberState = memberStates.get(member.id);
+              const installed = memberState?.installed ?? false;
               const isInstalling = installingId === member.id;
-              const trustSummary =
-                trustSummaryForCandidate(
-                  trustIndex,
-                  memberTrustCandidateId(member.id),
-                ) ?? trustSummaryForSource(trustIndex, member);
-              const effectivePolicy = effectiveTrustInstallPolicy(
-                trustIndex?.gateMode ?? "enforce",
-                trustSummary,
-              );
+              const trustSummary = memberState?.trustSummary ?? null;
+              const effectivePolicy = memberState?.policy ?? "block";
               return (
                 <li
-                  className={`flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between ${
+                  className={`grid gap-3 px-4 py-4 sm:px-6 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center ${
                     member.id === focusedMemberId
-                      ? "rounded-lg bg-brand-300/10 px-3 ring-1 ring-brand-300/25"
-                      : ""
+                      ? "bg-brand-300/10 ring-1 ring-inset ring-brand-300/25"
+                      : "transition hover:bg-white/[0.025]"
                   }`}
                   key={member.id}
                 >
@@ -974,21 +1244,21 @@ function SkillSetMemberPanel({
                     <p className="mt-1 break-all font-mono text-xs leading-5 text-slate-500">
                       {member.subPath}
                     </p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <SkillTrustBadge summary={trustSummary} />
-                      {trustSummary ? (
-                        <button
-                          className="min-h-8 text-xs font-semibold text-slate-400 underline decoration-white/20 underline-offset-4 transition hover:text-white"
-                          onClick={() => onInspectTrust(member.name, trustSummary.receiptId)}
-                          type="button"
-                        >
-                          查看凭据
-                        </button>
-                      ) : null}
-                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                    <SkillTrustBadge summary={trustSummary} />
+                    {trustSummary ? (
+                      <button
+                        className="min-h-9 rounded-full border border-white/10 px-3 text-xs font-semibold text-slate-300 transition hover:border-white/25 hover:bg-white/[0.05] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                        onClick={() => onInspectTrust(member.name, trustSummary.receiptId)}
+                        type="button"
+                      >
+                        查看凭据
+                      </button>
+                    ) : null}
                   </div>
                   <button
-                    className="shrink-0 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+                    className="min-h-10 shrink-0 rounded-full bg-hire-300 px-4 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
                     disabled={
                       installed ||
                       Boolean(installingId) ||
@@ -1011,7 +1281,7 @@ function SkillSetMemberPanel({
             })}
           </ul>
           {pageCount > 1 ? (
-            <div className="mt-4 flex items-center justify-end gap-2">
+            <div className="flex items-center justify-end gap-2 px-4 py-4 sm:px-6">
               <button
                 className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={memberPage === 1}
@@ -1035,7 +1305,10 @@ function SkillSetMemberPanel({
         </>
       )}
     </section>
+    </div>
   );
+
+  return createPortal(content, document.body);
 }
 
 function InstalledSkillCard({
@@ -1196,8 +1469,7 @@ export default function SkillBrowserPage() {
   const { status: creatorStatus } = useSkillCreatorStatus();
   const requestedTab = new URLSearchParams(window.location.search).get("tab");
   const [activeTab, setActiveTab] = useState<SkillTab>(
-    requestedTab === "builtin" ||
-      requestedTab === "installed" ||
+    requestedTab === "installed" ||
       requestedTab === "imports" ||
       requestedTab === "drafts" ||
       requestedTab === "proposals"
@@ -1213,6 +1485,7 @@ export default function SkillBrowserPage() {
   const [needSearchStatus, setNeedSearchStatus] =
     useState<NeedSearchStatus>("idle");
   const [needSearchError, setNeedSearchError] = useState("");
+  const [needResultsOpen, setNeedResultsOpen] = useState(false);
   const [semanticRerankEnabled, setSemanticRerankEnabled] = useState(false);
   const [semanticConsentOpen, setSemanticConsentOpen] = useState(false);
   const [rankingStatus, setRankingStatus] = useState<SkillRerankStatus | "">("");
@@ -1249,6 +1522,9 @@ export default function SkillBrowserPage() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const needSearchRequestId = useRef(0);
+  const needResultsCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const needResultsReturnFocusRef = useRef<HTMLElement | null>(null);
+  const needSearchButtonRef = useRef<HTMLButtonElement>(null);
   const categories = useMemo(() => {
     const counts = new Map<string, number>();
     skillProjects.forEach((project) => {
@@ -1258,20 +1534,6 @@ export default function SkillBrowserPage() {
       left.localeCompare(right, "zh-CN"),
     );
   }, []);
-  const totalStars = useMemo(() => {
-    const countedRepositories = new Set<string>();
-    return skillProjects.reduce((sum, project) => {
-      const metricsSource = project.catalogUrl ?? project.repoUrl;
-      if (countedRepositories.has(metricsSource)) return sum;
-      countedRepositories.add(metricsSource);
-      return sum + project.stars;
-    }, 0);
-  }, []);
-  const catalogCount = useMemo(
-    () =>
-      new Set(skillProjects.map((project) => project.catalogUrl ?? project.repoUrl)).size,
-    [],
-  );
   const skillsetCount = useMemo(
     () => skillProjects.filter((project) => project.kind === "skillset").length,
     [],
@@ -1322,6 +1584,39 @@ export default function SkillBrowserPage() {
       return searchableText.includes(normalizedQuery);
     });
   }, [searchQuery, selectedAvailability, selectedCategory, selectedKind]);
+  const builtinProject = useMemo(
+    () => builtinSkillSetProject(builtinSkills.length),
+    [builtinSkills.length],
+  );
+  const showBuiltinSkillSet = useMemo(() => {
+    if (selectedCategory !== "all") return false;
+    if (selectedKind === "skill") return false;
+    if (
+      selectedAvailability !== "all" &&
+      selectedAvailability !== builtinProject.installStatus
+    ) {
+      return false;
+    }
+
+    const normalizedQuery = searchQuery.trim().toLocaleLowerCase("zh-CN");
+    if (!normalizedQuery) return true;
+    return [
+      builtinProject.name,
+      builtinProject.description,
+      builtinProject.category,
+      builtinProject.repoName,
+      ...builtinProject.tags,
+    ]
+      .join(" ")
+      .toLocaleLowerCase("zh-CN")
+      .includes(normalizedQuery);
+  }, [
+    builtinProject,
+    searchQuery,
+    selectedAvailability,
+    selectedCategory,
+    selectedKind,
+  ]);
   const visibleProjects = filteredProjects.slice(0, visibleProjectCount);
   const selectedSkillSetProject = useMemo(
     () =>
@@ -1339,6 +1634,11 @@ export default function SkillBrowserPage() {
     selectedKind !== "all" ||
     selectedAvailability !== "all";
 
+  function closeNeedResults() {
+    setNeedResultsOpen(false);
+    needResultsReturnFocusRef.current?.focus();
+  }
+
   useEffect(() => {
     document.title = "模镜 - Skill 技能货架";
     void refreshSkillResources();
@@ -1347,6 +1647,29 @@ export default function SkillBrowserPage() {
   useEffect(() => {
     setVisibleProjectCount(MARKET_PAGE_SIZE);
   }, [searchQuery, selectedAvailability, selectedCategory, selectedKind]);
+
+  useEffect(() => {
+    if (!needResultsOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusFrame = window.requestAnimationFrame(() =>
+      needResultsCloseButtonRef.current?.focus(),
+    );
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeNeedResults();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [needResultsOpen]);
 
   async function loadInstalledSkills() {
     setIsLoadingInstalled(true);
@@ -1404,14 +1727,6 @@ export default function SkillBrowserPage() {
     try {
       const receipt = await loadSkillTrustReceipt(action.receiptId);
       setSelectedTrustReceipt(receipt);
-      window.requestAnimationFrame(() =>
-        document.getElementById("skill-trust-panel")?.scrollIntoView({
-          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-            ? "auto"
-            : "smooth",
-          block: "start",
-        }),
-      );
     } catch (loadError) {
       setPendingTrustAction(null);
       setError(
@@ -1708,6 +2023,7 @@ export default function SkillBrowserPage() {
     const requestId = needSearchRequestId.current + 1;
     needSearchRequestId.current = requestId;
     if (!normalized) {
+      closeNeedResults();
       setNeedMatches([]);
       setNeedSearchStatus("idle");
       setNeedSearchError("");
@@ -1718,6 +2034,7 @@ export default function SkillBrowserPage() {
       setFeedbackByCandidate({});
       return;
     }
+    setNeedResultsOpen(true);
     setNeedMatches([]);
     setNeedSearchStatus("loading");
     setNeedSearchError("");
@@ -1800,6 +2117,7 @@ export default function SkillBrowserPage() {
   }
 
   function locateRecommendedSkill(project: SkillProject) {
+    closeNeedResults();
     setSearchQuery(project.name);
     setSelectedCategory("all");
     setSelectedKind("all");
@@ -1869,99 +2187,46 @@ export default function SkillBrowserPage() {
   return (
     <PageContainer
       activeResource="skills"
-      sidebar={
-        <div>
-          <p className="text-sm font-semibold text-white">技能培训服务台</p>
-          <p className="mt-2 text-sm leading-6 text-slate-400">
-            Skill 是单项岗位手册；SkillSet 可能是可整体安装的父包，也可能是需要逐项选择的成员集合。
-          </p>
-          <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">可安装资源</p>
-            <p className="mt-1 text-sm font-semibold text-hire-100">
-              {installableProjects.length} 个
-            </p>
-          </div>
-          <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">已安装</p>
-            <p className="mt-1 text-sm font-semibold text-emerald-100">
-              {installedSkills.length} 个
-            </p>
-          </div>
-          <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">目录来源</p>
-            <p className="mt-1 text-sm font-semibold text-brand-100">
-              {catalogCount} 个 · ★ {formatStars(totalStars)}
-            </p>
-          </div>
-          <p className="mt-4 text-xs leading-5 text-slate-500">
-            社区 Skill 安装时只复制目录，不自动执行脚本。激活前请检查依赖、外部服务和凭据要求。
-          </p>
-          <p className={`mt-2 text-xs font-semibold ${trustIndexStatus === "ready" ? trustIndex?.gateMode === "enforce" ? "text-emerald-200" : "text-amber-100" : trustIndexStatus === "error" ? "text-rose-200" : "text-slate-400"}`}>
-            {trustIndexStatus === "ready"
-              ? trustIndex?.gateMode === "enforce"
-                ? "信任目录已核对 · 强制门禁"
-                : trustIndex?.gateMode === "audit"
-                  ? "信任门处于审计模式 · 不阻断"
-                  : "信任门已关闭 · 按旧行为运行"
-              : trustIndexStatus === "error"
-                ? "信任目录不可用 · 安装已关闭"
-                : "正在核对信任目录…"}
-          </p>
-        </div>
-      }
+      maxWidthClassName="max-w-[1500px]"
+      mobileSidebar={<ModelWorkbenchSidebar compact />}
+      showSystemCapabilityBar={false}
+      sidebar={<ModelWorkbenchSidebar />}
+      sidebarGridClassName="xl:grid-cols-[230px_minmax(0,1fr)] xl:gap-x-[54px]"
     >
-      <header className="relative overflow-hidden border-y border-hire-300/20 py-8 sm:py-10 lg:py-12">
-        <div className="absolute inset-x-6 top-0 h-16 rounded-b-[50%] border-x border-b border-hire-300/30 bg-[linear-gradient(180deg,rgba(251,146,60,0.18),transparent)]" />
-        <div className="absolute left-0 top-0 h-px w-full animate-pulse-line bg-[linear-gradient(90deg,transparent,rgba(251,146,60,0.82),rgba(253,186,116,0.72),transparent)]" />
-        <div className="relative grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-end">
-          <div>
-            <p className="text-sm font-semibold text-hire-200">
-              技能培训教室开放报名
-            </p>
-            <h1 className="mt-3 max-w-4xl text-4xl font-semibold tracking-normal text-white sm:text-6xl">
+      <header className="border-b border-white/10 pb-6 pt-2 sm:pt-4">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-semibold tracking-[-0.025em] text-white sm:text-4xl">
               Skill 技能货架
             </h1>
-            <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
-              按任务、分类和资源类型查找岗位手册。独立 Skill 与父级技能包可直接安装，成员集合可展开后逐项选择。
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
+              查找、安装并管理可复用的 AI 技能与 SkillSet。
             </p>
           </div>
-
-          <div className="surface-card rounded-lg p-4">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <span className="text-sm text-slate-400">货架状态</span>
-              <span className="text-2xl font-semibold text-white">
-                {skillProjects.length}
-              </span>
-            </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="rounded-lg bg-white/[0.055] px-2 py-3">
-                <p className="text-lg font-semibold text-hire-100">
-                  {installableProjects.length}
-                </p>
-                <p className="mt-1 truncate text-slate-400">可安装</p>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4 lg:shrink-0">
+            {[
+              [skillProjects.length, "个 Skill", "text-hire-100"],
+              [installableProjects.length, "可安装", "text-emerald-100"],
+              [categories.length, "个分类", "text-brand-100"],
+              [skillsetCount, "个 SkillSet", "text-cyan-100"],
+            ].map(([value, label, tone]) => (
+              <div className="min-w-[84px]" key={label}>
+                <dd className={`text-xl font-semibold tabular-nums ${tone}`}>{value}</dd>
+                <dt className="mt-0.5 text-xs text-slate-400">{label}</dt>
               </div>
-              <div className="rounded-lg bg-white/[0.055] px-2 py-3">
-                <p className="text-lg font-semibold text-emerald-100">
-                  {skillsetCount}
-                </p>
-                <p className="mt-1 truncate text-slate-400">SkillSet</p>
-              </div>
-              <div className="rounded-lg bg-white/[0.055] px-2 py-3">
-                <p className="text-lg font-semibold text-brand-100">
-                  {categories.length}
-                </p>
-                <p className="mt-1 truncate text-slate-400">分类</p>
-              </div>
-            </div>
-          </div>
+            ))}
+          </dl>
         </div>
       </header>
 
-      <section className="mt-8">
-        <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex max-w-full overflow-x-auto rounded-full border border-white/10 bg-white/[0.055] p-1">
+      <section className="mt-6">
+        <div className="mb-4 grid gap-3 rounded-xl border border-white/10 bg-white/[0.035] p-2.5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+          <div
+            aria-label="技能工作区"
+            className="flex min-w-0 flex-wrap gap-1"
+            role="group"
+          >
             {[
-              { id: "builtin", label: `Agent 内置（${builtinSkills.length || 16}）` },
               { id: "market", label: "技能市场" },
               { id: "installed", label: "已安装" },
               { id: "imports", label: "本地导入" },
@@ -1969,10 +2234,11 @@ export default function SkillBrowserPage() {
               { id: "proposals", label: "待审提案" },
             ].map((tab) => (
               <button
-                className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                aria-pressed={activeTab === tab.id}
+                className={`min-h-10 rounded-lg px-3.5 py-2 text-sm font-semibold transition ${
                   activeTab === tab.id
-                    ? "bg-hire-300 text-ink-950 shadow-[0_0_18px_rgba(251,146,60,0.24)]"
-                    : "text-slate-300 hover:bg-white/[0.06] hover:text-white"
+                    ? "bg-hire-300 text-ink-950"
+                    : "text-slate-300 hover:bg-white/[0.07] hover:text-white"
                 }`}
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as SkillTab)}
@@ -1982,188 +2248,256 @@ export default function SkillBrowserPage() {
               </button>
             ))}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 xl:justify-end xl:border-l xl:border-white/10 xl:pl-3">
             <Link
-              className="inline-flex min-h-10 w-fit items-center rounded-full border border-hire-300/30 px-4 text-sm font-semibold text-hire-100 transition hover:bg-hire-300/10"
+              className="inline-flex min-h-10 w-fit items-center rounded-lg border border-white/10 px-3 text-sm font-semibold text-slate-200 transition hover:border-hire-300/30 hover:bg-hire-300/10 hover:text-hire-100"
               to="/skills/import"
             >
-              导入本地 Skill
+              导入 Skill
             </Link>
             <Link
-              className="inline-flex min-h-10 w-fit items-center rounded-full border border-cyan-300/25 px-4 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/10"
+              className="inline-flex min-h-10 w-fit items-center rounded-lg border border-white/10 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/25 hover:bg-cyan-300/10 hover:text-cyan-100"
               to="/skills/rerank"
             >
               重排治理
             </Link>
             {creatorStatus?.enabled ? (
               <Link
-                className="w-fit rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:ring-2 focus-visible:ring-hire-100"
+                className="inline-flex min-h-10 w-fit items-center rounded-lg bg-hire-300 px-3 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:ring-2 focus-visible:ring-hire-100"
                 to="/skills/create"
               >
                 创建 Skill
               </Link>
             ) : null}
             <button
-              className="w-fit rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:border-hire-300/30 hover:bg-hire-300/10 hover:text-hire-100 disabled:opacity-50"
+              className="min-h-10 w-fit rounded-lg border border-white/10 px-3 text-sm font-semibold text-slate-300 transition hover:border-hire-300/30 hover:bg-hire-300/10 hover:text-hire-100 disabled:opacity-50"
               disabled={isLoadingInstalled || isLoadingBuiltin || trustIndexStatus === "loading"}
               onClick={() => void refreshSkillResources()}
               type="button"
             >
-              {isLoadingInstalled || isLoadingBuiltin || trustIndexStatus === "loading" ? "刷新中..." : "刷新资源"}
+              {isLoadingInstalled || isLoadingBuiltin || trustIndexStatus === "loading" ? "刷新中..." : "刷新"}
             </button>
           </div>
         </div>
 
         {activeTab === "market" ? (
-          <section className="mb-5">
-            <div className="grid gap-5 rounded-lg border border-brand-300/20 bg-surface-900/75 p-5 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void submitNeedSearch(needQuery);
-                }}
-              >
-                <label className="block" htmlFor="skill-need-query">
-                  <span className="text-sm font-semibold text-white">
-                    描述你要完成的事
-                  </span>
-                  <span className="mt-1 block text-xs leading-5 text-slate-400">
-                    本地分析任务、工具和目标，推荐结果不会自动安装，也不会查询外部市场。
-                  </span>
-                </label>
-                <textarea
-                  className="mt-3 min-h-24 w-full resize-y rounded-lg border border-white/10 bg-ink-950/80 px-4 py-3 text-sm leading-6 text-white placeholder:text-slate-400 transition focus:border-brand-300/50 focus:outline-none"
-                  id="skill-need-query"
-                  maxLength={500}
-                  onChange={(event) => setNeedQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-                      event.preventDefault();
-                      void submitNeedSearch(needQuery);
+          <section className="mb-4 overflow-hidden rounded-xl border border-brand-300/25 bg-surface-900/80">
+            <div className="flex flex-col gap-4 border-b border-white/10 bg-brand-300/[0.055] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-brand-200/30 bg-brand-300/10 text-brand-100">
+                  <Search aria-hidden="true" size={19} />
+                </span>
+                <div>
+                  <h2 className="text-base font-semibold text-white">按任务寻找 Skill</h2>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                    本地匹配目录，不会自动安装；结果在独立浮层中查看。
+                  </p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-3 rounded-lg border border-white/10 bg-ink-950/35 px-3 py-2">
+                <div className="text-right">
+                  <p className="text-xs font-semibold text-slate-100">语义重排</p>
+                  <p className="text-[11px] text-slate-500">
+                    {semanticRerankEnabled ? "已开启" : "默认关闭"}
+                  </p>
+                </div>
+                <button
+                  aria-checked={semanticRerankEnabled}
+                  aria-label="语义重排"
+                  className={`relative h-6 w-11 shrink-0 rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 ${
+                    semanticRerankEnabled
+                      ? "border-cyan-200/50 bg-cyan-300/70"
+                      : "border-white/20 bg-white/10 hover:bg-white/15"
+                  }`}
+                  onClick={() => {
+                    if (semanticRerankEnabled) {
+                      setSemanticRerankEnabled(false);
+                      setSemanticConsentOpen(false);
+                      closeNeedResults();
+                      setSubmittedNeed("");
+                      setNeedMatches([]);
+                      setNeedSearchStatus("idle");
+                      setRankingStatus("");
+                      setRankingReceipt(null);
+                      setRankingResults([]);
+                      setFeedbackByCandidate({});
+                    } else {
+                      setSemanticConsentOpen(true);
                     }
                   }}
-                  placeholder="例如：为 React 网页编写 Playwright 自动化测试，并能检查交互和错误"
-                  value={needQuery}
-                />
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <button
-                    className="rounded-full bg-brand-200 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
-                    disabled={!needQuery.trim() || needSearchStatus === "loading"}
-                    type="submit"
-                  >
-                    {needSearchStatus === "loading"
-                      ? "正在检索完整目录..."
-                      : "寻找合适的 Skill"}
-                  </button>
-                  {submittedNeed ? (
-                    <button
-                      className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
-                      onClick={() => {
-                        setNeedQuery("");
-                        setSubmittedNeed("");
-                        needSearchRequestId.current += 1;
-                        setNeedMatches([]);
-                        setNeedSearchStatus("idle");
-                        setNeedSearchError("");
-                        setRankingStatus("");
-                        setRankingWarnings([]);
-                        setRankingReceipt(null);
-                        setRankingResults([]);
-                        setFeedbackByCandidate({});
-                      }}
-                      type="button"
-                    >
-                      清除推荐
-                    </button>
-                  ) : null}
-                  <span className="text-xs text-slate-500">
-                    Ctrl / ⌘ + Enter 快速查找
-                  </span>
-                </div>
-              </form>
+                  role="switch"
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`absolute left-0 top-0.5 h-[18px] w-[18px] rounded-full bg-white transition-transform ${
+                      semanticRerankEnabled ? "translate-x-[22px]" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
 
-              <div className="rounded-lg border border-white/10 bg-ink-950/55 p-4">
-                <p className="text-xs font-semibold text-slate-300">试试这些需求</p>
-                <div className="mt-3 flex flex-col gap-2">
+            <form
+              className="p-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                needResultsReturnFocusRef.current = needSearchButtonRef.current;
+                void submitNeedSearch(needQuery);
+              }}
+            >
+              <label className="sr-only" htmlFor="skill-need-query">
+                描述你要完成的事
+              </label>
+              <textarea
+                className="min-h-16 w-full resize-y rounded-lg border border-white/10 bg-ink-950/85 px-4 py-3 text-sm leading-6 text-white placeholder:text-slate-400 transition focus:border-brand-300/50 focus:outline-none"
+                id="skill-need-query"
+                maxLength={500}
+                onChange={(event) => setNeedQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                    event.preventDefault();
+                    needResultsReturnFocusRef.current = event.currentTarget;
+                    void submitNeedSearch(needQuery);
+                  }
+                }}
+                placeholder="描述任务、输入和期望结果，例如：为 React 网页编写 Playwright 自动化测试"
+                value={needQuery}
+              />
+
+              <div className="mt-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-500">试一试</span>
                   {NEED_EXAMPLES.map((example) => (
                     <button
-                      className="rounded-md border border-white/10 bg-white/[0.045] px-3 py-2 text-left text-xs leading-5 text-slate-300 transition hover:border-brand-300/30 hover:bg-brand-300/10 hover:text-white"
+                      className="max-w-full truncate rounded-full border border-white/10 bg-white/[0.045] px-3 py-1.5 text-xs text-slate-300 transition hover:border-brand-300/30 hover:bg-brand-300/10 hover:text-white"
                       key={example}
-                      onClick={() => void submitNeedSearch(example)}
+                      onClick={(event) => {
+                        needResultsReturnFocusRef.current = event.currentTarget;
+                        void submitNeedSearch(example);
+                      }}
+                      title={example}
                       type="button"
                     >
                       {example}
                     </button>
                   ))}
                 </div>
-                <div className="mt-4 border-t border-white/10 pt-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold text-white">语义重排</p>
-                      <p className="mt-1 text-xs leading-5 text-slate-400">
-                        {semanticRerankEnabled ? "仅对本页后续查询启用" : "默认关闭，刷新后仍关闭"}
-                      </p>
-                    </div>
-                    <button
-                      aria-pressed={semanticRerankEnabled}
-                      className={`min-h-10 rounded-full border px-3 text-xs font-semibold transition ${
-                        semanticRerankEnabled
-                          ? "border-cyan-300/35 bg-cyan-300/15 text-cyan-50"
-                          : "border-white/15 text-slate-300 hover:bg-white/[0.06]"
-                      }`}
-                      onClick={() => {
-                        if (semanticRerankEnabled) {
-                          setSemanticRerankEnabled(false);
-                          setSemanticConsentOpen(false);
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {submittedNeed ? (
+                    <>
+                      <button
+                        className="min-h-10 rounded-lg border border-white/10 px-3 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
+                        onClick={() => setNeedResultsOpen(true)}
+                        type="button"
+                      >
+                        查看上次结果
+                      </button>
+                      <button
+                        className="min-h-10 rounded-lg border border-white/10 px-3 text-xs font-semibold text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
+                        onClick={() => {
+                          setNeedQuery("");
                           setSubmittedNeed("");
+                          closeNeedResults();
+                          needSearchRequestId.current += 1;
                           setNeedMatches([]);
                           setNeedSearchStatus("idle");
+                          setNeedSearchError("");
                           setRankingStatus("");
+                          setRankingWarnings([]);
                           setRankingReceipt(null);
                           setRankingResults([]);
                           setFeedbackByCandidate({});
-                        } else {
-                          setSemanticConsentOpen(true);
-                        }
-                      }}
-                      type="button"
-                    >
-                      {semanticRerankEnabled ? "已开启" : "开启"}
-                    </button>
-                  </div>
-                  {semanticConsentOpen && !semanticRerankEnabled ? (
-                    <div className="mt-3 rounded-md bg-cyan-300/10 p-3 text-xs leading-5 text-cyan-50">
-                      <p>
-                        开启后会向当前配置的重排服务发送需求文本，以及最多 24 个公共目录候选的名称、标签和能力摘要。
-                        本地导入、Creator、插件、Skill 正文、信任详情和安装记录不会外发。
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          className="min-h-10 rounded-full bg-cyan-200 px-3 font-semibold text-ink-950 transition hover:bg-white"
-                          onClick={() => {
-                            setSemanticRerankEnabled(true);
-                            setSemanticConsentOpen(false);
-                          }}
-                          type="button"
-                        >
-                          开启语义重排
-                        </button>
-                        <button
-                          className="min-h-10 rounded-full border border-white/15 px-3 font-semibold text-slate-200 transition hover:bg-white/[0.06]"
-                          onClick={() => setSemanticConsentOpen(false)}
-                          type="button"
-                        >
-                          保持词典排序
-                        </button>
-                      </div>
-                    </div>
+                        }}
+                        type="button"
+                      >
+                        清除
+                      </button>
+                    </>
                   ) : null}
+                  <span className="hidden text-xs text-slate-500 sm:inline">
+                    Ctrl / ⌘ + Enter
+                  </span>
+                  <button
+                    className="min-h-10 rounded-lg bg-brand-200 px-4 text-sm font-semibold text-ink-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+                    disabled={!needQuery.trim() || needSearchStatus === "loading"}
+                    ref={needSearchButtonRef}
+                    type="submit"
+                  >
+                    {needSearchStatus === "loading" ? "正在查找..." : "寻找合适的 Skill"}
+                  </button>
                 </div>
               </div>
-            </div>
+            </form>
 
-            {submittedNeed ? (
-              <div className="mt-5">
+            {semanticConsentOpen && !semanticRerankEnabled ? (
+              <div className="border-t border-cyan-300/15 bg-cyan-300/[0.075] px-5 py-4 text-xs leading-5 text-cyan-50">
+                <p className="max-w-4xl">
+                  开启后会向当前配置的重排服务发送需求文本，以及最多 24 个公共目录候选的名称、标签和能力摘要。
+                  本地导入、Creator、插件、Skill 正文、信任详情和安装记录不会外发。
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    className="min-h-10 rounded-lg bg-cyan-200 px-3 font-semibold text-ink-950 transition hover:bg-white"
+                    onClick={() => {
+                      setSemanticRerankEnabled(true);
+                      setSemanticConsentOpen(false);
+                    }}
+                    type="button"
+                  >
+                    确认启用语义重排
+                  </button>
+                  <button
+                    className="min-h-10 rounded-lg border border-white/15 px-3 font-semibold text-slate-200 transition hover:bg-white/[0.06]"
+                    onClick={() => setSemanticConsentOpen(false)}
+                    type="button"
+                  >
+                    保持本地排序
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {needResultsOpen && submittedNeed
+              ? createPortal(
+                  <div
+                    className="fixed inset-0 z-[95] flex items-end justify-center bg-ink-950/80 pt-8 backdrop-blur-[2px] sm:items-center sm:p-5"
+                    onMouseDown={(event) => {
+                      if (event.target === event.currentTarget) {
+                        closeNeedResults();
+                      }
+                    }}
+                  >
+                    <section
+                      aria-labelledby="skill-need-results-title"
+                      aria-modal="true"
+                      className="flex max-h-[min(88vh,880px)] w-full max-w-6xl flex-col overflow-hidden rounded-t-xl border border-brand-300/25 bg-surface-900 shadow-[0_30px_90px_rgba(2,8,23,0.7)] sm:rounded-xl"
+                      role="dialog"
+                    >
+                      <header className="flex items-start justify-between gap-4 border-b border-white/10 bg-brand-300/[0.055] px-5 py-4 sm:px-6">
+                        <div>
+                          <h2
+                            className="text-lg font-semibold text-white"
+                            id="skill-need-results-title"
+                          >
+                            Skill 推荐结果
+                          </h2>
+                          <p className="mt-1 line-clamp-1 text-xs text-slate-400">
+                            {submittedNeed}
+                          </p>
+                        </div>
+                        <button
+                          aria-label="关闭推荐结果"
+                          className="grid min-h-11 min-w-11 shrink-0 place-items-center rounded-lg border border-white/10 text-slate-300 transition hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200"
+                          onClick={closeNeedResults}
+                          ref={needResultsCloseButtonRef}
+                          type="button"
+                        >
+                          <X aria-hidden="true" size={20} />
+                        </button>
+                      </header>
+                      <div className="overflow-y-auto p-5 sm:p-6">
+                        <div>
                 <div
                   aria-live="polite"
                   className="mb-4 flex flex-wrap items-center justify-between gap-2"
@@ -2280,18 +2614,23 @@ export default function SkillBrowserPage() {
                     </p>
                   </div>
                 )}
-              </div>
-            ) : null}
+                        </div>
+                      </div>
+                    </section>
+                  </div>,
+                  document.body,
+                )
+              : null}
           </section>
         ) : null}
 
         {activeTab === "market" ? (
-          <div className="mb-5 rounded-lg border border-white/10 bg-white/[0.04] p-4">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_190px_170px_auto] lg:items-end">
+          <section className="mb-4 rounded-xl border border-white/10 bg-white/[0.035] p-3">
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(280px,1fr)_180px_180px_auto_auto] xl:items-center">
               <label className="block">
-                <span className="text-xs font-semibold text-slate-300">搜索技能</span>
+                <span className="sr-only">搜索技能</span>
                 <input
-                  className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 py-2.5 text-sm text-white placeholder:text-slate-500 transition focus:border-brand-300/50 focus:outline-none"
+                  className="min-h-11 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 text-sm text-white placeholder:text-slate-400 transition focus:border-brand-300/50 focus:outline-none"
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder="名称、能力、标签或仓库"
                   type="search"
@@ -2300,9 +2639,10 @@ export default function SkillBrowserPage() {
               </label>
 
               <label className="block">
-                <span className="text-xs font-semibold text-slate-300">分类</span>
+                <span className="sr-only">分类</span>
                 <select
-                  className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 py-2.5 text-sm text-white transition focus:border-brand-300/50 focus:outline-none"
+                  aria-label="分类"
+                  className="min-h-11 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 text-sm text-white transition focus:border-brand-300/50 focus:outline-none"
                   onChange={(event) => setSelectedCategory(event.target.value)}
                   value={selectedCategory}
                 >
@@ -2316,9 +2656,10 @@ export default function SkillBrowserPage() {
               </label>
 
               <label className="block">
-                <span className="text-xs font-semibold text-slate-300">安装状态</span>
+                <span className="sr-only">安装状态</span>
                 <select
-                  className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 py-2.5 text-sm text-white transition focus:border-brand-300/50 focus:outline-none"
+                  aria-label="安装状态"
+                  className="min-h-11 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 text-sm text-white transition focus:border-brand-300/50 focus:outline-none"
                   onChange={(event) =>
                     setSelectedAvailability(event.target.value as SkillAvailabilityFilter)
                   }
@@ -2336,9 +2677,9 @@ export default function SkillBrowserPage() {
                 </select>
               </label>
 
-              <fieldset>
-                <legend className="text-xs font-semibold text-slate-300">资源类型</legend>
-                <div className="mt-2 inline-flex rounded-lg border border-white/10 bg-ink-950/80 p-1">
+              <fieldset className="min-w-0">
+                <legend className="sr-only">资源类型</legend>
+                <div className="inline-flex min-h-11 w-full rounded-lg border border-white/10 bg-ink-950/80 p-1 xl:w-auto">
                   {[
                     { id: "all", label: "全部" },
                     { id: "skill", label: "Skill" },
@@ -2346,7 +2687,7 @@ export default function SkillBrowserPage() {
                   ].map((kind) => (
                     <button
                       aria-pressed={selectedKind === kind.id}
-                      className={`rounded-md px-3 py-1.5 text-sm font-semibold transition ${
+                      className={`flex-1 rounded-md px-3 py-1.5 text-sm font-semibold transition xl:flex-none ${
                         selectedKind === kind.id
                           ? "bg-brand-300/20 text-brand-100"
                           : "text-slate-400 hover:bg-white/[0.06] hover:text-white"
@@ -2360,23 +2701,19 @@ export default function SkillBrowserPage() {
                   ))}
                 </div>
               </fieldset>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
-              <p aria-live="polite" className="text-sm text-slate-400">
-                显示 <span className="font-semibold text-white">{filteredProjects.length}</span> / {skillProjects.length} 项
-              </p>
               {hasActiveFilters ? (
                 <button
-                  className="text-sm font-semibold text-brand-100 underline decoration-brand-300/30 underline-offset-4 transition hover:text-white"
+                  className="min-h-11 rounded-lg border border-white/10 px-3 text-xs font-semibold text-brand-100 transition hover:bg-brand-300/10 hover:text-white"
                   onClick={resetMarketFilters}
                   type="button"
                 >
                   清除筛选
                 </button>
-              ) : null}
+              ) : (
+                <span aria-hidden="true" className="hidden xl:block" />
+              )}
             </div>
-          </div>
+          </section>
         ) : null}
 
         {notice ? (
@@ -2403,8 +2740,10 @@ export default function SkillBrowserPage() {
             title={pendingTrustAction.title}
           />
         ) : pendingTrustAction ? (
-          <div aria-live="polite" className="mb-6 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
-            正在加载固定版本的信任凭据…
+          <div className="fixed inset-0 z-[100] grid place-items-center bg-ink-950/75 p-5 backdrop-blur-[2px]">
+            <div aria-live="polite" className="w-full max-w-sm rounded-xl border border-white/10 bg-surface-900 px-5 py-4 text-center text-sm text-slate-300 shadow-2xl">
+              正在加载固定版本的信任凭据…
+            </div>
           </div>
         ) : null}
 
@@ -2430,54 +2769,36 @@ export default function SkillBrowserPage() {
           />
         ) : null}
 
-        {activeTab === "builtin" ? (
-          builtinSkills.length > 0 ? (
-            <div>
-              <div className="mb-4 rounded-lg border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm leading-6 text-cyan-50">
-                General Agent 默认 Skillset 固定包含以下 16 项并保存内容摘要。只有标记为“可运行”且环境满足的 Skill 会注入运行上下文；外部 Skill 不在此集合中。
-              </div>
-              <div className="grid gap-4 lg:grid-cols-2">
-                {builtinSkills.map((skill) => {
-                  const status =
-                    skill.status === "ready"
-                      ? { label: "可运行", className: "border-emerald-300/25 bg-emerald-300/10 text-emerald-100" }
-                      : skill.status === "conditional"
-                        ? { label: "环境探测", className: "border-sky-300/25 bg-sky-300/10 text-sky-100" }
-                        : skill.status === "dependency_missing"
-                          ? { label: "依赖缺失", className: "border-amber-300/25 bg-amber-300/10 text-amber-100" }
-                          : { label: "仅供查看", className: "border-white/15 bg-white/[0.05] text-slate-300" };
-                  return (
-                    <article className="rounded-lg border border-white/10 bg-slate-950/55 p-5" key={skill.skill_id}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="truncate font-mono text-sm font-semibold text-white">{skill.skill_id}</h3>
-                          <p className="mt-2 text-sm leading-6 text-slate-300">{skill.description}</p>
-                        </div>
-                        <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${status.className}`}>
-                          {status.label}
-                        </span>
-                      </div>
-                      <p className="mt-3 text-xs leading-5 text-slate-500">{skill.availability_reason}</p>
-                      <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-3 text-[11px] text-slate-500">
-                        <span>{skill.source_license}</span>
-                        <span>摘要 {skill.digest.slice(0, 12)}</span>
-                        {skill.adapted ? <span>已原生适配</span> : null}
-                        <span className="ml-auto">{skill.inject_runtime ? "运行时可注入" : "运行时不注入"}</span>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.04] px-6 py-12 text-center text-sm text-slate-400">
-              {isLoadingBuiltin ? "正在加载 16 个内置 Skill…" : "内置 Skill 清单不可用。"}
-            </div>
-          )
-        ) : activeTab === "market" && filteredProjects.length > 0 ? (
+        {activeTab === "market" &&
+        (filteredProjects.length > 0 || showBuiltinSkillSet) ? (
           <div id="skill-market-results">
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              {visibleProjects.map((project) => (
+              {visibleProjects.slice(0, 5).map((project) => (
+                <MarketSkillCard
+                  gateMode={trustIndex?.gateMode ?? "enforce"}
+                  installed={isProjectInstalled(project, installedSkills)}
+                  installingId={installingId}
+                  key={project.id}
+                  onInstall={(item) => void installSkill(item)}
+                  onInspectTrust={(title, receiptId) =>
+                    void openTrustAction({ kind: "inspect", title, receiptId })
+                  }
+                  onOpenSkillSet={openSkillSet}
+                  project={project}
+                  trustSummary={trustSummaryForCandidate(
+                    trustIndex,
+                    projectTrustCandidateId(project.id),
+                  )}
+                />
+              ))}
+              {showBuiltinSkillSet ? (
+                <BuiltinSkillSetAuditCard
+                  key={builtinProject.id}
+                  project={builtinProject}
+                  skills={builtinSkills}
+                />
+              ) : null}
+              {visibleProjects.slice(5).map((project) => (
                 <MarketSkillCard
                   gateMode={trustIndex?.gateMode ?? "enforce"}
                   installed={isProjectInstalled(project, installedSkills)}
