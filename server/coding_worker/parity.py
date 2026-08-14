@@ -328,6 +328,7 @@ class ParityGateMetric(StrictModel):
 
 class ParityDecision(StrictModel):
     passed: bool
+    round_id: str
     candidate_sha: str = Field(pattern=r"^[a-f0-9]{40}$")
     task_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     fixture_bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -351,6 +352,7 @@ class ParityReport(StrictModel):
     raw_artifact_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     baseline_version: Literal["opencode-1.18.9"] = NATIVE_BASELINE
     latest_opencode_version: str = Field(min_length=1, max_length=64)
+    latest_opencode_audit_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     gap_audit_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     gap_audit: tuple[str, ...]
     platform_coordination_failures: int = Field(ge=0)
@@ -414,7 +416,11 @@ class ParityReport(StrictModel):
             raise ValueError("parity run image binding is invalid")
         if self.raw_artifact_manifest_sha256 != self.artifact_ledger_sha256():
             raise ValueError("parity artifact ledger binding is invalid")
-        if self.latest_opencode_version != self.baseline_version and not self.gap_audit:
+        if (
+            self.latest_opencode_version
+            != self.baseline_version.removeprefix("opencode-")
+            and not self.gap_audit
+        ):
             raise ValueError("latest OpenCode differences require an explicit gap audit")
         return self
 
@@ -570,6 +576,7 @@ class ParityReport(StrictModel):
         )
         return ParityDecision(
             passed=all(metric.passed for metric in metrics),
+            round_id=self.round_id,
             candidate_sha=self.candidate_sha,
             task_manifest_sha256=self.task_manifest_sha256,
             fixture_bundle_sha256=self.fixture_bundle_sha256,
@@ -589,6 +596,8 @@ class ParityCertification(StrictModel):
     def require_two_consecutive_passes(self) -> "ParityCertification":
         if not self.first.passed or not self.second.passed:
             raise ValueError("both complete parity rounds must pass")
+        if self.first.round_id == self.second.round_id:
+            raise ValueError("parity rounds must be independently identified")
         if (
             self.first.candidate_sha != self.second.candidate_sha
             or self.first.task_manifest_sha256 != self.second.task_manifest_sha256

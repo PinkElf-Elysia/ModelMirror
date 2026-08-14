@@ -134,6 +134,45 @@ def run_parity_matrix(
     candidate_sha: str,
     model_route_receipt_sha256: str,
 ) -> tuple[ParityRunOutcome, ...]:
+    return _run_cells(
+        manifest=manifest,
+        runners=runners,
+        candidate_sha=candidate_sha,
+        model_route_receipt_sha256=model_route_receipt_sha256,
+        tasks=manifest.tasks,
+        attempts=range(1, ATTEMPTS_PER_ENGINE + 1),
+    )
+
+
+def run_parity_smoke(
+    *,
+    manifest: FrozenParityManifest,
+    runners: Mapping[ParityEngine, ParityRunner],
+    candidate_sha: str,
+    model_route_receipt_sha256: str,
+) -> tuple[ParityRunOutcome, ...]:
+    categories: dict[str, FrozenParityTask] = {}
+    for task in manifest.tasks:
+        categories.setdefault(task.category.value, task)
+    return _run_cells(
+        manifest=manifest,
+        runners=runners,
+        candidate_sha=candidate_sha,
+        model_route_receipt_sha256=model_route_receipt_sha256,
+        tasks=tuple(categories.values()),
+        attempts=(1,),
+    )
+
+
+def _run_cells(
+    *,
+    manifest: FrozenParityManifest,
+    runners: Mapping[ParityEngine, ParityRunner],
+    candidate_sha: str,
+    model_route_receipt_sha256: str,
+    tasks: Sequence[FrozenParityTask],
+    attempts: Sequence[int] | range,
+) -> tuple[ParityRunOutcome, ...]:
     if set(runners) != set(ParityEngine):
         raise ValueError("exactly one runner per engine is required")
     if any(runners[engine].engine is not engine for engine in ParityEngine):
@@ -144,8 +183,8 @@ def run_parity_matrix(
     manifest_sha = manifest.canonical_sha256()
     cells = [
         (engine, task, attempt)
-        for task in manifest.tasks
-        for attempt in range(1, ATTEMPTS_PER_ENGINE + 1)
+        for task in tasks
+        for attempt in attempts
         for engine in ParityEngine
     ]
     seed = int.from_bytes(

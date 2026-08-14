@@ -106,6 +106,7 @@ def _report(*, worker_failures: set[str] | None = None) -> ParityReport:
         runner_images=manifest.runner_images,
         raw_artifact_manifest_sha256=parity_artifact_ledger_sha256(runs),
         latest_opencode_version="latest-audited",
+        latest_opencode_audit_sha256="4" * 64,
         gap_audit_sha256=GAP_AUDIT,
         gap_audit=("latest capability differences remain explicitly listed",),
         platform_coordination_failures=0,
@@ -196,11 +197,15 @@ def test_report_rejects_duplicate_or_wrong_manifest_cells() -> None:
 def test_certification_requires_two_passes_for_same_candidate() -> None:
     manifest = load_frozen_manifest(FIXTURE)
     first = _report().evaluate(manifest)
+    second = first.model_copy(update={"round_id": "round_2"})
 
-    certification = ParityCertification(first=first, second=first)
+    certification = ParityCertification(first=first, second=second)
     assert certification.second.passed is True
 
-    other = first.model_copy(update={"candidate_sha": "4" * 40})
+    with pytest.raises(ValidationError, match="independently identified"):
+        ParityCertification(first=first, second=first)
+
+    other = second.model_copy(update={"candidate_sha": "4" * 40})
     with pytest.raises(ValidationError, match="certified bindings"):
         ParityCertification(first=first, second=other)
 
