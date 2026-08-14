@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
+import tarfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -489,6 +491,36 @@ def test_workspace_endpoints_use_task_and_opaque_entry_ids(tmp_path: Path) -> No
         assert preview.text == "print('ok')\n"
         diff = client.get(f"/api/coding-worker/v1/tasks/{task_id}/workspace/diff")
         assert diff.status_code == 200 and diff.content == b""
+
+
+def test_parity_workspace_export_is_flagged_terminal_and_path_free(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, service = _client(tmp_path)
+    with client:
+        created = client.post("/api/coding-worker/v1/tasks", json=_payload()).json()
+        task_id = created["task_id"]
+        disabled = client.post(
+            f"/api/coding-worker/v1/tasks/{task_id}/workspace/parity-export"
+        )
+        assert disabled.status_code == 404
+        monkeypatch.setenv("CODING_WORKER_PARITY_ENABLED", "true")
+        asyncio.run(service.wait_for(task_id, lambda item: item.state.value == "blocked"))
+        exported = client.post(
+            f"/api/coding-worker/v1/tasks/{task_id}/workspace/parity-export"
+        )
+        assert exported.status_code == 200
+        artifact = exported.json()
+        assert artifact["metadata"]["kind"] == "parity_workspace_export"
+        assert "workspace_tree_hash" in artifact["metadata"]
+        assert "path" not in exported.text.lower()
+        download = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/artifacts/{artifact['artifact_id']}"
+        )
+        with tarfile.open(fileobj=io.BytesIO(download.content), mode="r:") as archive:
+            member = archive.getmember("main.py")
+            assert member.mtime == 0 and member.uid == member.gid == 0
+            assert archive.extractfile(member).read() == b"print('ok')\n"
 
 
 def test_pin_unpin_and_delete_keep_active_task_safe(tmp_path: Path) -> None:
