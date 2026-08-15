@@ -17,6 +17,7 @@
     "@gltf-transform/core": "4.4.2",
     "@matrix-oasis/prototype-spatial-environment": "0.1.0-r11",
     "@matrix-oasis/runtime-pack-contracts": "0.1.0-r3",
-    "@matrix-oasis/scene-pack-validator": "0.1.0-r7"
+    "@matrix-oasis/scene-pack-validator": "0.1.0-r7",
+    "@playcanvas/splat-transform": "3.3.0"
   }
 }

@@ -16,6 +16,7 @@ test("spatial assembly package is private and pins its audited contracts and GLB
     "@matrix-oasis/prototype-spatial-environment": "0.1.0-r11",
     "@matrix-oasis/runtime-pack-contracts": "0.1.0-r3",
     "@matrix-oasis/scene-pack-validator": "0.1.0-r7",
+    "@playcanvas/splat-transform": "3.3.0",
   });
   assert.deepEqual(PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE, {
     id: "matrix-oasis.prototype-spatial-assembly/1",

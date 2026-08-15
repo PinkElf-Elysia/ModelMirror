@@ -8,6 +8,10 @@ import {
   prepareRuntimeGamePackJson,
 } from "@matrix-oasis/runtime-pack-simulator";
 import { PrototypeGeneratorOperationalError } from "./openai-compatible.mjs";
+import {
+  evaluateAcceptanceProfile,
+  normalizeAcceptanceOptions,
+} from "./acceptance-profile.mjs";
 
 const PROMPT_MAX_BYTES = 32_768;
 const RESPONSE_MAX_BYTES = 1_048_576;
@@ -244,11 +248,16 @@ export async function generatePrototypeWithServices(
   requestValue,
   providerValue,
   services,
+  optionsValue,
 ) {
   try {
     const request = validateRequest(requestValue);
     if (!request.ok) {
       return request.result;
+    }
+    const options = normalizeAcceptanceOptions(optionsValue);
+    if (!options.ok) {
+      return rejected("PROTOTYPE_ACCEPTANCE_PROFILE_INVALID", "/acceptanceProfile");
     }
     const provider = validateProvider(providerValue);
     const service = exactRecord(services, [
@@ -281,11 +290,20 @@ export async function generatePrototypeWithServices(
     while (requestCount < MAX_REQUESTS) {
       const providerRequest =
         requestCount === 0
-          ? { kind: "initial", prompt: request.prompt }
+          ? {
+              kind: "initial",
+              prompt: request.prompt,
+              ...(options.profile === null
+                ? {}
+                : { acceptanceProfile: options.profile }),
+            }
           : {
               kind: "repair",
               previousCandidate: candidateText,
               diagnostics: safeRepairDiagnostics(latestReport),
+              ...(options.profile === null
+                ? {}
+                : { acceptanceProfile: options.profile }),
             };
       let rawResponse;
       try {
@@ -299,14 +317,27 @@ export async function generatePrototypeWithServices(
       addUsage(usage, response.usage);
       preparedProposal = prepareGenerationProposalJson(candidateText);
       if (preparedProposal.ok) {
-        break;
+        const acceptanceDiagnostics = evaluateAcceptanceProfile(
+          preparedProposal,
+          options.profile,
+        );
+        if (acceptanceDiagnostics.length === 0) {
+          break;
+        }
+        latestReport = { diagnostics: acceptanceDiagnostics };
+      } else {
+        latestReport = preparedProposal.validationReport;
       }
-      latestReport = preparedProposal.validationReport;
     }
-    if (!preparedProposal?.ok) {
+    const finalAcceptanceDiagnostics = preparedProposal?.ok
+      ? evaluateAcceptanceProfile(preparedProposal, options.profile)
+      : Object.freeze([]);
+    if (!preparedProposal?.ok || finalAcceptanceDiagnostics.length > 0) {
       return deepFreeze({
         ok: false,
-        diagnostics: latestReport.diagnostics,
+        diagnostics: preparedProposal?.ok
+          ? finalAcceptanceDiagnostics
+          : latestReport.diagnostics,
       });
     }
 
@@ -413,12 +444,12 @@ export async function generatePrototypeWithServices(
   }
 }
 
-export function generatePrototype(request, provider) {
+export function generatePrototype(request, provider, options) {
   return generatePrototypeWithServices(request, provider, {
     compileAuthoringGamePackJson,
     canonicalizeJsonValue,
     prepareRuntimeGamePackJson,
     createRuntimeGameSession,
     digest: (algorithm, bytes) => globalThis.crypto.subtle.digest(algorithm, bytes),
-  });
+  }, options);
 }

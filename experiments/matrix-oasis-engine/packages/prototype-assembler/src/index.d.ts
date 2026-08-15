@@ -46,6 +46,11 @@ export declare class PrototypeAssemblerOperationalError extends Error {
   readonly code: "PROTOTYPE_ASSEMBLER_INTERNAL_ERROR";
 }
 
+export interface PrototypeAssemblyOptions {
+  readonly profile: "matrix-oasis.prototype-assembly/2";
+}
+
 export declare function assemblePrototypeScene(
   request: PrototypeAssemblyRequest,
+  options?: PrototypeAssemblyOptions,
 ): Promise<PrototypeAssemblySuccess | PrototypeAssemblyFailure>;

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "status": "pending-r12-qualification",
+  "claimAllowed": false,
+  "blockingRound": "R12",
+  "acceptanceRecord": "docs/rounds/R12_ACCEPTANCE.md",
+  "completionMarker": "MATRIX_OASIS_R12_MVP_READY"
+}

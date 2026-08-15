@@ -1,0 +1,1 @@
+{"actions":{"max":1024,"min":15},"characterPlaceholders":{"max":3,"min":3},"endings":{"max":3,"min":3},"format":"matrix-oasis.prototype-acceptance-profile","formatVersion":"0.1.0","nodes":{"max":16,"min":7},"props":{"max":3,"min":3},"requireAllEndingsReachable":true,"requireAllNonEnvironmentBriefsBound":true,"requireReachableCycle":true,"zones":{"max":4,"min":2}}

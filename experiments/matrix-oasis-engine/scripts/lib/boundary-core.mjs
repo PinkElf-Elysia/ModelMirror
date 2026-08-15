@@ -193,7 +193,7 @@ const R9_SHARP_LIBVIPS_LICENSE_EXCEPTIONS = [
 }));
 
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 11],
+  [["schemaVersion"], 12],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
@@ -207,6 +207,13 @@ const REQUIRED_POLICY_VALUES = [
   [["networkPolicy", "verificationScripts"], "loopback-only"],
   [["networkPolicy", "providerCalls"], "openai-compatible-meshy-and-marble-adapters-only"],
   [["networkPolicy", "splatQualification"], "source-checkout-and-loopback-disposable-only"],
+  [["networkPolicy", "r12QualificationCalls"], "human-approved-only"],
+  [["mvpClaimPolicy", "status"], "pending-r12-qualification"],
+  [["mvpClaimPolicy", "claimAllowed"], false],
+  [["mvpClaimPolicy", "blockingRound"], "R12"],
+  [["mvpClaimPolicy", "acceptanceRecord"], "docs/rounds/R12_ACCEPTANCE.md"],
+  [["mvpClaimPolicy", "machineStatus"], "docs/MVP_STATUS.json"],
+  [["mvpClaimPolicy", "completionMarker"], "MATRIX_OASIS_R12_MVP_READY"],
   [["runtimeArtifactInputPolicy", "mode"], "paired-local-files-only"],
   [["runtimeArtifactInputPolicy", "runtimeMaxBytes"], 16 * 1024 * 1024],
   [["runtimeArtifactInputPolicy", "receiptMaxBytes"], 16 * 1024],
@@ -300,7 +307,9 @@ const REQUIRED_POLICY_VALUES = [
   [["prototypeEnvironmentPolicy", "creatorNetworkAllowed"], false],
   [["prototypeEnvironmentPolicy", "godotNetworkAllowed"], false],
   [["prototypeEnvironmentPolicy", "humanApprovalRequired"], true],
-  [["prototypeEnvironmentPolicy", "spzAllowed"], false],
+  [["prototypeEnvironmentPolicy", "spzAllowed"], true],
+  [["prototypeEnvironmentPolicy", "officialScaleMetadataRequired"], true],
+  [["prototypeEnvironmentPolicy", "spatialSourceDownloadCount"], 1],
   [["prototypeEnvironmentPolicy", "trackedGeneratedArtifactsAllowed"], false],
   [["prototypeSpatialEnvironmentPolicy", "format"], "matrix-oasis.prototype-spatial-environment-bundle"],
   [["prototypeSpatialEnvironmentPolicy", "formatVersion"], "0.1.0"],
@@ -341,6 +350,22 @@ const REQUIRED_POLICY_VALUES = [
   [["prototypeBuilderPolicy", "sameOriginOnly"], true],
   [["prototypeBuilderPolicy", "corsAllowed"], false],
   [["prototypeBuilderPolicy", "persistRawPrompt"], false],
+  [["r12MvpPolicy", "acceptanceProfileVersion"], "0.1.0"],
+  [["r12MvpPolicy", "assemblyProfile"], "matrix-oasis.prototype-assembly/2"],
+  [["r12MvpPolicy", "maxModelRequests"], 3],
+  [["r12MvpPolicy", "maxZones"], 4],
+  [["r12MvpPolicy", "maxNonEnvironmentBriefs"], 6],
+  [["r12MvpPolicy", "maxPlacements"], 32],
+  [["r12MvpPolicy", "maxPlacementsPerZone"], 8],
+  [["r12MvpPolicy", "marbleCreateMax"], 1],
+  [["r12MvpPolicy", "marblePollMax"], 180],
+  [["r12MvpPolicy", "marbleWorldGetMax"], 1],
+  [["r12MvpPolicy", "marbleDownloadMax"], 3],
+  [["r12MvpPolicy", "meshyTaskMax"], 12],
+  [["r12MvpPolicy", "meshyCreditsMax"], 180],
+  [["r12MvpPolicy", "realCallsRequireHumanApproval"], true],
+  [["r12MvpPolicy", "caseSpecificSourceBranchesAllowed"], false],
+  [["r12MvpPolicy", "trackedQualificationArtifactsAllowed"], false],
   [["scenePackInputPolicy", "symlinksAllowed"], false],
   [
     ["forbiddenParentRoots"],
@@ -1271,14 +1296,18 @@ function checkScriptNetwork(relative, content, specifiers, violations) {
   }
   if (relative === "scripts/lib/prototype-host-core.mjs") {
     const allowedModules = new Set(["http", "node:http"]);
+    const fixedPortListen = /server\.listen\(PROTOTYPE_HOST_PORT, PROTOTYPE_HOST,/u.test(content);
+    const validatedPortListen = /port = PROTOTYPE_HOST_PORT/u.test(content) &&
+      /Number\.isSafeInteger\(port\)[\s\S]*?port < 1024[\s\S]*?port > 65535/u.test(content) &&
+      /server\.listen\(port, PROTOTYPE_HOST,/u.test(content);
     if (specifiers.some((specifier) => NETWORK_MODULES.has(specifier) && !allowedModules.has(specifier)) ||
         NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(content)) ||
         !/export const PROTOTYPE_HOST = "127\.0\.0\.1";/u.test(content) ||
         !/export const PROTOTYPE_HOST_PORT = 43_110;/u.test(content) ||
-        !/server\.listen\(PROTOTYPE_HOST_PORT, PROTOTYPE_HOST,/u.test(content) ||
+        (!fixedPortListen && !validatedPortListen) ||
         /\b(?:connect|createConnection|Socket)\s*\(/u.test(content)) {
       addViolation(violations, "prototype-host-network-invalid", relative,
-        "Prototype host may only listen on its fixed 127.0.0.1:43110 endpoint and may not create outbound clients.");
+        "Prototype host may only listen on 127.0.0.1 with its fixed default or a validated test port and may not create outbound clients.");
     }
     for (const match of content.matchAll(/\b(?:https?|wss?):\/\/([A-Za-z0-9.:[\]-]+)/gu)) {
       const host = match[1].replace(/^\[/u, "").replace(/\]$/u, "").split(":", 1)[0];

@@ -12,5 +12,12 @@ at most 180 polls at ten-second intervals, one world read, and one download for
 each required asset. Loopback endpoints and shorter intervals exist only for
 deterministic tests.
 
-The bundle proves local byte integrity, not provider authorship. It does not
-contain SPZ, an HQ mesh, or a Scene Pack, and it is not a runtime or save format.
+The original R10 API remains panorama-plus-collider only. R12 adds an explicit
+same-world spatial-source API that also acquires `spz_urls.full_res` and records
+the provider's metric scale and ground-plane offset as bounded integer units.
+That API requires an approval with exactly three downloads and emits a separate
+canonical Spatial Source Bundle; remote world/operation IDs and URLs never enter
+either bundle.
+
+The bundles prove local byte integrity, not provider authorship. They are not a
+Runtime Pack, Scene Pack, save format, or authenticity receipt.

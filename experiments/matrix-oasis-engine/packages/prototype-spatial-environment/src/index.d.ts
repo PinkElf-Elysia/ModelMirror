@@ -154,6 +154,24 @@ export declare function materializePrototypeSpatialEnvironment(
   | PrototypeSpatialEnvironmentFailure
 >;
 
+export declare function materializePrototypeSpatialEnvironmentFromSource(
+  request: Readonly<{
+    environmentBundleJson: string;
+    environmentFiles: ReadonlyMap<string, Uint8Array>;
+    spatialSourceBundleJson: string;
+    spatialSourceFiles: ReadonlyMap<string, Uint8Array>;
+  }>,
+): Promise<
+  | Readonly<{
+      ok: true;
+      bundle: PrototypeSpatialEnvironmentBundle;
+      canonicalBundleJson: string;
+      canonicalReportJson: string;
+      files: readonly PrototypeSpatialEnvironmentFile[];
+    }>
+  | PrototypeSpatialEnvironmentFailure
+>;
+
 export declare function validatePrototypeSpatialEnvironmentBundleJson(
   text: string,
   files: ReadonlyMap<string, Uint8Array>,

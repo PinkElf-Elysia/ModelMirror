@@ -22,7 +22,8 @@ function configuration(overrides = {}) {
 }
 
 function operationFixture(overrides = {}) {
-  const calls = { findCache: 0, generate: 0, describeAssets: 0, acquire: 0, publish: 0, launch: 0, recover: 0, stopLaunch: 0 };
+  const calls = { findCache: 0, generate: 0, describeAssets: 0, acquire: 0, publish: 0, launch: 0,
+    persistPending: 0, recoverPending: 0, discardPending: 0, recover: 0, stopLaunch: 0 };
   const operations = {
     async findCache() { calls.findCache += 1; return { ok: false }; },
     async generate() { calls.generate += 1; return { ok: true, artifacts: Object.freeze({ sceneBlueprintJson: "{}" }) }; },
@@ -30,12 +31,164 @@ function operationFixture(overrides = {}) {
       environmentPrompt: "A neutral enclosed room.", briefs: [{ id: "asset-prop", kind: "prop", prompt: "A neutral console." }] }; },
     async acquire({ onStage }) { calls.acquire += 1; onStage("normalizing"); return { ok: true, value: "acquired" }; },
     async publish() { calls.publish += 1; return { ok: true, runId: VALID_RUN }; },
+    async persistPending() { calls.persistPending += 1; },
+    async recoverPending() { calls.recoverPending += 1; return { runs: [] }; },
+    async discardPending() { calls.discardPending += 1; },
     async launch() { calls.launch += 1; return { ok: true }; },
     async recover() { calls.recover += 1; return { currentRunId: null, runs: [] }; },
     async stopLaunch() { calls.stopLaunch += 1; },
     ...overrides,
   };
   return { calls, operations };
+}
+
+test("R12 complete offline reuse needs no asset configuration and exposes zero external budget", async (t) => {
+  const port = 43_121;
+  const origin = `http://127.0.0.1:${port}`;
+  const fixture = operationFixture({
+    async describeAssets() {
+      fixture.calls.describeAssets += 1;
+      return { ok: true, blueprintSha256: `sha256:${"e".repeat(64)}`,
+        environmentPrompt: "A neutral enclosed room.", environmentCached: true, assetsCached: true,
+        briefs: [{ id: "asset-prop", kind: "prop", prompt: "A neutral console." }] };
+    },
+  });
+  const host = createPrototypeHost({ profile: "r12", port,
+    configuration: configuration({ assetsReady: false }), operations: fixture.operations });
+  await host.start(); t.after(() => host.stop());
+  const bootstrap = await fetch(`${origin}/api/bootstrap`, { headers: { origin, connection: "close" } });
+  const cookie = bootstrap.headers.get("set-cookie").split(";")[0];
+  const created = await fetch(`${origin}/api/runs`, { method: "POST", headers: {
+    origin, cookie, connection: "close", "content-type": "application/json",
+  }, body: JSON.stringify({ prompt: "Build one neutral interactive prototype." }) }).then((response) => response.json());
+  await fetch(`${origin}/api/runs/${created.run.id}/approve-model`, { method: "POST", headers: {
+    origin, cookie, connection: "close", "content-type": "application/json",
+  }, body: JSON.stringify({ approvalHash: created.run.modelApproval.approvalHash }) });
+  const waiting = await waitForLocal(origin, cookie, created.run.id, "awaiting_asset_approval");
+  assert.equal(waiting.assetApproval.marble.maxCreates, 0);
+  assert.equal(waiting.assetApproval.meshy.maxTasks, 0);
+  assert.equal(waiting.assetApproval.meshy.creditLimit, 0);
+  const approved = await fetch(`${origin}/api/runs/${created.run.id}/approve-assets`, { method: "POST", headers: {
+    origin, cookie, connection: "close", "content-type": "application/json",
+  }, body: JSON.stringify({ approvalHash: waiting.assetApproval.approvalHash }) });
+  assert.equal(approved.status, 202);
+  await waitForLocal(origin, cookie, created.run.id, "ready");
+  assert.equal(fixture.calls.acquire, 1);
+});
+
+test("R12 durably restores generated artifacts at asset approval without persisting the original prompt", async (t) => {
+  const port = 43_117;
+  const origin = `http://127.0.0.1:${port}`;
+  const prompt = "Build a restart-safe neutral prototype without writing this text to disk.";
+  let pending = null;
+  let modelCalls = 0;
+  let published = null;
+  const operations = operationFixture({
+    async generate() {
+      modelCalls += 1;
+      return { ok: true, artifacts: Object.freeze({ sceneBlueprintJson: "{}" }) };
+    },
+    async persistPending(input) {
+      assert.deepEqual(Object.keys(input), ["promptSha256", "model", "artifacts", "approval"]);
+      assert.equal(JSON.stringify(input).includes(prompt), false);
+      pending = input;
+    },
+    async recoverPending() { return { runs: pending === null ? [] : [pending] }; },
+    async discardPending(input) {
+      assert.equal(input.promptSha256, pending.promptSha256);
+      pending = null;
+    },
+    async publish(input) {
+      published = input;
+      return { ok: true, runId: VALID_RUN };
+    },
+  }).operations;
+  const first = createPrototypeHost({ profile: "r12", port, configuration: configuration(), operations });
+  t.after(() => first.stop());
+  await first.start();
+  const firstBootstrap = await fetch(`${origin}/api/bootstrap`, { headers: { origin, connection: "close" } });
+  const firstCookie = firstBootstrap.headers.get("set-cookie").split(";")[0];
+  const created = await fetch(`${origin}/api/runs`, { method: "POST", headers: {
+    origin, cookie: firstCookie, connection: "close", "content-type": "application/json",
+  }, body: JSON.stringify({ prompt }) }).then((response) => response.json());
+  await fetch(`${origin}/api/runs/${created.run.id}/approve-model`, { method: "POST", headers: {
+    origin, cookie: firstCookie, connection: "close", "content-type": "application/json",
+  }, body: JSON.stringify({ approvalHash: created.run.modelApproval.approvalHash }) }).then((response) => response.json());
+  await waitForLocal(origin, firstCookie, created.run.id, "awaiting_asset_approval");
+  await first.stop();
+  assert.equal(modelCalls, 1);
+  assert.notEqual(pending, null);
+
+  const second = createPrototypeHost({ profile: "r12", port, configuration: configuration({ modelReady: false }), operations });
+  t.after(() => second.stop());
+  await second.start();
+  const secondBootstrap = await fetch(`${origin}/api/bootstrap`, { headers: { origin, connection: "close" } });
+  const secondBody = await secondBootstrap.json();
+  const secondCookie = secondBootstrap.headers.get("set-cookie").split(";")[0];
+  const restored = secondBody.runs.find((run) => run.status === "awaiting_asset_approval");
+  assert.ok(restored);
+  await fetch(`${origin}/api/runs/${restored.id}/approve-assets`, { method: "POST", headers: {
+    origin, cookie: secondCookie, connection: "close", "content-type": "application/json",
+  }, body: JSON.stringify({ approvalHash: restored.assetApproval.approvalHash }) }).then((response) => response.json());
+  await waitForLocal(origin, secondCookie, restored.id, "ready");
+  await second.stop();
+  assert.equal(modelCalls, 1);
+  assert.equal(published.prompt, null);
+  assert.match(published.promptSha256, /^sha256:[0-9a-f]{64}$/u);
+  assert.equal(published.model, "qualification-model");
+  assert.equal(pending, null);
+});
+
+test("R12 asset failure preserves the generated candidate and requires a fresh approval before retry", async (t) => {
+  const port = 43_118;
+  const origin = `http://127.0.0.1:${port}`;
+  const fixture = operationFixture({
+    async acquire({ onStage }) {
+      fixture.calls.acquire += 1;
+      if (fixture.calls.acquire === 1) {
+        return { ok: false, diagnostics: [{ code: "MESHY_PROVIDER_NETWORK_ERROR", path: "" }] };
+      }
+      onStage("normalizing");
+      return { ok: true, value: "acquired" };
+    },
+  });
+  const host = createPrototypeHost({ profile: "r12", port, configuration: configuration(), operations: fixture.operations });
+  await host.start();
+  t.after(() => host.stop());
+  const bootstrap = await fetch(`${origin}/api/bootstrap`, { headers: { origin, connection: "close" } });
+  const cookie = bootstrap.headers.get("set-cookie").split(";")[0];
+  const created = await fetch(`${origin}/api/runs`, { method: "POST", headers: {
+    origin, cookie, connection: "close", "content-type": "application/json",
+  }, body: JSON.stringify({ prompt: "Build a retry-safe neutral prototype." }) }).then((response) => response.json());
+  await fetch(`${origin}/api/runs/${created.run.id}/approve-model`, { method: "POST", headers: {
+    origin, cookie, connection: "close", "content-type": "application/json",
+  }, body: JSON.stringify({ approvalHash: created.run.modelApproval.approvalHash }) });
+  const waiting = await waitForLocal(origin, cookie, created.run.id, "awaiting_asset_approval");
+  await fetch(`${origin}/api/runs/${created.run.id}/approve-assets`, { method: "POST", headers: {
+    origin, cookie, connection: "close", "content-type": "application/json",
+  }, body: JSON.stringify({ approvalHash: waiting.assetApproval.approvalHash }) });
+  const retryable = await waitForLocal(origin, cookie, created.run.id, "awaiting_asset_approval");
+  assert.deepEqual(retryable.diagnostics.map(({ code }) => code), ["MESHY_PROVIDER_NETWORK_ERROR"]);
+  assert.equal(retryable.assetApproval.approved, false);
+  assert.equal(fixture.calls.discardPending, 0);
+  await fetch(`${origin}/api/runs/${created.run.id}/approve-assets`, { method: "POST", headers: {
+    origin, cookie, connection: "close", "content-type": "application/json",
+  }, body: JSON.stringify({ approvalHash: retryable.assetApproval.approvalHash }) });
+  const ready = await waitForLocal(origin, cookie, created.run.id, "ready");
+  assert.equal(ready.resultRunId, VALID_RUN);
+  assert.deepEqual({ generate: fixture.calls.generate, acquire: fixture.calls.acquire,
+    persistPending: fixture.calls.persistPending, discardPending: fixture.calls.discardPending },
+  { generate: 1, acquire: 2, persistPending: 1, discardPending: 1 });
+});
+
+async function waitForLocal(origin, cookie, id, expected) {
+  for (let index = 0; index < 100; index += 1) {
+    const response = await fetch(`${origin}/api/runs/${id}`, { headers: { origin, cookie, connection: "close" } });
+    const body = await response.json();
+    if (body.run?.status === expected) return body.run;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(`run did not reach ${expected}`);
 }
 
 async function startHost(overrides = {}, config = configuration()) {
@@ -118,6 +271,144 @@ test("host constants and public construction surface are fixed", () => {
     PrototypeHostOperationalError);
 });
 
+test("R12 recovery is content-bound and runs only after its dedicated Creator approval", async (t) => {
+  const fixture = operationFixture();
+  let recoveries = 0;
+  const port = 43_112;
+  const origin = `http://127.0.0.1:${port}`;
+  const host = createPrototypeHost({ profile: "r12", port, configuration: configuration(), operations: fixture.operations,
+    recovery: {
+      summary: { model: "marble-1.1", worldIdSha256: `sha256:${"1".repeat(64)}`,
+        maxCreates: 0, maxPolls: 0, maxWorldGets: 0, maxDownloads: 0, creditLimit: 0, usdLimitCents: 0 },
+      async execute() { recoveries += 1; return { ok: true }; },
+    } });
+  await host.start(); t.after(() => host.stop());
+  const bootstrapResponse = await fetch(`${origin}/api/bootstrap`, { headers: { origin } });
+  const cookie = bootstrapResponse.headers.get("set-cookie")?.split(";", 1)[0];
+  const bootstrap = await bootstrapResponse.json();
+  assert.equal(recoveries, 0);
+  assert.equal(bootstrap.recovery.status, "awaiting_approval");
+  assert.equal(bootstrap.recovery.maxWorldGets, 0);
+  assert.equal(bootstrap.recovery.maxDownloads, 0);
+  assert.equal(JSON.stringify(bootstrap).includes("705fd38b"), false);
+  const approved = await fetch(`${origin}/api/recovery/approve`, { method: "POST",
+    headers: { origin, cookie, "content-type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ approvalHash: bootstrap.recovery.approvalHash }) });
+  assert.equal(approved.status, 202);
+  for (let index = 0; index < 20 && recoveries === 0; index += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(recoveries, 1);
+  const duplicate = await fetch(`${origin}/api/recovery/approve`, { method: "POST",
+    headers: { origin, cookie, "content-type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ approvalHash: bootstrap.recovery.approvalHash }) });
+  assert.equal(duplicate.status, 409);
+});
+
+test("R12 worlds:list discovery is single-use, read-only, and exposes only candidate hashes", async (t) => {
+  const fixture = operationFixture();
+  let listRequests = 0;
+  let recoveries = 0;
+  const port = 43_117;
+  const origin = `http://127.0.0.1:${port}`;
+  const rawWorldId = "world-private-sentinel";
+  const rawPrompt = "PRIVATE-PROMPT-SENTINEL";
+  const host = createPrototypeHost({ profile: "r12", port, configuration: configuration(), operations: fixture.operations,
+    worldDiscovery: {
+      summary: { provider: "world-labs-marble", operation: "worlds:list", model: "marble-1.1", pageSize: 100,
+        status: "SUCCEEDED", sortBy: "created_at", maxRequests: 1, maxCreates: 0, maxPolls: 0,
+        maxWorldGets: 0, maxDownloads: 0, creditLimit: 0, usdLimitCents: 0 },
+      async execute() {
+        listRequests += 1;
+        return { ok: true, worlds: [{ worldId: rawWorldId, createdAt: "2026-08-14T12:00:00Z",
+          updatedAt: "2026-08-14T12:30:00Z", model: "marble-1.1", worldPrompt: rawPrompt,
+          assets: { panorama: true, collider: true, spatialSource: true } }],
+        counts: { listRequests: 1, creates: 0, polls: 0, worldGets: 0, downloads: 0 } };
+      },
+      async recover(worldId) {
+        assert.equal(worldId, rawWorldId);
+        recoveries += 1;
+        return { ok: true };
+      },
+    } });
+  await host.start(); t.after(() => host.stop());
+  const bootstrapResponse = await fetch(`${origin}/api/bootstrap`, { headers: { origin } });
+  const cookie = bootstrapResponse.headers.get("set-cookie")?.split(";", 1)[0];
+  const bootstrap = await bootstrapResponse.json();
+  assert.equal(listRequests, 0);
+  assert.equal(bootstrap.worldDiscovery.statusState, "awaiting_approval");
+  assert.equal(JSON.stringify(bootstrap).includes(rawWorldId), false);
+  assert.equal(JSON.stringify(bootstrap).includes(rawPrompt), false);
+  const approved = await fetch(`${origin}/api/world-discovery/approve`, { method: "POST",
+    headers: { origin, cookie, "content-type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ approvalHash: bootstrap.worldDiscovery.approvalHash }) });
+  assert.equal(approved.status, 202);
+  for (let index = 0; index < 20 && listRequests === 0; index += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(listRequests, 1);
+  const completed = await fetch(`${origin}/api/bootstrap`, { headers: { origin, cookie } });
+  const body = await completed.json();
+  assert.equal(body.worldDiscovery.statusState, "ready");
+  assert.equal(body.worldDiscovery.candidates.length, 1);
+  assert.match(body.worldDiscovery.candidates[0].worldIdSha256, /^sha256:[0-9a-f]{64}$/u);
+  assert.match(body.worldDiscovery.candidates[0].promptSha256, /^sha256:[0-9a-f]{64}$/u);
+  assert.equal(JSON.stringify(body).includes(rawWorldId), false);
+  assert.equal(JSON.stringify(body).includes(rawPrompt), false);
+  const prepared = await fetch(`${origin}/api/world-discovery/prepare-recovery`, { method: "POST",
+    headers: { origin, cookie, "content-type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ worldIdSha256: body.worldDiscovery.candidates[0].worldIdSha256 }) });
+  assert.equal(prepared.status, 200);
+  const preparedBody = await prepared.json();
+  assert.equal(preparedBody.worldDiscovery.recovery.status, "awaiting_approval");
+  assert.equal(preparedBody.worldDiscovery.recovery.maxWorldGets, 1);
+  assert.equal(preparedBody.worldDiscovery.recovery.maxDownloads, 3);
+  assert.equal(JSON.stringify(preparedBody).includes(rawWorldId), false);
+  assert.equal(recoveries, 0);
+  const recovered = await fetch(`${origin}/api/world-discovery/approve-recovery`, { method: "POST",
+    headers: { origin, cookie, "content-type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ approvalHash: preparedBody.worldDiscovery.recovery.approvalHash }) });
+  assert.equal(recovered.status, 202);
+  for (let index = 0; index < 20 && recoveries === 0; index += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(recoveries, 1);
+  const duplicate = await fetch(`${origin}/api/world-discovery/approve`, { method: "POST",
+    headers: { origin, cookie, "content-type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ approvalHash: bootstrap.worldDiscovery.approvalHash }) });
+  assert.equal(duplicate.status, 409);
+  assert.equal(listRequests, 1);
+});
+
+test("R12 recovered environment changes the Creator asset approval to zero Marble calls", async (t) => {
+  const fixture = operationFixture({
+    async describeAssets() {
+      fixture.calls.describeAssets += 1;
+      return { ok: true, blueprintSha256: `sha256:${"e".repeat(64)}`,
+        environmentPrompt: "A neutral enclosed room.", environmentCached: true,
+        briefs: [{ id: "asset-prop", kind: "prop", prompt: "A neutral console." }] };
+    },
+  });
+  const port = 43_113;
+  const origin = `http://127.0.0.1:${port}`;
+  const host = createPrototypeHost({ profile: "r12", port, configuration: configuration(), operations: fixture.operations });
+  await host.start(); t.after(() => host.stop());
+  const bootstrapResponse = await fetch(`${origin}/api/bootstrap`, { headers: { origin } });
+  const cookie = bootstrapResponse.headers.get("set-cookie")?.split(";", 1)[0];
+  const createdResponse = await fetch(`${origin}/api/runs`, { method: "POST",
+    headers: { origin, cookie, "content-type": "application/json" },
+    body: JSON.stringify({ prompt: "Build one neutral interactive prototype." }) });
+  const created = (await createdResponse.json()).run;
+  await fetch(`${origin}/api/runs/${created.id}/approve-model`, { method: "POST",
+    headers: { origin, cookie, "content-type": "application/json" },
+    body: JSON.stringify({ approvalHash: created.modelApproval.approvalHash }) });
+  let waiting = null;
+  for (let index = 0; index < 100; index += 1) {
+    const response = await fetch(`${origin}/api/runs/${created.id}`, { headers: { origin, cookie } });
+    const body = await response.json();
+    if (body.run?.status === "awaiting_asset_approval") { waiting = body.run; break; }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(waiting?.assetApproval.marble.recovered, true);
+  assert.deepEqual({ creates: waiting.assetApproval.marble.maxCreates, polls: waiting.assetApproval.marble.maxPolls,
+    downloads: waiting.assetApproval.marble.maxDownloads, credits: waiting.assetApproval.marble.creditLimit },
+  { creates: 0, polls: 0, downloads: 0, credits: 0 });
+});
+
 test("same-origin bootstrap issues one HttpOnly strict cookie and no CORS surface", async (t) => {
   const { host } = await startHost(); t.after(() => host.stop());
   const foreign = await request("/api/bootstrap", { origin: "https://attacker.invalid" });
@@ -153,6 +444,70 @@ test("model and asset approvals are content-bound and external operations start 
   assert.equal(duplicate.status, 409); assert.equal(calls.acquire, 1);
 });
 
+test("asset approval expands to six briefs and twelve bounded Meshy tasks", async () => {
+  const briefs = Array.from({ length: 6 }, (_, index) => ({
+    id: `asset-${index}`,
+    kind: index % 2 === 0 ? "prop" : "character-placeholder",
+    prompt: `Neutral asset brief ${index}`,
+  }));
+  const fixture = operationFixture({
+    async describeAssets() {
+      fixture.calls.describeAssets += 1;
+      return {
+        ok: true,
+        blueprintSha256: `sha256:${"e".repeat(64)}`,
+        environmentPrompt: "A connected neutral environment.",
+        briefs,
+      };
+    },
+  });
+  const host = createPrototypeHost({ configuration: configuration(), operations: fixture.operations });
+  await host.start();
+  try {
+    const { cookie } = await session();
+    const created = await createRun(cookie);
+    await request(`/api/runs/${created.body.run.id}/approve-model`, {
+      method: "POST",
+      cookie,
+      body: { approvalHash: created.body.run.modelApproval.approvalHash },
+    });
+    const waiting = await waitFor(cookie, created.body.run.id, "awaiting_asset_approval");
+    assert.deepEqual(waiting.assetApproval.meshy.briefs, briefs);
+    assert.equal(waiting.assetApproval.meshy.maxTasks, 12);
+    assert.equal(waiting.assetApproval.meshy.creditLimit, 180);
+    assert.equal(fixture.calls.acquire, 0);
+  } finally {
+    await host.stop();
+  }
+
+  const overLimit = operationFixture({
+    async describeAssets() {
+      return {
+        ok: true,
+        blueprintSha256: `sha256:${"e".repeat(64)}`,
+        environmentPrompt: "A connected neutral environment.",
+        briefs: [...briefs, { id: "asset-6", kind: "prop", prompt: "One extra brief" }],
+      };
+    },
+  });
+  const rejectedHost = createPrototypeHost({ configuration: configuration(), operations: overLimit.operations });
+  await rejectedHost.start();
+  try {
+    const { cookie } = await session();
+    const created = await createRun(cookie);
+    await request(`/api/runs/${created.body.run.id}/approve-model`, {
+      method: "POST",
+      cookie,
+      body: { approvalHash: created.body.run.modelApproval.approvalHash },
+    });
+    const failed = await waitFor(cookie, created.body.run.id, "failed");
+    assert.equal(failed.diagnostics[0].code, "PROTOTYPE_HOST_GENERATION_FAILED");
+    assert.equal(overLimit.calls.acquire, 0);
+  } finally {
+    await rejectedHost.stop();
+  }
+});
+
 test("only one nonterminal run exists and a cache hit requires no approval or provider operation", async (t) => {
   const fixture = operationFixture({ async findCache() { fixture.calls.findCache += 1; return { ok: true, runId: SECOND_RUN }; } });
   const host = createPrototypeHost({ configuration: configuration({ modelReady: false, assetsReady: false }), operations: fixture.operations });
@@ -163,18 +518,23 @@ test("only one nonterminal run exists and a cache hit requires no approval or pr
   const current = await request("/api/runs/current", { cookie }); assert.equal(current.body.currentRunId, SECOND_RUN);
 });
 
-test("acquiring, normalizing, and assembling are separately observable in the fixed order", async (t) => {
-  let releaseAcquire; let releaseNormalize; let releasePublish;
+test("acquiring, normalizing, spatializing, and assembling are separately observable in the fixed order", async (t) => {
+  let releaseAcquire; let releaseNormalize; let releaseSpatialize; let releasePublish;
   const acquireGate = new Promise((resolve) => { releaseAcquire = resolve; });
   const normalizeGate = new Promise((resolve) => { releaseNormalize = resolve; });
+  const spatializeGate = new Promise((resolve) => { releaseSpatialize = resolve; });
   const publishGate = new Promise((resolve) => { releasePublish = resolve; });
   let normalized; const normalizedSignal = new Promise((resolve) => { normalized = resolve; });
   let assembling; const assemblingSignal = new Promise((resolve) => { assembling = resolve; });
+  let spatialized; const spatializedSignal = new Promise((resolve) => { spatialized = resolve; });
   const { host } = await startHost({
-    async acquire({ onStage }) { await acquireGate; onStage("normalizing"); normalized(); await normalizeGate; return { ok: true }; },
+    async acquire({ onStage }) {
+      await acquireGate; onStage("normalizing"); normalized(); await normalizeGate;
+      onStage("spatializing"); spatialized(); await spatializeGate; return { ok: true };
+    },
     async publish() { assembling(); await publishGate; return { ok: true, runId: VALID_RUN }; },
   });
-  t.after(async () => { releaseAcquire(); releaseNormalize(); releasePublish(); await host.stop(); });
+  t.after(async () => { releaseAcquire(); releaseNormalize(); releaseSpatialize(); releasePublish(); await host.stop(); });
   const { cookie } = await session(); const created = await createRun(cookie);
   await request(`/api/runs/${created.body.run.id}/approve-model`, { method: "POST", cookie,
     body: { approvalHash: created.body.run.modelApproval.approvalHash } });
@@ -184,7 +544,9 @@ test("acquiring, normalizing, and assembling are separately observable in the fi
   assert.equal((await getRun(cookie, created.body.run.id)).body.run.status, "acquiring");
   releaseAcquire(); await normalizedSignal;
   assert.equal((await getRun(cookie, created.body.run.id)).body.run.status, "normalizing");
-  releaseNormalize(); await assemblingSignal;
+  releaseNormalize(); await spatializedSignal;
+  assert.equal((await getRun(cookie, created.body.run.id)).body.run.status, "spatializing");
+  releaseSpatialize(); await assemblingSignal;
   assert.equal((await getRun(cookie, created.body.run.id)).body.run.status, "assembling");
   releasePublish(); await waitFor(cookie, created.body.run.id, "ready");
 });
@@ -276,6 +638,7 @@ test("host and preview source do not implement provider networking or expose sec
   assert.equal(hostSource.includes("fetch("), false); assert.equal(hostSource.includes("process.env"), false);
   const preview = await readFile(new URL("../scripts/preview-prototype.mjs", import.meta.url), "utf8");
   assert.equal(preview.includes("console.log"), false); assert.equal(preview.includes("shell: true"), false);
+  assert.equal(preview.includes('assemblyProfile: "matrix-oasis.prototype-assembly/2"'), true);
   assert.equal(preview.includes("environmentPrompt: environmentPlan.plan.environmentPrompt"), true);
   assert.equal(preview.includes("environmentPrompt: blueprint.scene.environmentPrompt"), false);
   for (const forbidden of ["LLM_GATEWAY_", "OPENROUTER_API_KEY", "WORLD_LABS_API_KEY"]) assert.equal(preview.includes(forbidden), false);

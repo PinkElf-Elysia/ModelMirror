@@ -503,9 +503,12 @@ h1 {
 .upload-summary ul {
   display: grid;
   gap: 0.625rem;
+  max-height: 18rem;
   margin: 0.75rem 0 0;
+  overflow-y: auto;
   padding: 0;
   list-style: none;
+  scrollbar-gutter: stable;
 }
 
 .upload-summary li {

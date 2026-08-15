@@ -7,3 +7,5 @@ Provider 固定调用配置 endpoint 的 `/v1/chat/completions`，使用非流�
 普通测试只连接 loopback 假服务。任何真实模型调用必须先完成 `docs/MODEL_CALL_APPROVAL.md` 的当次人工审批。
 
 生成编排最多执行一次初始请求和两次定向修复；有效Proposal继续通过冻结Compiler、Runtime prepare和初始Session检查。成功只返回五个canonical JSON字符串，失败只返回静态、排序稳定的内容diagnostics；依赖故障统一为`PROTOTYPE_GENERATOR_INTERNAL_ERROR`。
+
+R12 向 `generatePrototype` 增加可选第三参数 `{ acceptanceProfile }`。Profile 只使用数量范围、结构可达性、可达循环和非环境 brief 绑定等通用约束；它不执行 action condition，也不包含案例 ID 或题材文案。合法 Proposal 若未达到 Profile，会复用原有两轮定向修复预算；旧的两参数调用保持原行为和输出结构不变。

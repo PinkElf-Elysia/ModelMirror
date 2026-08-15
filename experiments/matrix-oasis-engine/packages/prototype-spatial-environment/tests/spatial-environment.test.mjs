@@ -9,6 +9,7 @@ import {
   PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS,
   PrototypeSpatialEnvironmentOperationalError,
   materializePrototypeSpatialEnvironment,
+  materializePrototypeSpatialEnvironmentFromSource,
   validatePrototypeSpatialEnvironmentBundleJson,
 } from "../src/index.mjs";
 import { convertSpzToCompressedPly } from "../src/convert.mjs";
@@ -139,6 +140,28 @@ function calibration() {
   };
 }
 
+function spatialSourceFixture(environment) {
+  const source = spz();
+  const collider = environment.files.get("assets/environment-collider.glb");
+  const bundle = {
+    format: "matrix-oasis.prototype-spatial-source-bundle",
+    formatVersion: "0.1.0",
+    canonicalization: "matrix-oasis.canonical-json/1",
+    scene: { id: "neutral-room", contentVersion: "1", title: "Neutral Room" },
+    blueprint: { format: "matrix-oasis.scene-blueprint", formatVersion: "0.1.0", canonicalSha256: sha256("blueprint") },
+    environment: {
+      bundleSha256: sha256(environment.json),
+      collider: { path: "assets/environment-collider.glb", byteLength: collider.byteLength, sha256: sha256(collider) },
+    },
+    source: { path: "assets/environment.spz", format: "spz", resolution: "full_res", byteLength: source.byteLength, sha256: sha256(source) },
+    scale: { metricScaleMicros: 1_000_000, groundPlaneOffsetMm: -125 },
+  };
+  return {
+    json: canonicalizeJsonValue(bundle),
+    files: new Map([["assets/environment.spz", source], ["assets/environment-collider.glb", collider]]),
+  };
+}
+
 async function materialize() {
   const environment = environmentFixture();
   return materializePrototypeSpatialEnvironment({
@@ -157,6 +180,7 @@ test("publishes an exact minimal runtime surface", async () => {
     "PROTOTYPE_SPATIAL_ENVIRONMENT_LIMITS",
     "PrototypeSpatialEnvironmentOperationalError",
     "materializePrototypeSpatialEnvironment",
+    "materializePrototypeSpatialEnvironmentFromSource",
     "validatePrototypeSpatialEnvironmentBundleJson",
   ]);
   assert.equal(PROTOTYPE_SPATIAL_ENVIRONMENT_BUNDLE_FORMAT, "matrix-oasis.prototype-spatial-environment-bundle");
@@ -199,6 +223,41 @@ test("materializes SPZ and inherited collider into a canonical spatial bundle", 
   assert.deepEqual(await validatePrototypeSpatialEnvironmentBundleJson(result.canonicalBundleJson, files), { reportVersion: 1, valid: true, diagnostics: [] });
   const visible = `${result.canonicalBundleJson}${result.canonicalReportJson}`;
   for (const forbidden of ["operation", "world-safe", ["https", "://"].join(""), ["C:", "\\tmp"].join(""), "prompt"]) assert.equal(visible.includes(forbidden), false);
+});
+
+test("materializes the deterministic 640k pipeline directly from an official spatial source bundle", async () => {
+  const environment = environmentFixture();
+  const source = spatialSourceFixture(environment);
+  const result = await materializePrototypeSpatialEnvironmentFromSource({
+    environmentBundleJson: environment.json,
+    environmentFiles: environment.files,
+    spatialSourceBundleJson: source.json,
+    spatialSourceFiles: source.files,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.bundle.calibration.metricScaleMicros, 1_000_000);
+  assert.equal(result.bundle.calibration.groundPlaneOffsetMm, -125);
+  assert.deepEqual(result.bundle.calibration.godotTranslationMm, [0, 0, 0]);
+  assert.deepEqual(result.bundle.calibration.godotRotationMilliDegrees, [0, 0, 0]);
+  assert.equal(result.bundle.assets.splat.derivation.targetNumGaussians, 640_000);
+  const changed = JSON.parse(source.json);
+  changed.scale.metricScaleMicros += 1;
+  const rejected = await materializePrototypeSpatialEnvironmentFromSource({
+    environmentBundleJson: environment.json,
+    environmentFiles: environment.files,
+    spatialSourceBundleJson: canonicalizeJsonValue(changed),
+    spatialSourceFiles: source.files,
+  });
+  assert.equal(rejected.ok, true);
+  assert.equal(rejected.bundle.calibration.metricScaleMicros, 1_000_001);
+  const drifted = new Map(source.files);
+  drifted.set("assets/environment.spz", Uint8Array.of(1));
+  assert.equal((await materializePrototypeSpatialEnvironmentFromSource({
+    environmentBundleJson: environment.json,
+    environmentFiles: environment.files,
+    spatialSourceBundleJson: source.json,
+    spatialSourceFiles: drifted,
+  })).diagnostics[0].code, "PROTOTYPE_SPATIAL_ENVIRONMENT_SOURCE_BUNDLE_INVALID");
 });
 
 test("repeats the synthetic conversion byte-for-byte twenty times", async () => {

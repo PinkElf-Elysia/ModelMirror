@@ -399,6 +399,17 @@ test("public provider sends one strict non-streaming JSON Schema request", async
       "matrix-oasis.prototype-generation-proposal",
     );
     const userMessage = JSON.parse(requests[0].body.messages[1].content);
+    assert.match(requests[0].body.messages[0].content, /scene blueprint scene id and content version must exactly equal/u);
+    assert.match(requests[0].body.messages[0].content, /exactly one environment asset brief and exactly one placement/u);
+    assert.match(requests[0].body.messages[0].content, /single environment placement id in every node binding visiblePlacementIds list/u);
+    assert.match(requests[0].body.messages[0].content, /every node binding must keep the environment placement visible/u);
+    assert.match(requests[0].body.messages[0].content, /Every authoring node must be reachable from the entry node/u);
+    assert.match(requests[0].body.messages[0].content, /must have a directed path to at least one ending/u);
+    assert.match(requests[0].body.messages[0].content, /executable from the initial state under the generated conditions and effects/u);
+    assert.match(requests[0].body.messages[0].content, /every min\/max count and reachability boolean is a hard constraint/u);
+    assert.match(requests[0].body.messages[0].content, /every prop and character-placeholder exactly one entity-bound placement/u);
+    assert.match(requests[0].body.messages[0].content, /at least one node binding visiblePlacementIds list/u);
+    assert.match(requests[0].body.messages[0].content, /boolean variable initialized to true and never modify it/u);
     assert.deepEqual(userMessage, {
       requestKind: "initial",
       prompt: "Create a neutral room with one console and one ending.",
@@ -406,7 +417,7 @@ test("public provider sends one strict non-streaming JSON Schema request", async
   });
 });
 
-test("repair request contains only candidate, static diagnostics, and the original schema", async () => {
+test("repair request contains only candidate, static diagnostics, safe directives, and the original schema", async () => {
   let requestBody;
   await withServer(async (request, response) => {
     requestBody = JSON.parse(await readRequest(request));
@@ -416,7 +427,9 @@ test("repair request contains only candidate, static diagnostics, and the origin
       kind: "repair",
       previousCandidate: '{"invalid":true}',
       diagnostics: [
-        { code: "PROTOTYPE_PROPOSAL_SCHEMA_REQUIRED", path: "/sceneBlueprint" },
+        { code: "PACK_NODE_UNREACHABLE", path: "/authoringGamePack/nodes/6" },
+        { code: "PROTOTYPE_ACCEPTANCE_ACTIVE_DEADLOCK", path: "/authoringGamePack/nodes" },
+        { code: "PROTOTYPE_ACCEPTANCE_ASSET_VISIBILITY_REQUIRED", path: "/sceneBlueprint/nodeBindings" },
       ],
     });
   });
@@ -425,6 +438,7 @@ test("repair request contains only candidate, static diagnostics, and the origin
     "requestKind",
     "previousCandidate",
     "diagnostics",
+    "repairDirectives",
     "schema",
   ]);
   assert.equal(repair.requestKind, "repair");
@@ -436,7 +450,78 @@ test("repair request contains only candidate, static diagnostics, and the origin
   assert.equal(schemaHasKeyword(repair.schema, "$id"), true);
   assert.equal(objectSchemasWithIncompleteRequired(repair.schema).length > 0, true);
   assert.deepEqual(repair.diagnostics, [
-    { code: "PROTOTYPE_PROPOSAL_SCHEMA_REQUIRED", path: "/sceneBlueprint" },
+    { code: "PACK_NODE_UNREACHABLE", path: "/authoringGamePack/nodes/6" },
+    { code: "PROTOTYPE_ACCEPTANCE_ACTIVE_DEADLOCK", path: "/authoringGamePack/nodes" },
+    { code: "PROTOTYPE_ACCEPTANCE_ASSET_VISIBILITY_REQUIRED", path: "/sceneBlueprint/nodeBindings" },
+  ]);
+  assert.deepEqual(repair.repairDirectives, [
+    "Rebuild the directed node graph from entryNodeId so every declared node is reached by at least one action target; keep nodeBindings synchronized and do not leave decorative disconnected nodes.",
+    "Remove every reachable active deadlock: keep one boolean variable initialized true and never modified, then give every non-ending node at least one coherent fallback action whose when condition compares that variable equal to true.",
+    "For every non-environment asset brief, find its entity-bound placement and include that exact placement id in at least one node binding visiblePlacementIds list; keep the environment placement visible in every node binding.",
+  ]);
+});
+
+test("profile generation and repair use only normalized constraints and bounded provider schema", async () => {
+  const requestBodies = [];
+  const acceptanceProfile = {
+    format: "matrix-oasis.prototype-acceptance-profile",
+    formatVersion: "0.1.0",
+    nodes: { min: 7, max: 16 },
+    endings: { min: 3, max: 3 },
+    actions: { min: 15, max: 1024 },
+    zones: { min: 2, max: 4 },
+    props: { min: 3, max: 3 },
+    characterPlaceholders: { min: 3, max: 3 },
+    requireReachableCycle: true,
+    requireAllEndingsReachable: true,
+    requireAllNonEnvironmentBriefsBound: true,
+  };
+  await withServer(async (request, response) => {
+    requestBodies.push(JSON.parse(await readRequest(request)));
+    sendJson(response, 200, responseEnvelope("{}"));
+  }, async (endpoint) => {
+    await provider(endpoint).requestProposal({
+      kind: "initial",
+      prompt: "Create a connected neutral prototype",
+      acceptanceProfile,
+    });
+    await provider(endpoint).requestProposal({
+      kind: "repair",
+      previousCandidate: '{"invalid":true}',
+      diagnostics: [
+        { code: "PROTOTYPE_ACCEPTANCE_ACTION_COUNT", path: "/authoringGamePack/nodes" },
+        { code: "PROTOTYPE_ACCEPTANCE_REACHABLE_CYCLE_REQUIRED", path: "/authoringGamePack/nodes" },
+        { code: "PROTOTYPE_ACCEPTANCE_STATE_SPACE_LIMIT", path: "/authoringGamePack" },
+      ],
+      acceptanceProfile,
+    });
+  });
+  const initialBody = requestBodies[0];
+  const initial = JSON.parse(initialBody.messages[1].content);
+  assert.match(initialBody.messages[0].content, /environmentPrompt must be at most 320 characters/u);
+  assert.match(initialBody.messages[0].content, /visualStylePrompt at most 120 characters/u);
+  assert.deepEqual(initial, {
+    requestKind: "initial",
+    prompt: "Create a connected neutral prototype",
+    acceptanceProfile,
+  });
+  const boundedScene = initialBody.response_format.json_schema.schema.$defs.sceneBlueprint__scene;
+  assert.equal(boundedScene.properties.environmentPrompt.maxLength, 320);
+  assert.equal(boundedScene.properties.visualStylePrompt.maxLength, 120);
+  const requestBody = requestBodies[1];
+  const repair = JSON.parse(requestBody.messages[1].content);
+  assert.match(requestBody.messages[0].content, /environmentPrompt must be at most 320 characters/u);
+  assert.match(requestBody.messages[0].content, /visualStylePrompt at most 120 characters/u);
+  assert.match(requestBody.messages[0].content, /cycle semantically finite or state-stable/u);
+  assert.deepEqual(repair.acceptanceProfile, acceptanceProfile);
+  assert.deepEqual(repair.repairDirectives, [
+    "Adjust the total declared action count to the acceptanceProfile.actions range without adding unreachable nodes or unavailable-only states.",
+    "Add an executable node-target back edge reachable from the entry while preserving executable paths to every ending.",
+    "Make every reachable cycle semantically finite or state-stable: remove unbounded integer additions and enum rotations from back edges, preferably using a cycle action with no effects while preserving executable paths to every ending.",
+  ]);
+  assert.equal("prompt" in repair, false);
+  assert.deepEqual(Reflect.ownKeys(repair), [
+    "requestKind", "previousCandidate", "diagnostics", "repairDirectives", "acceptanceProfile", "schema",
   ]);
 });
 
