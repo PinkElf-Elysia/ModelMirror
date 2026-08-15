@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 try:
     from server.workflow_native.node_contracts import WorkflowAgentPlannerConfig
@@ -87,6 +87,11 @@ class MetaPlannerTask(BaseModel):
     agent_id: str | None = Field(default=None, min_length=1, max_length=160)
     acceptance: str = Field(default="", max_length=2_000)
     method_skill_ids: list[str] = Field(default_factory=list, max_length=1)
+    task_type: Literal["expert", "human_input", "approval"] = "expert"
+    interaction_prompt: str = Field(default="", max_length=4_000)
+    output_variable: str | None = Field(
+        default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+    )
 
     @field_validator("method_skill_ids")
     @classmethod
@@ -96,6 +101,24 @@ class MetaPlannerTask(BaseModel):
         if any(not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,159}", item) for item in value):
             raise ValueError("method_skill_ids contains an invalid Skill id")
         return value
+
+    @model_validator(mode="after")
+    def validate_task_type(self) -> "MetaPlannerTask":
+        if self.task_type == "expert":
+            if self.interaction_prompt:
+                raise ValueError("Expert tasks cannot define interaction_prompt")
+            return self
+        if self.agent_id:
+            raise ValueError("HITL tasks cannot bind agent_id")
+        if self.method_skill_ids:
+            raise ValueError("HITL tasks cannot bind method Skills")
+        if self.acceptance:
+            raise ValueError("HITL tasks cannot define acceptance")
+        if not self.interaction_prompt.strip():
+            raise ValueError("HITL tasks require interaction_prompt")
+        if not self.output_variable:
+            raise ValueError("HITL tasks require output_variable")
+        return self
 
 
 class MetaPlannerTaskPlan(BaseModel):

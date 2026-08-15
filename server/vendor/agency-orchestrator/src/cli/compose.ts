@@ -5,7 +5,8 @@
  * 支持中文（agency-agents-zh）和英文（agency-agents）角色库。
  *
  * MODELMIRROR MODIFICATION (2026-08-11): accepts a host-provided role
- * catalog, rejects incomplete pinned line-ups, and reports whether the
+ * catalog, accepts an optional host system-prompt appendix, rejects incomplete
+ * pinned line-ups, and reports whether the
  * upstream repair chain changed the first generated YAML. Rebased onto
  * upstream Blob SHA: 95f173675f0b17d2576bdefebf228d5d19740ad2.
  */
@@ -462,6 +463,8 @@ export async function composeWorkflow(options: {
   budget?: boolean;
   /** 生成 YAML 里 agents_dir 的名字（多语言角色库如 "agency-agents-ko"）；缺省按 lang 用 zh/en 内置库名 */
   agentsDirName?: string;
+  /** Host-owned rules appended after the upstream system prompt. */
+  systemPromptAppendix?: string;
 }): Promise<{ yaml: string; savedPath: string; relativePath: string; warnings: string[]; repairUsed: boolean }> {
   const { description, agentsDir, llmConfig } = options;
   const lang = options.lang ?? detectLang(description);
@@ -483,7 +486,7 @@ export async function composeWorkflow(options: {
   const catalog = formatCatalogForPrompt(roles);
 
   // 2. 构建 prompt
-  const systemPrompt = buildComposeSystemPrompt(catalog, {
+  const upstreamSystemPrompt = buildComposeSystemPrompt(catalog, {
     autoRun: options.autoRun,
     provider: options.llmConfig.provider,
     model: options.llmConfig.model,
@@ -491,6 +494,9 @@ export async function composeWorkflow(options: {
     timeoutMs: options.timeoutMs,
     agentsDirName: options.agentsDirName,
   });
+  const systemPrompt = options.systemPromptAppendix?.trim()
+    ? `${upstreamSystemPrompt}\n\n## Host execution constraints (override conflicting general guidance)\n\n${options.systemPromptAppendix.trim()}`
+    : upstreamSystemPrompt;
   let userPrompt = buildComposeUserPrompt(description, lang);
   if (options.pinnedRoles?.length) {
     const names = roles.map(r => `${r.path}（${r.name}）`).join(lang === 'en' ? ', ' : '、');

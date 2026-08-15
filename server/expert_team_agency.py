@@ -23,7 +23,38 @@ except ModuleNotFoundError:
 
 
 AGENCY_UPSTREAM_PROJECT = "jnMetaCode/agency-orchestrator"
-EXPERT_TEAM_AGENCY_MAX_STEPS = 8
+EXPERT_TEAM_AGENCY_MAX_STEPS = 6
+_WORKFLOW_MOUSTACHE_PATTERN = re.compile(
+    r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}"
+)
+_WORKFLOW_FORMAT_PATTERN = re.compile(
+    r"(?<!\{)\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}(?!\})"
+)
+
+
+def _literalize_unbound_role_placeholders(
+    role_prompt: str,
+    *,
+    available_variables: set[str],
+) -> str:
+    """Keep catalog prompt examples literal unless the DAG actually provides them."""
+
+    sanitized = _WORKFLOW_MOUSTACHE_PATTERN.sub(
+        lambda match: (
+            match.group(0)
+            if match.group(1) in available_variables
+            else "[" + match.group(1) + "]"
+        ),
+        role_prompt,
+    )
+    # Catalog prompts contain Python/SQL-style examples such as ``{city}``.
+    # ModelMirror only renders moustache variables at runtime, while the static
+    # workflow validator also recognizes Python formatter fields.  Keep those
+    # catalog examples readable but outside the workflow variable namespace.
+    return _WORKFLOW_FORMAT_PATTERN.sub(
+        lambda match: "[" + match.group(1) + "]",
+        sanitized,
+    )
 
 
 class ExpertTeamAssetTeamWriteRequest(BaseModel):
@@ -190,11 +221,22 @@ def build_meta_planner_inputs(
         if isinstance(step, Mapping)
         for dependency in (step.get("depends_on") or [])
     }
-    missing_sink_acceptance = [
-        str(step.get("id") or "")
+    sink_steps = [
+        step
         for step in raw_steps
         if isinstance(step, Mapping)
         and str(step.get("id") or "") not in depended_on_ids
+    ]
+    if len(sink_steps) == 1 and str(
+        sink_steps[0].get("type") or "normal"
+    ).strip() in {"human_input", "approval"}:
+        raise ValueError(
+            "Agency Orchestrator final task must be an expert task, not a HITL interaction."
+        )
+    missing_sink_acceptance = [
+        str(step.get("id") or "")
+        for step in sink_steps
+        if str(step.get("type") or "normal").strip() == "normal"
         and not str(step.get("acceptance") or "").strip()
     ]
     if missing_sink_acceptance:
@@ -217,18 +259,28 @@ def build_meta_planner_inputs(
     tasks: list[MetaPlannerTask] = []
     agents: list[MetaPlannerAgentBlueprint] = []
     selected_ids: list[str] = []
+    interaction_count = 0
     for raw_step in raw_steps:
         assert isinstance(raw_step, Mapping)
         raw_id = str(raw_step.get("id") or "")
         task_id = task_ids[raw_id]
+        raw_type = str(raw_step.get("type") or "normal").strip()
+        if raw_type not in {"normal", "human_input", "approval"}:
+            raise ValueError(f"Task {raw_id} has unsupported type {raw_type}.")
+        task_type = "expert" if raw_type == "normal" else raw_type
         source_agent_id = str(raw_step.get("role") or "").strip()
-        expert = experts.get(source_agent_id)
-        if expert is None:
-            raise ValueError(
-                f"Agency Orchestrator selected unknown expert {source_agent_id}."
-            )
-        if source_agent_id not in selected_ids:
-            selected_ids.append(source_agent_id)
+        expert = experts.get(source_agent_id) if task_type == "expert" else None
+        if task_type == "expert":
+            if expert is None:
+                raise ValueError(
+                    f"Agency Orchestrator selected unknown expert {source_agent_id}."
+                )
+            if source_agent_id not in selected_ids:
+                selected_ids.append(source_agent_id)
+        else:
+            interaction_count += 1
+            if interaction_count > 2:
+                raise ValueError("Agency Orchestrator generated more than two HITL steps.")
         raw_dependencies = raw_step.get("depends_on") or []
         if not isinstance(raw_dependencies, list):
             raise ValueError(f"Task {raw_id} has invalid dependencies.")
@@ -241,14 +293,21 @@ def build_meta_planner_inputs(
                 + ", ".join(unknown_dependencies)
             )
         depends_on = [task_ids[str(item)] for item in raw_dependencies]
-        objective = str(raw_step.get("task") or "").strip()
+        objective = str(raw_step.get("task") or raw_step.get("prompt") or "").strip()
         if not objective:
             raise ValueError(f"Task {raw_id} has no objective.")
         acceptance = str(raw_step.get("acceptance") or "").strip()
         output_variable = output_variables[task_id]
-        title = str(
-            raw_step.get("name") or _field(expert, "name") or task_id
-        ).strip()
+        title = str(raw_step.get("name") or (
+            _field(expert, "name") if expert is not None else (
+                "人工输入" if task_type == "human_input" else "人工审批"
+            )
+        ) or task_id).strip()
+        interaction_prompt = (
+            str(raw_step.get("prompt") or objective).strip()[:4_000]
+            if task_type != "expert"
+            else ""
+        )
         tasks.append(
             MetaPlannerTask(
                 task_id=task_id,
@@ -267,24 +326,38 @@ def build_meta_planner_inputs(
                     f"Produce {output_variable}. "
                     + (acceptance or "Deliver the assigned expert result.")
                 )[:1_000],
-                agent_id=source_agent_id,
-                acceptance=acceptance[:2_000],
+                agent_id=source_agent_id if task_type == "expert" else None,
+                acceptance=acceptance[:2_000] if task_type == "expert" else "",
                 method_skill_ids=(
-                    [method_skill_id] if method_skill_id else []
+                    [method_skill_id]
+                    if method_skill_id and task_type == "expert"
+                    else []
                 ),
-            )
-        )
-        agents.append(
-            MetaPlannerAgentBlueprint(
-                task_id=task_id,
-                name=title[:120],
-                role_prompt=_field(expert, "prompt")[:20_000],
-                task_input=objective[:8_000],
+                task_type=task_type,
+                interaction_prompt=interaction_prompt,
                 output_variable=output_variable,
-                model_id=default_agent_model_id,
-                source_agent_id=source_agent_id,
             )
         )
+        if expert is not None:
+            role_variables = {
+                "user_input",
+                "conversation_history",
+                *(output_variables[task_ids[str(item)]] for item in raw_dependencies),
+            }
+            agents.append(
+                MetaPlannerAgentBlueprint(
+                    task_id=task_id,
+                    name=title[:120],
+                    role_prompt=_literalize_unbound_role_placeholders(
+                        _field(expert, "prompt")[:20_000],
+                        available_variables=role_variables,
+                    ),
+                    task_input=objective[:8_000],
+                    output_variable=output_variable,
+                    model_id=default_agent_model_id,
+                    source_agent_id=source_agent_id,
+                )
+            )
 
     selected = [
         {
@@ -316,3 +389,198 @@ def build_meta_planner_inputs(
         agents=agents,
     )
     return plan, blueprint, selected
+
+
+def compile_expert_team_hitl_candidate(
+    *,
+    plan: MetaPlannerTaskPlan,
+    blueprint: MetaPlannerBlueprint,
+    default_agent_model_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Compile HITL only for the Expert Team surface.
+
+    The generic Meta Planner compiler intentionally keeps human_intervention
+    unavailable to public Xpert and evaluation surfaces. This scoped compiler
+    uses the same native node and validation contracts without widening them.
+    """
+
+    task_by_id = {task.task_id: task for task in plan.tasks}
+    agent_by_task = {agent.task_id: agent for agent in blueprint.agents}
+    children = {task.task_id: [] for task in plan.tasks}
+    indegree = {task.task_id: len(task.depends_on) for task in plan.tasks}
+    for task in plan.tasks:
+        for dependency in task.depends_on:
+            if dependency not in children:
+                raise ValueError(f"Task {task.task_id} references unknown dependency.")
+            children[dependency].append(task.task_id)
+    pending = sorted(task_id for task_id, count in indegree.items() if count == 0)
+    order: list[str] = []
+    levels: dict[str, int] = {}
+    while pending:
+        task_id = pending.pop(0)
+        order.append(task_id)
+        task = task_by_id[task_id]
+        levels[task_id] = max(
+            (levels[dependency] for dependency in task.depends_on), default=-1
+        ) + 1
+        for child in sorted(children[task_id]):
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                pending.append(child)
+                pending.sort()
+    if len(order) != len(plan.tasks):
+        raise ValueError("Task plan contains a dependency cycle.")
+    sinks = [task_id for task_id in order if not children[task_id]]
+    if len(sinks) != 1 or task_by_id[sinks[0]].task_type != "expert":
+        raise ValueError("HITL plan requires one final expert sink.")
+
+    nodes: list[dict[str, Any]] = [
+        {
+            "id": "input",
+            "type": "input",
+            "position": {"x": 40, "y": 160},
+            "data": {
+                "kind": "input",
+                "title": "Conversation input",
+                "variableName": "user_input",
+                "historyVariable": "conversation_history",
+            },
+        }
+    ]
+    edges: list[dict[str, Any]] = []
+    node_ids: dict[str, str] = {}
+    outputs: dict[str, str] = {}
+    level_rows: dict[int, int] = {}
+    for task_id in order:
+        task = task_by_id[task_id]
+        level = levels[task_id]
+        row = level_rows.get(level, 0)
+        level_rows[level] = row + 1
+        output_variable = task.output_variable or f"{task_id}_output"
+        outputs[task_id] = output_variable
+        node_id = (
+            f"agent_{task_id}"
+            if task.task_type == "expert"
+            else f"hitl_{task_id}"
+        )
+        node_ids[task_id] = node_id
+        if task.task_type == "expert":
+            agent = agent_by_task.get(task_id)
+            if agent is None:
+                raise ValueError(f"Expert task {task_id} has no blueprint agent.")
+            role_variables = {
+                "user_input",
+                "conversation_history",
+                *(outputs[dependency] for dependency in task.depends_on),
+            }
+            task_input = agent.task_input.strip()
+            if not task.depends_on and "{{user_input}}" not in task_input:
+                task_input += "\n\nUser request:\n{{user_input}}"
+            missing = [
+                outputs[dependency]
+                for dependency in task.depends_on
+                if f"{{{{{outputs[dependency]}}}}}" not in task_input
+            ]
+            if missing:
+                task_input += "\n\nDependency results:\n" + "\n".join(
+                    f"- {variable}: {{{{{variable}}}}}" for variable in missing
+                )
+            data: dict[str, Any] = {
+                "kind": "workflow_agent",
+                "title": agent.name,
+                "description": task.objective,
+                "agentName": agent.name,
+                "modelId": agent.model_id or default_agent_model_id,
+                "rolePrompt": _literalize_unbound_role_placeholders(
+                    agent.role_prompt,
+                    available_variables=role_variables,
+                ),
+                "taskInput": task_input,
+                "toolMode": "none",
+                "toolNames": "",
+                "maxIterations": "6",
+                "parallelToolCalls": "false",
+                "maxToolConcurrency": "2",
+                "maxToolCalls": "12",
+                "maxToolDepth": "4",
+                "outputVariable": output_variable,
+                "exceptionHandling": "fail",
+                "sourceAgentId": agent.source_agent_id,
+                "acceptanceCriteria": task.acceptance,
+                "methodSkillIds": task.method_skill_ids,
+                "plannerRef": f"agent_{task_id}",
+                "plannerTaskIds": [task_id],
+            }
+            node_type = "workflow_agent"
+        else:
+            data = {
+                "kind": "human_intervention",
+                "title": task.title,
+                "description": task.objective,
+                "prompt": task.interaction_prompt,
+                "interactionMode": (
+                    "approval" if task.task_type == "approval" else "input"
+                ),
+                "outputVariable": output_variable,
+                "plannerRef": f"hitl_{task_id}",
+                "plannerTaskIds": [task_id],
+            }
+            node_type = "human_intervention"
+        nodes.append(
+            {
+                "id": node_id,
+                "type": node_type,
+                "position": {"x": 300 + level * 340, "y": 80 + row * 260},
+                "data": data,
+            }
+        )
+        if task.depends_on:
+            for dependency in task.depends_on:
+                edges.append(
+                    {
+                        "id": f"edge_{dependency}_{task_id}",
+                        "source": node_ids[dependency],
+                        "target": node_id,
+                    }
+                )
+        else:
+            edges.append(
+                {"id": f"edge_input_{task_id}", "source": "input", "target": node_id}
+            )
+
+    output_task_id = sinks[0]
+    nodes.append(
+        {
+            "id": "output",
+            "type": "output",
+            "position": {"x": 300 + (levels[output_task_id] + 1) * 340, "y": 160},
+            "data": {
+                "kind": "output",
+                "title": "Final output",
+                "outputVariable": outputs[output_task_id],
+            },
+        }
+    )
+    edges.append(
+        {
+            "id": f"edge_{output_task_id}_output",
+            "source": node_ids[output_task_id],
+            "target": "output",
+        }
+    )
+    workflow = {
+        "id": "expert_team_agency_hitl",
+        "title": blueprint.name,
+        "version": "1.0.0",
+        "source": "workflow-native",
+        "nodes": nodes,
+        "edges": edges,
+    }
+    candidate = {
+        "name": blueprint.name,
+        "description": blueprint.description,
+        "tags": list(dict.fromkeys(blueprint.tags)),
+        "starters": list(dict.fromkeys(blueprint.starters)),
+        "draft": {"workflow": workflow},
+    }
+    return candidate, workflow

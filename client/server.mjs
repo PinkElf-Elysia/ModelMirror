@@ -97,8 +97,13 @@ createServer(async (req, res) => {
     await serveStatic(req, res);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Server error";
-    res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
-    res.end(JSON.stringify({ error: message }));
+    const canWriteErrorBody = !res.headersSent;
+    if (canWriteErrorBody) {
+      res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+    }
+    if (!res.writableEnded) {
+      res.end(canWriteErrorBody ? JSON.stringify({ error: message }) : undefined);
+    }
   }
 }).listen(port, "0.0.0.0", async () => {
   const index = await readFile(path.join(distDir, "index.html"), "utf-8");

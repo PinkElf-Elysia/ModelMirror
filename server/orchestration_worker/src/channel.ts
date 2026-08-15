@@ -2,6 +2,7 @@ import type { Readable, Writable } from 'node:stream';
 
 import {
   AGENCY_EXECUTION_PROTOCOL,
+  AGENCY_HITL_PROTOCOL,
   AgencyBridgeError,
   MAX_MESSAGE_BYTES,
   asObject,
@@ -128,6 +129,7 @@ export class ModelResponseRouter {
   constructor(
     private readonly channel: JsonlChannel,
     private readonly bridgeRequestId: string,
+    private readonly protocol: typeof AGENCY_EXECUTION_PROTOCOL | typeof AGENCY_HITL_PROTOCOL = AGENCY_EXECUTION_PROTOCOL,
   ) {}
 
   request(requestId: string, message: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -166,7 +168,7 @@ export class ModelResponseRouter {
         const message = asObject(await this.channel.read());
         const requestId = typeof message.request_id === 'string' ? message.request_id : '';
         if (
-          message.protocol !== AGENCY_EXECUTION_PROTOCOL
+          message.protocol !== this.protocol
           || message.type !== 'model_response'
           || message.id !== this.bridgeRequestId
           || !requestId

@@ -26,6 +26,39 @@ export function syncWorkflowToPlan(
     );
     if (legacyNode) taskNodes.set(task.task_id, legacyNode);
   });
+  const addedNodes = tasks
+    .filter((task) => !taskNodes.has(task.task_id))
+    .map((task, index) => {
+      const interaction = task.task_type === "human_input" || task.task_type === "approval";
+      const id = interaction ? `interaction_${task.task_id}` : `agent_${task.task_id}`;
+      const node: AgencyWorkflow["nodes"][number] = {
+        id,
+        type: interaction ? "human_intervention" : "workflow_agent",
+        position: { x: 420, y: 180 + index * 180 },
+        data: interaction
+          ? {
+              kind: "human_intervention",
+              title: task.title,
+              description: task.objective,
+              prompt: task.interaction_prompt || task.objective,
+              interactionMode: task.task_type === "approval" ? "approval" : "input",
+              outputVariable: task.output_variable || `${task.task_id}_output`,
+              plannerRef: `hitl_${task.task_id}`,
+              plannerTaskIds: [task.task_id],
+            }
+          : {
+              kind: "workflow_agent",
+              title: task.title,
+              description: task.objective,
+              taskInput: task.objective,
+              outputVariable: task.output_variable || `${task.task_id}_output`,
+              plannerRef: `agent_${task.task_id}`,
+              plannerTaskIds: [task.task_id],
+            },
+      };
+      taskNodes.set(task.task_id, node);
+      return node;
+    });
   const nodeId = (taskId: string) =>
     taskNodes.get(taskId)?.id || `agent_${taskId}`;
   const outputVariables = new Map(
@@ -37,11 +70,38 @@ export function syncWorkflowToPlan(
       ] as const;
     }),
   );
-  const nodes = workflow.nodes.map((node) => {
+  const nodes = [...workflow.nodes, ...addedNodes]
+    .filter((node) => {
+      const plannerTaskIds = node.data.plannerTaskIds;
+      return !(
+        Array.isArray(plannerTaskIds)
+        && plannerTaskIds.length === 1
+        && typeof plannerTaskIds[0] === "string"
+        && !taskIds.has(plannerTaskIds[0])
+      );
+    })
+    .map((node) => {
     const task = tasks.find(
       (item) => taskNodes.get(item.task_id)?.id === node.id,
     );
     if (!task) return node;
+    if (task.task_type === "human_input" || task.task_type === "approval") {
+      return {
+        ...node,
+        type: "human_intervention",
+        data: {
+          ...node.data,
+          kind: "human_intervention",
+          title: task.title,
+          description: task.objective,
+          prompt: task.interaction_prompt || task.objective,
+          interactionMode: task.task_type === "approval" ? "approval" : "input",
+          outputVariable: task.output_variable || `${task.task_id}_output`,
+          plannerRef: `hitl_${task.task_id}`,
+          plannerTaskIds: [task.task_id],
+        },
+      };
+    }
     const dependencyText = task.depends_on
       .map((dependency) => {
         const variable = outputVariables.get(dependency) || `${dependency}_output`;
@@ -59,6 +119,8 @@ export function syncWorkflowToPlan(
           : `${task.objective}\n\n用户任务：\n{{user_input}}`,
         acceptanceCriteria: task.acceptance,
         methodSkillIds: task.method_skill_ids || [],
+        plannerRef: `agent_${task.task_id}`,
+        plannerTaskIds: [task.task_id],
       },
     };
   });

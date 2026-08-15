@@ -5,6 +5,7 @@ import type {
   AgencyDagRun,
   AgencyAgentSummary,
   AgencyExecutionCapabilities,
+  AgencyInteractionDecisionPayload,
   AgencyPlanPreview,
 } from "./AgencyExpertTeamTypes";
 
@@ -25,6 +26,13 @@ interface AgencyDagRunSummary {
   lineage_usage?: AgencyDagRun["usage"];
   revisable?: boolean;
   revision?: AgencyDagRun["revision"];
+  interaction?: {
+    step_id: string;
+    kind: "human_input" | "approval";
+    status: "pending" | "decided" | "expired" | "cancelled";
+    decision?: "replace" | "approve" | "reject" | null;
+    prompt_preview: string;
+  } | null;
   error_code?: string | null;
   created_at: number;
   updated_at: number;
@@ -44,13 +52,15 @@ function statusLabel(status?: string) {
     skipped: "跳过",
     cancelled: "已取消",
     ready: "待恢复",
+    waiting: "等待人工处理",
+    rejected: "用户已拒绝",
   };
   return labels[status || ""] || "等待";
 }
 
 function statusClasses(status?: string) {
   if (status === "completed") return "border-emerald-300/25 bg-emerald-300/10 text-emerald-100";
-  if (status === "failed" || status === "cancelled") return "border-red-300/25 bg-red-300/10 text-red-100";
+  if (status === "failed" || status === "cancelled" || status === "rejected") return "border-red-300/25 bg-red-300/10 text-red-100";
   if (status === "running") return "border-cyan-300/25 bg-cyan-300/10 text-cyan-100";
   return "border-white/10 bg-white/[0.045] text-slate-400";
 }
@@ -127,6 +137,8 @@ interface AgencyDagRunPanelProps {
   onCancel: () => void;
   onRetryRequest: () => void;
   onRevisionRequest: (payload: AgencyDagRevisionPayload) => void;
+  onInteractionDecision?: (payload: AgencyInteractionDecisionPayload) => void | Promise<unknown>;
+  onInteractionReopen?: () => void | Promise<unknown>;
 }
 
 export default function AgencyDagRunPanel({
@@ -145,6 +157,8 @@ export default function AgencyDagRunPanel({
   onCancel,
   onRetryRequest,
   onRevisionRequest,
+  onInteractionDecision,
+  onInteractionReopen,
   pendingRevision,
 }: AgencyDagRunPanelProps) {
   const [history, setHistory] = useState<AgencyDagRunSummary[]>([]);
@@ -154,6 +168,11 @@ export default function AgencyDagRunPanel({
   const [revisionTargetId, setRevisionTargetId] = useState("");
   const [revisionFeedback, setRevisionFeedback] = useState("");
   const [revisionFormError, setRevisionFormError] = useState("");
+  const [interactionValue, setInteractionValue] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
+  const [interactionError, setInteractionError] = useState("");
+  const [interactionConfirm, setInteractionConfirm] = useState<AgencyInteractionDecisionPayload | null>(null);
+  const pendingInteraction = run?.pending_interaction;
   const stepsById = new Map((run?.steps || []).map((event) => [event.task_id, event]));
   const agentsById = new Map(
     [...agentCatalog, ...(preview?.selected_agents || [])].map((agent) => [agent.id, agent]),
@@ -176,7 +195,53 @@ export default function AgencyDagRunPanel({
     setRevisionTargetId("");
     setRevisionFeedback("");
     setRevisionFormError("");
+    setInteractionValue("");
+    setRejectReason("");
+    setInteractionError("");
+    setInteractionConfirm(null);
   }, [run?.task_id]);
+
+  function requestHumanInput() {
+    if (!pendingInteraction) return;
+    const value = interactionValue.trim();
+    if (!value || value.length > (capabilities?.hitl?.max_input_chars || 20_000)) {
+      setInteractionError("请输入 1–20000 个字符。不要提交 API Key、访问令牌或其他秘密。");
+      return;
+    }
+    setInteractionError("");
+    setInteractionConfirm({
+      approval_id: pendingInteraction.approval_id,
+      revision: pendingInteraction.revision,
+      decision: "replace",
+      replacement_text: value,
+    });
+  }
+
+  function requestApproval() {
+    if (!pendingInteraction) return;
+    setInteractionError("");
+    setInteractionConfirm({
+      approval_id: pendingInteraction.approval_id,
+      revision: pendingInteraction.revision,
+      decision: "approve",
+    });
+  }
+
+  function rejectApproval() {
+    if (!pendingInteraction) return;
+    const reason = rejectReason.trim();
+    if (reason.length < 2 || reason.length > 4000) {
+      setInteractionError("拒绝时请填写 2–4000 个字符的原因。");
+      return;
+    }
+    setInteractionError("");
+    void onInteractionDecision?.({
+      approval_id: pendingInteraction.approval_id,
+      revision: pendingInteraction.revision,
+      decision: "reject",
+      message: reason,
+    });
+  }
 
   function beginRevision(taskId: string) {
     setRevisionTargetId(taskId);
@@ -270,6 +335,124 @@ export default function AgencyDagRunPanel({
         </section>
       ) : null}
 
+      {interactionConfirm ? (
+        <section className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-5">
+          <h3 className="text-base font-semibold text-amber-100">恢复下游执行前请确认</h3>
+          <p className="mt-2 text-sm leading-6 text-amber-50/90">
+            将继续使用原模型 {modelName} 恢复下游任务。模型调用与此前片段累计最多 {capabilities?.max_model_calls || 10} 次，
+            并发 {capabilities?.max_concurrency || 2}，主动执行累计最长 {Math.round((capabilities?.timeout_seconds || 900) / 60)} 分钟，可能产生费用。
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              className="rounded-full bg-hire-300 px-4 py-2.5 text-sm font-semibold text-ink-950 disabled:opacity-50"
+              disabled={busy}
+              onClick={() => {
+                const payload = interactionConfirm;
+                setInteractionConfirm(null);
+                void onInteractionDecision?.(payload);
+              }}
+              type="button"
+            >
+              {busy ? "正在提交..." : "确认并恢复执行"}
+            </button>
+            <button
+              className="rounded-full border border-white/15 px-4 py-2.5 text-sm font-semibold text-slate-200"
+              disabled={busy}
+              onClick={() => setInteractionConfirm(null)}
+              type="button"
+            >
+              返回检查
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {pendingInteraction ? (
+        <section className="rounded-lg border border-cyan-300/30 bg-cyan-300/[0.08] p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-cyan-100">
+                {pendingInteraction.kind === "human_input" ? "等待人工输入" : "等待执行审批"}
+              </h3>
+              <p className="mt-1 break-all text-xs text-slate-400">
+                步骤 {pendingInteraction.step_id} · 审批修订 {pendingInteraction.revision}
+              </p>
+            </div>
+            <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClasses(pendingInteraction.status)}`}>
+              {statusLabel(pendingInteraction.status)}
+            </span>
+          </div>
+          <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-200">
+            {pendingInteraction.prompt}
+          </p>
+          {pendingInteraction.content_preview ? (
+            <pre className="mt-3 max-h-52 overflow-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-ink-950/55 p-3 text-xs leading-5 text-slate-400">
+              {pendingInteraction.content_preview}
+            </pre>
+          ) : null}
+          {pendingInteraction.status === "expired" ? (
+            <button
+              className="mt-4 rounded-full border border-cyan-300/30 px-4 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50"
+              disabled={busy || !capabilities?.hitl?.enabled}
+              onClick={() => void onInteractionReopen?.()}
+              type="button"
+            >
+              重新开启 24 小时
+            </button>
+          ) : pendingInteraction.kind === "human_input" ? (
+            <>
+              <textarea
+                className="mt-4 min-h-32 w-full rounded-lg border border-white/10 bg-ink-950/80 p-3 text-sm leading-6 text-white outline-none focus:border-cyan-300/70"
+                maxLength={capabilities?.hitl?.max_input_chars || 20_000}
+                onChange={(event) => setInteractionValue(event.target.value)}
+                placeholder="输入继续执行所需的信息。请勿提交 API Key、访问令牌或其他秘密。"
+                value={interactionValue}
+              />
+              <button
+                className="mt-3 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
+                disabled={busy || !capabilities?.hitl?.enabled || Boolean(interactionConfirm)}
+                onClick={requestHumanInput}
+                type="button"
+              >
+                检查费用并提交
+              </button>
+            </>
+          ) : (
+            <div className="mt-4 space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
+                  disabled={busy || !capabilities?.hitl?.enabled || Boolean(interactionConfirm)}
+                  onClick={requestApproval}
+                  type="button"
+                >
+                  检查费用并通过
+                </button>
+              </div>
+              <textarea
+                className="min-h-20 w-full rounded-lg border border-red-300/20 bg-ink-950/80 p-3 text-sm leading-6 text-white outline-none focus:border-red-300/60"
+                maxLength={4000}
+                onChange={(event) => setRejectReason(event.target.value)}
+                placeholder="拒绝原因（必填，拒绝后不再调用下游模型）"
+                value={rejectReason}
+              />
+              <button
+                className="rounded-full border border-red-300/30 px-4 py-2 text-sm font-semibold text-red-100 disabled:opacity-50"
+                disabled={busy || !capabilities?.hitl?.enabled}
+                onClick={rejectApproval}
+                type="button"
+              >
+                拒绝并终止任务
+              </button>
+            </div>
+          )}
+          {!capabilities?.hitl?.enabled ? (
+            <p className="mt-3 text-xs text-amber-100">人工交互开关已关闭；历史仍可查看，也可以取消任务，但不能提交或重新开启。</p>
+          ) : null}
+          {interactionError ? <p className="mt-3 text-xs text-red-100">{interactionError}</p> : null}
+        </section>
+      ) : null}
+
       {invalid ? (
         <div className="rounded-lg border border-red-300/25 bg-red-300/10 p-4 text-sm leading-6 text-red-100">
           已载入计划与当前目标或阵容不一致。请返回“自动派工 → 智能组队预览”重新校验并应用。
@@ -360,7 +543,7 @@ export default function AgencyDagRunPanel({
                 {statusLabel(run.status)}
               </span>
             ) : null}
-            {run?.status === "running" ? (
+            {run && ["running", "waiting", "ready"].includes(run.status) ? (
               <button
                 className="rounded-full border border-red-300/25 px-3 py-1.5 text-xs font-semibold text-red-100 transition hover:bg-red-300/10 disabled:opacity-50"
                 disabled={busy}
@@ -394,11 +577,15 @@ export default function AgencyDagRunPanel({
                     <p className="break-all font-mono text-[11px] text-slate-500">{task.task_id}</p>
                     <h4 className="mt-1 text-sm font-semibold text-white">{task.title}</h4>
                     <p className="mt-1 text-xs text-slate-400">
-                      {agent?.emoji || "专"} {agent?.name || task.agent_id || "未绑定专家"}
+                      {(task.task_type || "expert") === "expert"
+                        ? `${agent?.emoji || "专"} ${agent?.name || task.agent_id || "未绑定专家"}`
+                        : task.task_type === "approval"
+                          ? "人工审批 · 不调用模型"
+                          : "人工输入 · 不调用模型"}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {run?.revisable && event?.status === "completed" && event.output && capabilities?.revision?.enabled ? (
+                    {run?.revisable && (task.task_type || "expert") === "expert" && event?.status === "completed" && event.output && capabilities?.revision?.enabled ? (
                       <button
                         className="rounded-full border border-hire-300/30 px-2.5 py-1 text-[11px] font-semibold text-hire-100 hover:bg-hire-300/10"
                         disabled={busy || Boolean(confirmMode)}
@@ -417,9 +604,15 @@ export default function AgencyDagRunPanel({
                   <div><dt className="text-slate-500">依赖</dt><dd className="break-words text-slate-300">{task.depends_on.join("、") || "无"}</dd></div>
                   <div><dt className="text-slate-500">用量</dt><dd className="text-slate-300">{usageLabel(event)}</dd></div>
                 </dl>
-                <p className="mt-3 text-xs leading-5 text-slate-400">
-                  <span className="text-slate-500">验收：</span>{task.acceptance || "未设置"}
-                </p>
+                {(task.task_type || "expert") === "expert" ? (
+                  <p className="mt-3 text-xs leading-5 text-slate-400">
+                    <span className="text-slate-500">验收：</span>{task.acceptance || "未设置"}
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs leading-5 text-cyan-100">
+                    交互提示：{task.interaction_prompt || task.objective}
+                  </p>
+                )}
                 {task.method_skill_ids?.length ? (
                   <p className="mt-2 text-xs leading-5 text-cyan-100">
                     方法 Skill：{task.method_skill_ids.join("、")}
@@ -535,6 +728,11 @@ export default function AgencyDagRunPanel({
                     {item.revision?.feedback_preview ? (
                       <p className="mt-1 line-clamp-1 text-[11px] text-cyan-100">
                         {item.revision.target_task_id}：{item.revision.feedback_preview}
+                      </p>
+                    ) : null}
+                    {item.interaction ? (
+                      <p className="mt-1 line-clamp-1 text-[11px] text-amber-100">
+                        {item.interaction.kind === "approval" ? "审批" : "人工输入"} · {item.interaction.step_id} · {statusLabel(item.interaction.status)}
                       </p>
                     ) : null}
                     <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{item.final_output_preview || item.goal}</p>

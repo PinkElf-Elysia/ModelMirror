@@ -329,6 +329,8 @@ def test_json_completion_reports_safe_finish_usage_and_contract_diagnostics() ->
         "content_chars": 0,
         "reasoning_chars": len(payload["choices"][0]["message"]["reasoning_content"]),
         "reasoning_present": True,
+        "refusal_chars": 0,
+        "tool_call_count": 0,
         "selected_source": "reasoning",
         "contract_found": True,
         "candidate_top_level_keys": ["dataset", "type"],

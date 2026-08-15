@@ -76,6 +76,24 @@ def test_expert_adapter_uses_real_id_and_bounds_prompt() -> None:
     assert len(adapted[0].system_prompt) == 2_048
 
 
+def test_expert_adapter_bounds_prompt_using_node_utf16_length() -> None:
+    adapted = adapt_expert_catalog(
+        [
+            {
+                "id": "unicode-agent",
+                "name": "Unicode expert",
+                "department": "Engineering",
+                "expertise": "Tests the Python-to-Node contract",
+                "prompt": "P" * 2_047 + "\U0001f9e0" + "tail",
+            }
+        ]
+    )
+
+    prompt = adapted[0].system_prompt
+    assert len(prompt.encode("utf-16-le")) // 2 <= 2_048
+    assert prompt == "P" * 2_047
+
+
 def test_health_reports_pinned_protocol_and_fixed_argv() -> None:
     client = AgencyWorkerClient(timeout_seconds=10)
     health = run(client.health())
@@ -267,6 +285,200 @@ steps:
     assert result["repair_used"] is True
     assert result["validation"]["valid"] is True
     assert result["selected_agent_ids"] == ["agent-alpha", "agent-beta"]
+
+
+def test_compose_repairs_a_plan_above_the_six_step_limit() -> None:
+    def workflow(step_count: int) -> str:
+        steps: list[str] = []
+        for index in range(1, step_count + 1):
+            dependency = f"\n    depends_on: [step_{index - 1}]" if index > 1 else ""
+            acceptance = (
+                "\n    acceptance: Final recommendation includes concrete next actions."
+                if index == step_count
+                else ""
+            )
+            steps.append(
+                f"  - id: step_{index}\n"
+                f"    role: agent-alpha{dependency}\n"
+                f"    task: Complete planning stage {index}.{acceptance}\n"
+                f"    output: output_{index}"
+            )
+        return (
+            "```yaml\n"
+            f"name: {'oversized' if step_count > 6 else 'repaired'}\n"
+            "agents_dir: modelmirror-experts\n"
+            "llm:\n"
+            "  provider: modelmirror\n"
+            "  model: fake-model\n"
+            "steps:\n"
+            + "\n".join(steps)
+            + "\n```"
+        )
+
+    responses = [workflow(7), workflow(6)]
+    requests = []
+
+    async def fake_gateway(request):
+        requests.append(request)
+        return responses[len(requests) - 1]
+
+    result = run(
+        AgencyWorkerClient(model_runner=fake_gateway, timeout_seconds=20).compose(
+            goal="Create a bounded launch plan with a final actionable recommendation.",
+            model_id="fake-model",
+            agents=agents(),
+            mode="auto",
+            max_agents=1,
+            temperature=0.2,
+        )
+    )
+
+    assert len(requests) == 2
+    assert result["validation"]["valid"] is True
+    assert len(result["validation"]["workflow"]["steps"]) == 6
+    assert result["repair_used"] is True
+    assert "more than 6 steps" in requests[1].messages[-1].content
+
+
+def test_compose_repairs_a_final_approval_into_an_expert_sink() -> None:
+    responses = [
+        """```yaml
+name: approval-sink
+agents_dir: modelmirror-experts
+llm:
+  provider: modelmirror
+  model: fake-model
+steps:
+  - id: prepare
+    role: agent-alpha
+    task: Prepare a recommendation for review.
+    output: recommendation
+  - id: approve_go
+    type: approval
+    depends_on: [prepare]
+    prompt: Approve the recommendation before final delivery.
+    output: approval_decision
+```""",
+        """```yaml
+name: expert-sink
+agents_dir: modelmirror-experts
+llm:
+  provider: modelmirror
+  model: fake-model
+steps:
+  - id: prepare
+    role: agent-alpha
+    task: Prepare a recommendation for review.
+    output: recommendation
+  - id: approve_go
+    type: approval
+    depends_on: [prepare]
+    prompt: Approve the recommendation before final delivery.
+    output: approval_decision
+  - id: final_delivery
+    role: agent-alpha
+    depends_on: [approve_go]
+    task: Use {{approval_decision}} to deliver the approved recommendation.
+    acceptance: Include the approved recommendation and concrete next actions.
+    output: final_output
+```""",
+    ]
+    requests = []
+
+    async def fake_gateway(request):
+        requests.append(request)
+        return responses[len(requests) - 1]
+
+    result = run(
+        AgencyWorkerClient(model_runner=fake_gateway, timeout_seconds=20).compose(
+            goal="Prepare a recommendation, request approval, then deliver the final plan.",
+            model_id="fake-model",
+            agents=agents(),
+            mode="auto",
+            max_agents=1,
+            temperature=0.2,
+            allow_hitl=True,
+        )
+    )
+
+    assert len(requests) == 2
+    assert "must be a regular expert step" in requests[1].messages[-1].content
+    assert result["validation"]["valid"] is True
+    assert result["validation"]["workflow"]["steps"][-1]["id"] == "final_delivery"
+    assert result["repair_used"] is True
+
+
+def test_compose_rejects_parallel_hitl_after_one_model_repair_without_rewiring() -> None:
+    response = """```yaml
+name: parallel-hitl
+agents_dir: modelmirror-experts
+llm:
+  provider: modelmirror
+  model: fake-model
+steps:
+  - id: city_research
+    role: agent-alpha
+    task: Research candidate cities.
+    output: city_options
+  - id: budget_research
+    role: agent-beta
+    task: Research budget ranges.
+    output: budget_options
+  - id: ask_city_budget
+    type: human_input
+    depends_on: [city_research]
+    prompt: Choose a city and budget range.
+    output: city_budget_choice
+  - id: implementation
+    role: agent-beta
+    depends_on: [budget_research]
+    task: Prepare implementation options.
+    output: implementation_options
+  - id: approve_go
+    type: approval
+    depends_on: [ask_city_budget]
+    prompt: Approve proceeding with the selected option.
+    output: approval_decision
+  - id: final_delivery
+    role: agent-alpha
+    depends_on: [implementation, approve_go]
+    task: Deliver the approved plan.
+    acceptance: Include the city, budget, approval decision, and next actions.
+    output: final_output
+```"""
+    requests = []
+
+    async def fake_gateway(request):
+        requests.append(request)
+        return response
+
+    result = run(
+        AgencyWorkerClient(model_runner=fake_gateway, timeout_seconds=20).compose(
+            goal="Choose a city and budget, prepare a plan, approve it, and deliver.",
+            model_id="fake-model",
+            agents=agents(),
+            mode="auto",
+            max_agents=2,
+            temperature=0.2,
+            allow_hitl=True,
+        )
+    )
+
+    assert len(requests) == 2
+    assert "full DAG barrier" in requests[1].messages[-1].content
+    assert result["validation"]["valid"] is False
+    assert result["repair_used"] is True
+    assert any(
+        "full DAG barrier" in error
+        for error in result["validation"]["errors"]
+    )
+    steps = {
+        step["id"]: step for step in result["validation"]["workflow"]["steps"]
+    }
+    assert steps["ask_city_budget"]["depends_on"] == ["city_research"]
+    assert steps["implementation"]["depends_on"] == ["budget_research"]
+    assert steps["approve_go"]["depends_on"] == ["ask_city_budget"]
+    assert not any("重连" in warning for warning in result["warnings"])
 
 
 def test_compose_repairs_auto_lineup_that_exceeds_max_agents() -> None:
@@ -520,6 +732,42 @@ def test_worker_timeout_interrupts_then_kills(tmp_path: Path) -> None:
     assert exc_info.value.code == "worker_timeout"
 
 
+def test_worker_timeout_cancels_an_inflight_model_request(tmp_path: Path) -> None:
+    worker = write_worker(
+        tmp_path,
+        """
+let input = '';
+for await (const chunk of process.stdin) { input += chunk; if (input.includes('\\n')) break; }
+const request = JSON.parse(input.trim());
+process.stdout.write(JSON.stringify({
+  protocol: 'mm-agency-bridge/v1', type: 'model_request', id: request.id,
+  request_id: `${request.id}:model:1`, model_id: 'fake-model',
+  messages: [{role: 'system', content: 'system'}, {role: 'user', content: 'user'}],
+  temperature: 0.2, max_tokens: 1000, json_response: false
+}) + '\\n');
+setInterval(() => {}, 1000);
+""",
+    )
+    cancelled = False
+
+    async def hanging_model(_request):
+        nonlocal cancelled
+        try:
+            await asyncio.sleep(10)
+        finally:
+            cancelled = True
+
+    client = AgencyWorkerClient(
+        worker_entry=worker,
+        timeout_seconds=1.0,
+        model_runner=hanging_model,
+    )
+    with pytest.raises(AgencyWorkerError) as exc_info:
+        run(client.health())
+    assert exc_info.value.code == "worker_timeout"
+    assert cancelled is True
+
+
 def test_stderr_is_isolated_and_environment_is_secret_free(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -588,7 +836,7 @@ def test_main_model_adapter_reuses_collect_chat_completion_text(
     )
     assert observed["model_id"] == "gateway-model"
     assert [message.role for message in observed["messages"]] == ["system", "user"]
-    assert observed["reasoning"] == {"effort": "low"}
+    assert observed["reasoning"] == {"effort": "none", "exclude": True}
     assert response.content == "gateway-result"
     assert response.usage == {"input_tokens": 12, "output_tokens": 7}
     assert response.finish_reason == "stop"
@@ -616,6 +864,54 @@ def test_main_model_adapter_classifies_empty_truncated_response(monkeypatch) -> 
         )
     assert exc_info.value.code == "model_output_truncated"
     assert "token 上限" in str(exc_info.value)
+
+
+def test_main_model_adapter_preserves_safe_empty_response_usage(monkeypatch) -> None:
+    import server.main as main_module
+
+    diagnostics = {
+        "finish_reason": "stop",
+        "content_chars": 0,
+        "reasoning_chars": 321,
+        "reasoning_present": True,
+        "refusal_chars": 0,
+        "tool_call_count": 0,
+        "usage": {
+            "prompt_tokens": 90,
+            "completion_tokens": 12,
+            "total_tokens": 102,
+        },
+    }
+
+    async def fake_collect(_model_id, _messages, **kwargs):
+        kwargs["usage_observer"]({"prompt_tokens": 90, "completion_tokens": 12})
+        kwargs["completion_metadata_observer"]({"finish_reason": "stop"})
+        raise main_module.ChatCompletionContentError(
+            "reasoning_only",
+            "reasoning without deliverable content",
+            diagnostics,
+        )
+
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", fake_collect)
+    with pytest.raises(main_module.AgencyWorkerError) as exc_info:
+        run(
+            main_module.collect_agency_worker_model(
+                AgencyModelRequest(
+                    request_id="model-reasoning-only",
+                    model_id="gateway-model",
+                    messages=[{"role": "user", "content": "user"}],
+                    temperature=0.3,
+                    max_tokens=4096,
+                )
+            )
+        )
+
+    error = exc_info.value
+    assert error.code == "model_response_empty"
+    assert error.usage == {"input_tokens": 90, "output_tokens": 12}
+    assert error.finish_reason == "stop"
+    assert "321" in error.diagnostics
+    assert "reasoning without deliverable content" not in error.diagnostics
 
 
 def test_main_model_adapter_enables_reasoning_fallback_for_json_review(

@@ -121,6 +121,12 @@ class ApprovalCoordinator:
             except WorkflowExecutionConflictError:
                 return False
             except Exception as exc:
+                if getattr(exc, "defer_resume", False):
+                    try:
+                        self.executions.release_ready(execution.task_id)
+                    except WorkflowExecutionConflictError:
+                        pass
+                    return False
                 logger.exception(
                     "Runtime approval resume failed task_id=%s",
                     execution.task_id,

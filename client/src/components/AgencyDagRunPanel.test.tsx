@@ -28,6 +28,18 @@ const capabilities: AgencyExecutionCapabilities = {
     max_model_calls: 10,
     budget_mode: "fresh",
   },
+  hitl: {
+    enabled: true,
+    protocol: "mm-agency-bridge/v3",
+    supports_human_input: true,
+    supports_approval: true,
+    max_interactions: 2,
+    max_input_chars: 20000,
+    wait_timeout_seconds: 86400,
+    supports_reopen: true,
+    supports_restart_wait: true,
+    auto_insert_policy: "conservative",
+  },
 };
 
 const run: AgencyDagRun = {
@@ -229,5 +241,137 @@ describe("AgencyDagRunPanel revision flow", () => {
     expect(screen.getByText(/对话式返工当前未启用/)).toBeVisible();
     expect(screen.getAllByText("第一版最终报告").length).toBeGreaterThan(0);
     expect(onRevisionRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe("AgencyDagRunPanel HITL flow", () => {
+  it("requires a second paid confirmation before submitting human input", () => {
+    vi.stubGlobal("fetch", vi.fn(() => historyResponse()));
+    const onInteractionDecision = vi.fn();
+    const waitingRun: AgencyDagRun = {
+      ...run,
+      status: "waiting",
+      final_output: null,
+      pending_interaction: {
+        approval_id: "approval-input",
+        step_id: "audience_input",
+        kind: "human_input",
+        prompt: "请补充采购流程中的最终决策人。",
+        content_preview: "已有证据摘要",
+        allowed_decisions: ["replace"],
+        revision: 3,
+        status: "pending",
+        created_at: 1,
+        updated_at: 1,
+        expires_at: 100,
+      },
+    };
+    render(<AgencyDagRunPanel {...panelProps({
+      run: waitingRun,
+      onInteractionDecision,
+    })} />);
+
+    expect(screen.getByText("等待人工输入")).toBeVisible();
+    expect(screen.getByText("已有证据摘要")).toBeVisible();
+    fireEvent.change(screen.getByPlaceholderText(/输入继续执行所需的信息/), {
+      target: { value: "最终决策人为采购总监，法务负责合规复核。" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "检查费用并提交" }));
+    expect(onInteractionDecision).not.toHaveBeenCalled();
+    expect(screen.getByText("恢复下游执行前请确认")).toBeVisible();
+    expect(screen.getByText(/累计最多 10 次/)).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "确认并恢复执行" }));
+    expect(onInteractionDecision).toHaveBeenCalledWith({
+      approval_id: "approval-input",
+      revision: 3,
+      decision: "replace",
+      replacement_text: "最终决策人为采购总监，法务负责合规复核。",
+    });
+  });
+
+  it("rejects an approval without a paid confirmation and can reopen expiry", () => {
+    vi.stubGlobal("fetch", vi.fn(() => historyResponse()));
+    const onInteractionDecision = vi.fn();
+    const onInteractionReopen = vi.fn();
+    const approvalRun: AgencyDagRun = {
+      ...run,
+      status: "waiting",
+      final_output: null,
+      pending_interaction: {
+        approval_id: "approval-gate",
+        step_id: "release_gate",
+        kind: "approval",
+        prompt: "是否允许进入最终交付？",
+        allowed_decisions: ["approve", "reject"],
+        revision: 2,
+        status: "pending",
+        created_at: 1,
+        updated_at: 1,
+        expires_at: 100,
+      },
+    };
+    const view = render(<AgencyDagRunPanel {...panelProps({
+      run: approvalRun,
+      onInteractionDecision,
+      onInteractionReopen,
+    })} />);
+    fireEvent.change(screen.getByPlaceholderText(/拒绝原因/), {
+      target: { value: "预算依据尚未确认" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "拒绝并终止任务" }));
+    expect(screen.queryByText("恢复下游执行前请确认")).not.toBeInTheDocument();
+    expect(onInteractionDecision).toHaveBeenCalledWith({
+      approval_id: "approval-gate",
+      revision: 2,
+      decision: "reject",
+      message: "预算依据尚未确认",
+    });
+
+    view.rerender(<AgencyDagRunPanel {...panelProps({
+      run: {
+        ...approvalRun,
+        pending_interaction: {
+          ...approvalRun.pending_interaction!,
+          status: "expired",
+          revision: 3,
+        },
+      },
+      onInteractionDecision,
+      onInteractionReopen,
+    })} />);
+    fireEvent.click(screen.getByRole("button", { name: "重新开启 24 小时" }));
+    expect(onInteractionReopen).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps historical interaction visible but disables actions when HITL is off", () => {
+    vi.stubGlobal("fetch", vi.fn(() => historyResponse()));
+    const onInteractionDecision = vi.fn();
+    render(<AgencyDagRunPanel {...panelProps({
+      capabilities: {
+        ...capabilities,
+        hitl: { ...capabilities.hitl!, enabled: false },
+      },
+      run: {
+        ...run,
+        status: "waiting",
+        pending_interaction: {
+          approval_id: "disabled-input",
+          step_id: "audience_input",
+          kind: "human_input",
+          prompt: "请补充受众。",
+          allowed_decisions: ["replace"],
+          revision: 1,
+          status: "pending",
+          created_at: 1,
+          updated_at: 1,
+          expires_at: 100,
+        },
+      },
+      onInteractionDecision,
+    })} />);
+    expect(screen.getByText(/人工交互开关已关闭/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "检查费用并提交" })).toBeDisabled();
+    expect(onInteractionDecision).not.toHaveBeenCalled();
   });
 });
