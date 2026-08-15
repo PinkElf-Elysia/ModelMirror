@@ -19,6 +19,18 @@ export interface AgencyExecutionCapabilities {
     max_model_calls: number;
     budget_mode: "fresh";
   };
+  hitl?: {
+    enabled: boolean;
+    protocol: string;
+    supports_human_input: boolean;
+    supports_approval: boolean;
+    max_interactions: number;
+    max_input_chars: number;
+    wait_timeout_seconds: number;
+    supports_reopen: boolean;
+    supports_restart_wait: boolean;
+    auto_insert_policy: "conservative";
+  };
 }
 
 export interface AgencyPlannerCapabilities {
@@ -42,6 +54,9 @@ export interface AgencyPlanTask {
   agent_id?: string | null;
   acceptance: string;
   method_skill_ids?: string[];
+  task_type?: "expert" | "human_input" | "approval";
+  interaction_prompt?: string;
+  output_variable?: string | null;
 }
 
 export interface AgencyMethodSkill {
@@ -174,7 +189,8 @@ export type AgencyDagStatus =
   | "ready"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "rejected";
 
 export interface AgencyDagVerification {
   pass: boolean;
@@ -229,6 +245,9 @@ export interface AgencyDagRun {
     agent_id: string;
     acceptance: string;
     method_skill_ids?: string[];
+    task_type?: "expert" | "human_input" | "approval";
+    interaction_prompt?: string;
+    output_variable?: string;
   }>;
   final_output?: string | null;
   quality_status?: string | null;
@@ -260,6 +279,33 @@ export interface AgencyDagRun {
   cancel_url?: string;
   retry_url?: string;
   revise_url?: string;
+  pending_interaction?: AgencyInteraction | null;
+  interaction_history?: AgencyInteraction[];
+}
+
+export interface AgencyInteraction {
+  approval_id: string;
+  step_id: string;
+  kind: "human_input" | "approval";
+  prompt: string;
+  content_preview?: string;
+  allowed_decisions: Array<"replace" | "approve" | "reject">;
+  revision: number;
+  status: "pending" | "decided" | "expired" | "cancelled";
+  decision?: "replace" | "approve" | "reject" | null;
+  input?: string | null;
+  message?: string | null;
+  created_at: number;
+  updated_at: number;
+  expires_at: number;
+}
+
+export interface AgencyInteractionDecisionPayload {
+  approval_id: string;
+  revision: number;
+  decision: "replace" | "approve" | "reject";
+  replacement_text?: string;
+  message?: string;
 }
 
 export interface AgencyDagRevisionPayload {

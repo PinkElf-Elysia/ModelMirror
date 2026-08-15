@@ -5,7 +5,12 @@ import json
 from fastapi.testclient import TestClient
 
 import server.main as main_module
-from server.expert_team_agency import build_meta_planner_inputs
+from server.expert_team_agency import (
+    build_meta_planner_inputs,
+    compile_expert_team_hitl_candidate,
+)
+from server.workflow_native.schemas import NativeWorkflowDefinition
+from server.workflow_native.validate import validate_workflow_graph
 from server.meta_agent.schemas import MetaPlannerAgentBlueprint
 
 
@@ -54,6 +59,50 @@ def agency_result(
     }
 
 
+def agency_hitl_result(expert_id: str) -> dict:
+    return {
+        "yaml": "name: hitl-test",
+        "warnings": [],
+        "repair_used": False,
+        "selected_agent_ids": [expert_id],
+        "validation": {
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "workflow": {
+                "name": "HITL preview",
+                "description": "Research, collect a required decision, then deliver.",
+                "agents_dir": "modelmirror-experts",
+                "llm": {"provider": "modelmirror", "model": "fake-planner"},
+                "steps": [
+                    {
+                        "id": "research",
+                        "role": expert_id,
+                        "task": "Research the available options.",
+                        "acceptance": "List at least two options.",
+                        "output": "research_output",
+                    },
+                    {
+                        "id": "audience_input",
+                        "type": "human_input",
+                        "depends_on": ["research"],
+                        "prompt": "Choose the target audience from the researched options.",
+                        "output": "audience_value",
+                    },
+                    {
+                        "id": "final",
+                        "role": expert_id,
+                        "depends_on": ["audience_input"],
+                        "task": "Use {{audience_value}} to prepare the final recommendation.",
+                        "acceptance": "Include the selected audience and next actions.",
+                        "output": "final_output",
+                    },
+                ],
+            },
+        },
+    }
+
+
 def test_agency_mapping_reuses_meta_planner_contracts() -> None:
     experts = main_module.AGENT_RECORDS[:2]
     result = agency_result(experts[0].id, experts[1].id)
@@ -85,6 +134,78 @@ def test_agency_mapping_reuses_meta_planner_contracts() -> None:
         ["data-analysis"],
         ["data-analysis"],
     ]
+
+
+def test_agency_mapping_literalizes_unbound_catalog_prompt_placeholders() -> None:
+    expert = next(
+        item for item in main_module.AGENT_RECORDS if "{city}" in item.prompt
+    )
+    result = agency_result(expert.id, expert.id)
+    result["validation"]["workflow"]["steps"] = [
+        result["validation"]["workflow"]["steps"][0]
+    ]
+    result["validation"]["workflow"]["steps"][0]["acceptance"] = "Complete."
+    result["selected_agent_ids"] = [expert.id]
+    _, blueprint, _ = build_meta_planner_inputs(
+        result,
+        [expert],
+        default_agent_model_id="model/agent",
+        goal="Prepare a recommendation.",
+    )
+
+    assert "[city]" in blueprint.agents[0].role_prompt
+    assert "[start_date]" in blueprint.agents[0].role_prompt
+    assert "{city}" not in blueprint.agents[0].role_prompt
+    assert "{city}" in expert.prompt
+
+
+def test_hitl_compiler_literalizes_unbound_catalog_prompt_placeholders() -> None:
+    expert = main_module.AGENT_RECORDS[0]
+    result = agency_hitl_result(expert.id)
+    plan, blueprint, _ = build_meta_planner_inputs(
+        result,
+        [expert],
+        default_agent_model_id="model/agent",
+        goal="Prepare a recommendation after collecting the audience choice.",
+    )
+    blueprint.agents[0].role_prompt = (
+        "Use {{user_input}} and keep catalog examples {city} / {start_date} literal."
+    )
+    candidate, workflow = compile_expert_team_hitl_candidate(
+        plan=plan,
+        blueprint=blueprint,
+        default_agent_model_id="model/agent",
+    )
+
+    first_agent = next(
+        node for node in workflow["nodes"] if node["type"] == "workflow_agent"
+    )
+    assert "{{user_input}}" in first_agent["data"]["rolePrompt"]
+    assert "[city]" in first_agent["data"]["rolePrompt"]
+    assert "[start_date]" in first_agent["data"]["rolePrompt"]
+    assert "{city}" not in first_agent["data"]["rolePrompt"]
+    native = NativeWorkflowDefinition.model_validate(candidate["draft"]["workflow"])
+    report = validate_workflow_graph(native)
+    assert report.valid is True, report.issues
+
+
+def test_agency_mapping_rejects_a_hitl_final_sink_with_clear_semantics() -> None:
+    expert = main_module.AGENT_RECORDS[0]
+    result = agency_hitl_result(expert.id)
+    steps = result["validation"]["workflow"]["steps"]
+    steps[:] = [steps[0], {**steps[1], "id": "approve_go", "type": "approval"}]
+
+    try:
+        build_meta_planner_inputs(
+            result,
+            [expert],
+            default_agent_model_id="model/agent",
+            goal="Prepare a recommendation and request approval.",
+        )
+        raise AssertionError("HITL final sink was accepted")
+    except ValueError as exc:
+        assert "final task must be an expert task" in str(exc)
+        assert "acceptance criteria: approve_go" not in str(exc)
 
 
 def test_expert_team_assets_reuse_worker_storage_and_current_expert_ids(
@@ -279,6 +400,91 @@ def test_plan_preview_auto_compiles_without_authoring_proposal(
     expert_run = next(run for run in runs if run.source_id == "expert_team")
     assert expert_run.metadata["surface"] == "expert_team"
     assert expert_run.metadata["backend"] == "agency_orchestrator"
+
+
+def test_plan_preview_keeps_catalog_examples_out_of_workflow_variables(
+    monkeypatch,
+) -> None:
+    expert = next(
+        item for item in main_module.AGENT_RECORDS if "{city}" in item.prompt
+    )
+    result = agency_result(expert.id, expert.id)
+    result["validation"]["workflow"]["steps"] = [
+        result["validation"]["workflow"]["steps"][0]
+    ]
+    result["validation"]["workflow"]["steps"][0]["acceptance"] = "Complete."
+    result["selected_agent_ids"] = [expert.id]
+
+    async def fake_compose(**_kwargs):
+        return result
+
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_PLANNER_ENABLED", "1")
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module.agency_worker_client, "compose", fake_compose)
+
+    response = client.post(
+        "/api/expert-team/plan-preview",
+        json={
+            "goal": "Prepare a recommendation from the selected expert catalog role.",
+            "planner_model_id": "model/planner",
+            "default_agent_model_id": "model/agent",
+            "max_agents": 1,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["validation"]["valid"] is True
+    agent_node = next(
+        node
+        for node in payload["workflow"]["nodes"]
+        if node["type"] == "workflow_agent"
+    )
+    assert "[city]" in agent_node["data"]["rolePrompt"]
+    assert "[start_date]" in agent_node["data"]["rolePrompt"]
+    assert not any(
+        issue["code"] == "missing_workflow_agent_template_variable"
+        for issue in payload["validation"]["issues"]
+    )
+
+
+def test_plan_preview_compiles_hitl_as_native_workflow(monkeypatch) -> None:
+    expert = main_module.AGENT_RECORDS[0]
+
+    async def fake_compose(**kwargs):
+        assert kwargs["allow_hitl"] is True
+        return agency_hitl_result(expert.id)
+
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_PLANNER_ENABLED", "1")
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_HITL_ENABLED", "1")
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module.agency_worker_client, "compose", fake_compose)
+
+    response = client.post(
+        "/api/expert-team/plan-preview",
+        json={
+            "goal": "Research options, request an audience decision, and prepare a launch plan.",
+            "planner_model_id": "model/planner",
+            "default_agent_model_id": "model/agent",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["workflow"]["source"] == "workflow-native"
+    assert payload["validation"]["valid"] is True
+    assert [task["task_type"] for task in payload["plan"]["tasks"]] == [
+        "expert",
+        "human_input",
+        "expert",
+    ]
+    hitl_node = next(
+        node for node in payload["workflow"]["nodes"]
+        if node["type"] == "human_intervention"
+    )
+    assert hitl_node["data"]["interactionMode"] == "input"
 
 
 def test_plan_preview_reports_planning_specific_token_limit(monkeypatch) -> None:

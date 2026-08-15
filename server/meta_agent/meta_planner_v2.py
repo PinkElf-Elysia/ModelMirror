@@ -128,6 +128,14 @@ def validate_task_plan(
     max_agents: int,
 ) -> list[str]:
     issues: list[str] = []
+    interaction_ids = [
+        task.task_id for task in plan.tasks if task.task_type != "expert"
+    ]
+    if interaction_ids:
+        issues.append(
+            "Generic Meta Planner task plans support expert tasks only; "
+            "HITL is scoped to Expert Team: " + ", ".join(interaction_ids) + "."
+        )
     task_ids = [task.task_id for task in plan.tasks]
     if len(task_ids) != len(set(task_ids)):
         issues.append("Task IDs must be unique.")
@@ -1689,13 +1697,31 @@ class MetaPlannerV2Service:
 
     @staticmethod
     def _plan_prompt(request: MetaPlannerGenerateRequest) -> str:
+        required_schema = MetaPlannerTaskPlan.model_json_schema()
+        task_schema = (
+            required_schema.get("$defs", {}).get("MetaPlannerTask", {})
+            if isinstance(required_schema.get("$defs"), dict)
+            else {}
+        )
+        properties = task_schema.get("properties")
+        if isinstance(properties, dict):
+            for field_name in ("task_type", "interaction_prompt", "output_variable"):
+                properties.pop(field_name, None)
+        required = task_schema.get("required")
+        if isinstance(required, list):
+            task_schema["required"] = [
+                field_name
+                for field_name in required
+                if field_name
+                not in {"task_type", "interaction_prompt", "output_variable"}
+            ]
         return json.dumps(
             {
                 "goal": request.goal,
                 "mode": request.mode,
                 "max_tasks": 8,
                 "max_workflow_agents": request.max_agents,
-                "required_schema": MetaPlannerTaskPlan.model_json_schema(),
+                "required_schema": required_schema,
             },
             ensure_ascii=False,
         )

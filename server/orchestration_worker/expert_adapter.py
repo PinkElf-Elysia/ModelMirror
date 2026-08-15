@@ -14,6 +14,20 @@ def _field(record: Any, name: str, default: str = "") -> str:
     return str(value or default).strip()
 
 
+def _truncate_utf16_units(value: str, max_units: int) -> str:
+    """Match JavaScript ``String.length`` at the Python/Node bridge boundary."""
+
+    units = 0
+    result: list[str] = []
+    for character in value:
+        character_units = 2 if ord(character) > 0xFFFF else 1
+        if units + character_units > max_units:
+            break
+        result.append(character)
+        units += character_units
+    return "".join(result)
+
+
 def adapt_expert_catalog(
     records: Iterable[Any],
     *,
@@ -35,7 +49,9 @@ def adapt_expert_catalog(
         if not agent_id or agent_id in seen:
             raise ValueError(f"Expert id is missing or duplicated: {agent_id or '<empty>'}")
         seen.add(agent_id)
-        prompt = _field(record, "prompt")[:max_system_prompt_chars].strip()
+        prompt = _truncate_utf16_units(
+            _field(record, "prompt"), max_system_prompt_chars
+        ).strip()
         description = _field(record, "expertise") or _field(record, "description")
         agents.append(
             AgencyAgentDefinition(

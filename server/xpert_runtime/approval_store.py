@@ -13,7 +13,7 @@ from typing import Any, Literal
 ApprovalStatus = Literal["pending", "decided", "expired", "cancelled"]
 ApprovalDecision = Literal["approve", "edit", "reject", "replace", "revise"]
 ApprovalRequestType = Literal[
-    "tool_call", "final_output", "manual_input", "browser_domain"
+    "tool_call", "final_output", "manual_input", "browser_domain", "execution_gate"
 ]
 
 APPROVAL_STATUSES = {"pending", "decided", "expired", "cancelled"}
@@ -107,6 +107,7 @@ class RuntimeApprovalStore:
             "final_output",
             "manual_input",
             "browser_domain",
+            "execution_gate",
         }:
             raise RuntimeApprovalValidationError("Unsupported approval request_type.")
         clean_decisions = self._decisions(allowed_decisions)

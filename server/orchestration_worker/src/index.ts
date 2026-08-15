@@ -6,6 +6,7 @@ import { handleRequest } from './service.js';
 import {
   AGENCY_BRIDGE_PROTOCOL,
   AGENCY_EXECUTION_PROTOCOL,
+  AGENCY_HITL_PROTOCOL,
   AgencyBridgeError,
   parseRequest,
 } from './protocol.js';
@@ -23,13 +24,13 @@ console.error = diagnostic;
 
 const channel = new JsonlChannel(process.stdin, process.stdout);
 let requestId = 'unknown';
-let responseProtocol: typeof AGENCY_BRIDGE_PROTOCOL | typeof AGENCY_EXECUTION_PROTOCOL = AGENCY_BRIDGE_PROTOCOL;
+let responseProtocol: typeof AGENCY_BRIDGE_PROTOCOL | typeof AGENCY_EXECUTION_PROTOCOL | typeof AGENCY_HITL_PROTOCOL = AGENCY_BRIDGE_PROTOCOL;
 
 try {
   const request = parseRequest(await channel.read());
   requestId = request.id;
   responseProtocol = request.protocol;
-  const result = request.protocol === AGENCY_EXECUTION_PROTOCOL
+  const result = request.protocol !== AGENCY_BRIDGE_PROTOCOL
     ? await executeRequest(request, channel)
     : await handleRequest(request, channel);
   channel.write({

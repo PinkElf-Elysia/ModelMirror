@@ -23,7 +23,11 @@ _coordinator: ApprovalCoordinator | None = None
 ApprovalDecisionValidator = Callable[
     [Any, "ApprovalDecisionRequest"], Awaitable[None]
 ]
+ApprovalReopenValidator = Callable[
+    [Any, "ApprovalReopenRequest"], Awaitable[None]
+]
 _decision_validator: ApprovalDecisionValidator | None = None
+_reopen_validator: ApprovalReopenValidator | None = None
 
 
 class ApprovalDecisionRequest(BaseModel):
@@ -68,6 +72,13 @@ def configure_approval_decision_validator(
 ) -> None:
     global _decision_validator
     _decision_validator = validator
+
+
+def configure_approval_reopen_validator(
+    validator: ApprovalReopenValidator,
+) -> None:
+    global _reopen_validator
+    _reopen_validator = validator
 
 
 def get_approval_store() -> RuntimeApprovalStore:
@@ -121,6 +132,7 @@ async def decide_runtime_approval(
     approval_id: str,
     payload: ApprovalDecisionRequest,
 ) -> dict[str, Any]:
+    current = None
     try:
         current = get_approval_store().require(approval_id)
         if _decision_validator is not None:
@@ -137,12 +149,41 @@ async def decide_runtime_approval(
         get_execution_store().mark_ready(
             item.task_id, approval_id=item.approval_id
         )
+        if item.scope_type == "expert_team_agency":
+            get_execution_store().append_event(
+                item.task_id,
+                {
+                    "event": "agency.interaction.resolved",
+                    "task_id": item.node_id,
+                    "approval_id": item.approval_id,
+                    "decision": item.decision,
+                    "status": "ready",
+                },
+            )
     except RuntimeApprovalNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeApprovalConflictError as exc:
+        if getattr(current, "scope_type", "") == "expert_team_agency":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": str(exc),
+                    "code": "agency_interaction_revision_conflict",
+                },
+            ) from exc
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeApprovalValidationError as exc:
+        if getattr(current, "scope_type", "") == "expert_team_agency":
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": str(exc),
+                    "code": "agency_interaction_invalid",
+                },
+            ) from exc
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if _coordinator is not None:
@@ -155,17 +196,51 @@ async def reopen_runtime_approval(
     approval_id: str,
     payload: ApprovalReopenRequest,
 ) -> dict[str, Any]:
+    current = None
     try:
+        current = get_approval_store().require(approval_id)
+        if _reopen_validator is not None:
+            await _reopen_validator(current, payload)
         item = get_approval_store().reopen(
             approval_id,
             revision=payload.revision,
             timeout_seconds=payload.timeout_seconds,
             operator=payload.operator,
         )
+        if item.scope_type == "expert_team_agency":
+            get_execution_store().append_event(
+                item.task_id,
+                {
+                    "event": "agency.interaction.reopened",
+                    "task_id": item.node_id,
+                    "approval_id": item.approval_id,
+                    "status": "waiting",
+                },
+            )
     except RuntimeApprovalNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeApprovalConflictError as exc:
+        if getattr(current, "scope_type", "") == "expert_team_agency":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": str(exc),
+                    "code": "agency_interaction_revision_conflict",
+                },
+            ) from exc
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeApprovalValidationError as exc:
+        if getattr(current, "scope_type", "") == "expert_team_agency":
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": str(exc),
+                    "code": "agency_interaction_invalid",
+                },
+            ) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
     return get_approval_store().serialize(item)
 
 
@@ -174,7 +249,9 @@ async def cancel_runtime_approval(
     approval_id: str,
     payload: ApprovalCancelRequest,
 ) -> dict[str, Any]:
+    current = None
     try:
+        current = get_approval_store().require(approval_id)
         item = get_approval_store().cancel(
             approval_id,
             revision=payload.revision,
@@ -185,6 +262,14 @@ async def cancel_runtime_approval(
     except RuntimeApprovalNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeApprovalConflictError as exc:
+        if getattr(current, "scope_type", "") == "expert_team_agency":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": str(exc),
+                    "code": "agency_interaction_revision_conflict",
+                },
+            ) from exc
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return get_approval_store().serialize(item)
 

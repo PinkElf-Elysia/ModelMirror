@@ -2,6 +2,7 @@ export const AGENCY_UPSTREAM_REVISION =
   'e3f69fdf9da8a4630edbb8abeb116893b983b57d' as const;
 export const AGENCY_BRIDGE_PROTOCOL = 'mm-agency-bridge/v1' as const;
 export const AGENCY_EXECUTION_PROTOCOL = 'mm-agency-bridge/v2' as const;
+export const AGENCY_HITL_PROTOCOL = 'mm-agency-bridge/v3' as const;
 export const MAX_MESSAGE_BYTES = 2 * 1024 * 1024;
 export const MAX_MODEL_CALLS = 3;
 export const MAX_PLANNING_OUTPUT_TOKENS = 10240;
@@ -9,6 +10,7 @@ export const MAX_EXECUTION_MODEL_CALLS = 10;
 export const MAX_EXECUTION_STEPS = 6;
 export const MAX_EXECUTION_CONCURRENCY = 2;
 export const MAX_EXECUTION_OUTPUT_BYTES = 64 * 1024;
+export const MAX_EXECUTION_OUTPUT_TOKENS = 4096;
 
 export class AgencyBridgeError extends Error {
   constructor(
@@ -21,7 +23,7 @@ export class AgencyBridgeError extends Error {
 }
 
 export interface BridgeRequest {
-  protocol: typeof AGENCY_BRIDGE_PROTOCOL | typeof AGENCY_EXECUTION_PROTOCOL;
+  protocol: typeof AGENCY_BRIDGE_PROTOCOL | typeof AGENCY_EXECUTION_PROTOCOL | typeof AGENCY_HITL_PROTOCOL;
   type: 'request';
   id: string;
   method: 'health' | 'compose' | 'validate' | 'assets' | 'execute';
@@ -38,7 +40,7 @@ export function asObject(value: unknown, code = 'worker_protocol_invalid'): Reco
 export function parseRequest(value: unknown): BridgeRequest {
   const message = asObject(value);
   if (
-    ![AGENCY_BRIDGE_PROTOCOL, AGENCY_EXECUTION_PROTOCOL].includes(String(message.protocol) as typeof AGENCY_BRIDGE_PROTOCOL)
+    ![AGENCY_BRIDGE_PROTOCOL, AGENCY_EXECUTION_PROTOCOL, AGENCY_HITL_PROTOCOL].includes(String(message.protocol) as typeof AGENCY_BRIDGE_PROTOCOL)
     || message.type !== 'request'
   ) {
     throw new AgencyBridgeError('worker_protocol_invalid', 'Bridge protocol or message type is invalid.');

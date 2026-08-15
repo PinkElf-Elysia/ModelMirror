@@ -27,6 +27,7 @@ from .contracts import (
 
 
 AGENCY_EXECUTION_PROTOCOL = "mm-agency-bridge/v2"
+AGENCY_HITL_PROTOCOL = "mm-agency-bridge/v3"
 MAX_EXECUTION_MODEL_CALLS = 10
 MAX_EXECUTION_CONCURRENCY = 2
 MAX_MODEL_REQUEST_SECONDS = 240.0
@@ -73,6 +74,7 @@ class AgencyExecutionClient:
         skills: Sequence[AgencySkillDefinition] = (),
         resume: Mapping[str, Any] | None = None,
         revision: Mapping[str, Any] | None = None,
+        interaction_resume: Mapping[str, Any] | None = None,
         on_event: ExecutionEventHandler | None = None,
     ) -> AgencyExecutionWorkerResult:
         if not self.worker_entry.is_file():
@@ -80,14 +82,28 @@ class AgencyExecutionClient:
                 "Agency worker build output is unavailable.",
                 code="worker_unavailable",
             )
-        if resume is not None and revision is not None:
+        continuations = sum(
+            value is not None for value in (resume, revision, interaction_resume)
+        )
+        if continuations > 1:
             raise AgencyWorkerError(
-                "Agency execution cannot combine resume and revision.",
+                "Agency execution continuations are mutually exclusive.",
                 code="agency_execution_plan_invalid",
             )
+        workflow_steps = workflow.get("steps")
+        has_hitl = any(
+            isinstance(step, Mapping)
+            and str(step.get("type") or "normal") in {"human_input", "approval"}
+            for step in (workflow_steps if isinstance(workflow_steps, Sequence) else [])
+        )
+        protocol = (
+            AGENCY_HITL_PROTOCOL
+            if has_hitl or interaction_resume is not None
+            else AGENCY_EXECUTION_PROTOCOL
+        )
         request_id = f"agency_exec_{uuid.uuid4().hex}"
         request = {
-            "protocol": AGENCY_EXECUTION_PROTOCOL,
+            "protocol": protocol,
             "type": "request",
             "id": request_id,
             "method": "execute",
@@ -99,6 +115,11 @@ class AgencyExecutionClient:
                 "skills": [skill.model_dump(mode="json") for skill in skills],
                 **({"resume": dict(resume)} if resume is not None else {}),
                 **({"revision": dict(revision)} if revision is not None else {}),
+                **(
+                    {"interaction_resume": dict(interaction_resume)}
+                    if interaction_resume is not None
+                    else {}
+                ),
             },
         }
         encoded = AgencyWorkerClient._encode(
@@ -113,9 +134,21 @@ class AgencyExecutionClient:
         model_semaphore = asyncio.Semaphore(MAX_EXECUTION_CONCURRENCY)
         started = time.monotonic()
         prior_model_calls = (
-            int(resume.get("prior_model_calls") or 0)
-            if resume is not None
+            int((resume or interaction_resume or {}).get("prior_model_calls") or 0)
+            if resume is not None or interaction_resume is not None
             else 0
+        )
+        prior_active_duration_ms = int(
+            (interaction_resume or {}).get("prior_active_duration_ms") or 0
+        )
+        if not 0 <= prior_active_duration_ms < int(MAX_EXECUTION_SECONDS * 1000):
+            raise AgencyWorkerError(
+                "Agency active execution budget is exhausted.",
+                code="agency_execution_timeout",
+            )
+        segment_timeout = min(
+            self.timeout_seconds,
+            MAX_EXECUTION_SECONDS - prior_active_duration_ms / 1000,
         )
         if not 0 <= prior_model_calls <= MAX_EXECUTION_MODEL_CALLS:
             raise AgencyWorkerError(
@@ -135,7 +168,7 @@ class AgencyExecutionClient:
             await process.stdin.drain()
 
             while True:
-                remaining = self.timeout_seconds - (time.monotonic() - started)
+                remaining = segment_timeout - (time.monotonic() - started)
                 if remaining <= 0:
                     raise AgencyWorkerError(
                         "Agency execution timed out.",
@@ -149,7 +182,7 @@ class AgencyExecutionClient:
                 )
                 message = AgencyWorkerClient._decode(line)
                 if (
-                    message.get("protocol") != AGENCY_EXECUTION_PROTOCOL
+                    message.get("protocol") != protocol
                     or message.get("id") != request_id
                 ):
                     raise AgencyWorkerError(
@@ -170,6 +203,7 @@ class AgencyExecutionClient:
                             message,
                             semaphore=model_semaphore,
                             write_lock=write_lock,
+                            protocol=protocol,
                         )
                     )
                     model_tasks.add(task)
@@ -259,6 +293,7 @@ class AgencyExecutionClient:
         *,
         semaphore: asyncio.Semaphore,
         write_lock: asyncio.Lock,
+        protocol: str,
     ) -> None:
         assert process.stdin is not None
         request_id = str(message.get("request_id") or "")
@@ -274,7 +309,8 @@ class AgencyExecutionClient:
                 }
             )
             expected_temperature = 0.0 if request.json_response else 0.3
-            if request.temperature != expected_temperature or request.max_tokens > 4096:
+            max_tokens = 2_000 if request.json_response else 4_096
+            if request.temperature != expected_temperature or request.max_tokens > max_tokens:
                 raise AgencyWorkerError(
                     "Agency execution model limits are invalid.",
                     code="worker_protocol_invalid",
@@ -303,7 +339,7 @@ class AgencyExecutionClient:
                     code="agency_execution_budget_exceeded",
                 )
             envelope: dict[str, Any] = {
-                "protocol": AGENCY_EXECUTION_PROTOCOL,
+                "protocol": protocol,
                 "type": "model_response",
                 "id": message.get("id"),
                 "request_id": request_id,
@@ -312,7 +348,7 @@ class AgencyExecutionClient:
             }
         except Exception as exc:
             envelope = {
-                "protocol": AGENCY_EXECUTION_PROTOCOL,
+                "protocol": protocol,
                 "type": "model_response",
                 "id": message.get("id"),
                 "request_id": request_id,
@@ -323,6 +359,14 @@ class AgencyExecutionClient:
                         str(exc)
                         if isinstance(exc, (AgencyWorkerError, ValidationError))
                         else "Model call failed."
+                    ),
+                    "usage": (
+                        exc.usage if isinstance(exc, AgencyWorkerError) else {}
+                    ),
+                    "finish_reason": (
+                        exc.finish_reason
+                        if isinstance(exc, AgencyWorkerError)
+                        else None
                     ),
                 },
             }
