@@ -38,6 +38,9 @@ const PROTOTYPE_ASSEMBLY_PROFILE_V2 = Object.freeze({
   id: "matrix-oasis.prototype-assembly/2", maxZones: 4, maxNonEnvironmentBriefs: 6,
   maxPlacements: 32, maxPlacementsPerZone: 8,
 });
+const MULTI_SPACE_ENVIRONMENT_OPTIONS = Object.freeze({
+  profile: "matrix-oasis.prototype-environment/2",
+});
 
 export class PrototypeAssemblerOperationalError extends Error {
   constructor() {
@@ -309,7 +312,10 @@ async function assemble(request, profile) {
   }
   const environmentBundle = JSON.parse(captured.environmentBundleJson);
   const blueprintSha = sha256Text(captured.sceneBlueprintJson);
-  const environmentPlan = planPrototypeEnvironment(captured.sceneBlueprintJson);
+  const environmentPlan = planPrototypeEnvironment(
+    captured.sceneBlueprintJson,
+    profile.id === PROTOTYPE_ASSEMBLY_PROFILE_V2.id ? MULTI_SPACE_ENVIRONMENT_OPTIONS : undefined,
+  );
   if (!sameScene(blueprint.scene, assetBundle.scene) || !sameScene(blueprint.scene, environmentBundle.scene) ||
       runtimePack.source.id !== authoring.id || runtimePack.source.contentVersion !== authoring.contentVersion ||
       runtimePack.source.canonicalSha256 !== sha256Text(captured.authoringGamePackJson).slice(7) ||

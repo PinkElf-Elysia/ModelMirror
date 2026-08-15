@@ -19,6 +19,7 @@ import {
   importSpatialPrototypeCache,
   loadVerifiedSpatialPrototypeRun,
   parseSpatialCacheArguments,
+  publishSpatialPrototypeRun,
   recoverSpatialPrototypeRuns,
 } from "../scripts/lib/spatial-cache-core.mjs";
 import {
@@ -192,7 +193,8 @@ async function fixture(options = {}) {
   const environmentText = canonicalizeJsonValue(environment);
   const spatial = await materializePrototypeSpatialEnvironment({ environmentBundleJson: environmentText,
     environmentFiles: new Map([["assets/environment-panorama.png", panorama], ["assets/environment-collider.glb", collider]]),
-    spzBytes: spz(), calibration: { coordinateTransform: "spz-raw-ply-to-godot-v1", metricScaleMicros: 1_000_000,
+    spzBytes: spz(), calibration: { coordinateTransform: "spz-raw-ply-to-godot-v1",
+      metricScaleMicros: options.assemblyProfile === "matrix-oasis.prototype-assembly/2" ? 3_000_000 : 1_000_000,
       groundPlaneOffsetMm: 0, godotTranslationMm: [0, 0, 0], godotRotationMilliDegrees: [0, 0, 0] } });
   assert.equal(spatial.ok, true);
   const assemblyReportText = canonicalizeJsonValue({ reportVersion: 1,
@@ -218,7 +220,16 @@ async function fixture(options = {}) {
     runs: Object.freeze([Object.freeze({ runId: RUN_ID, promptSha256: PROMPT_HASH, model: MODEL })]) });
   const dependencies = { temporaryRoot: root, services, recoverPrototypeRuns, assemblePrototypeScene,
     assemblePrototypeSpatialScene, canonicalizeJsonValue };
-  return { root, prototypeRunRoot, spatialEnvironmentDir, spatialRunRoot, sourceRun, dependencies };
+  const spatialAssemblyRequest = {
+    assemblyReportJson: assemblyReportText,
+    scenePackJson: sceneText,
+    runtimeGamePackJson: runtimeText,
+    runtimeReceiptJson: receiptText,
+    spatialEnvironmentBundleJson: spatial.canonicalBundleJson,
+    spatialEnvironmentFiles: new Map(spatial.files.map((file) => [file.path, file.bytes])),
+  };
+  return { root, prototypeRunRoot, spatialEnvironmentDir, spatialRunRoot, sourceRun, dependencies,
+    spatial, spatialAssemblyRequest };
 }
 
 function importArgs(value) {
@@ -297,18 +308,54 @@ test("imports an isolated spatial overlay and rejects drift without modifying th
 test("imports and recovers a v2 spatial overlay without changing v1 cache semantics", async () => {
   const value = await fixture({ assemblyProfile: "matrix-oasis.prototype-assembly/2" });
   try {
+    const direct = await assemblePrototypeSpatialScene(value.spatialAssemblyRequest, {
+      profile: "matrix-oasis.prototype-spatial-assembly/2",
+    });
+    assert.equal(direct.ok, true, JSON.stringify(direct));
     const imported = await importSpatialPrototypeCache({ args: importArgs(value), ...value.dependencies });
     assert.deepEqual(imported, { runId: RUN_ID, cacheHit: true, files: 6 });
     const overlayRoot = path.join(value.spatialRunRoot, "spatial-runs", RUN_ID);
     const report = JSON.parse(await readFile(path.join(overlayRoot, "spatial-assembly-report.json"), "utf8"));
     const assembly = JSON.parse(await readFile(path.join(overlayRoot, "spatial-assembly.json"), "utf8"));
     assert.equal(report.profile, "matrix-oasis.prototype-spatial-assembly/2");
-    assert.equal(report.alignment.placementLayoutProfile, "walkable-envelope-grid-4x2-v1");
+    assert.equal(report.alignment.placementLayoutProfile, "collider-agent-zone-constraint-v2");
     assert.deepEqual(assembly.transforms.placementLayout, []);
     const recovered = await recoverSpatialPrototypeRuns({ runRoot: value.spatialRunRoot,
       prototypeRunRoot: value.prototypeRunRoot, ...value.dependencies });
     assert.equal(recovered.currentRunId, RUN_ID);
     assert.deepEqual(recovered.runs.map((run) => run.runId), [RUN_ID]);
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("publishes an in-memory spatial materialization without an intermediate directory", async () => {
+  const value = await fixture({ assemblyProfile: "matrix-oasis.prototype-assembly/2" });
+  try {
+    const published = await publishSpatialPrototypeRun({
+      prototypeRunRoot: value.prototypeRunRoot,
+      prototypeRunId: RUN_ID,
+      spatialRunRoot: value.spatialRunRoot,
+      spatialMaterialization: {
+        canonicalBundleJson: value.spatial.canonicalBundleJson,
+        canonicalReportJson: value.spatial.canonicalReportJson,
+        files: value.spatial.files,
+      },
+      ...value.dependencies,
+    });
+    assert.deepEqual(published, { runId: RUN_ID, cacheHit: false, files: 6 });
+    const recovered = await recoverSpatialPrototypeRuns({ runRoot: value.spatialRunRoot,
+      prototypeRunRoot: value.prototypeRunRoot, ...value.dependencies });
+    assert.equal(recovered.currentRunId, RUN_ID);
+    assert.deepEqual(recovered.runs.map((run) => run.runId), [RUN_ID]);
+    await assert.rejects(() => publishSpatialPrototypeRun({
+      prototypeRunRoot: value.prototypeRunRoot, prototypeRunId: RUN_ID,
+      spatialRunRoot: value.spatialRunRoot,
+      spatialMaterialization: { canonicalBundleJson: value.spatial.canonicalBundleJson,
+        canonicalReportJson: value.spatial.canonicalReportJson,
+        files: value.spatial.files.map((file, index) => index === 0 ? { ...file, bytes: Uint8Array.of(1) } : file) },
+      ...value.dependencies,
+    }), (error) => error.code === "SPATIAL_CACHE_INPUT_INVALID" || error.code === "SPATIAL_CACHE_RUN_EXISTS");
   } finally {
     await rm(value.root, { recursive: true, force: true });
   }
@@ -351,14 +398,23 @@ test("preview operations are cache-only and publish verified files through an im
 test("Godot wrapper is Compute-only, transform-explicit, and contains no panorama fallback", async () => {
   const loader = await readFile(new URL("../apps/runtime-godot/spatial_prototype/spatial_assembly_loader.gd", import.meta.url), "utf8");
   const lab = await readFile(new URL("../apps/runtime-godot/spatial_prototype/spatial_lab.gd", import.meta.url), "utf8");
-  const source = `${loader}\n${lab}`;
+  const spatialSceneLab = await readFile(new URL("../apps/runtime-godot/spatial_prototype/spatial_scene_lab.gd", import.meta.url), "utf8");
+  const source = `${loader}\n${lab}\n${spatialSceneLab}`;
   for (const required of ["MATRIX_OASIS_R11_SPATIAL_READY", "require_compute", "Compositor.new()",
     "EULER_ORDER_YXZ", "localRotationMilliDegrees", "panoramaVisible", "SpatialSplat",
     "ResourceLoader.load(IMPORTED_RESOURCE_PATH", "source-density-first-surface-v1",
+    "collider-global-aabb-floor-grid-v1", "collider-connected-floor-component-v2",
     "R11WalkableEnvelope", "opaque-depth-compose-v1", "depthBiasMicros",
-    "placementGroundTargetMm", "MeshInstance3D", "get_aabb()", "to_global(corner)"])
+    "placementGroundTargetMm", "nodeBindingLayout", "set_spatial_binding_layout",
+    "collider-agent-navigation-component-v7", "collider-agent-grid-v1", "navigation",
+    "MeshInstance3D", "get_aabb()", "to_global(corner)"])
     assert.equal(source.includes(required), true, required);
   assert.match(loader, /return path == IMPORTED_RESOURCE_PATH/u);
+  assert.match(loader, /if has_layout and has_binding_layout and has_navigation and not _exact\(value, \["alignment", "collider", "coordinateTransform"/u);
+  assert.match(lab, /if value\["profile"\] == "collider-agent-navigation-component-v7"/u);
+  assert.match(lab, /evidence\.name = "R11NavigationEvidence"/u);
+  assert.match(spatialSceneLab, /func _navigation_cell_for_player\(global_position: Vector3\) -> int:/u);
+  assert.match(spatialSceneLab, /player\.global_transform = _last_safe_player_transform/u);
   for (const forbidden of ["PanoramaSkyMaterial", "environment-panorama.png", "prototype_builder/prototype_lab", "Raster", "HTTPClient", "OS.execute"])
     assert.equal(source.includes(forbidden), false, forbidden);
   assert.match(lab, /node\.rotation_degrees = _milli_degrees\(value\["localRotationMilliDegrees"\]\)/u);

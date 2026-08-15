@@ -327,6 +327,11 @@ test("acceptance profile admits a generic graph without changing the public resu
   );
   assert.equal(result.ok, true);
   assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0], {
+    kind: "initial",
+    prompt: "Create a connected neutral prototype",
+    acceptanceProfile: profile,
+  });
   assert.deepEqual(profile, profileBefore);
   assert.deepEqual(Reflect.ownKeys(result), ["ok", "artifacts"]);
   assert.equal(JSON.parse(result.artifacts.generationReportJson).requestCount, 1);
@@ -352,7 +357,35 @@ test("a structurally valid candidate that misses the profile enters a directed r
         path: "/authoringGamePack/nodes",
       },
     ],
+    acceptanceProfile: acceptanceProfile(),
   });
+  assert.equal("prompt" in requests[1], false);
+});
+
+test("acceptance repairs downstream environment prompt budgets before returning artifacts", async () => {
+  const oversized = acceptanceFixture();
+  oversized.sceneBlueprint.scene.environmentPrompt = "e".repeat(321);
+  oversized.sceneBlueprint.scene.visualStylePrompt = "v".repeat(121);
+  const accepted = acceptanceFixture();
+  const firstCandidate = JSON.stringify(oversized);
+  const { provider, requests } = fakeProvider([firstCandidate, JSON.stringify(accepted)]);
+  const result = await generatePrototype(
+    { prompt: "Create a reusable connected prototype" },
+    provider,
+    { acceptanceProfile: acceptanceProfile() },
+  );
+  assert.equal(result.ok, true);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[1].diagnostics, [
+    {
+      code: "PROTOTYPE_ACCEPTANCE_ENVIRONMENT_PROMPT_LENGTH",
+      path: "/sceneBlueprint/scene/environmentPrompt",
+    },
+    {
+      code: "PROTOTYPE_ACCEPTANCE_VISUAL_STYLE_PROMPT_LENGTH",
+      path: "/sceneBlueprint/scene/visualStylePrompt",
+    },
+  ]);
   assert.equal("prompt" in requests[1], false);
 });
 
@@ -404,9 +437,74 @@ test("acceptance graph and binding diagnostics are generic and deterministic", (
   );
   assert.deepEqual(bindingDiagnostics.map((item) => item.code), [
     "PROTOTYPE_ACCEPTANCE_ASSET_BINDING_REQUIRED",
+    "PROTOTYPE_ACCEPTANCE_ASSET_VISIBILITY_REQUIRED",
   ]);
   assert.equal(Object.isFrozen(bindingDiagnostics), true);
   assert.equal(Object.isFrozen(bindingDiagnostics[0]), true);
+
+  const hidden = acceptanceFixture();
+  hidden.sceneBlueprint.nodeBindings[1].visiblePlacementIds = ["placement-environment"];
+  const preparedHidden = prepareGenerationProposalJson(JSON.stringify(hidden));
+  assert.equal(preparedHidden.ok, true);
+  assert.deepEqual(
+    evaluateAcceptanceProfile(
+      preparedHidden,
+      normalizeAcceptanceOptions({ acceptanceProfile: acceptanceProfile() }).profile,
+    ).map(({ code, path }) => ({ code, path })),
+    [{
+      code: "PROTOTYPE_ACCEPTANCE_ASSET_VISIBILITY_REQUIRED",
+      path: "/sceneBlueprint/nodeBindings",
+    }],
+  );
+});
+
+test("acceptance executes conditions and effects instead of trusting declared target edges", () => {
+  const proposal = acceptanceFixture();
+  proposal.authoringGamePack.variables = [
+    { id: "route-state", type: "integer", initial: 0 },
+  ];
+  proposal.authoringGamePack.nodes[0].actions[0].effects = [
+    { op: "set", variableId: "route-state", value: 1 },
+  ];
+  proposal.authoringGamePack.nodes[1].actions = [
+    {
+      id: "action-declared-cycle",
+      label: "Declared cycle",
+      when: { op: "eq", variableId: "route-state", value: 0 },
+      effects: [],
+      target: { kind: "node", id: "node-start" },
+    },
+    {
+      id: "action-declared-ending",
+      label: "Declared ending",
+      when: { op: "eq", variableId: "route-state", value: 0 },
+      effects: [],
+      target: { kind: "ending", id: "ending-second" },
+    },
+  ];
+  const prepared = prepareGenerationProposalJson(JSON.stringify(proposal));
+  assert.equal(prepared.ok, true);
+  const diagnostics = evaluateAcceptanceProfile(
+    prepared,
+    normalizeAcceptanceOptions({ acceptanceProfile: acceptanceProfile() }).profile,
+  );
+  assert.deepEqual(
+    diagnostics.map(({ code, path }) => ({ code, path })),
+    [
+      {
+        code: "PROTOTYPE_ACCEPTANCE_REACHABLE_CYCLE_REQUIRED",
+        path: "/authoringGamePack/nodes",
+      },
+      {
+        code: "PROTOTYPE_ACCEPTANCE_ENDING_UNREACHABLE",
+        path: "/authoringGamePack/endings",
+      },
+      {
+        code: "PROTOTYPE_ACCEPTANCE_ACTIVE_DEADLOCK",
+        path: "/authoringGamePack/nodes",
+      },
+    ],
+  );
 });
 
 test("acceptance count ranges produce the six stable count diagnostics", () => {

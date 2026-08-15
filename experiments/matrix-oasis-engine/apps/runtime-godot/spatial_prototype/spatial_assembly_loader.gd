@@ -140,11 +140,18 @@ static func _valid_splat_derivation(value: Variant, runtime_count: int) -> bool:
 static func _valid_transforms(value: Variant) -> bool:
 	if typeof(value) != TYPE_DICTIONARY:
 		return false
-	var keys := ["alignment", "collider", "coordinateTransform", "eulerOrder", "placementGroundTargetMm", "root", "splat", "walkableEnvelope"]
 	var has_layout: bool = value.has("placementLayout")
-	if has_layout:
-		keys.append("placementLayout")
-	if not _exact(value, keys) or value["coordinateTransform"] != "spz-raw-ply-to-godot-v1" or value["eulerOrder"] != "YXZ" or value["placementGroundTargetMm"] != 150:
+	var has_binding_layout: bool = value.has("nodeBindingLayout")
+	var has_navigation: bool = value.has("navigation")
+	if has_layout and has_binding_layout and has_navigation and not _exact(value, ["alignment", "collider", "coordinateTransform", "eulerOrder", "navigation", "nodeBindingLayout", "placementGroundTargetMm", "placementLayout", "root", "splat", "walkableEnvelope"]):
+		return false
+	if has_layout and has_binding_layout and not has_navigation and not _exact(value, ["alignment", "collider", "coordinateTransform", "eulerOrder", "nodeBindingLayout", "placementGroundTargetMm", "placementLayout", "root", "splat", "walkableEnvelope"]):
+		return false
+	if has_layout and not has_binding_layout and not _exact(value, ["alignment", "collider", "coordinateTransform", "eulerOrder", "placementGroundTargetMm", "placementLayout", "root", "splat", "walkableEnvelope"]):
+		return false
+	if not has_layout and not _exact(value, ["alignment", "collider", "coordinateTransform", "eulerOrder", "placementGroundTargetMm", "root", "splat", "walkableEnvelope"]):
+		return false
+	if value["coordinateTransform"] != "spz-raw-ply-to-godot-v1" or value["eulerOrder"] != "YXZ" or value["placementGroundTargetMm"] != 150:
 		return false
 	if not _valid_alignment(value["alignment"]):
 		return false
@@ -153,11 +160,21 @@ static func _valid_transforms(value: Variant) -> bool:
 	var collider: Variant = value["collider"]
 	if typeof(root) != TYPE_DICTIONARY or not _exact(root, ["rotationMilliDegrees", "translationMm"]) or not _vector(root["translationMm"], -2000000, 2000000) or not _vector(root["rotationMilliDegrees"], -360000, 360000):
 		return false
-	if typeof(splat) != TYPE_DICTIONARY or not _exact(splat, ["localRotationMilliDegrees", "localTranslationMm", "scaleMicros"]) or not _vector(splat["localTranslationMm"], -1000000, 1000000) or splat["localRotationMilliDegrees"] != [0, 0, 0] or not _bounded_integer(splat["scaleMicros"], 1, 100000000):
+	if typeof(splat) != TYPE_DICTIONARY or not _exact(splat, ["localRotationMilliDegrees", "localTranslationMm", "scaleMicros"]) or not _vector(splat["localTranslationMm"], -1000000, 1000000) or not _bounded_integer(splat["scaleMicros"], 1, 100000000):
+		return false
+	if value["alignment"]["splatProfile"] == "splat-robust-fit-30m-v1" and splat["localRotationMilliDegrees"] != [0, 0, 0]:
+		return false
+	if value["alignment"]["splatProfile"] == "splat-opencv-to-godot-official-metric-v4" and splat["localRotationMilliDegrees"] != [180000, 0, 0]:
 		return false
 	if typeof(collider) != TYPE_DICTIONARY or not _exact(collider, ["localTranslationMm", "scaleMicros"]) or not _vector(collider["localTranslationMm"], -2000000, 2000000) or not _bounded_integer(collider["scaleMicros"], 1, 100000000):
 		return false
-	return _valid_walkable_envelope(value["walkableEnvelope"]) and (not has_layout or _valid_placement_layout(value["placementLayout"]))
+	if value["walkableEnvelope"].get("profile") in ["collider-connected-floor-component-v2", "collider-splat-intersection-component-v3", "collider-splat-density-component-v4", "collider-splat-reachable-component-v5", "collider-splat-terminal-centered-component-v6", "collider-agent-navigation-component-v7"] and not has_binding_layout:
+		return false
+	if value["walkableEnvelope"].get("profile") == "collider-agent-navigation-component-v7" and not has_navigation:
+		return false
+	if has_navigation and value["walkableEnvelope"].get("profile") != "collider-agent-navigation-component-v7":
+		return false
+	return _valid_walkable_envelope(value["walkableEnvelope"]) and (not has_layout or _valid_placement_layout(value["placementLayout"])) and (not has_binding_layout or _valid_node_binding_layout(value["nodeBindingLayout"])) and (not has_navigation or _valid_navigation(value["navigation"], value["nodeBindingLayout"]))
 
 
 static func _valid_placement_layout(value: Variant) -> bool:
@@ -165,16 +182,58 @@ static func _valid_placement_layout(value: Variant) -> bool:
 		return false
 	var ids: Dictionary = {}
 	for entry: Variant in value:
-		if typeof(entry) != TYPE_DICTIONARY or not _exact(entry, ["placementId", "positionMm"]) or not _id(entry["placementId"]) or not _vector(entry["positionMm"], -2000000, 2000000) or entry["positionMm"][1] != 0 or ids.has(entry["placementId"]):
+		if typeof(entry) != TYPE_DICTIONARY or not _exact(entry, ["placementId", "positionMm"]) or not _id(entry["placementId"]) or not _vector(entry["positionMm"], -2000000, 2000000) or ids.has(entry["placementId"]):
 			return false
 		ids[entry["placementId"]] = true
 	return true
 
 
+static func _valid_node_binding_layout(value: Variant) -> bool:
+	if typeof(value) != TYPE_ARRAY or value.is_empty() or value.size() > 4096:
+		return false
+	var ids: Dictionary = {}
+	for entry: Variant in value:
+		if typeof(entry) != TYPE_DICTIONARY or not _exact(entry, ["actionAnchor", "nodeId", "playerSpawn"]) or not _id(entry["nodeId"]) or ids.has(entry["nodeId"]):
+			return false
+		for key in ["playerSpawn", "actionAnchor"]:
+			var anchor: Variant = entry[key]
+			if typeof(anchor) != TYPE_DICTIONARY or not _exact(anchor, ["positionMm", "yawMilliDegrees"]) or not _vector(anchor["positionMm"], -2000000, 2000000) or not _bounded_integer(anchor["yawMilliDegrees"], -180000, 180000):
+				return false
+		ids[entry["nodeId"]] = true
+	return true
+
+
+static func _valid_navigation(value: Variant, node_binding_layout: Array) -> bool:
+	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["agentHeightMm", "agentRadiusMm", "bindings", "cellSizeMm", "cells", "maximumStepMm", "minimumClearanceMm", "profile", "sourceIslandCount"]):
+		return false
+	if value["profile"] != "collider-agent-grid-v1" or value["cellSizeMm"] != 1000 or value["agentRadiusMm"] != 350 or value["agentHeightMm"] != 2000 or value["maximumStepMm"] != 450 or value["minimumClearanceMm"] != 700 or not _bounded_integer(value["sourceIslandCount"], 1, 16384):
+		return false
+	var cells: Variant = value["cells"]
+	var bindings: Variant = value["bindings"]
+	if typeof(cells) != TYPE_ARRAY or cells.is_empty() or cells.size() > 16384 or not cells.all(func(cell: Variant) -> bool: return _vector(cell, -2000000, 2000000)):
+		return false
+	if typeof(bindings) != TYPE_ARRAY or bindings.size() != node_binding_layout.size():
+		return false
+	var node_ids: Dictionary = {}
+	for item: Variant in node_binding_layout:
+		node_ids[item["nodeId"]] = true
+	var captured: Dictionary = {}
+	for binding: Variant in bindings:
+		if typeof(binding) != TYPE_DICTIONARY or not _exact(binding, ["nodeId", "pathCellCount", "playerCellIndex", "terminalCellIndex"]):
+			return false
+		var node_id: Variant = binding["nodeId"]
+		if typeof(node_id) != TYPE_STRING or not node_ids.has(node_id) or captured.has(node_id):
+			return false
+		if not _bounded_integer(binding["playerCellIndex"], 0, cells.size() - 1) or not _bounded_integer(binding["terminalCellIndex"], 0, cells.size() - 1) or not _bounded_integer(binding["pathCellCount"], 2, cells.size()):
+			return false
+		captured[node_id] = true
+	return captured.size() == node_ids.size()
+
+
 static func _valid_walkable_envelope(value: Variant) -> bool:
 	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["adjacentBins", "binSizeMm", "floorThicknessMm", "lateralBandMm", "maximumMm", "minimumBinCount", "minimumMm", "peakThresholdPermille", "profile", "verticalBandMm", "wallThicknessMm"]):
 		return false
-	if value["profile"] != "source-density-first-surface-v1" or value["adjacentBins"] != 2 or value["binSizeMm"] != 250 or value["minimumBinCount"] != 64 or value["peakThresholdPermille"] != 5 or value["lateralBandMm"] != 4000 or value["verticalBandMm"] != [350, 3000] or value["wallThicknessMm"] != 700 or value["floorThicknessMm"] != 200 or not _vector(value["minimumMm"], -2000000, 2000000) or not _vector(value["maximumMm"], -2000000, 2000000):
+	if value["profile"] not in ["source-density-first-surface-v1", "collider-global-aabb-floor-grid-v1", "collider-connected-floor-component-v2", "collider-splat-intersection-component-v3", "collider-splat-density-component-v4", "collider-splat-reachable-component-v5", "collider-splat-terminal-centered-component-v6", "collider-agent-navigation-component-v7"] or value["adjacentBins"] != 2 or value["binSizeMm"] != 250 or value["minimumBinCount"] != 64 or value["peakThresholdPermille"] != 5 or value["lateralBandMm"] != 4000 or value["verticalBandMm"] != [350, 3000] or value["wallThicknessMm"] != 700 or value["floorThicknessMm"] != 200 or not _vector(value["minimumMm"], -2000000, 2000000) or not _vector(value["maximumMm"], -2000000, 2000000):
 		return false
 	if value["minimumMm"][1] != 0 or value["maximumMm"][1] < 3000 or value["maximumMm"][1] > 12000:
 		return false
@@ -187,7 +246,7 @@ static func _valid_walkable_envelope(value: Variant) -> bool:
 static func _valid_alignment(value: Variant) -> bool:
 	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["centerFloorSampleSourceMm", "colliderBoundsMm", "maximumHorizontalSpanMm", "profile", "splatBoundsMm", "splatBoundsProfile", "splatProfile", "targetFloorSpanMm"]):
 		return false
-	if value["profile"] != "collider-fit-30m-v1" or value["targetFloorSpanMm"] != 30000 or value["maximumHorizontalSpanMm"] != 90000:
+	if value["profile"] not in ["collider-fit-30m-v1", "collider-official-metric-frame-v4"] or value["targetFloorSpanMm"] != (30000 if value["profile"] == "collider-fit-30m-v1" else 0) or value["maximumHorizontalSpanMm"] != (90000 if value["profile"] == "collider-fit-30m-v1" else 128000):
 		return false
 	var bounds: Variant = value["colliderBoundsMm"]
 	if typeof(bounds) != TYPE_DICTIONARY or not _exact(bounds, ["maximumMm", "minimumMm"]) or not _vector(bounds["minimumMm"], -1000000, 1000000) or not _vector(bounds["maximumMm"], -1000000, 1000000):
@@ -196,7 +255,7 @@ static func _valid_alignment(value: Variant) -> bool:
 		if bounds["minimumMm"][index] > bounds["maximumMm"][index]:
 			return false
 	var splat_bounds: Variant = value["splatBoundsMm"]
-	if value["splatProfile"] != "splat-robust-fit-30m-v1" or value["splatBoundsProfile"] != "source-position-percentile-1-99-v1" or typeof(splat_bounds) != TYPE_DICTIONARY or not _exact(splat_bounds, ["maximumMm", "minimumMm"]) or not _vector(splat_bounds["minimumMm"], -1000000, 1000000) or not _vector(splat_bounds["maximumMm"], -1000000, 1000000):
+	if value["splatProfile"] not in ["splat-robust-fit-30m-v1", "splat-opencv-to-godot-official-metric-v4"] or value["splatBoundsProfile"] != "source-position-percentile-1-99-v1" or typeof(splat_bounds) != TYPE_DICTIONARY or not _exact(splat_bounds, ["maximumMm", "minimumMm"]) or not _vector(splat_bounds["minimumMm"], -1000000, 1000000) or not _vector(splat_bounds["maximumMm"], -1000000, 1000000):
 		return false
 	for index in range(3):
 		if splat_bounds["minimumMm"][index] > splat_bounds["maximumMm"][index]:

@@ -39,11 +39,12 @@ export interface PrototypeAssetApproval {
   readonly marble: Readonly<{
     model: "marble-1.1";
     environmentPrompt: string;
-    maxCreates: 1;
-    maxPolls: 180;
-    maxDownloads: 2;
-    creditLimit: 1600;
-    usdLimitCents: 150;
+    recovered: boolean;
+    maxCreates: 0 | 1;
+    maxPolls: 0 | 180;
+    maxDownloads: 0 | 2 | 3;
+    creditLimit: 0 | 1600;
+    usdLimitCents: 0 | 150;
   }>;
   readonly meshy: Readonly<{
     model: "meshy-6";
@@ -69,6 +70,66 @@ export interface PrototypeRun {
   readonly resultRunId: string | null;
 }
 
+export interface PrototypeRecovery {
+  readonly model: "marble-1.1";
+  readonly worldIdSha256: string;
+  readonly maxCreates: 0;
+  readonly maxPolls: 0;
+  readonly maxWorldGets: 0 | 1;
+  readonly maxDownloads: 0 | 3;
+  readonly creditLimit: 0;
+  readonly usdLimitCents: 0;
+  readonly status: "awaiting_approval" | "recovering" | "ready" | "failed";
+  readonly diagnostics: readonly PrototypeBuilderDiagnostic[];
+  readonly approvalHash: string;
+  readonly approved: boolean;
+}
+
+export interface PrototypeWorldDiscoveryCandidate {
+  readonly worldIdSha256: string;
+  readonly promptSha256: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly model: "marble-1.1";
+  readonly assets: Readonly<{ panorama: boolean; collider: boolean; spatialSource: boolean }>;
+}
+
+export interface PrototypeWorldDiscoveryRecovery {
+  readonly worldIdSha256: string;
+  readonly maxCreates: 0;
+  readonly maxPolls: 0;
+  readonly maxWorldGets: 1;
+  readonly maxDownloads: 3;
+  readonly creditLimit: 0;
+  readonly usdLimitCents: 0;
+  readonly status: "awaiting_approval" | "recovering" | "ready" | "failed";
+  readonly diagnostics: readonly PrototypeBuilderDiagnostic[];
+  readonly approvalHash: string;
+  readonly approved: boolean;
+}
+
+export interface PrototypeWorldDiscovery {
+  readonly provider: "world-labs-marble";
+  readonly operation: "worlds:list";
+  readonly model: "marble-1.1";
+  readonly pageSize: 100;
+  readonly status: "SUCCEEDED";
+  readonly sortBy: "created_at";
+  readonly maxRequests: 1;
+  readonly maxCreates: 0;
+  readonly maxPolls: 0;
+  readonly maxWorldGets: 0;
+  readonly maxDownloads: 0;
+  readonly creditLimit: 0;
+  readonly usdLimitCents: 0;
+  readonly statusState: "awaiting_approval" | "querying" | "ready" | "failed";
+  readonly diagnostics: readonly PrototypeBuilderDiagnostic[];
+  readonly candidates: readonly PrototypeWorldDiscoveryCandidate[];
+  readonly recovery: PrototypeWorldDiscoveryRecovery | null;
+  readonly approvalHash: string;
+  readonly approved: boolean;
+}
+
 export interface PrototypeBootstrap {
   readonly marker: "MATRIX_OASIS_R10_PROTOTYPE_HOST";
   readonly readiness: Readonly<{
@@ -78,6 +139,8 @@ export interface PrototypeBootstrap {
   }>;
   readonly currentRunId: string | null;
   readonly runs: readonly PrototypeRun[];
+  readonly recovery?: PrototypeRecovery | null;
+  readonly worldDiscovery?: PrototypeWorldDiscovery | null;
 }
 
 type FetchLike = (
@@ -224,6 +287,7 @@ function parseAssetApproval(value: unknown): PrototypeAssetApproval | null {
     !exactKeys(value.marble, [
       "model",
       "environmentPrompt",
+      "recovered",
       "maxCreates",
       "maxPolls",
       "maxDownloads",
@@ -232,17 +296,20 @@ function parseAssetApproval(value: unknown): PrototypeAssetApproval | null {
     ]) ||
     value.marble.model !== "marble-1.1" ||
     !safeText(value.marble.environmentPrompt) ||
-    value.marble.maxCreates !== 1 ||
-    value.marble.maxPolls !== 180 ||
-    value.marble.maxDownloads !== 2 ||
-    value.marble.creditLimit !== 1600 ||
-    value.marble.usdLimitCents !== 150 ||
+    typeof value.marble.recovered !== "boolean" ||
+    (value.marble.recovered
+      ? value.marble.maxCreates !== 0 || value.marble.maxPolls !== 0 || value.marble.maxDownloads !== 0 ||
+        value.marble.creditLimit !== 0 || value.marble.usdLimitCents !== 0
+      : value.marble.maxCreates !== 1 || value.marble.maxPolls !== 180 ||
+        ![2, 3].includes(Number(value.marble.maxDownloads)) || value.marble.creditLimit !== 1600 ||
+        value.marble.usdLimitCents !== 150) ||
     !exactKeys(value.meshy, ["model", "briefs", "maxTasks", "creditLimit"]) ||
     value.meshy.model !== "meshy-6" ||
     !Array.isArray(value.meshy.briefs) ||
     value.meshy.briefs.length > 6 ||
-    value.meshy.maxTasks !== value.meshy.briefs.length * 2 ||
-    value.meshy.creditLimit !== value.meshy.briefs.length * 30
+    !((value.meshy.maxTasks === 0 && value.meshy.creditLimit === 0) ||
+      (value.meshy.maxTasks === value.meshy.briefs.length * 2 &&
+        value.meshy.creditLimit === value.meshy.briefs.length * 30))
   ) {
     return null;
   }
@@ -269,11 +336,12 @@ function parseAssetApproval(value: unknown): PrototypeAssetApproval | null {
     marble: Object.freeze({
       model: "marble-1.1",
       environmentPrompt: value.marble.environmentPrompt,
-      maxCreates: 1,
-      maxPolls: 180,
-      maxDownloads: 2,
-      creditLimit: 1600,
-      usdLimitCents: 150,
+      recovered: value.marble.recovered,
+      maxCreates: value.marble.maxCreates as 0 | 1,
+      maxPolls: value.marble.maxPolls as 0 | 180,
+      maxDownloads: value.marble.maxDownloads as 0 | 2 | 3,
+      creditLimit: value.marble.creditLimit as 0 | 1600,
+      usdLimitCents: value.marble.usdLimitCents as 0 | 150,
     }),
     meshy: Object.freeze({
       model: "meshy-6",
@@ -342,8 +410,11 @@ function parseRun(value: unknown): PrototypeRun | null {
 }
 
 function parseBootstrap(value: unknown): PrototypeBootstrap | null {
+  const bootstrapKeys = ["marker", "readiness", "currentRunId", "runs"];
+  if (isRecord(value) && Object.hasOwn(value, "recovery")) bootstrapKeys.push("recovery");
+  if (isRecord(value) && Object.hasOwn(value, "worldDiscovery")) bootstrapKeys.push("worldDiscovery");
   if (
-    !exactKeys(value, ["marker", "readiness", "currentRunId", "runs"]) ||
+    !exactKeys(value, bootstrapKeys) ||
     value.marker !== "MATRIX_OASIS_R10_PROTOTYPE_HOST" ||
     !exactKeys(value.readiness, ["model", "assets", "godot"]) ||
     [
@@ -363,6 +434,14 @@ function parseBootstrap(value: unknown): PrototypeBootstrap | null {
   if (runs.some((run) => run === null)) {
     return null;
   }
+  const recovery = Object.hasOwn(value, "recovery") && value.recovery !== null
+    ? parseRecovery(value.recovery)
+    : null;
+  if (Object.hasOwn(value, "recovery") && value.recovery !== null && recovery === null) return null;
+  const worldDiscovery = Object.hasOwn(value, "worldDiscovery") && value.worldDiscovery !== null
+    ? parseWorldDiscovery(value.worldDiscovery)
+    : null;
+  if (Object.hasOwn(value, "worldDiscovery") && value.worldDiscovery !== null && worldDiscovery === null) return null;
   return Object.freeze({
     marker: "MATRIX_OASIS_R10_PROTOTYPE_HOST",
     readiness: Object.freeze({
@@ -372,7 +451,80 @@ function parseBootstrap(value: unknown): PrototypeBootstrap | null {
     }),
     currentRunId: value.currentRunId as string | null,
     runs: Object.freeze(runs as PrototypeRun[]),
+    ...(Object.hasOwn(value, "recovery") ? { recovery } : {}),
+    ...(Object.hasOwn(value, "worldDiscovery") ? { worldDiscovery } : {}),
   });
+}
+
+function parseRecovery(value: unknown): PrototypeRecovery | null {
+  const scopeValid = isRecord(value) && ((value.maxWorldGets === 1 && value.maxDownloads === 3) ||
+    (value.maxWorldGets === 0 && value.maxDownloads === 0));
+  if (!exactKeys(value, ["model", "worldIdSha256", "maxCreates", "maxPolls",
+    "maxWorldGets", "maxDownloads", "creditLimit", "usdLimitCents", "status", "diagnostics", "approvalHash", "approved"]) ||
+      value.model !== "marble-1.1" || typeof value.worldIdSha256 !== "string" || !HASH.test(value.worldIdSha256) ||
+      value.maxCreates !== 0 || value.maxPolls !== 0 || !scopeValid || value.creditLimit !== 0 ||
+      value.usdLimitCents !== 0 || !["awaiting_approval", "recovering", "ready", "failed"].includes(String(value.status)) ||
+      typeof value.approvalHash !== "string" || !HASH.test(value.approvalHash) || typeof value.approved !== "boolean") return null;
+  const safeDiagnostics = diagnostics(value.diagnostics);
+  if (safeDiagnostics === null) return null;
+  return Object.freeze({
+    model: "marble-1.1", worldIdSha256: value.worldIdSha256,
+    maxCreates: 0, maxPolls: 0,
+    maxWorldGets: value.maxWorldGets as 0 | 1,
+    maxDownloads: value.maxDownloads as 0 | 3,
+    creditLimit: 0, usdLimitCents: 0,
+    status: value.status as PrototypeRecovery["status"], diagnostics: safeDiagnostics,
+    approvalHash: value.approvalHash, approved: value.approved,
+  });
+}
+
+function parseWorldDiscovery(value: unknown): PrototypeWorldDiscovery | null {
+  if (!exactKeys(value, ["provider", "operation", "model", "pageSize", "status", "sortBy", "maxRequests",
+    "maxCreates", "maxPolls", "maxWorldGets", "maxDownloads", "creditLimit", "usdLimitCents", "statusState",
+    "diagnostics", "candidates", "recovery", "approvalHash", "approved"]) || value.provider !== "world-labs-marble" ||
+      value.operation !== "worlds:list" || value.model !== "marble-1.1" || value.pageSize !== 100 || value.status !== "SUCCEEDED" ||
+      value.sortBy !== "created_at" || value.maxRequests !== 1 || value.maxCreates !== 0 || value.maxPolls !== 0 ||
+      value.maxWorldGets !== 0 || value.maxDownloads !== 0 || value.creditLimit !== 0 || value.usdLimitCents !== 0 ||
+      !["awaiting_approval", "querying", "ready", "failed"].includes(String(value.statusState)) ||
+      typeof value.approvalHash !== "string" || !HASH.test(value.approvalHash) || typeof value.approved !== "boolean" ||
+      !Array.isArray(value.candidates) || value.candidates.length > 100) return null;
+  const safeDiagnostics = diagnostics(value.diagnostics);
+  if (safeDiagnostics === null) return null;
+  const recovery = value.recovery === null ? null : parseWorldDiscoveryRecovery(value.recovery);
+  if (value.recovery !== null && recovery === null) return null;
+  const candidates: PrototypeWorldDiscoveryCandidate[] = [];
+  for (const candidate of value.candidates) {
+    if (!exactKeys(candidate, ["worldIdSha256", "promptSha256", "createdAt", "updatedAt", "model", "assets"]) ||
+        typeof candidate.worldIdSha256 !== "string" || !HASH.test(candidate.worldIdSha256) ||
+        typeof candidate.promptSha256 !== "string" || !HASH.test(candidate.promptSha256) || candidate.model !== "marble-1.1" ||
+        typeof candidate.createdAt !== "string" || !Number.isFinite(Date.parse(candidate.createdAt)) ||
+        typeof candidate.updatedAt !== "string" || !Number.isFinite(Date.parse(candidate.updatedAt)) ||
+        !exactKeys(candidate.assets, ["panorama", "collider", "spatialSource"]) ||
+        [candidate.assets.panorama, candidate.assets.collider, candidate.assets.spatialSource].some((entry) => typeof entry !== "boolean")) return null;
+    candidates.push(Object.freeze({ ...candidate, assets: Object.freeze({ ...candidate.assets }) }) as PrototypeWorldDiscoveryCandidate);
+  }
+  return Object.freeze({
+    provider: "world-labs-marble", operation: "worlds:list", model: "marble-1.1", pageSize: 100, status: "SUCCEEDED",
+    sortBy: "created_at", maxRequests: 1, maxCreates: 0, maxPolls: 0, maxWorldGets: 0, maxDownloads: 0,
+    creditLimit: 0, usdLimitCents: 0,
+    statusState: value.statusState as PrototypeWorldDiscovery["statusState"], diagnostics: safeDiagnostics,
+    candidates: Object.freeze(candidates), recovery, approvalHash: value.approvalHash, approved: value.approved,
+  });
+}
+
+function parseWorldDiscoveryRecovery(value: unknown): PrototypeWorldDiscoveryRecovery | null {
+  if (!exactKeys(value, ["worldIdSha256", "maxCreates", "maxPolls", "maxWorldGets", "maxDownloads", "creditLimit",
+    "usdLimitCents", "status", "diagnostics", "approvalHash", "approved"]) || typeof value.worldIdSha256 !== "string" ||
+      !HASH.test(value.worldIdSha256) || value.maxCreates !== 0 || value.maxPolls !== 0 || value.maxWorldGets !== 1 ||
+      value.maxDownloads !== 3 || value.creditLimit !== 0 || value.usdLimitCents !== 0 ||
+      !["awaiting_approval", "recovering", "ready", "failed"].includes(String(value.status)) ||
+      typeof value.approvalHash !== "string" || !HASH.test(value.approvalHash) || typeof value.approved !== "boolean") return null;
+  const safeDiagnostics = diagnostics(value.diagnostics);
+  if (safeDiagnostics === null) return null;
+  return Object.freeze({ worldIdSha256: value.worldIdSha256, maxCreates: 0, maxPolls: 0, maxWorldGets: 1,
+    maxDownloads: 3, creditLimit: 0, usdLimitCents: 0,
+    status: value.status as PrototypeWorldDiscoveryRecovery["status"], diagnostics: safeDiagnostics,
+    approvalHash: value.approvalHash, approved: value.approved });
 }
 
 async function responseJson(response: Response): Promise<unknown> {
@@ -480,6 +632,39 @@ export class PrototypeBuilderClient {
         approvalHash: run.assetApproval.approvalHash,
       }),
     );
+  }
+
+  async approveRecovery(recovery: PrototypeRecovery): Promise<PrototypeRecovery> {
+    const value = await this.#request("/api/recovery/approve", "POST", { approvalHash: recovery.approvalHash });
+    if (!exactKeys(value, ["ok", "recovery"]) || value.ok !== true) throw new PrototypeBuilderClientError();
+    const parsed = parseRecovery(value.recovery);
+    if (!parsed) throw new PrototypeBuilderClientError();
+    return parsed;
+  }
+
+  async approveWorldDiscovery(discovery: PrototypeWorldDiscovery): Promise<PrototypeWorldDiscovery> {
+    const value = await this.#request("/api/world-discovery/approve", "POST", { approvalHash: discovery.approvalHash });
+    if (!exactKeys(value, ["ok", "worldDiscovery"]) || value.ok !== true) throw new PrototypeBuilderClientError();
+    const parsed = parseWorldDiscovery(value.worldDiscovery);
+    if (!parsed) throw new PrototypeBuilderClientError();
+    return parsed;
+  }
+
+  async prepareWorldRecovery(candidate: PrototypeWorldDiscoveryCandidate): Promise<PrototypeWorldDiscovery> {
+    const value = await this.#request("/api/world-discovery/prepare-recovery", "POST", { worldIdSha256: candidate.worldIdSha256 });
+    if (!exactKeys(value, ["ok", "worldDiscovery"]) || value.ok !== true) throw new PrototypeBuilderClientError();
+    const parsed = parseWorldDiscovery(value.worldDiscovery);
+    if (!parsed) throw new PrototypeBuilderClientError();
+    return parsed;
+  }
+
+  async approveWorldRecovery(discovery: PrototypeWorldDiscovery): Promise<PrototypeWorldDiscovery> {
+    if (discovery.recovery === null) throw new PrototypeBuilderClientError();
+    const value = await this.#request("/api/world-discovery/approve-recovery", "POST", { approvalHash: discovery.recovery.approvalHash });
+    if (!exactKeys(value, ["ok", "worldDiscovery"]) || value.ok !== true) throw new PrototypeBuilderClientError();
+    const parsed = parseWorldDiscovery(value.worldDiscovery);
+    if (!parsed) throw new PrototypeBuilderClientError();
+    return parsed;
   }
 
   async launch(run: PrototypeRun): Promise<string> {

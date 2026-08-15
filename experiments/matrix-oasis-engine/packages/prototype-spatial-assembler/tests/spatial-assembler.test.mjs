@@ -11,6 +11,11 @@ import {
   assemblePrototypeSpatialScene,
   validatePrototypeSpatialAssemblyJson,
 } from "../src/index.mjs";
+import {
+  deriveColliderCalibration,
+  deriveColliderWalkableLayout,
+  deriveSplatCalibration,
+} from "../src/collider-calibration.mjs";
 
 const COMPRESSED_PLY = Buffer.from(
   "cGx5CmZvcm1hdCBiaW5hcnlfbGl0dGxlX2VuZGlhbiAxLjAKY29tbWVudCBHZW5lcmF0ZWQgYnkgc3BsYXQtdHJhbnNmb3JtIDMuMy4wCmVsZW1lbnQgY2h1bmsgMQpwcm9wZXJ0eSBmbG9hdCBtaW5feApwcm9wZXJ0eSBmbG9hdCBtaW5feQpwcm9wZXJ0eSBmbG9hdCBtaW5fegpwcm9wZXJ0eSBmbG9hdCBtYXhfeApwcm9wZXJ0eSBmbG9hdCBtYXhfeQpwcm9wZXJ0eSBmbG9hdCBtYXhfegpwcm9wZXJ0eSBmbG9hdCBtaW5fc2NhbGVfeApwcm9wZXJ0eSBmbG9hdCBtaW5fc2NhbGVfeQpwcm9wZXJ0eSBmbG9hdCBtaW5fc2NhbGVfegpwcm9wZXJ0eSBmbG9hdCBtYXhfc2NhbGVfeApwcm9wZXJ0eSBmbG9hdCBtYXhfc2NhbGVfeQpwcm9wZXJ0eSBmbG9hdCBtYXhfc2NhbGVfegpwcm9wZXJ0eSBmbG9hdCBtaW5fcgpwcm9wZXJ0eSBmbG9hdCBtaW5fZwpwcm9wZXJ0eSBmbG9hdCBtaW5fYgpwcm9wZXJ0eSBmbG9hdCBtYXhfcgpwcm9wZXJ0eSBmbG9hdCBtYXhfZwpwcm9wZXJ0eSBmbG9hdCBtYXhfYgplbGVtZW50IHZlcnRleCAzCnByb3BlcnR5IHVpbnQgcGFja2VkX3Bvc2l0aW9uCnByb3BlcnR5IHVpbnQgcGFja2VkX3JvdGF0aW9uCnByb3BlcnR5IHVpbnQgcGFja2VkX3NjYWxlCnByb3BlcnR5IHVpbnQgcGFja2VkX2NvbG9yCmVuZF9oZWFkZXIKAACAvwAAAAAAAAA/AACAPwAAAEAAAMA/AAAAwAAAAMAAAADAAAAAwAAAAMAAAADAqvEAP6rxAD+q8QA/qvEAP6rxAD+q8QA/AAAAAAACCGAAAAAA/wAAAAAEEIAAAghgAAAAAP8AAAD/////AAIIYAAAAAD/AAAA",
@@ -252,6 +257,19 @@ async function fixture() {
 async function multiAssetFixture(count = 6) {
   const input = await fixture();
   const scene = JSON.parse(input.scenePackJson);
+  const spatial = JSON.parse(input.spatialEnvironmentBundleJson);
+  // The synthetic collider is two source units wide. A 15m official metric scale
+  // preserves the legacy 30m test footprint without applying a second fit scale.
+  spatial.calibration.metricScaleMicros = 15_000_000;
+  spatial.calibration.groundPlaneOffsetMm = 1000;
+  for (const bounds of [spatial.statistics.sourceBounds, spatial.statistics.runtimeRobustBounds]) {
+    bounds.minimumMm = bounds.minimumMm.map((value) => value * 15);
+    bounds.maximumMm = bounds.maximumMm.map((value) => value * 15);
+  }
+  spatial.statistics.sourceMeanMm = spatial.statistics.sourceMeanMm.map((value) => value * 15);
+  spatial.statistics.rendererCenterCompensationMm =
+    spatial.statistics.rendererCenterCompensationMm.map((value) => value * 15);
+  input.spatialEnvironmentBundleJson = canonicalizeJsonValue(spatial);
   const added = Array.from({ length: count }, (_, index) => ({
     id: `placement-item-${index}`,
     visualAssetId: "environment-collider",
@@ -306,7 +324,7 @@ test("binds Scene Pack, splat and collider with explicit metric transforms", asy
   assert.equal(result.assembly.environment.splat.derivation.profile, "identity-v1");
   assert.equal(result.assembly.environment.splat.derivation.sourceNumGaussians, 3);
   assert.deepEqual(result.assembly.transforms.root, {
-    translationMm: [100, 75, 2300],
+    translationMm: [100, 200, 2300],
     rotationMilliDegrees: [0, 0, 0],
   });
   assert.deepEqual(result.assembly.transforms.alignment, {
@@ -363,6 +381,8 @@ test("binds Scene Pack, splat and collider with explicit metric transforms", asy
   assert.equal(report.alignment.wallDensityBinSizeMm, 250);
   assert.equal(report.alignment.wallDensityMinimumBinCount, 64);
   assert.equal(report.alignment.rendererDepthBiasMicros, 0);
+  assert.equal(report.alignment.sourceGroundPlaneOffsetMm, -125);
+  assert.equal(report.alignment.verticalAlignmentProfile, "collider-calibrated-floor-v1");
   assert.equal(report.alignment.placementGroundTargetMm, 150);
   assert.equal(report.output.sourceSplatCount, 3);
   assert.equal(report.output.splatLodProfile, "identity-v1");
@@ -416,15 +436,53 @@ test("v2 derives six ordered safe slots inside the walkable envelope and fails c
   assert.deepEqual(result.assembly.transforms.placementLayout.map((entry) => entry.placementId),
     Array.from({ length: 6 }, (_, index) => `placement-item-${index}`));
   assert.equal(new Set(result.assembly.transforms.placementLayout.map((entry) => entry.positionMm.join(","))).size, 6);
+  const navigationCells = new Set(result.assembly.transforms.navigation.cells.map((entry) => entry.join(",")));
   for (const entry of result.assembly.transforms.placementLayout) {
-    assert.equal(entry.positionMm[0] >= -4300 && entry.positionMm[0] <= 4050, true);
-    assert.equal(entry.positionMm[1], 0);
-    assert.equal(entry.positionMm[2] >= -13800 && entry.positionMm[2] <= 7800, true);
+    assert.equal(navigationCells.has(entry.positionMm.join(",")), true);
+    assert.equal(entry.positionMm[0] >= result.assembly.transforms.walkableEnvelope.minimumMm[0], true);
+    assert.equal(entry.positionMm[0] <= result.assembly.transforms.walkableEnvelope.maximumMm[0], true);
+    assert.equal(entry.positionMm[2] >= result.assembly.transforms.walkableEnvelope.minimumMm[2], true);
+    assert.equal(entry.positionMm[2] <= result.assembly.transforms.walkableEnvelope.maximumMm[2], true);
   }
+  assert.equal(
+    result.assembly.transforms.walkableEnvelope.profile,
+    "collider-agent-navigation-component-v7",
+  );
+  assert.equal(result.assembly.transforms.navigation.profile, "collider-agent-grid-v1");
+  assert.equal(result.assembly.transforms.navigation.cellSizeMm, 1000);
+  assert.equal(result.assembly.transforms.navigation.agentRadiusMm, 350);
+  assert.equal(result.assembly.transforms.navigation.maximumStepMm, 450);
+  assert.equal(result.assembly.transforms.navigation.minimumClearanceMm, 700);
+  assert.equal(result.assembly.transforms.navigation.bindings.length, 1);
+  assert.equal(result.assembly.transforms.navigation.bindings[0].nodeId, "node-start");
+  assert.equal(result.assembly.transforms.navigation.bindings[0].pathCellCount >= 2, true);
+  assert.equal(result.assembly.transforms.nodeBindingLayout.length, 1);
+  assert.equal(result.assembly.transforms.nodeBindingLayout[0].nodeId, "node-start");
+  assert.equal(result.assembly.transforms.nodeBindingLayout[0].playerSpawn.positionMm[1] >= 1000, true);
+  assert.equal(result.assembly.transforms.nodeBindingLayout[0].actionAnchor.positionMm[1] >= 0, true);
+  assert.equal(result.assembly.transforms.alignment.profile, "collider-official-metric-frame-v4");
+  assert.equal(result.assembly.transforms.alignment.targetFloorSpanMm, 0);
+  assert.equal(result.assembly.transforms.alignment.maximumHorizontalSpanMm, 128_000);
+  assert.equal(result.assembly.transforms.alignment.splatProfile, "splat-opencv-to-godot-official-metric-v4");
+  assert.deepEqual(result.assembly.transforms.alignment.splatBoundsMm, {
+    minimumMm: [-15_000, -30_000, -22_500],
+    maximumMm: [15_000, 0, -7500],
+  });
+  assert.deepEqual(result.assembly.transforms.splat.localRotationMilliDegrees, [180_000, 0, 0]);
+  assert.deepEqual(result.assembly.transforms.splat.localTranslationMm, [0, 0, -15_000]);
+  assert.equal(
+    result.assembly.transforms.splat.scaleMicros,
+    result.assembly.transforms.collider.scaleMicros,
+  );
+  assert.equal(result.assembly.transforms.splat.scaleMicros, 15_000_000);
+  assert.notDeepEqual(
+    result.assembly.transforms.splat.localTranslationMm,
+    result.assembly.transforms.collider.localTranslationMm,
+  );
   assert.equal(validatePrototypeSpatialAssemblyJson(result.canonicalSpatialAssemblyJson).valid, true);
   const report = JSON.parse(result.canonicalSpatialAssemblyReportJson);
   assert.equal(report.profile, "matrix-oasis.prototype-spatial-assembly/2");
-  assert.equal(report.alignment.placementLayoutProfile, "walkable-envelope-grid-4x2-v1");
+  assert.equal(report.alignment.placementLayoutProfile, "collider-agent-zone-constraint-v2");
   assert.equal(report.alignment.placementLayoutCount, 6);
   const outputs = await Promise.all(Array.from({ length: 20 }, () =>
     assemblePrototypeSpatialScene(input, { profile: "matrix-oasis.prototype-spatial-assembly/2" })));
@@ -442,10 +500,99 @@ test("v2 derives six ordered safe slots inside the walkable envelope and fails c
   const narrow = await assemblePrototypeSpatialScene(narrowInput, {
     profile: "matrix-oasis.prototype-spatial-assembly/2",
   });
-  assert.equal(narrow.diagnostics[0].code, "PROTOTYPE_SPATIAL_ASSEMBLY_SAFE_LAYOUT_UNAVAILABLE");
+  assert.equal(narrow.ok, true, JSON.stringify(narrow));
+  assert.equal(narrow.assembly.transforms.walkableEnvelope.profile, "collider-agent-navigation-component-v7");
   assert.equal((await assemblePrototypeSpatialScene(input, {
     profile: "matrix-oasis.prototype-spatial-assembly/1",
   })).diagnostics[0].code, "PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_UNSUPPORTED");
+});
+
+test("official metric calibration accepts bounded 100m worlds and rejects spans beyond 128m", async () => {
+  const input = await multiAssetFixture(2);
+  const collider = input.spatialEnvironmentFiles.get("assets/environment-collider.glb");
+  const accepted = await deriveColliderCalibration(collider, {
+    metricScaleMicros: 25_000_000,
+    groundPlaneOffsetMm: 0,
+  });
+  assert.notEqual(accepted, null);
+  assert.equal(accepted.maximumHorizontalSpanMm, 128_000);
+  assert.equal(await deriveColliderCalibration(collider, {
+    metricScaleMicros: 33_000_000,
+    groundPlaneOffsetMm: 0,
+  }), null);
+});
+
+test("v2 deduplicates repeated node anchors before enforcing the four-zone limit", async () => {
+  const input = await multiAssetFixture(6);
+  const scene = JSON.parse(input.scenePackJson);
+  const spatial = JSON.parse(input.spatialEnvironmentBundleJson);
+  const collider = input.spatialEnvironmentFiles.get("assets/environment-collider.glb");
+  const environment = scene.placements[0];
+  const alignment = await deriveColliderCalibration(collider, {
+    metricScaleMicros: spatial.calibration.metricScaleMicros,
+    groundPlaneOffsetMm: spatial.calibration.groundPlaneOffsetMm,
+  });
+  const splatAlignment = deriveSplatCalibration(
+    spatial.statistics,
+    spatial.calibration.metricScaleMicros,
+    alignment,
+  );
+  const result = await deriveColliderWalkableLayout(
+    collider,
+    COMPRESSED_PLY,
+    alignment,
+    splatAlignment,
+    spatial.calibration.metricScaleMicros,
+    spatial.statistics,
+    scene.placements.filter((placement) => placement.id !== environment.id),
+    [0, 1000, 2000],
+    Array.from({ length: 7 }, (_, index) => ({
+      nodeId: `node-${index}`,
+      playerSpawn: {
+        positionMm: index < 2 ? [-4000, 1000, -2000] : [4000, 1000, 6000],
+        yawMilliDegrees: 0,
+      },
+      actionAnchor: {
+        positionMm: index < 2 ? [-4000, 0, -4000] : [4000, 0, 4000],
+        yawMilliDegrees: 0,
+      },
+      visiblePlacementIds: Array.from({ length: 3 }, (_, itemIndex) =>
+        `placement-item-${itemIndex + (index < 2 ? 0 : 3)}`),
+    })),
+    Array.from({ length: 7 }, (_, index) => ({
+      nodeId: `node-${index}`,
+      actionCount: index === 0 ? 4 : 2,
+    })),
+  );
+  assert.notEqual(result, null);
+  assert.equal(result.placementLayout.length, 6);
+  assert.equal(result.nodeBindingLayout.length, 7);
+  for (let left = 0; left < result.placementLayout.length; left += 1) {
+    for (let right = left + 1; right < result.placementLayout.length; right += 1) {
+      const deltaX = result.placementLayout[left].positionMm[0] - result.placementLayout[right].positionMm[0];
+      const deltaZ = result.placementLayout[left].positionMm[2] - result.placementLayout[right].positionMm[2];
+      assert.equal(deltaX ** 2 + deltaZ ** 2 >= 1_000 ** 2, true);
+    }
+  }
+  const fourActionBinding = result.nodeBindingLayout.find((binding) => binding.nodeId === "node-0");
+  const secondZoneBinding = result.nodeBindingLayout.find((binding) => binding.nodeId === "node-2");
+  assert.equal(fourActionBinding.actionAnchor.positionMm[0] - 3175 >=
+    result.walkableEnvelope.minimumMm[0], true);
+  assert.equal(fourActionBinding.actionAnchor.positionMm[0] + 3175 <=
+    result.walkableEnvelope.maximumMm[0], true);
+  assert.equal(fourActionBinding.actionAnchor.positionMm[2] - 2650 >=
+    result.walkableEnvelope.minimumMm[2], true);
+  const squaredDistance = (placement, binding) =>
+    (placement.positionMm[0] - binding.actionAnchor.positionMm[0]) ** 2 +
+    (placement.positionMm[2] - binding.actionAnchor.positionMm[2]) ** 2;
+  for (const placement of result.placementLayout.slice(0, 3)) {
+    assert.equal(squaredDistance(placement, fourActionBinding) <
+      squaredDistance(placement, secondZoneBinding), true);
+  }
+  for (const placement of result.placementLayout.slice(3)) {
+    assert.equal(squaredDistance(placement, secondZoneBinding) <
+      squaredDistance(placement, fourActionBinding), true);
+  }
 });
 
 test("is byte deterministic twenty times and leaves caller bytes unchanged", async () => {

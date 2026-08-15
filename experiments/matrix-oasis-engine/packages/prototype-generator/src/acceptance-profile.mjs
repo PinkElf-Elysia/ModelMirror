@@ -1,5 +1,14 @@
+import {
+  applyGameSessionAction,
+  createGameSession,
+  prepareAuthoringGamePackJson,
+} from "@matrix-oasis/game-pack-simulator";
+
 const PROFILE_FORMAT = "matrix-oasis.prototype-acceptance-profile";
 const PROFILE_VERSION = "0.1.0";
+const ACCEPTANCE_ENVIRONMENT_PROMPT_MAX = 320;
+const ACCEPTANCE_VISUAL_STYLE_PROMPT_MAX = 120;
+const ACCEPTANCE_STATE_LIMIT = 10_000;
 
 function diagnostic(code, path) {
   return Object.freeze({
@@ -120,70 +129,88 @@ function countDiagnostic(range, count, path, code) {
   return count < range.min || count > range.max ? diagnostic(code, path) : null;
 }
 
-function graphEvidence(authoring) {
-  const nodeById = new Map(authoring.nodes.map((node) => [node.id, node]));
-  const reachableNodes = new Set();
-  const reachableEndings = new Set();
-  const adjacency = new Map();
-  const pending = [authoring.entryNodeId];
-  while (pending.length > 0) {
-    const nodeId = pending.shift();
-    if (reachableNodes.has(nodeId)) {
-      continue;
-    }
-    reachableNodes.add(nodeId);
-    const node = nodeById.get(nodeId);
-    const targets = [];
-    for (const action of node.actions) {
-      if (action.target.kind === "node") {
-        targets.push(action.target.id);
-        if (!reachableNodes.has(action.target.id)) {
-          pending.push(action.target.id);
-        }
-      } else {
-        reachableEndings.add(action.target.id);
-      }
-    }
-    adjacency.set(nodeId, targets);
+function semanticStateKey(inspection) {
+  return JSON.stringify([
+    inspection.location.kind,
+    inspection.location.id,
+    inspection.variables.map((variable) => [
+      variable.id,
+      variable.type,
+      variable.value,
+    ]),
+  ]);
+}
+
+function graphEvidence(canonicalAuthoringJson) {
+  const prepared = prepareAuthoringGamePackJson(canonicalAuthoringJson);
+  if (!prepared.ok) {
+    throw new Error("PROTOTYPE_ACCEPTANCE_SIMULATOR_INVARIANT");
+  }
+  const created = createGameSession(prepared.prepared, {
+    stepLimit: ACCEPTANCE_STATE_LIMIT,
+  });
+  if (!created.ok) {
+    throw new Error("PROTOTYPE_ACCEPTANCE_SIMULATOR_INVARIANT");
   }
 
-  const state = new Map();
+  const reachableEndings = new Set();
+  const seenStates = new Set([semanticStateKey(created.inspection)]);
+  const pending = [
+    { snapshot: created.snapshot, inspection: created.inspection },
+  ];
   let hasReachableCycle = false;
-  for (const rootId of reachableNodes) {
-    if (state.get(rootId) === 2) {
+  let hasReachableDeadlock = false;
+  let explorationComplete = true;
+
+  while (pending.length > 0) {
+    const current = pending.shift();
+    if (current.inspection.status === "ended") {
+      reachableEndings.add(current.inspection.location.id);
       continue;
     }
-    const stack = [{ nodeId: rootId, targetIndex: 0 }];
-    state.set(rootId, 1);
-    while (stack.length > 0 && !hasReachableCycle) {
-      const frame = stack[stack.length - 1];
-      const targets = adjacency.get(frame.nodeId) ?? [];
-      if (frame.targetIndex >= targets.length) {
-        state.set(frame.nodeId, 2);
-        stack.pop();
-        continue;
-      }
-      const targetId = targets[frame.targetIndex];
-      frame.targetIndex += 1;
-      if (!reachableNodes.has(targetId)) {
-        continue;
-      }
-      const targetState = state.get(targetId) ?? 0;
-      if (targetState === 1) {
-        hasReachableCycle = true;
-      } else if (targetState === 0) {
-        state.set(targetId, 1);
-        stack.push({ nodeId: targetId, targetIndex: 0 });
-      }
+
+    const availableActions = current.inspection.actions.filter(
+      (action) => action.available === true,
+    );
+    if (availableActions.length === 0) {
+      hasReachableDeadlock = true;
     }
-    if (hasReachableCycle) {
-      break;
+    for (const action of availableActions) {
+      const applied = applyGameSessionAction(
+        prepared.prepared,
+        current.snapshot,
+        action.id,
+      );
+      if (!applied.ok) {
+        if (applied.diagnostics.some((item) => item.code === "PACK_RUNTIME_STEP_LIMIT")) {
+          explorationComplete = false;
+          continue;
+        }
+        throw new Error("PROTOTYPE_ACCEPTANCE_SIMULATOR_INVARIANT");
+      }
+      if (applied.inspection.status === "ended") {
+        reachableEndings.add(applied.inspection.location.id);
+        continue;
+      }
+      const key = semanticStateKey(applied.inspection);
+      if (seenStates.has(key)) {
+        hasReachableCycle = true;
+        continue;
+      }
+      if (seenStates.size >= ACCEPTANCE_STATE_LIMIT) {
+        explorationComplete = false;
+        continue;
+      }
+      seenStates.add(key);
+      pending.push({ snapshot: applied.snapshot, inspection: applied.inspection });
     }
   }
 
   return {
     reachableEndings,
     hasReachableCycle,
+    hasReachableDeadlock,
+    explorationComplete,
   };
 }
 
@@ -216,7 +243,29 @@ export function evaluateAcceptanceProfile(preparedProposal, profile) {
     }
   }
 
-  const graph = graphEvidence(authoring);
+  if (blueprint.scene.environmentPrompt.length > ACCEPTANCE_ENVIRONMENT_PROMPT_MAX) {
+    diagnostics.push(
+      diagnostic(
+        "PROTOTYPE_ACCEPTANCE_ENVIRONMENT_PROMPT_LENGTH",
+        "/sceneBlueprint/scene/environmentPrompt",
+      ),
+    );
+  }
+  if (blueprint.scene.visualStylePrompt.length > ACCEPTANCE_VISUAL_STYLE_PROMPT_MAX) {
+    diagnostics.push(
+      diagnostic(
+        "PROTOTYPE_ACCEPTANCE_VISUAL_STYLE_PROMPT_LENGTH",
+        "/sceneBlueprint/scene/visualStylePrompt",
+      ),
+    );
+  }
+
+  const graph = graphEvidence(preparedProposal.canonicalAuthoringJson);
+  if (!graph.explorationComplete) {
+    diagnostics.push(
+      diagnostic("PROTOTYPE_ACCEPTANCE_STATE_SPACE_LIMIT", "/authoringGamePack"),
+    );
+  }
   if (profile.requireReachableCycle && !graph.hasReachableCycle) {
     diagnostics.push(
       diagnostic("PROTOTYPE_ACCEPTANCE_REACHABLE_CYCLE_REQUIRED", "/authoringGamePack/nodes"),
@@ -230,12 +279,23 @@ export function evaluateAcceptanceProfile(preparedProposal, profile) {
       diagnostic("PROTOTYPE_ACCEPTANCE_ENDING_UNREACHABLE", "/authoringGamePack/endings"),
     );
   }
+  if (profile.requireAllEndingsReachable && graph.hasReachableDeadlock) {
+    diagnostics.push(
+      diagnostic("PROTOTYPE_ACCEPTANCE_ACTIVE_DEADLOCK", "/authoringGamePack/nodes"),
+    );
+  }
   if (profile.requireAllNonEnvironmentBriefsBound) {
     const placementsByBrief = new Map();
+    const visiblePlacementIds = new Set();
     for (const placement of blueprint.placements) {
       const list = placementsByBrief.get(placement.assetBriefId) ?? [];
       list.push(placement);
       placementsByBrief.set(placement.assetBriefId, list);
+    }
+    for (const binding of blueprint.nodeBindings) {
+      for (const placementId of binding.visiblePlacementIds) {
+        visiblePlacementIds.add(placementId);
+      }
     }
     if (
       blueprint.assetBriefs.some(
@@ -249,6 +309,24 @@ export function evaluateAcceptanceProfile(preparedProposal, profile) {
     ) {
       diagnostics.push(
         diagnostic("PROTOTYPE_ACCEPTANCE_ASSET_BINDING_REQUIRED", "/sceneBlueprint/assetBriefs"),
+      );
+    }
+    if (
+      blueprint.assetBriefs.some(
+        (brief) =>
+          brief.kind !== "environment" &&
+          !(placementsByBrief.get(brief.id) ?? []).some(
+            (placement) =>
+              placement.entityId === brief.entityId &&
+              visiblePlacementIds.has(placement.id),
+          ),
+      )
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "PROTOTYPE_ACCEPTANCE_ASSET_VISIBILITY_REQUIRED",
+          "/sceneBlueprint/nodeBindings",
+        ),
       );
     }
   }

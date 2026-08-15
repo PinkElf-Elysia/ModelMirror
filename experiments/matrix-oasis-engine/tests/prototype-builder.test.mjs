@@ -23,17 +23,33 @@ function modelApproval() {
     approvalHash: HASH_B, approved: false };
 }
 
-function assetApproval(count = 1) {
+function assetApproval(count = 1, maxDownloads = 2, recovered = false, assetsRecovered = false) {
   const briefs = Array.from({ length: count }, (_, index) => ({
     id: `asset-${index}`,
     kind: index % 2 === 0 ? "prop" : "character-placeholder",
     prompt: `A neutral generated asset ${index}.`,
   }));
   return { blueprintSha256: HASH_A, marble: { model: "marble-1.1",
-    environmentPrompt: "A quiet room.\nSoft indirect light.", maxCreates: 1, maxPolls: 180,
-    maxDownloads: 2, creditLimit: 1600, usdLimitCents: 150 },
+    environmentPrompt: "A quiet room.\nSoft indirect light.", recovered,
+    maxCreates: recovered ? 0 : 1, maxPolls: recovered ? 0 : 180,
+    maxDownloads: recovered ? 0 : maxDownloads, creditLimit: recovered ? 0 : 1600,
+    usdLimitCents: recovered ? 0 : 150 },
   meshy: { model: "meshy-6", briefs,
-    maxTasks: count * 2, creditLimit: count * 30 }, approvalHash: HASH_B, approved: false };
+    maxTasks: assetsRecovered ? 0 : count * 2, creditLimit: assetsRecovered ? 0 : count * 30 },
+  approvalHash: HASH_B, approved: false };
+}
+
+function recoveryApproval(overrides = {}) {
+  return { model: "marble-1.1", worldIdSha256: HASH_A, maxCreates: 0, maxPolls: 0, maxWorldGets: 0,
+    maxDownloads: 0, creditLimit: 0, usdLimitCents: 0, status: "awaiting_approval",
+    diagnostics: [], approvalHash: `sha256:${"f".repeat(64)}`, approved: false, ...overrides };
+}
+
+function worldDiscovery(overrides = {}) {
+  return { provider: "world-labs-marble", operation: "worlds:list", model: "marble-1.1", pageSize: 100,
+    status: "SUCCEEDED", sortBy: "created_at", maxRequests: 1, maxCreates: 0, maxPolls: 0, maxWorldGets: 0,
+    maxDownloads: 0, creditLimit: 0, usdLimitCents: 0, statusState: "awaiting_approval", diagnostics: [], candidates: [], recovery: null,
+    approvalHash: `sha256:${"e".repeat(64)}`, approved: false, ...overrides };
 }
 
 function run(overrides = {}) {
@@ -67,6 +83,72 @@ test("client uses only relative same-origin requests and rebuilds the fixed publ
     assert.equal(call.init.cache, "no-store");
   }
   assert.deepEqual(Object.keys(ready), ["id", "status", "cacheHit", "diagnostics", "modelApproval", "assetApproval", "resultRunId"]);
+});
+
+test("client exposes the exact R12 recovery approval without a raw world identifier", async () => {
+  const expected = recoveryApproval();
+  const client = new PrototypeBuilderClient(async (input) => {
+    if (input === "/api/bootstrap") return response({ marker: "MATRIX_OASIS_R10_PROTOTYPE_HOST",
+      readiness: { model: true, assets: true, godot: false }, currentRunId: null, runs: [], recovery: expected });
+    if (input === "/api/recovery/approve") return response({ ok: true,
+      recovery: recoveryApproval({ status: "recovering", approved: true }) }, 202);
+    return response({ ok: false, diagnostics: [] }, 404);
+  });
+  const bootstrap = await client.bootstrap();
+  assert.equal(bootstrap.recovery?.worldIdSha256, HASH_A);
+  assert.equal(bootstrap.recovery?.maxCreates, 0);
+  assert.equal(bootstrap.recovery?.maxWorldGets, 0);
+  assert.equal(bootstrap.recovery?.maxDownloads, 0);
+  const approved = await client.approveRecovery(bootstrap.recovery);
+  assert.equal(approved.status, "recovering");
+  assert.equal(approved.approved, true);
+  assert.equal(JSON.stringify(bootstrap).includes("705fd38b"), false);
+});
+
+test("client exposes one exact read-only worlds:list approval and only hashed candidates", async () => {
+  const candidate = { worldIdSha256: HASH_A, promptSha256: HASH_B, createdAt: "2026-08-14T12:00:00Z",
+    updatedAt: "2026-08-14T12:30:00Z", model: "marble-1.1",
+    assets: { panorama: true, collider: true, spatialSource: true } };
+  const client = new PrototypeBuilderClient(async (input) => {
+    if (input === "/api/bootstrap") return response({ marker: "MATRIX_OASIS_R10_PROTOTYPE_HOST",
+      readiness: { model: true, assets: true, godot: false }, currentRunId: null, runs: [], recovery: null,
+      worldDiscovery: worldDiscovery() });
+    if (input === "/api/world-discovery/approve") return response({ ok: true,
+      worldDiscovery: worldDiscovery({ statusState: "querying", approved: true }) }, 202);
+    return response({ ok: false, diagnostics: [] }, 404);
+  });
+  const bootstrap = await client.bootstrap();
+  assert.equal(bootstrap.worldDiscovery?.maxRequests, 1);
+  assert.equal(bootstrap.worldDiscovery?.maxCreates, 0);
+  const approved = await client.approveWorldDiscovery(bootstrap.worldDiscovery);
+  assert.equal(approved.statusState, "querying");
+  const completedClient = new PrototypeBuilderClient(async () => response({ marker: "MATRIX_OASIS_R10_PROTOTYPE_HOST",
+    readiness: { model: true, assets: true, godot: false }, currentRunId: null, runs: [], recovery: null,
+    worldDiscovery: worldDiscovery({ statusState: "ready", approved: true, candidates: [candidate] }) }));
+  const completed = await completedClient.bootstrap();
+  assert.deepEqual(completed.worldDiscovery?.candidates[0], candidate);
+  assert.equal(JSON.stringify(completed).includes("world-private"), false);
+});
+
+test("client binds a separate Get World approval to one hashed discovery candidate", async () => {
+  const candidate = { worldIdSha256: HASH_A, promptSha256: HASH_B, createdAt: "2026-08-14T12:00:00Z",
+    updatedAt: "2026-08-14T12:30:00Z", model: "marble-1.1",
+    assets: { panorama: true, collider: true, spatialSource: true } };
+  const recovery = { worldIdSha256: HASH_A, maxCreates: 0, maxPolls: 0, maxWorldGets: 1, maxDownloads: 3,
+    creditLimit: 0, usdLimitCents: 0, status: "awaiting_approval", diagnostics: [], approvalHash: HASH_B, approved: false };
+  const client = new PrototypeBuilderClient(async (input) => {
+    if (input === "/api/world-discovery/prepare-recovery") return response({ ok: true,
+      worldDiscovery: worldDiscovery({ statusState: "ready", approved: true, candidates: [candidate], recovery }) });
+    if (input === "/api/world-discovery/approve-recovery") return response({ ok: true,
+      worldDiscovery: worldDiscovery({ statusState: "ready", approved: true, candidates: [candidate],
+        recovery: { ...recovery, status: "recovering", approved: true } }) }, 202);
+    return response({ ok: false, diagnostics: [] }, 404);
+  });
+  const prepared = await client.prepareWorldRecovery(candidate);
+  assert.equal(prepared.recovery?.maxWorldGets, 1);
+  assert.equal(prepared.recovery?.maxDownloads, 3);
+  const approved = await client.approveWorldRecovery(prepared);
+  assert.equal(approved.recovery?.status, "recovering");
 });
 
 test("malformed, oversized, and dynamic failure responses collapse to static client errors", async () => {
@@ -109,6 +191,57 @@ test("client accepts six approval briefs but rejects seven", async () => {
   }
 });
 
+test("client accepts the exact R10 and R12 Marble download budgets only", async () => {
+  for (const [maxDownloads, accepted] of [[2, true], [3, true], [1, false], [4, false]]) {
+    const client = new PrototypeBuilderClient(async () => response({ ok: true,
+      run: run({ status: "awaiting_asset_approval", modelApproval: null,
+        assetApproval: assetApproval(6, maxDownloads) }) }, 202));
+    if (accepted) {
+      const waiting = await client.approveModel(run());
+      assert.equal(waiting.assetApproval?.marble.maxDownloads, maxDownloads);
+    } else {
+      await assert.rejects(() => client.approveModel(run()), PrototypeBuilderClientError);
+    }
+  }
+});
+
+test("client accepts only the exact zero-cost Marble recovery approval", async () => {
+  const client = new PrototypeBuilderClient(async () => response({ ok: true,
+    run: run({ status: "awaiting_asset_approval", modelApproval: null,
+      assetApproval: assetApproval(6, 3, true) }) }, 202));
+  const waiting = await client.approveModel(run());
+  assert.equal(waiting.assetApproval?.marble.recovered, true);
+  assert.equal(waiting.assetApproval?.marble.maxCreates, 0);
+  assert.equal(waiting.assetApproval?.marble.maxDownloads, 0);
+
+  for (const invalid of [
+    { ...assetApproval(6, 3, true), marble: { ...assetApproval(6, 3, true).marble, maxDownloads: 3 } },
+    { ...assetApproval(6, 3, false), marble: { ...assetApproval(6, 3, false).marble, recovered: true } },
+  ]) {
+    const rejected = new PrototypeBuilderClient(async () => response({ ok: true,
+      run: run({ status: "awaiting_asset_approval", modelApproval: null, assetApproval: invalid }) }, 202));
+    await assert.rejects(() => rejected.approveModel(run()), PrototypeBuilderClientError);
+  }
+});
+
+test("client accepts only the paired zero-task historical Meshy reuse budget", async () => {
+  const client = new PrototypeBuilderClient(async () => response({ ok: true,
+    run: run({ status: "awaiting_asset_approval", modelApproval: null,
+      assetApproval: assetApproval(6, 3, false, true) }) }, 202));
+  const waiting = await client.approveModel(run());
+  assert.equal(waiting.assetApproval?.meshy.briefs.length, 6);
+  assert.equal(waiting.assetApproval?.meshy.maxTasks, 0);
+  assert.equal(waiting.assetApproval?.meshy.creditLimit, 0);
+  for (const invalid of [
+    { ...assetApproval(6, 3, false, true), meshy: { ...assetApproval(6, 3, false, true).meshy, creditLimit: 180 } },
+    { ...assetApproval(6), meshy: { ...assetApproval(6).meshy, maxTasks: 0 } },
+  ]) {
+    const rejected = new PrototypeBuilderClient(async () => response({ ok: true,
+      run: run({ status: "awaiting_asset_approval", modelApproval: null, assetApproval: invalid }) }, 202));
+    await assert.rejects(() => rejected.approveModel(run()), PrototypeBuilderClientError);
+  }
+});
+
 test("Godot launch arguments bind exactly one verified run to the R10 wrapper", () => {
   const fixtureRoot = path.resolve(path.parse(process.cwd()).root, "tmp");
   const projectRoot = path.join(fixtureRoot, "r10-project");
@@ -134,6 +267,7 @@ test("Creator and Godot wrapper preserve old modes and expose the bounded R10 UX
   for (const marker of ["MATRIX_OASIS_R0_ISOLATED_SHELL", "MATRIX_OASIS_R2_REFERENCE_SIMULATOR",
     "MATRIX_OASIS_R3_RUNTIME_PARITY"]) assert.equal(app.includes(marker), true);
   assert.equal(client.includes(PROTOTYPE_BUILDER_MARKER), true);
+  assert.match(app, /run\.assetApproval\.marble\.maxDownloads/u);
   for (const text of ["Prototype Builder", "Runtime / Parity", "当前可运行原型", "审批 1 / 2", "审批 2 / 2",
     "上一份可运行原型未改变", "已复用真实资格缓存", "aria-live=\"polite\""]) assert.equal(app.includes(text), true);
   assert.match(app, /candidate\.runs\.find\(\(item\) => !TERMINAL_RUN_STATES\.has\(item\.status\)\)/u);

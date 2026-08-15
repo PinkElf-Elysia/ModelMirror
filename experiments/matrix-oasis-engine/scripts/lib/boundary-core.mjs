@@ -1296,14 +1296,18 @@ function checkScriptNetwork(relative, content, specifiers, violations) {
   }
   if (relative === "scripts/lib/prototype-host-core.mjs") {
     const allowedModules = new Set(["http", "node:http"]);
+    const fixedPortListen = /server\.listen\(PROTOTYPE_HOST_PORT, PROTOTYPE_HOST,/u.test(content);
+    const validatedPortListen = /port = PROTOTYPE_HOST_PORT/u.test(content) &&
+      /Number\.isSafeInteger\(port\)[\s\S]*?port < 1024[\s\S]*?port > 65535/u.test(content) &&
+      /server\.listen\(port, PROTOTYPE_HOST,/u.test(content);
     if (specifiers.some((specifier) => NETWORK_MODULES.has(specifier) && !allowedModules.has(specifier)) ||
         NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(content)) ||
         !/export const PROTOTYPE_HOST = "127\.0\.0\.1";/u.test(content) ||
         !/export const PROTOTYPE_HOST_PORT = 43_110;/u.test(content) ||
-        !/server\.listen\(PROTOTYPE_HOST_PORT, PROTOTYPE_HOST,/u.test(content) ||
+        (!fixedPortListen && !validatedPortListen) ||
         /\b(?:connect|createConnection|Socket)\s*\(/u.test(content)) {
       addViolation(violations, "prototype-host-network-invalid", relative,
-        "Prototype host may only listen on its fixed 127.0.0.1:43110 endpoint and may not create outbound clients.");
+        "Prototype host may only listen on 127.0.0.1 with its fixed default or a validated test port and may not create outbound clients.");
     }
     for (const match of content.matchAll(/\b(?:https?|wss?):\/\/([A-Za-z0-9.:[\]-]+)/gu)) {
       const host = match[1].replace(/^\[/u, "").replace(/\]$/u, "").split(":", 1)[0];

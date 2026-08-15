@@ -258,6 +258,55 @@ function PrototypeBuilderPanel() {
   }, [run?.id, run?.status]);
 
   useEffect(() => {
+    if (bootstrap?.recovery?.status !== "recovering") return undefined;
+    let ignored = false;
+    const timeoutId = window.setInterval(() => {
+      void clientRef.current.bootstrap().then((candidate) => {
+        if (!ignored) {
+          setBootstrap(candidate);
+          if (candidate.recovery?.status === "ready") setAnnouncement("既有 Marble world 已恢复并缓存；未创建或轮询新 world。");
+          if (candidate.recovery?.status === "failed") {
+            setDiagnostics(candidate.recovery.diagnostics);
+            setAnnouncement("Marble world 恢复失败；现有候选和可运行结果未改变。");
+          }
+        }
+      }).catch((error) => {
+        if (!ignored) setDiagnostics(builderError(error));
+      });
+    }, 1_000);
+    return () => { ignored = true; window.clearInterval(timeoutId); };
+  }, [bootstrap?.recovery?.status]);
+
+  useEffect(() => {
+    if (bootstrap?.worldDiscovery?.statusState !== "querying" && bootstrap?.worldDiscovery?.recovery?.status !== "recovering") return undefined;
+    let ignored = false;
+    const timeoutId = window.setInterval(() => {
+      void clientRef.current.bootstrap().then((candidate) => {
+        if (!ignored) {
+          setBootstrap(candidate);
+          if (candidate.worldDiscovery?.statusState === "ready") {
+            setAnnouncement(`Marble 只读查询完成，共返回 ${candidate.worldDiscovery.candidates.length} 个脱敏候选；未执行 Get World 或下载。`);
+          }
+          if (candidate.worldDiscovery?.statusState === "failed") {
+            setDiagnostics(candidate.worldDiscovery.diagnostics);
+            setAnnouncement("Marble 只读查询失败；未创建、轮询、Get World 或下载。");
+          }
+          if (candidate.worldDiscovery?.recovery?.status === "ready") {
+            setAnnouncement("候选 Marble 环境已恢复并缓存；没有创建或轮询新 world。");
+          }
+          if (candidate.worldDiscovery?.recovery?.status === "failed") {
+            setDiagnostics(candidate.worldDiscovery.recovery.diagnostics);
+            setAnnouncement("候选环境恢复失败；没有替换现有运行结果。");
+          }
+        }
+      }).catch((error) => {
+        if (!ignored) setDiagnostics(builderError(error));
+      });
+    }, 1_000);
+    return () => { ignored = true; window.clearInterval(timeoutId); };
+  }, [bootstrap?.worldDiscovery?.statusState, bootstrap?.worldDiscovery?.recovery?.status]);
+
+  useEffect(() => {
     if (run) statusHeadingRef.current?.focus();
   }, [run?.status]);
 
@@ -297,6 +346,72 @@ function PrototypeBuilderPanel() {
       () => clientRef.current.approveAssets(run),
       "已提交本次环境与资产物化审批。",
     );
+  }
+
+  async function approveRecovery() {
+    const recovery = bootstrap?.recovery;
+    if (!recovery || recovery.status !== "awaiting_approval") return;
+    setBusy(true);
+    setDiagnostics([]);
+    setAnnouncement("正在执行已批准的一次 Get World 与一次 collider 下载。");
+    try {
+      const updated = await clientRef.current.approveRecovery(recovery);
+      setBootstrap((previous) => previous ? Object.freeze({ ...previous, recovery: updated }) : previous);
+    } catch (error) {
+      setDiagnostics(builderError(error));
+      setAnnouncement("恢复操作未完成；未创建或轮询新 world。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function approveWorldDiscovery() {
+    const discovery = bootstrap?.worldDiscovery;
+    if (!discovery || discovery.statusState !== "awaiting_approval") return;
+    setBusy(true);
+    setDiagnostics([]);
+    setAnnouncement("正在执行已批准的一次只读 worlds:list；不会创建、轮询、Get World 或下载。");
+    try {
+      const updated = await clientRef.current.approveWorldDiscovery(discovery);
+      setBootstrap((previous) => previous ? Object.freeze({ ...previous, worldDiscovery: updated }) : previous);
+    } catch (error) {
+      setDiagnostics(builderError(error));
+      setAnnouncement("Marble 只读查询未完成；没有执行其他外部操作。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function prepareWorldRecovery(candidate: NonNullable<NonNullable<typeof bootstrap>["worldDiscovery"]>["candidates"][number]) {
+    setBusy(true);
+    setDiagnostics([]);
+    setAnnouncement("正在建立候选哈希绑定的独立恢复审批；尚未访问 Marble。");
+    try {
+      const updated = await clientRef.current.prepareWorldRecovery(candidate);
+      setBootstrap((previous) => previous ? Object.freeze({ ...previous, worldDiscovery: updated }) : previous);
+    } catch (error) {
+      setDiagnostics(builderError(error));
+      setAnnouncement("未能建立恢复审批；没有执行外部请求。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function approveWorldRecovery() {
+    const discovery = bootstrap?.worldDiscovery;
+    if (!discovery?.recovery || discovery.recovery.status !== "awaiting_approval") return;
+    setBusy(true);
+    setDiagnostics([]);
+    setAnnouncement("正在执行已批准的一次 Get World 与 panorama、collider、SPZ 各一次下载。");
+    try {
+      const updated = await clientRef.current.approveWorldRecovery(discovery);
+      setBootstrap((previous) => previous ? Object.freeze({ ...previous, worldDiscovery: updated }) : previous);
+    } catch (error) {
+      setDiagnostics(builderError(error));
+      setAnnouncement("恢复操作未完成；没有创建或轮询新 world。");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function launch(candidate: PrototypeRun | null) {
@@ -361,6 +476,85 @@ function PrototypeBuilderPanel() {
           </button>
         ) : null}
       </section>
+
+      {bootstrap?.worldDiscovery ? (
+        <section className="approval-panel" aria-labelledby="marble-world-discovery-title">
+          <div>
+            <p className="context-line">Marble 只读恢复查询</p>
+            <h2 id="marble-world-discovery-title">查找可恢复的既有 World</h2>
+            <p>只返回候选哈希、时间和资产就绪状态；不会显示 World ID、原始提示或资产 URL。</p>
+          </div>
+          <dl className="approval-facts">
+            <div><dt>请求</dt><dd>1 次 worlds:list · marble-1.1 · SUCCEEDED · 最多 100 项</dd></div>
+            <div><dt>明确排除</dt><dd>0 创建 · 0 轮询 · 0 Get World · 0 下载 · 0 credits</dd></div>
+          </dl>
+          {bootstrap.worldDiscovery.statusState === "awaiting_approval" ? (
+            <button className="primary-button" type="button" disabled={busy || bootstrap.readiness.assets !== true} onClick={() => void approveWorldDiscovery()}>
+              批准一次只读 Worlds 查询
+            </button>
+          ) : bootstrap.worldDiscovery.statusState === "ready" ? (
+            <div aria-live="polite">
+              <p>查询完成：{bootstrap.worldDiscovery.candidates.length} 个脱敏候选。</p>
+              <ol className="run-history">
+                {bootstrap.worldDiscovery.candidates.map((candidate) => (
+                  <li key={candidate.worldIdSha256}>
+                    <div><strong>{candidate.createdAt}</strong><span>{candidate.model}</span></div>
+                    <code>{candidate.worldIdSha256}</code>
+                    <span>Prompt {candidate.promptSha256}</span>
+                    <span>panorama {candidate.assets.panorama ? "已就绪" : "缺失"} · collider {candidate.assets.collider ? "已就绪" : "缺失"} · SPZ {candidate.assets.spatialSource ? "已就绪" : "缺失"}</span>
+                    {bootstrap?.worldDiscovery?.recovery === null ? (
+                      <button type="button" className="text-button" disabled={busy} onClick={() => void prepareWorldRecovery(candidate)}>
+                        选择此候选并准备恢复审批
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+              {bootstrap.worldDiscovery.recovery ? (
+                <section className="approval-panel" aria-labelledby="discovered-world-recovery-title">
+                  <div>
+                    <h3 id="discovered-world-recovery-title">恢复选定候选</h3>
+                    <p>候选由脱敏哈希绑定；恢复不会创建或轮询新 world。</p>
+                  </div>
+                  <dl className="approval-facts">
+                    <div><dt>候选</dt><dd><code>{bootstrap.worldDiscovery.recovery.worldIdSha256}</code></dd></div>
+                    <div><dt>范围</dt><dd>1 次 Get World · panorama / collider / SPZ 各下载一次 · 0 credits</dd></div>
+                  </dl>
+                  {bootstrap.worldDiscovery.recovery.status === "awaiting_approval" ? (
+                    <button className="primary-button" type="button" disabled={busy} onClick={() => void approveWorldRecovery()}>
+                      批准恢复选定候选
+                    </button>
+                  ) : <p aria-live="polite">{bootstrap.worldDiscovery.recovery.status === "recovering" ? "正在恢复…" : bootstrap.worldDiscovery.recovery.status === "ready" ? "恢复缓存已完成。" : "恢复失败。"}</p>}
+                </section>
+              ) : null}
+            </div>
+          ) : <p aria-live="polite">{bootstrap.worldDiscovery.statusState === "querying" ? "正在执行唯一一次查询…" : "查询失败。"}</p>}
+        </section>
+      ) : null}
+
+      {bootstrap?.recovery ? (
+        <section className="approval-panel" aria-labelledby="marble-recovery-title">
+          <div>
+            <p className="context-line">既有 Marble world 恢复</p>
+            <h2 id="marble-recovery-title">恢复已生成的空间环境</h2>
+            <p>操作绑定 world、本地 panorama 与 SPZ 的 SHA-256；不会显示或持久化远程 ID。</p>
+          </div>
+          <dl className="approval-facts">
+            <div><dt>Marble</dt><dd>{bootstrap.recovery.maxWorldGets === 0
+              ? "0 次外部请求 · 仅复验本地缓存 · 0 credits"
+              : "0 次创建 · 0 次轮询 · 1 次 Get World · panorama / collider / SPZ 各下载一次 · 0 credits"}</dd></div>
+            <div><dt>World 身份</dt><dd><code>{bootstrap.recovery.worldIdSha256}</code></dd></div>
+            <div><dt>恢复范围</dt><dd>{bootstrap.recovery.maxWorldGets === 0
+              ? "逐字节复验本地 manifest、panorama、collider 与 SPZ；不读取凭据"
+              : "1 次 Get World · panorama / collider / SPZ 各下载一次 · 0 credits"}</dd></div>
+          </dl>
+          {bootstrap.recovery.status === "awaiting_approval" ? (
+            <button className="primary-button" type="button" disabled={busy || bootstrap.readiness.assets !== true} onClick={() => void approveRecovery()}>
+              {bootstrap.recovery.maxWorldGets === 0 ? "批准挂载已验证 Marble 缓存" : "批准恢复既有 Marble world"}
+            </button>
+          ) : <p aria-live="polite">{bootstrap.recovery.status === "recovering" ? "正在恢复…" : bootstrap.recovery.status === "ready" ? "恢复缓存已完成。" : "恢复失败。"}</p>}
+        </section>
+      ) : null}
 
       <div className="builder-layout">
         <section className="builder-workspace" aria-labelledby="prompt-title">
@@ -450,8 +644,12 @@ function PrototypeBuilderPanel() {
               </div>
               <dl className="approval-facts">
                 <div><dt>Blueprint SHA-256</dt><dd><code>{run.assetApproval.blueprintSha256}</code></dd></div>
-                <div><dt>Marble</dt><dd>1 次创建 · 180 次有界轮询 · 2 次下载 · 1600 credits / 1.50 美元</dd></div>
-                <div><dt>Meshy</dt><dd>{run.assetApproval.meshy.briefs.length} 个 brief · 最多 {run.assetApproval.meshy.maxTasks} 个任务 · {run.assetApproval.meshy.creditLimit} credits</dd></div>
+                <div><dt>Marble</dt><dd>{run.assetApproval.marble.recovered
+                  ? "已复用并重新校验 Creator 恢复缓存 · 0 次外部请求 · 0 credits"
+                  : `1 次创建 · 180 次有界轮询 · ${run.assetApproval.marble.maxDownloads} 次下载 · 1600 credits / 1.50 美元`}</dd></div>
+                <div><dt>Meshy</dt><dd>{run.assetApproval.meshy.maxTasks === 0
+                  ? `已复用并重新规范化 ${run.assetApproval.meshy.briefs.length} 个历史真实资产 · 0 次外部请求 · 0 credits`
+                  : `${run.assetApproval.meshy.briefs.length} 个 brief · 最多 ${run.assetApproval.meshy.maxTasks} 个任务 · ${run.assetApproval.meshy.creditLimit} credits`}</dd></div>
               </dl>
               <div className="upload-summary">
                 <strong>Marble 环境文本</strong>
@@ -464,7 +662,8 @@ function PrototypeBuilderPanel() {
                   </ul>
                 ) : <p>本次没有 Meshy 非环境 brief。</p>}
               </div>
-              <button className="primary-button" type="button" disabled={busy || bootstrap?.readiness.assets !== true} onClick={approveAssets}>
+              <button className="primary-button" type="button" disabled={busy || (bootstrap?.readiness.assets !== true &&
+                !(run.assetApproval.marble.recovered && run.assetApproval.meshy.maxTasks === 0))} onClick={approveAssets}>
                 批准环境与资产物化
               </button>
             </section>

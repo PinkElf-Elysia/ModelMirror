@@ -290,11 +290,20 @@ export async function generatePrototypeWithServices(
     while (requestCount < MAX_REQUESTS) {
       const providerRequest =
         requestCount === 0
-          ? { kind: "initial", prompt: request.prompt }
+          ? {
+              kind: "initial",
+              prompt: request.prompt,
+              ...(options.profile === null
+                ? {}
+                : { acceptanceProfile: options.profile }),
+            }
           : {
               kind: "repair",
               previousCandidate: candidateText,
               diagnostics: safeRepairDiagnostics(latestReport),
+              ...(options.profile === null
+                ? {}
+                : { acceptanceProfile: options.profile }),
             };
       let rawResponse;
       try {

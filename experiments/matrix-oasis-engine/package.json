@@ -91,6 +91,9 @@
     "preview:prototype": "npm run build:creator && node scripts/preview-prototype.mjs",
     "import:spatial-prototype-cache": "node scripts/import-spatial-prototype-cache.mjs",
     "preview:spatial-prototype": "npm run build:creator && node scripts/preview-spatial-prototype.mjs",
+    "plan:r12-call": "node scripts/plan-r12-call.mjs",
+    "qualify:r12": "node scripts/qualify-r12.mjs",
+    "preview:r12": "npm run build:creator && node scripts/preview-r12.mjs",
     "verify:pack": "npm run test:contracts && npm run test:pack && npm run validate:examples && npm run test:examples",
     "verify:simulator": "npm run test:simulator",
     "verify:runtime-pack": "npm run test:runtime-pack",
@@ -115,7 +118,7 @@
     "test:spatial-builder": "node --test tests/spatial-builder.test.mjs tests/r11-qualification.test.mjs",
     "verify:spatial-builder": "npm run test:spatial-builder && npm run build:creator && node scripts/verify-spatial-builder.mjs",
     "verify:r11": "npm run verify:spatial-environment && npm run verify:spatial-assembly && npm run verify:spatial-builder",
-    "test:r12": "node --test tests/r12-acceptance-profile.test.mjs tests/r12-multi-asset.test.mjs tests/r12-spatial-materialization.test.mjs tests/r12-generalization.test.mjs tests/r12-host.test.mjs",
+    "test:r12": "node --test tests/r12-acceptance-profile.test.mjs tests/r12-multi-asset.test.mjs tests/r12-spatial-materialization.test.mjs tests/r12-generalization.test.mjs tests/r12-host.test.mjs tests/r12-qualification.test.mjs",
     "verify:r12": "npm run test:r12"
   }
 }

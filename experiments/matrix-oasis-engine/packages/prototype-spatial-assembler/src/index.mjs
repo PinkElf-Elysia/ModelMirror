@@ -9,6 +9,7 @@ import {
 import { validateScenePackJson } from "@matrix-oasis/scene-pack-validator";
 import {
   deriveColliderCalibration,
+  deriveColliderWalkableLayout,
   deriveSplatCalibration,
   deriveWalkableEnvelope,
 } from "./collider-calibration.mjs";
@@ -181,16 +182,17 @@ function validColliderAlignment(value) {
     "colliderBoundsMm", "centerFloorSampleSourceMm",
     "splatProfile", "splatBoundsProfile", "splatBoundsMm",
   ]) &&
-    value.profile === "collider-fit-30m-v1" &&
-    value.targetFloorSpanMm === 30_000 &&
-    value.maximumHorizontalSpanMm === 90_000 &&
+    ["collider-fit-30m-v1", "collider-official-metric-frame-v4"].includes(value.profile) &&
+    value.targetFloorSpanMm === (value.profile === "collider-fit-30m-v1" ? 30_000 : 0) &&
+    value.maximumHorizontalSpanMm ===
+      (value.profile === "collider-fit-30m-v1" ? 90_000 : 128_000) &&
     exactRecord(value.colliderBoundsMm, ["minimumMm", "maximumMm"]) &&
     safeVector(value.colliderBoundsMm.minimumMm, -1_000_000, 1_000_000) &&
     safeVector(value.colliderBoundsMm.maximumMm, -1_000_000, 1_000_000) &&
     value.colliderBoundsMm.minimumMm.every((item, index) =>
       item <= value.colliderBoundsMm.maximumMm[index]) &&
     safeVector(value.centerFloorSampleSourceMm, -1_000_000, 1_000_000) &&
-    value.splatProfile === "splat-robust-fit-30m-v1" &&
+    ["splat-robust-fit-30m-v1", "splat-opencv-to-godot-official-metric-v4"].includes(value.splatProfile) &&
     value.splatBoundsProfile === "source-position-percentile-1-99-v1" &&
     exactRecord(value.splatBoundsMm, ["minimumMm", "maximumMm"]) &&
     safeVector(value.splatBoundsMm.minimumMm, -1_000_000, 1_000_000) &&
@@ -205,7 +207,16 @@ function validWalkableEnvelope(value) {
     "verticalBandMm", "lateralBandMm", "binSizeMm", "minimumBinCount",
     "peakThresholdPermille", "adjacentBins",
   ]) &&
-    value.profile === "source-density-first-surface-v1" &&
+    [
+      "source-density-first-surface-v1",
+      "collider-global-aabb-floor-grid-v1",
+      "collider-connected-floor-component-v2",
+      "collider-splat-intersection-component-v3",
+      "collider-splat-density-component-v4",
+      "collider-splat-reachable-component-v5",
+      "collider-splat-terminal-centered-component-v6",
+      "collider-agent-navigation-component-v7",
+    ].includes(value.profile) &&
     safeVector(value.minimumMm, -2_000_000, 2_000_000) &&
     safeVector(value.maximumMm, -2_000_000, 2_000_000) &&
     value.minimumMm.every((item, index) => item < value.maximumMm[index]) &&
@@ -225,7 +236,43 @@ function validPlacementLayout(value) {
   return value.every((entry) => exactRecord(entry, ["placementId", "positionMm"]) &&
     typeof entry.placementId === "string" && ID_PATTERN.test(entry.placementId) &&
     !ids.has(entry.placementId) && ids.add(entry.placementId) &&
-    safeVector(entry.positionMm, -2_000_000, 2_000_000) && entry.positionMm[1] === 0);
+    safeVector(entry.positionMm, -2_000_000, 2_000_000));
+}
+
+function validNodeBindingLayout(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 4096) return false;
+  const ids = new Set();
+  return value.every((entry) => exactRecord(entry, ["nodeId", "playerSpawn", "actionAnchor"]) &&
+    typeof entry.nodeId === "string" && ID_PATTERN.test(entry.nodeId) &&
+    !ids.has(entry.nodeId) && ids.add(entry.nodeId) &&
+    [entry.playerSpawn, entry.actionAnchor].every((anchor) =>
+      exactRecord(anchor, ["positionMm", "yawMilliDegrees"]) &&
+      safeVector(anchor.positionMm, -2_000_000, 2_000_000) &&
+      Number.isSafeInteger(anchor.yawMilliDegrees) &&
+      anchor.yawMilliDegrees >= -180_000 && anchor.yawMilliDegrees <= 180_000));
+}
+
+function validNavigation(value, nodeBindingLayout) {
+  if (!exactRecord(value, [
+    "profile", "cellSizeMm", "agentRadiusMm", "agentHeightMm", "maximumStepMm",
+    "minimumClearanceMm", "sourceIslandCount", "cells", "bindings",
+  ]) || value.profile !== "collider-agent-grid-v1" || value.cellSizeMm !== 1000 ||
+      value.agentRadiusMm !== 350 || value.agentHeightMm !== 2000 ||
+      value.maximumStepMm !== 450 || value.minimumClearanceMm !== 700 ||
+      !Number.isSafeInteger(value.sourceIslandCount) || value.sourceIslandCount < 1 ||
+      !Array.isArray(value.cells) || value.cells.length < 1 || value.cells.length > 16_384 ||
+      !value.cells.every((cell) => safeVector(cell, -2_000_000, 2_000_000)) ||
+      !Array.isArray(value.bindings) || value.bindings.length !== nodeBindingLayout.length) return false;
+  const nodeIds = new Set(nodeBindingLayout.map((binding) => binding.nodeId));
+  const bound = new Set();
+  return value.bindings.every((binding) => exactRecord(binding, [
+    "nodeId", "playerCellIndex", "terminalCellIndex", "pathCellCount",
+  ]) && typeof binding.nodeId === "string" && nodeIds.has(binding.nodeId) &&
+    !bound.has(binding.nodeId) && bound.add(binding.nodeId) &&
+    [binding.playerCellIndex, binding.terminalCellIndex].every((index) =>
+      Number.isSafeInteger(index) && index >= 0 && index < value.cells.length) &&
+    Number.isSafeInteger(binding.pathCellCount) && binding.pathCellCount >= 2 &&
+    binding.pathCellCount <= value.cells.length);
 }
 
 function validRenderer(value) {
@@ -310,6 +357,10 @@ function validAssemblyShape(value) {
         "coordinateTransform", "eulerOrder", "alignment", "root", "splat", "collider", "walkableEnvelope", "placementGroundTargetMm",
       ]) || exactRecord(value.transforms, [
         "coordinateTransform", "eulerOrder", "alignment", "root", "splat", "collider", "walkableEnvelope", "placementGroundTargetMm", "placementLayout",
+      ]) || exactRecord(value.transforms, [
+        "coordinateTransform", "eulerOrder", "alignment", "root", "splat", "collider", "walkableEnvelope", "placementGroundTargetMm", "placementLayout", "nodeBindingLayout",
+      ]) || exactRecord(value.transforms, [
+        "coordinateTransform", "eulerOrder", "alignment", "root", "splat", "collider", "walkableEnvelope", "placementGroundTargetMm", "placementLayout", "nodeBindingLayout", "navigation",
       ])) ||
       value.transforms.coordinateTransform !== "spz-raw-ply-to-godot-v1" ||
       value.transforms.eulerOrder !== "YXZ" ||
@@ -320,9 +371,14 @@ function validAssemblyShape(value) {
       !exactRecord(value.transforms.splat, ["localTranslationMm", "localRotationMilliDegrees", "scaleMicros"]) ||
       !safeVector(value.transforms.splat.localTranslationMm, -1_000_000, 1_000_000) ||
       !safeVector(value.transforms.splat.localRotationMilliDegrees, -360_000, 360_000) ||
-      value.transforms.splat.localRotationMilliDegrees[0] !== 0 ||
-      value.transforms.splat.localRotationMilliDegrees[1] !== 0 ||
-      value.transforms.splat.localRotationMilliDegrees[2] !== 0 ||
+      (value.transforms.alignment.splatProfile === "splat-robust-fit-30m-v1" &&
+        (value.transforms.splat.localRotationMilliDegrees[0] !== 0 ||
+          value.transforms.splat.localRotationMilliDegrees[1] !== 0 ||
+          value.transforms.splat.localRotationMilliDegrees[2] !== 0)) ||
+      (value.transforms.alignment.splatProfile === "splat-opencv-to-godot-official-metric-v4" &&
+        (value.transforms.splat.localRotationMilliDegrees[0] !== 180_000 ||
+          value.transforms.splat.localRotationMilliDegrees[1] !== 0 ||
+          value.transforms.splat.localRotationMilliDegrees[2] !== 0)) ||
       !Number.isSafeInteger(value.transforms.splat.scaleMicros) ||
       value.transforms.splat.scaleMicros < 1 || value.transforms.splat.scaleMicros > 100_000_000 ||
       !exactRecord(value.transforms.collider, ["localTranslationMm", "scaleMicros"]) ||
@@ -332,6 +388,18 @@ function validAssemblyShape(value) {
       value.transforms.collider.scaleMicros > 100_000_000 ||
       !validWalkableEnvelope(value.transforms.walkableEnvelope) ||
       (Object.hasOwn(value.transforms, "placementLayout") && !validPlacementLayout(value.transforms.placementLayout)) ||
+      (Object.hasOwn(value.transforms, "nodeBindingLayout") && !validNodeBindingLayout(value.transforms.nodeBindingLayout)) ||
+      (Object.hasOwn(value.transforms, "navigation") && !validNavigation(
+        value.transforms.navigation,
+        value.transforms.nodeBindingLayout ?? [],
+      )) ||
+      (["collider-connected-floor-component-v2", "collider-splat-intersection-component-v3",
+        "collider-splat-density-component-v4", "collider-splat-reachable-component-v5",
+        "collider-splat-terminal-centered-component-v6", "collider-agent-navigation-component-v7"].includes(
+        value.transforms.walkableEnvelope.profile) &&
+        !Object.hasOwn(value.transforms, "nodeBindingLayout")) ||
+      (value.transforms.walkableEnvelope.profile === "collider-agent-navigation-component-v7" &&
+        !Object.hasOwn(value.transforms, "navigation")) ||
       value.transforms.placementGroundTargetMm !== 150) {
     return false;
   }
@@ -433,36 +501,14 @@ function entryPlayerSpawn(scenePack, runtimePack) {
   return [...bindings[0].playerSpawn.positionMm];
 }
 
-function alignedRootTranslation(translation, offset, playerSpawn) {
+function alignedRootTranslation(translation, playerSpawn) {
   const output = [
     translation[0] + playerSpawn[0],
-    translation[1] + offset,
+    translation[1],
     translation[2] + playerSpawn[2],
   ];
   return output.every((value) => Number.isSafeInteger(value) &&
     value >= -2_000_000 && value <= 2_000_000) ? output : null;
-}
-
-function derivePlacementLayout(scenePack, environmentPlacementId, walkableEnvelope) {
-  const placements = scenePack.placements.filter((placement) => placement.id !== environmentPlacementId);
-  if (placements.length > PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.maxNonEnvironmentPlacements) return null;
-  const clearance = walkableEnvelope.wallThicknessMm + 1_000;
-  const minimumX = walkableEnvelope.minimumMm[0] + clearance;
-  const maximumX = walkableEnvelope.maximumMm[0] - clearance;
-  const minimumZ = walkableEnvelope.minimumMm[2] + clearance;
-  const maximumZ = walkableEnvelope.maximumMm[2] - clearance;
-  const width = maximumX - minimumX;
-  const depth = maximumZ - minimumZ;
-  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(depth) ||
-      width < 8_000 || depth < 4_000) return null;
-  const layout = placements.map((placement, index) => {
-    const column = index % 4;
-    const row = Math.floor(index / 4);
-    const x = Math.round(minimumX + width * (column * 2 + 1) / 8);
-    const z = Math.round(minimumZ + depth * (row * 2 + 1) / 4);
-    return { placementId: placement.id, positionMm: [x, 0, z] };
-  });
-  return validPlacementLayout(layout) ? layout : null;
 }
 
 function buildAssembly({
@@ -479,12 +525,13 @@ function buildAssembly({
   walkableEnvelope,
   profile,
   placementLayout,
+  nodeBindingLayout,
+  navigation,
 }) {
   const playerSpawn = entryPlayerSpawn(scenePack, runtimePack);
   if (!playerSpawn) return null;
   const rootTranslation = alignedRootTranslation(
     spatial.calibration.godotTranslationMm,
-    spatial.calibration.groundPlaneOffsetMm,
     playerSpawn,
   );
   if (!rootTranslation) return null;
@@ -551,7 +598,7 @@ function buildAssembly({
       },
       splat: {
         localTranslationMm: splatLocalTranslationMm,
-        localRotationMilliDegrees: [0, 0, 0],
+        localRotationMilliDegrees: [...splatAlignment.splatLocalRotationMilliDegrees],
         scaleMicros: splatScaleMicros,
       },
       collider: {
@@ -573,6 +620,8 @@ function buildAssembly({
       },
       placementGroundTargetMm: 150,
       ...(placementLayout === undefined ? {} : { placementLayout }),
+      ...(nodeBindingLayout === undefined ? {} : { nodeBindingLayout }),
+      ...(navigation === undefined ? {} : { navigation }),
     },
   };
 }
@@ -582,6 +631,7 @@ function buildAssemblyReport({
   canonicalAssemblyJson,
   entryPlayerSpawnMm,
   spatialMetricScaleMicros,
+  spatialGroundPlaneOffsetMm,
   profile,
 }) {
   return {
@@ -593,6 +643,8 @@ function buildAssemblyReport({
       eulerOrder: assembly.transforms.eulerOrder,
       panoramaVisible: false,
       sourceMetricScaleMicros: spatialMetricScaleMicros,
+      sourceGroundPlaneOffsetMm: spatialGroundPlaneOffsetMm,
+      verticalAlignmentProfile: "collider-calibrated-floor-v1",
       colliderFitProfile: assembly.transforms.alignment.profile,
       splatFitProfile: assembly.transforms.alignment.splatProfile,
       entryPlayerSpawnMm: [...entryPlayerSpawnMm],
@@ -618,8 +670,32 @@ function buildAssemblyReport({
       rendererDepthBiasMicros: assembly.environment.renderer.depthBiasMicros,
       placementGroundTargetMm: assembly.transforms.placementGroundTargetMm,
       ...(Object.hasOwn(assembly.transforms, "placementLayout") ? {
-        placementLayoutProfile: "walkable-envelope-grid-4x2-v1",
+        placementLayoutProfile: assembly.transforms.walkableEnvelope.profile ===
+          "collider-agent-navigation-component-v7"
+          ? "collider-agent-zone-constraint-v2"
+          : [
+          "collider-global-aabb-floor-grid-v1",
+          "collider-connected-floor-component-v2",
+          "collider-splat-intersection-component-v3",
+          "collider-splat-density-component-v4",
+          "collider-splat-reachable-component-v5",
+          "collider-splat-terminal-centered-component-v6",
+        ].includes(assembly.transforms.walkableEnvelope.profile)
+          ? "collider-floor-grid-nearest-anchor-v1"
+          : "walkable-envelope-grid-4x2-v1",
         placementLayoutCount: assembly.transforms.placementLayout.length,
+      } : {}),
+      ...(Object.hasOwn(assembly.transforms, "nodeBindingLayout") ? {
+        nodeBindingLayoutProfile: Object.hasOwn(assembly.transforms, "navigation")
+          ? "collider-agent-grid-bindings-v2"
+          : "collider-connected-floor-bindings-v1",
+        nodeBindingLayoutCount: assembly.transforms.nodeBindingLayout.length,
+      } : {}),
+      ...(Object.hasOwn(assembly.transforms, "navigation") ? {
+        navigationProfile: assembly.transforms.navigation.profile,
+        navigationCellCount: assembly.transforms.navigation.cells.length,
+        navigationSourceIslandCount: assembly.transforms.navigation.sourceIslandCount,
+        navigationMinimumClearanceMm: assembly.transforms.navigation.minimumClearanceMm,
       } : {}),
     },
     output: {
@@ -709,14 +785,43 @@ async function assemble(request, profile) {
   }
   const playerSpawn = entryPlayerSpawn(scenePack, runtimePack);
   const colliderBytes = files.get(spatial.assets.collider.path);
+  const splatBytes = files.get(spatial.assets.splat.path);
+  const useSharedMetricFrame = profile.id === PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.id;
   const alignment = playerSpawn && colliderBytes
-    ? await deriveColliderCalibration(colliderBytes)
+    ? await deriveColliderCalibration(
+        colliderBytes,
+        useSharedMetricFrame ? {
+          metricScaleMicros: spatial.calibration.metricScaleMicros,
+          groundPlaneOffsetMm: spatial.calibration.groundPlaneOffsetMm,
+        } : null,
+      )
     : null;
   const splatAlignment = deriveSplatCalibration(
     spatial.statistics,
     spatial.calibration.metricScaleMicros,
+    useSharedMetricFrame ? alignment : null,
   );
-  const walkableEnvelope = deriveWalkableEnvelope(spatial.statistics);
+  const legacyWalkableEnvelope = deriveWalkableEnvelope(spatial.statistics);
+  const multiSpaceLayout = profile.id === PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.id && alignment
+    ? await deriveColliderWalkableLayout(
+      colliderBytes,
+      splatBytes,
+      alignment,
+      splatAlignment,
+      spatial.calibration.metricScaleMicros,
+      spatial.statistics,
+      scenePack.placements.filter((placement) => placement.id !== binding.placement.id),
+      playerSpawn,
+      scenePack.nodeBindings,
+      runtimePack.nodes.map((node) => ({
+        nodeId: node.id,
+        actionCount: node.actions.length,
+      })),
+    )
+    : null;
+  const walkableEnvelope = profile.id === PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.id
+    ? multiSpaceLayout?.walkableEnvelope ?? legacyWalkableEnvelope
+    : legacyWalkableEnvelope;
   if (!alignment || !splatAlignment || !walkableEnvelope) {
     return failure(
       "PROTOTYPE_SPATIAL_ASSEMBLY_CALIBRATION_INVALID",
@@ -725,9 +830,16 @@ async function assemble(request, profile) {
     );
   }
   const placementLayout = profile.id === PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.id
-    ? derivePlacementLayout(scenePack, binding.placement.id, walkableEnvelope)
+    ? multiSpaceLayout?.placementLayout ?? null
     : undefined;
-  if (profile.id === PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.id && placementLayout === null) {
+  const nodeBindingLayout = profile.id === PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.id
+    ? multiSpaceLayout?.nodeBindingLayout ?? null
+    : undefined;
+  const navigation = profile.id === PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.id
+    ? multiSpaceLayout?.navigation ?? null
+    : undefined;
+  if (profile.id === PROTOTYPE_SPATIAL_ASSEMBLY_PROFILE_V2.id &&
+      (placementLayout === null || nodeBindingLayout === null || navigation === null)) {
     return failure(
       "PROTOTYPE_SPATIAL_ASSEMBLY_SAFE_LAYOUT_UNAVAILABLE",
       "/spatialEnvironmentBundle/statistics/sourceInteriorEnvelope",
@@ -748,6 +860,8 @@ async function assemble(request, profile) {
     walkableEnvelope,
     profile,
     placementLayout,
+    nodeBindingLayout,
+    navigation,
   });
   if (!assembly) {
     return failure(
@@ -766,6 +880,7 @@ async function assemble(request, profile) {
       canonicalAssemblyJson: canonicalSpatialAssemblyJson,
       entryPlayerSpawnMm: playerSpawn,
       spatialMetricScaleMicros: spatial.calibration.metricScaleMicros,
+      spatialGroundPlaneOffsetMm: spatial.calibration.groundPlaneOffsetMm,
       profile,
     }),
   );

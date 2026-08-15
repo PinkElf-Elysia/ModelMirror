@@ -23,6 +23,7 @@ export function createR12PrototypeOperations(steps) {
   const names = [
     "findCache", "generate", "describeAssets", "acquireEnvironment", "acquireAssets",
     "normalizeAssets", "spatializeEnvironment", "publishPrototype", "publishSpatial",
+    "persistPending", "recoverPending", "discardPending",
     "launch", "recover", "stopLaunch",
   ];
   if (!exactFunctions(steps, names)) throw new R12HostOperationalError();
@@ -45,9 +46,9 @@ export function createR12PrototypeOperations(steps) {
         return Object.freeze({ ok: true, environment, normalized, spatial });
       } catch { return rejected("R12_HOST_ACQUISITION_FAILED"); }
     },
-    async publish({ prompt, artifacts, acquisition }) {
+    async publish({ prompt, promptSha256, model, artifacts, acquisition }) {
       try {
-        const prototype = await steps.publishPrototype({ prompt, artifacts, acquisition });
+        const prototype = await steps.publishPrototype({ prompt, promptSha256, model, artifacts, acquisition });
         if (!prototype?.ok || typeof prototype.runId !== "string" || !RUN_ID.test(prototype.runId)) {
           return rejected("R12_HOST_ASSEMBLY_FAILED");
         }
@@ -56,6 +57,9 @@ export function createR12PrototypeOperations(steps) {
         return Object.freeze({ ok: true, runId: prototype.runId });
       } catch { return rejected("R12_HOST_ASSEMBLY_FAILED"); }
     },
+    async persistPending(input) { return steps.persistPending(input); },
+    async recoverPending() { return steps.recoverPending(); },
+    async discardPending(input) { return steps.discardPending(input); },
     async launch(input) { return steps.launch(input); },
     async recover() { return steps.recover(); },
     async stopLaunch() { return steps.stopLaunch(); },
@@ -65,10 +69,15 @@ export function createR12PrototypeOperations(steps) {
 export function validateR12AssetApprovalSummary(value) {
   try {
     return value !== null && typeof value === "object" && HASH.test(value.blueprintSha256) &&
-      value.marble?.model === "marble-1.1" && value.marble.maxCreates === 1 &&
-      value.marble.maxPolls === 180 && value.marble.maxDownloads === 3 &&
+      value.marble?.model === "marble-1.1" && typeof value.marble.recovered === "boolean" &&
+      (value.marble.recovered
+        ? value.marble.maxCreates === 0 && value.marble.maxPolls === 0 && value.marble.maxDownloads === 0 &&
+          value.marble.creditLimit === 0 && value.marble.usdLimitCents === 0
+        : value.marble.maxCreates === 1 && value.marble.maxPolls === 180 && value.marble.maxDownloads === 3 &&
+          value.marble.creditLimit === 1600 && value.marble.usdLimitCents === 150) &&
       value.meshy?.model === "meshy-6" && Array.isArray(value.meshy.briefs) &&
-      value.meshy.briefs.length <= 6 && value.meshy.maxTasks === value.meshy.briefs.length * 2 &&
-      value.meshy.creditLimit === value.meshy.briefs.length * 30;
+      value.meshy.briefs.length <= 6 && ((value.meshy.maxTasks === 0 && value.meshy.creditLimit === 0) ||
+        (value.meshy.maxTasks === value.meshy.briefs.length * 2 &&
+          value.meshy.creditLimit === value.meshy.briefs.length * 30));
   } catch { return false; }
 }

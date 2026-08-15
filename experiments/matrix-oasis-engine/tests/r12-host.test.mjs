@@ -16,6 +16,9 @@ function steps(overrides = {}) {
     async spatializeEnvironment() { return { ok: true, value: "spatial" }; },
     async publishPrototype() { return { ok: true, runId: RUN }; },
     async publishSpatial() { return { ok: true, runId: RUN }; },
+    async persistPending() {},
+    async recoverPending() { return { runs: [] }; },
+    async discardPending() {},
     async launch() { return { ok: true }; },
     async recover() { return { currentRunId: RUN, runs: [] }; },
     async stopLaunch() {},
@@ -61,6 +64,19 @@ test("R12 host profile exposes three Marble downloads while R10 remains byte-com
   const base = { configuration: { endpointHost: "api.openai.com", model: "fixture", modelReady: true, assetsReady: true, godotReady: false }, operations };
   assert.throws(() => createPrototypeHost({ ...base, profile: "unknown" }), { code: "PROTOTYPE_HOST_INTERNAL_ERROR" });
   assert.equal(validateR12AssetApprovalSummary({ blueprintSha256: `sha256:${"c".repeat(64)}`,
-    marble: { model: "marble-1.1", maxCreates: 1, maxPolls: 180, maxDownloads: 3 },
+    marble: { model: "marble-1.1", recovered: false, maxCreates: 1, maxPolls: 180, maxDownloads: 3,
+      creditLimit: 1600, usdLimitCents: 150 },
     meshy: { model: "meshy-6", briefs: Array(6).fill({}), maxTasks: 12, creditLimit: 180 } }), true);
+  assert.equal(validateR12AssetApprovalSummary({ blueprintSha256: `sha256:${"c".repeat(64)}`,
+    marble: { model: "marble-1.1", recovered: true, maxCreates: 0, maxPolls: 0, maxDownloads: 0,
+      creditLimit: 0, usdLimitCents: 0 },
+    meshy: { model: "meshy-6", briefs: Array(6).fill({}), maxTasks: 12, creditLimit: 180 } }), true);
+  assert.equal(validateR12AssetApprovalSummary({ blueprintSha256: `sha256:${"c".repeat(64)}`,
+    marble: { model: "marble-1.1", recovered: true, maxCreates: 0, maxPolls: 0, maxDownloads: 0,
+      creditLimit: 0, usdLimitCents: 0 },
+    meshy: { model: "meshy-6", briefs: Array(6).fill({}), maxTasks: 0, creditLimit: 0 } }), true);
+  assert.equal(validateR12AssetApprovalSummary({ blueprintSha256: `sha256:${"c".repeat(64)}`,
+    marble: { model: "marble-1.1", recovered: true, maxCreates: 0, maxPolls: 0, maxDownloads: 0,
+      creditLimit: 0, usdLimitCents: 0 },
+    meshy: { model: "meshy-6", briefs: Array(6).fill({}), maxTasks: 0, creditLimit: 180 } }), false);
 });

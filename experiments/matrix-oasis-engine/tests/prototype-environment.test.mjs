@@ -7,8 +7,12 @@ import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import {
   MARBLE_PROVIDER_MODEL,
   createMarbleWorldProvider,
+  listMarbleWorlds,
+  materializeRecoveredPrototypeEnvironmentWithSpatialSource,
   materializePrototypeEnvironment,
+  materializePrototypeEnvironmentWithSpatialSource,
   planPrototypeEnvironment,
+  recoverMarbleEnvironmentWithSpatialSource,
   validatePrototypeEnvironmentBundleJson,
 } from "../packages/prototype-environment-pipeline/src/index.mjs";
 
@@ -119,6 +123,7 @@ async function serverFixture(options = {}) {
   const calls = [];
   const panorama = options.panorama ?? panoramaPng();
   const collider = options.collider ?? glb();
+  const spz = options.spz ?? new Uint8Array([0x53, 0x50, 0x5a, 0x01]);
   let polls = 0;
   const server = http.createServer(async (request, response) => {
     const chunks = [];
@@ -126,7 +131,18 @@ async function serverFixture(options = {}) {
     const body = Buffer.concat(chunks).toString("utf8");
     calls.push({ method: request.method, url: request.url, body, credentialHeader: request.headers["wlt-api-key"] });
     const origin = `http://127.0.0.1:${server.address().port}`;
-    if (request.url === "/marble/v1/worlds:generate") {
+    if (request.url === "/marble/v1/worlds:list") {
+      if (options.listStatus) { response.writeHead(options.listStatus); response.end(); return; }
+      response.setHeader("content-type", "application/json");
+      response.end(options.listResponse ?? JSON.stringify({ worlds: [{
+        id: "world-listed-safe", model: "marble-1.1",
+        created_at: "2026-08-14T12:00:00Z", updated_at: "2026-08-14T12:30:00Z",
+        world_prompt: { type: "text", text_prompt: "A bounded two-space transit prototype." },
+        assets: { imagery: { pano_url: `${origin}/assets/panorama.png` },
+          mesh: { collider_mesh_url: `${origin}/assets/collider.glb` },
+          splats: { spz_urls: { full_res: `${origin}/assets/environment.spz` } } },
+      }], next_page_token: null }));
+    } else if (request.url === "/marble/v1/worlds:generate") {
       if (options.delayCreateMs) await new Promise((resolve) => setTimeout(resolve, options.delayCreateMs));
       if (options.createStatus) { response.writeHead(options.createStatus); response.end(); return; }
       if (options.createLengthHeader) response.setHeader("content-length", options.createLengthHeader);
@@ -135,18 +151,30 @@ async function serverFixture(options = {}) {
     } else if (request.url === "/marble/v1/operations/operation-safe") {
       polls += 1;
       response.setHeader("content-type", "application/json");
+      const operationWorld = { id: "world-safe", model: null,
+        assets: { imagery: { pano_url: `${origin}/assets/panorama.png` }, mesh: { collider_mesh_url: `${origin}/assets/collider.glb` },
+          splats: { spz_urls: { full_res: `${origin}/assets/environment.spz` },
+            semantics_metadata: { metric_scale_factor: 1.25, ground_plane_offset: -0.125 } } } };
       response.end(JSON.stringify(options.neverComplete || polls < (options.completeOnPoll ?? 1)
         ? { done: false, operation_id: "operation-safe", error: null, metadata: null, response: null }
-        : { done: true, operation_id: "operation-safe", error: null, metadata: { world_id: "world-safe" }, response: { world_id: "world-safe" } }));
+        : { done: true, operation_id: "operation-safe", error: null, metadata: { world_id: "world-safe" },
+          response: options.operationSnapshot === false ? { id: "world-safe" } : operationWorld }));
     } else if (request.url === "/marble/v1/worlds/world-safe") {
+      if (options.worldStatus) { response.writeHead(options.worldStatus); response.end(); return; }
       response.setHeader("content-type", "application/json");
       const host = options.assetHost ?? origin;
-      response.end(JSON.stringify({ world: { world_id: "world-safe", model: "marble-1.1", assets: { imagery: { pano_url: `${host}/assets/panorama.png` }, mesh: { collider_mesh_url: `${host}/assets/collider.glb` } } } }));
+      response.end(JSON.stringify({ world: { world_id: "world-safe", model: "marble-1.1",
+        world_prompt: { type: "text", text_prompt: options.worldPrompt ?? "A bounded recovered environment." },
+        assets: { imagery: { pano_url: `${host}/assets/panorama.png` }, mesh: { collider_mesh_url: `${host}/assets/collider.glb` },
+          splats: { spz_urls: { full_res: `${host}/assets/environment.spz` },
+            semantics_metadata: { metric_scale_factor: 1.25, ground_plane_offset: -0.125 } } } } }));
     } else if (request.url === "/assets/panorama.png") {
       if (options.panoramaLengthHeader) response.setHeader("content-length", options.panoramaLengthHeader);
       response.setHeader("content-type", "image/png"); response.end(panorama);
     } else if (request.url === "/assets/collider.glb") {
       response.setHeader("content-type", "model/gltf-binary"); response.end(collider);
+    } else if (request.url === "/assets/environment.spz") {
+      response.setHeader("content-type", "application/octet-stream"); response.end(spz);
     } else { response.writeHead(404); response.end(); }
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -205,6 +233,69 @@ test("plans one canonical text environment with an exact approval-bound provider
   }), { code: "PROTOTYPE_ENVIRONMENT_PIPELINE_INTERNAL_ERROR" });
 });
 
+test("read-only Marble discovery performs exactly one bounded worlds:list request", async (t) => {
+  const fixture = await serverFixture();
+  t.after(fixture.close);
+  const result = await listMarbleWorlds(fixture.provider);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.counts, { listRequests: 1, creates: 0, polls: 0, worldGets: 0, downloads: 0 });
+  assert.equal(result.worlds.length, 1);
+  assert.deepEqual(result.worlds[0], {
+    worldId: "world-listed-safe",
+    createdAt: "2026-08-14T12:00:00Z",
+    updatedAt: "2026-08-14T12:30:00Z",
+    model: "marble-1.1",
+    worldPrompt: "A bounded two-space transit prototype.",
+    assets: { panorama: true, collider: true, spatialSource: true },
+  });
+  assert.equal(Object.isFrozen(result.worlds[0].assets), true);
+  assert.deepEqual(fixture.calls.map((call) => [call.method, call.url]), [["POST", "/marble/v1/worlds:list"]]);
+  assert.deepEqual(JSON.parse(fixture.calls[0].body), {
+    page_size: 100, status: "SUCCEEDED", model: "marble-1.1", sort_by: "created_at",
+  });
+  assert.equal(fixture.calls[0].credentialHeader, "example");
+});
+
+test("multi-space planning follows the blueprint instead of the frozen single-room template", () => {
+  const value = blueprint({
+    zones: [
+      { id: "zone-a", label: "Area A", description: "First connected area" },
+      { id: "zone-b", label: "Area B", description: "Second connected area" },
+    ],
+    assetBriefs: [
+      { id: "asset-environment", kind: "environment", prompt: "Connected interior", entityId: null, roles: ["visual", "collider"] },
+      ...Array.from({ length: 3 }, (_, index) => ({ id: `asset-character-${index}`, kind: "character-placeholder", prompt: `Character ${index}`, entityId: `entity-character-${index}`, roles: ["visual", "collider"] })),
+      ...Array.from({ length: 3 }, (_, index) => ({ id: `asset-prop-${index}`, kind: "prop", prompt: `Prop ${index}`, entityId: `entity-prop-${index}`, roles: ["visual", "collider"] })),
+    ],
+  });
+  const result = planPrototypeEnvironment(canonicalizeJsonValue(value), {
+    profile: "matrix-oasis.prototype-environment/2",
+  });
+  assert.equal(result.ok, true);
+  assert.match(result.plan.environmentPrompt, /preserve 2 logical spaces/u);
+  assert.match(result.plan.environmentPrompt, /3 static characters and 3 props/u);
+  assert.match(result.plan.environmentPrompt, /primary space fully enterable and bounded/u);
+  assert.match(result.plan.environmentPrompt, /standing eye-height viewpoint inside it/u);
+  assert.match(result.plan.environmentPrompt, /secondary space by a wide, permanently open, walkable threshold/u);
+  assert.match(result.plan.environmentPrompt, /duplicated or mirrored structure/u);
+  assert.match(result.plan.environmentPrompt, /solid perimeter and partition walls on every side/u);
+  assert.equal(result.plan.environmentPrompt.includes("one self-contained rectangular room"), false);
+  assert.equal(result.plan.environmentPrompt.includes("one static character"), false);
+  assert.equal(result.plan.environmentPrompt.includes("equipment bay"), false);
+  for (const caseSpecificWord of ["subway", "train", "platform", "carriage"]) {
+    assert.equal(result.plan.environmentPrompt.toLowerCase().includes(caseSpecificWord), false);
+  }
+  assert.equal(result.plan.environmentPrompt.length <= 2000, true);
+  const atAcceptanceLimits = planPrototypeEnvironment(canonicalizeJsonValue({
+    ...value,
+    scene: { ...value.scene, environmentPrompt: "e".repeat(320), visualStylePrompt: "v".repeat(120) },
+  }), { profile: "matrix-oasis.prototype-environment/2" });
+  assert.equal(atAcceptanceLimits.ok, true);
+  assert.equal(atAcceptanceLimits.plan.environmentPrompt.length <= 2000, true);
+  assert.equal(planPrototypeEnvironment(canonicalizeJsonValue(value), { profile: "unsupported" }).diagnostics[0].code,
+    "PROTOTYPE_ENVIRONMENT_PROFILE_UNSUPPORTED");
+});
+
 test("materializes the bounded text-only Marble flow and publishes only safe canonical evidence", async (t) => {
   const fixture = await serverFixture({ completeOnPoll: 2 });
   t.after(fixture.close);
@@ -231,6 +322,108 @@ test("materializes the bounded text-only Marble flow and publishes only safe can
   for (const secret of ["example", "operation-safe", "world-safe", "quiet neutral", fixture.endpoint]) assert.equal(visible.includes(secret), false);
   const files = new Map(result.files.map((file) => [file.path, file.bytes]));
   assert.deepEqual(validatePrototypeEnvironmentBundleJson(result.canonicalBundleJson, files), { reportVersion: 1, valid: true, diagnostics: [] });
+});
+
+test("recovery performs exactly one Get World and three bounded downloads", async (t) => {
+  const plan = planPrototypeEnvironment(canonicalizeJsonValue(blueprint()), {
+    profile: "matrix-oasis.prototype-environment/2",
+  });
+  const fixture = await serverFixture({ worldPrompt: plan.plan.environmentPrompt });
+  t.after(fixture.close);
+  const result = await recoverMarbleEnvironmentWithSpatialSource(fixture.provider, "world-safe");
+  assert.equal(result.ok, true);
+  assert.deepEqual(fixture.calls.map((call) => [call.method, call.url]), [
+    ["GET", "/marble/v1/worlds/world-safe"],
+    ["GET", "/assets/panorama.png"],
+    ["GET", "/assets/collider.glb"],
+    ["GET", "/assets/environment.spz"],
+  ]);
+  assert.deepEqual(result.counts, { creates: 0, polls: 0, worldGets: 1, downloads: 3 });
+  assert.equal(result.worldPrompt, plan.plan.environmentPrompt);
+  assert.equal(result.metricScaleFactor, 1.25);
+  assert.equal(result.groundPlaneOffset, -0.125);
+  assert.equal(result.panoramaBytes.byteLength, panoramaPng().byteLength);
+  assert.equal(result.colliderBytes.byteLength, glb().byteLength);
+  assert.equal(result.spzBytes.byteLength > 0, true);
+
+  const materialized = materializeRecoveredPrototypeEnvironmentWithSpatialSource({ plan, recovered: {
+    panoramaBytes: result.panoramaBytes,
+    colliderBytes: result.colliderBytes,
+    spzBytes: result.spzBytes,
+    metricScaleFactor: result.metricScaleFactor,
+    groundPlaneOffset: result.groundPlaneOffset,
+    worldSource: result.worldSource,
+    worldPromptSha256: `sha256:${createHash("sha256").update(result.worldPrompt).digest("hex")}`,
+    counts: result.counts,
+  } });
+  assert.equal(materialized.ok, true);
+  assert.deepEqual(JSON.parse(materialized.environment.canonicalReportJson).counts,
+    { creates: 0, downloads: 2, polls: 0, worldGets: 1 });
+  assert.deepEqual(JSON.parse(materialized.spatialSource.canonicalReportJson).counts,
+    { creates: 0, downloads: 3, polls: 0, worldGets: 1 });
+
+  const mismatched = materializeRecoveredPrototypeEnvironmentWithSpatialSource({ plan, recovered: {
+    panoramaBytes: result.panoramaBytes,
+    colliderBytes: result.colliderBytes,
+    spzBytes: result.spzBytes,
+    metricScaleFactor: result.metricScaleFactor,
+    groundPlaneOffset: result.groundPlaneOffset,
+    worldSource: result.worldSource,
+    worldPromptSha256: `sha256:${"0".repeat(64)}`,
+    counts: result.counts,
+  } });
+  assert.equal(mismatched.ok, false);
+  assert.deepEqual(mismatched.diagnostics.map(({ code, path }) => ({ code, path })), [
+    { code: "PROTOTYPE_ENVIRONMENT_MATERIALIZATION_REQUEST_INVALID", path: "" },
+  ]);
+});
+
+test("recovery classifies inaccessible worlds without downloading an asset", async (t) => {
+  const fixture = await serverFixture({ worldStatus: 404 });
+  t.after(fixture.close);
+  const result = await recoverMarbleEnvironmentWithSpatialSource(fixture.provider, "world-safe");
+  assert.equal(result.diagnostics[0].code, "MARBLE_PROVIDER_WORLD_NOT_FOUND_OR_ACCESS_DENIED");
+  assert.deepEqual(fixture.calls.map((call) => [call.method, call.url]), [["GET", "/marble/v1/worlds/world-safe"]]);
+});
+
+test("completed operation snapshot preserves the paid result when the single Get World is unavailable", async (t) => {
+  const fixture = await serverFixture({ worldStatus: 404 });
+  t.after(fixture.close);
+  const planned = planPrototypeEnvironment(canonicalizeJsonValue(blueprint()));
+  const result = await materializePrototypeEnvironmentWithSpatialSource({ plan: planned, approval: {
+    blueprintSha256: planned.plan.blueprint.canonicalSha256, model: "marble-1.1", maxCreateRequests: 1,
+    maxPollAttempts: 180, maxWorldGets: 1, maxDownloads: 3, creditLimit: 1600, usdLimitCents: 150,
+  } }, fixture.provider);
+  assert.equal(result.ok, true);
+  assert.deepEqual(fixture.calls.map((call) => [call.method, call.url]), [
+    ["POST", "/marble/v1/worlds:generate"],
+    ["GET", "/marble/v1/operations/operation-safe"],
+    ["GET", "/marble/v1/worlds/world-safe"],
+    ["GET", "/assets/panorama.png"],
+    ["GET", "/assets/collider.glb"],
+    ["GET", "/assets/environment.spz"],
+  ]);
+  const environmentReport = JSON.parse(result.environment.canonicalReportJson);
+  const spatialReport = JSON.parse(result.spatialSource.canonicalReportJson);
+  assert.deepEqual(environmentReport.counts, { creates: 1, downloads: 2, polls: 1, worldGets: 1 });
+  assert.deepEqual(spatialReport.counts, { creates: 1, downloads: 3, polls: 1, worldGets: 1 });
+  assert.equal(spatialReport.worldSource, "operation-response");
+});
+
+test("failed Get World cannot be bypassed by an incomplete operation snapshot", async (t) => {
+  const fixture = await serverFixture({ worldStatus: 404, operationSnapshot: false });
+  t.after(fixture.close);
+  const planned = planPrototypeEnvironment(canonicalizeJsonValue(blueprint()));
+  const result = await materializePrototypeEnvironmentWithSpatialSource({ plan: planned, approval: {
+    blueprintSha256: planned.plan.blueprint.canonicalSha256, model: "marble-1.1", maxCreateRequests: 1,
+    maxPollAttempts: 180, maxWorldGets: 1, maxDownloads: 3, creditLimit: 1600, usdLimitCents: 150,
+  } }, fixture.provider);
+  assert.equal(result.diagnostics[0].code, "MARBLE_PROVIDER_WORLD_NOT_FOUND_OR_ACCESS_DENIED");
+  assert.deepEqual(fixture.calls.map((call) => [call.method, call.url]), [
+    ["POST", "/marble/v1/worlds:generate"],
+    ["GET", "/marble/v1/operations/operation-safe"],
+    ["GET", "/marble/v1/worlds/world-safe"],
+  ]);
 });
 
 test("approval mismatch makes zero provider requests", async (t) => {

@@ -467,6 +467,65 @@ export async function importSpatialPrototypeCache({
   }
 }
 
+export async function publishSpatialPrototypeRun({
+  prototypeRunRoot,
+  prototypeRunId,
+  spatialRunRoot,
+  temporaryRoot,
+  spatialMaterialization,
+  services,
+  recoverPrototypeRuns,
+  assemblePrototypeScene,
+  assemblePrototypeSpatialScene,
+  canonicalizeJsonValue,
+}) {
+  try {
+    if (!RUN_ID.test(prototypeRunId) || !path.isAbsolute(prototypeRunRoot) ||
+        !path.isAbsolute(spatialRunRoot) || !path.isAbsolute(temporaryRoot) ||
+        !exactRecord(spatialMaterialization, ["canonicalBundleJson", "canonicalReportJson", "files"]) ||
+        typeof spatialMaterialization.canonicalBundleJson !== "string" ||
+        typeof spatialMaterialization.canonicalReportJson !== "string" || !Array.isArray(spatialMaterialization.files)) {
+      fail("SPATIAL_CACHE_INPUT_INVALID");
+    }
+    const tempReal = path.resolve(await services.realpath(temporaryRoot));
+    if (![prototypeRunRoot, spatialRunRoot].every((candidate) => directChild(tempReal, path.resolve(candidate)))) {
+      fail("SPATIAL_CACHE_ARGUMENT_INVALID");
+    }
+    const recovered = await recoverPrototypeRuns({ runRoot: prototypeRunRoot, temporaryRoot, services,
+      assemblePrototypeScene, canonicalizeJsonValue });
+    const recoveredSource = recovered.runs.find((run) => run.runId === prototypeRunId);
+    if (!recoveredSource) fail("SPATIAL_CACHE_SOURCE_INVALID");
+    const sourceRoot = await trustedDirectory(prototypeRunRoot, tempReal, services, "SPATIAL_CACHE_SOURCE_INVALID");
+    const source = await readSourceRun({ root: sourceRoot, runId: prototypeRunId, services, canonicalizeJsonValue });
+    if (source.runReport.promptSha256 !== recoveredSource.promptSha256 || source.model !== recoveredSource.model) {
+      fail("SPATIAL_CACHE_SOURCE_INVALID");
+    }
+    const bundleText = spatialMaterialization.canonicalBundleJson;
+    const reportText = spatialMaterialization.canonicalReportJson;
+    const bundle = canonical(bundleText, canonicalizeJsonValue, "SPATIAL_CACHE_INPUT_INVALID");
+    const report = canonical(reportText, canonicalizeJsonValue, "SPATIAL_CACHE_INPUT_INVALID");
+    const files = new Map();
+    for (const file of spatialMaterialization.files) {
+      if (!exactRecord(file, ["path", "bytes"]) || ![SPLAT_PATH, COLLIDER_PATH].includes(file.path) ||
+          !(file.bytes instanceof Uint8Array) || files.has(file.path)) fail("SPATIAL_CACHE_INPUT_INVALID");
+      files.set(file.path, Uint8Array.prototype.slice.call(file.bytes));
+    }
+    if (files.size !== 2 || !validSpatialReport(report, bundleText, bundle, files, canonicalizeJsonValue)) {
+      fail("SPATIAL_CACHE_INPUT_INVALID");
+    }
+    if (!(await exists(spatialRunRoot, services))) await services.mkdir(spatialRunRoot, { recursive: false });
+    const runRoot = await trustedDirectory(spatialRunRoot, tempReal, services, "SPATIAL_CACHE_RUN_ROOT_INVALID");
+    const built = await buildSpatialRun({ source, spatial: { bundleText, reportText, bundle, files },
+      assemblePrototypeSpatialScene, canonicalizeJsonValue });
+    await publishDirectory(runRoot, built.runId, built.artifacts, services);
+    await publishCurrent(runRoot, built.runId, services, canonicalizeJsonValue);
+    return Object.freeze({ runId: built.runId, cacheHit: false, files: built.artifacts.length });
+  } catch (error) {
+    if (error instanceof SpatialCacheOperationalError) throw error;
+    fail("SPATIAL_CACHE_INTERNAL_ERROR");
+  }
+}
+
 async function verifySpatialOverlay(directory, runId, source, services, assemblePrototypeSpatialScene, canonicalizeJsonValue, includeFiles = false) {
   const texts = Object.create(null);
   for (const name of ["prototype-spatial-environment-bundle.json", "prototype-spatial-environment-report.json",
@@ -524,6 +583,12 @@ async function verifySpatialOverlay(directory, runId, source, services, assemble
       [SPLAT_PATH, spatialFiles.get(SPLAT_PATH)],
     ]);
     result.previewFiles = previewFiles;
+    result.qualificationEvidence = Object.freeze({
+      source: source.runReport.source,
+      sceneBlueprintJson: source.texts["scene-blueprint.json"],
+      runtimeGamePackJson: source.texts["runtime-game-pack.json"],
+      runtimeReceiptJson: source.texts["runtime-receipt.json"],
+    });
   }
   return Object.freeze(result);
 }

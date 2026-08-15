@@ -9,6 +9,7 @@ export type PrototypeProviderRequest =
       kind: "repair";
       previousCandidate: string;
       diagnostics: readonly PrototypeProviderDiagnostic[];
+      acceptanceProfile?: PrototypeAcceptanceProfile;
     }>;
 
 export interface PrototypeProviderUsage {

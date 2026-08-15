@@ -48,6 +48,20 @@ const REUSABLE_ENVIRONMENT_PROFILE = [
   "The result should be polished but modular enough to reuse as an engine demo, interaction testbed, or foundation for multiple prototype genres.",
 ].join(" ");
 
+const MULTI_SPACE_ENVIRONMENT_PROFILE = [
+  "Create a reusable first-person environment matching the supplied scene intent and style.",
+  "Keep the primary space fully enterable and bounded, with the standing eye-height viewpoint inside it. Connect each distinct secondary space by a wide, permanently open, walkable threshold.",
+  "Do not substitute an exterior facade, isolated shell, duplicated or mirrored structure, closed door, solid barrier, or fake opening for a requested connection.",
+  "Use level floors across thresholds, solid perimeter and partition walls on every side of the play area, sufficient ceiling height, and clear circulation.",
+  "Reserve clear placement space for every external prop and static character; do not generate them.",
+  "Follow the requested architecture, materials, lighting, wear, and style without imposing generic room functions.",
+  "Use coherent perspective, depth cues, continuous floor-wall-ceiling boundaries, and a seamless 360-degree view of the connected layout.",
+  "Keep it collision-friendly: no pits, narrow passages, unreachable surfaces, open voids, clutter, blocked routes, text, logos, signage, UI, animated doors, mirrors, transparent walls, strong reflections, extreme darkness, fog, or outdoor vistas.",
+  "Produce a coherent reusable gameplay space.",
+].join(" ");
+
+const MULTI_SPACE_PROFILE = "matrix-oasis.prototype-environment/2";
+
 const environmentBundleSchema = {
   type: "object",
   additionalProperties: false,
@@ -286,22 +300,38 @@ function blueprintSemantics(blueprint) {
   return true;
 }
 
-function environmentPrompt(blueprint) {
+function environmentProfile(options) {
+  if (options === undefined) return REUSABLE_ENVIRONMENT_PROFILE;
+  const captured = captureRecord(options, ["profile"]);
+  return captured?.profile === MULTI_SPACE_PROFILE
+    ? MULTI_SPACE_ENVIRONMENT_PROFILE
+    : null;
+}
+
+function environmentPrompt(blueprint, profile) {
+  const externalBriefs = blueprint.assetBriefs.filter((brief) => brief.kind !== "environment");
+  const characterCount = externalBriefs.filter((brief) => brief.kind === "character-placeholder").length;
+  const propCount = externalBriefs.filter((brief) => brief.kind === "prop").length;
   return [
     `Scene intent: ${blueprint.scene.environmentPrompt}`,
     `Visual style intent: ${blueprint.scene.visualStylePrompt}`,
-    REUSABLE_ENVIRONMENT_PROFILE,
+    ...(profile === MULTI_SPACE_ENVIRONMENT_PROFILE
+      ? [`Layout capacity: preserve ${blueprint.zones.length} logical spaces and reserve clear placement capacity for ${characterCount} static characters and ${propCount} props.`]
+      : []),
+    profile,
   ].join("\n\n");
 }
 
-export function planPrototypeEnvironment(sceneBlueprintJson) {
+export function planPrototypeEnvironment(sceneBlueprintJson, options) {
   try {
+    const profile = environmentProfile(options);
+    if (profile === null) return failure("PROTOTYPE_ENVIRONMENT_PROFILE_UNSUPPORTED", "plan", "/profile");
     const blueprint = parseCanonical(sceneBlueprintJson, 1024 * 1024);
     if (!blueprint) return failure("PROTOTYPE_ENVIRONMENT_BLUEPRINT_INVALID");
     if (!validateBlueprintStructure(blueprint)) return failure("PROTOTYPE_ENVIRONMENT_BLUEPRINT_SCHEMA_INVALID", "schema", schemaPath(validateBlueprintStructure.errors, "/sceneBlueprint"));
     if (!blueprintSemantics(blueprint)) return failure("PROTOTYPE_ENVIRONMENT_BLUEPRINT_SEMANTIC_INVALID", "semantic", "/sceneBlueprint");
     if (!allStringsWellFormed(blueprint)) return failure("PROTOTYPE_ENVIRONMENT_UNSUPPORTED_TEXT", "semantic", "/sceneBlueprint");
-    const prompt = environmentPrompt(blueprint);
+    const prompt = environmentPrompt(blueprint, profile);
     if (prompt.length > MARBLE_PROVIDER_LIMITS.promptCharacters) {
       return failure("PROTOTYPE_ENVIRONMENT_PROMPT_PROFILE_UNSUPPORTED", "plan", "/sceneBlueprint/scene/environmentPrompt");
     }
@@ -405,7 +435,7 @@ export function validatePrototypeSpatialSourceBundleJson(
   }
 }
 
-function buildEnvironmentMaterialization(internal, acquired) {
+function buildEnvironmentMaterialization(internal, acquired, reportCounts = acquired.counts) {
   const panoramaBytes = Uint8Array.prototype.slice.call(acquired.panoramaBytes);
   const colliderBytes = Uint8Array.prototype.slice.call(acquired.colliderBytes);
   const panorama = inspectPanoramaPng(panoramaBytes, PROTOTYPE_ENVIRONMENT_LIMITS);
@@ -436,7 +466,7 @@ function buildEnvironmentMaterialization(internal, acquired) {
     formatVersion: "0.1.0",
     provider: { id: "world-labs-marble", model: MARBLE_PROVIDER_MODEL },
     bundleSha256: sha256(canonicalBundleJson),
-    counts: acquired.counts,
+    counts: reportCounts,
     files: files.map((file) => ({ path: file.path, byteLength: file.bytes.byteLength, sha256: sha256(file.bytes) })),
   }));
   return Object.freeze({ ok: true, bundle, canonicalBundleJson, canonicalReportJson, files });
@@ -455,6 +485,68 @@ function quantizedScale(metricScaleFactor, groundPlaneOffset) {
   if (!Number.isSafeInteger(metricScaleMicros) || metricScaleMicros < 1 || metricScaleMicros > 100_000_000 ||
       !Number.isSafeInteger(groundPlaneOffsetMm) || groundPlaneOffsetMm < -1_000_000 || groundPlaneOffsetMm > 1_000_000) return null;
   return { metricScaleMicros, groundPlaneOffsetMm: Object.is(groundPlaneOffsetMm, -0) ? 0 : groundPlaneOffsetMm };
+}
+
+function buildSpatialMaterialization(internal, acquired) {
+  const scale = quantizedScale(acquired.metricScaleFactor, acquired.groundPlaneOffset);
+  const spzBytes = acquired.spzBytes instanceof Uint8Array
+    ? Uint8Array.prototype.slice.call(acquired.spzBytes)
+    : null;
+  if (!scale || !spzBytes || spzBytes.byteLength < 1 || spzBytes.byteLength > PROTOTYPE_ENVIRONMENT_LIMITS.spzBytes) {
+    return failure("PROTOTYPE_SPATIAL_SOURCE_METADATA_INVALID", "integrity", "/spatialSourceBundle/scale");
+  }
+  const environment = buildEnvironmentMaterialization(internal, acquired, deepFreeze({
+    creates: acquired.counts.creates,
+    polls: acquired.counts.polls,
+    worldGets: acquired.counts.worldGets,
+    downloads: 2,
+  }));
+  if (!environment.ok) return environment;
+  const colliderBytes = environment.files.find((file) => file.path === COLLIDER_PATH)?.bytes;
+  if (!(colliderBytes instanceof Uint8Array)) throw new PrototypeEnvironmentPipelineOperationalError();
+  const bundle = deepFreeze({
+    format: PROTOTYPE_SPATIAL_SOURCE_BUNDLE_FORMAT,
+    formatVersion: PROTOTYPE_SPATIAL_SOURCE_BUNDLE_FORMAT_VERSION,
+    canonicalization: CANONICAL_JSON_PROFILE,
+    scene: internal.scene,
+    blueprint: internal.blueprint,
+    environment: {
+      bundleSha256: sha256(environment.canonicalBundleJson),
+      collider: { path: COLLIDER_PATH, byteLength: colliderBytes.byteLength, sha256: sha256(colliderBytes) },
+    },
+    source: { path: SPZ_PATH, format: "spz", resolution: "full_res", byteLength: spzBytes.byteLength, sha256: sha256(spzBytes) },
+    scale,
+  });
+  const canonicalBundleJson = canonicalizeJsonValue(bundle);
+  const files = Object.freeze([
+    Object.freeze({ path: SPZ_PATH, bytes: spzBytes }),
+    Object.freeze({ path: COLLIDER_PATH, bytes: Uint8Array.prototype.slice.call(colliderBytes) }),
+  ]);
+  const validation = validatePrototypeSpatialSourceBundleJson(
+    canonicalBundleJson,
+    new Map(files.map((file) => [file.path, file.bytes])),
+    environment.canonicalBundleJson,
+  );
+  if (!validation.valid) throw new PrototypeEnvironmentPipelineOperationalError();
+  const canonicalReportJson = canonicalizeJsonValue(deepFreeze({
+    format: "matrix-oasis.prototype-spatial-source-materialization-report",
+    formatVersion: "0.1.0",
+    bundleSha256: sha256(canonicalBundleJson),
+    counts: acquired.counts,
+    worldSource: acquired.worldSource,
+    scale,
+    files: files.map((file) => ({ path: file.path, byteLength: file.bytes.byteLength, sha256: sha256(file.bytes) })),
+  }));
+  return deepFreeze({
+    ok: true,
+    environment: {
+      bundle: environment.bundle,
+      canonicalBundleJson: environment.canonicalBundleJson,
+      canonicalReportJson: environment.canonicalReportJson,
+      files: environment.files,
+    },
+    spatialSource: { bundle, canonicalBundleJson, canonicalReportJson, files },
+  });
 }
 
 export async function materializePrototypeEnvironment(request, provider) {
@@ -482,58 +574,38 @@ export async function materializePrototypeEnvironmentWithSpatialSource(request, 
     const acquired = await acquireMarbleEnvironmentWithSpatialSource(provider, internal.prompt);
     if (!acquired.ok) return acquired;
     if (acquired.counts.creates !== 1 || acquired.counts.polls > 180 || acquired.counts.worldGets !== 1 || acquired.counts.downloads !== 3) throw new PrototypeEnvironmentPipelineOperationalError();
-    const scale = quantizedScale(acquired.metricScaleFactor, acquired.groundPlaneOffset);
-    const spzBytes = acquired.spzBytes instanceof Uint8Array
-      ? Uint8Array.prototype.slice.call(acquired.spzBytes)
-      : null;
-    if (!scale || !spzBytes || spzBytes.byteLength < 1 || spzBytes.byteLength > PROTOTYPE_ENVIRONMENT_LIMITS.spzBytes) {
-      return failure("PROTOTYPE_SPATIAL_SOURCE_METADATA_INVALID", "integrity", "/spatialSourceBundle/scale");
-    }
-    const environment = buildEnvironmentMaterialization(internal, acquired);
-    if (!environment.ok) return environment;
-    const colliderBytes = environment.files.find((file) => file.path === COLLIDER_PATH)?.bytes;
-    if (!(colliderBytes instanceof Uint8Array)) throw new PrototypeEnvironmentPipelineOperationalError();
-    const bundle = deepFreeze({
-      format: PROTOTYPE_SPATIAL_SOURCE_BUNDLE_FORMAT,
-      formatVersion: PROTOTYPE_SPATIAL_SOURCE_BUNDLE_FORMAT_VERSION,
-      canonicalization: CANONICAL_JSON_PROFILE,
-      scene: internal.scene,
-      blueprint: internal.blueprint,
-      environment: {
-        bundleSha256: sha256(environment.canonicalBundleJson),
-        collider: { path: COLLIDER_PATH, byteLength: colliderBytes.byteLength, sha256: sha256(colliderBytes) },
-      },
-      source: { path: SPZ_PATH, format: "spz", resolution: "full_res", byteLength: spzBytes.byteLength, sha256: sha256(spzBytes) },
-      scale,
-    });
-    const canonicalBundleJson = canonicalizeJsonValue(bundle);
-    const files = Object.freeze([
-      Object.freeze({ path: SPZ_PATH, bytes: spzBytes }),
-      Object.freeze({ path: COLLIDER_PATH, bytes: Uint8Array.prototype.slice.call(colliderBytes) }),
+    return buildSpatialMaterialization(internal, acquired);
+  } catch (error) {
+    if (error instanceof PrototypeEnvironmentPipelineOperationalError) throw error;
+    throw new PrototypeEnvironmentPipelineOperationalError();
+  }
+}
+
+export function materializeRecoveredPrototypeEnvironmentWithSpatialSource(request) {
+  try {
+    const captured = captureRecord(request, ["plan", "recovered"]);
+    if (!captured || !preparedPlans.has(captured.plan)) return failure("PROTOTYPE_ENVIRONMENT_MATERIALIZATION_REQUEST_INVALID");
+    const internal = preparedPlans.get(captured.plan);
+    const recovered = captureRecord(captured.recovered, [
+      "panoramaBytes", "colliderBytes", "spzBytes", "metricScaleFactor", "groundPlaneOffset", "worldSource", "worldPromptSha256", "counts",
     ]);
-    const validation = validatePrototypeSpatialSourceBundleJson(
-      canonicalBundleJson,
-      new Map(files.map((file) => [file.path, file.bytes])),
-      environment.canonicalBundleJson,
-    );
-    if (!validation.valid) throw new PrototypeEnvironmentPipelineOperationalError();
-    const canonicalReportJson = canonicalizeJsonValue(deepFreeze({
-      format: "matrix-oasis.prototype-spatial-source-materialization-report",
-      formatVersion: "0.1.0",
-      bundleSha256: sha256(canonicalBundleJson),
-      counts: acquired.counts,
-      scale,
-      files: files.map((file) => ({ path: file.path, byteLength: file.bytes.byteLength, sha256: sha256(file.bytes) })),
-    }));
-    return deepFreeze({
-      ok: true,
-      environment: {
-        bundle: environment.bundle,
-        canonicalBundleJson: environment.canonicalBundleJson,
-        canonicalReportJson: environment.canonicalReportJson,
-        files: environment.files,
-      },
-      spatialSource: { bundle, canonicalBundleJson, canonicalReportJson, files },
+    const counts = recovered && captureRecord(recovered.counts, ["creates", "polls", "worldGets", "downloads"]);
+    if (!recovered || !counts || !(recovered.panoramaBytes instanceof Uint8Array) ||
+        !(recovered.colliderBytes instanceof Uint8Array) || !(recovered.spzBytes instanceof Uint8Array) ||
+        !Number.isFinite(recovered.metricScaleFactor) || !Number.isFinite(recovered.groundPlaneOffset) ||
+        recovered.worldPromptSha256 !== internal.environmentPromptSha256 ||
+        recovered.worldSource !== "get-world-recovery" || counts.creates !== 0 || counts.polls !== 0 ||
+        counts.worldGets !== 1 || counts.downloads !== 3) {
+      return failure("PROTOTYPE_ENVIRONMENT_MATERIALIZATION_REQUEST_INVALID");
+    }
+    return buildSpatialMaterialization(internal, {
+      panoramaBytes: Uint8Array.prototype.slice.call(recovered.panoramaBytes),
+      colliderBytes: Uint8Array.prototype.slice.call(recovered.colliderBytes),
+      spzBytes: Uint8Array.prototype.slice.call(recovered.spzBytes),
+      metricScaleFactor: recovered.metricScaleFactor,
+      groundPlaneOffset: recovered.groundPlaneOffset,
+      worldSource: recovered.worldSource,
+      counts: deepFreeze({ creates: 0, polls: 0, worldGets: 1, downloads: 3 }),
     });
   } catch (error) {
     if (error instanceof PrototypeEnvironmentPipelineOperationalError) throw error;

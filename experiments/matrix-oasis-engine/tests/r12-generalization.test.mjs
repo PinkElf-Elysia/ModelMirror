@@ -59,8 +59,10 @@ test("R12 markers are stable and qualification source remains topic-neutral", as
   assert.equal(R12_QUALIFICATION_MARKER, "MATRIX_OASIS_R12_QUALIFICATION_JSON:");
   const source = await import("../scripts/lib/r12-qualification-core.mjs?surface-check");
   assert.deepEqual(Object.keys(source).sort(), [
-    "R12QualificationOperationalError", "R12_MVP_READY_MARKER", "R12_QUALIFICATION_MARKER", "analyzeRuntimeReachability",
-    "R12_LAST_TRAIN_ACCEPTANCE_PROFILE", "parseR12CacheVerificationArguments", "verifyR12NeutralSpatialCache",
+    "R12QualificationOperationalError", "R12_LAST_TRAIN_ACCEPTANCE_PROFILE", "R12_MVP_READY_MARKER",
+    "R12_QUALIFICATION_MARKER", "analyzeR12QualificationCandidate", "analyzeRuntimeReachability",
+    "parseR12CacheVerificationArguments", "verifyR12NeutralSpatialCache",
+    "parseR12CallArguments", "readR12CallInputs", "verifyR12CreatorPublishedQualification",
   ].sort());
   const text = await (await import("node:fs/promises")).readFile(
     new URL("../scripts/lib/r12-qualification-core.mjs", import.meta.url), "utf8");

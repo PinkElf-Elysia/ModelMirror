@@ -23,6 +23,7 @@ const APPROVED_OFFICIAL_ASSET_HOSTS = new Set([
   "storage.googleapis.com",
 ]);
 const REMOTE_ID = /^[A-Za-z0-9_-]{1,128}$/u;
+const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/u;
 const HOST_NAME = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/u;
 const JSON_CONTENT = /^application\/(?:[a-z0-9.+-]+\+)?json(?:\s*;|$)/iu;
 const providerStates = new WeakMap();
@@ -182,7 +183,11 @@ function timeoutFetch(state, url, init) {
 
 function httpFailure(status) {
   if (status >= 300 && status < 400) return failure("MARBLE_PROVIDER_REDIRECT");
+  if (status === 401) return failure("MARBLE_PROVIDER_AUTH_INVALID");
   if (status === 402) return failure("MARBLE_PROVIDER_CREDIT_LIMIT");
+  if (status === 403) return failure("MARBLE_PROVIDER_ACCESS_DENIED");
+  if (status === 404) return failure("MARBLE_PROVIDER_WORLD_NOT_FOUND_OR_ACCESS_DENIED");
+  if (status === 422) return failure("MARBLE_PROVIDER_REQUEST_INVALID");
   if (status === 429) return failure("MARBLE_PROVIDER_RATE_LIMITED");
   return failure("MARBLE_PROVIDER_HTTP_ERROR");
 }
@@ -208,13 +213,13 @@ function operationResult(value, expectedOperationId = null) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return failure("MARBLE_PROVIDER_RESPONSE_INVALID");
   const operationId = remoteId(value.operation_id);
   if (!operationId || (expectedOperationId !== null && operationId !== expectedOperationId) || typeof value.done !== "boolean") return failure("MARBLE_PROVIDER_RESPONSE_INVALID");
-  if (value.error !== null && value.error !== undefined) return deepFreeze({ ok: true, status: "failed", operationId, worldId: null });
-  if (!value.done) return deepFreeze({ ok: true, status: "pending", operationId, worldId: null });
+  if (value.error !== null && value.error !== undefined) return deepFreeze({ ok: true, status: "failed", operationId, worldId: null, worldSnapshot: null });
+  if (!value.done) return deepFreeze({ ok: true, status: "pending", operationId, worldId: null, worldSnapshot: null });
   const response = value.response && typeof value.response === "object" && !Array.isArray(value.response) ? value.response : null;
   const metadata = value.metadata && typeof value.metadata === "object" && !Array.isArray(value.metadata) ? value.metadata : null;
   const worldId = remoteId(response?.world_id ?? response?.id ?? metadata?.world_id);
   return worldId
-    ? deepFreeze({ ok: true, status: "succeeded", operationId, worldId })
+    ? deepFreeze({ ok: true, status: "succeeded", operationId, worldId, worldSnapshot: response })
     : failure("MARBLE_PROVIDER_RESPONSE_INVALID");
 }
 
@@ -228,13 +233,16 @@ function assetUrl(state, value) {
   return loopback || official ? url : null;
 }
 
-function worldResult(state, value, expectedWorldId, includeSpatialSource) {
+function worldResult(state, value, expectedWorldId, includeSpatialSource, requireModel = true) {
   const world = value?.world && typeof value.world === "object" && !Array.isArray(value.world) ? value.world : value;
   if (!world || typeof world !== "object" || Array.isArray(world)) return failure("MARBLE_PROVIDER_RESPONSE_INVALID");
   const worldId = remoteId(world.world_id ?? world.id);
   const panoramaUrl = assetUrl(state, world.assets?.imagery?.pano_url);
   const colliderUrl = assetUrl(state, world.assets?.mesh?.collider_mesh_url);
-  if (worldId !== expectedWorldId || world.model !== MARBLE_PROVIDER_MODEL || !panoramaUrl || !colliderUrl) return failure("MARBLE_PROVIDER_ASSET_URL_INVALID");
+  const modelValid = requireModel
+    ? world.model === MARBLE_PROVIDER_MODEL
+    : world.model === undefined || world.model === null || world.model === MARBLE_PROVIDER_MODEL;
+  if (worldId !== expectedWorldId || !modelValid || !panoramaUrl || !colliderUrl) return failure("MARBLE_PROVIDER_ASSET_URL_INVALID");
   if (!includeSpatialSource) return { ok: true, panoramaUrl, colliderUrl };
   const spzUrl = assetUrl(state, world.assets?.splats?.spz_urls?.full_res);
   const metricScaleFactor = world.assets?.splats?.semantics_metadata?.metric_scale_factor;
@@ -244,6 +252,44 @@ function worldResult(state, value, expectedWorldId, includeSpatialSource) {
     return failure("MARBLE_PROVIDER_SPATIAL_SOURCE_INVALID");
   }
   return { ok: true, panoramaUrl, colliderUrl, spzUrl, metricScaleFactor, groundPlaneOffset };
+}
+
+function worldPrompt(value) {
+  const world = value?.world && typeof value.world === "object" && !Array.isArray(value.world) ? value.world : value;
+  const prompt = world?.world_prompt;
+  if (!prompt || typeof prompt !== "object" || Array.isArray(prompt) || prompt.type !== "text" ||
+      !wellFormedText(prompt.text_prompt) || prompt.text_prompt.length < 1 ||
+      prompt.text_prompt.length > MARBLE_PROVIDER_LIMITS.promptCharacters || !/\S/u.test(prompt.text_prompt)) {
+    return null;
+  }
+  return prompt.text_prompt;
+}
+
+function timestamp(value) {
+  return typeof value === "string" && UTC_TIMESTAMP.test(value) && Number.isFinite(Date.parse(value))
+    ? value
+    : null;
+}
+
+function listedWorld(state, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const worldId = remoteId(value.world_id ?? value.id);
+  const createdAt = timestamp(value.created_at);
+  const updatedAt = timestamp(value.updated_at);
+  const prompt = worldPrompt(value);
+  if (!worldId || value.model !== MARBLE_PROVIDER_MODEL || !createdAt || !updatedAt || prompt === null) return null;
+  return {
+    worldId,
+    createdAt,
+    updatedAt,
+    model: MARBLE_PROVIDER_MODEL,
+    worldPrompt: prompt,
+    assets: {
+      panorama: assetUrl(state, value.assets?.imagery?.pano_url) !== null,
+      collider: assetUrl(state, value.assets?.mesh?.collider_mesh_url) !== null,
+      spatialSource: assetUrl(state, value.assets?.splats?.spz_urls?.full_res) !== null,
+    },
+  };
 }
 
 async function download(state, url, maximum) {
@@ -283,6 +329,7 @@ async function acquireMarble(provider, prompt, includeSpatialSource) {
   const creation = operationResult(created.value);
   if (!creation.ok) return creation;
   let worldId = creation.worldId;
+  let operationWorldSnapshot = creation.worldSnapshot;
   let polls = 0;
   if (creation.status === "failed") return failure("MARBLE_PROVIDER_GENERATION_FAILED");
   while (worldId === null && polls < MARBLE_PROVIDER_LIMITS.pollAttempts) {
@@ -295,13 +342,23 @@ async function acquireMarble(provider, prompt, includeSpatialSource) {
     if (!operation.ok) return operation;
     if (operation.status === "failed") return failure("MARBLE_PROVIDER_GENERATION_FAILED");
     worldId = operation.worldId;
+    operationWorldSnapshot = operation.worldSnapshot;
   }
   if (worldId === null) return failure("MARBLE_PROVIDER_POLL_LIMIT");
   const worldUrl = new URL(`${state.endpoint.url.pathname}/worlds/${worldId}`, state.endpoint.url);
   const fetchedWorld = await requestJson(state, worldUrl, { method: "GET", headers: { "WLT-Api-Key": state.apiKey, accept: "application/json" } });
-  if (!fetchedWorld.ok) return fetchedWorld;
-  const world = worldResult(state, fetchedWorld.value, worldId, includeSpatialSource);
-  if (!world.ok) return world;
+  let world;
+  let worldSource;
+  if (fetchedWorld.ok) {
+    world = worldResult(state, fetchedWorld.value, worldId, includeSpatialSource);
+    if (!world.ok) return world;
+    worldSource = "get-world";
+  } else {
+    const operationWorld = worldResult(state, operationWorldSnapshot, worldId, includeSpatialSource, false);
+    if (!operationWorld.ok) return fetchedWorld;
+    world = operationWorld;
+    worldSource = "operation-response";
+  }
   const panorama = await download(state, world.panoramaUrl, MARBLE_PROVIDER_LIMITS.panoramaBytes);
   if (!panorama.ok) return panorama;
   const collider = await download(state, world.colliderUrl, MARBLE_PROVIDER_LIMITS.colliderBytes);
@@ -319,6 +376,7 @@ async function acquireMarble(provider, prompt, includeSpatialSource) {
       metricScaleFactor: world.metricScaleFactor,
       groundPlaneOffset: world.groundPlaneOffset,
     } : {}),
+    worldSource,
     counts: Object.freeze({ creates: 1, polls, worldGets: 1, downloads: includeSpatialSource ? 3 : 2 }),
   });
 }
@@ -329,4 +387,67 @@ export async function acquireMarbleEnvironment(provider, prompt) {
 
 export async function acquireMarbleEnvironmentWithSpatialSource(provider, prompt) {
   return await acquireMarble(provider, prompt, true);
+}
+
+export async function recoverMarbleEnvironmentWithSpatialSource(provider, worldId) {
+  const state = providerStates.get(provider);
+  const safeWorldId = remoteId(worldId);
+  if (!state || safeWorldId === null) return failure("MARBLE_PROVIDER_REQUEST_INVALID");
+  const worldUrl = new URL(`${state.endpoint.url.pathname}/worlds/${safeWorldId}`, state.endpoint.url);
+  const fetchedWorld = await requestJson(state, worldUrl, {
+    method: "GET",
+    headers: { "WLT-Api-Key": state.apiKey, accept: "application/json" },
+  });
+  if (!fetchedWorld.ok) return fetchedWorld;
+  const world = worldResult(state, fetchedWorld.value, safeWorldId, true);
+  const prompt = worldPrompt(fetchedWorld.value);
+  if (!world.ok) return world;
+  if (prompt === null) return failure("MARBLE_PROVIDER_RESPONSE_INVALID");
+  const panorama = await download(state, world.panoramaUrl, MARBLE_PROVIDER_LIMITS.panoramaBytes);
+  if (!panorama.ok) return panorama;
+  const collider = await download(state, world.colliderUrl, MARBLE_PROVIDER_LIMITS.colliderBytes);
+  if (!collider.ok) return collider;
+  const spz = await download(state, world.spzUrl, MARBLE_PROVIDER_LIMITS.spzBytes);
+  if (!spz.ok) return spz;
+  return Object.freeze({
+    ok: true,
+    panoramaBytes: panorama.bytes,
+    colliderBytes: collider.bytes,
+    spzBytes: spz.bytes,
+    metricScaleFactor: world.metricScaleFactor,
+    groundPlaneOffset: world.groundPlaneOffset,
+    worldPrompt: prompt,
+    worldSource: "get-world-recovery",
+    counts: Object.freeze({ creates: 0, polls: 0, worldGets: 1, downloads: 3 }),
+  });
+}
+
+export async function listMarbleWorlds(provider) {
+  const state = providerStates.get(provider);
+  if (!state) return failure("MARBLE_PROVIDER_REQUEST_INVALID");
+  const listUrl = new URL(`${state.endpoint.url.pathname}/worlds:list`, state.endpoint.url);
+  const response = await requestJson(state, listUrl, {
+    method: "POST",
+    headers: { "WLT-Api-Key": state.apiKey, "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ page_size: 100, status: "SUCCEEDED", model: MARBLE_PROVIDER_MODEL, sort_by: "created_at" }),
+  });
+  if (!response.ok) return response;
+  const captured = captureRecord(response.value, ["worlds"], ["next_page_token"]);
+  const worlds = captured === null ? null : captureArray(captured.worlds);
+  if (worlds === null || worlds.length > 100 ||
+      (Object.hasOwn(captured, "next_page_token") && captured.next_page_token !== null &&
+        (typeof captured.next_page_token !== "string" || captured.next_page_token.length > 8192))) {
+    return failure("MARBLE_PROVIDER_RESPONSE_INVALID");
+  }
+  const listed = [];
+  for (const world of worlds) {
+    const parsed = listedWorld(state, world);
+    if (parsed === null) return failure("MARBLE_PROVIDER_RESPONSE_INVALID");
+    listed.push(parsed);
+  }
+  return deepFreeze({
+    ok: true,
+    worlds: listed,
+    counts: { listRequests: 1, creates: 0, polls: 0, worldGets: 0, downloads: 0 },
+  });
 }
