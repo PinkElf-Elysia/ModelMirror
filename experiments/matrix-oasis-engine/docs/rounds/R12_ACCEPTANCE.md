@@ -1,6 +1,6 @@
 # R12验收记录
 
-状态：R12实施中；初版声明门关闭
+状态：R12实施中（真实技术链验收通过；初版声明门仍关闭）
 
 固定基线：`6a88c648f3db2afc39574a57066a14c341c161f9`
 
@@ -10,9 +10,9 @@
 - [x] R12.2 通用候选验收与修复（`21a45323`）
 - [x] R12.3 六资产组装与宿主扩容（`4e8fee93`）
 - [x] R12.4 Marble SPZ自动空间化（`52c56075`）
-- [x] R12.5 离线端到端与泛化复验（已验证，等待本地提交；SHA在R12.6记录）
-- [ ] R12.6 末班地铁真实资格链
-- [ ] R12.7 验收与初版收口
+- [x] R12.5 离线端到端与泛化复验（`06d791ed`）
+- [x] R12.6 末班地铁真实资格链（`01bc723c`）
+- [x] R12.7 验收与边界收口（本批提交，SHA只在仓外交付清单记录）
 
 ## R12.1证据
 
@@ -65,8 +65,23 @@
 - 最终树完整`npm.cmd run verify`为21/21步骤：doctor、R12 scope/boundary/MVP claim、Godot 4.6.3的R4-R11 source/import/runtime/parity/3D/Scene/splat、全部Pack/Generator/Asset/Spatial门、R12定向门、707项Node、Creator 248 modules build及HTTP smoke全部通过；round scope为checked=70/changed=64，MVP状态继续诚实保持`pending-r12-qualification / claimAllowed=false`。
 - 本批未调用真实模型、Marble或Meshy，未读取供应商凭据，未创建远程任务或下载新资产，也未启动父服务、Docker或共享栈。回退为单独revert R12.5提交；已发布R10/R11缓存及R1-R11冻结行为不受影响。
 
+## R12.6证据
+
+- 末班地铁资格从Creator R12入口执行，使用与正式用户路径相同的候选验收、Provider审批、环境/资产物化、事务缓存、Scene/Spatial组装和Godot启动；资格脚本只复验Creator已发布结果，不具备隐藏的Provider、凭据、生成或发布能力。
+- 实际链路复用已验证Marble环境和Meshy资产，并在入口缓存、环境checkpoint、资产checkpoint和空间overlay上增加逐字节身份复验。缓存命中时不重复调用Marble或Meshy，也不将任务ID、URL、凭据或原始响应发布到run。
+- 组装经过多轮案例触发的修正后，已将坐标系、玩家落地、可行走区域、四面防逸边界、终端/实体落地和入口选择收敛为题材无关的算法与诊断；源码扫描和中性回归不允许地铁专属ID、文案或坐标分支。
+- 用户人工确认最终预览可正常运行并到达至少一个ending，因此本批证明了“自然语言候选→真实环境/资产→组装→Godot Runtime→ending”的技术可达性。
+- 本批不解除MVP声明门：同一人工验收确认出生点、资产与Action终端空间布局仍明显奇怪，可玩性和整体体验差；未完成三结局、循环、重置、窄屏和300帧的全部人工硬门。`docs/MVP_STATUS.json`继续保持`pending-r12-qualification / claimAllowed=false`，不记录`MATRIX_OASIS_R12_MVP_READY`。
+- 提交前定向`npm.cmd run verify:r12`为32/32；沙箱内首次运行仅因无法在`C:\tmp`创建4个测试夹具而失败，授权后使用同一命令复跑32/32通过；`check:round-scope`为checked=116/changed=83，`git diff --check`通过。
+
+## R12.7证据
+
+- 人工裁决为：R12可以创建PR，但只能声明真实技术链和ending可达，不得声明初版正式收尾或已具备可接受的可玩体验。
+- 下一轮首先执行系统级设计审计，评估复用或采纳Godogen等开源框架的编排、场景生成、空间语义、自动验证与修复方法；未完成该审计前，不再以单案例坐标调参冒充泛化修复，不新增增量功能。
+- R12.7文档提交后会在最终HEAD上重跑全量`verify:r12`、`verify`、`verify:extraction`、round/parent scope及`git diff --check`；最终HEAD、split tree、source archive和真实资格artifact hash仅记录在仓外交付清单。
+
 ## 最终硬门
 
-只有模型与环境/资产两批真实调用分别获批，并完成三结局、循环、重置、300帧性能、正式人物/道具/碰撞、窄屏和中性泛化人工验收后，才能将状态改为`R12验收通过`、把机器状态改为`r12-qualified`并记录`MATRIX_OASIS_R12_MVP_READY`。
+R12 PR发布与MVP声明是两个独立门：本记录允许技术链以PR交付，但因人工体验硬门失败，本轮不得将机器状态改为`r12-qualified`或记录`MATRIX_OASIS_R12_MVP_READY`。后续只有在系统级重构后，重新完成三结局、循环、重置、300帧性能、正式人物/道具/碰撞、窄屏、空间布局和中性泛化人工验收后，才能另行解锁MVP声明。
 
 最终HEAD、split tree、source archive和真实资格artifact hash只记录在仓外交付清单，避免仓内自引用。

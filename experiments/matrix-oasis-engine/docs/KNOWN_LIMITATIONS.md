@@ -12,3 +12,5 @@
 - 冻结Validator在浏览器中依赖Ajv运行时代码生成；因此仅loopback Creator宿主的CSP允许同源脚本使用`unsafe-eval`。外部脚本、外部连接、frame、object和CORS仍禁止。
 - Git回退不会删除仓外run、供应商任务、下载物或远程Marble world。
 - R11不是初版闭环证明。新增R12必须用最初的末班地铁案例，从自然语言输入实际贯通正式人物、环境/道具资产、全部Pack/Spatial组装和Godot游戏运行时，并以另一非题材专用样例证明可泛化；完成前不得宣称自然语言到3D初版闭环。
+- R12真实链路已能从Creator启动Godot并到达ending，但用户人工验收确认出生点、资产与Action终端的空间布局仍奇怪，可玩性和整体体验未达到初版门槛。因此R12只证明技术可达性，`docs/MVP_STATUS.json`继续保持`claimAllowed=false`。
+- 后续轮次必须先审计当前Creator组装、空间推断和自动验证的系统性偏差，并评估采纳或复用Godogen等开源框架的方法。在形成可泛化的架构改造前，不应继续用末班地铁的案例坐标或局部参数调节代替系统修复。
