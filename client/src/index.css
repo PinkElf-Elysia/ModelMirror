@@ -92,11 +92,11 @@ textarea {
 
 @layer utilities {
   .surface-panel {
-    @apply border border-white/10 bg-surface-900/80 shadow-panel backdrop-blur-xl;
+    @apply border border-white/10 bg-[#0f1728] shadow-md;
   }
 
   .surface-card {
-    @apply border border-white/10 bg-surface-850/90 shadow-prism backdrop-blur-xl;
+    @apply border border-white/10 bg-[#121a2c] shadow-md;
   }
 
   .interactive-lift {
@@ -104,12 +104,7 @@ textarea {
   }
 
   .museum-grid {
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px),
-      linear-gradient(135deg, rgba(36, 217, 255, 0.08), transparent 38%),
-      linear-gradient(225deg, rgba(124, 58, 237, 0.08), transparent 42%);
-    background-size: 42px 42px, 42px 42px, 100% 100%, 100% 100%;
+    background-color: #0b1120;
   }
 
   .prism-line {

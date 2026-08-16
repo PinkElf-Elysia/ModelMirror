@@ -56,6 +56,9 @@ export type HttpRequestMethod = "GET" | "POST";
 
 export type ListOperationOperator = "length" | "join" | "first" | "last";
 
+/** 画布节点运行态视觉状态（不持久化，运行时由 WorkflowRun 写回）。 */
+export type NodeRunStatus = "running" | "done" | "error";
+
 export interface WorkflowNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
   title: string;
@@ -175,6 +178,8 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   runtimeMiddlewareMetadata?: Record<string, unknown>;
   runtimeMiddlewareConfig?: Record<string, unknown>;
   middlewarePriority?: string;
+  /** 运行时状态（画布高亮），不参与持久化与运行序列化。 */
+  runStatus?: NodeRunStatus;
 }
 
 export type WorkflowNode = Node<WorkflowNodeData, "workflowNode">;
