@@ -132,12 +132,12 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R12 policy", () => {
+test("machine boundary and code expose the same ordered R13 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
-  assert.equal(policy.schemaVersion, 12);
+  assert.equal(policy.schemaVersion, 13);
   assert.equal(policy.activeRound, ACTIVE_ROUND);
   assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
@@ -156,25 +156,25 @@ test("machine boundary and code expose the same ordered R12 policy", () => {
     path.join(committedModuleRoot, "scripts", "check-round-scope.mjs"),
     "utf8",
   );
-  assert.match(cli, /policy\.schemaVersion !== 12/);
-  assert.doesNotMatch(cli, /policy\.schemaVersion !== 11/);
+  assert.match(cli, /policy\.schemaVersion !== 13/);
+  assert.doesNotMatch(cli, /policy\.schemaVersion !== 12/);
 });
 
-test("accepts exact R12 files and compatibility package prefixes in every Git status source", (t) => {
+test("accepts exact R13 files and new package prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-generator/src/acceptance-profile.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-spatial-planning-contracts/src/index.mjs`, "export {};\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-assembler/src/profile-v2.mjs`, "export {};\n");
-  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-assembler/src/profile-v2.mjs`]);
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-environment-analyzer/src/index.mjs`, "export {};\n");
+  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-environment-analyzer/src/index.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
-  write(fixture, `${MODULE_PREFIX}/scripts/lib/prototype-cache-core.mjs`);
-  write(fixture, `${MODULE_PREFIX}/scripts/preview-prototype.mjs`);
-  write(fixture, `${MODULE_PREFIX}/tests/prototype-assembly.test.mjs`);
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R12_ACCEPTANCE.md`);
-  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/spatial_prototype/spatial_lab.gd`, "extends Node3D\n");
+  write(fixture, `${MODULE_PREFIX}/scripts/lib/spatial-analysis-core.mjs`);
+  write(fixture, `${MODULE_PREFIX}/scripts/analyze-spatial-environment.mjs`);
+  write(fixture, `${MODULE_PREFIX}/tests/spatial-analysis.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R13_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/spatial_analysis/analyzer.gd`, "extends Node\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
@@ -238,6 +238,7 @@ for (const acceptance of [
   "R9_ACCEPTANCE.md",
   "R10_ACCEPTANCE.md",
   "R11_ACCEPTANCE.md",
+  "R12_ACCEPTANCE.md",
 ]) {
   test(`rejects byte changes to historical ${acceptance}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
@@ -316,7 +317,7 @@ for (const frozenPath of [
   "third-party/godot-gaussian-splatting.lock.json",
   "examples/scene-bundles/kenney-prototype/assets/crate.glb",
 ]) {
-  test(`rejects byte changes to frozen R1-R11 implementation ${frozenPath}`, (t) => {
+  test(`rejects byte changes to frozen R1-R12 implementation ${frozenPath}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
     write(fixture, `${MODULE_PREFIX}/${frozenPath}`, "changed\n");
 
@@ -394,30 +395,26 @@ test("rejects a caller-selected base", (t) => {
   );
 });
 
-test("round path classifier exposes stable R12 guard categories", () => {
+test("round path classifier exposes stable R13 guard categories", () => {
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-generator/src/acceptance-profile.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-planning-contracts/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-assembler/src/profile-v2.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-environment-analyzer/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-environment-pipeline/src/spatial-source.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/spatial_analysis/analyzer.gd`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-environment/src/index.mjs`),
-    null,
-  );
-  assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-assembler/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/third-party/spatial-layout-references/reference.lock.json`),
     null,
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/spatial_prototype/spatial_lab.gd`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/addons/gdgs/plugin.cfg`),
@@ -425,7 +422,7 @@ test("round path classifier exposes stable R12 guard categories", () => {
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-generator/src/index.mjs`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/playable/first_person_controller.gd`),
@@ -437,7 +434,7 @@ test("round path classifier exposes stable R12 guard categories", () => {
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-environment-pipeline/src/index.mjs`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/project.godot`),
@@ -453,7 +450,7 @@ test("round path classifier exposes stable R12 guard categories", () => {
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/creator-web/src/App.tsx`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/creator-web/src/pack-loader.ts`),

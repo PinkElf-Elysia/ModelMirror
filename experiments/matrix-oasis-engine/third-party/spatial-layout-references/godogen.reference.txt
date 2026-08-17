@@ -1,0 +1,13 @@
+Source: https://github.com/htdt/godogen
+Commit: 05cebffc8b10c5817e8a3db495b82e7b6004ab84
+Upstream files: engines/godot.md; prompts/runtime.md
+License: MIT
+
+R13 adaptation notes (not source code):
+
+1. Treat editor import, scene construction, project execution and observable capture as distinct gates. A serialized scene alone is not runtime proof.
+2. Derive collision from measured geometry bounds rather than visual intuition or case coordinates.
+3. Capture deterministic evidence with a fixed frame rate and pre-positioned camera, then verify that the recording contains progressing behavior rather than a static frame.
+4. Keep durable status and explicit checkpoints so a failed environment-analysis phase cannot be reported as a completed playable prototype.
+
+Applied in R13 as separate import/analyze/canonicalize/capture gates. No Godogen scaffold, agent loop, prompt runtime or code is copied.

@@ -102,6 +102,31 @@ test("only the approved runtime and Scene artifact loaders may open validated dy
   assert.equal(codes(auditGodotBoundary({ root })).includes("GODOT_FIRST_PARTY_FILESYSTEM_WRITE"), true);
 });
 
+test("only the isolated analyzer may read and write its Node-owned temporary paths", (context) => {
+  const root = fixture("extends Node\n");
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const analyzerRoot = path.join(root, "spatial_analysis");
+  fs.mkdirSync(analyzerRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(analyzerRoot, "environment_analyzer.gd"),
+    [
+      "extends Node",
+      "func transfer(path, paths):",
+      "\tvar input = FileAccess.open(path, FileAccess.READ)",
+      "\treturn FileAccess.open(paths[\"output\"], FileAccess.WRITE)",
+    ].join("\n"),
+    "utf8",
+  );
+  assert.equal(auditGodotBoundary({ root }).ok, true);
+
+  fs.writeFileSync(
+    path.join(analyzerRoot, "environment_analyzer.gd"),
+    "extends Node\nfunc write(path):\n\treturn FileAccess.open(path, FileAccess.WRITE)\n",
+    "utf8",
+  );
+  assert.equal(codes(auditGodotBoundary({ root })).includes("GODOT_FIRST_PARTY_FILESYSTEM_WRITE"), true);
+});
+
 const cases = [
   ["network", ["HTTP", "Request.new()"].join(""), "GODOT_FIRST_PARTY_NETWORK"],
   ["socket", ["StreamPeer", "TCP.new()"].join(""), "GODOT_FIRST_PARTY_NETWORK"],

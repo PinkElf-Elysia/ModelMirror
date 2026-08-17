@@ -1,0 +1,13 @@
+Source: https://github.com/FreedomIntelligence/gamecraft-bench
+Commit: a43347534374df9a0c1a6c001aa9380862783f6d
+Upstream file: gamecraft_bench/verifier/replay.py
+License: Apache-2.0
+
+R13 adaptation notes (not source code):
+
+1. Launch the actual Godot project, wait for the target window, then replay bounded input events against a real-time frame clock.
+2. Bound both declared trace duration and wall-clock execution; malformed evidence must not stall verification.
+3. Finalize capture, require a non-empty artifact and retain process logs as separate evidence.
+4. Tear down every child process in a finally path, including partial failures.
+
+R13 applies this only to the optional warehouse debug capture and analyzer-process lifecycle. It does not copy the Xvfb/xdotool/ffmpeg runner or add those tools as dependencies.

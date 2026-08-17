@@ -1,34 +1,29 @@
 {
-  "schemaVersion": 12,
+  "schemaVersion": 13,
   "moduleId": "matrix-oasis-engine",
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
-  "activeRound": "R12",
-  "activeRoundBaselineSha": "6a88c648f3db2afc39574a57066a14c341c161f9",
+  "activeRound": "R13",
+  "activeRoundBaselineSha": "77ec8c4eace9f8dbd1dd119cd70727570bd99e9a",
   "activeRoundChangePolicy": {
     "allowedModuleFiles": [
       "AGENTS.md", "README.md", ".gitattributes", ".gitignore", "module-boundary.json", "package-lock.json", "package.json",
       "docs/ARCHITECTURE.md", "docs/BOUNDARIES.md", "docs/DEPENDENCIES_AND_LICENSES.md", "docs/KNOWN_LIMITATIONS.md",
-      "docs/PRODUCT.md", "docs/V1_CRITICAL_PATH.md", "docs/MVP_STATUS.json", "docs/R12_MVP_THREAT_MODEL.md", "docs/R12_PROVIDER_CALL_APPROVAL.md",
-      "docs/R12_LAST_TRAIN_PROMPT.txt", "docs/R12_LAST_TRAIN_PROFILE.json",
-      "docs/adr/0013-r12-last-train-mvp-governance.md", "docs/rounds/R12_ACCEPTANCE.md",
-      "apps/creator-web/package.json", "apps/creator-web/src/App.tsx", "apps/creator-web/src/styles.css", "apps/creator-web/src/prototype-builder.ts",
-      "apps/runtime-godot/spatial_prototype/spatial_assembly_loader.gd", "apps/runtime-godot/spatial_prototype/spatial_lab.gd", "apps/runtime-godot/spatial_prototype/spatial_lab.tscn", "apps/runtime-godot/spatial_prototype/spatial_scene_lab.gd", "apps/runtime-godot/spatial_prototype/spatial_scene_lab.tscn", "apps/runtime-godot/test/r12/test_spatial_navigation.gd",
-      "scripts/check-round-scope.mjs", "scripts/check-mvp-claim.mjs", "scripts/check-godot-boundary.mjs", "scripts/import-spatial-prototype-cache.mjs", "scripts/preview-spatial-prototype.mjs",
-      "scripts/verify-spatial-builder.mjs", "scripts/plan-r12-call.mjs", "scripts/qualify-r12.mjs", "scripts/preview-r12.mjs", "scripts/verify-r12.mjs",
-      "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/prototype-cache-core.mjs", "scripts/lib/prototype-host-core.mjs",
-      "scripts/lib/r12-host-core.mjs", "scripts/lib/r12-qualification-core.mjs", "scripts/lib/spatial-cache-core.mjs", "scripts/lib/scope-policy.mjs",
-      "scripts/run-verify.mjs", "scripts/preview-prototype.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/mvp-claim.test.mjs", "tests/prototype-assembly.test.mjs", "tests/prototype-builder.test.mjs", "tests/prototype-environment.test.mjs", "tests/prototype-generation-cli.test.mjs", "tests/prototype-host.test.mjs", "tests/spatial-assembly.test.mjs", "tests/spatial-builder.test.mjs",
-      "tests/r12-acceptance-profile.test.mjs", "tests/r12-multi-asset.test.mjs", "tests/r12-spatial-materialization.test.mjs", "tests/r12-generalization.test.mjs",
-      "tests/r12-host.test.mjs", "tests/r12-qualification.test.mjs", "tests/round-scope.test.mjs"
+      "docs/PRODUCT.md", "docs/V1_CRITICAL_PATH.md", "docs/MVP_STATUS.json", "docs/R13_SPATIAL_FACTS_THREAT_MODEL.md", "docs/R13_TASK_CARD.md",
+      "docs/adr/0014-r13-spatial-facts-governance.md", "docs/rounds/R13_ACCEPTANCE.md",
+      "scripts/check-round-scope.mjs", "scripts/check-mvp-claim.mjs", "scripts/check-godot-boundary.mjs",
+      "scripts/analyze-spatial-environment.mjs", "scripts/qualify-r13-spatial-facts.mjs", "scripts/capture-spatial-facts.mjs",
+      "scripts/verify-spatial-references.mjs", "scripts/verify-spatial-analysis.mjs", "scripts/verify-r13.mjs",
+      "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/parent-scope-core.mjs",
+      "scripts/lib/spatial-analysis-core.mjs", "scripts/lib/spatial-reference-core.mjs", "scripts/lib/scope-policy.mjs",
+      "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
+      "tests/mvp-claim.test.mjs", "tests/spatial-analysis.test.mjs", "tests/spatial-reference.test.mjs", "tests/r13-qualification.test.mjs", "tests/round-scope.test.mjs"
     ],
     "allowedModulePrefixes": [
-      "packages/prototype-generator",
-      "packages/prototype-assembler",
-      "packages/prototype-environment-pipeline",
-      "packages/prototype-spatial-environment",
-      "packages/prototype-spatial-assembler"
+      "packages/prototype-spatial-planning-contracts",
+      "packages/prototype-environment-analyzer",
+      "apps/runtime-godot/spatial_analysis",
+      "third-party/spatial-layout-references"
     ],
     "frozenModulePaths": [
       "apps", "docs", "examples", "packages", "scripts", "tests", "third-party"
@@ -43,13 +38,14 @@
     "verificationScripts": "loopback-only",
     "providerCalls": "openai-compatible-meshy-and-marble-adapters-only",
     "splatQualification": "source-checkout-and-loopback-disposable-only",
-    "r12QualificationCalls": "human-approved-only"
+    "r12QualificationCalls": "human-approved-only",
+    "r13AnalysisCalls": "none"
   },
   "mvpClaimPolicy": {
-    "status": "pending-r12-qualification",
+    "status": "pending-spatial-solver",
     "claimAllowed": false,
-    "blockingRound": "R12",
-    "acceptanceRecord": "docs/rounds/R12_ACCEPTANCE.md",
+    "blockingRound": "R14",
+    "acceptanceRecord": "docs/rounds/R13_ACCEPTANCE.md",
     "machineStatus": "docs/MVP_STATUS.json",
     "completionMarker": "MATRIX_OASIS_R12_MVP_READY"
   },
@@ -187,6 +183,33 @@
     "caseSpecificSourceBranchesAllowed": false,
     "trackedQualificationArtifactsAllowed": false
   },
+  "r13SpatialFactsPolicy": {
+    "spatialIntentFormat": "matrix-oasis.prototype-spatial-intent",
+    "environmentFactsFormat": "matrix-oasis.prototype-environment-facts",
+    "formatVersion": "0.1.0",
+    "canonicalization": "matrix-oasis.canonical-json/1",
+    "coordinateSystem": "godot-right-handed-y-up",
+    "unit": "millimeter",
+    "eulerOrder": "YXZ",
+    "playerRadiusMm": 350,
+    "playerHeightMm": 1800,
+    "floorSnapMm": 200,
+    "maxSlopeMilliDegrees": 45000,
+    "factsMaxBytes": 16777216,
+    "referenceMetadataRepositories": [
+      "htdt/godogen",
+      "allenai/Holodeck",
+      "allenai/procthor",
+      "FreedomIntelligence/gamecraft-bench"
+    ],
+    "networkAllowed": false,
+    "providerCallsAllowed": false,
+    "solverAllowed": false,
+    "creatorIntegrationAllowed": false,
+    "productPreviewIntegrationAllowed": false,
+    "caseSpecificCoordinatesAllowed": false,
+    "trackedAnalysisArtifactsAllowed": false
+  },
   "runtimeArtifactInputPolicy": {
     "mode": "paired-local-files-only",
     "runtimeMaxBytes": 16777216,
@@ -251,8 +274,9 @@
     "referenceManifest": "third-party/godot-demo-projects/reference.lock.json",
     "sceneAssetManifest": "third-party/kenney-prototype-kit/asset.lock.json",
     "splatAddonManifest": "third-party/godot-gaussian-splatting.lock.json",
+    "spatialReferenceManifest": "third-party/spatial-layout-references/reference.lock.json",
     "allowedVendoredRoots": ["apps/runtime-godot/addons/gdUnit4", "apps/runtime-godot/addons/gdgs", "examples/scene-bundles/kenney-prototype/assets"],
-    "allowedReferenceRoots": ["third-party/godot-demo-projects", "third-party/kenney-prototype-kit", "third-party/godot-gaussian-splatting"],
+    "allowedReferenceRoots": ["third-party/godot-demo-projects", "third-party/kenney-prototype-kit", "third-party/godot-gaussian-splatting", "third-party/spatial-layout-references"],
     "modificationsRequireHumanApproval": true
   },
   "licensePolicy": {

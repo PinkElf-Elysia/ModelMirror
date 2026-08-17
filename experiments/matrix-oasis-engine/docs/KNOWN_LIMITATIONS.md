@@ -1,4 +1,4 @@
-# R12已知限制
+# R13已知限制
 
 - R10 panorama仅作历史来源证据；R11成功预览不渲染它。若Compute splat资格、米制对齐或30 FPS门失败，本轮停止，不回退到旧天空模式。
 - R11只支持固定SPZ→compressed PLY→gdgs Compute链，不支持HQ环境网格、SOG权威缓存、Raster回退、图片/视频输入、AI NPC、记忆、动态任务、存档、导出或父产品接入。
@@ -14,3 +14,6 @@
 - R11不是初版闭环证明。新增R12必须用最初的末班地铁案例，从自然语言输入实际贯通正式人物、环境/道具资产、全部Pack/Spatial组装和Godot游戏运行时，并以另一非题材专用样例证明可泛化；完成前不得宣称自然语言到3D初版闭环。
 - R12真实链路已能从Creator启动Godot并到达ending，但用户人工验收确认出生点、资产与Action终端的空间布局仍奇怪，可玩性和整体体验未达到初版门槛。因此R12只证明技术可达性，`docs/MVP_STATUS.json`继续保持`claimAllowed=false`。
 - 后续轮次必须先审计当前Creator组装、空间推断和自动验证的系统性偏差，并评估采纳或复用Godogen等开源框架的方法。在形成可泛化的架构改造前，不应继续用末班地铁的案例坐标或局部参数调节代替系统修复。
+- R13只提取Spatial Intent与Environment Facts，不输出最终placement、player spawn或Action terminal坐标，不切换Creator或产品预览，因此本轮不会直接改善R12成品体验。
+- NavigationMesh和anchor只在锁定的Godot 4.6.3 Windows工具链上要求20次canonical字节确定；不建立跨Godot版本或跨平台浮点golden。
+- wall anchor是由真实碰撞查询推导的可用表面候选，不等同于语义上的“墙面用途”。R14仍需结合Intent求解并执行最终物理复验。

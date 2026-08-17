@@ -1,0 +1,13 @@
+Source: https://github.com/allenai/Holodeck
+Commit: 362b8ed948b867b69a72f1f9491f4caa88419bfc
+Upstream file: ai2holodeck/generation/floor_objects.py
+License: Apache-2.0
+
+R13 adaptation notes (not source code):
+
+1. Separate semantic relationships from final transforms: object dimensions, room polygon, openings and relationship constraints form solver input.
+2. Preserve doors, windows and open-wall regions in the initial occupied state instead of treating the room bounding box as entirely usable.
+3. Use a bounded deterministic search and return explicit failure when constraints cannot be satisfied.
+4. Convert a successful solution into placements only after the constraint phase completes.
+
+R13 stops before the search phase: Spatial Intent records the relationships while Environment Facts records the measured feasible domain. No Holodeck DFS/MILP, language-model prompt, Python package or AI2-THOR dependency is copied.

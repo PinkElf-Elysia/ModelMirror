@@ -1,0 +1,22 @@
+{
+  "name": "@matrix-oasis/prototype-environment-analyzer",
+  "version": "0.1.0-r13",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.mjs"
+    }
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@matrix-oasis/prototype-spatial-assembler": "0.1.0-r11",
+    "@matrix-oasis/prototype-spatial-environment": "0.1.0-r11",
+    "@matrix-oasis/prototype-spatial-planning-contracts": "0.1.0-r13",
+    "@matrix-oasis/runtime-pack-contracts": "0.1.0-r3"
+  }
+}

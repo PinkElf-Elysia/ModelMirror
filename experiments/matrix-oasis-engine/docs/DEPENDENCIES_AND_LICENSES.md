@@ -132,6 +132,12 @@ R11.2新增私有`@matrix-oasis/prototype-spatial-environment@0.1.0-r11`，固�
 
 R11.3原样vendoring `ReconWorldLab/godot-gaussian-splatting`的`addons/gdgs/**`（MIT）作为Godot运行时依赖。上游`v3.3.0`的签注tag object为`70996511607a886dac9fdd5fc59a0445308eb3db`，peeled commit为`d9de8db86a63e8bf9067c869dcdbd0614922fd1e`；两种Git身份、73个文件、429,070 bytes、逐路径目录树hash和MIT许可证均由`third-party/godot-gaussian-splatting.lock.json`锁定。vendored源码未修改，正式预览只允许Forward+ Compute；Raster fallback不构成可接受结果。
 
+## R13 空间生成非执行参考
+
+R13.2固定四个只读、非执行的设计来源，不加入任何运行依赖：Godogen commit `05cebffc8b10c5817e8a3db495b82e7b6004ab84`（MIT）、Holodeck commit `362b8ed948b867b69a72f1f9491f4caa88419bfc`（Apache-2.0）、ProcTHOR commit `53d5bd4c8c96a699e6a615dc390abb670cc9d353`（Apache-2.0）和GameCraft-Bench commit `a43347534374df9a0c1a6c001aa9380862783f6d`（Apache-2.0）。
+
+仓库只保存原创适配笔记、MIT许可证副本、Apache-2.0许可证文本与机器锁；不复制求解器或replay源码，不引入Python、C#、Unity、AI2-THOR、Xvfb、xdotool或ffmpeg。`third-party/spatial-layout-references/reference.lock.json`固定上游commit、Git blob、完整源文件hash、许可证hash和本地笔记hash；`verify:spatial-references`拒绝未知文件、链接、可执行扩展与字节漂移。
+
 新增或升级依赖时必须：
 
 1. 记录精确版本、直接/间接用途和许可证；
