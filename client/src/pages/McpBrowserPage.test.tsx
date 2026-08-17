@@ -116,8 +116,8 @@ describe("McpBrowserPage first-screen shell", () => {
 
     expect(screen.getByRole("button", { name: "全部 · 300" })).toBeVisible();
     const primaryGroup = screen.getByRole("group", { name: "按工具类别筛选" });
-    expect(within(primaryGroup).getAllByRole("button")).toHaveLength(4);
-    expect(primaryGroup.parentElement).not.toHaveClass("overflow-x-auto");
+    expect(within(primaryGroup).getAllByRole("button")).toHaveLength(7);
+    expect(primaryGroup).toHaveClass("overflow-x-auto");
     expect(
       screen.queryByRole("group", { name: "更多 MCP 工具类别" }),
     ).not.toBeInTheDocument();
@@ -145,7 +145,7 @@ describe("McpBrowserPage first-screen shell", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("aggregates planned and adapting projects under the single 适配中 filter", async () => {
+  it("splits planned and adapting projects into separate filters", async () => {
     const adapters = [
       ...mcpProjects.map((project) => ({
         project_id: project.id,
@@ -159,14 +159,20 @@ describe("McpBrowserPage first-screen shell", () => {
     const statusGroup = screen.getByRole("group", {
       name: "按 MCP 适配状态筛选",
     });
-    const inProgress = await within(statusGroup).findByRole("button", {
-      name: /适配中 · 2/,
+    const adapting = await within(statusGroup).findByRole("button", {
+      name: /适配中 · 1/,
     });
-    fireEvent.click(inProgress);
+    fireEvent.click(adapting);
 
-    expect(inProgress).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(screen.getByText("匹配 2")).toBeVisible());
-    expect(screen.queryByText("已排期、待适配")).not.toBeInTheDocument();
-    expect(screen.queryByText("适配受阻")).not.toBeInTheDocument();
+    expect(adapting).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(screen.getByText("匹配 1")).toBeVisible());
+
+    const planned = within(statusGroup).getByRole("button", {
+      name: /已排期 · 1/,
+    });
+    fireEvent.click(planned);
+
+    expect(planned).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(screen.getByText("匹配 1")).toBeVisible());
   });
 });

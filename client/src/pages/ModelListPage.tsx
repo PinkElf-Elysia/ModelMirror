@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import FederationRouterCard from "../components/FederationRouterCard";
 import ModelCompareTray from "../components/ModelCompareTray";
 import ModelCompareView from "../components/ModelCompareView";
 import ModelCard, {
+  recordRecentModelView,
   type AudioCapabilityStatus,
 } from "../components/ModelCard";
 import ModelWorkbenchSidebar from "../components/ModelWorkbenchSidebar";
@@ -11,6 +12,8 @@ import PageContainer from "../components/PageContainer";
 import FilterPanel from "../components/filters/FilterPanel";
 import {
   defaultFilterState,
+  deserializeFilters,
+  serializeFilters,
   type ModelFilterState,
 } from "../data/filterState";
 import {
@@ -45,6 +48,13 @@ import { recruitmentTheme } from "../theme/recruitmentTheme";
 import {
   deriveProviderFromModel,
 } from "../utils/userFriendlyText";
+
+function formatCompactContext(contextLength: number) {
+  if (contextLength >= 1_000_000) {
+    return `${(contextLength / 1_000_000).toFixed(0)}M`;
+  }
+  return `${Math.round(contextLength / 1000)}K`;
+}
 
 function includesEvery<T>(values: T[], selected: T[]) {
   return selected.every((value) => values.includes(value));
@@ -262,6 +272,7 @@ interface ModelMarketHeroProps {
   searchTerm: string;
   usableCount: number | null;
   onSearchChange: (value: string) => void;
+  searchInputRef?: React.RefObject<HTMLInputElement | null>;
 }
 
 export function ModelMarketHero({
@@ -269,6 +280,7 @@ export function ModelMarketHero({
   searchTerm,
   usableCount,
   onSearchChange,
+  searchInputRef,
 }: ModelMarketHeroProps) {
   return (
     <header className="relative border-y border-white/10 py-4 sm:py-5">
@@ -315,6 +327,7 @@ export function ModelMarketHero({
             className="h-12 w-full rounded-lg border border-white/10 bg-ink-950/70 pl-20 pr-5 text-sm text-white outline-none shadow-dock backdrop-blur-xl transition duration-200 placeholder:text-slate-500 hover:border-white/20 focus:border-brand-300/70 focus:ring-4 focus:ring-brand-300/10"
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder={recruitmentTheme.listSearchPlaceholder}
+            ref={searchInputRef}
             type="search"
             value={searchTerm}
           />
@@ -327,8 +340,63 @@ export function ModelMarketHero({
 export default function ModelListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] =
-    useState<ModelFilterState>(createDefaultFilters);
-  const [searchTerm, setSearchTerm] = useState("");
+    useState<ModelFilterState>(() =>
+      deserializeFilters(searchParams, createDefaultFilters()),
+    );
+  const [searchTerm, setSearchTerm] = useState(
+    () => searchParams.get("q") ?? "",
+  );
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(
+    () => searchParams.get("q") ?? "",
+  );
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem("modelmirror-recent-searches");
+      const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+      return Array.isArray(parsed)
+        ? parsed.filter((item): item is string => typeof item === "string").slice(0, 5)
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  const [recentModels, setRecentModels] = useState<Model[]>(() => {
+    try {
+      const raw = window.localStorage.getItem("modelmirror-recent-models");
+      const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+      const ids = Array.isArray(parsed)
+        ? parsed.filter((item): item is string => typeof item === "string")
+        : [];
+      return ids
+        .map((id) => models.find((model) => model.id === id))
+        .filter((model): model is Model => Boolean(model))
+        .slice(0, 4);
+    } catch {
+      return [];
+    }
+  });
+  const [favorites, setFavorites] = useState<Set<string>>(() => {
+    try {
+      const raw = window.localStorage.getItem("modelmirror-model-favorites");
+      const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+      return Array.isArray(parsed)
+        ? new Set(parsed.filter((item): item is string => typeof item === "string"))
+        : new Set<string>();
+    } catch {
+      return new Set<string>();
+    }
+  });
+  const [viewMode, setViewMode] = useState<"card" | "list">(
+    searchParams.get("view") === "list" ? "list" : "card",
+  );
+  const [visibleCount, setVisibleCount] = useState(() => {
+    const raw = searchParams.get("count");
+    const parsed = raw ? Number.parseInt(raw, 10) : 12;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 12;
+  });
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const navigate = useNavigate();
+  const [keyboardIndex, setKeyboardIndex] = useState(-1);
   const [videoCatalog, setVideoCatalog] =
     useState<VideoCatalogPayload | null>(null);
   const [audioCatalog, setAudioCatalog] =
@@ -646,9 +714,9 @@ export default function ModelListPage() {
   }, [generalCatalog]);
 
   const filteredModels = useMemo(() => {
-    const normalizedSearch = searchTerm.trim().toLowerCase();
+    const normalizedSearch = debouncedSearchTerm.trim().toLowerCase();
 
-    return models.filter((model) => {
+    const matched = models.filter((model) => {
       const matchesSearch =
         normalizedSearch.length === 0 ||
         [
@@ -796,12 +864,66 @@ export default function ModelListPage() {
 
       return true;
     });
-  }, [filters, searchTerm]);
+    // 收藏的模型优先展示。
+    const withFavorites = matched.filter((model) => favorites.has(model.id));
+    const withoutFavorites = matched.filter(
+      (model) => !favorites.has(model.id),
+    );
+    return [...withFavorites, ...withoutFavorites];
+  }, [debouncedSearchTerm, filters, favorites]);
+
+  function toggleFavorite(modelId: string) {
+    setFavorites((current) => {
+      const next = new Set(current);
+      if (next.has(modelId)) {
+        next.delete(modelId);
+      } else {
+        next.add(modelId);
+      }
+      try {
+        window.localStorage.setItem(
+          "modelmirror-model-favorites",
+          JSON.stringify(Array.from(next)),
+        );
+      } catch {
+        // 存储不可用时静默降级为本次会话内有效。
+      }
+      return next;
+    });
+  }
 
   function clearFilters() {
     setFilters(createDefaultFilters());
     setSearchTerm("");
   }
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    const f = filters;
+    count += f.inputModalities.length;
+    count += f.series.length;
+    count += f.jobCapabilities.length;
+    count += f.openRouterCategories.length;
+    count += f.supportedParameters.length;
+    count += f.providers.length;
+    count += f.modelAuthors.length;
+    count += f.regions.length;
+    if (f.discounted !== defaultFilterState.discounted) count += 1;
+    if (f.distillable !== defaultFilterState.distillable) count += 1;
+    if (f.zeroDataRetention !== defaultFilterState.zeroDataRetention) count += 1;
+    if (f.showInactive !== defaultFilterState.showInactive) count += 1;
+    if (f.minContextLength !== defaultFilterState.minContextLength) count += 1;
+    if (f.minToolSuccessRate !== defaultFilterState.minToolSuccessRate) count += 1;
+    const rangeActive = (
+      selected: { min: number; max: number },
+      baseline: { min: number; max: number },
+    ) => selected.min !== baseline.min || selected.max !== baseline.max;
+    if (rangeActive(f.promptPriceUsdRange, defaultFilterState.promptPriceUsdRange)) count += 1;
+    if (rangeActive(f.outputPriceUsdRange, defaultFilterState.outputPriceUsdRange)) count += 1;
+    if (rangeActive(f.modelAgeDaysRange, defaultFilterState.modelAgeDaysRange)) count += 1;
+    if (searchTerm.trim() !== "") count += 1;
+    return count;
+  }, [filters, searchTerm]);
 
   const onsiteModels = models.filter(
     (model) => model.catalog_counted,
@@ -839,6 +961,135 @@ export default function ModelListPage() {
   const galleryModels = showFeaturedRecommendations
     ? filteredModels.slice(featuredModels.length)
     : filteredModels;
+  const visibleGalleryModels = galleryModels.slice(0, visibleCount);
+  const hasMoreGalleryModels = visibleGalleryModels.length < galleryModels.length;
+
+  function switchView(next: "card" | "list") {
+    setViewMode(next);
+    setKeyboardIndex(-1);
+    const nextParams = new URLSearchParams(searchParams);
+    if (next === "list") {
+      nextParams.set("view", "list");
+    } else {
+      nextParams.delete("view");
+    }
+    setSearchParams(nextParams, { replace: true });
+  }
+
+  // 把搜索词、筛选条件与分页进度同步进 URL，返回列表时状态保留。
+  useEffect(() => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (searchTerm.trim()) {
+      nextParams.set("q", searchTerm.trim());
+    } else {
+      nextParams.delete("q");
+    }
+    if (visibleCount > 12) {
+      nextParams.set("count", String(visibleCount));
+    } else {
+      nextParams.delete("count");
+    }
+    // 合并筛选条件参数；先清掉旧的筛选键，再写入当前非默认值。
+    const filterKeys = [
+      "mod", "series", "jobs", "cat", "params", "providers", "authors",
+      "regions", "discounted", "retention", "inactive", "distillable",
+      "minctx", "toolsr", "pricein", "priceout", "age",
+    ];
+    for (const key of filterKeys) nextParams.delete(key);
+    for (const [key, value] of Object.entries(serializeFilters(filters))) {
+      nextParams.set(key, value);
+    }
+    setSearchParams(nextParams, { replace: true });
+  }, [searchTerm, visibleCount, filters]);
+
+  // 搜索防抖：输入框即时显示，过滤用防抖后的词，减少逐字符全量重算。
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+      setKeyboardIndex(-1);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
+
+  // 记录最近搜索词（防抖，仅当搜索词稳定且非空时）。
+  useEffect(() => {
+    const trimmed = searchTerm.trim();
+    if (!trimmed) return;
+    const timer = window.setTimeout(() => {
+      setRecentSearches((current) => {
+        const next = [trimmed, ...current.filter((item) => item !== trimmed)].slice(0, 5);
+        try {
+          window.localStorage.setItem(
+            "modelmirror-recent-searches",
+            JSON.stringify(next),
+          );
+        } catch {
+          // 存储不可用时静默降级。
+        }
+        return next;
+      });
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
+
+  // 列表页快捷键：Cmd+K/"/" 聚焦搜索、↑↓/j k 结果间移动、Enter 进聊天、Esc 清空搜索。
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isEditable =
+        target?.isContentEditable ||
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT";
+      const mod = event.metaKey || event.ctrlKey;
+
+      // Cmd+K / Cmd+L / "/" 聚焦搜索框。
+      if ((mod && ["k", "l"].includes(event.key.toLowerCase())) || event.key === "/") {
+        if (!isEditable) {
+          event.preventDefault();
+          searchInputRef.current?.focus();
+        }
+        return;
+      }
+
+      // 结果导航（↑↓/j k）+ Enter/Esc —— 仅当焦点不在输入框时。
+      if (isEditable) return;
+      const list = visibleGalleryModels;
+      if (list.length === 0) return;
+
+      if (event.key === "ArrowDown" || event.key.toLowerCase() === "j") {
+        event.preventDefault();
+        setKeyboardIndex((current) =>
+          Math.min(current + 1, list.length - 1),
+        );
+        return;
+      }
+      if (event.key === "ArrowUp" || event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setKeyboardIndex((current) => Math.max(current - 1, 0));
+        return;
+      }
+      if (event.key === "Enter" && keyboardIndex >= 0) {
+        event.preventDefault();
+        const model = list[keyboardIndex];
+        if (model) {
+          recordRecentModelView(model.id);
+          navigate(`/chat/${encodeURIComponent(model.id)}`);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        if (searchTerm) {
+          event.preventDefault();
+          setSearchTerm("");
+          setKeyboardIndex(-1);
+        }
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [keyboardIndex, searchTerm, visibleGalleryModels]);
+
   const compareState = useMemo(
     () => parseModelCompareState(searchParams),
     [searchParams],
@@ -874,9 +1125,29 @@ export default function ModelListPage() {
         <ModelMarketHero
           onsiteCount={onsiteModels.length}
           onSearchChange={setSearchTerm}
+          searchInputRef={searchInputRef}
           searchTerm={searchTerm}
           usableCount={usableCountKnown ? usableFilteredCount : null}
         />
+
+        {recentSearches.length > 0 && !searchTerm ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-slate-500">最近搜索：</span>
+            {recentSearches.map((keyword) => (
+              <button
+                className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs text-slate-300 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100"
+                key={keyword}
+                onClick={() => {
+                  setSearchTerm(keyword);
+                  searchInputRef.current?.focus();
+                }}
+                type="button"
+              >
+                {keyword}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <section className="mt-4">
           <FilterPanel
@@ -887,6 +1158,45 @@ export default function ModelListPage() {
             seriesOptions={openRouterSeriesOptions}
           />
         </section>
+
+        <nav
+          aria-label="当前位置"
+          className="mt-4 flex items-center gap-1.5 text-xs text-slate-400"
+        >
+          <span>模型市场</span>
+          <span aria-hidden="true">›</span>
+          <span className="text-slate-200">
+            {searchTerm.trim() ? `搜索结果 "${searchTerm.trim()}"` : "全部模型"}
+          </span>
+          {searchTerm !== debouncedSearchTerm ? (
+            <span className="inline-flex items-center gap-1 text-cyan-100">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />
+              过滤中...
+            </span>
+          ) : (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="font-semibold text-cyan-100">
+                {filteredModels.length} 个
+              </span>
+            </>
+          )}
+        </nav>
+
+        {activeFilterCount > 0 ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
+            <span className="text-xs font-semibold text-slate-300">
+              已应用 {activeFilterCount} 个条件
+            </span>
+            <button
+              className="rounded-full border border-hire-300/35 bg-hire-300/10 px-2.5 py-0.5 text-xs font-semibold text-hire-100 transition hover:bg-hire-300/20"
+              onClick={clearFilters}
+              type="button"
+            >
+              × 清空全部
+            </button>
+          </div>
+        ) : null}
 
         <section className="mt-5">
           {compareState.active ? (
@@ -939,7 +1249,9 @@ export default function ModelListPage() {
                       model={model}
                       compareDisabled={compareState.ids.length >= 4}
                       compareSelected={compareState.ids.includes(model.id)}
+                      favorite={favorites.has(model.id)}
                       onCompareChange={toggleCompare}
+                      onToggleFavorite={() => toggleFavorite(model.id)}
                       imageCatalogStale={imageCatalog?.stale ?? false}
                       videoCatalogStale={videoCatalog?.stale ?? false}
                     />
@@ -949,9 +1261,184 @@ export default function ModelListPage() {
             </div>
           ) : null}
 
+          {recentModels.length > 0 && !searchTerm && activeFilterCount === 0 ? (
+            <div className="mb-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-200">最近浏览</h3>
+                <button
+                  className="text-xs text-slate-500 transition hover:text-hire-100"
+                  onClick={() => {
+                    window.localStorage.removeItem("modelmirror-recent-models");
+                    setRecentModels([]);
+                  }}
+                  type="button"
+                >
+                  清空
+                </button>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {recentModels.map((model) => {
+                  const provider = deriveProviderFromModel(model);
+                  return (
+                    <Link
+                      className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100"
+                      key={model.id}
+                      onClick={() => recordRecentModelView(model.id)}
+                      to={`/chat/${encodeURIComponent(model.id)}`}
+                    >
+                      <span className="text-slate-500">{provider}</span>
+                      <span className="max-w-40 truncate font-medium text-white">
+                        {model.name}
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           {filteredModels.length > 0 ? (
+            <>
+            <div className="mb-4 flex items-center justify-end gap-2">
+              <div className="flex rounded-md border border-white/10 bg-white/[0.03] p-0.5" role="group" aria-label="切换视图">
+                <button
+                  aria-pressed={viewMode === "card"}
+                  className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
+                    viewMode === "card"
+                      ? "bg-hire-300 text-ink-950"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                  onClick={() => switchView("card")}
+                  type="button"
+                >
+                  卡片
+                </button>
+                <button
+                  aria-pressed={viewMode === "list"}
+                  className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
+                    viewMode === "list"
+                      ? "bg-hire-300 text-ink-950"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                  onClick={() => switchView("list")}
+                  type="button"
+                >
+                  列表
+                </button>
+              </div>
+            </div>
+
+            {viewMode === "list" ? (
+              <div className="surface-panel overflow-hidden rounded-lg">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-white/10 bg-white/[0.03] text-xs text-slate-400">
+                    <tr>
+                      <th className="px-4 py-2.5 font-semibold">模型</th>
+                      <th className="px-4 py-2.5 font-semibold">提供商</th>
+                      <th className="hidden px-4 py-2.5 font-semibold sm:table-cell">输入薪资</th>
+                      <th className="hidden px-4 py-2.5 font-semibold sm:table-cell">输出薪资</th>
+                      <th className="hidden px-4 py-2.5 font-semibold md:table-cell">上下文</th>
+                      <th className="px-4 py-2.5 font-semibold">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.06]">
+                    {visibleGalleryModels.map((model, index) => {
+                      const provider = deriveProviderFromModel(model);
+                      const canChat =
+                        (model.active || invocableModelIds.has(model.id)) &&
+                        model.interaction_status === "ready" &&
+                        model.ui_entrypoint === "chat";
+                      return (
+                        <tr
+                          className={`transition hover:bg-white/[0.03] ${
+                            index === keyboardIndex
+                              ? "bg-hire-300/[0.08] outline outline-1 outline-hire-300/40"
+                              : ""
+                          }`}
+                          key={model.id}
+                        >
+                          <td className="px-4 py-3">
+                            <div className="min-w-0">
+                              <Link
+                                className={`block truncate font-semibold text-white hover:text-hire-100 ${
+                                  canChat ? "" : "pointer-events-none cursor-default text-slate-400"
+                                }`}
+                                to={canChat ? `/chat/${encodeURIComponent(model.id)}` : "#"}
+                              >
+                                {model.name}
+                              </Link>
+                              <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">{model.id}</p>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-300">{provider}</td>
+                          <td className="hidden px-4 py-3 text-xs text-slate-300 sm:table-cell">
+                            {model.pricing_status === "free"
+                              ? "免费"
+                              : `¥${model.price_cny.input.toFixed(2)}`}
+                          </td>
+                          <td className="hidden px-4 py-3 text-xs text-slate-300 sm:table-cell">
+                            {model.pricing_status === "free"
+                              ? "免费"
+                              : `¥${model.price_cny.output.toFixed(2)}`}
+                          </td>
+                          <td className="hidden px-4 py-3 text-xs text-slate-300 md:table-cell">
+                            {formatCompactContext(model.context_length)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <button
+                                aria-label={favorites.has(model.id) ? `取消收藏 ${model.name}` : `收藏 ${model.name}`}
+                                aria-pressed={favorites.has(model.id)}
+                                className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition ${
+                                  favorites.has(model.id)
+                                    ? "border-hire-300/50 bg-hire-300/15 text-hire-100"
+                                    : "border-white/10 bg-white/[0.04] text-slate-400 hover:border-hire-300/30 hover:text-hire-100"
+                                }`}
+                                onClick={() => toggleFavorite(model.id)}
+                                title={favorites.has(model.id) ? "取消收藏" : "收藏到书签"}
+                                type="button"
+                              >
+                                {favorites.has(model.id) ? "★ 已收藏" : "☆ 收藏"}
+                              </button>
+                              <button
+                                aria-label={`${compareState.ids.includes(model.id) ? "移出" : "加入"} ${model.name} 对比`}
+                                className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition ${
+                                  compareState.ids.includes(model.id)
+                                    ? "border-hire-300/50 bg-hire-300/15 text-hire-100"
+                                    : "border-white/10 bg-white/[0.04] text-slate-400 hover:border-hire-300/30 hover:text-hire-100"
+                                }`}
+                                onClick={() => toggleCompare(model.id, !compareState.ids.includes(model.id))}
+                                type="button"
+                              >
+                                {compareState.ids.includes(model.id) ? "已加入" : "加入对比"}
+                              </button>
+                              {canChat ? (
+                                <Link
+                                  className="rounded-md bg-hire-300 px-2.5 py-1 text-xs font-semibold text-ink-950 transition hover:bg-hire-200"
+                                  to={`/chat/${encodeURIComponent(model.id)}`}
+                                >
+                                  面试
+                                </Link>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {galleryModels.map((model) => (
+              {visibleGalleryModels.map((model, index) => (
+                <div
+                  className={
+                    index === keyboardIndex
+                      ? "rounded-lg outline outline-2 outline-hire-300/50"
+                      : ""
+                  }
+                  key={model.id}
+                >
                 <ModelCard
                   audioCatalogStale={audioCatalog?.stale ?? false}
                   audioCatalogState={
@@ -981,16 +1468,31 @@ export default function ModelListPage() {
                     verificationVideoOperations.get(model.id)
                   }
                   fileSurfaceSummary={fileSurfaceSummary}
-                  key={model.id}
                   model={model}
                   compareDisabled={compareState.ids.length >= 4}
                   compareSelected={compareState.ids.includes(model.id)}
+                  favorite={favorites.has(model.id)}
                   onCompareChange={toggleCompare}
+                  onToggleFavorite={() => toggleFavorite(model.id)}
                   imageCatalogStale={imageCatalog?.stale ?? false}
                   videoCatalogStale={videoCatalog?.stale ?? false}
                 />
+                </div>
               ))}
             </div>
+            )}
+            {hasMoreGalleryModels ? (
+              <div className="mt-6 flex justify-center">
+                <button
+                  className="min-h-11 rounded-lg border border-hire-300/30 bg-hire-300/10 px-5 py-2.5 text-sm font-semibold text-hire-100 transition hover:bg-hire-300/20"
+                  onClick={() => setVisibleCount((count) => count + 12)}
+                  type="button"
+                >
+                  加载更多（剩余 {galleryModels.length - visibleGalleryModels.length} 个）
+                </button>
+              </div>
+            ) : null}
+            </>
           ) : (
             <div className="surface-panel rounded-lg px-6 py-16 text-center">
               <img
@@ -1002,14 +1504,16 @@ export default function ModelListPage() {
                 {recruitmentTheme.noResultTitle}
               </p>
               <p className="mt-2 text-sm text-slate-400">
-                {recruitmentTheme.noResultBody}
+                {activeFilterCount > 0
+                  ? `已应用 ${activeFilterCount} 个筛选条件，没有匹配的模型。`
+                  : recruitmentTheme.noResultBody}
               </p>
               <button
                 className="mt-5 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-hire-200"
                 onClick={clearFilters}
                 type="button"
               >
-                重新逛展
+                {activeFilterCount > 0 ? "清空条件，查看全部" : "重新逛展"}
               </button>
             </div>
           )}

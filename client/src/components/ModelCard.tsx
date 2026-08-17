@@ -25,6 +25,9 @@ interface ModelCardProps {
   compareSelected?: boolean;
   compareDisabled?: boolean;
   onCompareChange?: (modelId: string, selected: boolean) => void;
+  /** 是否已收藏（书签，localStorage 持久化）。 */
+  favorite?: boolean;
+  onToggleFavorite?: () => void;
   catalogInvocable?: boolean;
   confirmedAudioOperations?: ModelOperation[];
   adaptedAudioOperations?: ModelOperation[];
@@ -97,6 +100,24 @@ function formatCnyPrice(priceCnyPerMillion: number) {
   return `¥${priceCnyPerMillion.toFixed(2)}`;
 }
 
+/** 记录最近浏览的模型（浏览器式历史）。localStorage 数组，最多 8 条，最近在前。 */
+export function recordRecentModelView(modelId: string) {
+  try {
+    const raw = window.localStorage.getItem("modelmirror-recent-models");
+    const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+    const list = Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+    const next = [modelId, ...list.filter((id) => id !== modelId)].slice(0, 8);
+    window.localStorage.setItem(
+      "modelmirror-recent-models",
+      JSON.stringify(next),
+    );
+  } catch {
+    // 存储不可用时静默降级。
+  }
+}
+
 const inputModalityLabels: Record<InputModality, string> = {
   text: "文本",
   image: "图片",
@@ -136,6 +157,8 @@ const ModelCard = memo(function ModelCard({
   compareSelected = false,
   compareDisabled = false,
   onCompareChange,
+  favorite = false,
+  onToggleFavorite,
   catalogInvocable = false,
   confirmedAudioOperations = [],
   adaptedAudioOperations = [],
@@ -476,27 +499,17 @@ const ModelCard = memo(function ModelCard({
 
   return (
     <article
-      className={`group relative isolate flex h-full min-h-[340px] flex-col overflow-hidden rounded-lg border p-0 backdrop-blur-xl transition duration-300 ease-out hover:-translate-y-1 hover:border-hire-300/55 hover:bg-surface-900/90 hover:shadow-[0_0_0_1px_rgba(251,146,60,0.32),0_20px_46px_rgba(124,45,18,0.22)] ${
-        featured
-          ? "border-hire-200/45 bg-[linear-gradient(160deg,rgba(39,21,26,0.94),rgba(5,15,34,0.94)_56%,rgba(12,39,54,0.86))] shadow-[0_0_0_1px_rgba(253,186,116,0.16),0_8px_8px_rgba(0,0,0,0.26)]"
-          : "border-hire-300/20 bg-ink-950/76 shadow-prism"
+      className={`group relative isolate flex h-full min-h-[300px] flex-col overflow-hidden rounded-lg border-2 p-0 transition duration-150 hover:bg-[#182238] active:scale-[0.995] ${
+        compareSelected
+          ? "border-hire-300/80 bg-[#182032] shadow-[0_0_0_1px_rgba(253,186,116,0.35),0_0_20px_rgba(251,146,60,0.14)]"
+          : featured
+            ? "border-hire-300/40 bg-[#182032] shadow-md"
+            : "border-white/10 bg-[#141c2e] shadow-md"
       }`}
     >
-      <div
-        className={`pointer-events-none absolute inset-x-0 top-0 h-28 transition duration-300 group-hover:opacity-100 ${
-          featured
-            ? "bg-[radial-gradient(circle_at_18%_12%,rgba(253,186,116,0.28),transparent_38%),linear-gradient(110deg,rgba(251,146,60,0.18),rgba(36,217,255,0.08),transparent)] opacity-100"
-            : "bg-[linear-gradient(110deg,rgba(251,146,60,0.20),rgba(253,186,116,0.12),transparent)] opacity-80"
-        }`}
-      />
-      <div className="pointer-events-none absolute right-0 top-0 h-full w-1/3 bg-[linear-gradient(180deg,rgba(251,146,60,0.14),transparent_48%,rgba(124,58,237,0.10))] opacity-70" />
 
       <div
-        className={`relative border-b border-hire-300/20 px-5 py-4 ${
-          featured
-            ? "bg-[linear-gradient(90deg,rgba(251,146,60,0.30),rgba(253,186,116,0.12),rgba(36,217,255,0.12))]"
-            : "bg-[linear-gradient(90deg,rgba(251,146,60,0.24),rgba(253,186,116,0.10),rgba(36,217,255,0.08))]"
-        }`}
+        className={`relative border-b border-white/10 bg-[#101828] px-5 py-4`}
       >
         <div
           className={`flex items-center gap-3 ${
@@ -527,6 +540,22 @@ const ModelCard = memo(function ModelCard({
               {compareSelected ? "已加入对比" : "加入对比"}
             </button>
           )}
+          {onToggleFavorite ? (
+            <button
+              aria-label={favorite ? `取消收藏 ${model.name}` : `收藏 ${model.name}`}
+              aria-pressed={favorite}
+              className={`min-h-8 rounded-full border px-3 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 ${
+                favorite
+                  ? "border-hire-300/50 bg-hire-300/15 text-hire-100 hover:bg-hire-300/25"
+                  : "border-white/10 bg-white/[0.04] text-slate-400 hover:border-hire-300/30 hover:text-hire-100"
+              }`}
+              onClick={onToggleFavorite}
+              title={favorite ? "取消收藏" : "收藏到书签"}
+              type="button"
+            >
+              {favorite ? "★ 已收藏" : "☆ 收藏"}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -559,10 +588,10 @@ const ModelCard = memo(function ModelCard({
         canManuallyVerifyVideo ||
         canGenerateWorld ||
         showGeneralChatAction ? (
-          <div className="flex shrink-0 flex-col items-stretch gap-2">
+          <div className="flex shrink-0 max-w-[9rem] flex-wrap items-center justify-end gap-1.5">
             {canGenerateWorld ? (
               <Link
-                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                className="rounded-md bg-hire-300 px-2.5 py-1.5 text-center text-xs font-semibold text-ink-950 transition duration-150 hover:bg-hire-200 active:scale-[0.98]"
                 to={`/chat/${encodeURIComponent(model.id)}`}
               >
                 生成 3D 世界
@@ -570,7 +599,7 @@ const ModelCard = memo(function ModelCard({
             ) : null}
             {canGenerateImage ? (
               <Link
-                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                className="rounded-md bg-hire-300 px-2.5 py-1.5 text-center text-xs font-semibold text-ink-950 transition duration-150 hover:bg-hire-200 active:scale-[0.98]"
                 to={`/chat/${encodeURIComponent(model.id)}?operation=generate_image`}
               >
                 生成图片
@@ -578,7 +607,7 @@ const ModelCard = memo(function ModelCard({
             ) : null}
             {canAnalyzeImage && !showGeneralChatAction ? (
               <Link
-                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                className="rounded-md bg-hire-300 px-2.5 py-1.5 text-center text-xs font-semibold text-ink-950 transition duration-150 hover:bg-hire-200 active:scale-[0.98]"
                 to={`/chat/${encodeURIComponent(model.id)}`}
               >
                 识别图片
@@ -586,7 +615,7 @@ const ModelCard = memo(function ModelCard({
             ) : null}
             {canAnalyzeAudio ? (
               <Link
-                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                className="rounded-md bg-hire-300 px-2.5 py-1.5 text-center text-xs font-semibold text-ink-950 transition duration-150 hover:bg-hire-200 active:scale-[0.98]"
                 to={`/chat/${encodeURIComponent(model.id)}?media=audio`}
               >
                 理解音频
@@ -594,7 +623,7 @@ const ModelCard = memo(function ModelCard({
             ) : null}
             {canSynthesizeSpeech ? (
               <Link
-                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                className="rounded-md bg-hire-300 px-2.5 py-1.5 text-center text-xs font-semibold text-ink-950 transition duration-150 hover:bg-hire-200 active:scale-[0.98]"
                 to={`/chat/${encodeURIComponent(model.id)}?operation=synthesize_speech`}
               >
                 生成语音
@@ -602,7 +631,7 @@ const ModelCard = memo(function ModelCard({
             ) : null}
             {canGenerateAudio ? (
               <Link
-                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                className="rounded-md bg-hire-300 px-2.5 py-1.5 text-center text-xs font-semibold text-ink-950 transition duration-150 hover:bg-hire-200 active:scale-[0.98]"
                 to={`/chat/${encodeURIComponent(model.id)}?operation=generate_audio`}
               >
                 生成音乐
@@ -610,7 +639,7 @@ const ModelCard = memo(function ModelCard({
             ) : null}
             {canOpenRealtimeVoice ? (
               <Link
-                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                className="rounded-md bg-hire-300 px-2.5 py-1.5 text-center text-xs font-semibold text-ink-950 transition duration-150 hover:bg-hire-200 active:scale-[0.98]"
                 to={`/chat/${encodeURIComponent(model.id)}?operation=realtime_voice`}
               >
                 {realtimeVoiceReady ? "开始实时语音" : "配置实时语音"}
@@ -618,7 +647,7 @@ const ModelCard = memo(function ModelCard({
             ) : null}
             {canAnalyzeVideo ? (
               <Link
-                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                className="rounded-md bg-hire-300 px-2.5 py-1.5 text-center text-xs font-semibold text-ink-950 transition duration-150 hover:bg-hire-200 active:scale-[0.98]"
                 to={`/chat/${encodeURIComponent(model.id)}?operation=analyze_video`}
               >
                 分析视频
@@ -626,7 +655,7 @@ const ModelCard = memo(function ModelCard({
             ) : null}
             {canGenerateVideo ? (
               <Link
-                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                className="rounded-md bg-hire-300 px-2.5 py-1.5 text-center text-xs font-semibold text-ink-950 transition duration-150 hover:bg-hire-200 active:scale-[0.98]"
                 to={`/chat/${encodeURIComponent(model.id)}?operation=generate_video`}
               >
                 生成视频
@@ -634,7 +663,7 @@ const ModelCard = memo(function ModelCard({
             ) : null}
             {canManuallyVerifyVideo ? (
               <Link
-                className="rounded-full border border-amber-300/40 bg-amber-300/10 px-3.5 py-2 text-center text-sm font-semibold text-amber-100 transition duration-200 hover:bg-amber-300/20 active:scale-[0.98]"
+                className="rounded-md border border-amber-300/40 bg-amber-300/10 px-2.5 py-1.5 text-center text-xs font-semibold text-amber-100 transition duration-150 hover:bg-amber-300/20 active:scale-[0.98]"
                 to={`/chat/${encodeURIComponent(model.id)}?operation=generate_video&verification=manual`}
               >
                 人工核验
@@ -642,7 +671,7 @@ const ModelCard = memo(function ModelCard({
             ) : null}
             {showGeneralChatAction ? (
               <Link
-                className={`rounded-full px-3.5 py-2 text-center text-sm font-semibold transition duration-200 active:scale-[0.98] ${
+                className={`rounded-md px-2.5 py-1.5 text-center text-xs font-semibold transition duration-150 active:scale-[0.98] ${
                   canGenerateImage ||
                   canAnalyzeAudio ||
                   canSynthesizeSpeech ||
@@ -651,12 +680,13 @@ const ModelCard = memo(function ModelCard({
                   canAnalyzeVideo ||
                   canGenerateVideo
                     ? "border border-hire-300/35 bg-ink-950/70 text-hire-100 hover:bg-hire-300/10"
-                    : "bg-hire-300 text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] hover:bg-hire-200"
+                    : "bg-hire-300 text-ink-950 hover:bg-hire-200"
                 }`}
                 onClick={() => {
                   if (model.primary_operation === "chat") {
                     setPreferredModelId(model.id);
                   }
+                  recordRecentModelView(model.id);
                 }}
                 title={
                   declaresDocumentInput
@@ -674,7 +704,7 @@ const ModelCard = memo(function ModelCard({
             ) : null}
             {canUseInRag ? (
               <Link
-                className="rounded-full border border-hire-300/35 bg-hire-300/10 px-3.5 py-2 text-center text-sm font-semibold text-hire-100 transition duration-200 hover:border-hire-300/60 hover:bg-hire-300/15 active:scale-[0.98]"
+                className="rounded-md border border-hire-300/35 bg-hire-300/10 px-2.5 py-1.5 text-center text-xs font-semibold text-hire-100 transition duration-150 hover:border-hire-300/60 hover:bg-hire-300/15 active:scale-[0.98]"
                 to="/rag"
               >
                 用于资料库
@@ -691,14 +721,14 @@ const ModelCard = memo(function ModelCard({
           </div>
         ) : canUseInRag ? (
           <Link
-            className="shrink-0 rounded-full border border-hire-300/35 bg-hire-300/10 px-3.5 py-2 text-sm font-semibold text-hire-100 transition duration-200 hover:border-hire-300/60 hover:bg-hire-300/15 active:scale-[0.98]"
+            className="shrink-0 rounded-md border border-hire-300/35 bg-hire-300/10 px-2.5 py-1.5 text-xs font-semibold text-hire-100 transition duration-150 hover:border-hire-300/60 hover:bg-hire-300/15 active:scale-[0.98]"
             to="/rag"
           >
             用于资料库
           </Link>
         ) : (
           <button
-            className="shrink-0 cursor-not-allowed rounded-full border border-white/10 bg-white/[0.045] px-3.5 py-2 text-sm font-semibold text-slate-400"
+            className="shrink-0 cursor-not-allowed rounded-md border border-white/10 bg-white/[0.045] px-2.5 py-1.5 text-xs font-semibold text-slate-400"
             disabled
             title={
               isUncertain
@@ -732,7 +762,7 @@ const ModelCard = memo(function ModelCard({
             <div className="mt-2 flex flex-wrap gap-2">
               {model.job_capabilities.slice(0, 4).map((capability) => (
                 <span
-                  className="inline-flex min-h-8 items-center justify-center rounded-full border border-violet-300/25 bg-violet-300/[0.08] px-2.5 text-xs font-medium text-violet-100"
+                  className="inline-flex min-h-8 items-center justify-center rounded-md border border-white/10 bg-white/[0.05] px-2.5 text-xs font-medium text-slate-200"
                   key={capability}
                 >
                   {getFriendlyJobCapabilityLabel(capability)}
@@ -746,7 +776,7 @@ const ModelCard = memo(function ModelCard({
             <div className="mt-2 flex flex-wrap gap-2">
               {model.input_modalities.map((modality) => (
                 <span
-                  className="inline-flex min-h-8 items-center justify-center rounded-full border border-cyan-300/25 bg-cyan-300/[0.08] px-2.5 text-xs font-medium text-cyan-100"
+                  className="inline-flex min-h-8 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] px-2.5 text-xs font-medium text-slate-300"
                   key={modality}
                 >
                   {inputModalityLabels[modality]}
@@ -763,7 +793,7 @@ const ModelCard = memo(function ModelCard({
 
       <div className="relative mt-4 flex flex-wrap gap-2 px-5">
         <span
-          className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
+          className={`rounded-md border px-2 py-0.5 text-xs font-medium ${
             isInteractionReady
               ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
               : "border-slate-400/20 bg-slate-400/10 text-slate-300"
@@ -786,7 +816,7 @@ const ModelCard = memo(function ModelCard({
         </span>
         {confirmedVideoLabels.map((label) => (
           <span
-            className="rounded-full border border-sky-300/30 bg-sky-300/10 px-2.5 py-1 text-xs font-medium text-sky-100"
+            className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-xs font-medium text-slate-300"
             key={label}
           >
             {label}已确认
@@ -795,7 +825,7 @@ const ModelCard = memo(function ModelCard({
         ))}
         {confirmedImageOperations.map((operation) => (
           <span
-            className="rounded-full border border-fuchsia-300/30 bg-fuchsia-300/10 px-2.5 py-1 text-xs font-medium text-fuchsia-100"
+            className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-xs font-medium text-slate-300"
             key={`image-${operation}`}
           >
             {operationLabels[operation]}已确认
@@ -804,7 +834,7 @@ const ModelCard = memo(function ModelCard({
         ))}
         {confirmedAudioLabels.map((label) => (
           <span
-            className="rounded-full border border-cyan-300/30 bg-cyan-300/10 px-2.5 py-1 text-xs font-medium text-cyan-100"
+            className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-xs font-medium text-slate-300"
             key={`audio-${label}`}
           >
             {label}已适配
@@ -813,14 +843,14 @@ const ModelCard = memo(function ModelCard({
         ))}
         {declaresDocumentInput ? (
           <span
-            className="rounded-full border border-violet-300/25 bg-violet-300/[0.08] px-2.5 py-1 text-xs font-medium text-violet-100"
+            className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-xs font-medium text-slate-300"
             title={documentInputStatusReason}
           >
             {documentInputStatusLabel}
           </span>
         ) : null}
         {canManuallyVerifyVideo ? (
-          <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-100">
+          <span className="rounded-md border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-xs font-medium text-amber-100">
             视频生成 · 待人工验收
           </span>
         ) : null}
@@ -828,7 +858,7 @@ const ModelCard = memo(function ModelCard({
           .filter((label) => !confirmedAudioLabels.includes(label))
           .map((label) => (
             <span
-              className="rounded-full border border-cyan-300/20 bg-cyan-300/[0.06] px-2.5 py-1 text-xs font-medium text-cyan-100"
+              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-0.5 text-xs font-medium text-slate-300"
               key={`audio-adapted-${label}`}
             >
               {label}已适配
@@ -839,7 +869,7 @@ const ModelCard = memo(function ModelCard({
             </span>
           ))}
         {batchVariant ? (
-          <span className="rounded-full border border-sky-300/30 bg-sky-300/10 px-2.5 py-1 text-xs font-medium text-sky-100">
+          <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-xs font-medium text-slate-300">
             支持批处理
           </span>
         ) : null}
@@ -922,8 +952,12 @@ const ModelCard = memo(function ModelCard({
       </div>
 
       {tieredPricingLabel ? (
-        <p className="relative mx-5 mb-5 rounded-lg border border-sky-300/20 bg-sky-300/[0.07] px-3 py-2 text-xs leading-5 text-sky-100">
-          分段价格：{tieredPricingLabel}
+        <p
+          className="relative mx-5 mb-5 line-clamp-2 rounded-md border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs leading-5 text-slate-300"
+          title={tieredPricingLabel}
+        >
+          <span className="font-semibold text-slate-200">分段价格：</span>
+          {tieredPricingLabel}
         </p>
       ) : null}
 
@@ -934,7 +968,10 @@ const ModelCard = memo(function ModelCard({
       />
 
       {model.note ? (
-        <p className="relative mx-5 mb-5 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+        <p
+          className="relative mx-5 mb-5 line-clamp-2 rounded-md border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs leading-5 text-slate-300"
+          title={model.note}
+        >
           {model.note}
         </p>
       ) : null}

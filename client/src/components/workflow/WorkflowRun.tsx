@@ -15,6 +15,7 @@ import {
   type FileOutputReuseConfirmation,
 } from "../../data/fileOutputs";
 import {
+  type NodeRunStatus,
   type WorkflowDefinition,
   type WorkflowRunEvent,
 } from "../../types/workflow";
@@ -82,6 +83,18 @@ interface WorkflowRunProps {
     variableName: string;
   } | null;
   onRunStart?: () => void;
+  /** 运行事件 → 画布节点高亮回调。"idle" 表示运行开始时重置。 */
+  onNodeStatusChange?: (nodeId: string, status: NodeRunStatus | "idle") => void;
+  /** 点击运行步骤时高亮画布对应节点（日志↔节点联动）。 */
+  onStepSelect?: (nodeId: string) => void;
+}
+
+interface RunHistoryEntry {
+  runId: string | null;
+  taskId: string | null;
+  finishedAt: number;
+  status: "completed" | "cancelled" | "error";
+  summary: string;
 }
 
 interface WorkflowFileFormatCapability {
@@ -471,6 +484,8 @@ export default function WorkflowRun({
   embedded = false,
   fileInputFocusRequest = null,
   onRunStart,
+  onNodeStatusChange,
+  onStepSelect,
 }: WorkflowRunProps) {
   const { status: skillCreatorStatus } = useSkillCreatorStatus();
   const [input, setInput] = useState("请帮我把这个需求拆成三步执行计划。");
@@ -514,6 +529,17 @@ export default function WorkflowRun({
   const fileInputCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const workflowFileListGeneration = useRef(0);
   const workflowOutputGeneration = useRef(0);
+  const runAbortRef = useRef<AbortController | null>(null);
+  const failedNodesRef = useRef<Set<string>>(new Set());
+  const runningNodesRef = useRef<Set<string>>(new Set());
+  const runMetaRef = useRef<{ taskId: string | null; runId: string | null }>({
+    taskId: null,
+    runId: null,
+  });
+  const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
+  const [finishedOutcome, setFinishedOutcome] = useState<
+    "completed" | "cancelled" | "error" | null
+  >(null);
 
   useEffect(() => {
     if (!fileInputFocusRequest) return;
@@ -989,6 +1015,12 @@ export default function WorkflowRun({
       return;
     }
     onRunStart?.();
+    definition.nodes.forEach((node) =>
+      onNodeStatusChange?.(node.id, "idle"),
+    );
+    failedNodesRef.current.clear();
+    runningNodesRef.current.clear();
+    setFinishedOutcome(null);
     setEvents([]);
     setError("");
     setTaskId(null);
@@ -1006,10 +1038,14 @@ export default function WorkflowRun({
     setRunCheckpointsLoading(false);
     setIsRunning(true);
 
+    const abort = new AbortController();
+    runAbortRef.current = abort;
+
     try {
       const response = await fetch("/api/workflow/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: abort.signal,
         body: JSON.stringify({
           workflow: serializeWorkflow(definition),
           inputs: {
@@ -1034,21 +1070,89 @@ export default function WorkflowRun({
 
       await consumeWorkflowResponse(response);
     } catch (runError) {
-      setError(runError instanceof Error ? runError.message : "工作流运行失败。");
+      const cancelled =
+        runError instanceof DOMException && runError.name === "AbortError";
+      if (cancelled) {
+        setFinishedOutcome("cancelled");
+        // 取消时把仍在运行的节点清回 idle，避免残留"运行中"高亮。
+        runningNodesRef.current.forEach((nodeId) =>
+          onNodeStatusChange?.(nodeId, "idle"),
+        );
+        runningNodesRef.current.clear();
+        recordRunHistory("cancelled", "已取消。");
+      } else {
+        setFinishedOutcome("error");
+        setError(
+          runError instanceof Error ? runError.message : "工作流运行失败。",
+        );
+      }
     } finally {
       setIsRunning(false);
+      runAbortRef.current = null;
     }
   }
 
+  function cancelWorkflow() {
+    runAbortRef.current?.abort();
+  }
+
+  function retryWorkflow() {
+    void runWorkflow();
+  }
+
+  function recordRunHistory(status: RunHistoryEntry["status"], summary?: string) {
+    const { taskId: refTaskId, runId: refRunId } = runMetaRef.current;
+    if (!refTaskId && !refRunId) return;
+    setRunHistory((current) => [
+      {
+        runId: refRunId,
+        taskId: refTaskId,
+        finishedAt: Date.now(),
+        status,
+        summary: summary ?? status,
+      },
+      ...current,
+    ]);
+  }
+
   function handleRunEvent(event: WorkflowRunEvent) {
+    if (event.event === "node_start" && event.node_id) {
+      failedNodesRef.current.delete(event.node_id);
+      runningNodesRef.current.add(event.node_id);
+      onNodeStatusChange?.(event.node_id, "running");
+    }
+    if (event.event === "node_end" && event.node_id) {
+      runningNodesRef.current.delete(event.node_id);
+      // 节点已失败（收到过带 node_id 的 error）时不被 node_end(completed) 覆盖。
+      if (!failedNodesRef.current.has(event.node_id)) {
+        onNodeStatusChange?.(event.node_id, "done");
+      }
+    }
+    if (event.event === "error") {
+      if (event.node_id) {
+        failedNodesRef.current.add(event.node_id);
+        runningNodesRef.current.delete(event.node_id);
+        onNodeStatusChange?.(event.node_id, "error");
+      } else {
+        // 顶层致命错误：把仍在运行的节点全部标记为失败。
+        runningNodesRef.current.forEach((nodeId) =>
+          onNodeStatusChange?.(nodeId, "error"),
+        );
+        runningNodesRef.current.clear();
+        setFinishedOutcome("error");
+        recordRunHistory("error", event.message ?? "工作流运行异常。");
+      }
+    }
     if (event.event === "workflow_meta" && event.task_id) {
       setTaskId(event.task_id);
+      runMetaRef.current.taskId = event.task_id;
     }
     if (
       (event.event === "workflow_meta" || event.event === "workflow_end") &&
       event.run_id
     ) {
       setRunId(event.run_id);
+      runMetaRef.current.runId = event.run_id;
     }
     if (event.event === "human_intervention_pending") {
       setPendingHuman({
@@ -1065,8 +1169,14 @@ export default function WorkflowRun({
       );
     }
     if (event.event === "workflow_end") {
+      runningNodesRef.current.forEach((nodeId) =>
+        onNodeStatusChange?.(nodeId, "done"),
+      );
+      runningNodesRef.current.clear();
       setPendingHuman(null);
       setHumanInput("");
+      setFinishedOutcome("completed");
+      recordRunHistory("completed", event.final_output ?? "运行完成。");
     }
   }
 
@@ -1433,19 +1543,40 @@ export default function WorkflowRun({
           </div>
         ) : null}
 
-        <button
-          className="w-full rounded-full bg-hire-300 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
-          disabled={
-            isRunning ||
-            workflowFileBusy ||
-            (fileAssetVariables.length > 0 &&
-              (!workflowFileInputEnabled || !workflowFilesReady))
-          }
-          onClick={() => void runWorkflow()}
-          type="button"
-        >
-          {isRunning ? "流水线运行中" : "运行工作流"}
-        </button>
+        <div className="flex gap-2">
+          {isRunning ? (
+            <button
+              className="w-full rounded-full border border-rose-300/40 bg-rose-400/10 px-4 py-2.5 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/25 active:scale-[0.98]"
+              onClick={cancelWorkflow}
+              type="button"
+            >
+              取消运行
+            </button>
+          ) : (
+            <button
+              className="w-full rounded-full bg-hire-300 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+              disabled={
+                workflowFileBusy ||
+                (fileAssetVariables.length > 0 &&
+                  (!workflowFileInputEnabled || !workflowFilesReady))
+              }
+              onClick={() => void runWorkflow()}
+              type="button"
+            >
+              运行工作流
+            </button>
+          )}
+          {finishedOutcome ? (
+            <button
+              className="shrink-0 rounded-full border border-brand-300/35 bg-brand-300/10 px-3 py-2.5 text-sm font-semibold text-brand-100 transition hover:bg-brand-300/20 active:scale-[0.98]"
+              onClick={retryWorkflow}
+              title="重新运行"
+              type="button"
+            >
+              ↻
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {pendingHuman ? (
@@ -1526,6 +1657,39 @@ export default function WorkflowRun({
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {runHistory.length > 0 ? (
+          <div className="mb-3 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+            <p className="text-[11px] font-semibold text-slate-400">最近运行</p>
+            <div className="mt-2 space-y-1.5">
+              {runHistory.map((entry) => (
+                <div
+                  className="flex items-center justify-between gap-3 text-[11px]"
+                  key={`${entry.taskId}-${entry.finishedAt}`}
+                >
+                  <span className="min-w-0 truncate text-slate-400">
+                    {entry.summary}
+                  </span>
+                  <span
+                    className={`shrink-0 rounded-full border px-2 py-0.5 ${
+                      entry.status === "completed"
+                        ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
+                        : entry.status === "cancelled"
+                          ? "border-slate-300/25 bg-slate-300/10 text-slate-200"
+                          : "border-rose-300/25 bg-rose-300/10 text-rose-100"
+                    }`}
+                  >
+                    {entry.status === "completed"
+                      ? "完成"
+                      : entry.status === "cancelled"
+                        ? "取消"
+                        : "异常"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="space-y-2">
           {runSteps.length === 0 ? (
             <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.035] px-4 py-8 text-center text-sm leading-6 text-slate-400">
@@ -1535,9 +1699,12 @@ export default function WorkflowRun({
             </div>
           ) : (
             runSteps.map((step) => (
-              <div
-                className="rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2"
+              <button
+                className="w-full rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-left transition hover:border-brand-300/40 hover:bg-white/[0.07]"
                 key={step.id}
+                onClick={() => onStepSelect?.(step.id)}
+                title="在画布上定位该节点"
+                type="button"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -1562,7 +1729,7 @@ export default function WorkflowRun({
                     </p>
                   </>
                 ) : null}
-              </div>
+              </button>
             ))
           )}
         </div>
