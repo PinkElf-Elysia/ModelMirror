@@ -149,6 +149,29 @@ export function serializeFilters(filters: ModelFilterState): Record<string, stri
   if (!rangeIsDefault(filters.modelAgeDaysRange, d.modelAgeDaysRange)) {
     out.age = rangeToString(filters.modelAgeDaysRange);
   }
+  // 基准指标区间：只序列化非默认的 metric，格式 metric:min-max 逗号连接。
+  const serializeMetricRanges = <T extends string>(
+    selected: Record<T, RangeValue>,
+    baseline: Record<T, RangeValue>,
+    keys: readonly T[],
+  ): string => {
+    const parts = keys
+      .filter((key) => !rangeIsDefault(selected[key], baseline[key]))
+      .map((key) => `${key}:${rangeToString(selected[key])}`);
+    return parts.join(",");
+  };
+  const aaParts = serializeMetricRanges(
+    filters.artificialAnalysisRanges,
+    d.artificialAnalysisRanges,
+    OPENROUTER_ARTIFICIAL_ANALYSIS_METRICS,
+  );
+  if (aaParts) out.aa = aaParts;
+  const daParts = serializeMetricRanges(
+    filters.designArenaRanges,
+    d.designArenaRanges,
+    OPENROUTER_DESIGN_ARENA_METRICS,
+  );
+  if (daParts) out.da = daParts;
   return out;
 }
 
@@ -192,5 +215,34 @@ export function deserializeFilters(
     modelAgeDaysRange: params.get("age")
       ? parseRange(params.get("age")!, d.modelAgeDaysRange)
       : { ...fallback.modelAgeDaysRange },
+    artificialAnalysisRanges: deserializeMetricRanges(
+      params.get("aa"),
+      fallback.artificialAnalysisRanges,
+      d.artificialAnalysisRanges,
+      OPENROUTER_ARTIFICIAL_ANALYSIS_METRICS,
+    ),
+    designArenaRanges: deserializeMetricRanges(
+      params.get("da"),
+      fallback.designArenaRanges,
+      d.designArenaRanges,
+      OPENROUTER_DESIGN_ARENA_METRICS,
+    ),
   };
+}
+
+function deserializeMetricRanges<T extends string>(
+  raw: string | null,
+  fallbackRanges: Record<T, RangeValue>,
+  baselineRanges: Record<T, RangeValue>,
+  keys: readonly T[],
+): Record<T, RangeValue> {
+  if (!raw) return { ...fallbackRanges };
+  const result: Record<T, RangeValue> = { ...fallbackRanges };
+  for (const part of raw.split(",")) {
+    const [metric, range] = part.split(":");
+    if (!metric || !range) continue;
+    if (!keys.includes(metric as T)) continue;
+    result[metric as T] = parseRange(range, baselineRanges[metric as T]);
+  }
+  return result;
 }

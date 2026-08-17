@@ -966,6 +966,7 @@ export default function ModelListPage() {
 
   function switchView(next: "card" | "list") {
     setViewMode(next);
+    setKeyboardIndex(-1);
     const nextParams = new URLSearchParams(searchParams);
     if (next === "list") {
       nextParams.set("view", "list");
@@ -1005,6 +1006,7 @@ export default function ModelListPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
+      setKeyboardIndex(-1);
     }, 150);
     return () => window.clearTimeout(timer);
   }, [searchTerm]);
@@ -1135,7 +1137,10 @@ export default function ModelListPage() {
               <button
                 className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs text-slate-300 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100"
                 key={keyword}
-                onClick={() => setSearchTerm(keyword)}
+                onClick={() => {
+                  setSearchTerm(keyword);
+                  searchInputRef.current?.focus();
+                }}
                 type="button"
               >
                 {keyword}
@@ -1381,6 +1386,20 @@ export default function ModelListPage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
+                              <button
+                                aria-label={favorites.has(model.id) ? `取消收藏 ${model.name}` : `收藏 ${model.name}`}
+                                aria-pressed={favorites.has(model.id)}
+                                className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition ${
+                                  favorites.has(model.id)
+                                    ? "border-hire-300/50 bg-hire-300/15 text-hire-100"
+                                    : "border-white/10 bg-white/[0.04] text-slate-400 hover:border-hire-300/30 hover:text-hire-100"
+                                }`}
+                                onClick={() => toggleFavorite(model.id)}
+                                title={favorites.has(model.id) ? "取消收藏" : "收藏到书签"}
+                                type="button"
+                              >
+                                {favorites.has(model.id) ? "★ 已收藏" : "☆ 收藏"}
+                              </button>
                               <button
                                 aria-label={`${compareState.ids.includes(model.id) ? "移出" : "加入"} ${model.name} 对比`}
                                 className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition ${

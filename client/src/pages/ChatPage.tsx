@@ -4259,11 +4259,18 @@ function ChatConversationPage() {
                             </optgroup>
                           ) : null}
                           <optgroup label="全部模型">
-                            {models.map((item) => (
-                              <option className="bg-slate-950 text-white" key={item.id} value={item.id}>
-                                {item.name}
-                              </option>
-                            ))}
+                            {models
+                              .filter(
+                                (item) =>
+                                  !recentModelOptions.some(
+                                    (recent) => recent.id === item.id,
+                                  ),
+                              )
+                              .map((item) => (
+                                <option className="bg-slate-950 text-white" key={item.id} value={item.id}>
+                                  {item.name}
+                                </option>
+                              ))}
                           </optgroup>
                         </select>
                       </label>
