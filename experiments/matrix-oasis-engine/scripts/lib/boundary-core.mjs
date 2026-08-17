@@ -379,6 +379,12 @@ const REQUIRED_POLICY_VALUES = [
   [["r13SpatialFactsPolicy", "floorSnapMm"], 200],
   [["r13SpatialFactsPolicy", "maxSlopeMilliDegrees"], 45000],
   [["r13SpatialFactsPolicy", "factsMaxBytes"], 16 * 1024 * 1024],
+  [["r13SpatialFactsPolicy", "referenceMetadataRepositories"], [
+    "htdt/godogen",
+    "allenai/Holodeck",
+    "allenai/procthor",
+    "FreedomIntelligence/gamecraft-bench",
+  ]],
   [["r13SpatialFactsPolicy", "networkAllowed"], false],
   [["r13SpatialFactsPolicy", "providerCallsAllowed"], false],
   [["r13SpatialFactsPolicy", "solverAllowed"], false],
@@ -490,6 +496,7 @@ const REQUIRED_POLICY_VALUES = [
   [["thirdPartyPolicy", "referenceManifest"], "third-party/godot-demo-projects/reference.lock.json"],
   [["thirdPartyPolicy", "sceneAssetManifest"], "third-party/kenney-prototype-kit/asset.lock.json"],
   [["thirdPartyPolicy", "splatAddonManifest"], "third-party/godot-gaussian-splatting.lock.json"],
+  [["thirdPartyPolicy", "spatialReferenceManifest"], "third-party/spatial-layout-references/reference.lock.json"],
   [
     ["thirdPartyPolicy", "allowedVendoredRoots"],
     ["apps/runtime-godot/addons/gdUnit4", "apps/runtime-godot/addons/gdgs", "examples/scene-bundles/kenney-prototype/assets"],
@@ -1309,7 +1316,27 @@ function checkSmokeNetwork(relative, content, specifiers, violations) {
   }
 }
 
-function checkScriptNetwork(relative, content, specifiers, violations) {
+function checkScriptNetwork(relative, content, specifiers, policy, violations) {
+  if (relative === "scripts/lib/spatial-reference-core.mjs") {
+    const allowedRepositories = new Set(policy.r13SpatialFactsPolicy.referenceMetadataRepositories);
+    let nonMetadataContent = content;
+    for (const match of content.matchAll(/\bhttps:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/gu)) {
+      if (allowedRepositories.has(`${match[1]}/${match[2]}`)) nonMetadataContent = nonMetadataContent.replaceAll(match[0], "");
+    }
+    if (
+      NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(content)) ||
+      usesNetworkModule(specifiers) ||
+      hasExternalOrProtocolRelativeUrl(nonMetadataContent)
+    ) {
+      addViolation(
+        violations,
+        "script-network-forbidden",
+        relative,
+        "The spatial reference checker may contain only the four pinned GitHub repository URLs as inert metadata and may not use network capabilities.",
+      );
+    }
+    return;
+  }
   if (relative === "scripts/smoke-creator.mjs") {
     checkSmokeNetwork(relative, content, specifiers, violations);
     return;
@@ -1363,7 +1390,7 @@ function isRuntimeSource(relative, extension) {
   ].some((prefix) => relative.startsWith(prefix));
 }
 
-function scanExecutable(moduleRoot, absolute, relative, content, violations) {
+function scanExecutable(moduleRoot, absolute, relative, content, policy, violations) {
   const extension = path.extname(absolute).toLowerCase();
   const specifiers = extractModuleSpecifiers(content, extension);
   for (const rawSpecifier of specifiers) {
@@ -1425,7 +1452,7 @@ function scanExecutable(moduleRoot, absolute, relative, content, violations) {
   }
 
   if (relative.startsWith("scripts/")) {
-    checkScriptNetwork(relative, content, specifiers, violations);
+    checkScriptNetwork(relative, content, specifiers, policy, violations);
   }
 }
 
@@ -1772,7 +1799,7 @@ export async function auditBoundary({ moduleRoot, policy, trackedFiles }) {
     if (/^tsconfig(?:\.[^.]+)?\.json$/i.test(basename)) {
       checkTsconfig(resolvedRoot, absolute, relative, content, violations);
     }
-    scanExecutable(resolvedRoot, absolute, relative, content, violations);
+    scanExecutable(resolvedRoot, absolute, relative, content, policy, violations);
   }
 
   return {

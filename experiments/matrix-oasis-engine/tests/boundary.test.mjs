@@ -750,6 +750,32 @@ const negativeCases = [
     },
   },
   {
+    name: "spatial reference checker outbound request",
+    expectedRule: "script-network-forbidden",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "spatial-reference-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(
+        target,
+        'fetch("https://github.com/htdt/godogen");\n',
+        "utf8",
+      );
+    },
+  },
+  {
+    name: "spatial reference checker unpinned URL",
+    expectedRule: "script-network-forbidden",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "spatial-reference-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(
+        target,
+        'export const source = "https://example.invalid/unpinned";\n',
+        "utf8",
+      );
+    },
+  },
+  {
     name: "prototype host outbound request",
     expectedRule: "prototype-host-network-invalid",
     setup: async ({ root }) => {

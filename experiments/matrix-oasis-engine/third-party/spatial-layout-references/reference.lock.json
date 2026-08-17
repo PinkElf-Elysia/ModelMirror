@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "profile": "matrix-oasis.spatial-layout-references/1",
+  "runtimeDependency": false,
+  "executable": false,
+  "references": [
+    {
+      "name": "Godogen",
+      "repository": "https://github.com/htdt/godogen",
+      "commit": "05cebffc8b10c5817e8a3db495b82e7b6004ab84",
+      "license": "MIT",
+      "licensePath": "third-party/spatial-layout-references/LICENSES/Godogen-MIT.md",
+      "licenseSha256": "9994c50a3e043728bcf59106d5941c21b06e53dc64977e6bcafe9580a8a5e5d6",
+      "notePath": "third-party/spatial-layout-references/godogen.reference.txt",
+      "noteSha256": "77d89737e9ee9bfbfbd040788c0128a2e5c3fde7b56c0a03f9e791bb6cc9bf62",
+      "upstreamFiles": [
+        {"path":"engines/godot.md","gitBlobSha1":"fa06288c88de46147177f0e555e0f95cfa3fa6a1","byteLength":5479,"sha256":"fc3fab633ddbc1efe42b4f8bc8e338624139c112d6bc9ceaaa81f2fc6cef9a3a"},
+        {"path":"prompts/runtime.md","gitBlobSha1":"dee81a39707c694de974b1a274002446389bac94","byteLength":1127,"sha256":"48da31f60531a18273c564d3e0b706ec20d42991a9c37278a41c252f7ef33ad2"}
+      ],
+      "upstreamLicense": {"path":"LICENSE.md","gitBlobSha1":"0a0509efca47ba772df917aa81890ac21f5092b2","byteLength":1077,"sha256":"9994c50a3e043728bcf59106d5941c21b06e53dc64977e6bcafe9580a8a5e5d6"}
+    },
+    {
+      "name": "Holodeck",
+      "repository": "https://github.com/allenai/Holodeck",
+      "commit": "362b8ed948b867b69a72f1f9491f4caa88419bfc",
+      "license": "Apache-2.0",
+      "licensePath": "third-party/spatial-layout-references/LICENSES/Apache-2.0.txt",
+      "licenseSha256": "527adf9d4c760f7367c2aeffed6a89afba8ba40ea1b0efbc8f56496ad30ea9cf",
+      "notePath": "third-party/spatial-layout-references/holodeck.reference.txt",
+      "noteSha256": "aa80aa657c3958a90a0bccdd652af465aa06a7284583dee37517ff5b905677a6",
+      "upstreamFiles": [
+        {"path":"ai2holodeck/generation/floor_objects.py","gitBlobSha1":"0532cc76288542e8aba135424030165603299576","byteLength":69212,"sha256":"1fd62f7fdabef3987c6eae6115a7cbc6073e9d34e456a86edd3225270dc8da86"}
+      ],
+      "upstreamLicense": {"path":"LICENSE","gitBlobSha1":"2cf1c60e32f6b69c67eb30af79005c4b947a78f7","byteLength":11372,"sha256":"91803c2c3b287ae3c6305615d095b67b6626aaea833d34465b3ca125a6aad587"}
+    },
+    {
+      "name": "ProcTHOR",
+      "repository": "https://github.com/allenai/procthor",
+      "commit": "53d5bd4c8c96a699e6a615dc390abb670cc9d353",
+      "license": "Apache-2.0",
+      "licensePath": "third-party/spatial-layout-references/LICENSES/Apache-2.0.txt",
+      "licenseSha256": "527adf9d4c760f7367c2aeffed6a89afba8ba40ea1b0efbc8f56496ad30ea9cf",
+      "notePath": "third-party/spatial-layout-references/procthor.reference.txt",
+      "noteSha256": "742963d09181a069cf1712254452248574d9a546af2b5d03bc3f9c3fd537b4d9",
+      "upstreamFiles": [
+        {"path":"procthor/generation/objects.py","gitBlobSha1":"f61ccdfb9fece8c5a9e4a9f9afe11ad4a6dd44c0","byteLength":47276,"sha256":"9327d922958f645d8b47d0a011d71852df44a36c4e68a2e8810f5767d0de21e4"},
+        {"path":"procthor/generation/agent.py","gitBlobSha1":"88778692fbe9ddd8ca2dd1247492aab0f0c0f548","byteLength":1776,"sha256":"a3a4a7c5611a515f4dccca1ffe4fe1ea7a3aededd36964e8217f6d605da9679a"}
+      ],
+      "upstreamLicense": {"path":"LICENSE","gitBlobSha1":"4af27c71ca0190e281a54128a91d793fd643a943","byteLength":11354,"sha256":"b92f2ada1971f0048bbfc25f081649f6c13a42e04aaca2598ac415c3e0005e69"}
+    },
+    {
+      "name": "GameCraft-Bench",
+      "repository": "https://github.com/FreedomIntelligence/gamecraft-bench",
+      "commit": "a43347534374df9a0c1a6c001aa9380862783f6d",
+      "license": "Apache-2.0",
+      "licensePath": "third-party/spatial-layout-references/LICENSES/Apache-2.0.txt",
+      "licenseSha256": "527adf9d4c760f7367c2aeffed6a89afba8ba40ea1b0efbc8f56496ad30ea9cf",
+      "notePath": "third-party/spatial-layout-references/gamecraft-bench.reference.txt",
+      "noteSha256": "5dc904e6d44a4ffabbbfb89031dc815bbea7347e76fb5afaa0ebb9f524de5140",
+      "upstreamFiles": [
+        {"path":"gamecraft_bench/verifier/replay.py","gitBlobSha1":"e62ed30459d9cb9c07b2c9411996457249d1b6ff","byteLength":22316,"sha256":"91658c3571d739a1a7eb87419410045eefdbfdcabceb906faabbd77603988a4a"}
+      ],
+      "upstreamLicense": {"path":"LICENSE","gitBlobSha1":"d645695673349e3947e8e5ae42332d0ac3164cd7","byteLength":11358,"sha256":"cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"}
+    }
+  ]
+}

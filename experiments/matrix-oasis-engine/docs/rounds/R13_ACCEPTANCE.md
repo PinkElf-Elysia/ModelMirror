@@ -1,6 +1,6 @@
 # R13验收记录
 
-状态：R13实施中；R13.1已验证，等待本地提交
+状态：R13实施中；R13.2已验证，等待本地提交
 
 ## 固定基线
 
@@ -13,8 +13,8 @@
 
 | 批次 | 状态 | 提交 | 证据 |
 |---|---|---|---|
-| R13.1 治理与声明门 | 已验证 | 本批提交，SHA由R13.2记录 | 见下方摘要 |
-| R13.2 开源参考来源护栏 | 未开始 | — | — |
+| R13.1 治理与声明门 | 已完成 | `a849899e0606ebda85bd2060011edd4d0ef010d1` | 见下方摘要 |
+| R13.2 开源参考来源护栏 | 已验证 | 本批提交，SHA由R13.3记录 | 见下方摘要 |
 | R13.3 Spatial Intent与Environment Facts合同 | 未开始 | — | — |
 | R13.4 Godot环境分析器 | 未开始 | — | — |
 | R13.5 Node Harness与离线资格 | 未开始 | — | — |
@@ -37,6 +37,17 @@ R13只证明空间语义意图与Godot环境事实可以被严格、离线、确
 - `npm.cmd prefix`正确指向独立模块；`npm.cmd ci --offline`安装120个锁定依赖。`git diff --check`通过。
 
 本批回退为单独revert治理提交；不会删除仓外工具或`node_modules`。
+
+## R13.2验证摘要
+
+- 固定Godogen、Holodeck、ProcTHOR和GameCraft-Bench四个精确commit；机器锁同时记录6个源文件的Git blob、完整字节数和SHA-256，以及各上游许可证身份。
+- 仓内只保存4份原创非执行适配笔记和2份许可证文本；没有复制Python/C#/Godot求解器、Agent编排或replay源码，没有新增registry依赖。
+- `npm.cmd run verify:spatial-references`：6项行为测试与来源完整性检查全部通过；精确4个来源、8个本地文件、6个去重后的笔记/许可证payload。
+- 负向测试覆盖笔记字节漂移、未知可执行文件、commit漂移和许可证缺失；来源检查只读且不联网。
+- 显式使用仓外Godot 4.6.3后，`npm.cmd run verify`全部21步通过；全量Node测试735项通过，Creator build/smoke及既有Godot import、adapter、parity、3D、Scene与Splat门全部通过。
+- `npm.cmd run check:round-scope`：`checked=38 changed=34`；`npm.cmd run check:parent-scope -- --base 77ec8c4eace9f8dbd1dd119cd70727570bd99e9a`：`checked=38 changed=34`；`npm.cmd run check:boundary`：`checked=1111 tracked=1100`；`git diff --check`通过。冻结R1–R12与父仓零差异。
+
+本批回退只删除非执行参考、验证脚本/测试与依赖说明，不影响Godot、Creator或既有运行链。
 
 ## 最终证据清单
 

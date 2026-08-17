@@ -196,6 +196,12 @@
     "floorSnapMm": 200,
     "maxSlopeMilliDegrees": 45000,
     "factsMaxBytes": 16777216,
+    "referenceMetadataRepositories": [
+      "htdt/godogen",
+      "allenai/Holodeck",
+      "allenai/procthor",
+      "FreedomIntelligence/gamecraft-bench"
+    ],
     "networkAllowed": false,
     "providerCallsAllowed": false,
     "solverAllowed": false,
@@ -268,6 +274,7 @@
     "referenceManifest": "third-party/godot-demo-projects/reference.lock.json",
     "sceneAssetManifest": "third-party/kenney-prototype-kit/asset.lock.json",
     "splatAddonManifest": "third-party/godot-gaussian-splatting.lock.json",
+    "spatialReferenceManifest": "third-party/spatial-layout-references/reference.lock.json",
     "allowedVendoredRoots": ["apps/runtime-godot/addons/gdUnit4", "apps/runtime-godot/addons/gdgs", "examples/scene-bundles/kenney-prototype/assets"],
     "allowedReferenceRoots": ["third-party/godot-demo-projects", "third-party/kenney-prototype-kit", "third-party/godot-gaussian-splatting", "third-party/spatial-layout-references"],
     "modificationsRequireHumanApproval": true

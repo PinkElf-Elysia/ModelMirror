@@ -1,0 +1,13 @@
+Source: https://github.com/allenai/procthor
+Commit: 53d5bd4c8c96a699e6a615dc390abb670cc9d353
+Upstream files: procthor/generation/objects.py; procthor/generation/agent.py
+License: Apache-2.0
+
+R13 adaptation notes (not source code):
+
+1. Represent remaining floor capacity as usable regions after placed footprints and margins have been subtracted.
+2. Derive candidate rectangles from remaining geometry; absence of a rectangle is a normal, explicit placement failure.
+3. Select a starting pose from a reachable remaining region, using its interior rather than a fixed scene origin.
+4. Quantize candidate evidence only after the geometric query so deterministic output does not replace physical validation.
+
+R13 uses these ideas only to define floor anchors, clearance and connected components. It does not copy ProcTHOR sampling, randomization, Unity/AI2-THOR integration or Python code.
