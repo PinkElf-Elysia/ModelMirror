@@ -132,12 +132,12 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R13 policy", () => {
+test("machine boundary and code expose the same ordered R14 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
-  assert.equal(policy.schemaVersion, 13);
+  assert.equal(policy.schemaVersion, 14);
   assert.equal(policy.activeRound, ACTIVE_ROUND);
   assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
@@ -156,25 +156,25 @@ test("machine boundary and code expose the same ordered R13 policy", () => {
     path.join(committedModuleRoot, "scripts", "check-round-scope.mjs"),
     "utf8",
   );
-  assert.match(cli, /policy\.schemaVersion !== 13/);
-  assert.doesNotMatch(cli, /policy\.schemaVersion !== 12/);
+  assert.match(cli, /policy\.schemaVersion !== 14/);
+  assert.doesNotMatch(cli, /policy\.schemaVersion !== 13/);
 });
 
-test("accepts exact R13 files and new package prefixes in every Git status source", (t) => {
+test("accepts exact R14 files and new package prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-spatial-planning-contracts/src/index.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-spatial-solution-contracts/src/index.mjs`, "export {};\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-environment-analyzer/src/index.mjs`, "export {};\n");
-  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-environment-analyzer/src/index.mjs`]);
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-spatial-solver/src/index.mjs`, "export {};\n");
+  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-spatial-solver/src/index.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
-  write(fixture, `${MODULE_PREFIX}/scripts/lib/spatial-analysis-core.mjs`);
-  write(fixture, `${MODULE_PREFIX}/scripts/analyze-spatial-environment.mjs`);
-  write(fixture, `${MODULE_PREFIX}/tests/spatial-analysis.test.mjs`);
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R13_ACCEPTANCE.md`);
-  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/spatial_analysis/analyzer.gd`, "extends Node\n");
+  write(fixture, `${MODULE_PREFIX}/scripts/lib/spatial-solution-core.mjs`);
+  write(fixture, `${MODULE_PREFIX}/scripts/solve-spatial-layout.mjs`);
+  write(fixture, `${MODULE_PREFIX}/tests/spatial-solution.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R14_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/spatial_solution_verification/verifier.gd`, "extends Node\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
@@ -239,6 +239,7 @@ for (const acceptance of [
   "R10_ACCEPTANCE.md",
   "R11_ACCEPTANCE.md",
   "R12_ACCEPTANCE.md",
+  "R13_ACCEPTANCE.md",
 ]) {
   test(`rejects byte changes to historical ${acceptance}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
@@ -395,25 +396,33 @@ test("rejects a caller-selected base", (t) => {
   );
 });
 
-test("round path classifier exposes stable R13 guard categories", () => {
+test("round path classifier exposes stable R14 guard categories", () => {
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-planning-contracts/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-solution-contracts/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-environment-analyzer/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-solver/src/index.mjs`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-verifier/src/index.mjs`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/spatial_solution_verification/verifier.gd`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/solved_spatial_prototype/solved_lab.gd`),
     null,
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/spatial_analysis/analyzer.gd`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/third-party/spatial-layout-references/reference.lock.json`),
-    null,
-  );
-  assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/spatial_prototype/spatial_lab.gd`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-planning-contracts/src/index.mjs`),
     "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(

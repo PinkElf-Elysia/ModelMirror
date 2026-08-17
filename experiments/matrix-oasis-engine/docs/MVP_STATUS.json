@@ -3,6 +3,6 @@
   "status": "pending-spatial-solver",
   "claimAllowed": false,
   "blockingRound": "R14",
-  "acceptanceRecord": "docs/rounds/R13_ACCEPTANCE.md",
+  "acceptanceRecord": "docs/rounds/R14_ACCEPTANCE.md",
   "completionMarker": "MATRIX_OASIS_R12_MVP_READY"
 }

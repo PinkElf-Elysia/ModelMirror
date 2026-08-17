@@ -40,9 +40,9 @@ export function checkMvpClaim({ moduleRoot }) {
 
   const claimPolicy = policy.mvpClaimPolicy;
   if (
-    policy.activeRound !== "R13" ||
+    policy.activeRound !== "R14" ||
     claimPolicy?.blockingRound !== "R14" ||
-    claimPolicy?.acceptanceRecord !== "docs/rounds/R13_ACCEPTANCE.md" ||
+    claimPolicy?.acceptanceRecord !== "docs/rounds/R14_ACCEPTANCE.md" ||
     claimPolicy?.machineStatus !== "docs/MVP_STATUS.json" ||
     claimPolicy?.completionMarker !== "MATRIX_OASIS_R12_MVP_READY"
   ) {
@@ -64,7 +64,7 @@ export function checkMvpClaim({ moduleRoot }) {
   if (!claimPolicy.claimAllowed) {
     if (
       claimPolicy.status !== "pending-spatial-solver" ||
-      !acceptance.includes("状态：R13实施中")
+      !acceptance.includes("状态：R14实施中")
     ) {
       throw new MvpClaimError("MVP_CLAIM_PREMATURE");
     }

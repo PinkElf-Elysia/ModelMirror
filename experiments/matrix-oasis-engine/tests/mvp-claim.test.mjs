@@ -19,7 +19,7 @@ function withFixture(t) {
     "docs/V1_CRITICAL_PATH.md",
     "docs/ARCHITECTURE.md",
     "docs/KNOWN_LIMITATIONS.md",
-    "docs/rounds/R13_ACCEPTANCE.md",
+    "docs/rounds/R14_ACCEPTANCE.md",
   ]) {
     mkdirSync(path.dirname(path.join(fixture, relativePath)), { recursive: true });
     cpSync(path.join(moduleRoot, relativePath), path.join(fixture, relativePath), {
@@ -43,7 +43,7 @@ function expectCode(callback, code) {
   });
 }
 
-test("committed R13 status keeps the MVP completion claim blocked", () => {
+test("committed R14 status keeps the MVP completion claim blocked", () => {
   assert.deepEqual(checkMvpClaim({ moduleRoot }), {
     status: "pending-spatial-solver",
     claimAllowed: false,
@@ -82,11 +82,11 @@ test("rejects status or policy drift before qualification", (t) => {
   );
 });
 
-test("rejects an acceptance record that stops declaring R13 in progress", (t) => {
+test("rejects an acceptance record that stops declaring R14 in progress", (t) => {
   const fixture = withFixture(t);
   writeFileSync(
-    path.join(fixture, "docs", "rounds", "R13_ACCEPTANCE.md"),
-    "# R13验收记录\n\n状态：待记录\n",
+    path.join(fixture, "docs", "rounds", "R14_ACCEPTANCE.md"),
+    "# R14验收记录\n\n状态：待记录\n",
     "utf8",
   );
   expectCode(
