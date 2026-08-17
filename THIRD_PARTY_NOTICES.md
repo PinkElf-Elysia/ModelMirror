@@ -201,30 +201,22 @@ immutable `3.8.48` image while the adapter is audited against the
 `release/v3.8.49` API contract. Replace the image only after repeating catalog,
 streaming, budget, telemetry and rollback checks.
 
-No OmniRoute source code is vendored into ModelMirror. The native migration
-keeps a behavior-only fixture at
-`server/model_router/fixtures/omniroute-v3.8.49-routing.json`; it records the
-audited release, commit, documented default score factors and safety
-invariants. It does not contain executable OmniRoute source. Any future direct
-port must be listed here with its upstream path, commit and preserved license
-header before it can enter a production path.
+ModelMirror directly ports the pure routing algorithms from the fixed source
+commit into `server/model_router/omniroute_parity/`. The Python files preserve
+the upstream copyright and MIT license header. The exact upstream path, Git
+blob SHA-1, source SHA-256 and local mapping are recorded in
+`omniroute_parity/UPSTREAM_FILES.json`; the local license copy is
+`omniroute_parity/LICENSE`, and translation/boundary changes are documented in
+`omniroute_parity/PATCHES.md`.
 
-The following ModelMirror modules are independent Python behavioral
-reimplementations, not direct source copies:
-
-- `server/model_router/routing.py`: references the behavior, score-factor
-  defaults and mode packs documented/implemented by upstream
-  `open-sse/services/autoCombo/scoring.ts` at commit `36f8fd10052f`.
-- `server/model_router/repository.py` and `engine.py`: ModelMirror-native
-  SQLite, tenant, circuit-breaker, LKGP and dispatch implementation; only the
-  externally observable Auto-Combo behavior is aligned.
-- `server/context_engine/core.py`: ModelMirror-native deterministic context
-  optimizer inspired by the RTK/Caveman feature description. No OmniRoute
-  compression source was copied.
-
-If any of these modules is later replaced by a direct port, the individual
-file must preserve the upstream copyright/license header and this notice must
-be changed from “behavioral reimplementation” to “direct port”.
+The ported scope is limited to intent and task classification, task fitness,
+mode packs, speed scoring, score-tier rotation, exploration and self-healing
+selection from `open-sse/services/intentClassifier.ts`,
+`taskAwareRouting.ts`, and `autoCombo/{engine,scoring,modePacks,speedRanking,
+taskFitness,selfHealing}.ts`. ModelMirror does not copy OmniRoute's UI,
+database, account system, provider adapters, server runtime or private
+workspace packages. `repository.py`, `engine.py`, the FastAPI integration and
+the context optimizer remain ModelMirror-owned boundary code.
 
 ### MIT License
 

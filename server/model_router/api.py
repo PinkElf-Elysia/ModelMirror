@@ -17,6 +17,7 @@ from .schemas import (
     RouterConnection,
     RouterConnectionCreate,
     RouterConnectionUpdate,
+    RouterGateApprovalRequest,
     RouterPolicy,
     RouterStatus,
 )
@@ -163,6 +164,27 @@ def get_diagnostics() -> dict[str, object]:
     try:
         return get_model_router_service().diagnostics()
     except RouterRepositoryError as exc:
+        _raise_public_error(exc)
+
+
+@router.put("/gate/approval")
+def approve_native_gate(
+    payload: RouterGateApprovalRequest,
+) -> dict[str, object]:
+    try:
+        return get_model_router_service().approve_native_gate(
+            no_open_p0_p1=payload.no_open_p0_p1,
+            drills=payload.drills,
+        )
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.delete("/gate/approval")
+def revoke_native_gate() -> dict[str, object]:
+    try:
+        return get_model_router_service().revoke_native_gate()
+    except (RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
 

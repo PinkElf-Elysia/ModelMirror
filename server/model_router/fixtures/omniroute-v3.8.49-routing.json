@@ -3,8 +3,11 @@
     "project": "diegosouzapw/OmniRoute",
     "release": "v3.8.49",
     "commit": "36f8fd10052f",
-    "kind": "behavior-reference",
-    "source_code_copied": false
+    "kind": "direct-python-port",
+    "source_code_copied": true,
+    "algorithm_version": "omniroute-parity-v2",
+    "config_hash": "09c8783648296d7b12ebe9211580dab967c3f2068dc65c1a8f5f5a8c956f9af7",
+    "provenance_manifest": "omniroute_parity/UPSTREAM_FILES.json"
   },
   "score_factors": {
     "health": 0.2,
@@ -33,6 +36,7 @@
     "shadow_does_not_send_a_second_request",
     "retry_only_before_visible_output",
     "empty_stream_is_failure",
-    "lkgp_is_tenant_connection_model_scoped"
+    "lkgp_is_tenant_connection_model_scoped",
+    "batch_variants_never_enter_realtime_chat"
   ]
 }

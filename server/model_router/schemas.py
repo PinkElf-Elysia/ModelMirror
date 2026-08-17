@@ -175,3 +175,8 @@ class RouterStatus(BaseModel):
     model_count: int
     ready: bool
     redacted: bool = True
+
+
+class RouterGateApprovalRequest(BaseModel):
+    no_open_p0_p1: bool
+    drills: dict[str, bool] = Field(default_factory=dict, max_length=16)

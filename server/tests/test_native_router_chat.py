@@ -64,6 +64,15 @@ def native_service(tmp_path: Path) -> ModelRouterService:
                 "output_modalities": ["text"],
             },
         },
+        {
+            "id": "provider/model-discount:batch",
+            "context_length": 128000,
+            "pricing": {"prompt": "0.0000001", "completion": "0.0000001"},
+            "architecture": {
+                "input_modalities": ["text"],
+                "output_modalities": ["text"],
+            },
+        },
     ]
     repository = SQLiteRouterRepository(tmp_path)
     repository.create_connection(
@@ -167,6 +176,7 @@ async def test_native_auto_retries_empty_stream_before_visible_output(
 
     assert response.status_code == 200, response.text
     assert sent_models == ["provider/model-a", "provider/model-b"]
+    assert all(not model.endswith(":batch") for model in sent_models)
     assert "native answer" in response.text
     assert response.text.count("event: route_receipt") == 1
     receipt_event = next(
@@ -189,6 +199,14 @@ async def test_native_auto_retries_empty_stream_before_visible_output(
     assert receipt["cost_kind"] == "actual"
     assert receipt["budget"]["status"] == "settled"
     assert receipt["version"] == "2"
+    assert receipt["algorithm_version"] == "omniroute-parity-v2"
+    assert receipt["task_type"] == "medium"
+    assert receipt["selection_kind"] in {
+        "clear_winner",
+        "exploration",
+        "tier_rotation",
+    }
+    assert receipt["ttft_ms"] is not None
     assert response.text.rstrip().endswith("data: [DONE]")
     diagnostics = service.diagnostics()
     assert diagnostics["recent_decisions"][0]["budget"]["status"] == "settled"

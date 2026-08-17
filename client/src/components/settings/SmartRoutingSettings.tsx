@@ -35,13 +35,26 @@ interface RouterStatus {
 }
 
 interface MigrationGate {
+  algorithm_version: string;
+  config_hash: string;
   request_count: number;
+  sidecar_request_count: number;
   success_rate?: number | null;
-  empty_stream_rate?: number | null;
+  sidecar_success_rate?: number | null;
+  stream_failure_rate?: number | null;
+  sidecar_stream_failure_rate?: number | null;
+  ttft_p95_ms?: number | null;
+  sidecar_ttft_p95_ms?: number | null;
+  normalized_e2e_p95_ms_per_100_tokens?: number | null;
+  sidecar_normalized_e2e_p95_ms_per_100_tokens?: number | null;
+  planning_latency_p95_ms?: number | null;
   observed_days: number;
   request_gate_met: boolean;
   duration_gate_met: boolean;
   automatic_native_default_allowed: boolean;
+  native_default_allowed: boolean;
+  approval_valid: boolean;
+  blocking_reasons: string[];
 }
 
 interface RecentDecision {
@@ -51,6 +64,10 @@ interface RecentDecision {
   model_id?: string | null;
   connection_name?: string | null;
   outcome?: string | null;
+  algorithm_version?: string | null;
+  task_type?: string | null;
+  selection_kind?: string | null;
+  ttft_ms?: number | null;
   created_at: string;
 }
 
@@ -174,7 +191,7 @@ export default function SmartRoutingSettings() {
   }, [load]);
 
   const nativeReady =
-    diagnostics?.migration_gate.automatic_native_default_allowed ?? false;
+    diagnostics?.migration_gate.native_default_allowed ?? false;
   const selectedEngine = useMemo(
     () => ENGINE_OPTIONS.find((item) => item.value === policy?.engine),
     [policy?.engine],
@@ -403,6 +420,7 @@ export default function SmartRoutingSettings() {
             <div className="mt-5 rounded-lg border border-white/10 bg-white/[0.035] p-3 text-xs leading-5 text-slate-400">
               已发现 {status?.model_count ?? 0} 个可调用模型；
               {diagnostics?.migration_gate.request_count ?? 0}/500 次试运行，
+              {diagnostics?.migration_gate.sidecar_request_count ?? 0}/100 次侧车对照，
               {diagnostics?.migration_gate.observed_days ?? 0}/14 天观察。
             </div>
 
@@ -461,23 +479,54 @@ export default function SmartRoutingSettings() {
             </button>
           </div>
           <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
-            <p className="text-xs text-slate-400">成功率</p>
+            <p className="text-xs text-slate-400">原生 / 侧车成功率</p>
             <p className="mt-2 text-xl font-semibold text-white">
-              {percent(diagnostics?.migration_gate.success_rate)}
+              {percent(diagnostics?.migration_gate.success_rate)} / {percent(diagnostics?.migration_gate.sidecar_success_rate)}
             </p>
           </div>
           <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
-            <p className="text-xs text-slate-400">空响应率</p>
+            <p className="text-xs text-slate-400">原生 / 侧车流失败率</p>
             <p className="mt-2 text-xl font-semibold text-white">
-              {percent(diagnostics?.migration_gate.empty_stream_rate)}
+              {percent(diagnostics?.migration_gate.stream_failure_rate)} / {percent(diagnostics?.migration_gate.sidecar_stream_failure_rate)}
             </p>
           </div>
           <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
             <p className="text-xs text-slate-400">本地默认门槛</p>
             <p className="mt-2 text-sm font-semibold text-white">
-              {nativeReady ? "自动门槛已达到，仍需人工验收" : "继续本地试运行"}
+              {nativeReady ? "当前版本已通过全部门禁" : "继续本地试运行"}
             </p>
           </div>
+          <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+            <p className="text-xs text-slate-400">原生 / 侧车 TTFT P95</p>
+            <p className="mt-2 text-sm font-semibold text-white">
+              {diagnostics?.migration_gate.ttft_p95_ms?.toFixed(1) ?? "-"} / {diagnostics?.migration_gate.sidecar_ttft_p95_ms?.toFixed(1) ?? "-"} ms
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+            <p className="text-xs text-slate-400">每 100 Token E2E P95</p>
+            <p className="mt-2 text-sm font-semibold text-white">
+              {diagnostics?.migration_gate.normalized_e2e_p95_ms_per_100_tokens?.toFixed(1) ?? "-"} / {diagnostics?.migration_gate.sidecar_normalized_e2e_p95_ms_per_100_tokens?.toFixed(1) ?? "-"} ms
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+            <p className="text-xs text-slate-400">规划计算 P95</p>
+            <p className="mt-2 text-sm font-semibold text-white">
+              {diagnostics?.migration_gate.planning_latency_p95_ms?.toFixed(2) ?? "-"} ms
+            </p>
+          </div>
+          {diagnostics?.migration_gate.blocking_reasons.length ? (
+            <div className="rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-4 md:col-span-3">
+              <p className="text-xs font-semibold text-amber-100">当前门禁阻塞项</p>
+              <ul className="mt-2 space-y-1 text-xs leading-5 text-amber-50/80">
+                {diagnostics.migration_gate.blocking_reasons.map((reason) => (
+                  <li key={reason}>• {reason}</li>
+                ))}
+              </ul>
+              <p className="mt-2 break-all text-[11px] text-slate-500">
+                {diagnostics.migration_gate.algorithm_version} · {diagnostics.migration_gate.config_hash.slice(0, 12)}
+              </p>
+            </div>
+          ) : null}
           <div className="md:col-span-3">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
               最近调度
@@ -491,6 +540,7 @@ export default function SmartRoutingSettings() {
                     <th className="px-3 py-2 font-medium">模型</th>
                     <th className="px-3 py-2 font-medium">服务</th>
                     <th className="px-3 py-2 font-medium">结果</th>
+                    <th className="px-3 py-2 font-medium">选择</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -509,11 +559,14 @@ export default function SmartRoutingSettings() {
                       <td className="px-3 py-2 text-slate-300">
                         {item.outcome || "待完成"}
                       </td>
+                      <td className="px-3 py-2 text-slate-300">
+                        {item.selection_kind || "-"}
+                      </td>
                     </tr>
                   ))}
                   {!diagnostics?.recent_decisions.length ? (
                     <tr>
-                      <td className="px-3 py-4 text-slate-400" colSpan={5}>
+                      <td className="px-3 py-4 text-slate-400" colSpan={6}>
                         尚无本地试运行记录。
                       </td>
                     </tr>

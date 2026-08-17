@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+from .model_ids import is_realtime_chat_model_id
+from .omniroute_parity import (
+    ALGORITHM_VERSION,
+    CONFIG_HASH,
+    LEGACY_ALGORITHM_VERSION,
+    classify_prompt_intent,
+    get_task_fitness,
+)
 from .repository import SQLiteRouterRepository
 from .routing import (
     NoEligibleCandidateError,
@@ -20,47 +29,14 @@ from .service import ModelRouterService
 
 
 def infer_task_tags(text: str) -> set[str]:
-    """Infer only high-confidence task hints without another model request."""
+    """Expose the pinned upstream intent classifier as existing task tags."""
 
-    normalized = str(text or "")[-12_000:].lower()
-    coding_hints = (
-        "```",
-        "traceback",
-        "stack trace",
-        "syntaxerror",
-        "exception",
-        "debug",
-        "refactor",
-        "代码",
-        "编程",
-        "函数",
-        "报错",
-        "单元测试",
-        "正则",
-        "sql ",
-        "python ",
-        "javascript ",
-        "typescript ",
-        "java ",
-        "golang ",
-        "rust ",
-    )
-    reasoning_hints = (
-        "逐步推理",
-        "严谨证明",
-        "数学证明",
-        "逻辑推导",
-        "多步分析",
-        "step-by-step reasoning",
-        "prove that",
-        "formal proof",
-    )
-    tags: set[str] = set()
-    if any(hint in normalized for hint in coding_hints):
-        tags.add("coding")
-    if any(hint in normalized for hint in reasoning_hints):
-        tags.add("reasoning")
-    return tags
+    intent = classify_prompt_intent(str(text or "")[-12_000:])
+    if intent == "code":
+        return {"coding"}
+    if intent in {"math", "reasoning"}:
+        return {"reasoning"}
+    return set()
 
 
 @dataclass(frozen=True)
@@ -87,6 +63,15 @@ class NativeRoutePlan:
     candidates_considered: int
     budget_usd: float | None
     budget_fallback: str
+    algorithm_version: str
+    config_hash: str
+    task_type: str
+    task_level: str
+    selection_kind: str
+    score_tier: str
+    planning_latency_ms: float
+    eligible_count: int
+    finalist_count: int
 
 
 @dataclass
@@ -101,12 +86,17 @@ class NativeRouterEngine:
         service: ModelRouterService,
         *,
         catalog_ttl_seconds: float = 30.0,
+        catalog_stale_seconds: float = 600.0,
     ) -> None:
         self.service = service
         self.repository = service.repository
         self.catalog_ttl_seconds = catalog_ttl_seconds
+        self.catalog_stale_seconds = max(
+            catalog_ttl_seconds, catalog_stale_seconds
+        )
         self._catalog_cache: dict[str, _ConnectionCatalogCache] = {}
         self._cache_lock = asyncio.Lock()
+        self._refresh_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def plan(
         self,
@@ -123,14 +113,20 @@ class NativeRouterEngine:
         budget_fallback: str = "cheapest",
         excluded_paths: set[tuple[str, str]] | None = None,
         audit_engine: str = "native",
+        task_type: str = "medium",
+        task_level: str = "standard",
     ) -> NativeRoutePlan:
         session_hash = self.hash_session_id(session_id)
+        algorithm_version = self.algorithm_version()
         candidates = await self.build_candidates(
             mode=mode,
             estimated_input_tokens=estimated_input_tokens,
             max_output_tokens=max_output_tokens,
             task_tags=preferred_tags or set(),
+            task_type=task_type,
+            task_level=task_level,
         )
+        planning_started = time.perf_counter()
         last_known_good = None
         get_lkgp = getattr(self.repository, "get_last_known_good", None)
         if callable(get_lkgp):
@@ -154,9 +150,22 @@ class NativeRouterEngine:
             preferred_tags=frozenset(preferred_tags or set()),
             last_known_good=last_known_good,
             excluded_paths=frozenset(excluded_paths or set()),
+            task_type=task_type,
+            algorithm_version=algorithm_version,
+            rotator_key=(
+                f"{self.service.tenant_id}:{mode}:{task_type}"
+            ),
+            incident_mode=(
+                len(candidates) < 3
+                or sum(
+                    item.breaker_state != "closed" for item in candidates
+                )
+                >= max(2, len(candidates) // 3)
+            ),
         )
         decision = decide_route(candidates, request)
         targets = self._dispatch_targets(decision)
+        planning_latency_ms = (time.perf_counter() - planning_started) * 1000
         record = getattr(self.repository, "record_routing_decision", None)
         decision_id = ""
         if callable(record):
@@ -176,6 +185,19 @@ class NativeRouterEngine:
                     if budget_usd is not None and audit_engine == "native"
                     else None
                 ),
+                algorithm_version=decision.algorithm_version,
+                config_hash=(
+                    CONFIG_HASH
+                    if decision.algorithm_version == ALGORITHM_VERSION
+                    else LEGACY_ALGORITHM_VERSION
+                ),
+                task_type=task_type,
+                task_level=task_level,
+                selection_kind=decision.selection_kind,
+                score_tier=decision.score_tier,
+                planning_latency_ms=planning_latency_ms,
+                eligible_count=decision.eligible_count,
+                finalist_count=decision.finalist_count,
             )
         return NativeRoutePlan(
             decision_id=decision_id,
@@ -186,6 +208,19 @@ class NativeRouterEngine:
             candidates_considered=len(decision.ranked),
             budget_usd=budget_usd,
             budget_fallback=budget_fallback,
+            algorithm_version=decision.algorithm_version,
+            config_hash=(
+                CONFIG_HASH
+                if decision.algorithm_version == ALGORITHM_VERSION
+                else LEGACY_ALGORITHM_VERSION
+            ),
+            task_type=task_type,
+            task_level=task_level,
+            selection_kind=decision.selection_kind,
+            score_tier=decision.score_tier,
+            planning_latency_ms=planning_latency_ms,
+            eligible_count=decision.eligible_count,
+            finalist_count=decision.finalist_count,
         )
 
     async def build_candidates(
@@ -195,6 +230,8 @@ class NativeRouterEngine:
         estimated_input_tokens: int,
         max_output_tokens: int,
         task_tags: set[str] | None = None,
+        task_type: str = "medium",
+        task_level: str = "standard",
     ) -> list[RoutingCandidate]:
         connections = [
             item for item in self.service.list_connections() if item.enabled
@@ -207,13 +244,22 @@ class NativeRouterEngine:
             provider_counts[connection.kind] = (
                 provider_counts.get(connection.kind, 0) + 1
             )
+        stats_reader_bulk = getattr(
+            self.repository, "get_candidate_stats_bulk", None
+        )
+        use_bulk_stats = callable(stats_reader_bulk)
+        stats_by_path = (
+            stats_reader_bulk(self.service.tenant_id)
+            if use_bulk_stats
+            else {}
+        )
         candidates: list[RoutingCandidate] = []
         for connection, records in zip(
             connections, records_by_connection, strict=True
         ):
             for record in records:
                 model_id = str(record.get("id", "")).strip()
-                if not model_id:
+                if not is_realtime_chat_model_id(model_id):
                     continue
                 candidates.append(
                     self._candidate_from_record(
@@ -224,6 +270,13 @@ class NativeRouterEngine:
                         max_output_tokens=max_output_tokens,
                         connection_pool_size=provider_counts[connection.kind],
                         task_tags=task_tags or set(),
+                        task_type=task_type,
+                        task_level=task_level,
+                        stats=(
+                            stats_by_path.get((connection.id, model_id), {})
+                            if use_bulk_stats
+                            else None
+                        ),
                     )
                 )
         return candidates
@@ -236,6 +289,10 @@ class NativeRouterEngine:
         success: bool,
         latency_ms: float | None,
         outcome: str,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        output_tokens: int | None = None,
+        tokens_per_second: float | None = None,
     ) -> None:
         record_stats = getattr(self.repository, "record_candidate_outcome", None)
         if callable(record_stats):
@@ -245,13 +302,42 @@ class NativeRouterEngine:
                 target.model_id,
                 success=success,
                 latency_ms=latency_ms,
+                ttft_ms=ttft_ms,
+                e2e_ms=e2e_ms,
+                tokens_per_second=tokens_per_second,
             )
         update_decision = getattr(
             self.repository, "update_routing_decision_outcome", None
         )
         if callable(update_decision) and plan.decision_id:
             update_decision(
-                self.service.tenant_id, plan.decision_id, outcome
+                self.service.tenant_id,
+                plan.decision_id,
+                outcome,
+                ttft_ms=ttft_ms,
+                e2e_ms=e2e_ms,
+                output_tokens=output_tokens,
+                tokens_per_second=tokens_per_second,
+            )
+        record_sample = getattr(
+            self.repository, "record_router_candidate_sample", None
+        )
+        if callable(record_sample):
+            record_sample(
+                self.service.tenant_id,
+                connection_id=target.connection_id,
+                model_id=target.model_id,
+                engine="native",
+                algorithm_version=plan.algorithm_version,
+                config_hash=plan.config_hash,
+                task_type=plan.task_type,
+                success=success,
+                outcome=outcome,
+                ttft_ms=ttft_ms,
+                e2e_ms=e2e_ms,
+                output_tokens=output_tokens,
+                tokens_per_second=tokens_per_second,
+                planning_latency_ms=plan.planning_latency_ms,
             )
         if not success and plan.budget_usd is not None and plan.decision_id:
             settle_budget = getattr(
@@ -318,21 +404,63 @@ class NativeRouterEngine:
         now = time.monotonic()
         if cached and now - cached.stored_at <= self.catalog_ttl_seconds:
             return [dict(item) for item in cached.records]
+        if (
+            cached
+            and self.catalog_ttl_seconds > 0
+            and now - cached.stored_at <= self.catalog_stale_seconds
+        ):
+            self._schedule_catalog_refresh(connection)
+            return [dict(item) for item in cached.records]
         async with self._cache_lock:
             cached = self._catalog_cache.get(connection.id)
             now = time.monotonic()
             if cached and now - cached.stored_at <= self.catalog_ttl_seconds:
                 return [dict(item) for item in cached.records]
+            if (
+                cached
+                and self.catalog_ttl_seconds > 0
+                and now - cached.stored_at <= self.catalog_stale_seconds
+            ):
+                self._schedule_catalog_refresh(connection)
+                return [dict(item) for item in cached.records]
             result, records = await self.service.fetch_connection_model_records(
                 connection.id
             )
             if not result.ok:
+                self._catalog_cache.pop(connection.id, None)
                 return []
             self._catalog_cache[connection.id] = _ConnectionCatalogCache(
                 records=[dict(item) for item in records],
                 stored_at=now,
             )
             return records
+
+    def _schedule_catalog_refresh(self, connection: RouterConnection) -> None:
+        task = self._refresh_tasks.get(connection.id)
+        if task is not None and not task.done():
+            return
+        task = asyncio.create_task(self._refresh_connection(connection))
+        self._refresh_tasks[connection.id] = task
+        task.add_done_callback(
+            lambda completed, connection_id=connection.id: (
+                self._refresh_tasks.pop(connection_id, None)
+            )
+        )
+
+    async def _refresh_connection(self, connection: RouterConnection) -> None:
+        try:
+            result, records = await self.service.fetch_connection_model_records(
+                connection.id
+            )
+        except Exception:
+            return
+        if not result.ok:
+            return
+        async with self._cache_lock:
+            self._catalog_cache[connection.id] = _ConnectionCatalogCache(
+                records=[dict(item) for item in records],
+                stored_at=time.monotonic(),
+            )
 
     def _candidate_from_record(
         self,
@@ -344,6 +472,9 @@ class NativeRouterEngine:
         max_output_tokens: int,
         connection_pool_size: int,
         task_tags: set[str],
+        task_type: str,
+        task_level: str,
+        stats: dict[str, object] | None = None,
     ) -> RoutingCandidate:
         model_id = str(record["id"]).strip()
         input_price, output_price = self._prices(record)
@@ -360,13 +491,15 @@ class NativeRouterEngine:
             else None
         )
         stats_reader = getattr(self.repository, "get_candidate_stats", None)
-        stats = (
-            stats_reader(self.service.tenant_id, connection.id, model_id)
-            if callable(stats_reader)
-            else {}
-        )
+        if stats is None:
+            stats = (
+                stats_reader(self.service.tenant_id, connection.id, model_id)
+                if callable(stats_reader)
+                else {}
+            )
         input_modalities, output_modalities = self._modalities(record)
         capabilities = self._capabilities(record)
+        context_length = self._integer(record.get("context_length"))
         preference_tags = self._preference_tags(
             connection, model_id, input_modalities, capabilities
         )
@@ -380,18 +513,33 @@ class NativeRouterEngine:
             input_modalities=frozenset(input_modalities),
             output_modalities=frozenset(output_modalities),
             capabilities=frozenset(capabilities),
-            context_length=self._integer(record.get("context_length")),
+            context_length=context_length,
             quota_remaining=100.0,
             cost_per_million_tokens=blended_cost,
             estimated_request_cost=estimated_cost,
-            p95_latency_ms=float(stats.get("latency_ema_ms", 1000)),
-            latency_stddev_ms=float(stats.get("latency_stddev_ms", 0)),
+            p95_latency_ms=self._float_or_none(
+                stats.get("p95_latency_ms") or stats.get("latency_ema_ms")
+            ),
+            avg_ttft_ms=self._float_or_none(stats.get("ttft_ema_ms")),
+            avg_e2e_latency_ms=self._float_or_none(stats.get("e2e_ema_ms")),
+            avg_tokens_per_second=self._float_or_none(
+                stats.get("tokens_per_second_ema")
+            ),
+            latency_stddev_ms=self._float_or_none(
+                stats.get("latency_stddev_ms")
+            ),
             error_rate=float(stats.get("error_rate", 0)),
             breaker_state=str(stats.get("breaker_state", "closed")),  # type: ignore[arg-type]
-            task_fit=self._task_fit(model_id, mode, task_tags),
+            task_fit=self._task_fit(
+                model_id,
+                task_type,
+                task_level,
+                capabilities,
+                context_length,
+            ),
             tier_priority=self._tier_priority(connection, model_id),
             context_affinity=self._context_affinity(
-                self._integer(record.get("context_length")),
+                context_length,
                 estimated_input_tokens + max_output_tokens,
             ),
             connection_pool_size=connection_pool_size,
@@ -405,8 +553,10 @@ class NativeRouterEngine:
             item.id: item for item in self.service.list_connections()
         }
         targets: list[NativeDispatchTarget] = []
-        for item in decision.ranked[:3]:
+        for item in decision.ranked:
             candidate = item.candidate
+            if not is_realtime_chat_model_id(candidate.model_id):
+                continue
             connection = connections.get(candidate.connection_id)
             if connection is None:
                 continue
@@ -430,6 +580,8 @@ class NativeRouterEngine:
                     score=item.score,
                 )
             )
+            if len(targets) == 3:
+                break
         if not targets:
             raise NoEligibleCandidateError(
                 "no_dispatch_target",
@@ -594,35 +746,24 @@ class NativeRouterEngine:
 
     @staticmethod
     def _task_fit(
-        model_id: str, mode: RoutingMode, task_tags: set[str]
+        model_id: str,
+        task_type: str,
+        task_level: str,
+        capabilities: set[str],
+        context_length: int | None,
     ) -> float:
-        lowered = model_id.lower()
-        quality_hints = (
-            ("opus-5", 1.0),
-            ("gpt-5.6", 0.98),
-            ("fable-5", 0.96),
-            ("sonnet-4.6", 0.92),
-            ("gemini-3", 0.90),
-            ("kimi-k3", 0.88),
-            ("deepseek-v4", 0.86),
+        fitness = get_task_fitness(
+            model_id,
+            task_type,
+            capabilities=frozenset(capabilities),
+            context_length=context_length,
         )
-        quality = next(
-            (score for hint, score in quality_hints if hint in lowered),
-            0.62,
-        )
-        if mode == "quality":
-            return quality
-        if "coding" in task_tags and any(
-            hint in lowered
-            for hint in ("code", "coder", "codex", "devstral", "sol")
-        ):
-            return max(quality, 0.92)
-        if "reasoning" in task_tags and (
-            "reasoning" in lowered
-            or any(hint in lowered for hint in ("o3", "o4", "thinking"))
-        ):
-            return max(quality, 0.92)
-        return max(0.5, quality * 0.8)
+        quality = NativeRouterEngine._tier_priority_from_id(model_id)
+        if task_level == "critical":
+            return fitness * 0.5 + quality * 0.5
+        if task_level == "heavy":
+            return fitness * 0.7 + quality * 0.3
+        return fitness
 
     @staticmethod
     def _tier_priority(
@@ -631,6 +772,11 @@ class NativeRouterEngine:
         lowered = model_id.lower()
         if lowered.endswith(":free") or "/free" in lowered:
             return 0.0
+        return NativeRouterEngine._tier_priority_from_id(model_id)
+
+    @staticmethod
+    def _tier_priority_from_id(model_id: str) -> float:
+        lowered = model_id.lower()
         quality_hints = (
             ("opus-5", 1.0),
             ("gpt-5.6", 0.98),
@@ -644,6 +790,25 @@ class NativeRouterEngine:
             (score for hint, score in quality_hints if hint in lowered),
             0.5,
         )
+
+    @staticmethod
+    def algorithm_version() -> str:
+        configured = os.getenv(
+            "MODEL_ROUTER_NATIVE_ALGORITHM", ALGORITHM_VERSION
+        ).strip().lower()
+        return (
+            LEGACY_ALGORITHM_VERSION
+            if configured in {"legacy", LEGACY_ALGORITHM_VERSION}
+            else ALGORITHM_VERSION
+        )
+
+    @staticmethod
+    def _float_or_none(value: object) -> float | None:
+        try:
+            parsed = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed >= 0 else None
 
     @staticmethod
     def _context_affinity(

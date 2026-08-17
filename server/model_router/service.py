@@ -221,7 +221,7 @@ class ModelRouterService:
             not in {"1", "true", "yes", "on"}
         ):
             gate = self.diagnostics().get("migration_gate", {})
-            if not bool(gate.get("automatic_native_default_allowed")):
+            if not bool(gate.get("native_default_allowed")):
                 request_count = int(gate.get("request_count") or 0)
                 observed_days = float(gate.get("observed_days") or 0)
                 raise RouterServiceError(
@@ -235,6 +235,44 @@ class ModelRouterService:
                     status_code=409,
                 )
         return self.repository.save_policy(self.tenant_id, policy)
+
+    def approve_native_gate(
+        self, *, no_open_p0_p1: bool, drills: dict[str, bool]
+    ) -> dict[str, object]:
+        gate = self.diagnostics().get("migration_gate", {})
+        if not bool(gate.get("automatic_native_default_allowed")):
+            blockers = gate.get("blocking_reasons") or []
+            raise RouterServiceError(
+                "native_automatic_gate_not_met",
+                "自动门禁尚未通过：" + "；".join(str(item) for item in blockers),
+                status_code=409,
+            )
+        writer = getattr(self.repository, "save_native_gate_approval", None)
+        if not callable(writer):
+            raise RouterServiceError(
+                "native_approval_unavailable",
+                "当前存储后端不支持原生路由批准。",
+                status_code=501,
+            )
+        try:
+            writer(
+                self.tenant_id,
+                algorithm_version=str(gate.get("algorithm_version") or ""),
+                config_hash=str(gate.get("config_hash") or ""),
+                no_open_p0_p1=no_open_p0_p1,
+                drills=drills,
+            )
+        except ValueError as exc:
+            raise RouterServiceError(
+                "native_approval_incomplete", str(exc), status_code=422
+            ) from exc
+        return self.diagnostics()
+
+    def revoke_native_gate(self) -> dict[str, object]:
+        revoke = getattr(self.repository, "revoke_native_gate_approval", None)
+        if callable(revoke):
+            revoke(self.tenant_id)
+        return self.diagnostics()
 
     def status(self) -> RouterStatus:
         connections = self.list_connections(scope="chat")
@@ -260,6 +298,7 @@ class ModelRouterService:
                 "redacted": True,
                 "migration_gate": {
                     "automatic_native_default_allowed": False,
+                    "native_default_allowed": False,
                     "manual_safety_gates_required": True,
                 },
                 "recent_decisions": [],

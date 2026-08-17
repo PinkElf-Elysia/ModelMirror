@@ -21,6 +21,7 @@ from .schemas import (
     RouterConnection,
     RouterConnectionCreate,
     RouterConnectionUpdate,
+    RouterGateApprovalRequest,
     RouterEngine,
     RouterPolicy,
     RouterStatus,
@@ -34,6 +35,7 @@ from .engine import (
     infer_task_tags,
 )
 from .routing import NoEligibleCandidateError
+from .omniroute_parity import classify_task
 
 __all__ = [
     "CompressionMode",
@@ -50,6 +52,7 @@ __all__ = [
     "RouterConnectionCreate",
     "RouterConnectionNotFound",
     "RouterConnectionUpdate",
+    "RouterGateApprovalRequest",
     "RouterCredentialUnavailable",
     "RouterEngine",
     "RouterPolicy",
@@ -60,6 +63,7 @@ __all__ = [
     "RoutingMode",
     "SQLiteRouterRepository",
     "configure_model_router",
+    "classify_task",
     "get_model_router_service",
     "get_native_router_engine",
     "infer_task_tags",
