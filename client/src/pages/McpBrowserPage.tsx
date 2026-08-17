@@ -49,19 +49,21 @@ export function prioritizeReadyProjects<T>(
     })
     .map(({ project }) => project);
 }
-type AvailabilityFilter = "all" | "ready" | "in_progress" | "blocked";
+type AvailabilityFilter =
+  | "all"
+  | "ready"
+  | "adapting"
+  | "planned"
+  | "blocked";
 
 const INITIAL_VISIBLE_COUNT = 18;
-const PRIMARY_CATEGORY_COUNT = 3;
+const PRIMARY_CATEGORY_COUNT = 6;
 
 function matchesAvailability(
   availability: McpAvailability,
   filter: AvailabilityFilter,
 ) {
   if (filter === "all") return true;
-  if (filter === "in_progress") {
-    return availability === "planned" || availability === "adapting";
-  }
   return availability === filter;
 }
 
@@ -81,6 +83,17 @@ export default function McpBrowserPage() {
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [isLoadingRuntime, setIsLoadingRuntime] = useState(false);
   const [runtimeError, setRuntimeError] = useState("");
+  const [favorites, setFavorites] = useState<Set<string>>(() => {
+    try {
+      const raw = window.localStorage.getItem("modelmirror-mcp-favorites");
+      const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+      return Array.isArray(parsed)
+        ? new Set(parsed.filter((item): item is string => typeof item === "string"))
+        : new Set<string>();
+    } catch {
+      return new Set<string>();
+    }
+  });
 
   useEffect(() => {
     document.title = "模镜 - MCP 工具采购";
@@ -210,16 +223,50 @@ export default function McpBrowserPage() {
         .toLocaleLowerCase("zh-CN");
       return searchableText.includes(normalizedQuery);
     });
-    return prioritizeReadyProjects(
+    const prioritized = prioritizeReadyProjects(
       matches,
       (project) => effectiveAvailability(project.id),
       availabilityFilter === "all" && selectedCategory === "全部类别",
     );
-  }, [availabilityFilter, effectiveAvailability, query, selectedCategory]);
+    // 收藏的项目优先展示，紧随 ready 排序之后。
+    const withFavorites = prioritized.filter((project) =>
+      favorites.has(project.id),
+    );
+    const withoutFavorites = prioritized.filter(
+      (project) => !favorites.has(project.id),
+    );
+    return [...withFavorites, ...withoutFavorites];
+  }, [
+    availabilityFilter,
+    effectiveAvailability,
+    favorites,
+    query,
+    selectedCategory,
+  ]);
   const visibleProjects = useMemo(
     () => filteredProjects.slice(0, visibleCount),
     [filteredProjects, visibleCount],
   );
+
+  function toggleFavorite(projectId: string) {
+    setFavorites((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
+      try {
+        window.localStorage.setItem(
+          "modelmirror-mcp-favorites",
+          JSON.stringify(Array.from(next)),
+        );
+      } catch {
+        // 存储不可用时静默降级为本次会话内有效。
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_COUNT);
@@ -372,7 +419,8 @@ export default function McpBrowserPage() {
                 <span className="whitespace-nowrap text-xs font-semibold text-slate-300">按适配状态</span>
                 {([
                   ["ready", "可用", readyCount],
-                  ["in_progress", "适配中", plannedCount + adaptingCount],
+                  ["adapting", "适配中", adaptingCount],
+                  ["planned", "已排期", plannedCount],
                   ["blocked", "未适配", blockedCount],
                 ] as const).map(([value, label, count]) => {
                   const isSelected = availabilityFilter === value;
@@ -394,7 +442,11 @@ export default function McpBrowserPage() {
                 })}
               </div>
               <span aria-hidden="true" className="hidden h-7 w-px shrink-0 bg-white/10 sm:block" />
-              <div className="flex flex-wrap items-center gap-2" role="group" aria-label="按工具类别筛选">
+              <div
+                className="flex items-center gap-2 overflow-x-auto pb-1"
+                role="group"
+                aria-label="按工具类别筛选"
+              >
                 <span className="whitespace-nowrap text-xs font-semibold text-slate-300">按工具类别</span>
                 {primaryCategories.map((category) => {
                   const isSelected = selectedCategory === category;
@@ -471,8 +523,10 @@ export default function McpBrowserPage() {
                   return (
                     <McpServerCard
                       adapterStatus={adapterStatus}
+                      favorite={favorites.has(project.id)}
                       key={project.id}
                       onConnectionChange={() => void refreshRuntime()}
+                      onToggleFavorite={() => toggleFavorite(project.id)}
                       project={project}
                       restoredSession={sessions.find(
                         (session) => session.session_id === adapterStatus?.session_id,

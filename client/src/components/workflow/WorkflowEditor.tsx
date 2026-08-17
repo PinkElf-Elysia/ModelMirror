@@ -915,7 +915,9 @@ function runtimeMiddlewareBooleanValue(
 
 interface RegistryToolOption {
   name: string;
-  description?: string;
+  description?: string | null;
+  server_id?: string;
+  session_id?: string;
 }
 
 function isRegistryToolOption(value: unknown): value is RegistryToolOption {
@@ -2370,14 +2372,19 @@ function NodeConfig({
 
     async function loadRegistryTools() {
       try {
-        const tools = await cachedFetchResource<unknown[]>("/api/registry/tools", async () => {
-          const response = await fetch("/api/registry/tools");
-          if (!response.ok) {
-            throw new Error("工具注册表暂时不可用。");
-          }
-          const payload: unknown = await response.json();
-          return Array.isArray(payload) ? payload : [];
-        });
+        const tools = await cachedFetchResource<RegistryToolOption[]>(
+          "/api/registry/tools",
+          async () => {
+            const response = await fetch("/api/registry/tools");
+            if (!response.ok) {
+              throw new Error("工具注册表暂时不可用。");
+            }
+            const payload = (await response.json()) as {
+              tools?: RegistryToolOption[];
+            };
+            return Array.isArray(payload.tools) ? payload.tools : [];
+          },
+        );
         if (!cancelled) {
           setRegistryTools(tools.filter(isRegistryToolOption));
           setRegistryToolsError("");
@@ -3391,12 +3398,21 @@ function NodeConfig({
               </option>
               {registryTools.map((tool) => (
                 <option className="bg-slate-950" key={tool.name} value={tool.name}>
-                  {tool.name}
+                  {tool.server_id
+                    ? `${tool.name} — ${tool.server_id}`
+                    : tool.name}
                 </option>
               ))}
             </select>
             {registryToolsError ? (
               <p className="mt-2 text-xs text-rose-200">{registryToolsError}</p>
+            ) : null}
+            {registryTools.length > 0 ? (
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                共 {registryTools.length} 个已注册工具，来自{" "}
+                {new Set(registryTools.map((tool) => tool.server_id).filter(Boolean)).size}{" "}
+                个 MCP Server。
+              </p>
             ) : null}
           </Field>
           <Field label="参数 JSON（支持 {{变量}}）">

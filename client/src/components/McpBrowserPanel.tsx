@@ -136,6 +136,7 @@ export default function McpBrowserPanel({
   const [error, setError] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<string | null>(null);
   const [deletingArtifact, setDeletingArtifact] = useState<string | null>(null);
+  const [policyExpanded, setPolicyExpanded] = useState(false);
 
   const loadState = useCallback(async (signal?: AbortSignal) => {
     if (availability !== "ready" || !policy) return;
@@ -327,24 +328,43 @@ export default function McpBrowserPanel({
         </div>
       ) : null}
 
-      {!compact ? <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.035] p-3 text-slate-300">
-        <p className="font-semibold text-white">固定边界</p>
-        <p className="mt-1 leading-5">
-          仅允许公网 {policy.allowed_schemes.map((item) => item.toUpperCase()).join("/")} 与端口 {policy.allowed_ports.join("、")}；DNS 固定后连接，跨 origin 请求与重定向直接拒绝。最多 {policy.max_pages} 个页面，全局最多 {policy.max_concurrent_sessions} 个并发会话。
-        </p>
-        <p className="mt-1 leading-5 text-slate-400">
-          导航超时 {policy.navigation_timeout_seconds} 秒，工具调用超时 {policy.call_timeout_seconds} 秒；出口最多 {policy.max_tunnels_per_session} 个并发隧道、累计 {formatBytes(policy.max_egress_bytes_per_session)}，隧道闲置 {policy.egress_tunnel_idle_seconds} 秒或持续 {policy.egress_tunnel_ttl_seconds} 秒即关闭。
-        </p>
-        <p className="mt-1 leading-5 text-slate-400">
-          单次工具结果最多 {formatBytes(policy.max_output_bytes)}。网页自身产生的 Cookie、缓存和站点存储只存在于临时 profile，结束会话时删除。
-        </p>
-        <p className="mt-2 leading-5 text-slate-400">
-          已关闭：{policyDisabledCapabilities.join("、")}。
-        </p>
-        <p className="mt-2 leading-5 text-amber-100">
-          页面仍可能自行呈现登录界面；本批不会把它作为可用能力，也不会采集、继承或保存登录态。请勿输入账号、密码、OTP 或其他认证信息。
-        </p>
-      </div> : null}
+      {!compact ? (
+        <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.035] p-3 text-slate-300">
+          <button
+            className="flex w-full items-center justify-between gap-2 text-left"
+            onClick={() => setPolicyExpanded((current) => !current)}
+            type="button"
+          >
+            <span className="font-semibold text-white">固定边界</span>
+            <span className="text-xs text-slate-400">
+              {policyExpanded ? "收起详情" : "展开详情"}
+            </span>
+          </button>
+          {policyExpanded ? (
+            <>
+              <p className="mt-1 leading-5">
+                仅允许公网 {policy.allowed_schemes.map((item) => item.toUpperCase()).join("/")} 与端口 {policy.allowed_ports.join("、")}；DNS 固定后连接，跨 origin 请求与重定向直接拒绝。最多 {policy.max_pages} 个页面，全局最多 {policy.max_concurrent_sessions} 个并发会话。
+              </p>
+              <p className="mt-1 leading-5 text-slate-400">
+                导航超时 {policy.navigation_timeout_seconds} 秒，工具调用超时 {policy.call_timeout_seconds} 秒；出口最多 {policy.max_tunnels_per_session} 个并发隧道、累计 {formatBytes(policy.max_egress_bytes_per_session)}，隧道闲置 {policy.egress_tunnel_idle_seconds} 秒或持续 {policy.egress_tunnel_ttl_seconds} 秒即关闭。
+              </p>
+              <p className="mt-1 leading-5 text-slate-400">
+                单次工具结果最多 {formatBytes(policy.max_output_bytes)}。网页自身产生的 Cookie、缓存和站点存储只存在于临时 profile，结束会话时删除。
+              </p>
+              <p className="mt-2 leading-5 text-slate-400">
+                已关闭：{policyDisabledCapabilities.join("、")}。
+              </p>
+              <p className="mt-2 leading-5 text-amber-100">
+                页面仍可能自行呈现登录界面；本批不会把它作为可用能力，也不会采集、继承或保存登录态。请勿输入账号、密码、OTP 或其他认证信息。
+              </p>
+            </>
+          ) : (
+            <p className="mt-1 leading-5">
+              仅允许公网 {policy.allowed_schemes.map((item) => item.toUpperCase()).join("/")} 端口 {policy.allowed_ports.join("、")}；单次结果最多 {formatBytes(policy.max_output_bytes)}，登录态不保留。详细限制见下方。
+            </p>
+          )}
+        </div>
+      ) : null}
 
       <div className="mt-3 border-t border-white/10 pt-3">
         <div className="flex flex-wrap items-center justify-between gap-2">

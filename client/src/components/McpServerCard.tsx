@@ -173,6 +173,9 @@ interface McpServerCardProps {
   adapterStatus?: McpCatalogAdapterStatus;
   restoredSession?: McpSessionSummary;
   onConnectionChange?: () => void;
+  /** 是否已收藏（本地收藏优先排序）。 */
+  favorite?: boolean;
+  onToggleFavorite?: () => void;
 }
 
 export interface McpSessionSummary {
@@ -469,6 +472,8 @@ export default function McpServerCard({
   adapterStatus,
   restoredSession,
   onConnectionChange,
+  favorite = false,
+  onToggleFavorite,
 }: McpServerCardProps) {
   const [state, setState] = useState<ConnectionState>("idle");
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -514,7 +519,12 @@ export default function McpServerCard({
   const isPlaywrightCard = project.id === "playwright-mcp";
   const isReadyProductCard = availability === "ready";
   const isConnected = state === "connected" || adapterStatus?.connected === true;
-  const unavailableStatusLabel = availability === "adapting" ? "适配中" : "未适配";
+  const unavailableStatusLabel =
+    availability === "adapting"
+      ? "适配中"
+      : availability === "planned"
+        ? "已排期"
+        : "未适配";
   const unavailableReason = compactUnavailableReason(
     availability,
     limitations,
@@ -1250,9 +1260,7 @@ export default function McpServerCard({
 
   return (
     <article
-      className={`group relative flex h-full w-full flex-col rounded-lg p-5 shadow-prism transition duration-200 ${
-        isReadyProductCard ? "min-h-[360px]" : "min-h-[280px]"
-      } ${
+      className={`group relative flex h-full w-full flex-col rounded-lg p-5 shadow-prism transition duration-200 min-h-[320px] ${
         isReadyProductCard && isWorkbenchOpen ? "" : "isolate overflow-hidden"
       } border border-white/10 bg-ink-950/78 hover:border-hire-300/40 hover:bg-surface-900/92`}
     >
@@ -1297,6 +1305,22 @@ export default function McpServerCard({
                 </div>
               </div>
             </div>
+            {onToggleFavorite ? (
+              <button
+                aria-label={favorite ? `取消收藏 ${project.name}` : `收藏 ${project.name}`}
+                aria-pressed={favorite}
+                className={`shrink-0 rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ${
+                  favorite
+                    ? "border-hire-300/50 bg-hire-300/15 text-hire-100 hover:bg-hire-300/25"
+                    : "border-white/10 bg-white/[0.04] text-slate-400 hover:border-hire-300/30 hover:text-hire-100"
+                }`}
+                onClick={onToggleFavorite}
+                title={favorite ? "取消收藏" : "收藏到常用"}
+                type="button"
+              >
+                {favorite ? "★ 已收藏" : "☆ 收藏"}
+              </button>
+            ) : null}
           </div>
 
           <p className="relative mt-5 line-clamp-3 text-sm leading-6 text-slate-200">
@@ -1304,6 +1328,35 @@ export default function McpServerCard({
           </p>
 
           <div className="relative mt-5 border-y border-white/10 py-4">
+            {adapterStatus?.tool_policies &&
+            Object.keys(adapterStatus.tool_policies).length > 0 ? (
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-brand-300/25 bg-brand-300/[0.08] px-2.5 py-1 text-xs font-semibold text-brand-100">
+                  {Object.keys(adapterStatus.tool_policies).length} 个工具
+                </span>
+                {(() => {
+                  const policies = Object.values(adapterStatus.tool_policies);
+                  const readOnly = policies.filter((p) => p.read_only).length;
+                  const writes = policies.filter((p) => !p.read_only).length;
+                  const approvals = policies.filter(
+                    (p) => p.requires_approval,
+                  ).length;
+                  if (writes === 0) {
+                    return (
+                      <span className="rounded-md border border-emerald-300/25 bg-emerald-300/10 px-2.5 py-1 text-xs font-medium text-emerald-100">
+                        只读为主
+                      </span>
+                    );
+                  }
+                  return (
+                    <span className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-slate-300">
+                      含 {writes} 个写入工具
+                      {approvals > 0 ? ` · ${approvals} 个需审批` : ""}
+                    </span>
+                  );
+                })()}
+              </div>
+            ) : null}
             <p className="text-xs font-semibold text-slate-400">主要能力</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {readyCardCopy.tags.map((tag) => (
@@ -1357,7 +1410,9 @@ export default function McpServerCard({
                 className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
                   availability === "adapting"
                     ? "border-cyan-300/25 bg-cyan-300/10 text-cyan-100"
-                    : "border-amber-300/25 bg-amber-300/10 text-amber-100"
+                    : availability === "blocked"
+                      ? "border-rose-300/25 bg-rose-300/[0.08] text-rose-100"
+                      : "border-slate-300/20 bg-slate-300/[0.06] text-slate-300"
                 }`}
               >
                 {unavailableStatusLabel}
@@ -1393,7 +1448,9 @@ export default function McpServerCard({
         className={`relative mt-4 rounded-lg border px-4 py-3 ${
           availability === "adapting"
             ? "border-cyan-300/20 bg-cyan-300/[0.06]"
-            : "border-amber-300/20 bg-amber-300/[0.06]"
+            : availability === "blocked"
+              ? "border-rose-300/20 bg-rose-300/[0.06]"
+              : "border-slate-300/20 bg-slate-300/[0.05]"
         }`}
       >
         <p className="text-xs font-semibold text-slate-200">{unavailableStatusLabel}</p>
@@ -1668,13 +1725,79 @@ export default function McpServerCard({
         />
       ) : null}
 
+      {canConnect && state !== "connected" ? (
+        <div className="relative mt-4 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
+          <p className="text-[11px] font-semibold text-slate-400">连接前准备</p>
+          <ol className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+            {workspacePolicy?.required ? (
+              <li
+                className={`inline-flex items-center gap-1 ${
+                  boundWorkspace
+                    ? "text-emerald-100"
+                    : "text-slate-300"
+                }`}
+              >
+                <span
+                  className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold ${
+                    boundWorkspace
+                      ? "bg-emerald-300/20 text-emerald-100"
+                      : "bg-white/10 text-slate-400"
+                  }`}
+                >
+                  {boundWorkspace ? "✓" : "1"}
+                </span>
+                工作区
+              </li>
+            ) : null}
+            {needsCatalogConfiguration ? (
+              <li
+                className={`inline-flex items-center gap-1 ${
+                  catalogConfigured ? "text-emerald-100" : "text-slate-300"
+                }`}
+              >
+                <span
+                  className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold ${
+                    catalogConfigured
+                      ? "bg-emerald-300/20 text-emerald-100"
+                      : "bg-white/10 text-slate-400"
+                  }`}
+                >
+                  {catalogConfigured ? "✓" : "2"}
+                </span>
+                配置凭据
+              </li>
+            ) : null}
+            {databasePreflight !== "not-applicable" ? (
+              <li
+                className={`inline-flex items-center gap-1 ${
+                  databasePreflight === "verified" ? "text-emerald-100" : "text-slate-300"
+                }`}
+              >
+                <span
+                  className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold ${
+                    databasePreflight === "verified"
+                      ? "bg-emerald-300/20 text-emerald-100"
+                      : "bg-white/10 text-slate-400"
+                  }`}
+                >
+                  {databasePreflight === "verified" ? "✓" : "3"}
+                </span>
+                预检
+              </li>
+            ) : null}
+          </ol>
+        </div>
+      ) : null}
+
       <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-5">
         {canConnect ? (
           <button
-            className={`min-h-11 rounded-full px-4 py-2 text-sm font-semibold text-ink-950 transition duration-200 disabled:cursor-not-allowed disabled:opacity-45 ${
-              isPlaywrightCard
-                ? "bg-hire-300 hover:bg-hire-200"
-                : "bg-brand-300 shadow-[0_0_24px_rgba(34,211,238,0.18)] hover:bg-brand-200"
+            className={`min-h-11 rounded-full px-4 py-2 text-sm font-semibold text-ink-950 transition duration-200 disabled:cursor-not-allowed ${
+              state === "connected"
+                ? "bg-emerald-300 shadow-[0_0_20px_rgba(52,211,153,0.2)] hover:bg-emerald-200"
+                : isPlaywrightCard
+                  ? "bg-hire-300 hover:bg-hire-200 disabled:opacity-45"
+                  : "bg-brand-300 shadow-[0_0_24px_rgba(34,211,238,0.18)] hover:bg-brand-200 disabled:opacity-45"
             }`}
             disabled={
               state === "connecting" ||
@@ -1690,7 +1813,7 @@ export default function McpServerCard({
             {state === "connecting"
               ? isBrowserAdapter ? "正在创建临时会话" : "连接中..."
               : state === "connected"
-                ? "传输已连接"
+                ? "✓ 传输已连接"
                 : workspacePolicy?.required && !boundWorkspace
                   ? "先绑定工作区"
                   : needsCatalogConfiguration && !catalogConfigured
@@ -1791,7 +1914,11 @@ export default function McpServerCard({
       ) : null}
 
       {error ? (
-        <div className="relative mt-4 rounded-lg border border-rose-300/25 bg-rose-300/10 p-3 text-sm leading-6 text-rose-100">
+        <div
+          aria-live="assertive"
+          className="relative mt-4 rounded-lg border border-rose-300/25 bg-rose-300/10 p-3 text-sm leading-6 text-rose-100"
+          role="alert"
+        >
           {error}
         </div>
       ) : null}
