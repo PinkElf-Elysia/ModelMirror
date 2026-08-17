@@ -98,11 +98,13 @@ interface StoredCodingSession {
   id: string;
   lastSeq: number;
   projectId: string;
+  workerTaskId?: string;
 }
 
 const CODING_SESSION_STORAGE_KEY = "modelmirror.coding.session.v1";
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const SAFE_PROJECT_ID = /^(?:modelmirror|local-[a-f0-9]{24}|hostgit_[a-f0-9]{32})$/;
+const SAFE_WORKER_TASK_ID = /^task_[a-f0-9]{32}$/;
 const STREAM_RENDER_INTERVAL_MS = 80;
 const BUILTIN_PROJECT: CodingProjectSummary = {
   branch: null,
@@ -160,17 +162,42 @@ function readStoredCodingSession(): StoredCodingSession | null {
       typeof value.projectId === "string" && SAFE_PROJECT_ID.test(value.projectId)
         ? value.projectId
         : "modelmirror";
-    return { id: value.id, lastSeq: value.lastSeq as number, projectId };
+    const workerTaskId =
+      typeof value.workerTaskId === "string" &&
+      SAFE_WORKER_TASK_ID.test(value.workerTaskId)
+        ? value.workerTaskId
+        : undefined;
+    return {
+      id: value.id,
+      lastSeq: value.lastSeq as number,
+      projectId,
+      workerTaskId,
+    };
   } catch {
     return null;
   }
 }
 
-function storeCodingSession(id: string, lastSeq: number, projectId: string) {
+function storeCodingSession(
+  id: string,
+  lastSeq: number,
+  projectId: string,
+  workerTaskId?: string,
+) {
   if (typeof window === "undefined") return;
+  const existing = readStoredCodingSession();
+  const retainedWorkerTaskId =
+    workerTaskId ?? (existing?.id === id ? existing.workerTaskId : undefined);
   window.sessionStorage.setItem(
     CODING_SESSION_STORAGE_KEY,
-    JSON.stringify({ id, lastSeq, projectId }),
+    JSON.stringify({
+      id,
+      lastSeq,
+      projectId,
+      ...(retainedWorkerTaskId
+        ? { workerTaskId: retainedWorkerTaskId }
+        : {}),
+    }),
   );
 }
 
@@ -467,7 +494,19 @@ function CodingCommandConfirmation({
   );
 }
 
-function LegacyCodingPage() {
+interface LegacyCodingPageProps {
+  onReturnToWorker?: () => void;
+  onSessionCleared?: () => void;
+  onWritebackClosed?: () => void;
+  writebackOnly?: boolean;
+}
+
+function LegacyCodingPage({
+  onReturnToWorker,
+  onSessionCleared,
+  onWritebackClosed,
+  writebackOnly = false,
+}: LegacyCodingPageProps = {}) {
   const restoredSessionRef = useRef<StoredCodingSession | null>(
     readStoredCodingSession(),
   );
@@ -825,9 +864,10 @@ function LegacyCodingPage() {
       setError(
         "代码服务已重新启动。若有可继续的修改，页面会在上方提示；此前对话不会恢复。",
       );
+      onSessionCleared?.();
       return true;
     },
-    [clearPendingStreamRender, sessionId],
+    [clearPendingStreamRender, onSessionCleared, sessionId],
   );
 
   const loadRecovery = useCallback(async () => {
@@ -2165,6 +2205,7 @@ function LegacyCodingPage() {
     setRecoveryConflict(null);
     setRunState("idle");
     await loadCapabilities();
+    onWritebackClosed?.();
   };
 
   const resumeRecovery = async () => {
@@ -2277,15 +2318,52 @@ function LegacyCodingPage() {
       contentClassName="min-w-0"
       maxWidthClassName="max-w-[1360px]"
       sidebar={
-        <CodingSidebar
-          isDraft={isDraftMode}
-          localDraftOnly={localDraftOnly}
-          localWriteback={localWriteback}
-          localWritebackAvailable={localWritebackAvailable}
-        />
+        writebackOnly ? undefined : (
+          <CodingSidebar
+            isDraft={isDraftMode}
+            localDraftOnly={localDraftOnly}
+            localWriteback={localWriteback}
+            localWritebackAvailable={localWritebackAvailable}
+          />
+        )
       }
     >
-      <header className="mb-5 border-b border-white/10 pb-5">
+      {writebackOnly ? (
+        <header className="mb-5 rounded-xl border border-cyan-300/20 bg-cyan-300/[0.055] p-4 sm:p-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-cyan-100">
+                <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1">
+                  Coding Worker
+                </span>
+                <span className="rounded-full border border-white/10 bg-white/[0.045] px-2.5 py-1">
+                  v13 安全写回
+                </span>
+              </div>
+              <h1 className="mt-3 text-2xl font-semibold tracking-[-0.025em] text-white sm:text-3xl">
+                宿主写回确认
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+                Worker 任务与检查证据已经完成。请在这里审阅 Diff，再决定是否写入所选项目、保存本地提交或撤销；不会启动旧版代码 Agent，也不会自动上传。
+              </p>
+              <p className="mt-2 break-all text-xs text-slate-400">
+                项目：{selectedProject?.name ?? selectedProjectId}
+                {selectedProject?.branch ? ` · 分支：${selectedProject.branch}` : ""}
+              </p>
+            </div>
+            <button
+              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/[0.055] px-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/35 hover:bg-cyan-300/10"
+              onClick={onReturnToWorker}
+              type="button"
+            >
+              <ArrowLeft aria-hidden="true" size={16} />
+              返回 Worker 任务
+            </button>
+          </div>
+        </header>
+      ) : null}
+
+      <header className={`${writebackOnly ? "hidden" : ""} mb-5 border-b border-white/10 pb-5`}>
         <Link
           className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-slate-300 transition hover:text-white xl:hidden"
           to="/studio"
@@ -2353,7 +2431,7 @@ function LegacyCodingPage() {
         </div>
       </header>
 
-      <section className="mb-5 rounded-lg border border-white/10 bg-ink-950/55 p-4">
+      <section className={`${writebackOnly ? "hidden" : ""} mb-5 rounded-lg border border-white/10 bg-ink-950/55 p-4`}>
         <div className="flex items-start gap-3">
           <FolderOpen
             aria-hidden="true"
@@ -2450,7 +2528,7 @@ function LegacyCodingPage() {
 
       <section
         aria-live="polite"
-        className={`mb-5 flex items-start gap-3 rounded-lg px-4 py-3 ${
+        className={`${writebackOnly ? "hidden" : ""} mb-5 flex items-start gap-3 rounded-lg px-4 py-3 ${
           capabilityState === "loading"
             ? "bg-white/[0.045] text-slate-300"
             : workspaceAvailable
@@ -2523,10 +2601,16 @@ function LegacyCodingPage() {
         </p>
       ) : null}
 
-      <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div
+        className={
+          writebackOnly
+            ? "min-w-0"
+            : "grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_360px]"
+        }
+      >
         <div className="flex min-w-0 flex-col gap-5">
           <section
-            className={`order-3 rounded-lg bg-ink-950/72 ${
+            className={`${writebackOnly ? "hidden" : ""} order-3 rounded-lg bg-ink-950/72 ${
               isDraftMode ? "" : "min-h-[360px]"
             }`}
           >
@@ -2600,7 +2684,7 @@ function LegacyCodingPage() {
           </section>
 
           <form
-            className="order-1 rounded-lg border border-white/10 bg-surface-900/88 p-4"
+            className={`${writebackOnly ? "hidden" : ""} order-1 rounded-lg border border-white/10 bg-surface-900/88 p-4`}
             onSubmit={(event) => void submitPrompt(event)}
           >
             <label className="text-sm font-semibold text-white" htmlFor="coding-prompt">
@@ -2686,7 +2770,7 @@ function LegacyCodingPage() {
             </div>
           ) : null}
 
-          {pendingCommand ? (
+          {!writebackOnly && pendingCommand ? (
             <CodingCommandConfirmation
               action={commandAction}
               error={commandError}
@@ -2785,7 +2869,7 @@ function LegacyCodingPage() {
           ) : null}
         </div>
 
-        <aside className="min-w-0 space-y-5">
+        <aside className={`${writebackOnly ? "hidden" : ""} min-w-0 space-y-5`}>
           <section className="rounded-lg border border-white/10 bg-ink-950/72">
             <div className="border-b border-white/10 px-4 py-3">
               <h2 className="text-sm font-semibold text-white">分析计划</h2>
@@ -2865,32 +2949,76 @@ function LegacyCodingPage() {
 }
 
 export default function CodingPage() {
-  const hasLegacySession = readStoredCodingSession() !== null;
-  const [surface, setSurface] = useState<"loading" | "legacy" | "worker">(
-    hasLegacySession ? "legacy" : "loading",
+  const initialSessionRef = useRef<StoredCodingSession | null>(
+    readStoredCodingSession(),
   );
+  const [hasStoredSession, setHasStoredSession] = useState(
+    initialSessionRef.current !== null,
+  );
+  const [surface, setSurface] = useState<
+    "loading" | "legacy" | "worker" | "writeback"
+  >(
+    initialSessionRef.current?.workerTaskId
+      ? "writeback"
+      : hasStoredSession
+        ? "legacy"
+        : "loading",
+  );
+  const handleSessionCleared = useCallback(() => {
+    initialSessionRef.current = null;
+    setHasStoredSession(false);
+    setSurface("loading");
+  }, []);
 
   useEffect(() => {
-    if (hasLegacySession) return;
+    if (hasStoredSession) return;
     let active = true;
     void Promise.all([getCodingWorkerStatus(), getCodingRecovery()])
       .then(([status, recovery]) => {
-        if (active) setSurface(status.enabled && status.available && !recovery.pending ? "worker" : "legacy");
+        if (!active) return;
+        if (recovery.pending && recovery.project?.kind === "host_git") {
+          setSurface("writeback");
+          return;
+        }
+        setSurface(
+          status.enabled && status.available && !recovery.pending
+            ? "worker"
+            : "legacy",
+        );
       })
       .catch(() => { if (active) setSurface("legacy"); });
     return () => { active = false; };
-  }, [hasLegacySession]);
+  }, [hasStoredSession]);
 
   if (surface === "loading") {
     return <div className="mx-auto mt-10 min-h-[60vh] max-w-7xl animate-pulse rounded-xl bg-white/5" aria-label="正在选择 Coding 执行面" />;
   }
-  return surface === "worker"
-    ? <CodingWorkerConsole
+  if (surface === "writeback") {
+    return (
+      <LegacyCodingPage
+        onReturnToWorker={() => setSurface("worker")}
+        onSessionCleared={handleSessionCleared}
+        onWritebackClosed={() => setSurface("worker")}
+        writebackOnly
+      />
+    );
+  }
+  if (surface === "worker") {
+    return (
+      <CodingWorkerConsole
         context="coding"
+        onOpenCodingWriteback={() => setSurface("writeback")}
         onCodingHandoff={(result) => {
-          storeCodingSession(result.id, 0, result.project.id);
-          setSurface("legacy");
+          storeCodingSession(
+            result.id,
+            0,
+            result.project.id,
+            result.task_id,
+          );
+          setSurface("writeback");
         }}
       />
-    : <LegacyCodingPage />;
+    );
+  }
+  return <LegacyCodingPage onSessionCleared={handleSessionCleared} />;
 }

@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1043,6 +1044,84 @@ async def test_helper_handles_snapshot_request_without_closing_connection(
                 "reason": None,
             },
         }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_open_folder_picker_does_not_block_snapshot_requests(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = ProjectHostRegistry(tmp_path / "state.bin", XorProtector())
+    project_id = "hostgit_0123456789abcdef0123456789abcdef"
+    result = type(
+        "SnapshotResult",
+        (),
+        {
+            "project_id": project_id,
+            "name": "snapshot-project",
+            "branch": "main",
+            "head": "a" * 40,
+        },
+    )()
+    monkeypatch.setattr(
+        registry,
+        "create_snapshot",
+        lambda *_args, **_kwargs: (result, "1-2"),
+    )
+    picker_started = threading.Event()
+    release_picker = threading.Event()
+
+    def select_folder() -> None:
+        picker_started.set()
+        assert release_picker.wait(timeout=5)
+        return None
+
+    transport = ProjectHostTransport(
+        registry,
+        "http://127.0.0.1:8000",
+        "12345678",
+        select_folder=select_folder,
+    )
+    monkeypatch.setattr(transport, "_upload_snapshot_exact", lambda *_args: None)
+    sent: list[dict[str, object]] = []
+
+    class FakeWebSocket:
+        async def send(self, message: str) -> None:
+            sent.append(json.loads(message))
+
+    websocket = FakeWebSocket()
+    await transport._dispatch_message(
+        websocket,
+        json.dumps(
+            {
+                "type": "select_project",
+                "request_id": "phreq_11111111111111111111111111111111",
+            }
+        ),
+    )
+    assert await asyncio.to_thread(picker_started.wait, 1)
+
+    await transport._dispatch_message(
+        websocket,
+        json.dumps(
+            {
+                "type": "snapshot_project",
+                "request_id": "phreq_22222222222222222222222222222222",
+                "project_id": project_id,
+                "transfer_id": "b" * 32,
+            }
+        ),
+    )
+
+    assert [item["type"] for item in sent] == ["snapshot_result"]
+    release_picker.set()
+    selection_task = transport._selection_task
+    assert selection_task is not None
+    await selection_task
+    assert [item["type"] for item in sent] == [
+        "snapshot_result",
+        "request_error",
     ]
 
 

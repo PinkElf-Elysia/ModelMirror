@@ -9,6 +9,7 @@ import pytest
 from server.coding_runtime.models import CodingEventKind, CodingSessionState
 from server.coding_runtime.patch_policy import snapshot_fingerprint
 from server.coding_runtime.worker import (
+    CodingWorkerClient,
     CodingWorkerError,
     CodingWorkerProtocolError,
     CodingWorkerServer,
@@ -221,6 +222,167 @@ async def test_local_project_restore_rebuilds_the_same_diff_and_project_summary(
     assert recovery_writer.frames[-1]["project"] == response["project"]
     assert recovery_writer.frames[-1]["snapshot_fingerprint"] == source["fingerprint"]
     await server.close()
+
+
+@pytest.mark.asyncio
+async def test_host_writeback_restore_does_not_start_a_second_agent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slot = tmp_path / "slot"
+    source = _local_source(slot, marker="WRITEBACK-r7K2")
+    source["kind"] = "host_git"
+    source["project_id"] = "hostgit_" + "7" * 32
+    workspace = slot / "current" / "workspace"
+    (workspace / "README.md").unlink()
+    (workspace / ".gitignore").write_bytes(b"__pycache__/\n")
+    (workspace / "README.md").write_bytes(b"# Formatter sample\n")
+    (workspace / "app.py").write_bytes(
+        b"from legacy_formatter import slugify\n\n\n"
+        b"def render_cache_key(project: str, revision: int) -> str:\n"
+        b"    return f\"{slugify(project)}:r{revision}\"\n"
+    )
+    (workspace / "legacy_formatter.py").write_bytes(
+        b"import re\n\n\n"
+        b"def slugify(value: str) -> str:\n"
+        b"    \"\"\"Return a stable lowercase slug for a display label.\"\"\"\n"
+        b"    collapsed = re.sub(r\"[^a-z0-9]+\", \"-\", value.strip().lower())\n"
+        b"    return collapsed.strip(\"-\")\n"
+    )
+    (workspace / "test_formatter.py").write_bytes(
+        b"from app import render_cache_key\n\n\n"
+        b"def test_render_cache_key() -> None:\n"
+        b"    assert render_cache_key(\"Alpha Project\", 3) == \"alpha-project:r3\"\n"
+    )
+    source["file_count"] = sum(1 for path in workspace.rglob("*") if path.is_file())
+    source["total_bytes"] = sum(
+        path.stat().st_size for path in workspace.rglob("*") if path.is_file()
+    )
+    source["fingerprint"] = snapshot_fingerprint(workspace)
+    (slot / "current" / "lease.json").write_text(
+        json.dumps({key: value for key, value in source.items() if key != "kind"}),
+        encoding="utf-8",
+    )
+    server = _server(tmp_path, slot)
+    monkeypatch.setenv("CODING_AGENT_MODE", "draft")
+    monkeypatch.delenv("CODING_AGENT_MODEL", raising=False)
+    monkeypatch.setattr(
+        "server.coding_runtime.worker.create_acp_client",
+        lambda *args, **kwargs: pytest.fail("writeback handoff started an ACP agent"),
+    )
+    patch = "\n".join(
+        [
+            "diff --git a/app.py b/app.py",
+            "--- a/app.py",
+            "+++ b/app.py",
+            "@@ -1,4 +1,4 @@",
+            "-from legacy_formatter import slugify",
+            "+from formatters.slug import slugify",
+            " ",
+            " ",
+            " def render_cache_key(project: str, revision: int) -> str:",
+            "diff --git a/formatters/slug.py b/formatters/slug.py",
+            "new file mode 100644",
+            "--- /dev/null",
+            "+++ b/formatters/slug.py",
+            "@@ -0,0 +1,7 @@",
+            "+import re",
+            "+",
+            "+",
+            "+def slugify(value: str) -> str:",
+            '+    """Return a stable lowercase slug for a display label."""',
+            '+    collapsed = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())',
+            '+    return collapsed.strip("-")',
+            "diff --git a/legacy_formatter.py b/legacy_formatter.py",
+            "deleted file mode 100644",
+            "--- a/legacy_formatter.py",
+            "+++ /dev/null",
+            "@@ -1,7 +0,0 @@",
+            "-import re",
+            "-",
+            "-",
+            "-def slugify(value: str) -> str:",
+            '-    """Return a stable lowercase slug for a display label."""',
+            '-    collapsed = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())',
+            '-    return collapsed.strip("-")',
+            "",
+        ]
+    )
+    writer = _MemoryWriter()
+
+    await server._restore_session(
+        {
+            "revision": 1,
+            "patch": patch,
+            "paths": ["app.py", "formatters/slug.py", "legacy_formatter.py"],
+            "snapshot_fingerprint": source["fingerprint"],
+            "source": source,
+            "writeback_only": True,
+        },
+        writer,
+    )
+
+    response = writer.frames[-1]
+    assert response["recovered"] is True
+    assert response["project"]["kind"] == "host_git"
+    assert (tmp_path / "workspace" / "app.py").read_text(encoding="utf-8") == (
+        "from formatters.slug import slugify\n\n\n"
+        "def render_cache_key(project: str, revision: int) -> str:\n"
+        "    return f\"{slugify(project)}:r{revision}\"\n"
+    )
+    assert (tmp_path / "workspace" / "formatters" / "slug.py").is_file()
+    assert not (tmp_path / "workspace" / "legacy_formatter.py").exists()
+    with pytest.raises(CodingWorkerError) as unavailable:
+        await server._prompt(
+            {"session_id": response["session_id"], "prompt": "change it again"},
+            _MemoryWriter(),
+        )
+    assert unavailable.value.code == "project_operation_unavailable"
+    await server.close()
+
+
+@pytest.mark.asyncio
+async def test_worker_client_marks_writeback_only_restore(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[dict[str, Any]] = []
+
+    async def capture_request(
+        _client: CodingWorkerClient,
+        payload: dict[str, Any],
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        requests.append({**payload, "timeout": timeout})
+        return {"recovered": True, "changes": {}}
+
+    monkeypatch.setattr(CodingWorkerClient, "_request", capture_request)
+    client = CodingWorkerClient("unused.sock")
+
+    await client.restore_session(
+        revision=1,
+        patch="",
+        paths=[],
+        snapshot_fingerprint="a" * 64,
+        source={"kind": "host_git"},
+        writeback_only=True,
+    )
+
+    assert requests == [
+        {
+            "action": "restore_session",
+            "revision": 1,
+            "patch": "",
+            "paths": [],
+            "base_patch": "",
+            "base_paths": [],
+            "snapshot_fingerprint": "a" * 64,
+            "verification": None,
+            "source": {"kind": "host_git"},
+            "writeback_only": True,
+            "timeout": 130.0,
+        }
+    ]
 
 
 def test_runtime_keeps_project_config_disabled_and_uses_generic_agent_description() -> None:

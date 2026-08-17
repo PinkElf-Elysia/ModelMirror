@@ -81,6 +81,7 @@ import {
 import type { CodingProjectSelection, CodingProjectSummary } from "../types/coding";
 import {
   createCodingProjectSelection,
+  getCodingRecovery,
   getCodingProjectSelection,
   getCodingProjects,
   getCodingWorkerHostSource,
@@ -201,9 +202,16 @@ function approvalCapabilityLabel(capability: string) {
 interface CodingWorkerConsoleProps {
   context: ConsoleContext;
   onCodingHandoff?: (result: CodingWorkerHandoffResult) => void;
+  onOpenCodingWriteback?: () => void;
+  onOpenLegacy?: () => void;
 }
 
-export default function CodingWorkerConsole({ context, onCodingHandoff }: CodingWorkerConsoleProps) {
+export default function CodingWorkerConsole({
+  context,
+  onCodingHandoff,
+  onOpenCodingWriteback,
+  onOpenLegacy,
+}: CodingWorkerConsoleProps) {
   const [status, setStatus] = useState<CodingWorkerStatus | null>(null);
   const [tasks, setTasks] = useState<CodingWorkerTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -699,6 +707,19 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
 
   const handoffToWriteback = () => run(async () => {
     if (!selectedTask || selectedTask.state !== "completed") return;
+    if (onOpenCodingWriteback) {
+      const recovery = await getCodingRecovery();
+      if (
+        recovery.pending &&
+        recovery.project?.kind === "host_git" &&
+        recovery.project.id === selectedTask.spec.workspace_source.source_id &&
+        typeof recovery.project.head === "string" &&
+        selectedTask.spec.workspace_source.revision.startsWith(recovery.project.head)
+      ) {
+        onOpenCodingWriteback();
+        return;
+      }
+    }
     const result = await handoffCodingWorkerTask(selectedTask.task_id);
     onCodingHandoff?.(result);
   });
@@ -713,6 +734,15 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
         <p className="mx-auto mt-2 max-w-[65ch] text-sm text-slate-300">
           管理员启用 CODING_WORKER_V14_ENABLED 后，新任务会进入统一 Worker。已有会话继续使用原执行面。
         </p>
+        {context === "agent" && onOpenLegacy ? (
+          <button
+            className="mt-5 min-h-11 rounded-lg border border-white/15 px-4 text-sm font-semibold text-slate-200 hover:bg-white/5"
+            onClick={onOpenLegacy}
+            type="button"
+          >
+            查看旧 Agent 会话
+          </button>
+        ) : null}
       </section>
     );
   }
@@ -742,6 +772,15 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          {context === "agent" && onOpenLegacy ? (
+            <button
+              type="button"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white"
+              onClick={onOpenLegacy}
+            >
+              <History className="h-4 w-4" aria-hidden="true" />旧 Agent 会话
+            </button>
+          ) : null}
           <span className="hidden items-center gap-2 text-xs text-slate-400 sm:inline-flex">
             <span className="h-2 w-2 rounded-full bg-emerald-300" aria-hidden="true" />
             {Math.min(tasks.filter((task) => ["preparing", "running", "testing"].includes(task.state)).length, status.max_active_tasks)} / {status.max_active_tasks} 槽位活跃

@@ -127,6 +127,9 @@ CONTAINER_ABSOLUTE_PATH = re.compile(
 )
 SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 SAFE_DIFF_HEADER = re.compile(r"^diff --git a/(.+) b/(.+)$")
+SAFE_GIT_INDEX_LINE = re.compile(
+    r"^index [a-f0-9]{7,64}\.\.[a-f0-9]{7,64}(?: [0-7]{6})?$"
+)
 
 
 class WorkerClient(Protocol):
@@ -146,6 +149,7 @@ class WorkerClient(Protocol):
         snapshot_fingerprint: str,
         verification: dict[str, Any] | None = None,
         source: dict[str, Any] | None = None,
+        writeback_only: bool = False,
     ) -> dict[str, Any]: ...
 
     async def recovery_snapshot(self, session_id: str) -> dict[str, Any]: ...
@@ -1108,7 +1112,10 @@ class CodingService:
                 fingerprint = health.get("snapshot_fingerprint")
                 if (
                     health.get("ok") is not True
-                    or health.get("configured") is not True
+                    or (
+                        project.kind is not ProjectKind.HOST_GIT
+                        and health.get("configured") is not True
+                    )
                     or (
                         project.kind is ProjectKind.BUILTIN
                         and fingerprint != record.snapshot_fingerprint
@@ -1349,7 +1356,12 @@ class CodingService:
                 status.HTTP_409_CONFLICT, "worker_writeback_patch_unsupported"
             )
 
-        await self._require_available()
+        # A completed Coding Worker task already owns the model-driven editing
+        # loop.  The v13 handoff only needs the draft runtime transport to hold
+        # the imported patch while Project Host remains the writeback executor.
+        # Do not make that path depend on the legacy builtin model/source being
+        # configured, but keep the runtime liveness and draft-mode checks.
+        await self._require_available(require_configured=False)
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         if not self.recovery_enabled or self.recovery_store is None:
@@ -1392,6 +1404,7 @@ class CodingService:
                 snapshot_fingerprint=fingerprint,
                 verification=None,
                 source=source,
+                writeback_only=True,
             )
         except CodingWorkerError as exc:
             await self._release_project_source(source)
@@ -1665,13 +1678,24 @@ class CodingService:
             ) from exc
 
     async def resume_recovery(self) -> CodingApiSession:
-        health = await self._require_available()
+        # Host Git recovery can remain a writeback-only review surface when
+        # the legacy model-driven Coding runtime is intentionally unconfigured.
+        # Other project kinds still require that legacy runtime.
+        health = await self._require_available(require_configured=False)
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         await self.cleanup_expired()
         await self._prune_missing_worker_sessions()
         recovery = await self._require_recovery_record()
         project_context = await self._load_recovery_project_context(recovery)
+        if (
+            project_context.kind is not ProjectKind.HOST_GIT
+            and health.get("configured") is not True
+        ):
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "not_configured",
+            )
         async with self._lock:
             if self._sessions:
                 raise _http_error(status.HTTP_409_CONFLICT, "concurrency_limit")
@@ -1772,6 +1796,11 @@ class CodingService:
             }
             if source is not None:
                 restore_arguments["source"] = source
+            if (
+                project_context.kind is ProjectKind.HOST_GIT
+                and health.get("configured") is not True
+            ):
+                restore_arguments["writeback_only"] = True
             result = await self.worker.restore_session(**restore_arguments)
         except CodingWorkerError as exc:
             await self._release_project_source(source)
@@ -4424,7 +4453,11 @@ class CodingService:
         record.commit_reason = record.recovery_conflict
         record.publish_reason = record.recovery_conflict
 
-    async def _require_available(self) -> dict[str, Any]:
+    async def _require_available(
+        self,
+        *,
+        require_configured: bool = True,
+    ) -> dict[str, Any]:
         if not self.enabled:
             raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "disabled")
         try:
@@ -4441,7 +4474,7 @@ class CodingService:
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 "worker_unavailable",
             )
-        if health.get("configured") is not True:
+        if require_configured and health.get("configured") is not True:
             raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "not_configured")
         worker_mode = health.get("mode")
         if worker_mode not in {"readonly", "draft"} or worker_mode != self.mode:
@@ -5339,9 +5372,18 @@ async def handoff_coding_worker_task(task_id: str) -> dict[str, Any]:
             raise _http_error(
                 status.HTTP_409_CONFLICT, "worker_acceptance_invalidated"
             )
-        patch_bytes = worker_service.workspace_broker.diff(task.workspace_id)
+        # v13 applies path-bound create/delete patches and deliberately rejects
+        # cross-path Git rename headers.  Export the same tree change without
+        # rename detection for this handoff only; the public Worker diff keeps
+        # its normal rename-aware presentation.
+        patch_bytes = worker_service.workspace_broker.diff(
+            task.workspace_id,
+            detect_renames=False,
+        )
         try:
-            patch = patch_bytes.decode("utf-8", errors="strict")
+            patch = _normalize_worker_handoff_diff(
+                patch_bytes.decode("utf-8", errors="strict")
+            )
         except UnicodeDecodeError as exc:
             raise _http_error(
                 status.HTTP_409_CONFLICT, "worker_writeback_patch_unsupported"
@@ -6548,6 +6590,81 @@ def _diff_paths(diff: str) -> list[str]:
     if not paths or paths != sorted(set(paths)):
         raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "unsafe_diff")
     return paths
+
+
+def _normalize_worker_handoff_diff(diff: str) -> str:
+    """Render Git's text diff in the canonical form v13 can recompute."""
+
+    lines = diff.splitlines(keepends=True)
+    starts = [
+        index for index, line in enumerate(lines) if line.startswith("diff --git ")
+    ]
+    if not starts or starts[0] != 0:
+        raise _http_error(
+            status.HTTP_409_CONFLICT,
+            "worker_writeback_patch_unsupported",
+        )
+    normalized: list[str] = []
+    for position, start in enumerate(starts):
+        end = starts[position + 1] if position + 1 < len(starts) else len(lines)
+        section: list[str] = []
+        header = lines[start].rstrip("\r\n")
+        match = SAFE_DIFF_HEADER.fullmatch(header)
+        if match is None or match.group(1) != match.group(2):
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                "worker_writeback_patch_unsupported",
+            )
+        path = match.group(1)
+        added = False
+        deleted = False
+        old_header = False
+        new_header = False
+        for line in lines[start:end]:
+            content = line.rstrip("\r\n")
+            if content.startswith("index "):
+                if SAFE_GIT_INDEX_LINE.fullmatch(content) is None:
+                    raise _http_error(
+                        status.HTTP_409_CONFLICT,
+                        "worker_writeback_patch_unsupported",
+                    )
+                continue
+            if content.startswith(("old mode ", "new mode ")):
+                raise _http_error(
+                    status.HTTP_409_CONFLICT,
+                    "worker_writeback_patch_unsupported",
+                )
+            if content.startswith("new file mode "):
+                if content != "new file mode 100644":
+                    raise _http_error(
+                        status.HTTP_409_CONFLICT,
+                        "worker_writeback_patch_unsupported",
+                    )
+                added = True
+            if content.startswith("deleted file mode "):
+                if content != "deleted file mode 100644":
+                    raise _http_error(
+                        status.HTTP_409_CONFLICT,
+                        "worker_writeback_patch_unsupported",
+                    )
+                deleted = True
+            old_header = old_header or content.startswith("--- ")
+            new_header = new_header or content.startswith("+++ ")
+            section.append(line)
+        if old_header != new_header or (added and deleted):
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                "worker_writeback_patch_unsupported",
+            )
+        # Git represents an added/deleted empty regular file using only mode
+        # and index metadata.  v13 intentionally removes object IDs and needs
+        # explicit path headers to reconstruct that empty-file transition.
+        if not old_header and added:
+            section.extend(("--- /dev/null\n", f"+++ b/{path}\n"))
+        elif not old_header and deleted:
+            section.extend((f"--- a/{path}\n", "+++ /dev/null\n"))
+        normalized.extend(section)
+    return "".join(normalized)
 
 
 def _safe_code(value: Any) -> str:

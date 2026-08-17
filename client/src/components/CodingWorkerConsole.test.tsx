@@ -39,6 +39,7 @@ vi.mock("../utils/codingWorkerApi", () => api);
 
 const projectApi = vi.hoisted(() => ({
   createCodingProjectSelection: vi.fn(),
+  getCodingRecovery: vi.fn(),
   getCodingProjectSelection: vi.fn(),
   getCodingProjects: vi.fn(),
   getCodingWorkerHostSource: vi.fn(),
@@ -150,6 +151,11 @@ beforeEach(() => {
       writeback_reason: null,
     }],
   });
+  projectApi.getCodingRecovery.mockResolvedValue({
+    enabled: true,
+    available: true,
+    pending: false,
+  });
   projectApi.getCodingWorkerHostSource.mockImplementation(async (projectId: string) => ({
     source_id: projectId,
     name: "已授权项目",
@@ -181,6 +187,34 @@ describe("CodingWorkerConsole", () => {
     render(<CodingWorkerConsole context="agent" />);
     expect((await screen.findAllByText("修复失败测试并生成证据")).length).toBe(3);
     expect(screen.queryByText("宿主写回")).not.toBeInTheDocument();
+  });
+
+  it("opens an existing matching Host Git recovery without repeating handoff", async () => {
+    const completedTask = { ...task, state: "completed", reason: null } as const;
+    const onOpenCodingWriteback = vi.fn();
+    api.listCodingWorkerTasks.mockResolvedValue([completedTask]);
+    api.getCodingWorkerTask.mockResolvedValue(completedTask);
+    projectApi.getCodingRecovery.mockResolvedValue({
+      enabled: true,
+      available: true,
+      pending: true,
+      project: {
+        id: task.spec.workspace_source.source_id,
+        kind: "host_git",
+        head: task.spec.workspace_source.revision.slice(0, 12),
+      },
+    });
+
+    render(
+      <CodingWorkerConsole
+        context="coding"
+        onOpenCodingWriteback={onOpenCodingWriteback}
+      />,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "进入写回确认" }));
+    await waitFor(() => expect(onOpenCodingWriteback).toHaveBeenCalledTimes(1));
+    expect(api.handoffCodingWorkerTask).not.toHaveBeenCalled();
   });
 
   it("does not open an event stream for a task that is already terminal", async () => {

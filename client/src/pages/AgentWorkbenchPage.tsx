@@ -78,7 +78,11 @@ const refreshEventTypes = new Set([
 
 const workspaceEventTypes = new Set(["tool_output", "completed", "agent_generated"]);
 
-function LegacyAgentWorkbenchPage() {
+function LegacyAgentWorkbenchPage({
+  onReturnToWorker,
+}: {
+  onReturnToWorker?: () => void;
+}) {
   const { preferredModelId, setPreferredModelId } = useModelPreference();
   const [enabled, setEnabled] = useState(true);
   const [engineShadowEnabled, setEngineShadowEnabled] = useState(false);
@@ -503,6 +507,15 @@ function LegacyAgentWorkbenchPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-end gap-2">
+          {onReturnToWorker ? (
+            <button
+              className="inline-flex min-h-11 items-center rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-3 text-xs font-semibold text-cyan-50 hover:bg-cyan-300/15"
+              onClick={onReturnToWorker}
+              type="button"
+            >
+              返回 Coding Worker
+            </button>
+          ) : null}
           <label className="min-w-44 text-[11px] font-medium text-slate-400">
             新会话使用
             <select
@@ -728,24 +741,41 @@ function LegacyAgentWorkbenchPage() {
 
 export default function AgentWorkbenchPage() {
   const [surface, setSurface] = useState<"loading" | "legacy" | "worker">("loading");
+  const [preferWorker, setPreferWorker] = useState(false);
 
   useEffect(() => {
     let active = true;
     void getCodingWorkerStatus()
       .then(async (status) => {
-        if (!status.enabled || !status.available) return "legacy" as const;
+        if (!status.enabled || !status.available || preferWorker) return "worker" as const;
         const legacySessions = await listAgentSessions();
-        return legacySessions.length === 0 ? "worker" as const : "legacy" as const;
+        return legacySessions.some((session) =>
+          session.status === "running" || session.status === "waiting_approval"
+        )
+          ? "legacy" as const
+          : "worker" as const;
       })
       .then((nextSurface) => { if (active) setSurface(nextSurface); })
       .catch(() => { if (active) setSurface("legacy"); });
     return () => { active = false; };
-  }, []);
+  }, [preferWorker]);
 
   if (surface === "loading") {
     return <div className="mx-auto mt-10 min-h-[60vh] max-w-7xl animate-pulse rounded-xl bg-white/5" aria-label="正在选择 Agent 执行面" />;
   }
   return surface === "worker"
-    ? <CodingWorkerConsole context="agent" />
-    : <LegacyAgentWorkbenchPage />;
+    ? (
+      <CodingWorkerConsole
+        context="agent"
+        onOpenLegacy={() => setSurface("legacy")}
+      />
+    )
+    : (
+      <LegacyAgentWorkbenchPage
+        onReturnToWorker={() => {
+          setPreferWorker(true);
+          setSurface("worker");
+        }}
+      />
+    );
 }
