@@ -77,7 +77,7 @@ function pricePerMillion(value) {
   return Number.isFinite(parsed) ? parsed * 1_000_000 : 0;
 }
 
-function pricingOverrides(pricing) {
+function tokenPricingOverrides(pricing) {
   if (!Array.isArray(pricing?.overrides)) return [];
   return pricing.overrides
     .filter(
@@ -88,10 +88,44 @@ function pricingOverrides(pricing) {
     )
     .map((override) => ({
       min_prompt_tokens: Number(override.min_prompt_tokens),
-      input: pricePerMillion(override.prompt ?? override.input),
-      output: pricePerMillion(override.completion ?? override.output),
+      input: override.input ?? pricePerMillion(override.prompt),
+      output: override.output ?? pricePerMillion(override.completion),
     }))
     .sort((left, right) => left.min_prompt_tokens - right.min_prompt_tokens);
+}
+
+function isUtcClock(value) {
+  const clock = Number(value);
+  const hours = Math.floor(clock / 100);
+  const minutes = clock % 100;
+  return (
+    Number.isInteger(clock) &&
+    clock >= 0 &&
+    clock <= 2359 &&
+    hours <= 23 &&
+    minutes <= 59
+  );
+}
+
+function timePricingOverrides(pricing) {
+  const source = Array.isArray(pricing?.time_overrides)
+    ? pricing.time_overrides
+    : Array.isArray(pricing?.overrides)
+      ? pricing.overrides
+      : [];
+  return source
+    .filter(
+      (override) =>
+        override &&
+        isUtcClock(override.utc_start) &&
+        isUtcClock(override.utc_end),
+    )
+    .map((override) => ({
+      utc_start: Number(override.utc_start),
+      utc_end: Number(override.utc_end),
+      input: override.input ?? pricePerMillion(override.prompt),
+      output: override.output ?? pricePerMillion(override.completion),
+    }));
 }
 
 function normalizedMetadata(model) {
@@ -105,15 +139,8 @@ function normalizedMetadata(model) {
         model.pricing?.input ?? pricePerMillion(model.pricing?.prompt),
       output:
         model.pricing?.output ?? pricePerMillion(model.pricing?.completion),
-      overrides: Array.isArray(model.pricing?.overrides)
-        ? model.pricing.overrides.map((override) => ({
-            min_prompt_tokens: Number(override.min_prompt_tokens),
-            input:
-              override.input ?? pricePerMillion(override.prompt),
-            output:
-              override.output ?? pricePerMillion(override.completion),
-          }))
-        : pricingOverrides(model.pricing),
+      overrides: tokenPricingOverrides(model.pricing),
+      time_overrides: timePricingOverrides(model.pricing),
     },
     input_modalities: modalities(model, "input_modalities"),
     output_modalities: modalities(model, "output_modalities"),

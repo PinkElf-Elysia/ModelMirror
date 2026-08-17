@@ -35,7 +35,12 @@ const august14ModelIds = [
   "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
 ];
 
-describe("OpenRouter 2026-08-13 model refresh", () => {
+const august16ModelIds = [
+  "dots-studio/dots-3-note-preview:free",
+  "qwen/qwen3.8-27b",
+];
+
+describe("OpenRouter model refresh", () => {
   it("restores V4 Flash ahead of V4 Pro and keeps Seedream in row four", () => {
     expect(models[2]?.id).toBe("deepseek/deepseek-v4-flash-0731");
     expect(models[5]?.id).toBe("deepseek/deepseek-v4-pro-0813");
@@ -86,6 +91,63 @@ describe("OpenRouter 2026-08-13 model refresh", () => {
         2 + 5 * 3,
       );
     }
+  });
+
+  it("adds the two requested August 16 snapshots below the first six rows", () => {
+    for (const modelId of august16ModelIds) {
+      const matches = models.filter((model) => model.id === modelId);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]).toMatchObject({
+        catalog_status: "live",
+        catalog_counted: true,
+        active: true,
+        primary_operation: "chat",
+        interaction_status: "ready",
+        ui_entrypoint: "chat",
+      });
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
+        2 + 6 * 3,
+      );
+    }
+  });
+
+  it("preserves the August 16 multimodal chat contracts", () => {
+    expect(
+      models.find(
+        (model) => model.id === "dots-studio/dots-3-note-preview:free",
+      ),
+    ).toMatchObject({
+      input_modalities: ["text", "image"],
+      output_modalities: ["text"],
+      operations: expect.arrayContaining(["analyze_image", "chat"]),
+      context_length: 512_000,
+      pricing_status: "free",
+      pricing_basis: "free",
+      openrouter_market: {
+        series: "Other",
+        author: "dots-studio",
+        providers: ["AtlasCloud"],
+      },
+    });
+
+    expect(models.find((model) => model.id === "qwen/qwen3.8-27b")).toMatchObject({
+      input_modalities: ["text", "image", "video"],
+      output_modalities: ["text"],
+      operations: expect.arrayContaining([
+        "analyze_image",
+        "analyze_video",
+        "chat",
+      ]),
+      context_length: 262_144,
+      pricing: { input: 0.44999999999999996, output: 3.1999999999999997 },
+      pricing_status: "fixed",
+      pricing_basis: "token",
+      openrouter_market: {
+        series: "Qwen",
+        author: "qwen",
+        providers: ["Chutes"],
+      },
+    });
   });
 
   it("routes the August 14 specialized models by their dedicated contracts", () => {
@@ -192,7 +254,7 @@ describe("OpenRouter 2026-08-13 model refresh", () => {
     ).toMatchObject({
       series: "Other",
       author: "xiaomi",
-      providers: ["Xiaomi"],
+      providers: ["GMICloud"],
       categories: expect.arrayContaining(["programming", "translation"]),
     });
     expect(
@@ -259,7 +321,7 @@ describe("OpenRouter 2026-08-13 model refresh", () => {
     const byId = new Map(models.map((model) => [model.id, model]));
 
     expect(byId.get("qwen/qwen3.8-2.4t-a95b")?.context_length).toBe(
-      1_010_000,
+      1_048_576,
     );
     expect(byId.get("nvidia/nemotron-3.5-lightning")).toMatchObject({
       context_length: 1_000_000,
@@ -284,28 +346,60 @@ describe("OpenRouter 2026-08-13 model refresh", () => {
     );
 
     expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing).toEqual({
-      input: 0.079996,
-      output: 0.252,
+      input: 0.060300000000000006,
+      output: 0.12060000000000001,
     });
     expect(byId.get("z-ai/glm-5.2")?.pricing).toEqual({
-      input: 0.63,
-      output: 1.9800000000000002,
+      input: 0.76,
+      output: 2.42,
     });
     expect(byId.get("moonshotai/kimi-k2.7-code")?.pricing).toEqual({
-      input: 0.67,
-      output: 3.4,
+      input: 0.71,
+      output: 3.5,
     });
     expect(byId.get("deepseek/deepseek-v4-pro")?.pricing).toEqual({
-      input: 1.1680000000000001,
-      output: 2.3360000000000003,
+      input: 0.66,
+      output: 1.9800000000000002,
     });
+    const deepSeekTimeWindows = [
+      {
+        utc_start: 1000,
+        utc_end: 100,
+        pricing: { input: 0.66, output: 1.9800000000000002 },
+        price_cny: { input: 4.47, output: 13.4 },
+      },
+      {
+        utc_start: 100,
+        utc_end: 400,
+        pricing: { input: 1.32, output: 3.9600000000000004 },
+        price_cny: { input: 8.94, output: 26.81 },
+      },
+      {
+        utc_start: 400,
+        utc_end: 600,
+        pricing: { input: 0.66, output: 1.9800000000000002 },
+        price_cny: { input: 4.47, output: 13.4 },
+      },
+      {
+        utc_start: 600,
+        utc_end: 1000,
+        pricing: { input: 1.32, output: 3.9600000000000004 },
+        price_cny: { input: 8.94, output: 26.81 },
+      },
+    ];
+    expect(
+      byId.get("deepseek/deepseek-v4-pro-0813")?.pricing_time_windows,
+    ).toEqual(deepSeekTimeWindows);
+    expect(
+      byId.get("deepseek/deepseek-v4-pro")?.pricing_time_windows,
+    ).toEqual(deepSeekTimeWindows);
     expect(byId.get("qwen/qwen3.5-35b-a3b")?.pricing).toEqual({
-      input: 0.25,
-      output: 1.25,
+      input: 0.22499999999999998,
+      output: 1.7999999999999998,
     });
     expect(byId.get("qwen/qwen3.5-397b-a17b")?.pricing).toEqual({
-      input: 0.5,
-      output: 3.5999999999999996,
+      input: 0.39,
+      output: 2.34,
     });
     expect(byId.get("z-ai/glm-4.6")?.pricing).toEqual({
       input: 0.5,
@@ -459,6 +553,7 @@ describe("OpenRouter 2026-08-13 model refresh", () => {
         .map((model) => model.id)
         .sort(),
     ).toEqual([
+      "deepseek/deepseek-v3.1-terminus",
       "inclusionai/ling-3.0-tiny:free",
       "openai/gpt-5.3-chat",
       "poolside/laguna-m.1",

@@ -49,6 +49,10 @@ function readInputPath() {
   return index >= 0 ? process.argv[index + 1] : "";
 }
 
+function existingModelsOnly() {
+  return process.argv.includes("--existing-only");
+}
+
 function providerSlug(modelId) {
   return String(modelId ?? "")
     .replace(/^~/, "")
@@ -77,7 +81,7 @@ function pricePerMillion(value) {
   return Number.isFinite(parsed) ? parsed * 1_000_000 : 0;
 }
 
-function pricingOverrides(pricing) {
+function tokenPricingOverrides(pricing) {
   if (!Array.isArray(pricing?.overrides)) return [];
   return pricing.overrides
     .filter(
@@ -94,12 +98,49 @@ function pricingOverrides(pricing) {
     .sort((left, right) => left.min_prompt_tokens - right.min_prompt_tokens);
 }
 
+function isUtcClock(value) {
+  const clock = Number(value);
+  const hours = Math.floor(clock / 100);
+  const minutes = clock % 100;
+  return (
+    Number.isInteger(clock) &&
+    clock >= 0 &&
+    clock <= 2359 &&
+    hours <= 23 &&
+    minutes <= 59
+  );
+}
+
+function timePricingOverrides(pricing) {
+  if (!Array.isArray(pricing?.overrides)) return [];
+  return pricing.overrides
+    .filter(
+      (override) =>
+        override &&
+        isUtcClock(override.utc_start) &&
+        isUtcClock(override.utc_end),
+    )
+    .map((override) => ({
+      utc_start: Number(override.utc_start),
+      utc_end: Number(override.utc_end),
+      input: pricePerMillion(override.prompt),
+      output: pricePerMillion(override.completion),
+    }));
+}
+
 function compactStoredModel(model) {
   const overrides = Array.isArray(model.pricing?.overrides)
     ? model.pricing.overrides
     : [];
-  if (overrides.length) return model;
-  const { overrides: _ignored, ...pricing } = model.pricing ?? {};
+  const timeOverrides = Array.isArray(model.pricing?.time_overrides)
+    ? model.pricing.time_overrides
+    : [];
+  if (overrides.length || timeOverrides.length) return model;
+  const {
+    overrides: _ignored,
+    time_overrides: _ignoredTimeOverrides,
+    ...pricing
+  } = model.pricing ?? {};
   return { ...model, pricing };
 }
 
@@ -166,7 +207,8 @@ function normalizeModel(model, existingAuthors) {
   const outputModalities = Array.isArray(model.architecture?.output_modalities)
     ? model.architecture.output_modalities.map((value) => String(value))
     : [];
-  const overrides = pricingOverrides(model.pricing);
+  const overrides = tokenPricingOverrides(model.pricing);
+  const timeOverrides = timePricingOverrides(model.pricing);
 
   return {
     id: String(model.id),
@@ -178,6 +220,7 @@ function normalizeModel(model, existingAuthors) {
       input: pricePerMillion(model.pricing?.prompt),
       output: pricePerMillion(model.pricing?.completion),
       ...(overrides.length ? { overrides } : {}),
+      ...(timeOverrides.length ? { time_overrides: timeOverrides } : {}),
     },
     input_modalities: inputModalities,
     output_modalities: outputModalities,
@@ -208,6 +251,7 @@ async function main() {
   const currentModelsById = new Map(
     currentModels.map((model) => [model.id, model]),
   );
+  const updateExistingOnly = existingModelsOnly();
   const catalogModels = payload.data
     .filter((model) => model && typeof model.id === "string")
     .map((model) => normalizeModel(model, existingAuthors));
@@ -224,6 +268,7 @@ async function main() {
   const liveModelIds = new Set(liveModels.map((model) => model.id));
   const mergedById = new Map(retainedModels.map((model) => [model.id, model]));
   for (const model of liveModels) {
+    if (updateExistingOnly && !currentModelsById.has(model.id)) continue;
     const specializedModel = currentModelsById.get(model.id);
     mergedById.set(
       model.id,

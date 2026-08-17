@@ -12,8 +12,12 @@ import {
   deriveProviderFromModel,
   getFriendlyJobCapabilityLabel,
 } from "../utils/userFriendlyText";
-import { formatPricingOverridesCny } from "../utils/tokenPricing";
+import {
+  formatPricingOverridesCny,
+  priceCnyForUtcTime,
+} from "../utils/tokenPricing";
 import FeaturedModelCard from "./FeaturedModelCard";
+import PricingTimeWindows from "./PricingTimeWindows";
 
 interface ModelCardProps {
   model: Model;
@@ -155,6 +159,8 @@ const ModelCard = memo(function ModelCard({
         ? "按请求计费"
         : "动态";
   const tieredPricingLabel = formatPricingOverridesCny(model);
+  const hasTimeWindowPricing = model.pricing_time_windows.length > 0;
+  const currentPriceCny = priceCnyForUtcTime(model);
   const audioGenerationPriceUsd =
     model.primary_operation === "generate_audio"
       ? (audioCapabilityStatus?.pricePerGenerationUsd ?? null)
@@ -858,6 +864,8 @@ const ModelCard = memo(function ModelCard({
             <p className="text-[11px] text-slate-400">
               {hasAudioGenerationPrice
                 ? "目录估算"
+                : hasTimeWindowPricing
+                  ? "当前输入薪资"
                 : model.pricing_overrides.length
                   ? "起始输入薪资"
                   : "输入薪资"}
@@ -869,13 +877,15 @@ const ModelCard = memo(function ModelCard({
                 ? nonTokenPricingLabel
                 : isFree
                   ? "免费"
-                  : formatCnyPrice(model.price_cny.input)}
+                  : formatCnyPrice(currentPriceCny.input)}
             </p>
           </div>
           <div>
             <p className="text-[11px] text-slate-400">
               {hasAudioGenerationPrice
                 ? "作品时长"
+                : hasTimeWindowPricing
+                  ? "当前输出薪资"
                 : model.pricing_overrides.length
                   ? "起始输出薪资"
                   : "输出薪资"}
@@ -889,7 +899,7 @@ const ModelCard = memo(function ModelCard({
                 ? nonTokenPricingLabel
                 : isFree
                   ? "免费"
-                  : formatCnyPrice(model.price_cny.output)}
+                  : formatCnyPrice(currentPriceCny.output)}
             </p>
           </div>
           <div>
@@ -916,6 +926,12 @@ const ModelCard = memo(function ModelCard({
           分段价格：{tieredPricingLabel}
         </p>
       ) : null}
+
+      <PricingTimeWindows
+        className="relative mx-5 mb-5"
+        compact
+        windows={model.pricing_time_windows}
+      />
 
       {model.note ? (
         <p className="relative mx-5 mb-5 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">

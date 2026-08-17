@@ -29,6 +29,7 @@ import AdvancedParamsPanel, {
 import AudioCreationWorkspace from "../components/AudioCreationWorkspace";
 import ImageGenerationWorkspace from "../components/ImageGenerationWorkspace";
 import OpenRouterBatchWorkspace from "../components/OpenRouterBatchWorkspace";
+import PricingTimeWindows from "../components/PricingTimeWindows";
 import BrandLogo from "../components/BrandLogo";
 import ChatAudioComposer, {
   QuickTranscriptionControl,
@@ -101,7 +102,10 @@ import {
   readAgentInterview,
 } from "../utils/agentInterview";
 import { deriveProviderFromModel } from "../utils/userFriendlyText";
-import { formatPricingOverridesCny } from "../utils/tokenPricing";
+import {
+  formatPricingOverridesCny,
+  priceCnyForUtcTime,
+} from "../utils/tokenPricing";
 import {
   fetchChatStream,
   type ChatApiMessage,
@@ -3542,6 +3546,8 @@ function ChatConversationPage() {
     );
   }
 
+  const currentModelPriceCny = priceCnyForUtcTime(model);
+
   const canSend =
     (
       input.trim().length > 0 ||
@@ -4298,7 +4304,7 @@ function ChatConversationPage() {
                       : model.pricing_basis === "request"
                         ? "按请求计费"
                         : "按实际调用"
-                    : `${model.pricing_overrides.length ? "起 " : ""}¥${model.price_cny.input.toFixed(2)} / ¥${model.price_cny.output.toFixed(2)}`}
+                    : `${model.pricing_time_windows.length ? "当前 " : model.pricing_overrides.length ? "起 " : ""}¥${currentModelPriceCny.input.toFixed(2)} / ¥${currentModelPriceCny.output.toFixed(2)}`}
                 </dd>
               </div>
             </dl>
@@ -4306,6 +4312,12 @@ function ChatConversationPage() {
               <p className="mt-3 rounded-xl border border-sky-300/20 bg-sky-300/[0.07] px-3 py-2 text-xs leading-5 text-sky-100">
                 分段价格：{formatPricingOverridesCny(model)}
               </p>
+            ) : null}
+            {!isOmniAutoRoute ? (
+              <PricingTimeWindows
+                className="mt-3"
+                windows={model.pricing_time_windows}
+              />
             ) : null}
           </section>
 
@@ -4411,7 +4423,7 @@ function ChatConversationPage() {
                 <div className="rounded-lg bg-white/[0.035] p-3">
                   <dt className="text-slate-500">实时价格</dt>
                   <dd className="mt-1 font-semibold text-slate-100">
-                    {model.pricing_overrides.length ? "起 " : ""}¥{model.price_cny.input.toFixed(2)} / ¥{model.price_cny.output.toFixed(2)}
+                    {model.pricing_time_windows.length ? "当前 " : model.pricing_overrides.length ? "起 " : ""}¥{currentModelPriceCny.input.toFixed(2)} / ¥{currentModelPriceCny.output.toFixed(2)}
                   </dd>
                 </div>
                 <div className="rounded-lg bg-sky-300/10 p-3">
