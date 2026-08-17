@@ -84,7 +84,7 @@ import {
   type FileOutputCapabilities,
   type FileOutputReuseConfirmation,
 } from "../data/fileOutputs";
-import { models } from "../data/models";
+import { models, type Model } from "../data/models";
 import { consumePromptDraftHandoff } from "../data/promptDraftHandoff";
 import { compressImage } from "../utils/compressImage";
 import {
@@ -1327,6 +1327,38 @@ function ChatConversationPage() {
     },
     [decodedModelId, isFederationRoute, isOmniAutoRoute],
   );
+  // 聊天页模型切换器：把最近浏览/收藏的模型优先展示（浏览器式快速切回）。
+  const recentModelOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const result: Model[] = [];
+    const pushModel = (id: string) => {
+      if (seen.has(id)) return;
+      const item = models.find((candidate) => candidate.id === id);
+      if (item) {
+        seen.add(id);
+        result.push(item);
+      }
+    };
+    try {
+      const recentRaw = window.localStorage.getItem("modelmirror-recent-models");
+      const parsedRecent = recentRaw ? (JSON.parse(recentRaw) as unknown) : null;
+      if (Array.isArray(parsedRecent)) {
+        parsedRecent.forEach((id) => {
+          if (typeof id === "string") pushModel(id);
+        });
+      }
+      const favRaw = window.localStorage.getItem("modelmirror-model-favorites");
+      const parsedFav = favRaw ? (JSON.parse(favRaw) as unknown) : null;
+      if (Array.isArray(parsedFav)) {
+        parsedFav.forEach((id) => {
+          if (typeof id === "string") pushModel(id);
+        });
+      }
+    } catch {
+      // 存储不可用时静默降级。
+    }
+    return result.slice(0, 6);
+  }, []);
   const omniRouteSupportsImage =
     isOmniAutoRoute &&
     (decodedModelId === "auto/vision" ||
@@ -4213,11 +4245,26 @@ function ChatConversationPage() {
                           onChange={(event) => handleModelChange(event.target.value)}
                           value={model.id}
                         >
-                          {models.map((item) => (
-                            <option className="bg-slate-950 text-white" key={item.id} value={item.id}>
-                              {item.name}
-                            </option>
-                          ))}
+                          {recentModelOptions.length > 0 ? (
+                            <optgroup label="最近浏览 / 收藏">
+                              {recentModelOptions.map((item) => (
+                                <option
+                                  className="bg-slate-950 text-white"
+                                  key={item.id}
+                                  value={item.id}
+                                >
+                                  {item.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ) : null}
+                          <optgroup label="全部模型">
+                            {models.map((item) => (
+                              <option className="bg-slate-950 text-white" key={item.id} value={item.id}>
+                                {item.name}
+                              </option>
+                            ))}
+                          </optgroup>
                         </select>
                       </label>
                     )}

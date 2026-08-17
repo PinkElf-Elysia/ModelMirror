@@ -21,6 +21,9 @@ interface ModelCardProps {
   compareSelected?: boolean;
   compareDisabled?: boolean;
   onCompareChange?: (modelId: string, selected: boolean) => void;
+  /** 是否已收藏（书签，localStorage 持久化）。 */
+  favorite?: boolean;
+  onToggleFavorite?: () => void;
   catalogInvocable?: boolean;
   confirmedAudioOperations?: ModelOperation[];
   adaptedAudioOperations?: ModelOperation[];
@@ -93,6 +96,24 @@ function formatCnyPrice(priceCnyPerMillion: number) {
   return `¥${priceCnyPerMillion.toFixed(2)}`;
 }
 
+/** 记录最近浏览的模型（浏览器式历史）。localStorage 数组，最多 8 条，最近在前。 */
+export function recordRecentModelView(modelId: string) {
+  try {
+    const raw = window.localStorage.getItem("modelmirror-recent-models");
+    const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+    const list = Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+    const next = [modelId, ...list.filter((id) => id !== modelId)].slice(0, 8);
+    window.localStorage.setItem(
+      "modelmirror-recent-models",
+      JSON.stringify(next),
+    );
+  } catch {
+    // 存储不可用时静默降级。
+  }
+}
+
 const inputModalityLabels: Record<InputModality, string> = {
   text: "文本",
   image: "图片",
@@ -132,6 +153,8 @@ const ModelCard = memo(function ModelCard({
   compareSelected = false,
   compareDisabled = false,
   onCompareChange,
+  favorite = false,
+  onToggleFavorite,
   catalogInvocable = false,
   confirmedAudioOperations = [],
   adaptedAudioOperations = [],
@@ -511,6 +534,22 @@ const ModelCard = memo(function ModelCard({
               {compareSelected ? "已加入对比" : "加入对比"}
             </button>
           )}
+          {onToggleFavorite ? (
+            <button
+              aria-label={favorite ? `取消收藏 ${model.name}` : `收藏 ${model.name}`}
+              aria-pressed={favorite}
+              className={`min-h-8 rounded-full border px-3 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 ${
+                favorite
+                  ? "border-hire-300/50 bg-hire-300/15 text-hire-100 hover:bg-hire-300/25"
+                  : "border-white/10 bg-white/[0.04] text-slate-400 hover:border-hire-300/30 hover:text-hire-100"
+              }`}
+              onClick={onToggleFavorite}
+              title={favorite ? "取消收藏" : "收藏到书签"}
+              type="button"
+            >
+              {favorite ? "★ 已收藏" : "☆ 收藏"}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -641,6 +680,7 @@ const ModelCard = memo(function ModelCard({
                   if (model.primary_operation === "chat") {
                     setPreferredModelId(model.id);
                   }
+                  recordRecentModelView(model.id);
                 }}
                 title={
                   declaresDocumentInput
