@@ -47,7 +47,9 @@ describe("NodePalette disabled workflow nodes", () => {
         }
         return new Response(
           JSON.stringify({
-            version: "test",
+            version: "xpert-workflow-node-registry-v3",
+            contract_version: 3,
+            contract_checksum: "registry-checksum",
             tabs: [
               { id: "workflow", label: "工作流" },
               { id: "knowledge", label: "知识流水线" },
@@ -59,6 +61,27 @@ describe("NodePalette disabled workflow nodes", () => {
                 description: "转换节点",
                 tab: "workflow",
                 items: [
+                  {
+                    kind: "input",
+                    icon: "IN",
+                    title: "触发器",
+                    description: "定义工作流输入。",
+                    enabled: true,
+                    contract: {
+                      kind: "input",
+                      contract_status: "complete",
+                      config_schema: {},
+                      ports: [],
+                      edge: {},
+                      execution: {},
+                      availability: {},
+                      resources: [],
+                      planner: {},
+                      contract_version: 3,
+                      checksum: "input-checksum",
+                      compiler_checksum: "input-compiler-checksum",
+                    },
+                  },
                   {
                     kind: "document_extractor",
                     icon: "DOC",

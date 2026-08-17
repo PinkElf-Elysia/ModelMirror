@@ -397,7 +397,49 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
     for node in workflow.nodes:
         issues.extend(validate_node_configuration(node, kinds_by_id[node.id]))
 
+    node_variable_producers = collect_node_variable_producers(
+        workflow.nodes,
+        kinds_by_id,
+    )
+    declaration_ids = [item.id for item in workflow.variables]
+    declaration_names = [item.name for item in workflow.variables]
+    if len(declaration_ids) != len(set(declaration_ids)):
+        issues.append(
+            ValidationIssue(
+                code="duplicate_workflow_variable_declaration_id",
+                message="Workflow variable declarations must use unique IDs.",
+            )
+        )
+    if len(declaration_names) != len(set(declaration_names)):
+        issues.append(
+            ValidationIssue(
+                code="duplicate_workflow_variable_declaration",
+                message="Workflow variable declarations must use unique names.",
+            )
+        )
+    for name in sorted(set(declaration_names).intersection(node_variable_producers)):
+        issues.append(
+            ValidationIssue(
+                code="workflow_variable_producer_conflict",
+                message=f"Workflow variable '{name}' conflicts with a node output.",
+            )
+        )
+    for name, producer_ids in sorted(node_variable_producers.items()):
+        if len(producer_ids) < 2:
+            continue
+        issues.append(
+            ValidationIssue(
+                code="duplicate_variable_producer",
+                message=(
+                    f"Variable '{name}' has multiple node producers: "
+                    + ", ".join(producer_ids)
+                ),
+                severity="warning",
+            )
+        )
+
     available_variables = collect_declared_variables(workflow.nodes, kinds_by_id)
+    available_variables.update(declaration_names)
     for node in workflow.nodes:
         issues.extend(
             validate_variable_references(node, kinds_by_id[node.id], available_variables)
@@ -2756,6 +2798,51 @@ def collect_declared_variables(
                 variables.add(result_variable)
 
     return variables
+
+
+def collect_node_variable_producers(
+    nodes: list[NativeWorkflowNode],
+    kinds_by_id: dict[str, str],
+) -> dict[str, list[str]]:
+    producers: dict[str, list[str]] = {}
+    declaration_fields: dict[str, tuple[str, ...]] = {
+        "input": ("variableName",),
+        "llm": ("outputVariable",),
+        "code": ("codeOutputVariable",),
+        "variable_assign": ("variableName",),
+        "template_transform": ("outputVariable",),
+        "variable_aggregator": ("outputVariable",),
+        "parameter_extractor": ("outputVariable",),
+        "knowledge_retrieval": ("outputVariable",),
+        "knowledge_citation": ("outputVariable",),
+        "document_extractor": ("assetIdVariable", "outputVariable"),
+        "vision_understanding": ("assetIdVariable", "outputVariable"),
+        "human_intervention": ("outputVariable",),
+        "question_classifier": ("outputVariable",),
+        "agent": ("outputVariable",),
+        "workflow_agent": ("outputVariable",),
+        "agent_task": ("outputVariable",),
+        "agent_handoff": ("outputVariable", "resultVariable"),
+        "handoff_router": ("outputVariable", "resultVariable"),
+        "mcp_tool": ("outputVariable",),
+        "time_tool": ("outputVariable",),
+        "http_request": ("outputVariable",),
+        "list_operation": ("outputVariable",),
+        "iteration": ("outputVariable",),
+        "json_serialize": ("outputVariable",),
+        "json_deserialize": ("outputVariable",),
+        "data_table_query": ("outputVariable",),
+        "data_table_insert": ("outputVariable",),
+        "data_table_update": ("outputVariable",),
+        "data_table_delete": ("outputVariable",),
+    }
+    for node in nodes:
+        for field_name in declaration_fields.get(kinds_by_id[node.id], ()):
+            name = str(node.data.get(field_name) or "").strip()
+            if not is_variable_name(name):
+                continue
+            producers.setdefault(name, []).append(node.id)
+    return producers
 
 
 def validate_variable_references(

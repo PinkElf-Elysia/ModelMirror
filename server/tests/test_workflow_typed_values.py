@@ -8,7 +8,12 @@ import pytest_asyncio
 from pydantic import ValidationError
 
 import server.main as main_module
-from server.main import WorkflowRunRequest, app, render_workflow_template
+from server.main import (
+    WorkflowRunRequest,
+    app,
+    initialize_declared_workflow_variables,
+    render_workflow_template,
+)
 from server.workflow_native.schemas import NativeWorkflowDefinition
 from server.workflow_native.validate import validate_workflow_graph
 from server.workflow_native.values import (
@@ -240,6 +245,162 @@ def test_workflow_run_request_rejects_non_json_numbers() -> None:
                 "inputs": {"user_input": float("nan")},
             }
         )
+
+
+def test_declared_workflow_variables_merge_constants_defaults_and_run_inputs() -> None:
+    workflow = _json_round_trip_workflow()
+    workflow["variables"] = [
+        {
+            "id": "constant-mode",
+            "name": "fixed_mode",
+            "kind": "constant",
+            "valueType": "text",
+            "defaultValue": "safe",
+        },
+        {
+            "id": "input-locale",
+            "name": "locale",
+            "kind": "input",
+            "valueType": "text",
+            "defaultValue": "zh-CN",
+        },
+        {
+            "id": "input-options",
+            "name": "options",
+            "kind": "input",
+            "valueType": "json",
+        },
+    ]
+    request = WorkflowRunRequest.model_validate(
+        {
+            "workflow": workflow,
+            "inputs": {
+                "user_input": "hello",
+                "locale": "en-US",
+                "options": {"strict": True},
+            },
+        }
+    )
+
+    assert initialize_declared_workflow_variables(
+        request.workflow,
+        request.inputs,
+    ) == {
+        "fixed_mode": "safe",
+        "locale": "en-US",
+        "user_input": "hello",
+        "options": {"strict": True},
+    }
+
+
+def test_workflow_run_request_rejects_constant_override_and_unsafe_declarations() -> None:
+    workflow = _json_round_trip_workflow()
+    workflow["variables"] = [
+        {
+            "id": "constant-mode",
+            "name": "fixed_mode",
+            "kind": "constant",
+            "valueType": "text",
+            "defaultValue": "safe",
+        }
+    ]
+    with pytest.raises(ValidationError, match="workflow_constant_override_not_allowed"):
+        WorkflowRunRequest.model_validate(
+            {"workflow": workflow, "inputs": {"fixed_mode": "unsafe"}}
+        )
+
+    workflow["variables"] = [
+        {
+            "id": "unsafe-path",
+            "name": "api_key",
+            "kind": "constant",
+            "valueType": "json",
+            "defaultValue": {"path": "C:\\private\\secret.txt"},
+        }
+    ]
+    with pytest.raises(ValidationError, match="workflow_variable_sensitive"):
+        WorkflowRunRequest.model_validate({"workflow": workflow, "inputs": {}})
+
+    workflow["variables"] = [
+        {
+            "id": "unsafe-value",
+            "name": "service_value",
+            "kind": "constant",
+            "valueType": "text",
+            "defaultValue": "sk-abcdefghijklmnop",
+        }
+    ]
+    with pytest.raises(ValidationError, match="workflow_variable_sensitive_value"):
+        WorkflowRunRequest.model_validate({"workflow": workflow, "inputs": {}})
+
+
+def test_workflow_run_request_rejects_declared_input_type_mismatch() -> None:
+    workflow = _json_round_trip_workflow()
+    workflow["variables"] = [
+        {
+            "id": "input-limit",
+            "name": "limit",
+            "kind": "input",
+            "valueType": "number",
+        }
+    ]
+
+    with pytest.raises(ValidationError, match="workflow_input_type_mismatch:limit:number"):
+        WorkflowRunRequest.model_validate(
+            {"workflow": workflow, "inputs": {"limit": "ten"}}
+        )
+
+    request = WorkflowRunRequest.model_validate(
+        {"workflow": workflow, "inputs": {"limit": 10}}
+    )
+    assert request.inputs["limit"] == 10
+    assert "defaultValue" not in request.workflow.model_dump()["variables"][0]
+
+
+def test_native_validation_counts_declared_inputs_as_initial_variables() -> None:
+    workflow = _json_round_trip_workflow()
+    workflow["variables"] = [
+        {
+            "id": "input-options",
+            "name": "options",
+            "kind": "input",
+            "valueType": "json",
+        }
+    ]
+    workflow["nodes"][1]["data"]["inputVariable"] = "options"
+
+    result = validate_workflow_graph(NativeWorkflowDefinition.model_validate(workflow))
+
+    assert result.valid is True
+    assert not any("missing_json_serialize_input_variable_reference" == issue.code for issue in result.issues)
+
+
+def test_native_validation_rejects_duplicate_declaration_ids_and_names() -> None:
+    workflow = _json_round_trip_workflow()
+    workflow["variables"] = [
+        {
+            "id": "same-id",
+            "name": "first_value",
+            "kind": "input",
+            "valueType": "text",
+        },
+        {
+            "id": "same-id",
+            "name": "first_value",
+            "kind": "input",
+            "valueType": "text",
+        },
+    ]
+
+    result = validate_workflow_graph(NativeWorkflowDefinition.model_validate(workflow))
+
+    assert result.valid is False
+    assert {issue.code for issue in result.issues}.issuperset(
+        {
+            "duplicate_workflow_variable_declaration_id",
+            "duplicate_workflow_variable_declaration",
+        }
+    )
 
 
 def test_annotation_is_preserved_but_excluded_from_validation_order() -> None:

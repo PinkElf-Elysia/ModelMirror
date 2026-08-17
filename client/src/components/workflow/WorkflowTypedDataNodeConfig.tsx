@@ -9,7 +9,17 @@ import {
   type JsonValue,
   requestAgentTableJson,
 } from "../../types/agentTables";
-import { type WorkflowNodeData } from "../../types/workflow";
+import {
+  type WorkflowEdge,
+  type WorkflowNode,
+  type WorkflowNodeData,
+} from "../../types/workflow";
+import WorkflowVariableField from "./WorkflowVariableField";
+import type { WorkflowNodeContractProjection } from "./workflowNodeRegistry";
+import type {
+  WorkflowVariableFieldDescriptor,
+  WorkflowVariableValueType,
+} from "./workflowVariables";
 import {
   compactFilterGroup,
   createLiteralBinding,
@@ -133,10 +143,20 @@ function LabeledField({
 function BindingEditor({
   binding,
   dataType,
+  fieldName,
+  node,
+  nodes,
+  edges,
+  contract,
   onChange,
 }: {
   binding: unknown;
   dataType: AgentTableFieldType;
+  fieldName: string;
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  contract?: WorkflowNodeContractProjection | null;
   onChange: (value: DataTableValueBinding) => void;
 }) {
   const normalized = normalizeValueBinding(binding, dataType);
@@ -185,11 +205,21 @@ function BindingEditor({
         </option>
       </select>
       {normalized.source === "variable" ? (
-        <input
+        <WorkflowVariableField
           aria-label="变量名"
-          className={inputClass}
-          onChange={(event) =>
-            onChange({ source: "variable", variable: event.target.value })
+          contract={contract}
+          descriptor={dataTableBindingDescriptor(
+            node.data.kind,
+            fieldName,
+            dataType,
+          )}
+          edges={edges}
+          fieldName={fieldName}
+          inputClassName={inputClass}
+          node={node}
+          nodes={nodes}
+          onChange={(value) =>
+            onChange({ source: "variable", variable: value })
           }
           placeholder="例如 current_user_id"
           value={normalized.variable}
@@ -235,14 +265,44 @@ function BindingEditor({
   );
 }
 
+function bindingTypesForDataType(
+  dataType: AgentTableFieldType,
+): WorkflowVariableValueType[] {
+  if (dataType === "string" || dataType === "datetime") {
+    return ["text", "unknown"];
+  }
+  return ["json", "unknown"];
+}
+
+function dataTableBindingDescriptor(
+  nodeKind: WorkflowNode["data"]["kind"],
+  fieldName: string,
+  dataType: AgentTableFieldType,
+): WorkflowVariableFieldDescriptor {
+  return {
+    nodeKind,
+    field: fieldName,
+    mode: "binding",
+    fallbackTypes: bindingTypesForDataType(dataType),
+  };
+}
+
 function FilterGroupEditor({
   group,
   fields,
+  node,
+  nodes,
+  edges,
+  contract,
   depth = 0,
   onChange,
 }: {
   group: DataTableFilterGroup;
   fields: AgentTableField[];
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  contract?: WorkflowNodeContractProjection | null;
   depth?: number;
   onChange: (value: DataTableFilterGroup) => void;
 }) {
@@ -302,8 +362,12 @@ function FilterGroupEditor({
             <div className="relative" key={`group-${index}`}>
               <FilterGroupEditor
                 depth={depth + 1}
+                contract={contract}
+                edges={edges}
                 fields={fields}
                 group={item}
+                node={node}
+                nodes={nodes}
                 onChange={(value) => updateItem(index, value)}
               />
               <button
@@ -389,11 +453,16 @@ function FilterGroupEditor({
               {item.operator !== "is_null" ? (
                 <BindingEditor
                   binding={item.value}
+                  contract={contract}
                   dataType={
                     item.operator === "in"
                       ? "json"
                       : fieldByName.get(item.field)?.data_type ?? "string"
                   }
+                  edges={edges}
+                  fieldName={`filter.${item.field || index}`}
+                  node={node}
+                  nodes={nodes}
                   onChange={(value) => updateItem(index, { ...item, value })}
                 />
               ) : null}
@@ -431,10 +500,18 @@ function FilterGroupEditor({
 function WriteBindingsEditor({
   fields,
   bindings,
+  node,
+  nodes,
+  edges,
+  contract,
   onChange,
 }: {
   fields: AgentTableField[];
   bindings: Record<string, unknown>;
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  contract?: WorkflowNodeContractProjection | null;
   onChange: (bindings: Record<string, unknown>) => void;
 }) {
   return (
@@ -472,7 +549,12 @@ function WriteBindingsEditor({
               <div className="mt-2">
                 <BindingEditor
                   binding={bindings[field.name]}
+                  contract={contract}
                   dataType={field.data_type}
+                  edges={edges}
+                  fieldName={`valueBindings.${field.name}`}
+                  node={node}
+                  nodes={nodes}
                   onChange={(value) => onChange({ ...bindings, [field.name]: value })}
                 />
               </div>
@@ -489,9 +571,17 @@ function WriteBindingsEditor({
 
 export default function WorkflowTypedDataNodeConfig({
   data,
+  node,
+  nodes,
+  edges,
+  contract,
   onChange,
 }: {
   data: WorkflowNodeData;
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  contract?: WorkflowNodeContractProjection | null;
   onChange: (patch: Partial<WorkflowNodeData>) => void;
 }) {
   const isDataTable = dataTableKinds.has(data.kind);
@@ -560,7 +650,7 @@ export default function WorkflowTypedDataNodeConfig({
     return (
       <Section title="JSON 转换">
         <LabeledField label="输入变量">
-          <input className={inputClass} onChange={(event) => onChange({ inputVariable: event.target.value })} value={data.inputVariable ?? ""} />
+          <WorkflowVariableField ariaLabel="输入变量" contract={contract} edges={edges} fieldName="inputVariable" inputClassName={inputClass} node={node} nodes={nodes} onChange={(value) => onChange({ inputVariable: value })} value={String(data.inputVariable ?? "")} />
         </LabeledField>
         <LabeledField label="格式">
           <select className={inputClass} onChange={(event) => onChange({ format: event.target.value as "compact" | "pretty" })} value={data.format ?? "compact"}>
@@ -569,7 +659,7 @@ export default function WorkflowTypedDataNodeConfig({
           </select>
         </LabeledField>
         <LabeledField label="输出变量">
-          <input className={inputClass} onChange={(event) => onChange({ outputVariable: event.target.value })} value={data.outputVariable ?? ""} />
+          <WorkflowVariableField ariaLabel="输出变量" contract={contract} edges={edges} fieldName="outputVariable" inputClassName={inputClass} node={node} nodes={nodes} onChange={(value) => onChange({ outputVariable: value })} value={String(data.outputVariable ?? "")} />
         </LabeledField>
       </Section>
     );
@@ -579,10 +669,10 @@ export default function WorkflowTypedDataNodeConfig({
     return (
       <Section title="JSON 转换">
         <LabeledField label="JSON 字符串变量">
-          <input className={inputClass} onChange={(event) => onChange({ inputVariable: event.target.value })} value={data.inputVariable ?? ""} />
+          <WorkflowVariableField ariaLabel="JSON 字符串变量" contract={contract} edges={edges} fieldName="inputVariable" inputClassName={inputClass} node={node} nodes={nodes} onChange={(value) => onChange({ inputVariable: value })} value={String(data.inputVariable ?? "")} />
         </LabeledField>
         <LabeledField label="类型化输出变量">
-          <input className={inputClass} onChange={(event) => onChange({ outputVariable: event.target.value })} value={data.outputVariable ?? ""} />
+          <WorkflowVariableField ariaLabel="类型化输出变量" contract={contract} edges={edges} fieldName="outputVariable" inputClassName={inputClass} node={node} nodes={nodes} onChange={(value) => onChange({ outputVariable: value })} value={String(data.outputVariable ?? "")} />
         </LabeledField>
       </Section>
     );
@@ -740,8 +830,12 @@ export default function WorkflowTypedDataNodeConfig({
           </Section>
           <Section title="查询条件">
             <FilterGroupEditor
+              contract={contract}
+              edges={edges}
               fields={readableFields}
               group={filter}
+              node={node}
+              nodes={nodes}
               onChange={(value) => onChange({ filter: compactFilterGroup(value) })}
             />
           </Section>
@@ -786,20 +880,20 @@ export default function WorkflowTypedDataNodeConfig({
       {selectedSchema && (data.kind === "data_table_insert" || data.kind === "data_table_update") ? (
         <Section title={data.kind === "data_table_insert" ? "新增字段绑定" : "更新字段绑定"}>
           <p className="text-xs leading-5 text-slate-500">固定值会按 Schema 类型保存；变量在运行时保留真实 JSON 类型。</p>
-          <WriteBindingsEditor fields={businessFields} bindings={valueBindings} onChange={(value) => onChange({ valueBindings: value })} />
+          <WriteBindingsEditor bindings={valueBindings} contract={contract} edges={edges} fields={businessFields} node={node} nodes={nodes} onChange={(value) => onChange({ valueBindings: value })} />
         </Section>
       ) : null}
 
       {selectedSchema && (data.kind === "data_table_update" || data.kind === "data_table_delete") ? (
         <Section title="必填安全条件">
           <p className="text-xs leading-5 text-amber-100">更新和删除不允许全表操作，且单次最多影响 100 行。</p>
-          <FilterGroupEditor fields={readableFields} group={filter} onChange={(value) => onChange({ filter: compactFilterGroup(value) })} />
+          <FilterGroupEditor contract={contract} edges={edges} fields={readableFields} group={filter} node={node} nodes={nodes} onChange={(value) => onChange({ filter: compactFilterGroup(value) })} />
         </Section>
       ) : null}
 
       <Section title="输出">
         <LabeledField label="输出变量">
-          <input className={inputClass} onChange={(event) => onChange({ outputVariable: event.target.value })} value={data.outputVariable ?? ""} />
+          <WorkflowVariableField ariaLabel="输出变量" contract={contract} edges={edges} fieldName="outputVariable" inputClassName={inputClass} node={node} nodes={nodes} onChange={(value) => onChange({ outputVariable: value })} value={String(data.outputVariable ?? "")} />
         </LabeledField>
         <p className="text-xs leading-5 text-slate-500">
           {data.kind === "data_table_query"

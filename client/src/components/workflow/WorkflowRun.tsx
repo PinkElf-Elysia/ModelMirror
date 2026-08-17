@@ -15,8 +15,11 @@ import {
   type FileOutputReuseConfirmation,
 } from "../../data/fileOutputs";
 import {
+  type NodeRunStatus,
   type WorkflowDefinition,
   type WorkflowRunEvent,
+  type WorkflowValue,
+  type WorkflowVariableDeclaration,
 } from "../../types/workflow";
 
 interface WorkflowObservationEvent {
@@ -82,6 +85,18 @@ interface WorkflowRunProps {
     variableName: string;
   } | null;
   onRunStart?: () => void;
+  /** 运行事件 → 画布节点高亮回调。"idle" 表示运行开始时重置。 */
+  onNodeStatusChange?: (nodeId: string, status: NodeRunStatus | "idle") => void;
+  /** 点击运行步骤时高亮画布对应节点（日志↔节点联动）。 */
+  onStepSelect?: (nodeId: string) => void;
+}
+
+interface RunHistoryEntry {
+  runId: string | null;
+  taskId: string | null;
+  finishedAt: number;
+  status: "completed" | "cancelled" | "error";
+  summary: string;
 }
 
 interface WorkflowFileFormatCapability {
@@ -157,7 +172,49 @@ function serializeWorkflow(definition: WorkflowDefinition) {
       sourceHandle: edge.sourceHandle,
       targetHandle: edge.targetHandle,
     })),
+    variables: definition.variables?.map((variable) => ({
+      ...variable,
+      defaultValue:
+        variable.defaultValue === undefined
+          ? undefined
+          : structuredClone(variable.defaultValue),
+    })),
   };
+}
+
+export function workflowDeclaredInputText(
+  declaration: WorkflowVariableDeclaration,
+) {
+  if (declaration.defaultValue === undefined) return "";
+  return declaration.valueType === "json"
+    ? JSON.stringify(declaration.defaultValue, null, 2)
+    : String(declaration.defaultValue);
+}
+
+export function parseWorkflowDeclaredInputs(
+  declarations: WorkflowVariableDeclaration[],
+  rawValues: Record<string, string>,
+): { inputs: Record<string, WorkflowValue>; error: string } {
+  const inputs: Record<string, WorkflowValue> = {};
+  for (const declaration of declarations) {
+    if (declaration.kind !== "input") continue;
+    const raw = rawValues[declaration.id] ?? "";
+    if (!raw && declaration.defaultValue === undefined && declaration.valueType !== "text") continue;
+    if (declaration.valueType === "text") {
+      inputs[declaration.name] = raw;
+    } else if (declaration.valueType === "number") {
+      const value = Number(raw);
+      if (!raw.trim() || !Number.isFinite(value)) return { inputs: {}, error: `${declaration.name} 需要有限数字。` };
+      inputs[declaration.name] = value;
+    } else if (declaration.valueType === "boolean") {
+      if (raw !== "true" && raw !== "false") return { inputs: {}, error: `${declaration.name} 需要选择 true 或 false。` };
+      inputs[declaration.name] = raw === "true";
+    } else if (raw.trim()) {
+      try { inputs[declaration.name] = JSON.parse(raw) as WorkflowValue; }
+      catch { return { inputs: {}, error: `${declaration.name} 的 JSON 格式无效。` }; }
+    }
+  }
+  return { inputs, error: "" };
 }
 
 export function workflowFileScopeId(workflowId: string) {
@@ -471,9 +528,14 @@ export default function WorkflowRun({
   embedded = false,
   fileInputFocusRequest = null,
   onRunStart,
+  onNodeStatusChange,
+  onStepSelect,
 }: WorkflowRunProps) {
   const { status: skillCreatorStatus } = useSkillCreatorStatus();
   const [input, setInput] = useState("请帮我把这个需求拆成三步执行计划。");
+  const [declaredInputValues, setDeclaredInputValues] = useState<
+    Record<string, string>
+  >({});
   const [events, setEvents] = useState<WorkflowRunEvent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState("");
@@ -514,6 +576,34 @@ export default function WorkflowRun({
   const fileInputCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const workflowFileListGeneration = useRef(0);
   const workflowOutputGeneration = useRef(0);
+  const runAbortRef = useRef<AbortController | null>(null);
+  const failedNodesRef = useRef<Set<string>>(new Set());
+  const runningNodesRef = useRef<Set<string>>(new Set());
+  const runMetaRef = useRef<{ taskId: string | null; runId: string | null }>({
+    taskId: null,
+    runId: null,
+  });
+  const terminalHistoryRecordedRef = useRef(false);
+  const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
+  const [finishedOutcome, setFinishedOutcome] = useState<
+    "completed" | "cancelled" | "error" | null
+  >(null);
+
+  const declaredInputs = useMemo(
+    () => (definition.variables ?? []).filter((variable) => variable.kind === "input"),
+    [definition.variables],
+  );
+
+  useEffect(() => {
+    setDeclaredInputValues((current) =>
+      Object.fromEntries(
+        declaredInputs.map((declaration) => [
+          declaration.id,
+          current[declaration.id] ?? workflowDeclaredInputText(declaration),
+        ]),
+      ),
+    );
+  }, [declaredInputs]);
 
   useEffect(() => {
     if (!fileInputFocusRequest) return;
@@ -988,7 +1078,21 @@ export default function WorkflowRun({
       setError("请先为每个文件资产变量选择一个已就绪文件。");
       return;
     }
+    const declared = parseWorkflowDeclaredInputs(
+      definition.variables ?? [],
+      declaredInputValues,
+    );
+    if (declared.error) {
+      setError(declared.error);
+      return;
+    }
     onRunStart?.();
+    definition.nodes.forEach((node) =>
+      onNodeStatusChange?.(node.id, "idle"),
+    );
+    failedNodesRef.current.clear();
+    runningNodesRef.current.clear();
+    setFinishedOutcome(null);
     setEvents([]);
     setError("");
     setTaskId(null);
@@ -1005,16 +1109,22 @@ export default function WorkflowRun({
     setRunCheckpoints({});
     setRunCheckpointsLoading(false);
     setIsRunning(true);
+    terminalHistoryRecordedRef.current = false;
+
+    const abort = new AbortController();
+    runAbortRef.current = abort;
 
     try {
       const response = await fetch("/api/workflow/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: abort.signal,
         body: JSON.stringify({
           workflow: serializeWorkflow(definition),
           inputs: {
             [inputVariable]: input,
             ...(inputVariable === "user_input" ? {} : { user_input: input }),
+            ...declared.inputs,
             ...Object.fromEntries(
               fileAssetVariables.map((variableName) => [
                 variableName,
@@ -1032,23 +1142,146 @@ export default function WorkflowRun({
         throw new Error(payload?.error ?? payload?.detail ?? "工作流运行失败。");
       }
 
+      const responseTaskId = response.headers.get(
+        "X-ModelMirror-Runtime-Task-Id",
+      );
+      const responseRunId = response.headers.get(
+        "X-ModelMirror-Runtime-Run-Id",
+      );
+      if (responseTaskId) {
+        setTaskId(responseTaskId);
+        runMetaRef.current.taskId = responseTaskId;
+      }
+      if (responseRunId) {
+        setRunId(responseRunId);
+        runMetaRef.current.runId = responseRunId;
+      }
+
       await consumeWorkflowResponse(response);
     } catch (runError) {
-      setError(runError instanceof Error ? runError.message : "工作流运行失败。");
+      const cancelled =
+        runError instanceof DOMException && runError.name === "AbortError";
+      if (cancelled) {
+        setFinishedOutcome("cancelled");
+        // 取消时把仍在运行的节点清回 idle，避免残留"运行中"高亮。
+        runningNodesRef.current.forEach((nodeId) =>
+          onNodeStatusChange?.(nodeId, "idle"),
+        );
+        runningNodesRef.current.clear();
+        recordRunHistory("cancelled", "已取消。");
+      } else {
+        setFinishedOutcome("error");
+        setError(
+          runError instanceof Error ? runError.message : "工作流运行失败。",
+        );
+      }
     } finally {
       setIsRunning(false);
+      runAbortRef.current = null;
     }
   }
 
+  async function cancelWorkflow() {
+    const abort = runAbortRef.current;
+    const activeTaskId = runMetaRef.current.taskId;
+    if (!abort) return;
+    if (!activeTaskId) {
+      abort.abort();
+      return;
+    }
+
+    setError("");
+    try {
+      const response = await fetch(`/api/workflow/run/${activeTaskId}/cancel`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string; detail?: string }
+          | null;
+        throw new Error(
+          payload?.error ?? payload?.detail ?? "工作流取消失败，请重试。",
+        );
+      }
+      abort.abort();
+    } catch (cancelError) {
+      setError(
+        cancelError instanceof Error
+          ? cancelError.message
+          : "工作流取消失败，请重试。",
+      );
+    }
+  }
+
+  function retryWorkflow() {
+    void runWorkflow();
+  }
+
+  function recordRunHistory(status: RunHistoryEntry["status"], summary?: string) {
+    if (terminalHistoryRecordedRef.current) return;
+    const { taskId: refTaskId, runId: refRunId } = runMetaRef.current;
+    if (!refTaskId && !refRunId) return;
+    terminalHistoryRecordedRef.current = true;
+    setRunHistory((current) => [
+      {
+        runId: refRunId,
+        taskId: refTaskId,
+        finishedAt: Date.now(),
+        status,
+        summary: summary ?? status,
+      },
+      ...current,
+    ]);
+  }
+
   function handleRunEvent(event: WorkflowRunEvent) {
+    if (event.event === "node_start" && event.node_id) {
+      failedNodesRef.current.delete(event.node_id);
+      runningNodesRef.current.add(event.node_id);
+      onNodeStatusChange?.(event.node_id, "running");
+    }
+    if (event.event === "node_end" && event.node_id) {
+      runningNodesRef.current.delete(event.node_id);
+      // 节点已失败（收到过带 node_id 的 error）时不被 node_end(completed) 覆盖。
+      if (!failedNodesRef.current.has(event.node_id)) {
+        onNodeStatusChange?.(event.node_id, "done");
+      }
+    }
+    if (event.event === "error") {
+      if (event.node_id) {
+        failedNodesRef.current.add(event.node_id);
+        runningNodesRef.current.delete(event.node_id);
+        onNodeStatusChange?.(event.node_id, "error");
+      } else {
+        // 顶层致命错误：把仍在运行的节点全部标记为失败。
+        runningNodesRef.current.forEach((nodeId) =>
+          onNodeStatusChange?.(nodeId, "error"),
+        );
+        runningNodesRef.current.clear();
+        setFinishedOutcome("error");
+        recordRunHistory("error", event.message ?? "工作流运行异常。");
+      }
+    }
     if (event.event === "workflow_meta" && event.task_id) {
       setTaskId(event.task_id);
+      runMetaRef.current.taskId = event.task_id;
+    }
+    if (event.event === "workflow_cancelled") {
+      runningNodesRef.current.forEach((nodeId) =>
+        onNodeStatusChange?.(nodeId, "idle"),
+      );
+      runningNodesRef.current.clear();
+      setPendingHuman(null);
+      setHumanInput("");
+      setFinishedOutcome("cancelled");
+      recordRunHistory("cancelled", event.message ?? "已取消。");
     }
     if (
       (event.event === "workflow_meta" || event.event === "workflow_end") &&
       event.run_id
     ) {
       setRunId(event.run_id);
+      runMetaRef.current.runId = event.run_id;
     }
     if (event.event === "human_intervention_pending") {
       setPendingHuman({
@@ -1065,8 +1298,14 @@ export default function WorkflowRun({
       );
     }
     if (event.event === "workflow_end") {
+      runningNodesRef.current.forEach((nodeId) =>
+        onNodeStatusChange?.(nodeId, "done"),
+      );
+      runningNodesRef.current.clear();
       setPendingHuman(null);
       setHumanInput("");
+      setFinishedOutcome("completed");
+      recordRunHistory("completed", event.final_output ?? "运行完成。");
     }
   }
 
@@ -1219,6 +1458,75 @@ export default function WorkflowRun({
             value={input}
           />
         </label>
+
+        {declaredInputs.length > 0 ? (
+          <div className="space-y-3 rounded-lg border border-brand-300/15 bg-brand-300/[0.04] p-3">
+            <div>
+              <p className="text-xs font-semibold text-slate-200">工作流输入</p>
+              <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                本轮值会覆盖同名输入默认值，但不能覆盖常量。
+              </p>
+            </div>
+            {declaredInputs.map((declaration) => (
+              <label className="block" key={declaration.id}>
+                <span className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-300">
+                  <code>{declaration.name}</code>
+                  <span className="text-[10px] font-normal uppercase text-slate-500">
+                    {declaration.valueType}
+                  </span>
+                </span>
+                {declaration.description ? (
+                  <span className="mt-1 block text-[11px] leading-5 text-slate-500">
+                    {declaration.description}
+                  </span>
+                ) : null}
+                {declaration.valueType === "boolean" ? (
+                  <select
+                    className="modelmirror-form-control mt-2 min-h-11 w-full rounded-md border border-white/10 bg-slate-950/60 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+                    onChange={(event) =>
+                      setDeclaredInputValues((current) => ({
+                        ...current,
+                        [declaration.id]: event.target.value,
+                      }))
+                    }
+                    value={declaredInputValues[declaration.id] ?? ""}
+                  >
+                    {declaration.defaultValue === undefined ? (
+                      <option value="">请选择</option>
+                    ) : null}
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                ) : declaration.valueType === "json" ? (
+                  <textarea
+                    className="mt-2 min-h-24 w-full resize-y rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 font-mono text-xs leading-5 text-white outline-none focus:border-brand-300/45"
+                    onChange={(event) =>
+                      setDeclaredInputValues((current) => ({
+                        ...current,
+                        [declaration.id]: event.target.value,
+                      }))
+                    }
+                    placeholder='{"key":"value"}'
+                    value={declaredInputValues[declaration.id] ?? ""}
+                  />
+                ) : (
+                  <input
+                    className="modelmirror-form-control mt-2 min-h-11 w-full rounded-md border border-white/10 bg-slate-950/60 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+                    inputMode={declaration.valueType === "number" ? "decimal" : undefined}
+                    onChange={(event) =>
+                      setDeclaredInputValues((current) => ({
+                        ...current,
+                        [declaration.id]: event.target.value,
+                      }))
+                    }
+                    type={declaration.valueType === "number" ? "number" : "text"}
+                    value={declaredInputValues[declaration.id] ?? ""}
+                  />
+                )}
+              </label>
+            ))}
+          </div>
+        ) : null}
 
         {fileAssetVariables.length > 0 ? (
           <div className="space-y-2 border-t border-white/10 pt-3">
@@ -1433,19 +1741,40 @@ export default function WorkflowRun({
           </div>
         ) : null}
 
-        <button
-          className="w-full rounded-full bg-hire-300 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
-          disabled={
-            isRunning ||
-            workflowFileBusy ||
-            (fileAssetVariables.length > 0 &&
-              (!workflowFileInputEnabled || !workflowFilesReady))
-          }
-          onClick={() => void runWorkflow()}
-          type="button"
-        >
-          {isRunning ? "流水线运行中" : "运行工作流"}
-        </button>
+        <div className="flex gap-2">
+          {isRunning ? (
+            <button
+              className="w-full rounded-full border border-rose-300/40 bg-rose-400/10 px-4 py-2.5 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/25 active:scale-[0.98]"
+              onClick={cancelWorkflow}
+              type="button"
+            >
+              取消运行
+            </button>
+          ) : (
+            <button
+              className="w-full rounded-full bg-hire-300 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+              disabled={
+                workflowFileBusy ||
+                (fileAssetVariables.length > 0 &&
+                  (!workflowFileInputEnabled || !workflowFilesReady))
+              }
+              onClick={() => void runWorkflow()}
+              type="button"
+            >
+              运行工作流
+            </button>
+          )}
+          {finishedOutcome ? (
+            <button
+              className="shrink-0 rounded-full border border-brand-300/35 bg-brand-300/10 px-3 py-2.5 text-sm font-semibold text-brand-100 transition hover:bg-brand-300/20 active:scale-[0.98]"
+              onClick={retryWorkflow}
+              title="重新运行"
+              type="button"
+            >
+              ↻
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {pendingHuman ? (
@@ -1526,6 +1855,39 @@ export default function WorkflowRun({
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {runHistory.length > 0 ? (
+          <div className="mb-3 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+            <p className="text-[11px] font-semibold text-slate-400">最近运行</p>
+            <div className="mt-2 space-y-1.5">
+              {runHistory.map((entry) => (
+                <div
+                  className="flex items-center justify-between gap-3 text-[11px]"
+                  key={`${entry.taskId}-${entry.finishedAt}`}
+                >
+                  <span className="min-w-0 truncate text-slate-400">
+                    {entry.summary}
+                  </span>
+                  <span
+                    className={`shrink-0 rounded-full border px-2 py-0.5 ${
+                      entry.status === "completed"
+                        ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
+                        : entry.status === "cancelled"
+                          ? "border-slate-300/25 bg-slate-300/10 text-slate-200"
+                          : "border-rose-300/25 bg-rose-300/10 text-rose-100"
+                    }`}
+                  >
+                    {entry.status === "completed"
+                      ? "完成"
+                      : entry.status === "cancelled"
+                        ? "取消"
+                        : "异常"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="space-y-2">
           {runSteps.length === 0 ? (
             <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.035] px-4 py-8 text-center text-sm leading-6 text-slate-400">
@@ -1535,9 +1897,12 @@ export default function WorkflowRun({
             </div>
           ) : (
             runSteps.map((step) => (
-              <div
-                className="rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2"
+              <button
+                className="w-full rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-left transition hover:border-brand-300/40 hover:bg-white/[0.07]"
                 key={step.id}
+                onClick={() => onStepSelect?.(step.id)}
+                title="在画布上定位该节点"
+                type="button"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -1562,7 +1927,7 @@ export default function WorkflowRun({
                     </p>
                   </>
                 ) : null}
-              </div>
+              </button>
             ))
           )}
         </div>

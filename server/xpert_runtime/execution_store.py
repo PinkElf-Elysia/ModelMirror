@@ -379,7 +379,11 @@ class WorkflowExecutionStore:
         return self._finish(task_id, status="failed", error=error)
 
     def cancel(self, task_id: str, *, error: str = "cancelled") -> WorkflowExecution:
-        return self._finish(task_id, status="cancelled", error=error)
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            if item.status in {"completed", "failed", "cancelled", "rejected"}:
+                return item
+            return self._finish(task_id, status="cancelled", error=error)
 
     def reject(self, task_id: str, *, error: str = "rejected") -> WorkflowExecution:
         return self._finish(task_id, status="rejected", error=error)
@@ -394,6 +398,10 @@ class WorkflowExecutionStore:
     ) -> WorkflowExecution:
         with self._lock:
             item = self._require_unlocked(task_id)
+            # Cancellation is terminal. A worker that finishes slightly later must
+            # not publish a completed/failed state over the user's cancellation.
+            if item.status == "cancelled" and status != "cancelled":
+                return item
             item.status = status
             if item.run_type == "skill_evaluation" or self._is_skill_creator(item):
                 item.result = None

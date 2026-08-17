@@ -2,6 +2,7 @@ import {
   type WorkflowEdge,
   type WorkflowNodeData,
   type WorkflowNodeKind,
+  type WorkflowVariableDeclaration,
 } from "./workflow";
 
 export type XpertStatus = "draft" | "published" | "archived";
@@ -74,6 +75,7 @@ export interface XpertFeatureConfig {
 export interface XpertWorkflowDefinition {
   id: string;
   title: string;
+  variables?: WorkflowVariableDeclaration[];
   nodes: Array<{
     id: string;
     type?: WorkflowNodeKind | string | null;

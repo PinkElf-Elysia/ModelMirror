@@ -41,7 +41,7 @@ function paletteCardClass(disabled = false) {
   if (disabled) {
     return "w-full rounded-lg border border-dashed border-white/10 bg-white/[0.025] p-3 text-left opacity-70";
   }
-  return "group w-full rounded-lg border border-white/10 bg-white/[0.045] p-3 text-left transition duration-200 hover:-translate-y-0.5 hover:border-hire-300/35 hover:bg-hire-300/10 focus:outline-none focus:ring-2 focus:ring-hire-300/35";
+  return "group w-full rounded-lg border border-white/10 bg-[#101828] p-3 text-left transition duration-200 hover:border-white/25 hover:bg-[#151f33] focus:outline-none focus:ring-2 focus:ring-brand-300/30";
 }
 
 function NormalNodeButton({ item }: { item: WorkflowPaletteItem }) {

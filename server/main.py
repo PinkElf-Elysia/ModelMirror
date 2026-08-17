@@ -417,7 +417,12 @@ try:
         parse_meta_agent_plan,
     )
     from server.meta_agent.prompts import META_AGENT_SYSTEM_PROMPT
-    from server.workflow_native.schemas import NativeNodeKind, NativeWorkflowDefinition
+    from server.workflow_native.schemas import (
+        NativeNodeKind,
+        NativeWorkflowDefinition,
+        WorkflowVariableDeclaration,
+        workflow_variable_value_matches_type,
+    )
     from server.workflow_native.validate import validate_workflow_graph
     from server.workflow_native.values import (
         WorkflowValue,
@@ -444,7 +449,12 @@ except ModuleNotFoundError:
         parse_meta_agent_plan,
     )
     from meta_agent.prompts import META_AGENT_SYSTEM_PROMPT
-    from workflow_native.schemas import NativeNodeKind, NativeWorkflowDefinition
+    from workflow_native.schemas import (
+        NativeNodeKind,
+        NativeWorkflowDefinition,
+        WorkflowVariableDeclaration,
+        workflow_variable_value_matches_type,
+    )
     from workflow_native.validate import validate_workflow_graph
     from workflow_native.values import (
         WorkflowValue,
@@ -1973,8 +1983,67 @@ class WorkflowPayload(BaseModel):
         pattern=r"^[A-Za-z0-9._:-]+$",
     )
     title: str = Field(default="未命名工作流", max_length=120)
+    variables: list[WorkflowVariableDeclaration] = Field(
+        default_factory=list,
+        max_length=100,
+    )
     nodes: list[WorkflowNodePayload] = Field(min_length=1, max_length=80)
     edges: list[WorkflowEdgePayload] = Field(default_factory=list, max_length=120)
+
+    @model_validator(mode="after")
+    def validate_variable_declarations(self) -> "WorkflowPayload":
+        declaration_ids = [item.id for item in self.variables]
+        declaration_names = [item.name for item in self.variables]
+        if len(declaration_ids) != len(set(declaration_ids)):
+            raise ValueError("workflow_variable_duplicate_id")
+        if len(declaration_names) != len(set(declaration_names)):
+            raise ValueError("workflow_variable_duplicate_name")
+
+        producer_names: set[str] = set()
+        declaration_fields = {
+            "input": ("variableName",),
+            "llm": ("outputVariable",),
+            "code": ("codeOutputVariable",),
+            "variable_assign": ("variableName",),
+            "template_transform": ("outputVariable",),
+            "variable_aggregator": ("outputVariable",),
+            "parameter_extractor": ("outputVariable",),
+            "knowledge_retrieval": ("outputVariable",),
+            "knowledge_citation": ("outputVariable",),
+            "document_extractor": ("assetIdVariable", "outputVariable"),
+            "vision_understanding": ("assetIdVariable", "outputVariable"),
+            "human_intervention": ("outputVariable",),
+            "question_classifier": ("outputVariable",),
+            "agent": ("outputVariable",),
+            "workflow_agent": ("outputVariable",),
+            "agent_task": ("outputVariable",),
+            "agent_handoff": ("outputVariable", "resultVariable"),
+            "handoff_router": ("outputVariable", "resultVariable"),
+            "mcp_tool": ("outputVariable",),
+            "time_tool": ("outputVariable",),
+            "http_request": ("outputVariable",),
+            "list_operation": ("outputVariable",),
+            "iteration": ("outputVariable",),
+            "json_serialize": ("outputVariable",),
+            "json_deserialize": ("outputVariable",),
+            "data_table_query": ("outputVariable",),
+            "data_table_insert": ("outputVariable",),
+            "data_table_update": ("outputVariable",),
+            "data_table_delete": ("outputVariable",),
+        }
+        for node in self.nodes:
+            kind = str(node.type or node.data.get("kind") or "").strip()
+            for field_name in declaration_fields.get(kind, ()):
+                name = str(node.data.get(field_name) or "").strip()
+                if name:
+                    producer_names.add(name)
+        collisions = producer_names.intersection(declaration_names)
+        if collisions:
+            raise ValueError(
+                "workflow_variable_producer_conflict:"
+                + ",".join(sorted(collisions))
+            )
+        return self
 
 
 class WorkflowRunRequest(BaseModel):
@@ -1984,7 +2053,54 @@ class WorkflowRunRequest(BaseModel):
     @model_validator(mode="after")
     def validate_json_safe_inputs(self) -> "WorkflowRunRequest":
         self.inputs = normalize_workflow_variables(self.inputs)
+        constant_names = {
+            item.name for item in self.workflow.variables if item.kind == "constant"
+        }
+        overridden_constants = sorted(constant_names.intersection(self.inputs))
+        if overridden_constants:
+            raise ValueError(
+                "workflow_constant_override_not_allowed:"
+                + ",".join(overridden_constants)
+            )
+        for declaration in self.workflow.variables:
+            if declaration.kind != "input" or declaration.name not in self.inputs:
+                continue
+            if not workflow_variable_value_matches_type(
+                declaration.valueType,
+                self.inputs[declaration.name],
+            ):
+                raise ValueError(
+                    "workflow_input_type_mismatch:"
+                    f"{declaration.name}:{declaration.valueType}"
+                )
         return self
+
+
+def initialize_declared_workflow_variables(
+    workflow: WorkflowPayload,
+    inputs: dict[str, WorkflowValue],
+) -> dict[str, WorkflowValue]:
+    """Build the initial runtime dictionary without allowing constant overrides."""
+
+    initialized: dict[str, WorkflowValue] = {}
+    for declaration in workflow.variables:
+        if declaration.kind != "constant":
+            continue
+        initialized[declaration.name] = normalize_workflow_value(
+            declaration.defaultValue,
+            path=f"$.variables.{declaration.name}",
+        )
+    for declaration in workflow.variables:
+        if declaration.kind != "input":
+            continue
+        if "defaultValue" not in declaration.model_fields_set:
+            continue
+        initialized[declaration.name] = normalize_workflow_value(
+            declaration.defaultValue,
+            path=f"$.variables.{declaration.name}",
+        )
+    initialized.update(normalize_workflow_variables(inputs))
+    return initialized
 
 
 class WorkflowResumeRequest(BaseModel):
@@ -7193,8 +7309,15 @@ async def _run_workflow_response(
     task_state: dict[str, Any] = {
         "task_id": task_id,
         "run_id": workflow_run.run_id,
-        "variables": normalize_workflow_variables(
-            dict(resume_state.get("variables") or payload.inputs)
+        "variables": (
+            normalize_workflow_variables(
+                dict(resume_state.get("variables") or payload.inputs)
+            )
+            if resume_execution is not None
+            else initialize_declared_workflow_variables(
+                payload.workflow,
+                dict(payload.inputs),
+            )
         ),
         "queue": initial_queue,
         "queued": set(resume_state.get("queued") or initial_queue),
@@ -7226,6 +7349,7 @@ async def _run_workflow_response(
             if resolved_client_request is not None
             else None
         ),
+        "cancel_requested": False,
     }
     if (
         task_state["resolved_approval"] is None
@@ -7255,6 +7379,21 @@ async def _run_workflow_response(
         queued: set[str] = task_state["queued"]
         executed: set[str] = task_state["executed"]
         final_output = ""
+
+        def cancellation_requested() -> bool:
+            if bool(task_state.get("cancel_requested")):
+                return True
+            current = workflow_execution_store.get(task_id)
+            return current is not None and current.status == "cancelled"
+
+        def cancellation_event() -> dict[str, Any]:
+            return {
+                "event": "workflow_cancelled",
+                "task_id": task_id,
+                "run_id": workflow_run.run_id,
+                "status": "cancelled",
+                "message": "工作流已取消。",
+            }
         restored_runtime_context = resume_state.get("runtime_context")
         restored_runtime_context = (
             dict(restored_runtime_context)
@@ -10701,6 +10840,9 @@ async def _run_workflow_response(
                     }
                 )
             yield sse_payload(meta_event)
+            if cancellation_requested():
+                yield sse_payload(cancellation_event())
+                return
             workflow_execution_store.append_event(task_id, meta_event)
             if resolved_approval is not None:
                 resolved_event = {
@@ -10718,6 +10860,9 @@ async def _run_workflow_response(
                 workflow_execution_store.append_event(task_id, resolved_event)
                 yield sse_payload(resolved_event)
             while queue:
+                if cancellation_requested():
+                    yield sse_payload(cancellation_event())
+                    return
                 node_id = queue.popleft()
                 node = nodes_by_id[node_id]
                 kind = workflow_node_kind(node)
@@ -15220,6 +15365,10 @@ async def _run_workflow_response(
                     task_state["final_output"] = final_output
                     output = final_output
 
+                if cancellation_requested():
+                    yield sse_payload(cancellation_event())
+                    return
+
                 executed.add(node_id)
                 node_end_event = {
                     "event": "node_end",
@@ -15255,6 +15404,10 @@ async def _run_workflow_response(
 
             if not final_output:
                 final_output = next(reversed(variables.values()), "")
+
+            if cancellation_requested():
+                yield sse_payload(cancellation_event())
+                return
 
             await run_registry.update_run(
                 workflow_run.run_id,
@@ -15406,6 +15559,18 @@ async def _run_workflow_response(
                         ),
                     )
                 )
+            if cancellation_requested():
+                yield sse_payload(cancellation_event())
+                return
+
+            completed_execution = workflow_execution_store.complete(
+                task_id,
+                result=final_output,
+            )
+            if completed_execution.status == "cancelled":
+                yield sse_payload(cancellation_event())
+                return
+
             yield sse_payload(
                 {
                     "event": "workflow_end",
@@ -15416,7 +15581,6 @@ async def _run_workflow_response(
                     "conversation_title": generated_conversation_title or None,
                 }
             )
-            workflow_execution_store.complete(task_id, result=final_output)
             workflow_execution_store.append_event(
                 task_id,
                 {
@@ -15812,6 +15976,57 @@ async def _run_workflow_response(
 @app.post("/api/workflow/run")
 async def run_workflow(payload: WorkflowRunRequest, request: Request):
     return await _run_workflow_response(payload, request)
+
+
+@app.post("/api/workflow/run/{task_id}/cancel")
+async def cancel_workflow_task(task_id: str, request: Request):
+    try:
+        rate_limit_or_raise(client_ip(request))
+    except HTTPException as exc:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": str(exc.detail)},
+        )
+
+    execution = workflow_execution_store.get(task_id)
+    if execution is None or execution.source_kind != "workflow_classic":
+        raise HTTPException(status_code=404, detail="工作流任务不存在或已过期。")
+
+    if execution.status in {"completed", "failed", "cancelled", "rejected"}:
+        return workflow_execution_store.serialize_public(execution)
+
+    task = workflow_task_store.get(task_id)
+    if task is not None:
+        task["cancel_requested"] = True
+        pause_event = task.get("pause_event")
+        if isinstance(pause_event, asyncio.Event):
+            pause_event.set()
+
+    cancelled = workflow_execution_store.cancel(
+        task_id,
+        error="cancelled_by_user",
+    )
+    cancelled_event = {
+        "event": "workflow_cancelled",
+        "task_id": task_id,
+        "run_id": cancelled.run_id,
+        "status": "cancelled",
+        "message": "工作流已取消。",
+    }
+    workflow_execution_store.append_event(task_id, cancelled_event)
+    try:
+        await run_registry.cancel_run(
+            cancelled.run_id,
+            reason="cancelled_by_user",
+        )
+    except KeyError:
+        logger.warning(
+            "Workflow cancellation could not find runtime run task_id=%s",
+            task_id,
+        )
+    return workflow_execution_store.serialize_public(
+        workflow_execution_store.require(task_id)
+    )
 
 
 async def consume_workflow_stream(response: Any) -> dict[str, Any]:

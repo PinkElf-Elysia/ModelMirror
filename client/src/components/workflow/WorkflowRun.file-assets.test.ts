@@ -4,7 +4,9 @@ import type { FileOutput } from "../../data/fileOutputs";
 import {
   apiErrorMessage,
   confirmWorkflowFileDeletion,
+  parseWorkflowDeclaredInputs,
   recoveredWorkflowOutputs,
+  workflowDeclaredInputText,
   workflowOutputsForRun,
   workflowFileDeleteConfirmation,
   workflowFileScopeId,
@@ -73,5 +75,65 @@ describe("WorkflowRun file assets", () => {
       "output-old",
       "output-unbound",
     ]);
+  });
+
+  it("renders declared defaults and parses typed run inputs", () => {
+    const declarations = [
+      {
+        id: "locale",
+        name: "locale",
+        kind: "input" as const,
+        valueType: "text" as const,
+        defaultValue: "zh-CN",
+      },
+      {
+        id: "budget",
+        name: "budget",
+        kind: "input" as const,
+        valueType: "number" as const,
+        defaultValue: 3,
+      },
+      {
+        id: "options",
+        name: "options",
+        kind: "input" as const,
+        valueType: "json" as const,
+      },
+      {
+        id: "constant",
+        name: "fixed_mode",
+        kind: "constant" as const,
+        valueType: "text" as const,
+        defaultValue: "safe",
+      },
+    ];
+
+    expect(workflowDeclaredInputText(declarations[0])).toBe("zh-CN");
+    expect(
+      parseWorkflowDeclaredInputs(declarations, {
+        locale: "en-US",
+        budget: "5",
+        options: '{"strict":true}',
+      }),
+    ).toEqual({
+      inputs: { locale: "en-US", budget: 5, options: { strict: true } },
+      error: "",
+    });
+  });
+
+  it("rejects invalid JSON before a workflow request is created", () => {
+    const result = parseWorkflowDeclaredInputs(
+      [
+        {
+          id: "options",
+          name: "options",
+          kind: "input",
+          valueType: "json",
+        },
+      ],
+      { options: "{" },
+    );
+    expect(result.inputs).toEqual({});
+    expect(result.error).toContain("JSON 格式无效");
   });
 });
