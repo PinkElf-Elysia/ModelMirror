@@ -53,6 +53,7 @@ COPY server/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --retries 5 --timeout 120 -r /tmp/requirements.txt
 
 COPY server/coding_worker ./coding_worker
+COPY scripts/coding_worker_parity.py ./scripts/coding_worker_parity.py
 COPY server/THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-coding/THIRD_PARTY_NOTICES.md
 
 USER 65532:65532

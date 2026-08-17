@@ -778,6 +778,7 @@ class ProjectHostTransport:
         self.select_folder = select_folder
         self.status_changed = status_changed or (lambda _value: None)
         self.direct_writeback = False
+        self._selection_task: asyncio.Task[None] | None = None
 
     async def run_forever(self) -> None:
         from websockets.asyncio.client import connect
@@ -803,7 +804,7 @@ class ProjectHostTransport:
                     try:
                         await self._send_inventory(websocket)
                         async for raw in websocket:
-                            await self._handle_message(websocket, raw)
+                            await self._dispatch_message(websocket, raw)
                     finally:
                         heartbeat.cancel()
                         with contextlib.suppress(asyncio.CancelledError):
@@ -832,6 +833,53 @@ class ProjectHostTransport:
                 self.status_changed("连接已断开，正在重试")
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 15.0)
+
+    async def _dispatch_message(self, websocket: Any, raw: Any) -> None:
+        """Keep the control channel responsive while the folder picker is open."""
+
+        message = _parse_message(raw)
+        if message.get("type") != "select_project":
+            await self._handle_message(websocket, raw)
+            return
+
+        request_id = str(message.get("request_id") or "")
+        active = self._selection_task
+        if active is not None and not active.done():
+            await self._error(
+                websocket,
+                request_id,
+                "project_selection_in_progress",
+            )
+            return
+
+        task = asyncio.create_task(
+            self._handle_selection_message(websocket, raw)
+        )
+        self._selection_task = task
+        task.add_done_callback(self._selection_finished)
+
+    async def _handle_selection_message(self, websocket: Any, raw: Any) -> None:
+        try:
+            await self._handle_message(websocket, raw)
+        except Exception:
+            # The main receive loop must remain usable for snapshots and exact
+            # operations.  An unexpected picker/send failure is isolated to
+            # this request; the regular heartbeat will detect a dead socket.
+            request_id = ""
+            with contextlib.suppress(Exception):
+                request_id = str(_parse_message(raw).get("request_id") or "")
+            with contextlib.suppress(Exception):
+                await self._error(
+                    websocket,
+                    request_id,
+                    "project_selection_failed",
+                )
+
+    def _selection_finished(self, task: asyncio.Task[None]) -> None:
+        if self._selection_task is task:
+            self._selection_task = None
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            task.result()
 
     @staticmethod
     async def _heartbeat_loop(websocket: Any) -> None:

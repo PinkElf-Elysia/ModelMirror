@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException
 
 from server.coding_runtime.api import (
     CodingService,
+    _normalize_worker_handoff_diff,
     configure_coding_service,
     router,
 )
@@ -37,6 +38,7 @@ from server.coding_runtime.projects import ProjectFeatures, ProjectKind
 from server.coding_worker.api import configure_coding_worker_for_tests
 from server.coding_worker.contracts import TaskState
 from server.coding_runtime.recovery import CodingRecoveryStore, RecoveryProjectContext
+from server.coding_runtime.draft_workspace import DraftWorkspace
 from server.coding_runtime.worker import CodingWorkerError, CodingWorkerServer
 from server.tests.test_coding_runtime_api import FakeWorker
 
@@ -535,6 +537,7 @@ async def test_completed_worker_patch_enters_existing_host_recovery_chain(
             "snapshot_fingerprint": PROJECT_FINGERPRINT,
             "verification": None,
             "source": _lease(),
+            "writeback_only": True,
         }
     ]
     recovery = store.load()
@@ -545,6 +548,40 @@ async def test_completed_worker_patch_enters_existing_host_recovery_chain(
     assert context.project_id == PROJECT_ID
     assert source.released == []
     assert host.snapshot_calls == [(PROJECT_ID, PROJECT_HEAD, None, None)]
+
+
+@pytest.mark.asyncio
+async def test_worker_handoff_recovery_stays_available_without_legacy_model(
+    tmp_path: Path,
+) -> None:
+    store = CodingRecoveryStore(tmp_path / "worker-handoff-restart")
+    host = FakeHostRuntime(writeback=True)
+    first, first_worker, _source, _host = _service(store, host=host)
+    first_worker.configured = False
+    patch = first_worker._diff_content()
+
+    await first.adopt_worker_patch(
+        project_id=PROJECT_ID,
+        expected_head=PROJECT_HEAD,
+        patch=patch,
+        paths=[first_worker.change_path],
+    )
+    await first.shutdown()
+
+    second, second_worker, _second_source, _second_host = _service(
+        store,
+        host=host,
+    )
+    second_worker.configured = False
+    pending = await second.recovery_status()
+    resumed = await second.resume_recovery()
+
+    assert pending["can_resume"] is True
+    assert pending.get("reason") is None
+    assert resumed.project["id"] == PROJECT_ID
+    assert second_worker.restore_calls[0]["writeback_only"] is True
+    await second.shutdown()
+    configure_coding_service(None)
 
 
 @pytest.mark.asyncio
@@ -578,7 +615,14 @@ async def test_completed_worker_task_handoff_route_uses_v13_recovery(
     tmp_path: Path,
 ) -> None:
     store = CodingRecoveryStore(tmp_path / "worker-route-recovery")
-    service, worker, _source, _host = _service(store)
+    service, worker, _source, _host = _service(
+        store,
+        host=FakeHostRuntime(writeback=True),
+    )
+    # A Host Snapshot handoff only needs the path-free draft runtime transport.
+    # The legacy builtin model/source can remain unconfigured while Project Host
+    # v2 is independently online and writable.
+    worker.configured = False
     task_id = "task_" + "a" * 32
     task = SimpleNamespace(
         state=TaskState.COMPLETED,
@@ -591,11 +635,20 @@ async def test_completed_worker_task_handoff_route_uses_v13_recovery(
             )
         ),
     )
+    git_patch = worker._diff_content().replace(
+        "--- a/",
+        "index 1111111..2222222 100644\n--- a/",
+        1,
+    )
     worker_service = SimpleNamespace(
         store=SimpleNamespace(get_task=lambda value: task if value == task_id else None),
         harness_runner=SimpleNamespace(acceptance_satisfied=lambda value: value == task_id),
         workspace_broker=SimpleNamespace(
-            diff=lambda value: worker._diff_content().encode("utf-8")
+            diff=lambda value, *, detect_renames: (
+                git_patch.encode("utf-8")
+                if value == task.workspace_id and detect_renames is False
+                else pytest.fail("handoff did not request a no-renames diff")
+            )
         ),
     )
     configure_coding_worker_for_tests(worker_service, enabled=True)  # type: ignore[arg-type]
@@ -613,6 +666,40 @@ async def test_completed_worker_task_handoff_route_uses_v13_recovery(
     recovery = store.load()
     assert recovery is not None
     assert recovery.payload.patch == worker._diff_content()
+
+
+def test_worker_handoff_restores_added_empty_file_without_git_object_ids(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    workspace = DraftWorkspace(
+        source,
+        tmp_path / "workspace",
+        tmp_path / "checkpoint",
+    )
+    workspace.initialize()
+    git_patch = (
+        "diff --git a/formatters/__init__.py b/formatters/__init__.py\n"
+        "new file mode 100644\n"
+        "index 0000000..e69de29\n"
+    )
+
+    normalized = _normalize_worker_handoff_diff(git_patch)
+    report = workspace.restore_from_patch(
+        normalized,
+        revision=1,
+        expected_paths=("formatters/__init__.py",),
+    )
+
+    assert normalized == (
+        "diff --git a/formatters/__init__.py b/formatters/__init__.py\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/formatters/__init__.py\n"
+    )
+    assert report.files[0].status == "added"
+    assert (workspace.workspace_root / "formatters" / "__init__.py").read_bytes() == b""
 
 
 @pytest.mark.asyncio

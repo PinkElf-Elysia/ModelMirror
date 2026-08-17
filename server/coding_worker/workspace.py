@@ -526,7 +526,13 @@ class WorkspaceBroker:
             )
         return materialized
 
-    def diff(self, workspace_id: str, *, max_bytes: int = 2 * 1024 * 1024) -> bytes:
+    def diff(
+        self,
+        workspace_id: str,
+        *,
+        max_bytes: int = 2 * 1024 * 1024,
+        detect_renames: bool = True,
+    ) -> bytes:
         record = self.get(workspace_id)
         repository = self.repository_path(workspace_id)
         temporary_index = repository.parent / f"index-{uuid.uuid4().hex}"
@@ -535,14 +541,13 @@ class WorkspaceBroker:
             env = self._git_env(repository)
             env["GIT_INDEX_FILE"] = str(temporary_index)
             self._git(repository, "add", "-A", env=env)
+            diff_args = ["diff", "--cached", "--binary", "--no-ext-diff"]
+            if not detect_renames:
+                diff_args.append("--no-renames")
+            diff_args.extend((record.baseline_commit, "--"))
             result = self._git(
                 repository,
-                "diff",
-                "--cached",
-                "--binary",
-                "--no-ext-diff",
-                record.baseline_commit,
-                "--",
+                *diff_args,
                 env=env,
                 text=False,
             )

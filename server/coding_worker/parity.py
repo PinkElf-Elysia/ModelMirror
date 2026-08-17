@@ -268,6 +268,9 @@ class ParityRunOutcome(StrictModel):
     hidden_checker_bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     runner_image_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
     raw_artifact_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    checker_receipt_sha256: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
     candidate_sha: str = Field(pattern=r"^[a-f0-9]{40}$")
     task_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     initial_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -372,6 +375,8 @@ class ParityReport(StrictModel):
 
     @model_validator(mode="after")
     def validate_matrix(self) -> "ParityReport":
+        if any(run.checker_receipt_sha256 is None for run in self.runs):
+            raise ValueError("parity certification requires sealed checker receipts")
         keys = [(run.engine, run.task_id, run.attempt) for run in self.runs]
         if len(keys) != len(set(keys)):
             raise ValueError("parity run matrix contains duplicate cells")

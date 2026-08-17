@@ -71,6 +71,7 @@ export interface CodingWorkerTask {
   pinned: boolean;
   last_event_sequence: number;
   reason: string | null;
+  runtime_protocol: "v16" | "v17";
 }
 
 export interface CodingWorkerEvent {
@@ -107,6 +108,42 @@ export interface CodingWorkerStatus {
   model_routes?: string[];
   reason: string | null;
   capabilities: CodingWorkerCapabilities;
+}
+
+export type CodingWorkerFeatureName =
+  | "task_runtime"
+  | "professional_file_tools"
+  | "shell"
+  | "operation_output"
+  | "changesets"
+  | "code_intelligence"
+  | "structured_plan"
+  | "user_questions"
+  | "context_compaction"
+  | "turn_history"
+  | "subtasks";
+
+export type CodingWorkerCapabilityReason =
+  | "feature_disabled"
+  | "provider_unavailable"
+  | "provider_unsupported"
+  | "provider_binding_changed"
+  | "route_unavailable"
+  | "legacy_task";
+
+export interface CodingWorkerCapabilityStatus {
+  name: CodingWorkerFeatureName;
+  enabled: boolean;
+  supported: boolean;
+  available: boolean;
+  reason: CodingWorkerCapabilityReason | null;
+}
+
+export interface CodingWorkerTaskCapabilities {
+  task_id: string;
+  observed_at: number | null;
+  expires_at: number | null;
+  capabilities: CodingWorkerCapabilityStatus[];
 }
 
 export interface CodingWorkerApproval {
@@ -230,6 +267,18 @@ export interface CodingWorkerPlan {
   items: Array<{
     step: string;
     status: "pending" | "in_progress" | "completed";
+  }>;
+  updated_at: number;
+}
+
+export interface CodingWorkerTodo {
+  task_id: string;
+  sequence: number;
+  turn_id: string;
+  items: Array<{
+    todo_id: string;
+    content: string;
+    status: "pending" | "in_progress" | "completed" | "cancelled";
   }>;
   updated_at: number;
 }

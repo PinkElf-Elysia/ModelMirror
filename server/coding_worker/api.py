@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
+import tarfile
 from pathlib import PurePosixPath
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -33,6 +35,7 @@ from .contracts import (
     WorkerEvidence,
     WorkerDiagnostic,
     WorkerPlan,
+    WorkerTodo,
     WorkerQuestion,
     WorkerQuestionAnswer,
     WorkerTurnHistory,
@@ -186,11 +189,11 @@ def _provider_supports_feature(
     if feature is WorkerFeatureName.CODE_INTELLIGENCE:
         return "code_diagnostics" in tools
     if feature is WorkerFeatureName.STRUCTURED_PLAN:
-        return capabilities.supports_structured_plan or "update_plan" in tools
+        return "update_plan" in tools
     if feature is WorkerFeatureName.USER_QUESTIONS:
-        return capabilities.supports_questions or "request_user_input" in tools
+        return "request_user_input" in tools
     if feature is WorkerFeatureName.CONTEXT_COMPACTION:
-        return capabilities.supports_compaction or "compact_context" in tools
+        return "compact_context" in tools
     if feature is WorkerFeatureName.TURN_HISTORY:
         return True
     if feature is WorkerFeatureName.SUBTASKS:
@@ -238,6 +241,7 @@ def _task_capability_status(
     current: ProviderCapabilities | None,
     binding_matches: bool,
     current_reason: str | None,
+    v17_task: bool = False,
 ) -> WorkerCapabilityStatus:
     enabled = _feature_flag_enabled(feature)
     platform_owned = feature is WorkerFeatureName.TURN_HISTORY
@@ -251,6 +255,13 @@ def _task_capability_status(
             and _provider_supports_feature(current, feature)
         )
     )
+    if (
+        v17_task
+        and basic_runtime
+        and snapshot is not None
+        and not snapshot.supports_turn_interrupt
+    ):
+        supported = False
     reason: WorkerCapabilityReason | None = None
     if not enabled:
         reason = WorkerCapabilityReason.FEATURE_DISABLED
@@ -287,7 +298,9 @@ def _task_capability_status(
             if current_reason == "route_unavailable"
             else WorkerCapabilityReason.PROVIDER_UNAVAILABLE
         )
-    elif not _provider_supports_feature(current, feature):
+    elif not _provider_supports_feature(current, feature) or (
+        v17_task and basic_runtime and not current.supports_turn_interrupt
+    ):
         reason = WorkerCapabilityReason.PROVIDER_UNSUPPORTED
     return WorkerCapabilityStatus(
         name=feature,
@@ -484,6 +497,7 @@ async def get_task_capabilities(task_id: str) -> TaskCapabilities:
                     current=observation.capabilities,
                     binding_matches=binding_matches,
                     current_reason=observation.reason,
+                    v17_task=task.runtime_protocol.value == "v17",
                 )
                 for feature in WorkerFeatureName
             ),
@@ -538,6 +552,15 @@ async def task_plan(task_id: str) -> WorkerPlan | None:
     _require_interaction_enabled()
     try:
         return get_coding_worker_service().store.latest_plan(task_id)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/todo", response_model=WorkerTodo | None)
+async def task_todo(task_id: str) -> WorkerTodo | None:
+    _require_interaction_enabled()
+    try:
+        return get_coding_worker_service().store.latest_todo(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -1063,6 +1086,61 @@ async def workspace_diff(task_id: str) -> Response:
         )
     except Exception as exc:
         _raise_worker_error(exc)
+
+
+@router.post(
+    "/tasks/{task_id}/workspace/parity-export",
+    response_model=WorkerArtifact,
+)
+async def export_parity_workspace(task_id: str) -> WorkerArtifact:
+    """Create an opaque, deterministic terminal Workspace artifact for Checker.
+
+    The endpoint is absent unless the isolated parity profile is enabled. It
+    never exposes a Workspace path and cannot export a still-running task.
+    """
+
+    if not _feature_enabled("CODING_WORKER_PARITY_ENABLED"):
+        raise HTTPException(status_code=404, detail="Not found")
+    service, task = _task_workspace(task_id)
+    try:
+        if task.state not in TERMINAL_STATES:
+            raise WorkerConflictError(
+                "Parity export requires a terminal task.",
+                code="parity_task_not_terminal",
+            )
+        snapshot = service.workspace_broker.capture_snapshot(task.workspace_id)
+        files = service.workspace_broker.snapshot_files(task.workspace_id, snapshot)
+        content = _deterministic_workspace_tar(files)
+        usage = service.store.budget_usage(task_id)
+        return service.store.create_artifact(
+            task_id=task_id,
+            media_type="application/vnd.modelmirror.parity-workspace+tar",
+            content=content,
+            metadata={
+                "kind": "parity_workspace_export",
+                "workspace_tree_hash": snapshot.tree_hash,
+                "file_count": len(files),
+                "active_seconds": usage.active_seconds,
+                "tool_calls": usage.tool_calls,
+                "turns_started": usage.turns_started,
+            },
+        )
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+def _deterministic_workspace_tar(files: tuple[Any, ...]) -> bytes:
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+        for entry in sorted(files, key=lambda item: item.path):
+            info = tarfile.TarInfo(entry.path)
+            info.size = len(entry.content)
+            info.mode = 0o755 if entry.executable else 0o644
+            info.mtime = 0
+            info.uid = info.gid = 0
+            info.uname = info.gname = ""
+            archive.addfile(info, io.BytesIO(entry.content))
+    return output.getvalue()
 
 
 @router.get("/tasks/{task_id}/services/{service_id}/preview/{preview_path:path}")

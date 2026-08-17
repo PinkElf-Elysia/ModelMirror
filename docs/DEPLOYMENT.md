@@ -653,3 +653,42 @@ CODING_WORKER_DOCUMENTATION_EGRESS_ENABLED=false
 部署前先加载 V14 overlay；需要 Claude 时再按 V15 既定顺序追加 Claude overlay。`config --quiet`、Fake Provider 和容器健康只证明配置/协议，不证明子任务调度或真实模型质量。人工验收至少包括：父任务停车后子任务取得空槽、第三任务仍排队、只读子任务修改被拒、两个非重叠 implement 顺序合并、同文件冲突不覆盖父树、合并后父检查重跑、Server/Provider/Executor 逐个重启、Host Snapshot 经 v13 写回。
 
 真实 24 项 × 两侧 × 三次的 144 次对照与连续两轮认证未通过前，保持 Experimental。回退只关闭上述开关并停止接收新 V16 任务；不得用回退删除持久数据或声称撤销外部副作用。
+
+## Coding Worker V17 与 parity profile
+
+V17 新任务依赖 V16 交互、会话控制和子任务能力，新增开关仍必须写入当前绝对数据根对应的 `server/.env`，默认关闭：
+
+```dotenv
+CODING_WORKER_V17_ENABLED=false
+CODING_WORKER_PARITY_ENABLED=false
+```
+
+关闭 V17 后，新任务回到 V16；已创建的 V17 任务进入 `interrupted` 并保留 Store、Workspace、Turn、Evidence、Artifact 和 v13 Recovery，不降级 checkpoint，也不重放旧 operation。任务级 capability 失败关闭不因回退重新变成全局“可用”。
+
+认证环境只在独立认证 worktree 加载 `docker-compose.coding-worker-v17-parity.yml`，不得加入共享产品栈。运行前必须冻结候选 commit、公开 fixture/manifest、runner image digest、受控 route catalog/receipt digest 和只读密封 checker bundle，并设置彼此不同的随机 RPC token：
+
+```dotenv
+CODING_PARITY_NATIVE_TOKEN=<random>
+CODING_PARITY_WORKER_TOKEN=<random>
+CODING_PARITY_CHECKER_TOKEN=<random>
+CODING_PARITY_ROUTE_CATALOG_SHA256=<sha256>
+CODING_PARITY_ROUTE_RECEIPT_SHA256=<sha256>
+CODING_PARITY_CHECKER_BUNDLE=C:\absolute\path\sealed-checker.bundle
+```
+
+只做配置展开，不启动 runner：
+
+```powershell
+docker compose `
+  -f docker-compose.yml `
+  -f docker-compose.coding-worker-v14.yml `
+  -f docker-compose.coding-worker-v17-parity.yml `
+  -p modelmirror-v17-certification `
+  --profile coding `
+  --profile coding-worker-parity `
+  config --quiet
+```
+
+Native runner 是唯一同时持有受控模型 route key 和原版 OpenCode 1.18.9 的对照进程；Worker runner 只调用正式 Worker API；checker `network_mode:none` 且唯一挂载密封隐藏检查；controller `network_mode:none`，不挂载 hidden bundle、route key、Docker socket 或 Workspace。两个 runner 都只能导出终态不透明 Artifact，checker 复核 run/task/tree/artifact/check 绑定后才执行隐藏检查。
+
+CLI 的 `validate`、Fake `smoke`、`report` 和 `certify` 可以在自动门禁中使用；真实 `run-round` 必须处于发布认证窗口。不同 round 的 run ID 必须不同，两个 round 必须绑定相同 candidate、manifest、route、bundle 和 runner image。当前实现交付时尚未运行两轮共 288 次真实模型认证，也未完成无 P0/P1 的 Console 人工门禁，因此 V17 只能保持 Experimental，禁止使用任何“接近 OpenCode”表述。

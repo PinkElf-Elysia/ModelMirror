@@ -141,6 +141,7 @@ class ClaudeCodeProvider(CodingAgentProvider):
             supports_steering=True,
             supports_usage=True,
             supports_tool_boundaries=True,
+            supports_turn_interrupt=True,
             tool_names=PROVIDER_TOOL_NAMES,
         )
 
@@ -297,6 +298,9 @@ class ClaudeCodeProvider(CodingAgentProvider):
             return False
         await _stop_process(process)
         return True
+
+    async def interrupt_turn(self, session: ProviderSession) -> bool:
+        return await self.cancel(session)
 
     async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint:
         handle = self._require_session(session)

@@ -34,13 +34,16 @@ import type {
   CodingWorkerEntry,
   CodingWorkerEvent,
   CodingWorkerEvidence,
+  CodingWorkerFeatureName,
   CodingWorkerOperationOutputChunk,
   CodingWorkerPlan,
   CodingWorkerQuestion,
   CodingWorkerStatus,
   CodingWorkerSubtask,
   CodingWorkerTask,
+  CodingWorkerTaskCapabilities,
   CodingWorkerTaskSpec,
+  CodingWorkerTodo,
   CodingWorkerTurnHistory,
 } from "../types/codingWorker";
 import {
@@ -54,7 +57,9 @@ import {
   getCodingWorkerDiagnostics,
   getCodingWorkerPlan,
   getCodingWorkerTask,
+  getCodingWorkerTaskCapabilities,
   getCodingWorkerStatus,
+  getCodingWorkerTodo,
   getCodingWorkerTurnHistory,
   handoffCodingWorkerTask,
   listCodingWorkerApprovals,
@@ -76,6 +81,7 @@ import {
 import type { CodingProjectSelection, CodingProjectSummary } from "../types/coding";
 import {
   createCodingProjectSelection,
+  getCodingRecovery,
   getCodingProjectSelection,
   getCodingProjects,
   getCodingWorkerHostSource,
@@ -97,46 +103,9 @@ import {
 
 type ConsoleContext = "coding" | "agent";
 type InspectorTab = "session" | "files" | "diff" | "changesets" | "diagnostics" | "evidence" | "terminal";
-type WorkerTodoItem = {
-  todo_id: string;
-  content: string;
-  status: "pending" | "in_progress" | "completed" | "cancelled";
-};
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
-}
-
-function publicPlanText(event: CodingWorkerEvent) {
-  if (event.type !== "provider_event" || event.payload.kind !== "plan") return null;
-  const data = event.payload.data;
-  if (typeof data === "string") return data;
-  if (!data || typeof data !== "object") return null;
-  const record = data as Record<string, unknown>;
-  const value = [record.summary, record.message, record.text].find((item) => typeof item === "string");
-  return typeof value === "string" ? value : "计划已更新。";
-}
-
-function publicTodoItems(event: CodingWorkerEvent) {
-  if (event.type !== "provider_event" || event.payload.kind !== "todo") return null;
-  const data = event.payload.data;
-  if (!data || typeof data !== "object") return null;
-  const items = (data as Record<string, unknown>).items;
-  if (!Array.isArray(items)) return null;
-  return items.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const value = item as Record<string, unknown>;
-    if (
-      typeof value.todo_id !== "string"
-      || typeof value.content !== "string"
-      || !["pending", "in_progress", "completed", "cancelled"].includes(String(value.status))
-    ) return [];
-    return [{
-      todo_id: value.todo_id,
-      content: value.content,
-      status: value.status as "pending" | "in_progress" | "completed" | "cancelled",
-    } satisfies WorkerTodoItem];
-  }).slice(0, 256);
 }
 
 function approvalField(request: Record<string, unknown>, key: string) {
@@ -193,6 +162,29 @@ const mergeStateCopy = {
   failed: "子任务失败",
 } as const;
 
+const capabilityCopy: Record<CodingWorkerFeatureName, string> = {
+  task_runtime: "任务运行",
+  professional_file_tools: "专业文件工具",
+  shell: "受控 Shell",
+  operation_output: "终端补发",
+  changesets: "原子变更",
+  code_intelligence: "代码诊断",
+  structured_plan: "结构化计划",
+  user_questions: "用户提问",
+  context_compaction: "上下文压缩",
+  turn_history: "回合历史",
+  subtasks: "隔离子任务",
+};
+
+const capabilityReasonCopy = {
+  feature_disabled: "功能开关关闭",
+  provider_unavailable: "受控执行路由离线",
+  provider_unsupported: "当前路由不支持",
+  provider_binding_changed: "执行绑定已改变",
+  route_unavailable: "模型路由不可用",
+  legacy_task: "旧任务未保存能力快照",
+} as const;
+
 function approvalSummary(approval: CodingWorkerApproval) {
   const command = approval.request.command ?? approval.request.script;
   if (typeof command === "string" && command.trim()) return command;
@@ -210,9 +202,16 @@ function approvalCapabilityLabel(capability: string) {
 interface CodingWorkerConsoleProps {
   context: ConsoleContext;
   onCodingHandoff?: (result: CodingWorkerHandoffResult) => void;
+  onOpenCodingWriteback?: () => void;
+  onOpenLegacy?: () => void;
 }
 
-export default function CodingWorkerConsole({ context, onCodingHandoff }: CodingWorkerConsoleProps) {
+export default function CodingWorkerConsole({
+  context,
+  onCodingHandoff,
+  onOpenCodingWriteback,
+  onOpenLegacy,
+}: CodingWorkerConsoleProps) {
   const [status, setStatus] = useState<CodingWorkerStatus | null>(null);
   const [tasks, setTasks] = useState<CodingWorkerTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -226,6 +225,8 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
   const [changesets, setChangesets] = useState<CodingWorkerChangeset[]>([]);
   const [diagnostics, setDiagnostics] = useState<CodingWorkerDiagnosticsSnapshot[]>([]);
   const [structuredPlan, setStructuredPlan] = useState<CodingWorkerPlan | null>(null);
+  const [todo, setTodo] = useState<CodingWorkerTodo | null>(null);
+  const [taskCapabilities, setTaskCapabilities] = useState<CodingWorkerTaskCapabilities | null>(null);
   const [questions, setQuestions] = useState<CodingWorkerQuestion[]>([]);
   const [turnHistory, setTurnHistory] = useState<CodingWorkerTurnHistory | null>(null);
   const [subtasks, setSubtasks] = useState<CodingWorkerSubtask[]>([]);
@@ -267,10 +268,6 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     });
     return [...ids].slice(-32);
   }, [events]);
-  const latestPlan = useMemo(
-    () => events.map(publicPlanText).filter((item): item is string => Boolean(item)).at(-1) ?? null,
-    [events],
-  );
   const latestCompaction = useMemo(
     () => events.filter((event) => event.type === "context_compacted").at(-1) ?? null,
     [events],
@@ -279,9 +276,13 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     () => questions.filter((question) => question.status === "pending"),
     [questions],
   );
-  const latestTodos = useMemo(
-    () => events.map(publicTodoItems).filter((items): items is WorkerTodoItem[] => items !== null).at(-1) ?? [],
-    [events],
+  const capabilityByName = useMemo(
+    () => new Map(taskCapabilities?.capabilities.map((item) => [item.name, item]) ?? []),
+    [taskCapabilities],
+  );
+  const taskCapabilityAvailable = useCallback(
+    (name: CodingWorkerFeatureName) => capabilityByName.get(name)?.available === true,
+    [capabilityByName],
   );
   const routeOptions = useMemo(
     () => status?.model_routes?.length ? status.model_routes : ["coding/default"],
@@ -354,6 +355,8 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
       tree,
       nextDiff,
       nextPlan,
+      nextTodo,
+      nextCapabilities,
       nextQuestions,
       nextHistory,
       nextChildren,
@@ -365,6 +368,8 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
       listCodingWorkerTree(taskId).catch(() => null),
       readCodingWorkerDiff(taskId).catch(() => ""),
       getCodingWorkerPlan(taskId).catch(() => null),
+      getCodingWorkerTodo(taskId).catch(() => null),
+      getCodingWorkerTaskCapabilities(taskId).catch(() => null),
       listCodingWorkerQuestions(taskId).catch(() => []),
       getCodingWorkerTurnHistory(taskId).catch(() => null),
       listCodingWorkerChildren(taskId).catch(() => ({ tasks: [], subtasks: [] })),
@@ -377,6 +382,8 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     setTreeHash(tree?.tree_hash ?? "");
     setDiff(nextDiff);
     setStructuredPlan(nextPlan);
+    setTodo(nextTodo);
+    setTaskCapabilities(nextCapabilities);
     setQuestions(nextQuestions);
     setTurnHistory(nextHistory);
     setSubtasks(nextChildren.subtasks);
@@ -450,7 +457,8 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
       setEvents([]); setApprovals([]); setEvidence([]); setArtifacts([]);
       setEntries([]); setPreview(null); setDiff(""); setTreeHash("");
       setOperationOutputs({}); setChangesets([]); setDiagnostics([]);
-      setStructuredPlan(null); setQuestions([]); setTurnHistory(null); setSubtasks([]); setChildTasks([]);
+      setStructuredPlan(null); setTodo(null); setTaskCapabilities(null);
+      setQuestions([]); setTurnHistory(null); setSubtasks([]); setChildTasks([]);
       return;
     }
     let active = true;
@@ -461,6 +469,8 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     setChangesets([]);
     setDiagnostics([]);
     setStructuredPlan(null);
+    setTodo(null);
+    setTaskCapabilities(null);
     setQuestions([]);
     setTurnHistory(null);
     setSubtasks([]);
@@ -535,17 +545,17 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     const loadStructuredInspector = async () => {
       setInspectorLoading(true);
       try {
-        if (tab === "terminal" && status?.capabilities.operation_output) {
+        if (tab === "terminal" && taskCapabilityAvailable("operation_output")) {
           const values = await Promise.all(operationIds.map(async (operationId) => [
             operationId,
             await listCodingWorkerOperationOutput(selectedTaskId, operationId).catch(() => []),
           ] as const));
           if (active) setOperationOutputs(Object.fromEntries(values));
-        } else if (tab === "changesets" && status?.capabilities.changesets) {
+        } else if (tab === "changesets" && taskCapabilityAvailable("changesets")) {
           const values = await Promise.all(operationIds.map((operationId) =>
             getCodingWorkerChangeset(selectedTaskId, operationId).catch(() => null)));
           if (active) setChangesets(values.filter((item): item is CodingWorkerChangeset => item !== null));
-        } else if (tab === "diagnostics" && status?.capabilities.code_intelligence) {
+        } else if (tab === "diagnostics" && taskCapabilityAvailable("code_intelligence")) {
           const values = await Promise.all(operationIds.map((operationId) =>
             getCodingWorkerDiagnostics(selectedTaskId, operationId).catch(() => null)));
           if (active) setDiagnostics(values.filter((item): item is CodingWorkerDiagnosticsSnapshot => item !== null));
@@ -556,7 +566,7 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     };
     void loadStructuredInspector();
     return () => { active = false; };
-  }, [operationIds, selectedTaskId, status?.capabilities, tab]);
+  }, [operationIds, selectedTaskId, tab, taskCapabilityAvailable]);
 
   const run = useCallback(async (operation: () => Promise<unknown>) => {
     if (operationRef.current) return;
@@ -697,6 +707,19 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
 
   const handoffToWriteback = () => run(async () => {
     if (!selectedTask || selectedTask.state !== "completed") return;
+    if (onOpenCodingWriteback) {
+      const recovery = await getCodingRecovery();
+      if (
+        recovery.pending &&
+        recovery.project?.kind === "host_git" &&
+        recovery.project.id === selectedTask.spec.workspace_source.source_id &&
+        typeof recovery.project.head === "string" &&
+        selectedTask.spec.workspace_source.revision.startsWith(recovery.project.head)
+      ) {
+        onOpenCodingWriteback();
+        return;
+      }
+    }
     const result = await handoffCodingWorkerTask(selectedTask.task_id);
     onCodingHandoff?.(result);
   });
@@ -711,6 +734,15 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
         <p className="mx-auto mt-2 max-w-[65ch] text-sm text-slate-300">
           管理员启用 CODING_WORKER_V14_ENABLED 后，新任务会进入统一 Worker。已有会话继续使用原执行面。
         </p>
+        {context === "agent" && onOpenLegacy ? (
+          <button
+            className="mt-5 min-h-11 rounded-lg border border-white/15 px-4 text-sm font-semibold text-slate-200 hover:bg-white/5"
+            onClick={onOpenLegacy}
+            type="button"
+          >
+            查看旧 Agent 会话
+          </button>
+        ) : null}
       </section>
     );
   }
@@ -740,6 +772,15 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          {context === "agent" && onOpenLegacy ? (
+            <button
+              type="button"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white"
+              onClick={onOpenLegacy}
+            >
+              <History className="h-4 w-4" aria-hidden="true" />旧 Agent 会话
+            </button>
+          ) : null}
           <span className="hidden items-center gap-2 text-xs text-slate-400 sm:inline-flex">
             <span className="h-2 w-2 rounded-full bg-emerald-300" aria-hidden="true" />
             {Math.min(tasks.filter((task) => ["preparing", "running", "testing"].includes(task.state)).length, status.max_active_tasks)} / {status.max_active_tasks} 槽位活跃
@@ -867,7 +908,7 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
               <ul className="mt-2 flex flex-wrap gap-2">{selectedTask.spec.acceptance.required_checks.map((check) => { const state = evidenceStatus(check.check_id, evidence); return <li key={check.check_id} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-white/5 px-3 text-xs text-slate-200"><span className={state === "passed" ? "text-emerald-300" : state === "failed" ? "text-rose-300" : state === "invalidated" ? "text-amber-300" : "text-slate-500"}>{state === "passed" ? "通过" : state === "failed" ? "失败" : state === "invalidated" ? "已失效" : "待执行"}</span><span>{check.label}</span></li>; })}</ul>
             </section>
 
-            {latestPlan && <section className="border-b border-white/10 py-4" aria-labelledby="worker-plan-heading"><div className="flex items-center justify-between gap-3"><h2 id="worker-plan-heading" className="text-sm font-semibold text-white">当前计划</h2><span className="text-xs text-slate-500">公开摘要</span></div><p className="mt-2 max-w-[72ch] whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">{latestPlan}</p></section>}
+            {structuredPlan && <section className="border-b border-white/10 py-4" aria-labelledby="worker-plan-heading"><div className="flex items-center justify-between gap-3"><h2 id="worker-plan-heading" className="text-sm font-semibold text-white">当前计划</h2><span className="text-xs text-slate-500">平台权威数据</span></div><p className="mt-2 max-w-[72ch] whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">{structuredPlan.explanation ?? `${structuredPlan.items.filter((item) => item.status === "completed").length}/${structuredPlan.items.length} 项已完成`}</p></section>}
 
             <section className="min-h-0 flex-1 py-4" aria-label="任务进展" aria-live="polite">
               <h2 className="text-sm font-semibold text-white">任务进展</h2>
@@ -906,11 +947,11 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
                       </ol>
                     </div>
                   ) : <p className="mt-3 text-slate-400">Worker 尚未发布结构化计划。</p>}
-                  {latestTodos.length > 0 && (
+                  {todo && todo.items.length > 0 && (
                     <div className="mt-4">
                       <h4 className="text-xs font-medium uppercase tracking-wide text-slate-500">当前待办</h4>
                       <ul className="mt-2 divide-y divide-white/10 border-y border-white/10">
-                        {latestTodos.map((item) => (
+                        {todo.items.map((item) => (
                           <li key={item.todo_id} className="flex gap-3 py-3">
                             <span className="w-16 shrink-0 text-xs text-slate-500">{item.status === "in_progress" ? "进行中" : item.status === "completed" ? "已完成" : item.status === "cancelled" ? "已取消" : "待处理"}</span>
                             <span className={`min-w-0 break-words ${item.status === "completed" || item.status === "cancelled" ? "text-slate-500 line-through" : "text-slate-200"}`}>{item.content}</span>
@@ -919,6 +960,25 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
                       </ul>
                     </div>
                   )}
+                </section>
+
+                <section className="border-t border-white/10 pt-5" aria-labelledby="worker-task-capabilities-heading">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 id="worker-task-capabilities-heading" className="font-semibold text-white">任务能力</h3>
+                    <span className="text-xs text-slate-500">{selectedTask?.runtime_protocol.toUpperCase() ?? "V16"} · 固定路由</span>
+                  </div>
+                  {taskCapabilities ? (
+                    <ul className="mt-3 divide-y divide-white/10 border-y border-white/10">
+                      {taskCapabilities.capabilities.map((capability) => (
+                        <li key={capability.name} className="flex items-center justify-between gap-3 py-2.5">
+                          <span className="text-slate-200">{capabilityCopy[capability.name]}</span>
+                          <span className={`text-right text-xs ${capability.available ? "text-emerald-300" : "text-amber-200"}`}>
+                            {capability.available ? "可用" : capability.reason ? capabilityReasonCopy[capability.reason] : "不可用"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <p className="mt-3 text-amber-200" role="status">任务能力尚未完成实时核对，所有高级动作保持关闭。</p>}
                 </section>
 
                 <section className="border-t border-white/10 pt-5" aria-labelledby="worker-questions-heading">
@@ -955,9 +1015,9 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
                   </div>
                   {latestCompaction && <p className="mt-3 border-l-2 border-cyan-300/60 pl-3 text-xs leading-5 text-slate-300">上下文已在完整工具边界压缩 · 事件 #{latestCompaction.sequence}</p>}
                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    <button type="button" disabled={busy || !status.capabilities.turn_history || !turnHistory || turnHistory.cursor <= 0 || turnHistory.pending_action !== null} onClick={() => void navigateTurn("undo")} className="min-h-11 rounded-lg border border-white/15 px-3 text-slate-200 disabled:opacity-40">撤销上一回合</button>
-                    <button type="button" disabled={busy || !status.capabilities.turn_history || !turnHistory || turnHistory.cursor >= turnHistory.checkpoints.length || turnHistory.pending_action !== null} onClick={() => void navigateTurn("redo")} className="min-h-11 rounded-lg border border-white/15 px-3 text-slate-200 disabled:opacity-40">重做下一回合</button>
-                    <button type="button" disabled={busy || !status.capabilities.turn_history || !turnHistory || turnHistory.checkpoints.length === 0 || turnHistory.pending_action !== null} onClick={() => void forkTask()} className="min-h-11 rounded-lg border border-white/15 px-3 text-slate-200 disabled:opacity-40">从当前回合派生任务</button>
+                    <button type="button" disabled={busy || !taskCapabilityAvailable("turn_history") || !turnHistory || turnHistory.cursor <= 0 || turnHistory.pending_action !== null} onClick={() => void navigateTurn("undo")} className="min-h-11 rounded-lg border border-white/15 px-3 text-slate-200 disabled:opacity-40">撤销上一回合</button>
+                    <button type="button" disabled={busy || !taskCapabilityAvailable("turn_history") || !turnHistory || turnHistory.cursor >= turnHistory.checkpoints.length || turnHistory.pending_action !== null} onClick={() => void navigateTurn("redo")} className="min-h-11 rounded-lg border border-white/15 px-3 text-slate-200 disabled:opacity-40">重做下一回合</button>
+                    <button type="button" disabled={busy || !taskCapabilityAvailable("turn_history") || !turnHistory || turnHistory.checkpoints.length === 0 || turnHistory.pending_action !== null} onClick={() => void forkTask()} className="min-h-11 rounded-lg border border-white/15 px-3 text-slate-200 disabled:opacity-40">从当前回合派生任务</button>
                   </div>
                   <p className="mt-2 text-xs leading-5 text-slate-500">仅回退 Workspace 与公开会话；外部服务副作用不会被撤销。</p>
                 </section>
@@ -994,8 +1054,8 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
             {tab === "diff" && <pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950/80 p-3 text-xs text-slate-200">{diff || "工作区还没有变更。"}</pre>}
             {tab === "changesets" && (
               <div className="space-y-3" aria-busy={inspectorLoading}>
-                {!status.capabilities.changesets ? <p className="text-slate-400">原子 changeset 当前关闭。</p> : null}
-                {status.capabilities.changesets && changesets.length === 0 ? <p className="text-slate-400">{inspectorLoading ? "正在读取变更记录。" : "尚无 changeset。"}</p> : null}
+                {!taskCapabilityAvailable("changesets") ? <p className="text-slate-400">原子 changeset 对此任务不可用。</p> : null}
+                {taskCapabilityAvailable("changesets") && changesets.length === 0 ? <p className="text-slate-400">{inspectorLoading ? "正在读取变更记录。" : "尚无 changeset。"}</p> : null}
                 {changesets.map((changeset) => (
                   <section key={changeset.changeset_id} className="rounded-lg bg-white/5 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="break-all font-semibold text-white">{changeset.changeset_id}</h3><span className={changeset.state === "applied" ? "text-emerald-300" : "text-amber-200"}>{changeset.state}</span></div>
@@ -1009,8 +1069,8 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
             )}
             {tab === "diagnostics" && (
               <div className="space-y-3" aria-busy={inspectorLoading}>
-                {!status.capabilities.code_intelligence ? <p className="text-slate-400">代码诊断当前关闭。</p> : null}
-                {status.capabilities.code_intelligence && diagnostics.length === 0 ? <p className="text-slate-400">{inspectorLoading ? "正在读取诊断。" : "尚无诊断结果。"}</p> : null}
+                {!taskCapabilityAvailable("code_intelligence") ? <p className="text-slate-400">代码诊断对此任务不可用。</p> : null}
+                {taskCapabilityAvailable("code_intelligence") && diagnostics.length === 0 ? <p className="text-slate-400">{inspectorLoading ? "正在读取诊断。" : "尚无诊断结果。"}</p> : null}
                 {diagnostics.map((snapshot) => (
                   <section key={snapshot.operation_id} className="rounded-lg bg-white/5 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="break-all font-semibold text-white">{entries.find((entry) => entry.entry_id === snapshot.entry_id)?.display_path ?? snapshot.entry_id}</h3><span className="text-xs text-slate-400">{snapshot.language}</span></div>
@@ -1024,8 +1084,8 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
             {tab === "terminal" && (
               <div aria-busy={inspectorLoading}>
                 <p className="mb-2 text-xs text-slate-400">输出按 operation 归属并从持久事件补发；刷新页面不会丢失已归档片段。</p>
-                {!status.capabilities.operation_output ? <p className="text-slate-400">终端补发当前关闭。</p> : null}
-                {status.capabilities.operation_output && Object.values(operationOutputs).every((items) => items.length === 0) ? <p className="text-slate-400">{inspectorLoading ? "正在补发终端输出。" : "尚无命令输出。"}</p> : null}
+                {!taskCapabilityAvailable("operation_output") ? <p className="text-slate-400">终端补发对此任务不可用。</p> : null}
+                {taskCapabilityAvailable("operation_output") && Object.values(operationOutputs).every((items) => items.length === 0) ? <p className="text-slate-400">{inspectorLoading ? "正在补发终端输出。" : "尚无命令输出。"}</p> : null}
                 <div className="space-y-3">{Object.entries(operationOutputs).filter(([, chunks]) => chunks.length > 0).map(([operationId, chunks]) => <section key={operationId} className="overflow-hidden rounded-lg bg-slate-950/80"><h3 className="border-b border-white/10 px-3 py-2 break-all text-xs font-semibold text-cyan-100">{operationId}</h3><pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 text-xs">{chunks.map((chunk) => <span key={chunk.sequence} className={outputTone(chunk.stream)}>{chunk.text}{chunk.truncated ? "\n[输出已截断]\n" : ""}</span>)}</pre></section>)}</div>
               </div>
             )}

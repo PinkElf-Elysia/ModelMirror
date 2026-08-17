@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -68,6 +69,7 @@ from .verifier_client import (
 )
 
 MAX_WORKER_FRAME_BYTES = 2 * 1024 * 1024
+LOGGER = logging.getLogger(__name__)
 MAX_PROMPT_CHARS = 20_000
 SOCKET_PATH = Path(
     os.getenv(
@@ -385,10 +387,40 @@ def create_acp_client(
     )
 
 
+class _WritebackOnlyAdapter:
+    """Session adapter for a completed Worker patch awaiting v13 writeback."""
+
+    async def open(self, session: CodingSession) -> CodingEvent:
+        session.transition(CodingSessionState.READY)
+        return session.append_event(CodingEventKind.SESSION_STARTED)
+
+    async def prompt(
+        self,
+        session: CodingSession,
+        prompt: str,
+    ) -> AsyncIterator[CodingEvent]:
+        del session, prompt
+        if False:  # pragma: no cover - keep the async-generator contract explicit.
+            yield
+        raise CodingWorkerError(
+            "Imported Coding Worker patches are writeback-only.",
+            code="project_operation_unavailable",
+        )
+
+    async def cancel(self, session: CodingSession) -> bool:
+        del session
+        return False
+
+    async def close(self, session: CodingSession) -> None:
+        if session.state is not CodingSessionState.CLOSED:
+            session.active_turn_id = None
+            session.transition(CodingSessionState.CLOSED)
+
+
 @dataclass(slots=True)
 class _WorkerSession:
     session: CodingSession
-    adapter: AcpClient
+    adapter: AcpClient | _WritebackOnlyAdapter
     workspace: DraftWorkspace
     mode: str
     source: WorkspaceSource | None = None
@@ -675,6 +707,7 @@ class CodingWorkerServer:
             "snapshot_fingerprint",
             "verification",
             "source",
+            "writeback_only",
         }
         if not set(request).issubset(allowed_keys):
             raise CodingWorkerProtocolError(
@@ -688,6 +721,7 @@ class CodingWorkerServer:
         base_paths = request.get("base_paths", [])
         expected_fingerprint = request.get("snapshot_fingerprint")
         verification = request.get("verification")
+        writeback_only = request.get("writeback_only", False)
         if (
             isinstance(revision, bool)
             or not isinstance(revision, int)
@@ -703,6 +737,7 @@ class CodingWorkerServer:
             or bool(patch) != bool(paths)
             or bool(base_patch) != bool(base_paths)
             or not isinstance(expected_fingerprint, str)
+            or not isinstance(writeback_only, bool)
         ):
             raise CodingWorkerProtocolError(
                 "Coding recovery request is invalid.",
@@ -716,6 +751,11 @@ class CodingWorkerServer:
             raise CodingWorkerError(
                 "Coding recovery snapshot does not match the runtime.",
                 code="snapshot_mismatch",
+            )
+        if writeback_only and source.kind is not ProjectKind.HOST_GIT:
+            raise CodingWorkerProtocolError(
+                "Writeback-only recovery requires a Host Git source.",
+                code="invalid_request",
             )
         verification_paths = sorted(set(base_paths) | set(paths))
         restored_verification = (
@@ -761,11 +801,16 @@ class CodingWorkerServer:
                 self._checkpoint_path,
                 preserve_workspace_root=True,
             )
-            runner_token, command_bridge, command_events = self._build_command_bridge(
-                session,
-                mode,
-                source,
-            )
+            if writeback_only:
+                runner_token = ""
+                command_bridge = None
+                command_events: asyncio.Queue[CodingEvent] = asyncio.Queue()
+            else:
+                runner_token, command_bridge, command_events = self._build_command_bridge(
+                    session,
+                    mode,
+                    source,
+                )
             try:
                 workspace.initialize()
                 report = workspace.restore_incremental(
@@ -776,12 +821,22 @@ class CodingWorkerServer:
                     expected_paths=tuple(paths),
                 )
                 self._set_workspace_writable(workspace.workspace_root)
-                adapter = self._create_source_adapter(
-                    mode,
-                    source,
-                    runner_token=runner_token,
+                adapter = (
+                    _WritebackOnlyAdapter()
+                    if writeback_only
+                    else self._create_source_adapter(
+                        mode,
+                        source,
+                        runner_token=runner_token,
+                    )
                 )
             except (DraftWorkspaceError, OSError, UnicodeError) as exc:
+                rejection = (
+                    str(exc)
+                    if isinstance(exc, DraftWorkspaceError)
+                    else type(exc).__name__
+                )
+                LOGGER.warning("Coding recovery data was rejected: %s", rejection)
                 with contextlib.suppress(Exception):
                     self._set_workspace_writable(workspace.workspace_root)
                     workspace.destroy()
@@ -902,6 +957,11 @@ class CodingWorkerServer:
             raise CodingWorkerProtocolError(
                 "Prompt exceeds the configured limit.",
                 code="prompt_too_long",
+            )
+        if isinstance(record.adapter, _WritebackOnlyAdapter):
+            raise CodingWorkerError(
+                "Imported Coding Worker patches are writeback-only.",
+                code="project_operation_unavailable",
             )
         if record.mode == "draft":
             await self._refresh_verification(record)
@@ -2604,6 +2664,7 @@ class CodingWorkerClient:
         base_patch: str = "",
         base_paths: list[str] | None = None,
         source: dict[str, Any] | None = None,
+        writeback_only: bool = False,
     ) -> dict[str, Any]:
         request: dict[str, Any] = {
             "action": "restore_session",
@@ -2617,6 +2678,8 @@ class CodingWorkerClient:
         }
         if source is not None:
             request["source"] = source
+        if writeback_only:
+            request["writeback_only"] = True
         result = await self._request(
             request,
             timeout=130.0,

@@ -86,9 +86,9 @@ class EventSourceStub {
   }
 }
 
-function renderPage() {
+function renderPage(initialEntry = "/agents/workbench") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <ModelPreferenceProvider>
         <AgentWorkbenchPage />
       </ModelPreferenceProvider>
@@ -170,6 +170,68 @@ afterEach(() => {
 });
 
 describe("AgentWorkbenchPage", () => {
+  it("uses Coding Worker when only completed legacy history exists and keeps history reachable", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/coding-worker/v1")) {
+        return jsonResponse({
+          enabled: true,
+          available: true,
+          version: "v1",
+          max_active_tasks: 2,
+          retention_seconds: 604800,
+          network_enabled: false,
+          acceptance_checks: [],
+          model_routes: ["coding/default"],
+          reason: null,
+          capabilities: {},
+        });
+      }
+      if (url.endsWith("/api/coding-worker/v1/tasks")) {
+        return jsonResponse({ tasks: [] });
+      }
+      return runtimeFetch(input, init);
+    }));
+
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "Coding Worker" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "旧 Agent 会话" }));
+    expect(await screen.findByRole("heading", { name: "Agent 执行工作区" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "返回 Coding Worker" }));
+    expect(await screen.findByRole("heading", { name: "Coding Worker" })).toBeVisible();
+  });
+
+  it("keeps a currently running legacy session on its original execution surface", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/coding-worker/v1")) {
+        return jsonResponse({
+          enabled: true,
+          available: true,
+          version: "v1",
+          max_active_tasks: 2,
+          retention_seconds: 604800,
+          network_enabled: false,
+          acceptance_checks: [],
+          model_routes: ["coding/default"],
+          reason: null,
+          capabilities: {},
+        });
+      }
+      if (url.endsWith("/sessions") && !init?.method) {
+        return jsonResponse({ sessions: [{ ...session, status: "running" }] });
+      }
+      return runtimeFetch(input, init);
+    }));
+
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "Agent 执行工作区" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "返回 Coding Worker" })).toBeVisible();
+  });
+
   it("renders the durable Session, conversation, Workspace, and sub-Agent panes", async () => {
     vi.stubGlobal("fetch", vi.fn(runtimeFetch));
 

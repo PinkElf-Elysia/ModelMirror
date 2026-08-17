@@ -18,7 +18,7 @@ from .contracts import (
 )
 
 
-PROVIDER_CONTRACT_VERSION = 3
+PROVIDER_CONTRACT_VERSION = 4
 PROVIDER_CHECKPOINT_FORMAT_VERSION = 2
 PROVIDER_TOOL_NAMES = (
     "list_files",
@@ -49,6 +49,10 @@ PROVIDER_TOOL_NAMES = (
     "stop_service",
     "create_subtask",
     "merge_subtask",
+    "update_plan",
+    "update_todo",
+    "request_user_input",
+    "compact_context",
 )
 INSPECT_PROVIDER_TOOLS = PROVIDER_TOOL_NAMES[:13] + (
     "list_acceptance_checks",
@@ -222,6 +226,7 @@ class ProviderCapabilities(StrictModel):
     supports_questions: bool = False
     supports_compaction: bool = False
     supports_tool_boundaries: bool = False
+    supports_turn_interrupt: bool = False
     tool_names: tuple[str, ...] = ()
 
 
@@ -367,6 +372,8 @@ class CodingAgentProvider(Protocol):
 
     async def cancel(self, session: ProviderSession) -> bool: ...
 
+    async def interrupt_turn(self, session: ProviderSession) -> bool: ...
+
     async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint: ...
 
     async def restore(
@@ -413,6 +420,7 @@ class FakeCodingAgentProvider:
             supports_questions=True,
             supports_compaction=True,
             supports_tool_boundaries=True,
+            supports_turn_interrupt=True,
             tool_names=PROVIDER_TOOL_NAMES,
         )
 
@@ -444,6 +452,9 @@ class FakeCodingAgentProvider:
             return False
         self._cancelled.add(session.session_id)
         return True
+
+    async def interrupt_turn(self, session: ProviderSession) -> bool:
+        return await self.cancel(session)
 
     async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint:
         request = self._requests.get(session.session_id)

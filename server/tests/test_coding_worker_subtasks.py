@@ -13,12 +13,15 @@ from server.coding_worker.contracts import (
     AcceptanceContract,
     Origin,
     PolicyProfile,
+    RuntimeProtocol,
     SubtaskKind,
     SubtaskMergeState,
     SubtaskRequest,
     TaskState,
     TaskSpec,
     WorkspaceSource,
+    TurnBarrier,
+    TurnTransactionState,
 )
 from server.coding_worker.store import CodingWorkerStore, WorkerConflictError
 from server.coding_worker.provider import (
@@ -208,6 +211,48 @@ def test_subtasks_are_depth_one_and_limited_to_four(tmp_path: Path) -> None:
     with pytest.raises(WorkerConflictError) as depth:
         _create(store, first.child_task_id, client_subtask_id="nested")
     assert depth.value.code == "subtask_depth_exceeded"
+
+
+def test_v17_subtask_creation_and_parent_parking_are_atomic(tmp_path: Path) -> None:
+    store = CodingWorkerStore(
+        tmp_path / "worker", master_key=Fernet.generate_key()
+    )
+    parent = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(parent.task_id, TaskState.PREPARING)
+    store.transition(parent.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=parent.task_id,
+        turn_id="turn_v17_subtask_atomic",
+        workspace_tree_hash="a" * 64,
+    )
+    child_spec = _spec("child-v17-atomic").model_copy(
+        update={
+            "origin": Origin(
+                module="coding-worker-subtask", object_id=parent.task_id
+            )
+        }
+    )
+
+    relation = store.create_subtask_task(
+        parent_task_id=parent.task_id,
+        client_subtask_id="v17-atomic",
+        kind=SubtaskKind.EXPLORE,
+        objective="Inspect the dependency graph.",
+        spec=child_spec,
+        workspace_id="workspace-v17-atomic",
+        base_tree_hash="a" * 64,
+        parent_turn_id=turn.turn_id,
+    )
+
+    assert store.get_task(relation.child_task_id).state is TaskState.QUEUED
+    parked = store.current_turn_transaction(parent.task_id)
+    assert parked is not None
+    assert parked.state is TurnTransactionState.PARKING
+    assert parked.barrier is TurnBarrier.SUBTASKS
+    events = store.list_events(parent.task_id)
+    subtask_event = next(item for item in events if item.type == "subtask_created")
+    parking_event = next(item for item in events if item.type == "turn_parking")
+    assert subtask_event.sequence + 1 == parking_event.sequence
 
 
 @pytest.mark.asyncio

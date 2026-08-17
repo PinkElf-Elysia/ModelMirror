@@ -14,13 +14,17 @@ from cryptography.fernet import Fernet
 from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
+    OperationState,
     Origin,
     PolicyProfile,
+    RuntimeProtocol,
     SessionLedgerKind,
     TaskBudget,
     TaskCreateRequest,
     TaskSpec,
     TaskState,
+    TurnBarrier,
+    TurnTransactionState,
     WorkspaceSource,
 )
 from server.coding_worker.evidence import HarnessRunner
@@ -30,12 +34,13 @@ from server.coding_worker.provider import (
     ProviderEvent,
     ProviderEventKind,
     ProviderCheckpoint,
+    ProviderCheckpointCompatibility,
     ProviderOpenRequest,
     ProviderSession,
 )
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.store import CodingWorkerStore, WorkerConflictError
-from server.coding_worker.tool_broker import FrozenCheck, ToolBroker
+from server.coding_worker.tool_broker import FrozenCheck, ToolBroker, ToolBrokerError
 from server.coding_worker.workspace import (
     InMemoryWorkspaceSourceAdapter,
     WorkspaceBroker,
@@ -64,6 +69,7 @@ def _service(
     provider: FakeCodingAgentProvider,
     *,
     files: dict[str, bytes] | None = None,
+    route_context_tokens: dict[str, int] | None = None,
 ) -> CodingWorkerService:
     store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
     adapter = InMemoryWorkspaceSourceAdapter(
@@ -75,7 +81,12 @@ def _service(
     broker = WorkspaceBroker(
         tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
     )
-    return CodingWorkerService(store=store, workspace_broker=broker, provider=provider)
+    return CodingWorkerService(
+        store=store,
+        workspace_broker=broker,
+        provider=provider,
+        route_context_tokens=route_context_tokens,
+    )
 
 
 class _RepairingProvider(FakeCodingAgentProvider):
@@ -122,6 +133,13 @@ class _OpenTrackingProvider(FakeCodingAgentProvider):
     async def open(self, request: ProviderOpenRequest) -> ProviderSession:
         self.open_request = request
         return await super().open(request)
+
+
+class _NoTurnInterruptProvider(FakeCodingAgentProvider):
+    async def capabilities(self) -> ProviderCapabilities:
+        return (await super().capabilities()).model_copy(
+            update={"supports_turn_interrupt": False}
+        )
 
 
 class _LostTurnReceiptProvider(FakeCodingAgentProvider):
@@ -303,6 +321,119 @@ class _ApprovalParkingProvider(FakeCodingAgentProvider):
         yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
 
 
+class _V17TurnParkingProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.store: CodingWorkerStore | None = None
+        self.messages: list[str] = []
+        self.interruptions = 0
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        assert self.store is not None
+        self.messages.append(text)
+        if len(self.messages) == 1:
+            turn = self.store.current_turn_transaction(session.task_id)
+            assert turn is not None
+            self.store.create_approval(
+                task_id=session.task_id,
+                operation_id="operation-v17-approval",
+                capability="command",
+                request={"argv": ["pytest"]},
+            )
+            self.store.begin_turn_parking(
+                task_id=session.task_id,
+                turn_id=turn.turn_id,
+                barrier=TurnBarrier.APPROVAL,
+            )
+            for index in range(10):
+                yield ProviderEvent(
+                    kind=ProviderEventKind.MESSAGE,
+                    data={"text": f"late event {index}"},
+                )
+            return
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+    async def interrupt_turn(self, session: ProviderSession) -> bool:
+        self.interruptions += 1
+        return await super().interrupt_turn(session)
+
+
+class _SlowCloseV17TurnParkingProvider(_V17TurnParkingProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.close_started = asyncio.Event()
+        self.release_close = asyncio.Event()
+        self.close_count = 0
+
+    async def close(self, session: ProviderSession) -> None:
+        self.close_count += 1
+        if self.close_count == 1:
+            self.close_started.set()
+            await self.release_close.wait()
+        await super().close(session)
+
+
+class _V17CompactionParkingProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.store: CodingWorkerStore | None = None
+        self.messages: list[str] = []
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        assert self.store is not None
+        self.messages.append(text)
+        if len(self.messages) == 1:
+            turn = self.store.current_turn_transaction(session.task_id)
+            assert turn is not None
+            self.store.begin_turn_parking(
+                task_id=session.task_id,
+                turn_id=turn.turn_id,
+                barrier=TurnBarrier.COMPACTION,
+            )
+            for index in range(10):
+                yield ProviderEvent(
+                    kind=ProviderEventKind.MESSAGE,
+                    data={"text": f"late compaction event {index}"},
+                )
+            return
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+
+class _V17UsageCompactionProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        self.messages.append(text)
+        if len(self.messages) == 1:
+            yield ProviderEvent(
+                kind=ProviderEventKind.USAGE,
+                data={
+                    "usage": {
+                        "input_tokens": 7_500,
+                        "output_tokens": 100,
+                        "cache_read_tokens": 0,
+                        "cache_write_tokens": 0,
+                        "cost_microusd": None,
+                    }
+                },
+            )
+            for index in range(10):
+                yield ProviderEvent(
+                    kind=ProviderEventKind.MESSAGE,
+                    data={"text": f"late usage event {index}"},
+                )
+            return
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+
 class _CompactionRestoreProvider(_RestoreTrackingProvider):
     def __init__(self) -> None:
         super().__init__()
@@ -381,6 +512,437 @@ async def test_provider_stream_parks_while_exact_approval_is_pending(
     await asyncio.wait_for(provider.resume_requested.wait(), timeout=1)
     assert "exact pending tool operation" in provider.messages[1]
     await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_turn_parks_once_and_resumes_exact_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "CODING_WORKER_V16_ENABLED",
+        "CODING_WORKER_INTERACTION_ENABLED",
+        "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+        "CODING_WORKER_SUBAGENTS_ENABLED",
+        "CODING_WORKER_V17_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    provider = _V17TurnParkingProvider()
+    service = _service(tmp_path, provider)
+    provider.store = service.store
+    task = await service.create_task(
+        Origin(module="test", object_id="v17-turn-parking"),
+        _request("v17-turn-parking"),
+    )
+
+    parked_task = await service.wait_for(
+        task.task_id,
+        lambda item: item.state is TaskState.WAITING_APPROVAL,
+    )
+    assert parked_task.runtime_protocol is RuntimeProtocol.V17
+    transaction = service.store.current_turn_transaction(task.task_id)
+    assert transaction is not None
+    assert transaction.state is TurnTransactionState.PARKED
+    assert transaction.barrier is TurnBarrier.APPROVAL
+    assert transaction.checkpoint_id is not None
+    assert provider.interruptions == 1
+    assistants = [
+        item
+        for item in service.store.list_messages(task.task_id)
+        if item.role == "assistant"
+    ]
+    assert assistants == []
+
+    approval = service.store.list_approvals(task.task_id)[0]
+    service.store.decide_approval(approval.approval_id, approved=True)
+    assert service.settle_approval_state(task.task_id).state is TaskState.QUEUED
+    resumed = await service.wait_for(
+        task.task_id,
+        lambda item: item.state in {TaskState.BLOCKED, TaskState.COMPLETED},
+    )
+    assert resumed.state is TaskState.BLOCKED
+    assert len(provider.messages) == 2
+    transaction = service.store.get_turn_transaction(
+        task.task_id, transaction.turn_id
+    )
+    assert transaction.state is TurnTransactionState.COMPLETED
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_resume_waits_for_the_parked_runner_to_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "CODING_WORKER_V16_ENABLED",
+        "CODING_WORKER_INTERACTION_ENABLED",
+        "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+        "CODING_WORKER_SUBAGENTS_ENABLED",
+        "CODING_WORKER_V17_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    provider = _SlowCloseV17TurnParkingProvider()
+    service = _service(tmp_path, provider)
+    provider.store = service.store
+    task = await service.create_task(
+        Origin(module="test", object_id="v17-runner-release"),
+        _request("v17-runner-release"),
+    )
+
+    await service.wait_for(
+        task.task_id,
+        lambda item: item.state is TaskState.WAITING_APPROVAL,
+    )
+    await asyncio.wait_for(provider.close_started.wait(), timeout=2)
+    approval = service.store.list_approvals(task.task_id)[0]
+    service.store.decide_approval(approval.approval_id, approved=True)
+    assert service.settle_approval_state(task.task_id).state is TaskState.QUEUED
+    await asyncio.sleep(0.1)
+    assert service.store.get_task(task.task_id).state is TaskState.QUEUED
+    assert len(provider.messages) == 1
+
+    provider.release_close.set()
+    resumed = await service.wait_for(
+        task.task_id,
+        lambda item: item.state is TaskState.BLOCKED,
+    )
+    assert resumed.reason == "acceptance_runner_pending"
+    assert len(provider.messages) == 2
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_task_creation_rejects_a_route_without_turn_interrupt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "CODING_WORKER_V16_ENABLED",
+        "CODING_WORKER_INTERACTION_ENABLED",
+        "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+        "CODING_WORKER_SUBAGENTS_ENABLED",
+        "CODING_WORKER_V17_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    service = _service(tmp_path, _NoTurnInterruptProvider())
+
+    with pytest.raises(WorkerConflictError) as rejected:
+        await service.create_task(
+            Origin(module="test", object_id="v17-route-unavailable"),
+            _request("v17-route-unavailable"),
+        )
+
+    assert rejected.value.code == "v17_route_unavailable"
+    assert service.store.list_tasks() == []
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_compaction_parks_and_requeues_without_a_user_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "CODING_WORKER_V16_ENABLED",
+        "CODING_WORKER_INTERACTION_ENABLED",
+        "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+        "CODING_WORKER_SUBAGENTS_ENABLED",
+        "CODING_WORKER_V17_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    provider = _V17CompactionParkingProvider()
+    service = _service(tmp_path, provider)
+    provider.store = service.store
+    task = await service.create_task(
+        Origin(module="test", object_id="v17-compaction"),
+        _request("v17-compaction"),
+    )
+
+    terminal = await service.wait_for(
+        task.task_id,
+        lambda item: item.state in {TaskState.BLOCKED, TaskState.COMPLETED},
+    )
+
+    assert terminal.state is TaskState.BLOCKED
+    assert len(provider.messages) == 2
+    assert "controlled compaction boundary" in provider.messages[1]
+    transactions = service.store.list_turn_transactions(task.task_id)
+    assert len(transactions) == 1
+    assert transactions[0].state is TurnTransactionState.COMPLETED
+    ledger = service.store.list_session_ledger(task.task_id)
+    assert [item.kind for item in ledger].count(SessionLedgerKind.COMPACTION) == 1
+    assert [item for item in service.store.list_messages(task.task_id) if item.role == "assistant"] == []
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_usage_at_seventy_five_percent_uses_controlled_compaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "CODING_WORKER_V16_ENABLED",
+        "CODING_WORKER_INTERACTION_ENABLED",
+        "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+        "CODING_WORKER_SUBAGENTS_ENABLED",
+        "CODING_WORKER_V17_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    provider = _V17UsageCompactionProvider()
+    service = _service(
+        tmp_path,
+        provider,
+        route_context_tokens={"coding/default": 10_000},
+    )
+    task = await service.create_task(
+        Origin(module="test", object_id="v17-usage-compaction"),
+        _request("v17-usage-compaction"),
+    )
+
+    terminal = await service.wait_for(
+        task.task_id,
+        lambda item: item.state in {TaskState.BLOCKED, TaskState.COMPLETED},
+    )
+
+    assert terminal.state is TaskState.BLOCKED
+    assert len(provider.messages) == 2
+    assert "controlled compaction boundary" in provider.messages[1]
+    assert not any(
+        item.content.startswith("late usage event")
+        for item in service.store.list_messages(task.task_id)
+    )
+    assert [
+        item.kind for item in service.store.list_session_ledger(task.task_id)
+    ].count(SessionLedgerKind.COMPACTION) == 1
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_acceptance_rejects_an_unsettled_turn(tmp_path: Path) -> None:
+    service = _service(tmp_path, FakeCodingAgentProvider())
+    request = _request("v17-unsettled-acceptance")
+    task = service.store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="v17-unsettled-acceptance"),
+        ),
+        runtime_protocol=RuntimeProtocol.V17,
+    )
+    service.store.transition(task.task_id, TaskState.PREPARING)
+    running = service.store.transition(task.task_id, TaskState.RUNNING)
+    turn = service.store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_unsettled_acceptance",
+        workspace_tree_hash="a" * 64,
+    )
+    service.store.create_operation(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        operation_id="operation_unsettled_acceptance",
+        tool_name="run_shell",
+        intent_sha256="b" * 64,
+        request={"workspace_id": "workspace_1", "arguments": {}},
+    )
+
+    feedback, cursor = await service._evaluate_acceptance(
+        running, 1, message_cursor=0
+    )
+
+    assert feedback is None and cursor == 0
+    blocked = service.store.get_task(task.task_id)
+    assert blocked.state is TaskState.BLOCKED
+    assert blocked.reason == "turn_settlement_incomplete"
+
+
+@pytest.mark.asyncio
+async def test_v17_frozen_acceptance_operations_are_bound_to_platform_turns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "CODING_WORKER_V16_ENABLED",
+        "CODING_WORKER_INTERACTION_ENABLED",
+        "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+        "CODING_WORKER_SUBAGENTS_ENABLED",
+        "CODING_WORKER_V17_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    provider = _RepairingProvider()
+    service, broker = _service_with_harness(tmp_path, provider)
+    request = _request("v17-acceptance-turn").model_copy(
+        update={"policy_profile": PolicyProfile.DEVELOP}
+    )
+    task = await service.create_task(
+        Origin(module="test", object_id="v17-acceptance-turn"), request
+    )
+
+    async def repair() -> None:
+        content = "print('fixed')\n"
+        await broker.execute(
+            task_id=task.task_id,
+            operation_id="repair-v17-main",
+            tool_name="write_file",
+            arguments={
+                "path": "main.py",
+                "content": content,
+                "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
+            },
+        )
+
+    provider.repair = repair
+    completed = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.COMPLETED
+    )
+
+    assert completed.runtime_protocol is RuntimeProtocol.V17
+    acceptance_operations = [
+        operation
+        for operation in service.store.list_operations(task.task_id)
+        if operation.tool_name == "run_check"
+        and operation.operation_id.startswith("acceptance_")
+    ]
+    assert len(acceptance_operations) == 2
+    assert all(operation.turn_id is not None for operation in acceptance_operations)
+    assert all(
+        service.store.get_turn_transaction(task.task_id, operation.turn_id or "").state
+        is TurnTransactionState.COMPLETED
+        for operation in acceptance_operations
+    )
+    assert service.store.current_turn_transaction(task.task_id) is None
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v17_acceptance_failure_interrupts_its_platform_turn(
+    tmp_path: Path,
+) -> None:
+    class _FailingHarness:
+        async def run_required_checks(self, _task_id: str) -> list[object]:
+            raise RuntimeError("harness unavailable")
+
+    service = _service(tmp_path, FakeCodingAgentProvider())
+    request = _request("v17-acceptance-failure")
+    prepared = await service.workspace_broker.prepare(request.workspace_source)
+    task = service.store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="v17-acceptance-failure"),
+        ),
+        runtime_protocol=RuntimeProtocol.V17,
+    )
+    service.store.transition(task.task_id, TaskState.PREPARING)
+    running = service.store.transition(
+        task.task_id, TaskState.RUNNING, workspace_id=prepared.workspace_id
+    )
+    service.harness_runner = _FailingHarness()  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="harness unavailable"):
+        await service._evaluate_acceptance(running, 1, message_cursor=0)
+
+    transactions = service.store.list_turn_transactions(task.task_id)
+    assert len(transactions) == 1
+    assert transactions[0].state is TurnTransactionState.INTERRUPTED
+    assert service.store.current_turn_transaction(task.task_id) is None
+
+
+@pytest.mark.asyncio
+async def test_v17_approved_operation_executes_once_before_provider_resume(
+    tmp_path: Path,
+) -> None:
+    class _CommandExecutor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+
+        async def run_process(self, **kwargs: object) -> dict[str, object]:
+            argv = tuple(str(item) for item in kwargs["argv"])  # type: ignore[index]
+            self.calls.append(argv)
+            return {"exit_code": 0, "output": "approved once\n"}
+
+    service, broker = _service_with_harness(tmp_path, FakeCodingAgentProvider())
+    executor = _CommandExecutor()
+    broker.executor = executor
+    request = _request("v17-approved-resume").model_copy(
+        update={"policy_profile": PolicyProfile.DEVELOP}
+    )
+    task = service.store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="v17-approved-resume"),
+        ),
+        runtime_protocol=RuntimeProtocol.V17,
+    )
+    workspace = await service.workspace_broker.prepare(request.workspace_source)
+    service.store.transition(task.task_id, TaskState.PREPARING)
+    service.store.transition(
+        task.task_id, TaskState.RUNNING, workspace_id=workspace.workspace_id
+    )
+    turn = service.store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_approved_resume",
+        workspace_tree_hash=workspace.baseline_tree_hash,
+    )
+    with pytest.raises(ToolBrokerError) as pending:
+        await broker.execute(
+                task_id=task.task_id,
+                operation_id="operation_v17_approved_resume",
+                tool_name="run_command",
+                arguments={"argv": ["python", "-V"], "timeout_seconds": 30},
+        )
+    assert pending.value.code == "approval_required"
+    checkpoint = service.store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash=workspace.baseline_tree_hash,
+        payload={"phase": "waiting_approval"},
+    )
+    service.store.park_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    service.store.transition(
+        task.task_id,
+        TaskState.WAITING_APPROVAL,
+        expected_state=TaskState.RUNNING,
+    )
+    approval = service.store.list_approvals(task.task_id)[0]
+    service.store.decide_approval(approval.approval_id, approved=True)
+
+    summary = await service._resume_approved_operation(
+        task.task_id, turn_id=turn.turn_id
+    )
+
+    assert "completed once" in summary
+    assert executor.calls == [("python", "-V")]
+    operation = service.store.get_operation("operation_v17_approved_resume")
+    assert operation.state is OperationState.COMPLETED
+    assert [
+        item.type
+        for item in service.store.list_events(task.task_id)
+        if item.type == "operation_reconciled"
+    ] == ["operation_reconciled"]
+    await service.shutdown()
+
+
+def test_provider_checkpoint_is_rebound_to_the_current_authenticated_tree() -> None:
+    checkpoint = ProviderCheckpoint(
+        checkpoint_id="checkpoint_tree_binding",
+        compatibility=ProviderCheckpointCompatibility(
+            provider_family="opencode",
+            provider_version="1.18.9",
+            task_id="task_tree_binding",
+            workspace_tree_hash="a" * 64,
+        ),
+        payload={"public_output": "safe"},
+    )
+
+    rebound = CodingWorkerService._bind_provider_checkpoint_tree(
+        checkpoint, task_id="task_tree_binding", tree_hash="b" * 64
+    )
+
+    assert rebound.compatibility is not None
+    assert rebound.compatibility.workspace_tree_hash == "b" * 64
+    assert checkpoint.compatibility is not None
+    assert checkpoint.compatibility.workspace_tree_hash == "a" * 64
+    with pytest.raises(WorkerConflictError) as mismatched:
+        CodingWorkerService._bind_provider_checkpoint_tree(
+            checkpoint, task_id="task_other", tree_hash="b" * 64
+        )
+    assert mismatched.value.code == "checkpoint_invalid"
 
 
 @pytest.mark.asyncio
