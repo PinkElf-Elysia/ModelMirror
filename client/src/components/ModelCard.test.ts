@@ -115,6 +115,32 @@ describe("ModelCard document input presentation", () => {
 });
 
 describe("ModelCard decision-first layout", () => {
+  it("shows a compact UTC pricing schedule for time-priced models", () => {
+    const model = models.find(
+      (candidate) => candidate.id === "deepseek/deepseek-v4-pro-0813",
+    );
+    expect(model).toBeDefined();
+
+    render(
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          ModelPreferenceProvider,
+          null,
+          createElement(ModelCard, {
+            catalogInvocable: true,
+            model: model!,
+          }),
+        ),
+      ),
+    );
+
+    expect(screen.getByText("当前输入薪资")).toBeInTheDocument();
+    expect(screen.getByText("UTC 分时价格 · 4 个时段")).toBeInTheDocument();
+    expect(screen.getByText("10:00–次日 01:00")).toBeInTheDocument();
+  });
+
   it("prioritizes task and input capabilities without obsolete region or fake talent labels", () => {
     const model = models.find((candidate) => candidate.id === "openai/gpt-5.6-sol");
     expect(model).toBeDefined();

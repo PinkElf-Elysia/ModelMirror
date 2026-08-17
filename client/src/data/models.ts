@@ -1,8 +1,8 @@
-﻿// Merged with OpenRouter model catalog on 2026-08-14T08:45:39.998Z.
-// Current OpenRouter refresh verified on 2026-08-14 against the live all-modalities catalog.
-// Refreshed with entries published through 2026-08-13T20:52:51.000Z.
+﻿// Merged with OpenRouter model catalog on 2026-08-17T01:38:03.086Z.
+// Current OpenRouter refresh verified on 2026-08-16 against the live all-modalities catalog.
+// Refreshed with entries published through 2026-08-14T15:55:10.000Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
-// Full OpenRouter catalog audit refresh: 2026-08-14. Batch catalog entries are
+// Full OpenRouter catalog audit refresh: 2026-08-16. Batch catalog entries are
 // attached to their canonical models as serving variants and excluded from
 // snapshot totals; media-only records are cross-checked against their dedicated
 // Images, Speech, and Video API catalogs instead of the text-only model list.
@@ -104,6 +104,15 @@ export interface TokenPricingOverride {
   price_cny: TokenPricing;
 }
 
+export interface TimeWindowPricingOverride {
+  /** Inclusive UTC start, encoded as an HHMM clock value. */
+  utc_start: number;
+  /** Exclusive UTC end, encoded as HHMM; values at or before start wrap overnight. */
+  utc_end: number;
+  pricing: TokenPricing;
+  price_cny: TokenPricing;
+}
+
 export interface ModelServingVariant {
   type: ModelServingVariantType;
   catalog_id: string;
@@ -111,6 +120,7 @@ export interface ModelServingVariant {
   endpoint: ModelServingEndpoint;
   pricing: TokenPricing;
   pricing_overrides: TokenPricingOverride[];
+  pricing_time_windows: TimeWindowPricingOverride[];
   price_cny: {
     input: number;
     output: number;
@@ -131,6 +141,7 @@ export interface Model {
   context_length: number;
   pricing: TokenPricing;
   pricing_overrides: TokenPricingOverride[];
+  pricing_time_windows: TimeWindowPricingOverride[];
   price_cny: {
     input: number;
     output: number;
@@ -178,6 +189,12 @@ interface RawCatalogModel {
       input: number;
       output: number;
     }>;
+    time_overrides?: Array<{
+      utc_start: number;
+      utc_end: number;
+      input: number;
+      output: number;
+    }>;
   };
   input_modalities: InputModality[];
   output_modalities: OutputModality[];
@@ -191,6 +208,84 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "qwen/qwen3.8-27b",
+    "canonical_slug": "qwen/qwen3.8-27b-20260814",
+    "name": "Qwen: Qwen3.8 27B",
+    "raw_description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.44999999999999996,
+      "output": 3.1999999999999997
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Qwen",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1786722910,
+    "expiration_date": null,
+    "model_author": "Qwen",
+    "reasoning_declared": true
+  },
+  {
+    "id": "dots-studio/dots-3-note-preview:free",
+    "canonical_slug": "dots-studio/dots-3-note-preview-20260813",
+    "name": "Dots Studio: Dots3-Note Preview (free)",
+    "raw_description": "Dots3-Note Preview is an open-weight mixture-of-experts model from Dots Studio, with 16B active parameters out of 280B total. It is the lightest model in the Dots 3 family and is...",
+    "context_length": 512000,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1786680361,
+    "expiration_date": null,
+    "model_author": "Dots Studio",
+    "reasoning_declared": true
+  },
   {
     "id": "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
     "canonical_slug": "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b-20260813",
@@ -622,7 +717,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "qwen/qwen3.8-2.4t-a95b-20260812",
     "name": "Qwen: Qwen3.8 2.4T A95B",
     "raw_description": "Qwen3.8 2.4T A95B is an open-weight sparse mixture-of-experts model from Qwen and the open-weight variant of [Qwen3.8 Max](/qwen/qwen3.8-max), with 95 billion active parameters out of 2.4 trillion total. It is...",
-    "context_length": 1010000,
+    "context_length": 1048576,
     "pricing": {
       "input": 2,
       "output": 6
@@ -713,8 +808,34 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.435,
-      "output": 0.87
+      "input": 0.66,
+      "output": 1.9800000000000002,
+      "time_overrides": [
+        {
+          "utc_start": 1000,
+          "utc_end": 100,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        },
+        {
+          "utc_start": 100,
+          "utc_end": 400,
+          "input": 1.32,
+          "output": 3.9600000000000004
+        },
+        {
+          "utc_start": 400,
+          "utc_end": 600,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        },
+        {
+          "utc_start": 600,
+          "utc_end": 1000,
+          "input": 1.32,
+          "output": 3.9600000000000004
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -879,8 +1000,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
     "context_length": 1000000,
     "pricing": {
-      "input": 0.09999999999999999,
-      "output": 0.25
+      "input": 0.08,
+      "output": 0.19999999999999998
     },
     "input_modalities": [
       "text"
@@ -1335,8 +1456,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.079996,
-      "output": 0.252
+      "input": 0.060300000000000006,
+      "output": 0.12060000000000001
     },
     "input_modalities": [
       "text"
@@ -3776,8 +3897,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.63,
-      "output": 1.9800000000000002
+      "input": 0.76,
+      "output": 2.42
     },
     "input_modalities": [
       "text"
@@ -3843,8 +3964,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MoonshotAI: Kimi K2.7 Code is a coding-focused model in Moonshot AI's Kimi K2 family, built to complete end-to-end programming tasks reliably over long contexts. It uses a native multimodal mixture-of-experts...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.67,
-      "output": 3.4
+      "input": 0.71,
+      "output": 3.5
     },
     "input_modalities": [
       "text",
@@ -6249,7 +6370,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.6-35B-A3B is an open-weight multimodal model from Alibaba Cloud with 35 billion total parameters and 3 billion active parameters per token. It uses a hybrid sparse mixture-of-experts architecture combining Gated...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.15,
+      "input": 0.14,
       "output": 1
     },
     "input_modalities": [
@@ -6341,8 +6462,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.6 27B is a dense 27-billion-parameter language model from the Qwen Team at Alibaba, released in April 2026. It features hybrid multimodal capabilities — accepting text, image, and video inputs...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.6,
-      "output": 3.5999999999999996
+      "input": 0.3,
+      "output": 2
     },
     "input_modalities": [
       "text",
@@ -6467,12 +6588,38 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "deepseek/deepseek-v4-pro",
     "canonical_slug": "deepseek/deepseek-v4-pro-20260423",
-    "name": "DeepSeek: DeepSeek V4 Pro",
+    "name": "DeepSeek: DeepSeek V4 Pro 0423",
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.1680000000000001,
-      "output": 2.3360000000000003
+      "input": 0.66,
+      "output": 1.9800000000000002,
+      "time_overrides": [
+        {
+          "utc_start": 1000,
+          "utc_end": 100,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        },
+        {
+          "utc_start": 100,
+          "utc_end": 400,
+          "input": 1.32,
+          "output": 3.9600000000000004
+        },
+        {
+          "utc_start": 400,
+          "utc_end": 600,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        },
+        {
+          "utc_start": 600,
+          "utc_end": 1000,
+          "input": 1.32,
+          "output": 3.9600000000000004
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -6486,6 +6633,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
+      "max_completion_tokens",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -6515,8 +6663,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.14,
-      "output": 0.28
+      "input": 0.08386,
+      "output": 0.16772
     },
     "input_modalities": [
       "text"
@@ -6530,6 +6678,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
+      "max_completion_tokens",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -6856,8 +7005,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Hy3 preview is a high-efficiency Mixture-of-Experts model from Tencent designed for agentic workflows and production use. It supports configurable reasoning levels across disabled, low, and high modes, allowing it to...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.063,
-      "output": 0.21
+      "input": 0.18,
+      "output": 0.6
     },
     "input_modalities": [
       "text"
@@ -7460,8 +7609,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.1 delivers a major leap in coding capability, with particularly significant gains in handling long-horizon tasks. Unlike previous models built around minute-level interactions, GLM-5.1 can work independently and continuously on...",
     "context_length": 204800,
     "pricing": {
-      "input": 1.4,
-      "output": 4.4
+      "input": 0.966,
+      "output": 3.036
     },
     "input_modalities": [
       "text"
@@ -7602,8 +7751,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.12,
-      "output": 0.39999999999999997
+      "input": 0.07,
+      "output": 0.33999999999999997
     },
     "input_modalities": [
       "image",
@@ -7719,7 +7868,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "temperature",
       "tool_choice",
       "tools",
-      "top_a",
       "top_k",
       "top_logprobs",
       "top_p"
@@ -8924,8 +9072,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 Series 35B-A3B is a native vision-language model designed with a hybrid architecture that integrates linear attention mechanisms and a sparse mixture-of-experts model, achieving higher inference efficiency. Its overall...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.25,
-      "output": 1.25
+      "input": 0.22499999999999998,
+      "output": 1.7999999999999998
     },
     "input_modalities": [
       "text",
@@ -9410,8 +9558,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 series 397B-A17B native vision-language model is built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. It delivers...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.5,
-      "output": 3.5999999999999996
+      "input": 0.39,
+      "output": 2.34
     },
     "input_modalities": [
       "text",
@@ -9499,8 +9647,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5 is Z.ai’s flagship open-source foundation model engineered for complex systems design and long-horizon agent workflows. Built for expert developers, it delivers production-grade performance on large-scale programming tasks, rivaling leading...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.95,
-      "output": 2.5500000000000003
+      "input": 0.6,
+      "output": 1.92
     },
     "input_modalities": [
       "text"
@@ -13391,8 +13539,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-VL-235B-A22B Instruct is an open-weight multimodal model that unifies strong text generation with visual understanding across images and video. The Instruct model targets general vision-language use (VQA, document parsing, chart/table...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.26,
-      "output": 1.04
+      "input": 0.21,
+      "output": 1.9
     },
     "input_modalities": [
       "text",
@@ -13594,7 +13742,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1758548275,
-    "expiration_date": null,
+    "expiration_date": 1786924800,
     "model_author": "DeepSeek",
     "reasoning_declared": true
   },
@@ -13814,13 +13962,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen Plus 0728, based on the Qwen3 foundation model, is a 1 million context hybrid reasoning model with a balanced performance, speed, and cost combination.",
     "context_length": 1000000,
     "pricing": {
-      "input": 0.39999999999999997,
-      "output": 1.2,
+      "input": 0.26,
+      "output": 0.78,
       "overrides": [
         {
           "min_prompt_tokens": 256000,
-          "input": 1.2,
-          "output": 3.5999999999999996
+          "input": 0.78,
+          "output": 2.34
         }
       ]
     },
@@ -15895,8 +16043,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3, the latest generation in the Qwen large language model series, features both dense and mixture-of-experts (MoE) architectures to excel in reasoning, multilingual support, and advanced agent tasks. Its unique...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.12,
-      "output": 0.5
+      "input": 0.13,
+      "output": 0.52
     },
     "input_modalities": [
       "text"
@@ -16301,7 +16449,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.19999999999999998,
-      "output": 0.696
+      "output": 0.7999999999999999
     },
     "input_modalities": [
       "text",
@@ -17048,8 +17196,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen2.5-VL is proficient in recognizing common objects such as flowers, birds, fish, and insects. It is also highly capable of analyzing texts, charts, icons, graphics, and layouts within images.",
     "context_length": 128000,
     "pricing": {
-      "input": 0.25,
-      "output": 0.75
+      "input": 0.7999999999999999,
+      "output": 1
     },
     "input_modalities": [
       "text",
@@ -21965,6 +22113,23 @@ function pricingOverrides(raw: RawCatalogModel): TokenPricingOverride[] {
   }));
 }
 
+function pricingTimeWindows(
+  raw: RawCatalogModel,
+): TimeWindowPricingOverride[] {
+  return (raw.pricing.time_overrides ?? []).map((override) => ({
+    utc_start: override.utc_start,
+    utc_end: override.utc_end,
+    pricing: {
+      input: override.input,
+      output: override.output,
+    },
+    price_cny: {
+      input: toCny(override.input),
+      output: toCny(override.output),
+    },
+  }));
+}
+
 function getPricingBasis(raw: RawCatalogModel): PricingBasis {
   if (raw.id.endsWith(":free") || raw.id === "openrouter/free") return "free";
   if (
@@ -22380,6 +22545,7 @@ function enrichModel(
     output: raw.pricing.output,
   };
   const tieredPricing = pricingOverrides(raw);
+  const timeWindowPricing = pricingTimeWindows(raw);
   const realtimeVariant: ModelServingVariant = {
     type: "realtime",
     catalog_id: raw.id,
@@ -22387,6 +22553,7 @@ function enrichModel(
     endpoint: "synchronous",
     pricing: basePricing,
     pricing_overrides: tieredPricing,
+    pricing_time_windows: timeWindowPricing,
     price_cny,
     input_modalities: raw.input_modalities,
     output_modalities: raw.output_modalities,
@@ -22408,6 +22575,7 @@ function enrichModel(
     context_length: raw.context_length,
     pricing: basePricing,
     pricing_overrides: tieredPricing,
+    pricing_time_windows: timeWindowPricing,
     price_cny,
     pricing_status,
     pricing_basis,
@@ -22454,6 +22622,7 @@ const worldModelEntry: Model = {
   context_length: 0,
   pricing: { input: -1, output: -1 },
   pricing_overrides: [],
+  pricing_time_windows: [],
   price_cny: { input: 0, output: 0 },
   pricing_status: "dynamic",
   pricing_basis: "dynamic",
@@ -22541,6 +22710,7 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
     context_length: 0,
     pricing: { input: -1, output: -1 },
     pricing_overrides: [],
+    pricing_time_windows: [],
     price_cny: { input: 0, output: 0 },
     pricing_status: "dynamic",
     pricing_basis: "dynamic",
@@ -22579,6 +22749,7 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
     context_length: 0,
     pricing: { input: -1, output: -1 },
     pricing_overrides: [],
+    pricing_time_windows: [],
     price_cny: { input: 0, output: 0 },
     pricing_status: "dynamic",
     pricing_basis: "dynamic",
@@ -22617,6 +22788,7 @@ const DIRECT_OPENAI_AUDIO_MODELS: Model[] = [
     context_length: 0,
     pricing: { input: -1, output: -1 },
     pricing_overrides: [],
+    pricing_time_windows: [],
     price_cny: { input: 0, output: 0 },
     pricing_status: "dynamic",
     pricing_basis: "dynamic",
@@ -22660,6 +22832,7 @@ function batchServingVariant(raw: RawCatalogModel): ModelServingVariant {
     endpoint: outputIsEmbedding ? "/v1/embeddings" : "/v1/chat/completions",
     pricing: basePricing,
     pricing_overrides: pricingOverrides(raw),
+    pricing_time_windows: pricingTimeWindows(raw),
     price_cny: {
       input: toCny(raw.pricing.input),
       output: toCny(raw.pricing.output),
@@ -22703,6 +22876,8 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "qwen/qwen3.8-27b",
+  "dots-studio/dots-3-note-preview:free",
   "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
   "mistralai/voxtral-small-24b-2507-stt",
   "mistralai/voxtral-mini-3b-2507",
