@@ -40,9 +40,9 @@ export function checkMvpClaim({ moduleRoot }) {
 
   const claimPolicy = policy.mvpClaimPolicy;
   if (
-    policy.activeRound !== "R12" ||
-    claimPolicy?.blockingRound !== "R12" ||
-    claimPolicy?.acceptanceRecord !== "docs/rounds/R12_ACCEPTANCE.md" ||
+    policy.activeRound !== "R13" ||
+    claimPolicy?.blockingRound !== "R14" ||
+    claimPolicy?.acceptanceRecord !== "docs/rounds/R13_ACCEPTANCE.md" ||
     claimPolicy?.machineStatus !== "docs/MVP_STATUS.json" ||
     claimPolicy?.completionMarker !== "MATRIX_OASIS_R12_MVP_READY"
   ) {
@@ -51,7 +51,7 @@ export function checkMvpClaim({ moduleRoot }) {
 
   if (
     status.schemaVersion !== 1 ||
-    status.blockingRound !== "R12" ||
+    status.blockingRound !== "R14" ||
     status.acceptanceRecord !== claimPolicy.acceptanceRecord ||
     status.completionMarker !== claimPolicy.completionMarker ||
     status.status !== claimPolicy.status ||
@@ -63,8 +63,8 @@ export function checkMvpClaim({ moduleRoot }) {
   const acceptance = readUtf8(moduleRoot, claimPolicy.acceptanceRecord);
   if (!claimPolicy.claimAllowed) {
     if (
-      claimPolicy.status !== "pending-r12-qualification" ||
-      !acceptance.includes("状态：R12实施中")
+      claimPolicy.status !== "pending-spatial-solver" ||
+      !acceptance.includes("状态：R13实施中")
     ) {
       throw new MvpClaimError("MVP_CLAIM_PREMATURE");
     }
@@ -74,11 +74,7 @@ export function checkMvpClaim({ moduleRoot }) {
         throw new MvpClaimError("MVP_CLAIM_PREMATURE");
       }
     }
-  } else if (
-    claimPolicy.status !== "r12-qualified" ||
-    !acceptance.includes("状态：R12验收通过") ||
-    !acceptance.includes(claimPolicy.completionMarker)
-  ) {
+  } else {
     throw new MvpClaimError("MVP_CLAIM_EVIDENCE_MISSING");
   }
 

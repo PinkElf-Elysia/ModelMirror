@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "status": "pending-r12-qualification",
+  "status": "pending-spatial-solver",
   "claimAllowed": false,
-  "blockingRound": "R12",
-  "acceptanceRecord": "docs/rounds/R12_ACCEPTANCE.md",
+  "blockingRound": "R14",
+  "acceptanceRecord": "docs/rounds/R13_ACCEPTANCE.md",
   "completionMarker": "MATRIX_OASIS_R12_MVP_READY"
 }
