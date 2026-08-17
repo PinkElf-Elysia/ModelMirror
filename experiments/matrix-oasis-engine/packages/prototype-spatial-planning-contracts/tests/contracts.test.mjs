@@ -99,6 +99,13 @@ function validFacts() {
         godotTranslationMm: [0, 0, 0],
         godotRotationMilliDegrees: [0, 0, 0],
       },
+      analysisTransform: {
+        profile: "spatial-environment-calibration-v1",
+        sourceCanonicalSha256: HASH_D,
+        eulerOrder: "YXZ",
+        root: { translationMm: [0, 0, 0], rotationMilliDegrees: [0, 0, 0] },
+        collider: { localTranslationMm: [0, 0, 0], scaleMicros: 1_000_000 },
+      },
     },
     coordinateSystem: {
       handedness: "right",
@@ -324,6 +331,12 @@ test("facts identity and immutable profile are exact", () => {
   const coordinate = validFacts();
   coordinate.coordinateSystem.eulerOrder = "XYZ";
   assert.ok(validateFacts(coordinate).diagnostics.some((item) => item.code === "PROTOTYPE_ENVIRONMENT_FACTS_SCHEMA_CONST"));
+  const hiddenTransform = validFacts();
+  hiddenTransform.source.analysisTransform.profile = "implicit-fit";
+  assert.ok(validateFacts(hiddenTransform).diagnostics.some((item) => item.code === "PROTOTYPE_ENVIRONMENT_FACTS_SCHEMA_ENUM"));
+  const unboundTransform = validFacts();
+  unboundTransform.source.analysisTransform.sourceCanonicalSha256 = "sha256:bad";
+  assert.ok(validateFacts(unboundTransform).diagnostics.some((item) => item.code === "PROTOTYPE_ENVIRONMENT_FACTS_SCHEMA_STRING_CONSTRAINT"));
 });
 
 test("validation does not mutate inputs and operational errors remain static", () => {

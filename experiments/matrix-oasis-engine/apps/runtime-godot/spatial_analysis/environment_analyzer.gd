@@ -1,6 +1,5 @@
-extends Node
+extends Node3D
 
-signal geometry_parsed
 signal navigation_baked
 
 const REQUEST_ARGUMENT := "--matrix-oasis-analysis-request="
@@ -18,6 +17,7 @@ const PLAYER_HEIGHT := 1.8
 const FLOOR_SNAP := 0.2
 const MAX_SLOPE_DEGREES := 45.0
 const WALL_QUERY_DISTANCE := 20.0
+const StrictJson := preload("res://runtime/strict_json.gd")
 
 var _collision_body: StaticBody3D
 
@@ -79,8 +79,10 @@ func _load_request(path: String) -> Dictionary:
 	var bytes := _read_file(path, REQUEST_MAX_BYTES)
 	if bytes.is_empty():
 		return {"ok": false}
-	var parsed := MatrixOasisStrictJson.parse_bytes(bytes, "/analysisRequest")
-	if not parsed["ok"] or not _valid_request(parsed["value"]):
+	var parsed: Dictionary = StrictJson.parse_bytes(bytes, "/analysisRequest")
+	if not parsed["ok"]:
+		return {"ok": false}
+	if not _valid_request(parsed["value"]):
 		return {"ok": false}
 	var value: Dictionary = parsed["value"]
 	var collider_path: String = value["colliderPath"]
@@ -100,7 +102,7 @@ func _valid_request(value: Variant) -> bool:
 	if value["format"] != "matrix-oasis.godot-environment-analysis-request" or value["formatVersion"] != "0.1.0" or typeof(value["colliderPath"]) != TYPE_STRING:
 		return false
 	var source: Variant = value["source"]
-	if typeof(source) != TYPE_DICTIONARY or not _exact(source, ["blueprint", "calibration", "collider", "environmentBundleSha256", "runtime", "scene", "spatialEnvironmentBundle"]):
+	if typeof(source) != TYPE_DICTIONARY or not _exact(source, ["analysisTransform", "blueprint", "calibration", "collider", "environmentBundleSha256", "runtime", "scene", "spatialEnvironmentBundle"]):
 		return false
 	return _valid_source_identity(source)
 
@@ -137,7 +139,7 @@ func _valid_source_identity(source: Dictionary) -> bool:
 	for hash_value in [blueprint["canonicalSha256"], runtime["sourceSha256"], runtime["artifactSha256"], bundle["canonicalSha256"], source["environmentBundleSha256"], collider["sha256"]]:
 		if not _valid_hash(hash_value):
 			return false
-	return _valid_calibration(calibration)
+	return _valid_calibration(calibration) and _valid_analysis_transform(source["analysisTransform"])
 
 
 func _valid_calibration(value: Dictionary) -> bool:
@@ -148,13 +150,26 @@ func _valid_calibration(value: Dictionary) -> bool:
 	return _integer_vector(value["godotTranslationMm"], -1000000, 1000000) and _integer_vector(value["godotRotationMilliDegrees"], -360000, 360000)
 
 
+func _valid_analysis_transform(value: Variant) -> bool:
+	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["collider", "eulerOrder", "profile", "root", "sourceCanonicalSha256"]):
+		return false
+	if value["profile"] not in ["spatial-environment-calibration-v1", "spatial-assembly-collider-v1"] or value["eulerOrder"] != "YXZ" or not _valid_hash(value["sourceCanonicalSha256"]):
+		return false
+	var root: Variant = value["root"]
+	var collider: Variant = value["collider"]
+	if typeof(root) != TYPE_DICTIONARY or not _exact(root, ["rotationMilliDegrees", "translationMm"]):
+		return false
+	if typeof(collider) != TYPE_DICTIONARY or not _exact(collider, ["localTranslationMm", "scaleMicros"]):
+		return false
+	return _integer_vector(root["translationMm"], -1000000, 1000000) and _integer_vector(root["rotationMilliDegrees"], -360000, 360000) and _integer_vector(collider["localTranslationMm"], -1000000, 1000000) and _bounded_integer(collider["scaleMicros"], 1, 100000000)
+
+
 func _analyze(request: Dictionary) -> Dictionary:
 	var collider_bytes := _read_file(request["colliderPath"], COLLIDER_MAX_BYTES)
 	var scene_root := _load_glb(collider_bytes, request["colliderPath"])
 	if scene_root == null:
 		return {"ok": false}
-	var calibration: Dictionary = request["source"]["calibration"]
-	var root_transform := _calibration_transform(calibration)
+	var root_transform := _analysis_transform(request["source"]["analysisTransform"])
 	var faces := _collect_faces(scene_root, root_transform)
 	scene_root.free()
 	if faces.is_empty():
@@ -187,9 +202,12 @@ func _analyze(request: Dictionary) -> Dictionary:
 	navigation_mesh.set_source_geometry_mode(NavigationMesh.SOURCE_GEOMETRY_ROOT_NODE_CHILDREN)
 	navigation_mesh.set_parsed_geometry_type(NavigationMesh.PARSED_GEOMETRY_MESH_INSTANCES)
 	var source_data := NavigationMeshSourceGeometryData3D.new()
-	NavigationServer3D.parse_source_geometry_data(navigation_mesh, source_data, geometry_root, Callable(self, "_on_geometry_parsed"))
-	await geometry_parsed
-	NavigationServer3D.bake_from_source_geometry_data_async(navigation_mesh, source_data, Callable(self, "_on_navigation_baked"))
+	NavigationServer3D.parse_source_geometry_data(
+		navigation_mesh,
+		source_data,
+		geometry_root,
+		Callable(self, "_on_geometry_parsed").bind(navigation_mesh, source_data)
+	)
 	await navigation_baked
 	geometry_root.queue_free()
 	if navigation_mesh.get_vertices().is_empty() or navigation_mesh.get_polygon_count() < 1:
@@ -217,26 +235,33 @@ func _analyze(request: Dictionary) -> Dictionary:
 	return {"ok": true, "facts": facts}
 
 
-func _on_geometry_parsed() -> void:
-	geometry_parsed.emit()
+func _on_geometry_parsed(navigation_mesh: NavigationMesh, source_data: NavigationMeshSourceGeometryData3D) -> void:
+	NavigationServer3D.bake_from_source_geometry_data_async(
+		navigation_mesh,
+		source_data,
+		Callable(self, "_on_navigation_baked")
+	)
 
 
 func _on_navigation_baked() -> void:
 	navigation_baked.emit()
 
 
-func _calibration_transform(value: Dictionary) -> Transform3D:
-	var rotation_values: Array = value["godotRotationMilliDegrees"]
+func _analysis_transform(value: Dictionary) -> Transform3D:
+	var root: Dictionary = value["root"]
+	var collider: Dictionary = value["collider"]
+	var rotation_values: Array = root["rotationMilliDegrees"]
 	var rotation := Vector3(
 		deg_to_rad(float(rotation_values[0]) / 1000.0),
 		deg_to_rad(float(rotation_values[1]) / 1000.0),
 		deg_to_rad(float(rotation_values[2]) / 1000.0)
 	)
-	var scale := float(value["metricScaleMicros"]) / 1000000.0
-	var basis := Basis.from_euler(rotation, EULER_ORDER_YXZ).scaled(Vector3.ONE * scale)
-	var translation_values: Array = value["godotTranslationMm"]
-	var origin := Vector3(float(translation_values[0]), float(translation_values[1] - value["groundPlaneOffsetMm"]), float(translation_values[2])) / 1000.0
-	return Transform3D(basis, origin)
+	var root_translation: Array = root["translationMm"]
+	var root_transform := Transform3D(Basis.from_euler(rotation, EULER_ORDER_YXZ), Vector3(float(root_translation[0]), float(root_translation[1]), float(root_translation[2])) / 1000.0)
+	var local_translation: Array = collider["localTranslationMm"]
+	var scale := float(collider["scaleMicros"]) / 1000000.0
+	var collider_transform := Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * scale), Vector3(float(local_translation[0]), float(local_translation[1]), float(local_translation[2])) / 1000.0)
+	return root_transform * collider_transform
 
 
 func _load_glb(bytes: PackedByteArray, source_path: String) -> Node3D:
@@ -364,7 +389,7 @@ func _floor_anchors(topology: Dictionary, environment_bounds: Dictionary) -> Arr
 	var ordered: Array = candidates.values()
 	ordered.sort_custom(func(left: Dictionary, right: Dictionary) -> bool: return _vector_less(left["position"], right["position"]))
 	var output: Array = []
-	var space := get_world_3d().direct_space_state
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 	var capsule := CapsuleShape3D.new()
 	capsule.radius = PLAYER_RADIUS
 	capsule.height = PLAYER_HEIGHT
@@ -375,13 +400,20 @@ func _floor_anchors(topology: Dictionary, environment_bounds: Dictionary) -> Arr
 		var source := Vector3(float(source_mm[0]), float(source_mm[1]), float(source_mm[2])) / 1000.0
 		var ray := PhysicsRayQueryParameters3D.create(source + Vector3.UP, source - Vector3.UP, 1)
 		ray.collide_with_areas = false
-		var hit := space.intersect_ray(ray)
+		var hit: Dictionary = space.intersect_ray(ray)
 		if hit.is_empty():
 			continue
 		var normal: Vector3 = hit["normal"]
 		if normal.y < cos(deg_to_rad(MAX_SLOPE_DEGREES)):
 			continue
 		var floor_position: Vector3 = hit["position"]
+		var floor_position_mm := _vector_mm(floor_position)
+		var navigation_polygon: Dictionary = polygons[candidate["polygonIndex"]]
+		var navigation_vertices: Array = navigation_polygon["vertexIndices"].map(func(index: int) -> Array: return vertices[index])
+		var minimum_navigation_y: int = navigation_vertices.map(func(item: Array) -> int: return item[1]).min()
+		var maximum_navigation_y: int = navigation_vertices.map(func(item: Array) -> int: return item[1]).max()
+		if floor_position_mm[1] < minimum_navigation_y - 200 or floor_position_mm[1] > maximum_navigation_y + 200 or not _point_in_polygon_xz(floor_position_mm, navigation_vertices):
+			continue
 		var shape_query := PhysicsShapeQueryParameters3D.new()
 		shape_query.shape = capsule
 		shape_query.collision_mask = 1
@@ -390,13 +422,13 @@ func _floor_anchors(topology: Dictionary, environment_bounds: Dictionary) -> Arr
 		if not space.intersect_shape(shape_query, 1).is_empty():
 			continue
 		var ceiling_ray := PhysicsRayQueryParameters3D.create(floor_position + Vector3.UP * 0.05, floor_position + Vector3.UP * 100.0, 1)
-		var ceiling_hit := space.intersect_ray(ceiling_ray)
+		var ceiling_hit: Dictionary = space.intersect_ray(ceiling_ray)
 		var ceiling_mm := 100000 if ceiling_hit.is_empty() else int(round((ceiling_hit["position"] as Vector3).distance_to(floor_position) * 1000.0))
 		if ceiling_mm < 1800:
 			continue
 		var anchor := {
 			"id": "floor-%04d" % output.size(),
-			"positionMm": _vector_mm(floor_position),
+			"positionMm": floor_position_mm,
 			"normalMicros": _normal_micros(normal),
 			"clearanceRadiusMm": 350,
 			"clearanceHeightMm": 1800,
@@ -413,16 +445,16 @@ func _floor_anchors(topology: Dictionary, environment_bounds: Dictionary) -> Arr
 func _wall_anchors(floor_anchors: Array, environment_bounds: Dictionary) -> Array:
 	var output: Array = []
 	var seen := {}
-	var space := get_world_3d().direct_space_state
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 	var directions := [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK]
 	for floor_anchor in floor_anchors:
 		var floor_position := Vector3(float(floor_anchor["positionMm"][0]), float(floor_anchor["positionMm"][1]), float(floor_anchor["positionMm"][2])) / 1000.0
-		var origin := floor_position + Vector3.UP * 1.2
+		var origin: Vector3 = floor_position + Vector3.UP * 1.2
 		for direction in directions:
 			if output.size() >= MAX_WALL_ANCHORS:
 				return output
 			var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * WALL_QUERY_DISTANCE, 1)
-			var hit := space.intersect_ray(query)
+			var hit: Dictionary = space.intersect_ray(query)
 			if hit.is_empty():
 				continue
 			var normal: Vector3 = hit["normal"]
@@ -453,7 +485,7 @@ func _wall_width(space: PhysicsDirectSpaceState3D, point: Vector3, normal: Vecto
 	var total_steps := 1
 	for sign_value in [-1.0, 1.0]:
 		for step in range(1, 21):
-			var origin := point + tangent * sign_value * float(step) * 0.25 + normal * 0.1
+			var origin: Vector3 = point + tangent * sign_value * float(step) * 0.25 + normal * 0.1
 			var query := PhysicsRayQueryParameters3D.create(origin, origin - normal * 0.25, 1)
 			if space.intersect_ray(query).is_empty():
 				break
@@ -462,8 +494,8 @@ func _wall_width(space: PhysicsDirectSpaceState3D, point: Vector3, normal: Vecto
 
 
 func _bounds_from_faces(faces: PackedVector3Array) -> Dictionary:
-	var minimum := faces[0]
-	var maximum := faces[0]
+	var minimum: Vector3 = faces[0]
+	var maximum: Vector3 = faces[0]
 	for vector in faces:
 		minimum = minimum.min(vector)
 		maximum = maximum.max(vector)
@@ -475,8 +507,8 @@ func _bounds_for_polygons(vertices: Array, polygons: Array, polygon_indices: Arr
 	for polygon_index in polygon_indices:
 		for vertex_index in polygons[polygon_index]["vertexIndices"]:
 			points.append(vertices[vertex_index])
-	var minimum := points[0].duplicate()
-	var maximum := points[0].duplicate()
+	var minimum: Array = points[0].duplicate()
+	var maximum: Array = points[0].duplicate()
 	for point in points:
 		for axis in 3:
 			minimum[axis] = min(minimum[axis], point[axis])
@@ -490,7 +522,7 @@ func _point_in_polygon_xz(point: Array, vertices: Array) -> bool:
 	for index in vertices.size():
 		var current: Array = vertices[index]
 		var prior: Array = vertices[previous]
-		var cross := (point[0] - prior[0]) * (current[2] - prior[2]) - (point[2] - prior[2]) * (current[0] - prior[0])
+		var cross: int = (point[0] - prior[0]) * (current[2] - prior[2]) - (point[2] - prior[2]) * (current[0] - prior[0])
 		if abs(cross) <= 1 and point[0] >= min(prior[0], current[0]) and point[0] <= max(prior[0], current[0]) and point[2] >= min(prior[2], current[2]) and point[2] <= max(prior[2], current[2]):
 			return true
 		if (current[2] > point[2]) != (prior[2] > point[2]) and float(point[0]) < float(prior[0] - current[0]) * float(point[2] - current[2]) / float(prior[2] - current[2]) + float(current[0]):

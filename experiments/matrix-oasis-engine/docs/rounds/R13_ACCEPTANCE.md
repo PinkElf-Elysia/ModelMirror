@@ -1,6 +1,6 @@
 # R13验收记录
 
-状态：R13实施中；R13.4已验证，等待本地提交
+状态：R13实施中；R13.5已验证，等待本地提交
 
 ## 固定基线
 
@@ -16,8 +16,8 @@
 | R13.1 治理与声明门 | 已完成 | `a849899e0606ebda85bd2060011edd4d0ef010d1` | 见下方摘要 |
 | R13.2 开源参考来源护栏 | 已完成 | `43bb8f2869ea3b561677d1496bbf55f46e4484b8` | 见下方摘要 |
 | R13.3 Spatial Intent与Environment Facts合同 | 已完成 | `059f215daa622df65f3d0954d403b458bcc9a377` | 见下方摘要 |
-| R13.4 Godot环境分析器 | 已验证 | 本批提交，SHA由R13.5记录 | 见下方摘要 |
-| R13.5 Node Harness与离线资格 | 未开始 | — | — |
+| R13.4 Godot环境分析器 | 已完成 | `ddb5f76e74b0438e477cfdd18a99a244ac4fefdd` | 见下方摘要 |
+| R13.5 Node Harness与离线资格 | 已验证 | 本批提交，SHA由R13.6记录 | 见下方摘要 |
 | R13.6 拆分与验收收口 | 未开始 | — | — |
 
 ## 声明边界
@@ -64,7 +64,7 @@ R13只证明空间语义意图与Godot环境事实可以被严格、离线、确
 ## R13.4验证摘要
 
 - 新增私有`@matrix-oasis/prototype-environment-analyzer@0.1.0-r13`，公开不透明Godot analyzer句柄与单次离线分析接口；配置、请求和失败表面均descriptor-safe，内部故障只暴露`PROTOTYPE_SPATIAL_ANALYZER_INTERNAL_ERROR`。
-- 新增隔离`apps/runtime-godot/spatial_analysis/`场景；运行时载入已复验collider GLB，只应用Bundle声明的metric、ground offset与YXZ校准，不引用Creator、产品预览、供应商或案例坐标。
+- 新增隔离`apps/runtime-godot/spatial_analysis/`场景；运行时载入已复验collider GLB，并在R13.5集成门中将原始Bundle校准与已发布Spatial Assembly最终collider变换区分为显式、哈希绑定的分析变换；不引用Creator、产品预览、供应商或案例坐标。
 - Godot在主线程解析source geometry，通过异步NavigationMesh bake取得拓扑；物理同步后以真实ray与capsule查询形成floor/wall anchor、净空、顶高和连通分量，所有输出先量化为毫米整数并稳定排序。
 - Godot边界新增一项精确例外：只有`spatial_analysis/environment_analyzer.gd`可读写Node创建的同目录临时路径；相同动态写入在其他文件、该文件使用其他参数形状、任意绝对路径和网络/进程/环境能力仍被拒绝。定向Godot边界16项全部通过。
 - `npm.cmd run verify:r13`通过：参考6项、合同9项、分析器5项及Godot 4.6.3 import均通过。未设置`GODOT_BIN`时只在import前置门以`GODOT_4_6_3_NOT_AVAILABLE`停止；以进程内环境变量指向已验证仓外工具后通过，未写系统配置。
@@ -72,6 +72,19 @@ R13只证明空间语义意图与Godot环境事实可以被严格、离线、确
 - R1–R12、Creator和既有Godot产品场景保持零差异；本批尚未执行真实环境分析或发布facts，这些属于R13.5离线资格门。
 
 本批回退只删除新analyzer workspace与隔离Godot分析目录，并恢复root验证及Godot边界的精确例外；不改变任何既有产品预览或运行数据。
+
+## R13.5验证摘要
+
+- 新增三项安全CLI、事务核心、真实Godot合成验证器与离线SVG捕获；输入只接受已复验的Spatial Intent、Spatial Environment Bundle、collider、compressed PLY及可选已发布Spatial Assembly，输出仅在`C:\tmp`同父staging中写入两份canonical facts/report并单次rename发布。
+- 真实集成发现并关闭合同缺口：R11旧中性缓存的原始collider约1.3 m高，而实际运行世界由已发布Spatial Assembly显式放大；facts现记录`analysisTransform`的profile、来源SHA、YXZ root及collider变换。未知/隐式fit被Schema拒绝，禁止按包围盒猜尺度或注入案例坐标。
+- floor anchor在物理ray命中后必须仍位于原属NavigationMesh polygon且高度差不超过固定200 mm floor snap，再执行真实capsule净空；多层/重叠几何不再产生合同外anchor。
+- 锁定Godot 4.6.3 Windows工具链的中性矩形房间与L形双空间各重复20次，`SPATIAL_ANALYSIS_OK cases=2 runs=40 facts=rectangle:1:86:64,l-shape:2:67:67`，每个case的canonical facts字节完全一致。
+- R11 `primary-density-v8`真实缓存成功：169 vertices、225 polygons、9 components、1339 floor anchors、620 wall anchors，facts SHA-256为`57af1fa171ee160100e94f58871e277c656d2dac247dbe9bf06ae4579ba6fa36`。
+- R12 Creator v3末班地铁真实缓存成功：57 vertices、44 polygons、7 components、55 floor anchors、81 wall anchors，facts SHA-256为`d42e35b05eccaa0268e941099eaf16e875a18a4401785f5393f573fc1b76ea95`。两份facts均使用`spatial-assembly-collider-v1`且生成仓外navmesh/anchor SVG证据。
+- `npm.cmd run test:spatial-analysis`为12/12；`npm.cmd run verify:spatial-analysis`通过Godot import与40次分析；`npm.cmd run verify:r13`完整通过，标识`interfaces=6 mvp=pending-spatial-solver`。
+- 最新树上`npm.cmd run verify`全部24步通过；全量Node测试751/751，既有R1–R12、Creator build/smoke及Godot import/adapter/parity/3D/Scene/Splat回归全部通过。`check:round-scope`为`checked=75 changed=59`，`check:boundary`为`checked=1133 tracked=1126`，`git diff --check`通过。
+
+本批回退删除Node harness、CLI、真实资格测试及集成修复；仓外source/facts/capture目录不随Git revert删除。
 
 ## 最终证据清单
 

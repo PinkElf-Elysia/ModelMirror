@@ -288,7 +288,44 @@ test("secret scanning permits an indirect credential reference but not embedded 
   });
 });
 
+test("the R13 analysis core may name only its fixed temporary root and inert SVG namespace", async () => {
+  await withFixture(async ({ root }) => {
+    const sourceRoot = path.join(root, "scripts", "lib");
+    await fs.mkdir(sourceRoot, { recursive: true });
+    const temporaryRoot = ["C:", "tmp"].join("\\");
+    const svgNamespace = ["http:", "", "www.w3.org", "2000", "svg"].join("/");
+    await fs.writeFile(
+      path.join(sourceRoot, "spatial-analysis-core.mjs"),
+      `export const outputRoot = ${JSON.stringify(temporaryRoot)};\nexport const svg = ${JSON.stringify(svgNamespace)};\n`,
+      "utf8",
+    );
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.report.ok, true);
+  });
+});
+
 const negativeCases = [
+  {
+    name: "R13 analysis core names another local absolute path",
+    expectedRule: "absolute-local-path",
+    setup: async ({ root }) => {
+      const sourceRoot = path.join(root, "scripts", "lib");
+      await fs.mkdir(sourceRoot, { recursive: true });
+      const unapproved = ["D:", "private"].join("\\");
+      await fs.writeFile(path.join(sourceRoot, "spatial-analysis-core.mjs"), `export const path = ${JSON.stringify(unapproved)};\n`, "utf8");
+    },
+  },
+  {
+    name: "R13 analysis core attempts an outbound request",
+    expectedRule: "script-network-forbidden",
+    setup: async ({ root }) => {
+      const sourceRoot = path.join(root, "scripts", "lib");
+      await fs.mkdir(sourceRoot, { recursive: true });
+      const operation = ["fet", "ch"].join("");
+      await fs.writeFile(path.join(sourceRoot, "spatial-analysis-core.mjs"), `export const request = (url) => ${operation}(url);\n`, "utf8");
+    },
+  },
   {
     name: "network call outside the exact provider adapter",
     expectedRule: "module-network-forbidden",

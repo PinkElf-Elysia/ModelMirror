@@ -124,8 +124,11 @@
     "verify:spatial-references": "npm run test:spatial-references && node scripts/verify-spatial-references.mjs",
     "test:spatial-contracts": "node --test packages/prototype-spatial-planning-contracts/tests/contracts.test.mjs",
     "verify:spatial-contracts": "npm run test:spatial-contracts",
-    "test:spatial-analysis": "node --test packages/prototype-environment-analyzer/tests/analyzer.test.mjs tests/spatial-analysis.test.mjs",
-    "verify:spatial-analysis": "npm run test:spatial-analysis && npm run verify:godot:import",
-    "verify:r13": "npm run verify:spatial-references && npm run verify:spatial-contracts && npm run verify:spatial-analysis"
+    "test:spatial-analysis": "node --test packages/prototype-environment-analyzer/tests/analyzer.test.mjs tests/spatial-analysis.test.mjs tests/r13-qualification.test.mjs",
+    "analyze:spatial-environment": "node scripts/analyze-spatial-environment.mjs",
+    "qualify:r13-spatial-facts": "node scripts/qualify-r13-spatial-facts.mjs",
+    "capture:spatial-facts": "node scripts/capture-spatial-facts.mjs",
+    "verify:spatial-analysis": "npm run test:spatial-analysis && npm run verify:godot:import && node scripts/verify-spatial-analysis.mjs",
+    "verify:r13": "npm run verify:spatial-references && npm run verify:spatial-contracts && npm run verify:spatial-analysis && node scripts/verify-r13.mjs"
   }
 }

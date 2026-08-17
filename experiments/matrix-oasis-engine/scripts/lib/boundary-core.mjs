@@ -1317,6 +1317,22 @@ function checkSmokeNetwork(relative, content, specifiers, violations) {
 }
 
 function checkScriptNetwork(relative, content, specifiers, policy, violations) {
+  if (relative === "scripts/lib/spatial-analysis-core.mjs") {
+    const nonNamespaceContent = content.replace(/http:\/\/www\.w3\.org\/2000\/svg/gu, "");
+    if (
+      NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(content)) ||
+      usesNetworkModule(specifiers) ||
+      hasExternalOrProtocolRelativeUrl(nonNamespaceContent)
+    ) {
+      addViolation(
+        violations,
+        "script-network-forbidden",
+        relative,
+        "The spatial analysis core may contain the inert W3C SVG namespace only and may not use network capabilities.",
+      );
+    }
+    return;
+  }
   if (relative === "scripts/lib/spatial-reference-core.mjs") {
     const allowedRepositories = new Set(policy.r13SpatialFactsPolicy.referenceMetadataRepositories);
     let nonMetadataContent = content;
@@ -1415,7 +1431,11 @@ function scanExecutable(moduleRoot, absolute, relative, content, policy, violati
   checkDynamicModuleLoads(relative, content, violations);
   checkGenericPathLiterals(moduleRoot, absolute, relative, content, violations);
 
-  if (containsLocalAbsolutePath(content)) {
+  const approvedR13TempRoot = relative === "scripts/lib/spatial-analysis-core.mjs" &&
+    extractStringLiterals(content)
+      .filter(({ value }) => LOCAL_ABSOLUTE_PATH.test(value))
+      .every(({ value }) => /^[Cc]:[\\/]tmp$/u.test(value));
+  if (containsLocalAbsolutePath(content) && !approvedR13TempRoot) {
     addViolation(
       violations,
       "absolute-local-path",

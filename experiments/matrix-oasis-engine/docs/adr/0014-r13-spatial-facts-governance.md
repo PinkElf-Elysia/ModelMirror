@@ -13,6 +13,8 @@ R13引入两个独立合同：Spatial Intent只描述zone、placement、可见�
 
 分析器固定Godot 4.6.3、右手Y-up、毫米、Euler YXZ，以及半径350 mm、高度1800 mm、floor snap 200 mm、最大坡度45°的玩家profile。GLTF与导航source geometry解析在主线程执行，导航使用异步烘焙，ray/capsule查询在物理同步阶段执行。
 
+Environment Facts必须记录实际应用的分析变换及其canonical来源SHA。默认使用Spatial Environment Bundle校准；若已发布世界另有Spatial Assembly collider变换，则先严格复验该assembly及环境、Runtime、collider身份，再显式使用其root/collider分量。不得根据包围盒、题材或人工观感推断隐藏尺度。
+
 Godogen、Holodeck、ProcTHOR与GameCraft-Bench只作为固定commit的非执行参考摘录；不引入它们的运行时或依赖。R13不修改R8生成器输出Spatial Intent，不实现约束求解，不切换Creator或现有预览。
 
 ## 后果

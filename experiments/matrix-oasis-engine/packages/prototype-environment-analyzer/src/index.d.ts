@@ -20,6 +20,7 @@ export declare function analyzePrototypeEnvironment(
     spatialIntentJson: string;
     spatialEnvironmentBundleJson: string;
     spatialEnvironmentFiles: ReadonlyMap<string, Uint8Array>;
+    spatialAssemblyJson?: string;
   }>,
   analyzer: GodotEnvironmentAnalyzer,
 ): Promise<

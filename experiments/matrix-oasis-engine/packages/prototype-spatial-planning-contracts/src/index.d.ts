@@ -63,6 +63,13 @@ export interface PrototypeEnvironmentFactsSource {
   readonly environmentBundleSha256: string;
   readonly collider: { readonly format: "glb"; readonly byteLength: number; readonly sha256: string };
   readonly calibration: { readonly coordinateTransform: "spz-raw-ply-to-godot-v1"; readonly metricScaleMicros: number; readonly groundPlaneOffsetMm: number; readonly godotTranslationMm: SpatialVector3Mm; readonly godotRotationMilliDegrees: SpatialVector3Mm };
+  readonly analysisTransform: {
+    readonly profile: "spatial-environment-calibration-v1" | "spatial-assembly-collider-v1";
+    readonly sourceCanonicalSha256: string;
+    readonly eulerOrder: "YXZ";
+    readonly root: { readonly translationMm: SpatialVector3Mm; readonly rotationMilliDegrees: SpatialVector3Mm };
+    readonly collider: { readonly localTranslationMm: SpatialVector3Mm; readonly scaleMicros: number };
+  };
 }
 
 export interface PrototypeSpatialBounds { readonly minimumMm: SpatialVector3Mm; readonly maximumMm: SpatialVector3Mm }

@@ -265,7 +265,7 @@ const environmentFactsSchema = {
     source: {
       type: "object",
       additionalProperties: false,
-      required: ["scene", "blueprint", "runtime", "spatialEnvironmentBundle", "environmentBundleSha256", "collider", "calibration"],
+      required: ["scene", "blueprint", "runtime", "spatialEnvironmentBundle", "environmentBundleSha256", "collider", "calibration", "analysisTransform"],
       properties: {
         scene: { $ref: "#/$defs/scene" },
         blueprint: { $ref: "#/$defs/blueprint" },
@@ -305,6 +305,41 @@ const environmentFactsSchema = {
               minItems: 3,
               maxItems: 3,
               items: { type: "integer", minimum: -360_000, maximum: 360_000 },
+            },
+          },
+        },
+        analysisTransform: {
+          type: "object",
+          additionalProperties: false,
+          required: ["profile", "sourceCanonicalSha256", "eulerOrder", "root", "collider"],
+          properties: {
+            profile: {
+              enum: ["spatial-environment-calibration-v1", "spatial-assembly-collider-v1"],
+            },
+            sourceCanonicalSha256: { $ref: "#/$defs/hash" },
+            eulerOrder: { const: "YXZ" },
+            root: {
+              type: "object",
+              additionalProperties: false,
+              required: ["translationMm", "rotationMilliDegrees"],
+              properties: {
+                translationMm: { $ref: "#/$defs/positionMm" },
+                rotationMilliDegrees: {
+                  type: "array",
+                  minItems: 3,
+                  maxItems: 3,
+                  items: { type: "integer", minimum: -360_000, maximum: 360_000 },
+                },
+              },
+            },
+            collider: {
+              type: "object",
+              additionalProperties: false,
+              required: ["localTranslationMm", "scaleMicros"],
+              properties: {
+                localTranslationMm: { $ref: "#/$defs/positionMm" },
+                scaleMicros: { type: "integer", minimum: 1, maximum: 100_000_000 },
+              },
             },
           },
         },
