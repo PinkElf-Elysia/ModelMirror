@@ -1,6 +1,6 @@
 # R13验收记录
 
-状态：R13实施中；R13.5已验证，等待本地提交
+状态：R13实施中；R13.6自动证据已记录，仓外调试视图等待人工验收
 
 ## 固定基线
 
@@ -17,8 +17,8 @@
 | R13.2 开源参考来源护栏 | 已完成 | `43bb8f2869ea3b561677d1496bbf55f46e4484b8` | 见下方摘要 |
 | R13.3 Spatial Intent与Environment Facts合同 | 已完成 | `059f215daa622df65f3d0954d403b458bcc9a377` | 见下方摘要 |
 | R13.4 Godot环境分析器 | 已完成 | `ddb5f76e74b0438e477cfdd18a99a244ac4fefdd` | 见下方摘要 |
-| R13.5 Node Harness与离线资格 | 已验证 | 本批提交，SHA由R13.6记录 | 见下方摘要 |
-| R13.6 拆分与验收收口 | 未开始 | — | — |
+| R13.5 Node Harness与离线资格 | 已完成 | `d7f84f0b8ffa334f55da4de809908d69dfa20100` | 见下方摘要 |
+| R13.6 拆分与验收收口 | 自动验证已完成；人工视图待验收 | 本批提交，最终SHA在仓外交付清单记录 | 见下方摘要 |
 
 ## 声明边界
 
@@ -86,10 +86,24 @@ R13只证明空间语义意图与Godot环境事实可以被严格、离线、确
 
 本批回退删除Node harness、CLI、真实资格测试及集成修复；仓外source/facts/capture目录不随Git revert删除。
 
+## R13.6验证摘要
+
+- 模块根`npm.cmd ci --offline --no-audit --no-fund`安装122个锁定包；`npm.cmd prefix`精确指向独立模块根，`npm.cmd ls --all`退出0。没有新增registry下载、系统环境变量或仓内工具二进制。
+- 使用仓外已验证Godot `4.6.3-stable`后，最终功能树的`npm.cmd run verify`全部24步通过：全量Node测试751/751，Creator 248个模块构建与HTTP smoke、R1–R12及Godot import/adapter/parity/3D/Scene/Splat回归全部通过。
+- `npm.cmd run verify:extraction`在干净R13.5 HEAD上通过：`EXTRACTION_OK`、`standaloneFiles=1133`、临时产物自动清理；split tree为`4b19e576d20d617c17da4ada1253551ed7020cd8`，source archive SHA-256为`301d0e4c8fe2161f1369df01f8f77eca05ce605bed025d4377c31a379f7988b6`。R13.6文档提交后的最终标识必须重新计算并只写仓外交付清单，避免文档自引用。
+- 一次恢复后的extraction复核因误用不存在的旧`GODOT_BIN`路径在standalone doctor门停止；保留副本日志明确只有`godot: not detected`。改用实际已验证的仓外路径后同一命令完整通过，没有修改代码或放宽doctor。
+- 父`client`在隔离R13 worktree执行`npm.cmd ci --offline --no-audit --no-fund`安装384个锁定包，随后生产build通过：TypeScript、Vite 7.3.5、3113个模块均成功；只保留既有大chunk warning，没有父源码或锁文件变化。
+- `check:round-scope`为`checked=75 changed=59`，`check:parent-scope`使用固定`R13_BASE_SHA`通过，`check:boundary`为`checked=1133 tracked=1126`；R1–R12、Creator产品文件、既有Godot运行场景和父仓相对固定基线零差异，`git diff --check`通过。
+- 中性矩形房间、L形双空间的拓扑/门洞/障碍/低顶关系由40次真实Godot分析自动验证；R11与R12仓外SVG调试捕获均已生成。当前应用内浏览器安全策略拒绝`file://`仓外SVG，因此没有把肉眼检查虚报为通过；人工验收仍需直接打开两份`spatial-facts-plan.svg`确认navmesh、components和anchors无整体翻转或偏移。
+- 未运行父后端、Docker、共享栈、部署或供应商调用；本轮无网络请求、无费用，也不修改现有Creator或产品预览。
+
+R13.6回退只恢复本验收记录；若整体回退，按R13.6到R13.1逆序revert六个提交。Git回退不会删除仓外facts、capture或保留的失败诊断副本。
+
 ## 最终证据清单
 
 - 六个线性提交与精确变更路径；
 - 自动验证、standalone extraction、父仓范围与父client clean build；
 - 中性矩形房间、L形双空间、R11缓存和R12缓存的仓外facts与调试捕获；
 - source/split/archive SHA及两份真实facts SHA；
-- 未运行项、已知限制和逆序revert路径。
+- 未运行项、已知限制和逆序revert路径；
+- R11与R12仓外SVG调试视图的用户人工确认。
