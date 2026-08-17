@@ -1,6 +1,6 @@
 # R13验收记录
 
-状态：R13实施中；R13.2已验证，等待本地提交
+状态：R13实施中；R13.3已验证，等待本地提交
 
 ## 固定基线
 
@@ -14,8 +14,8 @@
 | 批次 | 状态 | 提交 | 证据 |
 |---|---|---|---|
 | R13.1 治理与声明门 | 已完成 | `a849899e0606ebda85bd2060011edd4d0ef010d1` | 见下方摘要 |
-| R13.2 开源参考来源护栏 | 已验证 | 本批提交，SHA由R13.3记录 | 见下方摘要 |
-| R13.3 Spatial Intent与Environment Facts合同 | 未开始 | — | — |
+| R13.2 开源参考来源护栏 | 已完成 | `43bb8f2869ea3b561677d1496bbf55f46e4484b8` | 见下方摘要 |
+| R13.3 Spatial Intent与Environment Facts合同 | 已验证 | 本批提交，SHA由R13.4记录 | 见下方摘要 |
 | R13.4 Godot环境分析器 | 未开始 | — | — |
 | R13.5 Node Harness与离线资格 | 未开始 | — | — |
 | R13.6 拆分与验收收口 | 未开始 | — | — |
@@ -48,6 +48,18 @@ R13只证明空间语义意图与Godot环境事实可以被严格、离线、确
 - `npm.cmd run check:round-scope`：`checked=38 changed=34`；`npm.cmd run check:parent-scope -- --base 77ec8c4eace9f8dbd1dd119cd70727570bd99e9a`：`checked=38 changed=34`；`npm.cmd run check:boundary`：`checked=1111 tracked=1100`；`git diff --check`通过。冻结R1–R12与父仓零差异。
 
 本批回退只删除非执行参考、验证脚本/测试与依赖说明，不影响Godot、Creator或既有运行链。
+
+## R13.3验证摘要
+
+- 新增私有`@matrix-oasis/prototype-spatial-planning-contracts@0.1.0-r13`，公开闭合的Spatial Intent与Environment Facts Schema、只读TypeScript类型、两项同步严格JSON验证接口和单一静态operational error。
+- Spatial Intent只表达zone邻接、placement support/anchor/facing、near/separate、clearance与node context可达需求；Schema与测试拒绝坐标、路径、供应商字段和不可达布尔降级。
+- Environment Facts固定Godot右手Y-up、毫米、Euler YXZ及350 mm半径/1800 mm高度/200 mm floor snap/45度坡度profile；语义门锁定导航顶点、polygon索引、连通分量、bounds、floor/wall anchor归属、真实capsule净空标识和identity。
+- 验证阶段严格为`parse → schema → semantic → integrity`；非canonical文本、重复键、深度/字节超限、孤立代理项、未知字段和身份漂移均返回深冻结、排序稳定且不回显输入值的diagnostics。
+- `npm.cmd run verify:spatial-contracts`：9项通过，含同一canonical Intent/Facts重复20次一致、输入不变及负向拓扑/anchor矩阵。
+- 普通沙箱首次`npm.cmd test`因既有测试不能在`C:\tmp`创建临时目录而出现33项EPERM环境失败；R13合同9项全部通过。随后在允许既有仓外临时目录并显式使用Godot 4.6.3的同一树上，`npm.cmd run verify`全部23步通过，全量Node测试744/744，Creator build/smoke及既有Godot门全部通过。
+- `npm.cmd run check:round-scope`、`check:boundary`、`check:mvp-claim`与`git diff --check`均通过；`pending-spatial-solver`与`claimAllowed=false`保持不变，R1–R12冻结内容零差异。
+
+本批回退只删除新合同workspace及其root测试接线；不会改变Creator、Godot产品场景或任何既有Pack格式。
 
 ## 最终证据清单
 
