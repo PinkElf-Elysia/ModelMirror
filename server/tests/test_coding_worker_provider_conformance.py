@@ -166,7 +166,7 @@ ProviderFactory = Callable[
 @pytest.mark.parametrize(
     "factory", [_fake_provider, _opencode_provider, _claude_provider]
 )
-async def test_provider_v3_conformance(
+async def test_provider_v4_conformance(
     factory: ProviderFactory, tmp_path: Path
 ) -> None:
     provider, request = factory(tmp_path)
@@ -176,6 +176,7 @@ async def test_provider_v3_conformance(
     assert capabilities.supports_checkpoint is True
     assert capabilities.supports_restore is True
     assert capabilities.supports_tool_boundaries is True
+    assert capabilities.supports_turn_interrupt is True
     assert capabilities.tool_names
     if isinstance(provider, FakeCodingAgentProvider):
         assert capabilities.supports_structured_plan is True
@@ -219,7 +220,7 @@ async def test_provider_v3_conformance(
         await provider.restore(changed, checkpoint)
 
 
-def test_provider_v3_rejects_raw_or_malformed_event_data() -> None:
+def test_provider_v4_rejects_raw_or_malformed_event_data() -> None:
     with pytest.raises(ValueError, match="Extra inputs|canonical"):
         ProviderEvent(
             kind=ProviderEventKind.FAILED,
@@ -247,11 +248,12 @@ def test_provider_capabilities_fail_closed_until_explicitly_declared() -> None:
         "supports_questions": False,
         "supports_compaction": False,
         "supports_tool_boundaries": False,
+        "supports_turn_interrupt": False,
         "tool_names": [],
     }
 
 
-def test_provider_v3_structured_event_vocabulary_is_canonical() -> None:
+def test_provider_v4_structured_event_vocabulary_is_canonical() -> None:
     events = (
         ProviderEvent(
             kind=ProviderEventKind.PLAN,

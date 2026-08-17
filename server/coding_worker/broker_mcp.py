@@ -476,6 +476,53 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
             operation_id=operation_id,
         )
 
+    @mcp.tool()
+    async def update_plan(
+        operation_id: str,
+        items: list[dict[str, str]],
+        explanation: str | None = None,
+    ) -> dict[str, Any]:
+        """Replace the platform-owned structured plan for the current turn."""
+        return await call(
+            "update_plan",
+            {"items": items, "explanation": explanation},
+            operation_id=operation_id,
+        )
+
+    @mcp.tool()
+    async def update_todo(
+        operation_id: str, items: list[dict[str, str]]
+    ) -> dict[str, Any]:
+        """Replace the platform-owned Todo list for the current turn."""
+        return await call(
+            "update_todo", {"items": items}, operation_id=operation_id
+        )
+
+    @mcp.tool()
+    async def request_user_input(
+        operation_id: str,
+        question_id: str,
+        prompt: str,
+        options: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """Park the turn at one durable, single-settlement user question."""
+        return await call(
+            "request_user_input",
+            {
+                "question_id": question_id,
+                "prompt": prompt,
+                "options": options or [],
+            },
+            operation_id=operation_id,
+        )
+
+    @mcp.tool()
+    async def compact_context(operation_id: str, note: str | None = None) -> dict[str, Any]:
+        """Request platform-controlled compaction at the current complete tool boundary."""
+        return await call(
+            "compact_context", {"note": note}, operation_id=operation_id
+        )
+
     return mcp
 
 

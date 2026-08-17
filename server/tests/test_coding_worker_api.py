@@ -108,6 +108,18 @@ class _QuestionProvider(FakeCodingAgentProvider):
                 },
             )
             yield ProviderEvent(
+                kind=ProviderEventKind.TODO,
+                data={
+                    "items": [
+                        {
+                            "todo_id": "confirm-scope",
+                            "content": "Confirm the repair scope",
+                            "status": "in_progress",
+                        }
+                    ]
+                },
+            )
+            yield ProviderEvent(
                 kind=ProviderEventKind.QUESTION,
                 data={
                     "question_id": "question_scope",
@@ -137,6 +149,26 @@ class _UnavailableProvider(FakeCodingAgentProvider):
         if not self.available:
             raise RuntimeError("provider unavailable")
         return await super().capabilities()
+
+
+class _NativeInteractionOnlyProvider(FakeCodingAgentProvider):
+    async def capabilities(self) -> ProviderCapabilities:
+        capabilities = await super().capabilities()
+        return capabilities.model_copy(
+            update={
+                "tool_names": tuple(
+                    name
+                    for name in capabilities.tool_names
+                    if name
+                    not in {
+                        "update_plan",
+                        "update_todo",
+                        "request_user_input",
+                        "compact_context",
+                    }
+                )
+            }
+        )
 
 
 def teardown_function() -> None:
@@ -169,6 +201,23 @@ def test_feature_flag_is_default_deny(monkeypatch: pytest.MonkeyPatch) -> None:
         "subtasks": False,
     }
     assert client.post("/api/coding-worker/v1/tasks", json=_payload()).status_code == 404
+
+
+def test_native_provider_hints_do_not_enable_platform_interaction_capabilities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_INTERACTION_ENABLED", "true")
+    client, _service = _client(
+        tmp_path, provider=_NativeInteractionOnlyProvider()
+    )
+
+    with client:
+        capabilities = client.get("/api/coding-worker/v1/capabilities").json()
+
+    assert capabilities["structured_plan"] is False
+    assert capabilities["user_questions"] is False
+    assert capabilities["context_compaction"] is False
 
 
 def test_v15_capabilities_are_vendor_neutral_and_independently_gated(
@@ -311,6 +360,15 @@ def test_v16_plan_and_question_resume_once_from_encrypted_waiting_state(
         assert [item["step"] for item in plan.json()["items"]] == [
             "inspect",
             "repair",
+        ]
+        todo = client.get(f"/api/coding-worker/v1/tasks/{task_id}/todo")
+        assert todo.status_code == 200
+        assert todo.json()["items"] == [
+            {
+                "todo_id": "confirm-scope",
+                "content": "Confirm the repair scope",
+                "status": "in_progress",
+            }
         ]
         questions = client.get(
             f"/api/coding-worker/v1/tasks/{task_id}/questions"

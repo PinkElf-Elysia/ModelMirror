@@ -21,12 +21,15 @@ from .contracts import (
     Origin,
     PolicyProfile,
     QuestionStatus,
+    RuntimeProtocol,
     SAFE_ID,
     TaskCreateRequest,
     TaskBudget,
     TaskRecord,
     TaskSpec,
     TaskState,
+    TurnBarrier,
+    TurnTransactionState,
     SubtaskKind,
     SubtaskMergeState,
     SubtaskRecord,
@@ -82,6 +85,7 @@ class CodingWorkerService:
         max_active_tasks: int = 2,
         tool_broker: ToolBroker | None = None,
         route_slots: Mapping[str, Sequence[str]] | None = None,
+        route_context_tokens: Mapping[str, int] | None = None,
     ) -> None:
         if not 1 <= max_active_tasks <= 16:
             raise ValueError("active task capacity is outside the allowed range")
@@ -108,6 +112,15 @@ class CodingWorkerService:
                 for route_id, slot_ids in self._route_slots.items()
             ):
                 raise ValueError("provider route slot configuration is invalid")
+        self._route_context_tokens = dict(route_context_tokens or {})
+        if any(
+            not route_id
+            or isinstance(tokens, bool)
+            or not isinstance(tokens, int)
+            or not 8_192 <= tokens <= 2_000_000
+            for route_id, tokens in self._route_context_tokens.items()
+        ):
+            raise ValueError("provider route context configuration is invalid")
         self._active: dict[str, asyncio.Task[None]] = {}
         self._task_slots: dict[str, str] = {}
         self._sessions: dict[str, ProviderSession] = {}
@@ -133,6 +146,25 @@ class CodingWorkerService:
             .strip()
             .lower()
             in enabled
+        )
+
+    @staticmethod
+    def _runtime_protocol() -> RuntimeProtocol:
+        enabled = {"1", "true", "yes", "on"}
+        required = (
+            "CODING_WORKER_V16_ENABLED",
+            "CODING_WORKER_INTERACTION_ENABLED",
+            "CODING_WORKER_SESSION_CONTROLS_ENABLED",
+            "CODING_WORKER_SUBAGENTS_ENABLED",
+            "CODING_WORKER_V17_ENABLED",
+        )
+        return (
+            RuntimeProtocol.V17
+            if all(
+                os.getenv(name, "false").strip().lower() in enabled
+                for name in required
+            )
+            else RuntimeProtocol.V16
         )
 
     @staticmethod
@@ -220,8 +252,17 @@ class CodingWorkerService:
         observation = await self.provider_capability_observation(
             request.model_route, force=True
         )
+        runtime_protocol = self._runtime_protocol()
+        if runtime_protocol is RuntimeProtocol.V17 and not self._v17_route_ready(
+            observation.capabilities
+        ):
+            raise WorkerConflictError(
+                "Model route does not support the V17 interaction contract.",
+                code="v17_route_unavailable",
+            )
         task = self.store.create_task(
             spec,
+            runtime_protocol=runtime_protocol,
             capability_binding_sha256=observation.binding_sha256,
             capability_snapshot={
                 "available": observation.capabilities is not None,
@@ -236,6 +277,23 @@ class CodingWorkerService:
         )
         self._wake.set()
         return task
+
+    @staticmethod
+    def _v17_route_ready(capabilities: ProviderCapabilities | None) -> bool:
+        if capabilities is None:
+            return False
+        required_tools = {
+            "update_plan",
+            "update_todo",
+            "request_user_input",
+            "compact_context",
+        }
+        return (
+            capabilities.supports_checkpoint
+            and capabilities.supports_restore
+            and capabilities.supports_turn_interrupt
+            and required_tools.issubset(capabilities.tool_names)
+        )
 
     async def provider_capability_observation(
         self, model_route: str, *, force: bool = False
@@ -369,6 +427,33 @@ class CodingWorkerService:
             TaskState.BUDGET_LIMITED,
         }:
             raise WorkerConflictError("Task cannot be resumed.", code="task_state_conflict")
+        turn = self.store.current_turn_transaction(task_id)
+        if task.runtime_protocol is RuntimeProtocol.V17 and turn is not None:
+            if turn.state is TurnTransactionState.PARKING:
+                raise WorkerConflictError(
+                    "Turn checkpoint is not durable yet.", code="turn_not_parked"
+                )
+            if turn.state is TurnTransactionState.PARKED:
+                if turn.checkpoint_id is None:
+                    raise WorkerConflictError(
+                        "Parked turn has no checkpoint.", code="turn_checkpoint_invalid"
+                    )
+                if turn.barrier in {
+                    TurnBarrier.APPROVAL,
+                    TurnBarrier.INPUT,
+                    TurnBarrier.SUBTASKS,
+                }:
+                    raise WorkerConflictError(
+                        "Turn still requires user settlement.",
+                        code="turn_barrier_unresolved",
+                    )
+                resumed = self.store.settle_parked_turn(
+                    task_id=task_id,
+                    barrier=TurnBarrier.OPERATION_UNKNOWN,
+                    expected_state=TaskState.INTERRUPTED,
+                )
+                self._wake.set()
+                return resumed
         resumed = self.store.transition(task_id, TaskState.QUEUED)
         self._wake.set()
         return resumed
@@ -392,6 +477,9 @@ class CodingWorkerService:
         if active is not None:
             active.cancel()
         paused = self.store.transition(task_id, TaskState.PAUSED, reason="user_paused")
+        if active is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await active
         self._wake.set()
         return paused
 
@@ -406,6 +494,9 @@ class CodingWorkerService:
         if active is not None:
             active.cancel()
         cancelled = self.store.transition(task_id, TaskState.CANCELLED, reason="user_cancelled")
+        if active is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await active
         self._wake.set()
         return cancelled
 
@@ -537,6 +628,15 @@ class CodingWorkerService:
             ),
         )
         try:
+            parent_turn_id: str | None = None
+            if parent.runtime_protocol is RuntimeProtocol.V17:
+                turn = self.store.current_turn_transaction(parent_task_id)
+                if turn is None:
+                    raise WorkerConflictError(
+                        "V17 subtask has no current turn.",
+                        code="operation_turn_required",
+                    )
+                parent_turn_id = turn.turn_id
             subtask = self.store.create_subtask_task(
                 parent_task_id=parent_task_id,
                 client_subtask_id=request.client_subtask_id,
@@ -545,6 +645,7 @@ class CodingWorkerService:
                 spec=child_spec,
                 workspace_id=workspace.workspace_id,
                 base_tree_hash=base_tree_hash,
+                parent_turn_id=parent_turn_id,
             )
         except Exception:
             self.workspace_broker.delete(workspace.workspace_id)
@@ -552,6 +653,9 @@ class CodingWorkerService:
         if self.store.get_task(subtask.child_task_id).workspace_id != workspace.workspace_id:
             self.workspace_broker.delete(workspace.workspace_id)
         current_parent = self.store.get_task(parent_task_id)
+        if current_parent.runtime_protocol is RuntimeProtocol.V17:
+            self._wake.set()
+            return subtask
         if current_parent.state in {
             TaskState.RUNNING,
             TaskState.PAUSED,
@@ -1070,6 +1174,29 @@ class CodingWorkerService:
         task = self.store.get_task(task_id)
         if task.state is not TaskState.WAITING_APPROVAL:
             return task
+        if task.runtime_protocol is RuntimeProtocol.V17:
+            turn = self.store.current_turn_transaction(task_id)
+            if (
+                turn is None
+                or turn.state is not TurnTransactionState.PARKED
+                or turn.barrier is not TurnBarrier.APPROVAL
+                or turn.checkpoint_id is None
+            ):
+                raise WorkerConflictError(
+                    "Approval turn is not durably parked.", code="turn_not_parked"
+                )
+            self.store.resume_turn_transaction(
+                task_id=task_id,
+                turn_id=turn.turn_id,
+                checkpoint_id=turn.checkpoint_id,
+            )
+            queued = self.store.transition(
+                task_id,
+                TaskState.QUEUED,
+                expected_state=TaskState.WAITING_APPROVAL,
+            )
+            self._wake.set()
+            return queued
         runner = self._active.get(task_id)
         if runner is not None and not runner.done():
             return self.store.transition(
@@ -1102,7 +1229,13 @@ class CodingWorkerService:
 
     async def _scheduler_loop(self) -> None:
         while True:
-            await self._wake.wait()
+            try:
+                await asyncio.wait_for(self._wake.wait(), timeout=0.25)
+            except TimeoutError:
+                # The queue is durable. Polling prevents a persisted runnable
+                # task from depending on one in-memory wakeup surviving a
+                # runner completion/settlement race.
+                pass
             self._wake.clear()
             capacity = min(
                 self.max_active_tasks,
@@ -1137,7 +1270,11 @@ class CodingWorkerService:
                 )
 
     def _select_queued_task(self) -> tuple[TaskRecord, str | None] | None:
-        queued = self.store.list_queued_tasks(limit=128)
+        queued = [
+            record
+            for record in self.store.list_queued_tasks(limit=128)
+            if record.task_id not in self._active
+        ]
         if not queued:
             return None
         if not self.workspace_broker.dedicated_slots:
@@ -1200,11 +1337,14 @@ class CodingWorkerService:
         return self._route_slots.get(model_route)
 
     def _task_finished(self, task_id: str, _task: asyncio.Task[None]) -> None:
-        self._active.pop(task_id, None)
-        self._task_slots.pop(task_id, None)
-        self._sessions.pop(task_id, None)
+        owned_runner = self._active.get(task_id) is _task
+        if owned_runner:
+            self._active.pop(task_id, None)
+            self._task_slots.pop(task_id, None)
+            self._sessions.pop(task_id, None)
         if not self._closing:
-            self._resume_parent_after_subtasks(task_id)
+            if owned_runner:
+                self._resume_parent_after_subtasks(task_id)
             self._wake.set()
 
     async def _run_task(self, task_id: str, *, slot_id: str | None = None) -> None:
@@ -1240,6 +1380,8 @@ class CodingWorkerService:
             resume_phase: str | None = None
             resume_context: dict[str, object] | None = None
             resume_question_id: str | None = None
+            resume_turn_before: WorkspaceSnapshot | None = None
+            resume_turn_public_before: dict[str, object] | None = None
             completed_turns = 0
             message_cursor = 0
             checkpoint = self.store.latest_checkpoint(task_id)
@@ -1282,6 +1424,18 @@ class CodingWorkerService:
                         resume_context = raw_context
                     if resume_phase == "waiting_input":
                         resume_question_id = str(checkpoint.payload["question_id"])
+                    raw_turn_before = checkpoint.payload.get("turn_before")
+                    if raw_turn_before is not None:
+                        resume_turn_before = WorkspaceSnapshot.model_validate(
+                            raw_turn_before
+                        )
+                    raw_turn_public_before = checkpoint.payload.get(
+                        "turn_public_before"
+                    )
+                    if raw_turn_public_before is not None:
+                        if not isinstance(raw_turn_public_before, dict):
+                            raise TypeError("turn public context is invalid")
+                        resume_turn_public_before = raw_turn_public_before
                 except (KeyError, TypeError, ValueError) as exc:
                     raise WorkerConflictError(
                         "Checkpoint payload is invalid.", code="checkpoint_invalid"
@@ -1289,10 +1443,13 @@ class CodingWorkerService:
                 if (
                     resume_phase
                     not in {
+                        "turn_open",
                         "testing",
+                        "waiting_approval",
                         "waiting_input",
                         "waiting_subtasks",
                         "compacted",
+                        "operation_unknown",
                     }
                     or completed_turns < 1
                     or (resume_phase == "waiting_input" and not resume_question_id)
@@ -1300,6 +1457,13 @@ class CodingWorkerService:
                     raise WorkerConflictError(
                         "Checkpoint phase is invalid.", code="checkpoint_invalid"
                     )
+                current_turn = self.store.current_turn_transaction(task_id)
+                if (
+                    current_turn is not None
+                    and current_turn.state is TurnTransactionState.RESUMING
+                    and current_turn.barrier is TurnBarrier.OPERATION_UNKNOWN
+                ):
+                    resume_phase = "operation_unknown"
                 session = await self.provider.restore(request, provider_checkpoint)
             else:
                 session = await self.provider.open(request)
@@ -1334,6 +1498,8 @@ class CodingWorkerService:
                 resume_phase=resume_phase,
                 resume_context=resume_context,
                 resume_question_id=resume_question_id,
+                resume_turn_before=resume_turn_before,
+                resume_turn_public_before=resume_turn_public_before,
                 completed_turns=completed_turns,
                 message_cursor=message_cursor,
             )
@@ -1405,6 +1571,8 @@ class CodingWorkerService:
         resume_phase: str | None,
         resume_context: dict[str, object] | None,
         resume_question_id: str | None = None,
+        resume_turn_before: WorkspaceSnapshot | None = None,
+        resume_turn_public_before: dict[str, object] | None = None,
         completed_turns: int,
         message_cursor: int,
     ) -> None:
@@ -1415,6 +1583,8 @@ class CodingWorkerService:
                 resume_phase=resume_phase,
                 resume_context=resume_context,
                 resume_question_id=resume_question_id,
+                resume_turn_before=resume_turn_before,
+                resume_turn_public_before=resume_turn_public_before,
                 completed_turns=completed_turns,
                 message_cursor=message_cursor,
             ),
@@ -1447,13 +1617,22 @@ class CodingWorkerService:
         resume_phase: str | None,
         resume_context: dict[str, object] | None,
         resume_question_id: str | None,
+        resume_turn_before: WorkspaceSnapshot | None,
+        resume_turn_public_before: dict[str, object] | None,
         completed_turns: int,
         message_cursor: int,
     ) -> None:
         task_id = task.task_id
         message = task.spec.objective
         turns = completed_turns
-        if resume_phase == "testing":
+        if resume_phase == "turn_open":
+            message = self._restored_context_message(
+                resume_context,
+                "The previous turn stopped before a deterministic completion. "
+                "Continue from the durable turn boundary and do not infer that "
+                "any unreceipted side effect failed.",
+            )
+        elif resume_phase == "testing":
             steering, message_cursor = self._next_steering(
                 task_id, after_sequence=message_cursor
             )
@@ -1492,6 +1671,14 @@ class CodingWorkerService:
                 )
                 return
             message = answer
+        elif resume_phase == "waiting_approval":
+            message = self._approval_resume_message(task_id)
+        elif resume_phase == "operation_unknown":
+            message = self._restored_context_message(
+                resume_context,
+                "Reconcile only the exact unknown operation from the parked turn. "
+                "Do not create a replacement operation id or repeat its side effect.",
+            )
         elif resume_phase == "compacted":
             message = self._restored_context_message(
                 resume_context,
@@ -1508,29 +1695,111 @@ class CodingWorkerService:
         while True:
             durable_usage = self.store.budget_usage(task_id)
             turns = max(turns, durable_usage.turns_started)
-            if turns >= task.spec.budget.max_turns:
-                self.store.transition(
-                    task_id,
-                    TaskState.BUDGET_LIMITED,
-                    reason="turn_budget_exhausted",
-                    expected_state=TaskState.RUNNING,
-                )
-                return
-            turns += 1
+            current_turn = (
+                self.store.current_turn_transaction(task_id)
+                if task.runtime_protocol is RuntimeProtocol.V17
+                else None
+            )
+            resuming_turn = (
+                current_turn is not None
+                and current_turn.state is TurnTransactionState.RESUMING
+            )
+            if not resuming_turn:
+                if turns >= task.spec.budget.max_turns:
+                    self.store.transition(
+                        task_id,
+                        TaskState.BUDGET_LIMITED,
+                        reason="turn_budget_exhausted",
+                        expected_state=TaskState.RUNNING,
+                    )
+                    return
+                turns += 1
             workspace_id = self.store.get_task(task_id).workspace_id
             turn_before = (
-                self.workspace_broker.capture_snapshot(workspace_id)
+                resume_turn_before
+                if resuming_turn and resume_turn_before is not None
+                else self.workspace_broker.capture_snapshot(workspace_id)
                 if workspace_id is not None
                 else None
             )
-            turn_public_before = self._public_session_context(task_id)
-            turn_id = f"turn_{uuid.uuid4().hex}"
-            self.store.append_session_ledger(
-                task_id,
-                kind=SessionLedgerKind.TURN_STARTED,
-                turn_id=turn_id,
-                payload={},
+            turn_public_before = (
+                resume_turn_public_before
+                if resuming_turn and resume_turn_public_before is not None
+                else self._public_session_context(task_id)
             )
+            turn_id = (
+                current_turn.turn_id
+                if resuming_turn and current_turn is not None
+                else f"turn_{uuid.uuid4().hex}"
+            )
+            if not resuming_turn:
+                if task.runtime_protocol is RuntimeProtocol.V17:
+                    self.store.open_turn_transaction(
+                        task_id=task_id,
+                        turn_id=turn_id,
+                        workspace_tree_hash=(
+                            turn_before.tree_hash
+                            if turn_before is not None
+                            else self.workspace_broker.current_tree_hash(
+                                workspace_id or ""
+                            )
+                        ),
+                    )
+                self.store.append_session_ledger(
+                    task_id,
+                    kind=SessionLedgerKind.TURN_STARTED,
+                    turn_id=turn_id,
+                    payload={},
+                )
+                if task.runtime_protocol is RuntimeProtocol.V17:
+                    try:
+                        provider_checkpoint = await self.provider.checkpoint(session)
+                        entry_tree_hash = self.workspace_broker.current_tree_hash(
+                            workspace_id or ""
+                        )
+                        checkpoint = self.store.create_checkpoint(
+                            task_id=task_id,
+                            workspace_tree_hash=entry_tree_hash,
+                            payload={
+                                "phase": "turn_open",
+                                "turn_id": turn_id,
+                                "completed_turns": turns,
+                                "message_cursor": message_cursor,
+                                "provider": provider_checkpoint.model_dump(mode="json"),
+                                "context_summary": self._context_summary(
+                                    task_id,
+                                    tree_hash=entry_tree_hash,
+                                    public_output="",
+                                ),
+                                "turn_before": (
+                                    turn_before.model_dump(mode="json")
+                                    if turn_before is not None
+                                    else None
+                                ),
+                                "turn_public_before": turn_public_before,
+                            },
+                        )
+                        self.store.bind_turn_recovery_checkpoint(
+                            task_id=task_id,
+                            turn_id=turn_id,
+                            checkpoint_id=checkpoint.checkpoint_id,
+                        )
+                    except Exception:
+                        self.store.finish_session_turn(
+                            task_id, turn_id=turn_id, result_state="interrupted"
+                        )
+                        self.store.finish_turn_transaction(
+                            task_id=task_id,
+                            turn_id=turn_id,
+                            state=TurnTransactionState.INTERRUPTED,
+                        )
+                        self.store.transition(
+                            task_id,
+                            TaskState.BLOCKED,
+                            reason="turn_entry_checkpoint_failed",
+                            expected_state=TaskState.RUNNING,
+                        )
+                        return
             outcome = "interrupted"
             question_data: dict[str, object] | None = None
             compaction_failed = False
@@ -1544,8 +1813,16 @@ class CodingWorkerService:
                     except StopAsyncIteration:
                         break
                     if event is None:
+                        transaction = (
+                            self.store.current_turn_transaction(task_id)
+                            if task.runtime_protocol is RuntimeProtocol.V17
+                            else None
+                        )
                         outcome = (
-                            "waiting_subtasks"
+                            "turn_parking"
+                            if transaction is not None
+                            and transaction.state is TurnTransactionState.PARKING
+                            else "waiting_subtasks"
                             if parked_state is TaskState.WAITING_SUBTASKS
                             else "waiting_approval"
                             if parked_state is TaskState.WAITING_APPROVAL
@@ -1558,14 +1835,33 @@ class CodingWorkerService:
                         {"kind": event.kind.value, "data": event.data},
                     )
                     self._record_provider_session_event(task_id, turn_id, event)
+                    if self._should_auto_compact(task, event):
+                        transaction = self.store.current_turn_transaction(task_id)
+                        if transaction is not None and transaction.state in {
+                            TurnTransactionState.OPEN,
+                            TurnTransactionState.RESUMING,
+                        }:
+                            self.store.begin_turn_parking(
+                                task_id=task_id,
+                                turn_id=transaction.turn_id,
+                                barrier=TurnBarrier.COMPACTION,
+                            )
+                            outcome = "turn_parking"
+                            break
                     if self.store.get_task(task_id).state is TaskState.WAITING_SUBTASKS:
                         outcome = "waiting_subtasks"
                         break
-                    if event.kind is ProviderEventKind.QUESTION:
+                    if (
+                        event.kind is ProviderEventKind.QUESTION
+                        and task.runtime_protocol is not RuntimeProtocol.V17
+                    ):
                         outcome = "waiting_input"
                         question_data = event.data
                         break
-                    if event.kind is ProviderEventKind.COMPACTION:
+                    if (
+                        event.kind is ProviderEventKind.COMPACTION
+                        and task.runtime_protocol is not RuntimeProtocol.V17
+                    ):
                         try:
                             await self._record_controlled_compaction(
                                 task,
@@ -1593,6 +1889,33 @@ class CodingWorkerService:
                     task_id, turn_id=turn_id, result_state="interrupted"
                 )
                 raise
+            if outcome == "turn_parking":
+                try:
+                    await self._park_v17_turn(
+                        task,
+                        session,
+                        turn_id=turn_id,
+                        turns=turns,
+                        message_cursor=message_cursor,
+                        turn_before=turn_before,
+                        turn_public_before=turn_public_before,
+                    )
+                except Exception:
+                    with contextlib.suppress(WorkerConflictError):
+                        self.store.finish_turn_transaction(
+                            task_id=task_id,
+                            turn_id=turn_id,
+                            state=TurnTransactionState.INTERRUPTED,
+                        )
+                    current = self.store.get_task(task_id)
+                    if current.state is TaskState.RUNNING:
+                        self.store.transition(
+                            task_id,
+                            TaskState.BLOCKED,
+                            reason="turn_checkpoint_failed",
+                            expected_state=TaskState.RUNNING,
+                        )
+                return
             if outcome == "completed" and workspace_id is not None and turn_before is not None:
                 turn_after = self.workspace_broker.capture_snapshot(workspace_id)
                 turn_public_after = self._public_session_context(task_id)
@@ -1609,10 +1932,22 @@ class CodingWorkerService:
                         "after_public_context": turn_public_after,
                     },
                 )
+                if task.runtime_protocol is RuntimeProtocol.V17:
+                    self.store.finish_turn_transaction(
+                        task_id=task_id,
+                        turn_id=turn_id,
+                        state=TurnTransactionState.COMPLETED,
+                    )
             else:
                 self.store.finish_session_turn(
                     task_id, turn_id=turn_id, result_state=outcome
                 )
+                if task.runtime_protocol is RuntimeProtocol.V17:
+                    self.store.finish_turn_transaction(
+                        task_id=task_id,
+                        turn_id=turn_id,
+                        state=TurnTransactionState.INTERRUPTED,
+                    )
             if outcome == "waiting_input":
                 if question_data is None:
                     raise WorkerConflictError(
@@ -1819,6 +2154,17 @@ class CodingWorkerService:
 
         while True:
             current = self.store.get_task(task_id)
+            transaction = (
+                self.store.current_turn_transaction(task_id)
+                if current.runtime_protocol is RuntimeProtocol.V17
+                else None
+            )
+            if (
+                transaction is not None
+                and transaction.state is TurnTransactionState.PARKING
+            ):
+                await self._close_provider_stream(stream)
+                return None, None
             if current.state is TaskState.WAITING_APPROVAL:
                 await self._close_provider_stream(stream)
                 while current.state is TaskState.WAITING_APPROVAL:
@@ -1838,6 +2184,17 @@ class CodingWorkerService:
         try:
             while True:
                 current = self.store.get_task(task_id)
+                transaction = (
+                    self.store.current_turn_transaction(task_id)
+                    if current.runtime_protocol is RuntimeProtocol.V17
+                    else None
+                )
+                if (
+                    transaction is not None
+                    and transaction.state is TurnTransactionState.PARKING
+                ):
+                    await self._close_provider_stream(stream, pending=pending)
+                    return None, None
                 if current.state is TaskState.WAITING_APPROVAL:
                     await self._close_provider_stream(stream, pending=pending)
                     while current.state is TaskState.WAITING_APPROVAL:
@@ -1857,7 +2214,19 @@ class CodingWorkerService:
                         await pending
                     return None, current.state
                 if pending.done():
-                    return pending.result(), None
+                    event = pending.result()
+                    transaction = (
+                        self.store.current_turn_transaction(task_id)
+                        if current.runtime_protocol is RuntimeProtocol.V17
+                        else None
+                    )
+                    if (
+                        transaction is not None
+                        and transaction.state is TurnTransactionState.PARKING
+                    ):
+                        await self._close_provider_stream(stream)
+                        return None, None
+                    return event, None
                 await asyncio.wait({pending}, timeout=0.05)
         except BaseException:
             if not pending.done():
@@ -1905,11 +2274,160 @@ class CodingWorkerService:
             "operation for the same intent."
         )
 
+    async def _park_v17_turn(
+        self,
+        task: TaskRecord,
+        session: ProviderSession,
+        *,
+        turn_id: str,
+        turns: int,
+        message_cursor: int,
+        turn_before: WorkspaceSnapshot | None,
+        turn_public_before: dict[str, object],
+    ) -> None:
+        transaction = self.store.get_turn_transaction(task.task_id, turn_id)
+        if (
+            transaction.state is not TurnTransactionState.PARKING
+            or transaction.barrier is None
+        ):
+            raise WorkerConflictError(
+                "Turn is not ready to park.", code="turn_state_conflict"
+            )
+        workspace_id = self.store.get_task(task.task_id).workspace_id or ""
+        tree_hash = self.workspace_broker.current_tree_hash(workspace_id)
+        await self.provider.interrupt_turn(session)
+        provider_checkpoint = await self.provider.checkpoint(session)
+        context = self._context_summary(
+            task.task_id,
+            tree_hash=tree_hash,
+            public_output=str(provider_checkpoint.payload.get("public_output", "")),
+        )
+        phase = {
+            TurnBarrier.APPROVAL: "waiting_approval",
+            TurnBarrier.INPUT: "waiting_input",
+            TurnBarrier.SUBTASKS: "waiting_subtasks",
+            TurnBarrier.COMPACTION: "compacted",
+            TurnBarrier.OPERATION_UNKNOWN: "operation_unknown",
+        }[transaction.barrier]
+        payload: dict[str, object] = {
+            "phase": phase,
+            "turn_id": turn_id,
+            "turn_generation": transaction.generation,
+            "completed_turns": turns,
+            "message_cursor": message_cursor,
+            "provider": provider_checkpoint.model_dump(mode="json"),
+            "context_summary": context,
+            "turn_before": (
+                turn_before.model_dump(mode="json")
+                if turn_before is not None
+                else None
+            ),
+            "turn_public_before": turn_public_before,
+        }
+        if transaction.barrier is TurnBarrier.INPUT:
+            pending = next(
+                (
+                    item
+                    for item in reversed(self.store.list_questions(task.task_id))
+                    if item.turn_id == turn_id
+                    and item.status is QuestionStatus.PENDING
+                ),
+                None,
+            )
+            if pending is None:
+                raise WorkerConflictError(
+                    "Parked input turn has no question.", code="question_not_found"
+                )
+            payload["question_id"] = pending.question_id
+        if transaction.barrier is TurnBarrier.COMPACTION:
+            boundary = self.store.session_tool_boundary_sequence(task.task_id, turn_id)
+            summary = self._controlled_compaction_summary(
+                task.task_id,
+                tree_hash=tree_hash,
+                provider_note="Platform-requested controlled compaction.",
+            )
+            encoded = json.dumps(
+                summary,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if len(encoded.encode("utf-8")) > 65_536:
+                raise WorkerConflictError(
+                    "Controlled context is too large to compact.",
+                    code="context_compaction_too_large",
+                )
+            payload["context_summary"] = summary
+            self.store.append_session_ledger(
+                task.task_id,
+                kind=SessionLedgerKind.COMPACTION,
+                turn_id=turn_id,
+                payload={"summary": encoded, "boundary_sequence": boundary},
+            )
+            self.store.append_event(
+                task.task_id,
+                "context_compacted",
+                {
+                    "boundary_sequence": boundary,
+                    "workspace_tree_hash": tree_hash,
+                },
+            )
+        checkpoint = self.store.create_checkpoint(
+            task_id=task.task_id,
+            workspace_tree_hash=tree_hash,
+            payload=payload,
+        )
+        self.store.park_turn_transaction(
+            task_id=task.task_id,
+            turn_id=turn_id,
+            checkpoint_id=checkpoint.checkpoint_id,
+        )
+        if transaction.barrier is TurnBarrier.COMPACTION:
+            self.store.settle_parked_turn(
+                task_id=task.task_id,
+                barrier=TurnBarrier.COMPACTION,
+                expected_state=TaskState.RUNNING,
+            )
+            self._wake.set()
+            return
+        target = {
+            TurnBarrier.APPROVAL: TaskState.WAITING_APPROVAL,
+            TurnBarrier.INPUT: TaskState.WAITING_INPUT,
+            TurnBarrier.SUBTASKS: TaskState.WAITING_SUBTASKS,
+            TurnBarrier.OPERATION_UNKNOWN: TaskState.INTERRUPTED,
+        }[transaction.barrier]
+        self.store.transition(
+            task.task_id,
+            target,
+            reason=(
+                "operation_result_unknown"
+                if transaction.barrier is TurnBarrier.OPERATION_UNKNOWN
+                else f"turn_parked_{transaction.barrier.value}"
+            ),
+            expected_state=TaskState.RUNNING,
+        )
+
     def _record_provider_session_event(
         self, task_id: str, turn_id: str, event: ProviderEvent
     ) -> None:
         kind = event.kind
         data = event.data
+        authoritative_provider_kinds = {
+            ProviderEventKind.PLAN,
+            ProviderEventKind.TODO,
+            ProviderEventKind.QUESTION,
+            ProviderEventKind.COMPACTION,
+        }
+        if (
+            self.store.get_task(task_id).runtime_protocol is RuntimeProtocol.V17
+            and kind in authoritative_provider_kinds
+        ):
+            self.store.append_event(
+                task_id,
+                "provider_hint",
+                {"kind": kind.value, "turn_id": turn_id},
+            )
+            return
         if kind is ProviderEventKind.MESSAGE:
             self.store.append_message(task_id, role="assistant", content=str(data["text"]))
         elif kind is ProviderEventKind.PLAN:
@@ -1937,6 +2455,7 @@ class CodingWorkerService:
                     "summary": data["summary"],
                 },
             )
+
         elif kind is ProviderEventKind.TOOL_COMPLETED:
             self.store.append_session_ledger(
                 task_id,
@@ -1957,6 +2476,27 @@ class CodingWorkerService:
                 turn_id=turn_id,
                 payload=data,
             )
+
+    def _should_auto_compact(
+        self, task: TaskRecord, event: ProviderEvent
+    ) -> bool:
+        if (
+            task.runtime_protocol is not RuntimeProtocol.V17
+            or event.kind is not ProviderEventKind.USAGE
+        ):
+            return False
+        context_tokens = self._route_context_tokens.get(task.spec.model_route)
+        if context_tokens is None:
+            return False
+        usage = event.data.get("usage")
+        if not isinstance(usage, dict):
+            return False
+        input_tokens = usage.get("input_tokens")
+        return (
+            isinstance(input_tokens, int)
+            and not isinstance(input_tokens, bool)
+            and input_tokens * 4 >= context_tokens * 3
+        )
 
     async def _record_controlled_compaction(
         self,
@@ -2161,6 +2701,30 @@ class CodingWorkerService:
     ) -> tuple[str | None, int]:
         task_id = task.task_id
         turns = max(turns, self.store.budget_usage(task_id).turns_started)
+        if task.runtime_protocol is RuntimeProtocol.V17:
+            unsettled = any(
+                item.state
+                in {
+                    OperationState.PREPARED,
+                    OperationState.RUNNING,
+                    OperationState.UNKNOWN,
+                }
+                for item in self.store.list_operations(task_id)
+            ) or any(
+                item.status is ApprovalStatus.PENDING
+                for item in self.store.list_approvals(task_id)
+            ) or any(
+                item.status is QuestionStatus.PENDING
+                for item in self.store.list_questions(task_id)
+            ) or self.store.current_turn_transaction(task_id) is not None
+            if unsettled:
+                self.store.transition(
+                    task_id,
+                    TaskState.BLOCKED,
+                    reason="turn_settlement_incomplete",
+                    expected_state=TaskState.RUNNING,
+                )
+                return None, message_cursor
         ready_implementations = tuple(
             relation
             for relation in self.store.list_subtasks(task_id)
@@ -2372,12 +2936,19 @@ class CodingWorkerService:
             role="system",
             content=self._subtask_results_message(parent_task_id),
         )
-        self.store.transition(
-            parent_task_id,
-            TaskState.QUEUED,
-            reason="subtasks_settled",
-            expected_state=TaskState.WAITING_SUBTASKS,
-        )
+        if parent.runtime_protocol is RuntimeProtocol.V17:
+            self.store.settle_parked_turn(
+                task_id=parent_task_id,
+                barrier=TurnBarrier.SUBTASKS,
+                expected_state=TaskState.WAITING_SUBTASKS,
+            )
+        else:
+            self.store.transition(
+                parent_task_id,
+                TaskState.QUEUED,
+                reason="subtasks_settled",
+                expected_state=TaskState.WAITING_SUBTASKS,
+            )
         self._wake.set()
 
     def _subtask_results_message(self, parent_task_id: str) -> str:
@@ -2453,6 +3024,9 @@ def _intersect_provider_capabilities(
         supports_compaction=all(item.supports_compaction for item in values),
         supports_tool_boundaries=all(
             item.supports_tool_boundaries for item in values
+        ),
+        supports_turn_interrupt=all(
+            item.supports_turn_interrupt for item in values
         ),
         tool_names=tuple(
             tool_name for tool_name in values[0].tool_names if tool_name in tool_names
