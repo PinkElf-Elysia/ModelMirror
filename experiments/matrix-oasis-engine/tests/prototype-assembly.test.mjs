@@ -141,7 +141,13 @@ async function fixture(options = {}) {
       contentVersion: runtime.source.contentVersion, authoringCanonicalSha256: `sha256:${runtime.source.canonicalSha256}`,
       artifactSha256: `sha256:${receipt.artifact.sha256}` }, environmentTemplate: "kenney-prototype-room-v1", materializations };
   const panoramaBytes = panorama(); const colliderBytes = glb();
-  const environmentPlan = planPrototypeEnvironment(blueprintText); assert.equal(environmentPlan.ok, true);
+  const environmentPlan = planPrototypeEnvironment(
+    blueprintText,
+    options.environmentProfile === "multi-space"
+      ? { profile: "matrix-oasis.prototype-environment/2" }
+      : undefined,
+  );
+  assert.equal(environmentPlan.ok, true);
   const environmentBundle = { format: "matrix-oasis.prototype-environment-bundle", formatVersion: "0.1.0",
     canonicalization: "matrix-oasis.canonical-json/1", scene: { id: blueprintValue.scene.id,
       contentVersion: blueprintValue.scene.contentVersion, title: blueprintValue.scene.title },
@@ -221,6 +227,55 @@ test("profile accepts four zones and 32 placements but rejects each exceeded bou
   ]) {
     const result = await assemblePrototypeScene(await fixture(options));
     assert.equal(result.ok, false); assert.equal(result.diagnostics[0].code, "PROTOTYPE_ASSEMBLY_PROFILE_UNSUPPORTED");
+  }
+});
+
+test("assembly profile v2 accepts six mixed briefs deterministically and rejects seven", async () => {
+  for (const nonEnvironmentKinds of [[], ["prop", "character-placeholder"]]) {
+    const accepted = await assemblePrototypeScene(
+      await fixture({ nonEnvironmentKinds, environmentProfile: "multi-space" }),
+      { profile: "matrix-oasis.prototype-assembly/2" },
+    );
+    assert.equal(accepted.ok, true);
+  }
+  const sixKinds = [
+    "prop", "character-placeholder", "prop",
+    "character-placeholder", "prop", "character-placeholder",
+  ];
+  const input = await fixture({ zones: 4, nonEnvironmentKinds: sixKinds, environmentProfile: "multi-space" });
+  const legacy = await assemblePrototypeScene(input);
+  assert.equal(legacy.ok, false);
+  assert.equal(legacy.diagnostics[0].code, "PROTOTYPE_ASSEMBLY_PROFILE_UNSUPPORTED");
+  const results = await Promise.all(
+    Array.from({ length: 20 }, () =>
+      assemblePrototypeScene(input, { profile: "matrix-oasis.prototype-assembly/2" }),
+    ),
+  );
+  assert.equal(results.every((result) => result.ok), true);
+  assert.equal(new Set(results.map((result) => result.canonicalScenePackJson)).size, 1);
+  assert.equal(new Set(results.map((result) => result.canonicalAssemblyReportJson)).size, 1);
+  const scene = JSON.parse(results[0].canonicalScenePackJson);
+  const report = JSON.parse(results[0].canonicalAssemblyReportJson);
+  assert.equal(report.profile, "matrix-oasis.prototype-assembly/2");
+  assert.equal(scene.placements.length, 7);
+  assert.deepEqual(
+    scene.placements.slice(1).map((placement) => placement.entityId),
+    ["object-console", "person-guide", "object-console", "person-guide", "object-console", "person-guide"],
+  );
+  const seven = await assemblePrototypeScene(
+    await fixture({ nonEnvironmentKinds: [...sixKinds, "prop"], environmentProfile: "multi-space" }),
+    { profile: "matrix-oasis.prototype-assembly/2" },
+  );
+  assert.equal(seven.ok, false);
+  assert.equal(seven.diagnostics[0].code, "PROTOTYPE_ASSEMBLY_PROFILE_UNSUPPORTED");
+  for (const options of [
+    {},
+    { profile: "matrix-oasis.prototype-assembly/1" },
+    { profile: "matrix-oasis.prototype-assembly/2", extra: true },
+  ]) {
+    const invalid = await assemblePrototypeScene(input, options);
+    assert.equal(invalid.ok, false);
+    assert.equal(invalid.diagnostics[0].path, "/profile");
   }
 });
 
@@ -354,7 +409,7 @@ test("memory publication is restart-recoverable and cache hits revalidate every 
       provider: { id: "world-labs-marble", model: "marble-1.1" },
     });
     const prompt = "Build one neutral room with a console and a static guide.";
-    const published = await publishPrototypeRun({ prompt, prototypeArtifacts,
+    const published = await publishPrototypeRun({ promptSha256: hash(new TextEncoder().encode(prompt)), prototypeArtifacts,
       assetMaterialization: { canonicalBundleJson: input.assetBundleJson,
         files: [...input.assetFiles].map(([assetPath, value]) => ({ path: assetPath, bytes: value })) },
       environmentMaterialization: { canonicalBundleJson: input.environmentBundleJson, canonicalReportJson: environmentReportJson,
@@ -374,6 +429,90 @@ test("memory publication is restart-recoverable and cache hits revalidate every 
     assert.deepEqual((await recoverPrototypeRuns({ runRoot, temporaryRoot: root, services: cacheServices,
       assemblePrototypeScene, canonicalizeJsonValue })).runs, []);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("six-brief profile v2 supports inactive exact reuse without changing current", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "matrix-oasis-r12-v2-run-"));
+  const runRoot = path.join(root, "run-root");
+  try {
+    const input = await fixture({ environmentProfile: "multi-space", nonEnvironmentKinds: [
+      "prop", "character-placeholder", "prop",
+      "character-placeholder", "prop", "character-placeholder",
+    ] });
+    const prototypeArtifacts = {
+      authoringGamePackJson: input.authoringGamePackJson,
+      sceneBlueprintJson: input.sceneBlueprintJson,
+      runtimeGamePackJson: input.runtimeGamePackJson,
+      runtimeReceiptJson: input.runtimeReceiptJson,
+    };
+    const artifactNames = [
+      ["authoring-game-pack.json", "authoringGamePackJson"],
+      ["scene-blueprint.json", "sceneBlueprintJson"],
+      ["runtime-game-pack.json", "runtimeGamePackJson"],
+      ["runtime-receipt.json", "runtimeReceiptJson"],
+    ];
+    prototypeArtifacts.generationReportJson = canonicalizeJsonValue({
+      artifacts: artifactNames.map(([name, key]) => ({
+        byteLength: new TextEncoder().encode(prototypeArtifacts[key]).length,
+        name,
+        sha256: hash(new TextEncoder().encode(prototypeArtifacts[key])),
+      })),
+      format: "matrix-oasis.prototype-generation-report",
+      formatVersion: "0.1.0",
+      model: "qualification-model",
+      requestCount: 1,
+      runtimeCheck: { declaredActionCount: 2, initialAvailableActionCount: 1, status: "ready" },
+      usage: null,
+    });
+    const environmentBundle = JSON.parse(input.environmentBundleJson);
+    const environmentReportJson = canonicalizeJsonValue({
+      bundleSha256: hash(new TextEncoder().encode(input.environmentBundleJson)),
+      counts: { creates: 0, downloads: 2, polls: 0, worldGets: 1 },
+      files: [environmentBundle.assets.panorama, environmentBundle.assets.collider].map(({ path: assetPath }) => {
+        const value = input.environmentFiles.get(assetPath);
+        return { byteLength: value.length, path: assetPath, sha256: hash(value) };
+      }),
+      format: "matrix-oasis.prototype-environment-materialization-report",
+      formatVersion: "0.1.0",
+      provider: { id: "world-labs-marble", model: "marble-1.1" },
+    });
+    const publishInput = {
+      prompt: "Build a reusable neutral six-asset prototype.",
+      prototypeArtifacts,
+      assetMaterialization: { canonicalBundleJson: input.assetBundleJson,
+        files: [...input.assetFiles].map(([assetPath, value]) => ({ path: assetPath, bytes: value })) },
+      environmentMaterialization: { canonicalBundleJson: input.environmentBundleJson,
+        canonicalReportJson: environmentReportJson,
+        files: [...input.environmentFiles].map(([assetPath, value]) => ({ path: assetPath, bytes: value })) },
+      runRoot,
+      temporaryRoot: root,
+      services: cacheServices,
+      source: "live-provider",
+      assemblePrototypeScene,
+      canonicalizeJsonValue,
+      assemblyProfile: "matrix-oasis.prototype-assembly/2",
+      activateCurrent: false,
+      reuseExisting: true,
+    };
+    const published = await publishPrototypeRun(publishInput);
+    const directory = path.join(runRoot, "runs", published.runId);
+    assert.equal(
+      JSON.parse(await readFile(path.join(directory, "assembly-report.json"), "utf8")).profile,
+      "matrix-oasis.prototype-assembly/2",
+    );
+    const recovered = await recoverPrototypeRuns({ runRoot, temporaryRoot: root, services: cacheServices,
+      assemblePrototypeScene, canonicalizeJsonValue });
+    assert.deepEqual(recovered.runs.map(({ runId }) => runId), [published.runId]);
+    assert.equal(recovered.currentRunId, null);
+    await assert.rejects(() => lstat(path.join(runRoot, "current.json")), { code: "ENOENT" });
+    const reused = await publishPrototypeRun(publishInput);
+    assert.deepEqual(reused, published);
+    await writeFile(path.join(directory, "unexpected.json"), "{}", "utf8");
+    await assert.rejects(() => publishPrototypeRun(publishInput),
+      (error) => error.code === "PROTOTYPE_CACHE_INPUT_INVALID");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("same cache publication has one winner and never replaces current on failure", async () => {

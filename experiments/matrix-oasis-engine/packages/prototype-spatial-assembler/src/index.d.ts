@@ -61,15 +61,15 @@ export interface PrototypeSpatialAssembly {
     coordinateTransform: "spz-raw-ply-to-godot-v1";
     eulerOrder: "YXZ";
     alignment: Readonly<{
-      profile: "collider-fit-30m-v1";
-      targetFloorSpanMm: 30000;
-      maximumHorizontalSpanMm: 90000;
+      profile: "collider-fit-30m-v1" | "collider-official-metric-frame-v4";
+      targetFloorSpanMm: 0 | 30000;
+      maximumHorizontalSpanMm: 90000 | 128000;
       colliderBoundsMm: Readonly<{
         minimumMm: readonly [number, number, number];
         maximumMm: readonly [number, number, number];
       }>;
       centerFloorSampleSourceMm: readonly [number, number, number];
-      splatProfile: "splat-robust-fit-30m-v1";
+      splatProfile: "splat-robust-fit-30m-v1" | "splat-opencv-to-godot-official-metric-v4";
       splatBoundsProfile: "source-position-percentile-1-99-v1";
       splatBoundsMm: Readonly<{
         minimumMm: readonly [number, number, number];
@@ -82,7 +82,7 @@ export interface PrototypeSpatialAssembly {
     }>;
     splat: Readonly<{
       localTranslationMm: readonly [number, number, number];
-      localRotationMilliDegrees: readonly [0, 0, 0];
+      localRotationMilliDegrees: readonly [0, 0, 0] | readonly [180000, 0, 0];
       scaleMicros: number;
     }>;
     collider: Readonly<{
@@ -90,7 +90,7 @@ export interface PrototypeSpatialAssembly {
       scaleMicros: number;
     }>;
     walkableEnvelope: Readonly<{
-      profile: "source-density-first-surface-v1";
+      profile: "source-density-first-surface-v1" | "collider-global-aabb-floor-grid-v1" | "collider-connected-floor-component-v2" | "collider-splat-intersection-component-v3" | "collider-splat-density-component-v4" | "collider-splat-reachable-component-v5" | "collider-splat-terminal-centered-component-v6" | "collider-agent-navigation-component-v7";
       minimumMm: readonly [number, 0, number];
       maximumMm: readonly [number, number, number];
       wallThicknessMm: 700;
@@ -103,6 +103,37 @@ export interface PrototypeSpatialAssembly {
       adjacentBins: 2;
     }>;
     placementGroundTargetMm: 150;
+    placementLayout?: readonly Readonly<{
+      placementId: string;
+      positionMm: readonly [number, number, number];
+    }>[];
+    nodeBindingLayout?: readonly Readonly<{
+      nodeId: string;
+      playerSpawn: Readonly<{
+        positionMm: readonly [number, number, number];
+        yawMilliDegrees: number;
+      }>;
+      actionAnchor: Readonly<{
+        positionMm: readonly [number, number, number];
+        yawMilliDegrees: number;
+      }>;
+    }>[];
+    navigation?: Readonly<{
+      profile: "collider-agent-grid-v1";
+      cellSizeMm: 1000;
+      agentRadiusMm: 350;
+      agentHeightMm: 2000;
+      maximumStepMm: 450;
+      minimumClearanceMm: 700;
+      sourceIslandCount: number;
+      cells: readonly (readonly [number, number, number])[];
+      bindings: readonly Readonly<{
+        nodeId: string;
+        playerCellIndex: number;
+        terminalCellIndex: number;
+        pathCellCount: number;
+      }>[];
+    }>;
   }>;
 }
 
@@ -137,4 +168,5 @@ export declare function validatePrototypeSpatialAssemblyJson(text: string): Read
 
 export declare function assemblePrototypeSpatialScene(
   request: PrototypeSpatialAssemblyRequest,
+  options?: Readonly<{ profile: "matrix-oasis.prototype-spatial-assembly/2" }>,
 ): Promise<PrototypeSpatialAssemblyResult>;

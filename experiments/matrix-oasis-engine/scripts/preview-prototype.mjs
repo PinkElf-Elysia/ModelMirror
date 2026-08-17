@@ -281,7 +281,8 @@ function operations(runRoot, godot) {
         assetMaterialization: acquisition.assetMaterialization,
         environmentMaterialization: acquisition.environmentMaterialization,
         runRoot, temporaryRoot: tempRoot, source: "live-provider", services,
-        assemblePrototypeScene, canonicalizeJsonValue });
+        assemblePrototypeScene, canonicalizeJsonValue,
+        assemblyProfile: "matrix-oasis.prototype-assembly/2" });
       return { ok: true, runId: published.runId };
     },
     async launch({ runId }) { return launchPreview(runId); },

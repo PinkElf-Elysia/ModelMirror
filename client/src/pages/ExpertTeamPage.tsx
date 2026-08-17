@@ -52,6 +52,83 @@ function groupAgencyValidationIssues(
   return [...grouped.values()];
 }
 
+export function validateAgencyHitlPlan(tasks: AgencyPlanTask[]): AgencyValidationIssue[] {
+  const interactions = tasks.filter(
+    (task) => task.task_type === "human_input" || task.task_type === "approval",
+  );
+  const issues: AgencyValidationIssue[] = [];
+  if (tasks.length > 6) {
+    issues.push({ code: "agency_hitl_max_steps", message: "计划最多包含 6 个节点。" });
+  }
+  if (interactions.length > 2) {
+    issues.push({ code: "agency_hitl_max_interactions", message: "人工交互节点最多 2 个。" });
+  }
+  const taskIds = new Set(tasks.map((task) => task.task_id));
+  const downstream = new Map<string, string[]>();
+  tasks.forEach((task) => downstream.set(task.task_id, []));
+  tasks.forEach((task) => task.depends_on.forEach((dependency) => {
+    if (taskIds.has(dependency)) downstream.get(dependency)?.push(task.task_id);
+  }));
+  const reaches = (source: string, target: string) => {
+    const pending = [...(downstream.get(source) || [])];
+    const seen = new Set<string>();
+    while (pending.length) {
+      const current = pending.pop()!;
+      if (current === target) return true;
+      if (seen.has(current)) continue;
+      seen.add(current);
+      pending.push(...(downstream.get(current) || []));
+    }
+    return false;
+  };
+  interactions.forEach((interaction) => {
+    if (!interaction.interaction_prompt?.trim()) {
+      issues.push({
+        code: "agency_hitl_prompt_required",
+        message: `交互节点 ${interaction.task_id} 缺少提示语。`,
+        node_id: interaction.task_id,
+      });
+    }
+    if (
+      interaction.agent_id
+      || interaction.method_skill_ids?.length
+      || interaction.acceptance.trim()
+      || !interaction.output_variable
+    ) {
+      issues.push({
+        code: "agency_hitl_fields_invalid",
+        message: `交互节点 ${interaction.task_id} 不能绑定专家、Skill 或验收标准，并且必须定义输出变量。`,
+        node_id: interaction.task_id,
+      });
+    }
+    tasks.forEach((task) => {
+      if (task.task_id === interaction.task_id) return;
+      if (!reaches(interaction.task_id, task.task_id) && !reaches(task.task_id, interaction.task_id)) {
+        issues.push({
+          code: "agency_hitl_barrier_required",
+          message: `交互节点 ${interaction.task_id} 必须是完整 DAG 屏障，不能与 ${task.task_id} 并行。`,
+          node_id: interaction.task_id,
+        });
+      }
+    });
+  });
+  const dependedOn = new Set(tasks.flatMap((task) => task.depends_on));
+  const sinks = tasks.filter((task) => !dependedOn.has(task.task_id));
+  if (sinks.length !== 1 || (sinks[0]?.task_type || "expert") !== "expert") {
+    issues.push({
+      code: "agency_hitl_sink_invalid",
+      message: "计划必须只有一个最终汇点，且最终汇点必须是专家任务。",
+    });
+  } else if (!sinks[0].acceptance.trim()) {
+    issues.push({
+      code: "agency_hitl_sink_acceptance_required",
+      message: "最终汇点专家任务必须设置验收标准。",
+      node_id: sinks[0].task_id,
+    });
+  }
+  return issues;
+}
+
 type AgentSummary = AgencyAgentSummary;
 
 interface FusionModelResult {
@@ -896,7 +973,12 @@ export default function ExpertTeamPage() {
     patch: Partial<
       Pick<
         AgencyPlanTask,
-        "title" | "objective" | "acceptance" | "method_skill_ids"
+        | "title"
+        | "objective"
+        | "acceptance"
+        | "method_skill_ids"
+        | "interaction_prompt"
+        | "output_variable"
       >
     >,
   ) {
@@ -928,8 +1010,116 @@ export default function ExpertTeamPage() {
         const depends_on = task.depends_on.includes(dependencyId)
           ? task.depends_on.filter((item) => item !== dependencyId)
           : [...task.depends_on, dependencyId];
-        return { ...task, depends_on };
+        const input_contract = depends_on.length
+          ? depends_on.map((dependency) => {
+              const source = current.plan.tasks.find((item) => item.task_id === dependency);
+              return source?.output_variable || `${dependency}_output`;
+            })
+          : ["user_input"];
+        return { ...task, depends_on, input_contract };
       });
+      const workflow = syncWorkflowToPlan(current.workflow, tasks);
+      return {
+        ...current,
+        plan: { ...current.plan, tasks },
+        workflow,
+        candidate: {
+          ...current.candidate,
+          draft: { ...current.candidate.draft, workflow },
+        },
+      };
+    });
+    setAgencyValidationStale(true);
+    invalidateLoadedAgencyPlan();
+  }
+
+  function insertAgencyInteraction(taskType: "human_input" | "approval") {
+    setAgencyPreview((current) => {
+      if (!current) return current;
+      const interactions = current.plan.tasks.filter(
+        (task) => task.task_type === "human_input" || task.task_type === "approval",
+      );
+      if (current.plan.tasks.length >= 6 || interactions.length >= 2) return current;
+      const dependedOn = new Set(current.plan.tasks.flatMap((task) => task.depends_on));
+      const sink = [...current.plan.tasks]
+        .reverse()
+        .find((task) => !dependedOn.has(task.task_id) && (task.task_type || "expert") === "expert");
+      if (!sink) return current;
+      const prefix = taskType === "human_input" ? "human_input" : "approval";
+      let suffix = interactions.length + 1;
+      while (current.plan.tasks.some((task) => task.task_id === `${prefix}_${suffix}`)) suffix += 1;
+      const taskId = `${prefix}_${suffix}`;
+      const interactionTask: AgencyPlanTask = {
+        task_id: taskId,
+        title: taskType === "human_input" ? "补充必要信息" : "执行前审批",
+        objective: taskType === "human_input"
+          ? "等待用户补充继续执行所必需的信息。"
+          : "等待用户确认是否继续执行下游任务。",
+        depends_on: [...sink.depends_on],
+        input_contract: sink.depends_on.length
+          ? sink.depends_on.map((dependency) => {
+              const source = current.plan.tasks.find((item) => item.task_id === dependency);
+              return source?.output_variable || `${dependency}_output`;
+            })
+          : ["user_input"],
+        output_contract: `${taskId}_output`,
+        agent_id: null,
+        acceptance: "",
+        method_skill_ids: [],
+        task_type: taskType,
+        interaction_prompt: taskType === "human_input"
+          ? "请补充继续完成任务所必需的信息。"
+          : "请确认是否允许继续执行后续任务。",
+        output_variable: `${taskId}_output`,
+      };
+      const tasks = current.plan.tasks.map((task) =>
+        task.task_id === sink.task_id
+          ? {
+              ...task,
+              depends_on: [taskId],
+              input_contract: [`${taskId}_output`],
+            }
+          : task,
+      );
+      const sinkIndex = tasks.findIndex((task) => task.task_id === sink.task_id);
+      tasks.splice(Math.max(0, sinkIndex), 0, interactionTask);
+      const workflow = syncWorkflowToPlan(current.workflow, tasks);
+      return {
+        ...current,
+        plan: { ...current.plan, tasks },
+        workflow,
+        candidate: {
+          ...current.candidate,
+          draft: { ...current.candidate.draft, workflow },
+        },
+      };
+    });
+    setAgencyValidationStale(true);
+    invalidateLoadedAgencyPlan();
+  }
+
+  function removeAgencyInteraction(taskId: string) {
+    setAgencyPreview((current) => {
+      if (!current) return current;
+      const removed = current.plan.tasks.find((task) => task.task_id === taskId);
+      if (!removed || (removed.task_type || "expert") === "expert") return current;
+      const tasks = current.plan.tasks
+        .filter((task) => task.task_id !== taskId)
+        .map((task) => {
+          const depends_on = task.depends_on.includes(taskId)
+            ? [...new Set([
+                ...task.depends_on.filter((dependency) => dependency !== taskId),
+                ...removed.depends_on,
+              ])].filter((dependency) => dependency !== task.task_id)
+            : task.depends_on;
+          const input_contract = depends_on.length
+            ? depends_on.map((dependency) => {
+                const source = current.plan.tasks.find((item) => item.task_id === dependency);
+                return source?.output_variable || `${dependency}_output`;
+              })
+            : ["user_input"];
+          return { ...task, depends_on, input_contract };
+        });
       const workflow = syncWorkflowToPlan(current.workflow, tasks);
       return {
         ...current,
@@ -959,18 +1149,21 @@ export default function ExpertTeamPage() {
         valid: boolean;
         issues: AgencyValidationIssue[];
       }>(response);
+      const hitlIssues = validateAgencyHitlPlan(agencyPreview.plan.tasks);
+      const combinedIssues = [...validation.issues, ...hitlIssues];
+      const combinedValid = validation.valid && hitlIssues.length === 0;
       setAgencyPreview((current) =>
         current
           ? {
               ...current,
               validation: {
-                valid: validation.valid,
-                issues: validation.issues,
+                valid: combinedValid,
+                issues: combinedIssues,
                 stages: [
                   {
                     id: "workflow",
-                    valid: validation.valid,
-                    issues: validation.issues,
+                    valid: combinedValid,
+                    issues: combinedIssues,
                   },
                 ],
               },
@@ -1789,11 +1982,40 @@ export default function ExpertTeamPage() {
                       ) : null}
                     </div>
 
+                    {agencyCapabilities?.execution?.hitl?.enabled ? (
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.05] p-3">
+                        <span className="mr-auto text-xs leading-5 text-slate-300">
+                          人工节点默认插入最终汇点之前，并自动重连依赖。每个计划最多 2 个。
+                        </span>
+                        <button
+                          className="rounded-full border border-cyan-300/25 px-3 py-1.5 text-xs font-semibold text-cyan-100 disabled:opacity-40"
+                          disabled={agencyPreview.plan.tasks.length >= 6 || agencyPreview.plan.tasks.filter((task) => (task.task_type || "expert") !== "expert").length >= 2}
+                          onClick={() => insertAgencyInteraction("human_input")}
+                          type="button"
+                        >
+                          添加人工输入
+                        </button>
+                        <button
+                          className="rounded-full border border-amber-300/25 px-3 py-1.5 text-xs font-semibold text-amber-100 disabled:opacity-40"
+                          disabled={agencyPreview.plan.tasks.length >= 6 || agencyPreview.plan.tasks.filter((task) => (task.task_type || "expert") !== "expert").length >= 2}
+                          onClick={() => insertAgencyInteraction("approval")}
+                          type="button"
+                        >
+                          添加审批
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="rounded-lg border border-white/10 bg-white/[0.035] p-3 text-xs text-slate-400">
+                        人工输入与审批功能当前未启用；现有普通 DAG 仍可使用。
+                      </p>
+                    )}
+
                     <div className="space-y-3">
                       {agencyPreview.plan.tasks.map((task, index) => {
                         const expert = agencyPreview.selected_agents.find(
                           (item) => item.id === task.agent_id,
                         );
+                        const isInteraction = (task.task_type || "expert") !== "expert";
                         return (
                           <article
                             className="surface-card rounded-lg p-4"
@@ -1803,9 +2025,29 @@ export default function ExpertTeamPage() {
                               <p className="text-xs font-semibold text-hire-100">
                                 任务 {index + 1} · {task.task_id}
                               </p>
-                              <span className="text-xs text-slate-400">
-                                {expert?.emoji || "专"} {expert?.name || task.agent_id}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="rounded-full border border-white/10 px-2.5 py-1 text-xs text-slate-300">
+                                  {task.task_type === "human_input"
+                                    ? "人工输入"
+                                    : task.task_type === "approval"
+                                      ? "审批"
+                                      : "专家任务"}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  {isInteraction
+                                    ? "无需模型或专家"
+                                    : `${expert?.emoji || "专"} ${expert?.name || task.agent_id}`}
+                                </span>
+                                {isInteraction ? (
+                                  <button
+                                    className="rounded-full border border-red-300/20 px-2.5 py-1 text-xs text-red-100"
+                                    onClick={() => removeAgencyInteraction(task.task_id)}
+                                    type="button"
+                                  >
+                                    删除
+                                  </button>
+                                ) : null}
+                              </div>
                             </div>
                             <input
                               aria-label={`${task.task_id} 任务标题`}
@@ -1827,6 +2069,20 @@ export default function ExpertTeamPage() {
                               }
                               value={task.objective}
                             />
+                            {isInteraction ? (
+                              <textarea
+                                aria-label={`${task.task_id} 交互提示`}
+                                className="mt-3 min-h-20 w-full rounded-lg border border-cyan-300/20 bg-ink-950/70 p-3 text-sm leading-6 text-slate-200 outline-none focus:border-cyan-300/70"
+                                maxLength={4000}
+                                onChange={(event) =>
+                                  updateAgencyTask(task.task_id, {
+                                    interaction_prompt: event.target.value,
+                                  })
+                                }
+                                placeholder={task.task_type === "approval" ? "说明需要用户批准的决策点" : "说明需要用户补充的信息"}
+                                value={task.interaction_prompt || ""}
+                              />
+                            ) : (
                             <label className="mt-3 block">
                               <span className="text-xs font-semibold text-slate-400">
                                 此步骤的方法 Skill
@@ -1851,6 +2107,7 @@ export default function ExpertTeamPage() {
                                 ))}
                               </select>
                             </label>
+                            )}
                             <fieldset className="mt-3">
                               <legend className="text-xs font-semibold text-slate-400">
                                 依赖任务
@@ -1884,6 +2141,7 @@ export default function ExpertTeamPage() {
                                 ) : null}
                               </div>
                             </fieldset>
+                            {!isInteraction ? (
                             <textarea
                               aria-label={`${task.task_id} 验收标准`}
                               className="mt-3 min-h-20 w-full rounded-lg border border-white/10 bg-ink-950/70 p-3 text-sm leading-6 text-slate-200 outline-none placeholder:text-slate-500 focus:border-hire-300/70"
@@ -1895,6 +2153,11 @@ export default function ExpertTeamPage() {
                               placeholder="填写可检查的验收标准"
                               value={task.acceptance}
                             />
+                            ) : (
+                              <p className="mt-3 text-xs leading-5 text-slate-400">
+                                该节点不绑定专家、Skill 或验收标准；运行到此处会持久暂停并退出 Worker。
+                              </p>
+                            )}
                           </article>
                         );
                       })}
@@ -2312,6 +2575,8 @@ export default function ExpertTeamPage() {
                   if (dagConfirmMode === "revise") setPendingDagRevision(null);
                   setDagConfirmMode(null);
                 }}
+                onInteractionDecision={(payload) => agencyDag.decideInteraction(payload)}
+                onInteractionReopen={() => agencyDag.reopenInteraction()}
                 onRetryRequest={() => setDagConfirmMode("retry")}
                 onRevisionRequest={(payload) => {
                   setPendingDagRevision(payload);

@@ -84,6 +84,7 @@ function makeParentFixture(t) {
   write(fixture, `${MODULE_PREFIX}/docs/adr/0009-r8-natural-language-prototype-governance.md`);
   write(fixture, `${MODULE_PREFIX}/docs/adr/0010-r9-asset-materialization-governance.md`);
   write(fixture, `${MODULE_PREFIX}/docs/adr/0011-r10-prototype-builder-governance.md`);
+  write(fixture, `${MODULE_PREFIX}/docs/adr/0012-r11-spatial-environment-governance.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R0_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R1_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R2_ACCEPTANCE.md`);
@@ -95,6 +96,7 @@ function makeParentFixture(t) {
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R8_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R9_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R10_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R11_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/docs/RUNTIME_GAME_PACK.md`);
   write(fixture, `${MODULE_PREFIX}/docs/RUNTIME_PACK_THREAT_MODEL.md`);
   write(fixture, `${MODULE_PREFIX}/docs/GODOT_FOUNDATION.md`);
@@ -130,12 +132,12 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R11 policy", () => {
+test("machine boundary and code expose the same ordered R12 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
-  assert.equal(policy.schemaVersion, 11);
+  assert.equal(policy.schemaVersion, 12);
   assert.equal(policy.activeRound, ACTIVE_ROUND);
   assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
@@ -154,27 +156,30 @@ test("machine boundary and code expose the same ordered R11 policy", () => {
     path.join(committedModuleRoot, "scripts", "check-round-scope.mjs"),
     "utf8",
   );
-  assert.match(cli, /policy\.schemaVersion !== 11/);
-  assert.doesNotMatch(cli, /policy\.schemaVersion !== 10/);
+  assert.match(cli, /policy\.schemaVersion !== 12/);
+  assert.doesNotMatch(cli, /policy\.schemaVersion !== 11/);
 });
 
-test("accepts exact R11 files and new package/Godot prefixes in every Git status source", (t) => {
+test("accepts exact R12 files and compatibility package prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-spatial-environment/src/index.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-generator/src/acceptance-profile.mjs`, "export {};\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-spatial-assembler/src/index.mjs`, "export {};\n");
-  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-spatial-assembler/src/index.mjs`]);
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-assembler/src/profile-v2.mjs`, "export {};\n");
+  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-assembler/src/profile-v2.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R11_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/scripts/lib/prototype-cache-core.mjs`);
+  write(fixture, `${MODULE_PREFIX}/scripts/preview-prototype.mjs`);
+  write(fixture, `${MODULE_PREFIX}/tests/prototype-assembly.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R12_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/spatial_prototype/spatial_lab.gd`, "extends Node3D\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
   assert.equal(result.mode, "parent");
-  assert.equal(result.uniqueChangedPaths, 5);
+  assert.equal(result.uniqueChangedPaths, 8);
 });
 
 test("rejects a committed R1 contracts change", (t) => {
@@ -232,6 +237,7 @@ for (const acceptance of [
   "R8_ACCEPTANCE.md",
   "R9_ACCEPTANCE.md",
   "R10_ACCEPTANCE.md",
+  "R11_ACCEPTANCE.md",
 ]) {
   test(`rejects byte changes to historical ${acceptance}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
@@ -271,6 +277,7 @@ for (const historicalPath of [
   "docs/adr/0009-r8-natural-language-prototype-governance.md",
   "docs/adr/0010-r9-asset-materialization-governance.md",
   "docs/adr/0011-r10-prototype-builder-governance.md",
+  "docs/adr/0012-r11-spatial-environment-governance.md",
   "docs/PROTOTYPE_ASSET_BUNDLE.md",
   "docs/PROTOTYPE_ASSET_THREAT_MODEL.md",
   "docs/PROTOTYPE_ENVIRONMENT.md",
@@ -304,13 +311,12 @@ for (const frozenPath of [
   "third-party/gdunit4.lock.json",
   "third-party/gdunit4/LICENSE",
   "packages/prototype-generation-contracts/src/index.mjs",
-  "packages/prototype-generator/src/index.mjs",
   "packages/prototype-asset-pipeline/src/index.mjs",
-  "packages/prototype-environment-pipeline/src/index.mjs",
-  "packages/prototype-assembler/src/index.mjs",
+  "apps/runtime-godot/addons/gdgs/plugin.cfg",
+  "third-party/godot-gaussian-splatting.lock.json",
   "examples/scene-bundles/kenney-prototype/assets/crate.glb",
 ]) {
-  test(`rejects byte changes to frozen R1-R8 implementation ${frozenPath}`, (t) => {
+  test(`rejects byte changes to frozen R1-R11 implementation ${frozenPath}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
     write(fixture, `${MODULE_PREFIX}/${frozenPath}`, "changed\n");
 
@@ -388,7 +394,19 @@ test("rejects a caller-selected base", (t) => {
   );
 });
 
-test("round path classifier exposes stable R11 guard categories", () => {
+test("round path classifier exposes stable R12 guard categories", () => {
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-generator/src/acceptance-profile.mjs`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-assembler/src/profile-v2.mjs`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-environment-pipeline/src/spatial-source.mjs`),
+    null,
+  );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-environment/src/index.mjs`),
     null,
@@ -403,11 +421,11 @@ test("round path classifier exposes stable R11 guard categories", () => {
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/addons/gdgs/plugin.cfg`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-generator/src/index.mjs`),
-    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+    null,
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/playable/first_person_controller.gd`),
@@ -419,7 +437,7 @@ test("round path classifier exposes stable R11 guard categories", () => {
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-environment-pipeline/src/index.mjs`),
-    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+    null,
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/project.godot`),

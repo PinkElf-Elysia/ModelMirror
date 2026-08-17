@@ -90,4 +90,61 @@ describe("syncWorkflowToPlan", () => {
       target: "agent_implementation_plan",
     });
   });
+
+  it("adds and removes a scoped human-intervention barrier without orphaning edges", () => {
+    const base: AgencyWorkflow = {
+      id: "hitl-workflow",
+      title: "HITL workflow",
+      nodes: [
+        { id: "input", type: "input", data: { kind: "input" } },
+        { id: "output", type: "output", data: { kind: "output" } },
+      ],
+      edges: [],
+    };
+    const research = task("research");
+    const human: AgencyPlanTask = {
+      task_id: "audience_input",
+      title: "补充受众",
+      objective: "等待人工输入",
+      depends_on: ["research"],
+      input_contract: ["research_output"],
+      output_contract: "audience_input_output",
+      agent_id: null,
+      acceptance: "",
+      method_skill_ids: [],
+      task_type: "human_input",
+      interaction_prompt: "请补充目标受众。",
+      output_variable: "audience_input_output",
+    };
+    const delivery = task("delivery", ["audience_input"]);
+    const inserted = syncWorkflowToPlan(base, [research, human, delivery]);
+    const interactionNode = inserted.nodes.find(
+      (node) => node.id === "interaction_audience_input",
+    );
+    expect(interactionNode).toMatchObject({
+      type: "human_intervention",
+      data: {
+        interactionMode: "input",
+        plannerRef: "hitl_audience_input",
+        outputVariable: "audience_input_output",
+      },
+    });
+    expect(inserted.edges.map((edge) => [edge.source, edge.target])).toEqual([
+      ["input", "agent_research"],
+      ["agent_research", "interaction_audience_input"],
+      ["interaction_audience_input", "agent_delivery"],
+      ["agent_delivery", "output"],
+    ]);
+
+    const removed = syncWorkflowToPlan(inserted, [
+      research,
+      { ...delivery, depends_on: ["research"], input_contract: ["research_output"] },
+    ]);
+    expect(removed.nodes.some((node) => node.id === "interaction_audience_input")).toBe(false);
+    expect(removed.edges.map((edge) => [edge.source, edge.target])).toEqual([
+      ["input", "agent_research"],
+      ["agent_research", "agent_delivery"],
+      ["agent_delivery", "output"],
+    ]);
+  });
 });

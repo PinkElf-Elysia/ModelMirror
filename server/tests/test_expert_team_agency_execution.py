@@ -23,7 +23,11 @@ from server.orchestration_worker import (
     AgencyWorkerError,
 )
 from server.workflow_native.schemas import NativeWorkflowDefinition
-from server.xpert_runtime import RunRegistry, WorkflowExecutionStore
+from server.xpert_runtime import (
+    RunRegistry,
+    RuntimeApprovalStore,
+    WorkflowExecutionStore,
+)
 
 
 def experts():
@@ -139,6 +143,143 @@ def valid_plan_and_workflow():
         }
     )
     return plan, workflow
+
+
+def valid_hitl_plan_and_workflow(*, task_type="human_input"):
+    plan, workflow = valid_plan_and_workflow()
+    interaction_id = "audience_input" if task_type == "human_input" else "release_gate"
+    interaction_output = f"{interaction_id}_output"
+    plan.tasks.insert(
+        1,
+        plan.tasks[0].model_copy(
+            deep=True,
+            update={
+                "task_id": interaction_id,
+                "title": "补充受众" if task_type == "human_input" else "发布审批",
+                "objective": "等待用户提供受众" if task_type == "human_input" else "等待用户批准发布",
+                "depends_on": ["research"],
+                "input_contract": ["research_output"],
+                "output_contract": interaction_output,
+                "agent_id": None,
+                "acceptance": "",
+                "method_skill_ids": [],
+                "task_type": task_type,
+                "interaction_prompt": (
+                    "请根据 {{research_output}} 补充目标受众。"
+                    if task_type == "human_input"
+                    else "请根据 {{research_output}} 确认是否发布。"
+                ),
+                "output_variable": interaction_output,
+            },
+        ),
+    )
+    plan.tasks[2].depends_on = [interaction_id]
+    plan.tasks[2].input_contract = [interaction_output]
+    interaction_node = workflow.nodes[2].model_copy(
+        deep=True,
+        update={
+            "id": f"interaction_{interaction_id}",
+            "type": "human_intervention",
+            "data": {
+                "kind": "human_intervention",
+                "title": plan.tasks[1].title,
+                "description": plan.tasks[1].objective,
+                "prompt": plan.tasks[1].interaction_prompt,
+                "interactionMode": "approval" if task_type == "approval" else "input",
+                "outputVariable": interaction_output,
+                "plannerRef": f"hitl_{interaction_id}",
+                "plannerTaskIds": [interaction_id],
+            },
+        },
+    )
+    workflow.nodes.insert(2, interaction_node)
+    workflow.nodes[1].data["plannerRef"] = "agent_research"
+    workflow.nodes[1].data["plannerTaskIds"] = ["research"]
+    workflow.nodes[3].data["plannerRef"] = "agent_delivery"
+    workflow.nodes[3].data["plannerTaskIds"] = ["delivery"]
+    workflow.nodes[3].data["taskInput"] = (
+        f"形成执行方案\n\n依赖结果：\n{interaction_id}: {{{{{interaction_output}}}}}"
+    )
+    workflow.edges = [
+        workflow.edges[0],
+        workflow.edges[1].model_copy(
+            update={
+                "id": f"research-{interaction_id}",
+                "source": "agent_research",
+                "target": f"interaction_{interaction_id}",
+            }
+        ),
+        workflow.edges[1].model_copy(
+            update={
+                "id": f"{interaction_id}-delivery",
+                "source": f"interaction_{interaction_id}",
+                "target": "agent_delivery",
+            }
+        ),
+        workflow.edges[2],
+    ]
+    return plan, workflow
+
+
+@pytest.mark.parametrize("task_type", ["human_input", "approval"])
+def test_prepare_execution_compiles_scoped_hitl_steps(task_type):
+    plan, workflow = valid_hitl_plan_and_workflow(task_type=task_type)
+    prepared = prepare_agency_execution(
+        plan=plan, workflow=workflow, expert_records=experts()
+    )
+
+    interaction = prepared.workflow["steps"][1]
+    assert interaction["type"] == task_type
+    assert interaction["role"] == ""
+    assert interaction["prompt"] == plan.tasks[1].interaction_prompt
+    assert "acceptance" not in interaction
+    assert prepared.selected_agent_ids == ["agent-alpha", "agent-beta"]
+
+
+def test_prepare_execution_rejects_non_barrier_hitl():
+    plan, workflow = valid_hitl_plan_and_workflow()
+    parallel = plan.tasks[0].model_copy(
+        deep=True,
+        update={"task_id": "parallel", "depends_on": [], "acceptance": ""},
+    )
+    plan.tasks.insert(1, parallel)
+    plan.tasks[-1].depends_on.append("parallel")
+    plan.tasks[-1].input_contract.append("parallel_output")
+    workflow.nodes[3].data["taskInput"] += " {{parallel_output}}"
+    parallel_node = workflow.nodes[1].model_copy(
+        deep=True,
+        update={
+            "id": "agent_parallel",
+            "data": {
+                **workflow.nodes[1].data,
+                    "plannerRef": "agent_parallel",
+                "plannerTaskIds": ["parallel"],
+                "outputVariable": "parallel_output",
+            },
+        },
+    )
+    workflow.nodes.insert(2, parallel_node)
+    workflow.edges.insert(
+        1,
+        workflow.edges[0].model_copy(
+            update={"id": "input-parallel", "target": "agent_parallel"}
+        ),
+    )
+    workflow.edges.insert(
+        -1,
+        workflow.edges[0].model_copy(
+            update={
+                "id": "parallel-delivery",
+                "source": "agent_parallel",
+                "target": "agent_delivery",
+            }
+        ),
+    )
+
+    with pytest.raises(AgencyExecutionValidationError, match="屏障"):
+        prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
 
 
 def use_current_meta_planner_node_ids(plan, workflow):
@@ -368,6 +509,25 @@ def test_prepare_execution_rejects_tampering_and_multiple_sinks(mutation, messag
         prepare_agency_execution(
             plan=plan, workflow=workflow, expert_records=experts()
         )
+
+
+def test_prepare_execution_accepts_catalog_prompt_after_preview_literalization():
+    plan, workflow = valid_plan_and_workflow()
+    current_experts = experts()
+    current_experts[0].prompt = (
+        "你是研究专家。示例城市：{{city}}，当前请求：{{user_input}}。\n"
+    )
+    workflow.nodes[1].data["rolePrompt"] = (
+        "你是研究专家。示例城市：[city]，当前请求：{{user_input}}。"
+    )
+
+    prepared = prepare_agency_execution(
+        plan=plan,
+        workflow=workflow,
+        expert_records=current_experts,
+    )
+
+    assert prepared.workflow["steps"][0]["id"] == "research"
 
 
 def test_prepare_execution_rejects_duplicate_over_limit_unknown_and_tools():
@@ -628,6 +788,65 @@ class HangingRevisionClient(HangingClient):
         return await super().execute(on_event=on_event, **kwargs)
 
 
+class HitlCheckpointClient:
+    worker_entry = Path(__file__)
+
+    def __init__(self):
+        self.calls = []
+
+    async def execute(self, *, on_event, interaction_resume=None, **_kwargs):
+        self.calls.append(interaction_resume)
+        if interaction_resume is None:
+            return SimpleNamespace(
+                payload={
+                    "status": "waiting",
+                    "wait": {
+                        "step_id": "audience_input",
+                        "kind": "human_input",
+                        "prompt": "请补充目标受众。",
+                        "content_preview": "已有研究摘要",
+                        "output_variable": "audience_input_output",
+                    },
+                    "completed_steps": [
+                        {
+                            "task_id": "research",
+                            "output_variable": "research_output",
+                            "output": "已有研究",
+                        }
+                    ],
+                    "model_calls": 1,
+                    "usage": {"input_tokens": 8, "output_tokens": 5},
+                    "active_duration_ms": 1200,
+                }
+            )
+        await on_event(
+            {
+                "event": "agency.step.completed",
+                "task_id": "delivery",
+                "status": "completed",
+                "output": "面向采购负责人的最终方案",
+                "model_calls": 3,
+                "cumulative_usage": {"input_tokens": 20, "output_tokens": 12},
+            }
+        )
+        await on_event(
+            {
+                "event": "agency.run.completed",
+                "status": "completed",
+                "final_output": "面向采购负责人的最终方案",
+                "model_calls": 3,
+                "usage": {"input_tokens": 20, "output_tokens": 12},
+            }
+        )
+        return SimpleNamespace(
+            payload={
+                "final_output": "面向采购负责人的最终方案",
+                "model_calls": 3,
+                "usage": {"input_tokens": 20, "output_tokens": 12},
+            }
+        )
+
+
 async def _noop_model(_request):
     return "unused"
 
@@ -639,6 +858,149 @@ def coordinator(tmp_path, client):
         model_runner=_noop_model,
         client_factory=lambda: client,
     )
+
+
+def test_hitl_wait_persists_and_resumes_same_task(tmp_path):
+    async def scenario():
+        plan, workflow = valid_hitl_plan_and_workflow()
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        approvals = RuntimeApprovalStore(tmp_path)
+        client = HitlCheckpointClient()
+        runtime = AgencyExecutionCoordinator(
+            store=WorkflowExecutionStore(tmp_path),
+            run_registry=RunRegistry(),
+            model_runner=_noop_model,
+            client_factory=lambda: client,
+            approval_store=approvals,
+        )
+        started = await runtime.start(
+            goal="为采购负责人形成发布方案。",
+            model_id="fake-model",
+            prepared=prepared,
+            capability_snapshot_version="snapshot-v1",
+            capability_snapshot_hash="hash",
+            upstream_revision="revision",
+        )
+        for _ in range(50):
+            waiting = runtime.get(started["task_id"])
+            if waiting["status"] == "waiting":
+                break
+            await asyncio.sleep(0.01)
+        assert waiting["task_id"] == started["task_id"]
+        assert waiting["run_id"] == started["run_id"]
+        assert waiting["model_calls"] == 1
+        interaction = waiting["pending_interaction"]
+        assert interaction["kind"] == "human_input"
+        approval = approvals.decide(
+            interaction["approval_id"],
+            revision=interaction["revision"],
+            decision="replace",
+            operator="tester",
+            replacement_text="采购负责人",
+        )
+        runtime.store.mark_ready(started["task_id"], approval_id=approval.approval_id)
+        claimed = runtime.store.claim(
+            started["task_id"], worker_id="test", lease_seconds=60
+        )
+        await runtime.resume_interaction(
+            execution=claimed,
+            approval=approval,
+            prepared=prepared,
+        )
+        for _ in range(50):
+            completed = runtime.get(started["task_id"])
+            if completed["status"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+        assert completed["task_id"] == started["task_id"]
+        assert completed["run_id"] == started["run_id"]
+        assert completed["final_output"] == "面向采购负责人的最终方案"
+        assert client.calls[1]["value"] == "采购负责人"
+        assert client.calls[1]["prior_model_calls"] == 1
+        assert client.calls[1]["prior_active_duration_ms"] == 1200
+        assert completed["interaction_history"][0]["input"] == "采购负责人"
+
+    asyncio.run(scenario())
+
+
+def test_hitl_rejection_is_terminal_and_does_not_resume_worker(tmp_path):
+    async def scenario():
+        plan, workflow = valid_hitl_plan_and_workflow(task_type="approval")
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        approvals = RuntimeApprovalStore(tmp_path)
+        client = HitlCheckpointClient()
+        client.calls = []
+        runtime = AgencyExecutionCoordinator(
+            store=WorkflowExecutionStore(tmp_path),
+            run_registry=RunRegistry(),
+            model_runner=_noop_model,
+            client_factory=lambda: client,
+            approval_store=approvals,
+        )
+        source = runtime.store.create(
+            task_id="approval-reject",
+            run_id="approval-reject-run",
+            run_type="expert_team",
+            workflow=prepared.workflow,
+            inputs={"goal": "审批发布方案"},
+            source_kind="expert_team_agency",
+            runtime_metadata={"model_id": "fake-model"},
+        )
+        approval = approvals.create_request(
+            action_key="reject-gate",
+            request_type="execution_gate",
+            task_id=source.task_id,
+            run_id=source.run_id,
+            node_id="release_gate",
+            node_title="发布审批",
+            scope_type="expert_team_agency",
+            scope_id=source.task_id,
+            timeout_seconds=86400,
+            allowed_decisions=["approve", "reject"],
+        )
+        runtime.store.suspend(
+            source.task_id,
+            approval_id=approval.approval_id,
+            continuation={
+                "step_id": "release_gate",
+                "kind": "execution_gate",
+                "completed_steps": [],
+                "prior_model_calls": 1,
+                "prior_usage": {},
+                "prior_active_duration_ms": 100,
+            },
+        )
+        approval = approvals.decide(
+            approval.approval_id,
+            revision=approval.revision,
+            decision="reject",
+            operator="tester",
+            message="风险尚未确认",
+        )
+        runtime.store.mark_ready(source.task_id, approval_id=approval.approval_id)
+        claimed = runtime.store.claim(source.task_id, worker_id="test")
+        await runtime.resume_interaction(
+            execution=claimed,
+            approval=approval,
+            prepared=prepared,
+        )
+        rejected = runtime.get(source.task_id)
+        assert rejected["status"] == "rejected"
+        assert rejected["retryable"] is False
+        assert next(
+            step for step in rejected["steps"] if step["task_id"] == "release_gate"
+        )["status"] == "rejected"
+        assert client.calls == []
+        assert any(
+            event["event"] == "agency.run.rejected"
+            for event in rejected["events"]
+        )
+
+    asyncio.run(scenario())
 
 
 def test_coordinator_persists_events_and_completes(tmp_path):
@@ -809,6 +1171,91 @@ def test_failed_run_retries_only_incomplete_steps_and_keeps_live_usage(tmp_path)
         assert client.resume["prior_model_calls"] == 2
         assert current["steps"][0]["reused"] is True
         assert current["model_calls"] == 4
+
+    asyncio.run(scenario())
+
+
+def test_first_step_transient_failure_can_retry_without_reusable_steps(tmp_path):
+    class FirstStepRetryClient:
+        worker_entry = Path(__file__)
+
+        def __init__(self):
+            self.resume = None
+
+        async def execute(self, *, on_event, resume=None, **_kwargs):
+            self.resume = resume
+            await on_event(
+                {
+                    "event": "agency.run.completed",
+                    "status": "completed",
+                    "final_output": "恢复后的最终结果",
+                    "model_calls": 2,
+                    "usage": {"input_tokens": 21, "output_tokens": 8},
+                }
+            )
+            return SimpleNamespace(
+                payload={
+                    "final_output": "恢复后的最终结果",
+                    "model_calls": 2,
+                    "usage": {"input_tokens": 21, "output_tokens": 8},
+                }
+            )
+
+    async def scenario():
+        plan, workflow = valid_plan_and_workflow()
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        client = FirstStepRetryClient()
+        runtime = coordinator(tmp_path, client)
+        source = runtime.store.create(
+            task_id="first-step-failed-source",
+            run_id="first-step-source-run",
+            run_type="expert_team",
+            workflow=prepared.workflow,
+            inputs={"goal": "制定一个可执行的专家协作方案。"},
+            source_kind="expert_team_agency",
+            runtime_metadata={
+                "model_id": "fake-model",
+                "upstream_revision": "revision",
+                "capability_snapshot_version": "snapshot-v1",
+                "capability_snapshot_hash": "hash",
+                "sink_task_id": prepared.sink_task_id,
+                "selected_agent_ids": prepared.selected_agent_ids,
+                "method_skill_digests": {},
+            },
+        )
+        runtime.store.append_event(
+            source.task_id,
+            {
+                "event": "agency.run.failed",
+                "status": "failed",
+                "error": "model_response_empty",
+                "model_calls": 1,
+                "usage": {"input_tokens": 10, "output_tokens": 3},
+            },
+        )
+        runtime.store.fail(source.task_id, error="model_response_empty")
+
+        assert runtime.get(source.task_id)["retryable"] is True
+        retried = await runtime.retry(
+            source_task_id=source.task_id,
+            prepared=prepared,
+        )
+        for _ in range(50):
+            current = runtime.get(retried["task_id"])
+            if current["status"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+
+        assert client.resume == {
+            "source_task_id": source.task_id,
+            "completed_steps": [],
+            "prior_model_calls": 1,
+            "prior_usage": {"input_tokens": 10, "output_tokens": 3},
+        }
+        assert current["status"] == "completed"
+        assert current["resumed_from_task_id"] == source.task_id
 
     asyncio.run(scenario())
 
@@ -1233,6 +1680,115 @@ def test_capacity_and_interrupted_recovery(tmp_path):
         assert recovered["error_code"] == "agency_execution_interrupted"
 
     asyncio.run(scenario())
+
+
+def test_hitl_restart_preserves_waiting_and_ready_but_fails_active_segment(tmp_path):
+    def seed(storage_dir, *, state):
+        store = WorkflowExecutionStore(storage_dir)
+        approvals = RuntimeApprovalStore(storage_dir)
+        item = store.create(
+            task_id=f"restart-{state}",
+            run_id=f"restart-{state}-run",
+            run_type="expert_team",
+            workflow={"steps": []},
+            inputs={"goal": "跨重启人工交互"},
+            source_kind="expert_team_agency",
+        )
+        approval = approvals.create_request(
+            action_key=f"restart-{state}",
+            request_type="manual_input",
+            task_id=item.task_id,
+            run_id=item.run_id,
+            node_id="audience_input",
+            node_title="补充受众",
+            scope_type="expert_team_agency",
+            scope_id=item.task_id,
+            timeout_seconds=86400,
+            allowed_decisions=["replace"],
+        )
+        store.suspend(
+            item.task_id,
+            approval_id=approval.approval_id,
+            continuation={
+                "step_id": "audience_input",
+                "kind": "manual_input",
+                "completed_steps": [],
+                "prior_model_calls": 1,
+                "prior_usage": {},
+                "prior_active_duration_ms": 100,
+            },
+        )
+        if state in {"ready", "running"}:
+            approval = approvals.decide(
+                approval.approval_id,
+                revision=approval.revision,
+                decision="replace",
+                operator="tester",
+                replacement_text="采购负责人",
+            )
+            store.mark_ready(item.task_id, approval_id=approval.approval_id)
+        if state == "running":
+            store.claim(item.task_id, worker_id="before-restart")
+        return item.task_id, approval.approval_id
+
+    waiting_dir = tmp_path / "waiting"
+    waiting_task_id, _ = seed(waiting_dir, state="waiting")
+    waiting_runtime = AgencyExecutionCoordinator(
+        store=WorkflowExecutionStore(waiting_dir),
+        run_registry=RunRegistry(),
+        model_runner=_noop_model,
+        approval_store=RuntimeApprovalStore(waiting_dir),
+    )
+    assert waiting_runtime.recover_interrupted() == 0
+    assert waiting_runtime.get(waiting_task_id)["status"] == "waiting"
+
+    ready_dir = tmp_path / "ready"
+    ready_task_id, _ = seed(ready_dir, state="ready")
+    ready_runtime = AgencyExecutionCoordinator(
+        store=WorkflowExecutionStore(ready_dir),
+        run_registry=RunRegistry(),
+        model_runner=_noop_model,
+        approval_store=RuntimeApprovalStore(ready_dir),
+    )
+    assert ready_runtime.recover_interrupted() == 0
+    assert ready_runtime.get(ready_task_id)["status"] == "ready"
+
+    running_dir = tmp_path / "running"
+    running_task_id, _ = seed(running_dir, state="running")
+    running_runtime = AgencyExecutionCoordinator(
+        store=WorkflowExecutionStore(running_dir),
+        run_registry=RunRegistry(),
+        model_runner=_noop_model,
+        approval_store=RuntimeApprovalStore(running_dir),
+    )
+    assert running_runtime.store.require(running_task_id).status == "running"
+    assert running_runtime.recover_interrupted() == 1
+    assert running_runtime.get(running_task_id)["error_code"] == "agency_execution_interrupted"
+
+
+def test_hitl_restart_closes_orphaned_approval(tmp_path):
+    approvals = RuntimeApprovalStore(tmp_path)
+    orphan = approvals.create_request(
+        action_key="orphan-hitl",
+        request_type="execution_gate",
+        task_id="missing-task",
+        run_id="missing-run",
+        node_id="release_gate",
+        node_title="发布审批",
+        scope_type="expert_team_agency",
+        scope_id="missing-task",
+        timeout_seconds=86400,
+        allowed_decisions=["approve", "reject"],
+    )
+    runtime = AgencyExecutionCoordinator(
+        store=WorkflowExecutionStore(tmp_path),
+        run_registry=RunRegistry(),
+        model_runner=_noop_model,
+        approval_store=approvals,
+    )
+    assert runtime.recover_interrupted() == 0
+    assert approvals.require(orphan.approval_id).status == "cancelled"
+    assert approvals.require(orphan.approval_id).message == "agency_interaction_orphaned"
 
 
 def test_execution_store_redacts_unapproved_event_fields(tmp_path):
@@ -1833,6 +2389,19 @@ def test_execution_revision_api_is_gated_and_rebuilds_frozen_contract(
         "max_model_calls": 10,
         "budget_mode": "fresh",
     }
+    assert capabilities["execution"]["protocol"] == "mm-agency-bridge/v2"
+    assert capabilities["execution"]["hitl"] == {
+        "enabled": False,
+        "protocol": "mm-agency-bridge/v3",
+        "supports_human_input": True,
+        "supports_approval": True,
+        "max_interactions": 2,
+        "max_input_chars": 20000,
+        "wait_timeout_seconds": 86400,
+        "supports_reopen": True,
+        "supports_restart_wait": True,
+        "auto_insert_policy": "conservative",
+    }
     disabled = api.post(
         f"/api/expert-team/dag-runs/{source.task_id}/revise",
         json={"target_task_id": "final", "feedback": "请完善第一版结论。"},
@@ -1897,6 +2466,114 @@ def test_execution_revision_api_is_gated_and_rebuilds_frozen_contract(
     assert captured["target_task_id"] == "final"
     assert captured["prepared"].workflow == source.workflow
     assert captured["prepared"].selected_agent_ids == [agent_id]
+
+
+def test_hitl_approval_api_gating_validation_conflict_and_reopen(
+    tmp_path, monkeypatch
+):
+    from fastapi.testclient import TestClient
+    import server.main as main_module
+    import server.xpert_runtime.approval_api as approval_api
+
+    store = WorkflowExecutionStore(tmp_path)
+    approvals = RuntimeApprovalStore(tmp_path)
+    monkeypatch.setattr(main_module, "workflow_execution_store", store)
+    monkeypatch.setattr(approval_api, "_execution_store", store)
+    monkeypatch.setattr(approval_api, "_approval_store", approvals)
+    monkeypatch.setattr(approval_api, "_coordinator", None)
+
+    def pending_interaction(task_id, *, request_type="manual_input"):
+        item = store.create(
+            task_id=task_id,
+            run_id=f"{task_id}-run",
+            run_type="expert_team",
+            workflow={"steps": []},
+            inputs={"goal": "人工交互 API"},
+            source_kind="expert_team_agency",
+        )
+        approval = approvals.create_request(
+            action_key=task_id,
+            request_type=request_type,
+            task_id=item.task_id,
+            run_id=item.run_id,
+            node_id="interaction",
+            node_title="人工交互",
+            scope_type="expert_team_agency",
+            scope_id=item.task_id,
+            timeout_seconds=86400,
+            allowed_decisions=(
+                ["replace"]
+                if request_type == "manual_input"
+                else ["approve", "reject"]
+            ),
+        )
+        store.suspend(
+            item.task_id,
+            approval_id=approval.approval_id,
+            continuation={
+                "step_id": approval.node_id,
+                "kind": approval.request_type,
+            },
+        )
+        return item, approval
+
+    _, manual = pending_interaction("api-manual")
+    api = TestClient(main_module.app)
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_HITL_ENABLED", "0")
+    disabled = api.post(
+        f"/api/runtime/approvals/{manual.approval_id}/decide",
+        json={
+            "revision": manual.revision,
+            "decision": "replace",
+            "replacement_text": "采购负责人",
+        },
+    )
+    assert disabled.status_code == 503
+    assert disabled.json()["detail"]["code"] == "agency_hitl_disabled"
+
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_HITL_ENABLED", "1")
+    stale = api.post(
+        f"/api/runtime/approvals/{manual.approval_id}/decide",
+        json={
+            "revision": manual.revision + 1,
+            "decision": "replace",
+            "replacement_text": "采购负责人",
+        },
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "agency_interaction_revision_conflict"
+
+    decided = api.post(
+        f"/api/runtime/approvals/{manual.approval_id}/decide",
+        json={
+            "revision": manual.revision,
+            "decision": "replace",
+            "replacement_text": "采购负责人",
+        },
+    )
+    assert decided.status_code == 200
+    assert store.require("api-manual").status == "ready"
+
+    _, gate = pending_interaction("api-gate", request_type="execution_gate")
+    invalid_reject = api.post(
+        f"/api/runtime/approvals/{gate.approval_id}/decide",
+        json={
+            "revision": gate.revision,
+            "decision": "reject",
+            "message": "短",
+        },
+    )
+    assert invalid_reject.status_code == 422
+    assert invalid_reject.json()["detail"]["code"] == "agency_interaction_invalid"
+
+    _, expired = pending_interaction("api-expired")
+    approvals.expire_due(now=10**10)
+    reopened = api.post(
+        f"/api/runtime/approvals/{expired.approval_id}/reopen",
+        json={"revision": approvals.require(expired.approval_id).revision},
+    )
+    assert reopened.status_code == 200
+    assert reopened.json()["status"] == "pending"
 
 
 def test_execution_sse_replays_only_events_after_sequence(tmp_path, monkeypatch):
@@ -1992,6 +2669,27 @@ def test_execution_history_lists_only_agency_runs_without_full_events(tmp_path, 
         },
     )
     store.complete(agency.task_id, result="可交付结论")
+    approvals = RuntimeApprovalStore(tmp_path)
+    approval = approvals.create_request(
+        action_key="agency-history-input",
+        request_type="manual_input",
+        task_id=agency.task_id,
+        run_id=agency.run_id,
+        node_id="audience_input",
+        node_title="补充受众",
+        scope_type="expert_team_agency",
+        scope_id=agency.task_id,
+        timeout_seconds=86400,
+        allowed_decisions=["replace"],
+        description="请补充目标受众。",
+    )
+    approvals.decide(
+        approval.approval_id,
+        revision=approval.revision,
+        decision="replace",
+        operator="tester",
+        replacement_text="完整人工输入不应出现在最近任务摘要。",
+    )
     store.create(
         task_id="classic-history",
         run_id="classic-run",
@@ -2001,6 +2699,11 @@ def test_execution_history_lists_only_agency_runs_without_full_events(tmp_path, 
         source_kind="workflow_classic",
     )
     monkeypatch.setattr(main_module, "workflow_execution_store", store)
+    monkeypatch.setattr(
+        main_module.agency_execution_coordinator,
+        "approval_store",
+        approvals,
+    )
 
     response = TestClient(main_module.app).get("/api/expert-team/dag-runs?limit=10")
     assert response.status_code == 200
@@ -2018,7 +2721,15 @@ def test_execution_history_lists_only_agency_runs_without_full_events(tmp_path, 
         "feedback_preview": "这是反馈摘要。",
         "affected_task_ids": ["final"],
     }
+    assert payload["items"][0]["interaction"] == {
+        "step_id": "audience_input",
+        "kind": "human_input",
+        "status": "decided",
+        "decision": "replace",
+        "prompt_preview": "请补充目标受众。",
+    }
     assert "完整反馈" not in json.dumps(payload, ensure_ascii=False)
+    assert "完整人工输入" not in json.dumps(payload, ensure_ascii=False)
     assert "events" not in payload["items"][0]
     assert "steps" not in payload["items"][0]
 

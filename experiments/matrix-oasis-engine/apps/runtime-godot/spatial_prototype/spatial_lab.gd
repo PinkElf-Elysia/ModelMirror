@@ -10,7 +10,7 @@ const QUALIFICATION_ARGUMENT := "--matrix-oasis-spatial-qualification"
 const CAPTURE_ARGUMENT := "--matrix-oasis-spatial-capture"
 const QUALIFICATION_WARMUP_FRAMES := 120
 const QUALIFICATION_SAMPLE_FRAMES := 300
-const SCENE_LAB := preload("res://scene_binding/scene_lab.tscn")
+const SCENE_LAB := preload("res://spatial_prototype/spatial_scene_lab.tscn")
 const SPLAT_GUARD_SCRIPT := preload("res://spatial_prototype/spatial_splat_guard.gd")
 const SPLAT_NODE_SCRIPT := preload("res://addons/gdgs/runtime/nodes/gaussian_splat_node.gd")
 const COMPOSITOR_EFFECT_SCRIPT := preload("res://addons/gdgs/runtime/compositor/gaussian_compositor_effect.gd")
@@ -77,13 +77,29 @@ func _ready() -> void:
 	if not spatial["ok"]:
 		_fail(spatial["diagnostics"][0]["code"])
 		return
-	var scene_lab := SCENE_LAB.instantiate() as MatrixOasisSceneLab
+	var scene_lab := SCENE_LAB.instantiate() as MatrixOasisSpatialSceneLab
 	if scene_lab == null:
 		_fail("PACK_GODOT_SPATIAL_INTERNAL_ERROR")
 		return
 	scene_lab.set_prepared_for_test(loaded["prepared_runtime"], loaded["prepared_scene"])
+	if spatial["assembly"]["transforms"].has("nodeBindingLayout") and not scene_lab.set_spatial_binding_layout(
+		spatial["assembly"]["transforms"]["nodeBindingLayout"],
+		spatial["assembly"]["transforms"]["root"],
+		spatial["assembly"]["transforms"]["eulerOrder"],
+	):
+		_fail("PACK_GODOT_SPATIAL_INTERNAL_ERROR")
+		return
+	if spatial["assembly"]["transforms"].has("navigation") and not scene_lab.set_spatial_navigation(
+		spatial["assembly"]["transforms"]["navigation"],
+	):
+		_fail("PACK_GODOT_SPATIAL_INTERNAL_ERROR")
+		return
 	add_child(scene_lab)
 	if not _install_spatial_environment(scene_lab, spatial["assembly"], spatial["gaussian"]):
+		scene_lab.queue_free()
+		_fail("PACK_GODOT_SPATIAL_INTERNAL_ERROR")
+		return
+	if spatial["assembly"]["transforms"].has("navigation") and not scene_lab.activate_spatial_navigation():
 		scene_lab.queue_free()
 		_fail("PACK_GODOT_SPATIAL_INTERNAL_ERROR")
 		return
@@ -123,10 +139,14 @@ func _install_spatial_environment(scene_lab: MatrixOasisSceneLab, assembly: Dict
 	root.name = "R11SpatialEnvironment"
 	scene_world.add_child(root)
 	_apply_root_transform(root, assembly["transforms"]["root"], assembly["transforms"]["eulerOrder"])
-	if not _apply_placement_ground_target(scene_lab, placement_id, root, assembly["transforms"]["placementGroundTargetMm"]):
+	var has_placement_layout: bool = assembly["transforms"].has("placementLayout")
+	if has_placement_layout and not _apply_placement_layout(scene_lab, placement_id, root, assembly["transforms"]["placementLayout"]):
 		root.queue_free()
 		return false
-	if not _install_walkable_envelope(root, assembly["transforms"]["walkableEnvelope"]):
+	if not _apply_placement_ground_target(scene_lab, placement_id, root, assembly["transforms"]["placementGroundTargetMm"], has_placement_layout):
+		root.queue_free()
+		return false
+	if not _install_walkable_boundary(root, assembly["transforms"]["walkableEnvelope"], assembly["transforms"].get("navigation", null)):
 		root.queue_free()
 		return false
 	placement.reparent(root, false)
@@ -159,7 +179,14 @@ func _install_spatial_environment(scene_lab: MatrixOasisSceneLab, assembly: Dict
 	return true
 
 
-func _install_walkable_envelope(root: Node3D, value: Dictionary) -> bool:
+func _install_walkable_boundary(root: Node3D, value: Dictionary, navigation: Variant) -> bool:
+	if value["profile"] == "collider-agent-navigation-component-v7":
+		if typeof(navigation) != TYPE_DICTIONARY or navigation.get("profile") != "collider-agent-grid-v1":
+			return false
+		var evidence := Node3D.new()
+		evidence.name = "R11NavigationEvidence"
+		root.add_child(evidence)
+		return true
 	var minimum := _millimeters(value["minimumMm"])
 	var maximum := _millimeters(value["maximumMm"])
 	var wall_thickness := float(value["wallThicknessMm"]) / 1000.0
@@ -178,11 +205,11 @@ func _install_walkable_envelope(root: Node3D, value: Dictionary) -> bool:
 	return enclosure.get_child_count() == 5
 
 
-func _apply_placement_ground_target(scene_lab: MatrixOasisSceneLab, environment_placement_id: String, spatial_root: Node3D, target_mm: int) -> bool:
+func _apply_placement_ground_target(scene_lab: MatrixOasisSceneLab, environment_placement_id: String, spatial_root: Node3D, target_mm: int, use_layout_height: bool) -> bool:
 	var placements := scene_lab.get_node_or_null("SceneWorld/ScenePlacements") as Node3D
 	if placements == null or spatial_root == null or target_mm != 150:
 		return false
-	var target_global_y := spatial_root.to_global(Vector3.ZERO).y + float(target_mm) / 1000.0
+	var root_target_global_y := spatial_root.to_global(Vector3.ZERO).y + float(target_mm) / 1000.0
 	var adjusted := 0
 	for child in placements.get_children():
 		if child is Node3D and child.name != environment_placement_id:
@@ -190,9 +217,33 @@ func _apply_placement_ground_target(scene_lab: MatrixOasisSceneLab, environment_
 			var minimum_y := _mesh_minimum_global_y(placement)
 			if not is_finite(minimum_y):
 				return false
+			var layout_target_global_y := maxf(spatial_root.to_global(Vector3.ZERO).y, placement.global_position.y) + float(target_mm) / 1000.0
+			var target_global_y := layout_target_global_y if use_layout_height else root_target_global_y
 			placement.global_position.y += target_global_y - minimum_y
 			adjusted += 1
 	return adjusted >= 1
+
+
+func _apply_placement_layout(scene_lab: MatrixOasisSceneLab, environment_placement_id: String, spatial_root: Node3D, layout: Array) -> bool:
+	var placements := scene_lab.get_node_or_null("SceneWorld/ScenePlacements") as Node3D
+	if placements == null or spatial_root == null:
+		return false
+	var expected: Dictionary = {}
+	for child in placements.get_children():
+		if child is Node3D and child.name != environment_placement_id:
+			expected[String(child.name)] = child
+	if expected.size() != layout.size():
+		return false
+	for entry: Dictionary in layout:
+		var placement_id: String = entry["placementId"]
+		var placement := expected.get(placement_id) as Node3D
+		if placement == null:
+			return false
+		var local_target := _millimeters(entry["positionMm"])
+		var global_target := spatial_root.to_global(local_target)
+		placement.global_position = global_target
+		expected.erase(placement_id)
+	return expected.is_empty()
 
 
 func _mesh_minimum_global_y(root: Node3D) -> float:

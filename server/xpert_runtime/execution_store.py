@@ -17,6 +17,7 @@ WorkflowExecutionStatus = Literal[
     "completed",
     "failed",
     "cancelled",
+    "rejected",
 ]
 WorkflowExecutionSourceKind = Literal[
     "workflow_classic",
@@ -296,6 +297,23 @@ class WorkflowExecutionStore:
             self._persist_unlocked()
             return item
 
+    def release_ready(self, task_id: str) -> WorkflowExecution:
+        """Release a claimed continuation so a bounded coordinator can retry it."""
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            if item.status != "running" or not item.wait_id:
+                raise WorkflowExecutionConflictError(
+                    "Only a claimed waiting continuation can be deferred."
+                )
+            item.status = "ready"
+            item.lease_owner = None
+            item.lease_token = None
+            item.lease_expires_at = 0.0
+            item.updated_at = time.time()
+            item.revision += 1
+            self._persist_unlocked()
+            return item
+
     def append_event(self, task_id: str, event: dict[str, Any]) -> WorkflowExecution:
         with self._lock:
             item = self._require_unlocked(task_id)
@@ -362,6 +380,9 @@ class WorkflowExecutionStore:
 
     def cancel(self, task_id: str, *, error: str = "cancelled") -> WorkflowExecution:
         return self._finish(task_id, status="cancelled", error=error)
+
+    def reject(self, task_id: str, *, error: str = "rejected") -> WorkflowExecution:
+        return self._finish(task_id, status="rejected", error=error)
 
     def _finish(
         self,
@@ -619,7 +640,7 @@ class WorkflowExecutionStore:
                     raw["wait_kind"] = "approval"
                     raw["wait_id"] = raw.get("approval_id")
                 item = WorkflowExecution(**raw)
-                if item.status == "running":
+                if item.status == "running" and item.source_kind != "expert_team_agency":
                     item.status = "ready" if item.wait_id is None else "waiting"
                     item.lease_owner = None
                     item.lease_token = None

@@ -2,8 +2,11 @@
  * DAG 执行引擎 — 核心调度器
  *
  * MODELMIRROR MODIFICATION: callers may inject in-memory agent and Skill
- * resolvers plus a host-owned template-context view. The default upstream
- * file-loader and unmodified-context behavior remain unchanged.
+ * resolvers, a host-owned template-context view, deterministic output
+ * normalization, strict host verification policy, and a durable interaction
+ * resolver for HITL checkpoints.
+ * The default upstream file-loader, context, output, and CLI/readline behavior
+ * remain unchanged when those hooks are omitted.
  */
 import type {
   WorkflowDefinition,
@@ -49,6 +52,10 @@ export interface ExecutorOptions {
     output: string,
     acceptance: string,
   ) => VerifyVerdict | null;
+  /** Optional host-owned deterministic output normalization before verification. */
+  normalizeOutput?: (node: DAGNode, output: string) => string;
+  /** Optional host policy that can fail a step when verification is unavailable or remains unsuccessful. */
+  rejectUnverifiedOutput?: (node: DAGNode, output: string) => Error | null;
   /** 每步完成的回调 */
   onStepComplete?: (node: DAGNode) => void;
   onStepStart?: (node: DAGNode) => void;
@@ -80,6 +87,23 @@ export interface ExecutorOptions {
    * 由 run() 从旧 metadata 读出传入——续跑产生的新档案才不丢被复用步骤的验收记录。
    */
   restoredStepMeta?: Map<string, Partial<StepResult>>;
+  /** Optional host-owned durable HITL resolver. CLI/readline remains the default. */
+  resolveInteraction?: (request: InteractionRequest) => Promise<string>;
+}
+
+export interface InteractionRequest {
+  stepId: string;
+  kind: 'human_input' | 'approval';
+  prompt: string;
+  content: string;
+  outputVariable?: string;
+}
+
+export class InteractionRequired extends Error {
+  constructor(public readonly request: InteractionRequest) {
+    super(`Interaction required for step "${request.stepId}".`);
+    this.name = 'InteractionRequired';
+  }
 }
 
 export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<WorkflowResult> {
@@ -204,6 +228,9 @@ export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<Wo
           resolveSkill: options.resolveSkill,
           prepareTemplateContext: options.prepareTemplateContext,
           validateOutput: options.validateOutput,
+          normalizeOutput: options.normalizeOutput,
+          rejectUnverifiedOutput: options.rejectUnverifiedOutput,
+          resolveInteraction: options.resolveInteraction,
         }).then(value => {
           // 中断兜底：settle 即写入 sink 一份最小记录，不等整批屏障——否则并行批次里
           // 先完成的步骤在 SIGTERM 时会被当作"未完成"丢弃（产出和 token 白花）。
@@ -226,6 +253,11 @@ export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<Wo
           return value;
         }))
       );
+
+      const pendingInteraction = results.find(
+        result => result.status === 'rejected' && result.reason instanceof InteractionRequired,
+      );
+      if (pendingInteraction?.status === 'rejected') throw pendingInteraction.reason;
 
       // 处理结果
       for (let j = 0; j < batch.length; j++) {
@@ -441,6 +473,9 @@ async function executeStep(
       output: string,
       acceptance: string,
     ) => VerifyVerdict | null;
+    normalizeOutput?: (node: DAGNode, output: string) => string;
+    rejectUnverifiedOutput?: (node: DAGNode, output: string) => Error | null;
+    resolveInteraction?: (request: InteractionRequest) => Promise<string>;
   }
 ): Promise<string> {
   node.status = 'running';
@@ -463,12 +498,39 @@ async function executeStep(
 
   // 人工审批节点
   if (node.step.type === 'approval') {
-    return await handleApproval(node, opts.context);
+    const prompt = node.step.prompt
+      ? renderTemplate(node.step.prompt, opts.context)
+      : '请确认是否继续 (yes/no):';
+    const content = node.step.task ? renderTemplate(node.step.task, opts.context) : '';
+    return opts.resolveInteraction
+      ? await opts.resolveInteraction({
+          stepId: node.step.id,
+          kind: 'approval',
+          prompt,
+          content,
+          outputVariable: node.step.output,
+        })
+      : await handleApproval(node, opts.context);
   }
 
   // 人工输入节点：跑到这步暂停、读取用户输入，作为该步产出注入下游
   if (node.step.type === 'human_input') {
-    return await handleHumanInput(node, opts.context);
+    const outVar = node.step.output;
+    const prefilled = outVar ? opts.context.get(outVar) : undefined;
+    if (prefilled?.trim()) return prefilled;
+    const prompt = node.step.prompt
+      ? renderTemplate(node.step.prompt, opts.context)
+      : '请输入：';
+    const content = node.step.task ? renderTemplate(node.step.task, opts.context).trim() : '';
+    return opts.resolveInteraction
+      ? await opts.resolveInteraction({
+          stepId: node.step.id,
+          kind: 'human_input',
+          prompt,
+          content,
+          outputVariable: node.step.output,
+        })
+      : await handleHumanInput(node, opts.context);
   }
 
   // 加载角色定义（步骤级 name/emoji 优先）
@@ -612,12 +674,18 @@ async function executeStep(
     throw lastError || new Error(`step "${node.step.id}" 执行失败`);
   };
 
-  const content = await callLLM(userMessage);
+  const generatedContent = await callLLM(userMessage);
+  const content = opts.normalizeOutput?.(node, generatedContent) ?? generatedContent;
 
   // acceptance 自动核验 + 一轮自动返工。验收不过是质量信号而非执行错误：
   // 步骤不会因此 failed，最坏情况是返回"带 ⚠️ 标记的返工版"照常流向下游。
   const verifyEnabled = opts.verify === true && node.step.verify !== false;
   if (!verifyEnabled || !node.acceptance || !content.trim()) {
+    const rejection = opts.rejectUnverifiedOutput?.(node, content);
+    if (rejection) {
+      node.result = content;
+      throw rejection;
+    }
     return content;
   }
 
@@ -629,6 +697,11 @@ async function executeStep(
   if (!check1.verdict) {
     // 核验不可用（网络错误 / 两次解析失败）→ 跳过核验，不拦产出（检查员宕机不停产线）
     process.stderr.write(`\n  ⚠️  ${node.step.id} 验收核验不可用，已跳过核验\n`);
+    const rejection = opts.rejectUnverifiedOutput?.(node, content);
+    if (rejection) {
+      node.result = content;
+      throw rejection;
+    }
     return content;
   }
   if (check1.verdict.pass) {
@@ -640,12 +713,18 @@ async function executeStep(
   process.stderr.write(`\n  ⟳ ${node.step.id} 验收未过（${failed1.length} 条未满足），自动返工一轮...\n`);
   let reworked: string;
   try {
-    reworked = await callLLM(userMessage + buildReworkBlock(check1.verdict.failed, content));
+    const generatedRework = await callLLM(userMessage + buildReworkBlock(check1.verdict.failed, content));
+    reworked = opts.normalizeOutput?.(node, generatedRework) ?? generatedRework;
   } catch (err) {
     // 返工生成失败（重试耗尽）→ 保留第一版：质检加严绝不能反过来搞挂本已成功的步骤
     const msg = err instanceof Error ? err.message.slice(0, 80) : String(err);
     process.stderr.write(`\n  ⚠️  ${node.step.id} 返工生成失败（${msg}），保留原产出\n`);
     node.verification = { pass: false, failed: failed1, reworked: false };
+    const rejection = opts.rejectUnverifiedOutput?.(node, content);
+    if (rejection) {
+      node.result = content;
+      throw rejection;
+    }
     return content;
   }
 
@@ -663,6 +742,11 @@ async function executeStep(
     // 复核不可用 → 保守：沿用第一轮未满足条目、记未通过（宁可多标 ⚠️，不冒充通过）
     node.verification = { pass: false, failed: failed1, reworked: true };
     process.stderr.write(`\n  ⚠️  ${node.step.id} 返工后复核不可用，验收状态按未通过记录\n`);
+  }
+  const rejection = opts.rejectUnverifiedOutput?.(node, reworked);
+  if (rejection) {
+    node.result = reworked;
+    throw rejection;
   }
   return reworked;
 }

@@ -1,0 +1,7 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scene_binding/scene_lab.tscn" id="1_scene"]
+[ext_resource type="Script" path="res://spatial_prototype/spatial_scene_lab.gd" id="2_script"]
+
+[node name="MatrixOasisR12SpatialSceneLab" instance=ExtResource("1_scene")]
+script = ExtResource("2_script")

@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
+import re
 import signal
 import subprocess
 import time
@@ -30,12 +32,28 @@ MAX_MODEL_CALLS = 3
 
 ModelRunner = Callable[[AgencyModelRequest], Awaitable[AgencyModelResponse | str]]
 
+logger = logging.getLogger(__name__)
+
 
 class AgencyWorkerError(RuntimeError):
-    def __init__(self, message: str, *, code: str, diagnostics: str = "") -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        diagnostics: str = "",
+        usage: Mapping[str, int] | None = None,
+        finish_reason: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.diagnostics = diagnostics
+        self.usage = {
+            str(key): max(0, int(value))
+            for key, value in (usage or {}).items()
+            if isinstance(value, int) and not isinstance(value, bool)
+        }
+        self.finish_reason = str(finish_reason or "")[:80] or None
 
 
 class AgencyWorkerClient:
@@ -132,6 +150,7 @@ class AgencyWorkerClient:
         pinned_agent_ids: Sequence[str] = (),
         max_agents: int = 5,
         temperature: float = 0.2,
+        allow_hitl: bool = False,
     ) -> dict[str, Any]:
         return (
             await self.call(
@@ -144,6 +163,7 @@ class AgencyWorkerClient:
                     "pinned_agent_ids": list(pinned_agent_ids),
                     "max_agents": max_agents,
                     "temperature": temperature,
+                    "allow_hitl": bool(allow_hitl),
                 },
             )
         ).payload
@@ -233,7 +253,11 @@ class AgencyWorkerClient:
                             "Agency worker exceeded the model call limit.",
                             code="model_call_limit",
                         )
-                    await self._serve_model_request(process, message)
+                    await self._serve_model_request(
+                        process,
+                        message,
+                        timeout_seconds=max(0.05, remaining),
+                    )
                     continue
                 if message.get("type") != "response":
                     raise AgencyWorkerError(
@@ -243,9 +267,25 @@ class AgencyWorkerClient:
                 if message.get("ok") is not True:
                     error = message.get("error")
                     error = error if isinstance(error, dict) else {}
+                    process.stdin.close()
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(process.wait(), timeout=2.0)
+                    if stderr_task is not None:
+                        with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                            await asyncio.wait_for(
+                                asyncio.shield(stderr_task), timeout=1.0
+                            )
+                    diagnostics = self._safe_worker_diagnostics(stderr)
+                    if diagnostics:
+                        logger.warning(
+                            "Agency worker returned %s: %s",
+                            str(error.get("code") or "worker_failed"),
+                            diagnostics,
+                        )
                     raise AgencyWorkerError(
                         str(error.get("message") or "Agency worker failed."),
                         code=str(error.get("code") or "worker_failed"),
+                        diagnostics=diagnostics,
                     )
                 result = message.get("result")
                 if not isinstance(result, dict):
@@ -279,6 +319,8 @@ class AgencyWorkerClient:
         self,
         process: asyncio.subprocess.Process,
         message: dict[str, Any],
+        *,
+        timeout_seconds: float,
     ) -> None:
         assert process.stdin is not None
         request_id = str(message.get("request_id") or "")
@@ -298,7 +340,16 @@ class AgencyWorkerClient:
                     "Agency model runner is not configured.",
                     code="model_runner_unavailable",
                 )
-            response = await self.model_runner(request)
+            try:
+                response = await asyncio.wait_for(
+                    self.model_runner(request),
+                    timeout=timeout_seconds,
+                )
+            except TimeoutError as exc:
+                raise AgencyWorkerError(
+                    "Agency worker timed out during a model request.",
+                    code="worker_timeout",
+                ) from exc
             if isinstance(response, str):
                 response = AgencyModelResponse(content=response)
             envelope: dict[str, Any] = {
@@ -323,6 +374,14 @@ class AgencyWorkerClient:
                         if isinstance(exc, (AgencyWorkerError, ValidationError))
                         else "Model call failed."
                     ),
+                    "usage": (
+                        exc.usage if isinstance(exc, AgencyWorkerError) else {}
+                    ),
+                    "finish_reason": (
+                        exc.finish_reason
+                        if isinstance(exc, AgencyWorkerError)
+                        else None
+                    ),
                 },
             }
         process.stdin.write(self._encode(envelope, code="model_response_too_large"))
@@ -340,6 +399,30 @@ class AgencyWorkerClient:
             remaining = MAX_STDERR_BYTES - len(target)
             if remaining > 0:
                 target.extend(chunk[:remaining])
+
+    @staticmethod
+    def _safe_worker_diagnostics(stderr: bytearray) -> str:
+        """Keep only a bounded stack tail for server-side diagnosis."""
+
+        lines = [
+            line.strip()
+            for line in bytes(stderr).decode("utf-8", errors="replace").splitlines()
+            if line.strip()
+        ]
+        if not lines:
+            return ""
+        error_line = next(
+            (
+                index
+                for index in range(len(lines) - 1, -1, -1)
+                if re.search(
+                    r"(?:^|\b)(?:Error|TypeError|ReferenceError|RangeError|SyntaxError):",
+                    lines[index],
+                )
+            ),
+            max(0, len(lines) - 4),
+        )
+        return "\n".join(lines[error_line : error_line + 8])[:4_000]
 
     @classmethod
     async def _spawn_process(

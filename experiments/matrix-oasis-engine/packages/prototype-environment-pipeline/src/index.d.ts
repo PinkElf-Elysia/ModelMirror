@@ -98,6 +98,7 @@ export declare const MARBLE_PROVIDER_LIMITS: Readonly<{
   responseBytes: 1048576;
   panoramaBytes: 67108864;
   colliderBytes: 33554432;
+  spzBytes: 67108864;
   pollAttempts: 180;
   pollIntervalMs: 10000;
   promptCharacters: 2000;
@@ -112,7 +113,32 @@ export declare const PROTOTYPE_ENVIRONMENT_LIMITS: Readonly<{
   panoramaWidth: 16384;
   panoramaHeight: 8192;
   colliderBytes: 33554432;
+  spzBytes: 67108864;
 }>;
+
+export declare const PROTOTYPE_SPATIAL_SOURCE_BUNDLE_FORMAT:
+  "matrix-oasis.prototype-spatial-source-bundle";
+export declare const PROTOTYPE_SPATIAL_SOURCE_BUNDLE_FORMAT_VERSION: "0.1.0";
+
+export interface PrototypeSpatialSourceBundle {
+  readonly format: "matrix-oasis.prototype-spatial-source-bundle";
+  readonly formatVersion: "0.1.0";
+  readonly canonicalization: "matrix-oasis.canonical-json/1";
+  readonly scene: PrototypeEnvironmentBundle["scene"];
+  readonly blueprint: PrototypeEnvironmentBundle["blueprint"];
+  readonly environment: Readonly<{
+    bundleSha256: string;
+    collider: Readonly<{ path: "assets/environment-collider.glb"; byteLength: number; sha256: string }>;
+  }>;
+  readonly source: Readonly<{
+    path: "assets/environment.spz";
+    format: "spz";
+    resolution: "full_res";
+    byteLength: number;
+    sha256: string;
+  }>;
+  readonly scale: Readonly<{ metricScaleMicros: number; groundPlaneOffsetMm: number }>;
+}
 
 export declare class PrototypeEnvironmentPipelineOperationalError extends Error {
   readonly code: "PROTOTYPE_ENVIRONMENT_PIPELINE_INTERNAL_ERROR";
@@ -121,8 +147,45 @@ export declare class PrototypeEnvironmentPipelineOperationalError extends Error 
 export declare function createMarbleWorldProvider(
   config: MarbleWorldProviderConfig,
 ): MarbleWorldProvider;
+export declare function listMarbleWorlds(
+  provider: MarbleWorldProvider,
+): Promise<
+  | Readonly<{
+      ok: true;
+      worlds: readonly Readonly<{
+        worldId: string;
+        createdAt: string;
+        updatedAt: string;
+        model: "marble-1.1";
+        worldPrompt: string;
+        assets: Readonly<{ panorama: boolean; collider: boolean; spatialSource: boolean }>;
+      }>[];
+      counts: Readonly<{ listRequests: 1; creates: 0; polls: 0; worldGets: 0; downloads: 0 }>;
+    }>
+  | PrototypeEnvironmentFailure
+>;
+export declare function recoverMarbleEnvironmentWithSpatialSource(
+  provider: MarbleWorldProvider,
+  worldId: string,
+): Promise<
+  | Readonly<{
+      ok: true;
+      panoramaBytes: Uint8Array;
+      colliderBytes: Uint8Array;
+      spzBytes: Uint8Array;
+      metricScaleFactor: number;
+      groundPlaneOffset: number;
+      worldPrompt: string;
+      worldSource: "get-world-recovery";
+      counts: Readonly<{ creates: 0; polls: 0; worldGets: 1; downloads: 3 }>;
+    }>
+  | PrototypeEnvironmentFailure
+>;
 export declare function planPrototypeEnvironment(
   sceneBlueprintJson: string,
+  options?: Readonly<{
+    profile: "matrix-oasis.prototype-environment/2";
+  }>,
 ): PrototypeEnvironmentPlan | PrototypeEnvironmentFailure;
 export declare function materializePrototypeEnvironment(
   request: Readonly<{
@@ -152,6 +215,81 @@ export declare function materializePrototypeEnvironment(
 export declare function validatePrototypeEnvironmentBundleJson(
   text: string,
   files: ReadonlyMap<string, Uint8Array>,
+): Readonly<{
+  reportVersion: 1;
+  valid: boolean;
+  diagnostics: readonly PrototypeEnvironmentDiagnostic[];
+}>;
+
+export declare function materializePrototypeEnvironmentWithSpatialSource(
+  request: Readonly<{
+    plan: PrototypeEnvironmentPlan;
+    approval: Readonly<{
+      blueprintSha256: string;
+      model: "marble-1.1";
+      maxCreateRequests: 1;
+      maxPollAttempts: 180;
+      maxWorldGets: 1;
+      maxDownloads: 3;
+      creditLimit: 1600;
+      usdLimitCents: 150;
+    }>;
+  }>,
+  provider: MarbleWorldProvider,
+): Promise<
+  | Readonly<{
+      ok: true;
+      environment: Readonly<{
+        bundle: PrototypeEnvironmentBundle;
+        canonicalBundleJson: string;
+        canonicalReportJson: string;
+        files: readonly PrototypeEnvironmentFile[];
+      }>;
+      spatialSource: Readonly<{
+        bundle: PrototypeSpatialSourceBundle;
+        canonicalBundleJson: string;
+        canonicalReportJson: string;
+        files: readonly Readonly<{ path: "assets/environment.spz" | "assets/environment-collider.glb"; bytes: Uint8Array }>[];
+      }>;
+    }>
+  | PrototypeEnvironmentFailure
+>;
+
+export declare function materializeRecoveredPrototypeEnvironmentWithSpatialSource(
+  request: Readonly<{
+    plan: PrototypeEnvironmentPlan;
+    recovered: Readonly<{
+      panoramaBytes: Uint8Array;
+      colliderBytes: Uint8Array;
+      spzBytes: Uint8Array;
+      metricScaleFactor: number;
+      groundPlaneOffset: number;
+      worldSource: "get-world-recovery";
+      counts: Readonly<{ creates: 0; polls: 0; worldGets: 1; downloads: 3 }>;
+    }>;
+  }>,
+):
+  | Readonly<{
+      ok: true;
+      environment: Readonly<{
+        bundle: PrototypeEnvironmentBundle;
+        canonicalBundleJson: string;
+        canonicalReportJson: string;
+        files: readonly PrototypeEnvironmentFile[];
+      }>;
+      spatialSource: Readonly<{
+        bundle: PrototypeSpatialSourceBundle;
+        canonicalBundleJson: string;
+        canonicalReportJson: string;
+        files: readonly Readonly<{ path: "assets/environment.spz" | "assets/environment-collider.glb"; bytes: Uint8Array }>[];
+      }>;
+    }>
+  | PrototypeEnvironmentFailure;
+
+export declare function validatePrototypeSpatialSourceBundleJson(
+  text: string,
+  files: ReadonlyMap<string, Uint8Array>,
+  environmentBundleJson: string,
 ): Readonly<{
   reportVersion: 1;
   valid: boolean;

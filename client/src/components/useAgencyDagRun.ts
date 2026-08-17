@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AgencyDagEvent,
+  AgencyInteractionDecisionPayload,
   AgencyDagRun,
   AgencyDagRevisionPayload,
   AgencyDagStartPayload,
@@ -12,6 +13,7 @@ const terminalStatuses = new Set<AgencyDagStatus>([
   "completed",
   "failed",
   "cancelled",
+  "rejected",
 ]);
 
 class AgencyDagApiError extends Error {
@@ -22,10 +24,16 @@ class AgencyDagApiError extends Error {
 }
 
 async function responseJson<T>(response: Response): Promise<T> {
-  const payload = (await response.json()) as T & { error?: string };
+  const payload = (await response.json()) as T & {
+    error?: string;
+    detail?: string | { error?: string; code?: string };
+  };
   if (!response.ok) {
+    const detail = typeof payload.detail === "string"
+      ? payload.detail
+      : payload.detail?.error;
     throw new AgencyDagApiError(
-      payload.error || `请求失败（${response.status}）`,
+      payload.error || detail || `请求失败（${response.status}）`,
       response.status,
     );
   }
@@ -102,6 +110,8 @@ function mergeEvent(run: AgencyDagRun, event: AgencyDagEvent): AgencyDagRun {
   if (event.event === "agency.run.completed") status = "completed";
   if (event.event === "agency.run.failed") status = "failed";
   if (event.event === "agency.run.cancelled") status = "cancelled";
+  if (event.event === "agency.run.rejected") status = "rejected";
+  if (event.event === "agency.interaction.pending") status = "waiting";
   const modelCalls = event.model_calls ?? run.model_calls;
   const usage = event.cumulative_usage ?? (
     event.event.startsWith("agency.run.") ? event.usage ?? run.usage : run.usage
@@ -204,6 +214,9 @@ export function useAgencyDagRun() {
             runRef.current = next;
             return next;
           });
+          if (event.event.startsWith("agency.interaction.")) {
+            void refresh(taskId).catch(() => undefined);
+          }
         } catch {
           setError("收到无法解析的 DAG 事件，请刷新状态。");
         }
@@ -361,6 +374,69 @@ export function useAgencyDagRun() {
     }
   }, [closeEvents, connectEvents, setCurrentRun]);
 
+  const decideInteraction = useCallback(async (
+    payload: AgencyInteractionDecisionPayload,
+  ) => {
+    const taskId = runRef.current?.task_id;
+    if (!taskId) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/runtime/approvals/${payload.approval_id}/decide`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            revision: payload.revision,
+            decision: payload.decision,
+            operator: "expert-team-user",
+            replacement_text: payload.replacement_text,
+            message: payload.message,
+          }),
+        },
+      );
+      await responseJson<Record<string, unknown>>(response);
+      const latest = await refresh(taskId);
+      if (!terminalStatuses.has(latest.status)) connectEvents(taskId);
+      return latest;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "提交人工交互失败。");
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }, [connectEvents, refresh]);
+
+  const reopenInteraction = useCallback(async () => {
+    const current = runRef.current;
+    const interaction = current?.pending_interaction;
+    if (!current || !interaction) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/runtime/approvals/${interaction.approval_id}/reopen`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            revision: interaction.revision,
+            timeout_seconds: 86400,
+            operator: "expert-team-user",
+          }),
+        },
+      );
+      await responseJson<Record<string, unknown>>(response);
+      return await refresh(current.task_id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "重新开启人工交互失败。");
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }, [refresh]);
+
   const clear = useCallback(() => {
     const taskId = runRef.current?.task_id || recentTaskFromBrowser();
     closeEvents();
@@ -369,5 +445,18 @@ export function useAgencyDagRun() {
     if (taskId) forgetTask(taskId);
   }, [closeEvents, setCurrentRun]);
 
-  return { run, error, busy, start, retry, revise, cancel, restore, refresh, clear };
+  return {
+    run,
+    error,
+    busy,
+    start,
+    retry,
+    revise,
+    cancel,
+    restore,
+    refresh,
+    clear,
+    decideInteraction,
+    reopenInteraction,
+  };
 }

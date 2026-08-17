@@ -1,18 +1,19 @@
 # 矩阵绿洲独立实验模块
 
-这是模镜仓库中可拆分的独立AI原生3D引擎实验模块。R1–R10已建立严格Pack、确定性Runtime、Godot可玩层、真实Meshy资产、Marble panorama/collider与Creator一键预览；R11只收口环境空间体验。
+这是模镜仓库中可拆分的AI原生3D引擎实验模块。R1–R11已建立严格Pack、确定性Runtime、真实资产、Marble空间环境和Godot可玩层；R12负责最后的初版声明硬门。
 
-## R11目标
+## R12目标
 
 ```text
-冻结R10原型 → Marble SPZ离线转换 + collider
-→ Godot Compute Gaussian Splat → 米制对齐 → Creator空间预览
+纯自然语言 → Generation Proposal → Authoring/Runtime
+→ Marble空间环境 + 3名静态人物 + 3件关键道具
+→ Scene/Spatial组装 → Godot三结局、循环与重置
 ```
 
-- 固定基线：`da2a914a2ff131507750a0afb8d8881180530f62`。
-- 固定使用已取得的SPZ/collider缓存；本轮不调用Marble、Meshy或模型。
-- 权威离线中间格式为deterministic compressed PLY；SOG不作为缓存合同。
-- Godot固定Forward+ Compute后端，不允许Raster或panorama静默回退。
-- R11通过只宣称空间环境渲染、碰撞和既有Runtime组合可用，不宣称初版闭环、生产级环境资产或跨GPU性能一致。初版闭环由R12以末班地铁自然语言案例的正式人物与完整游戏运行时全流程另行验收。
+- 固定基线：`6a88c648f3db2afc39574a57066a14c341c161f9`。
+- 冻结末班地铁JSON仅作语义oracle，生成提示不包含JSON、冻结ID或Schema片段。
+- 既有中性真实缓存必须通过同一R12链路，源码不得加入题材分支。
+- 普通验证不联网、不读取密钥、不产生费用；真实资格调用必须分模型和环境/资产两次取得当次批准。
+- R12自动、真实资格与人工验收全部通过前，不得宣称“自然语言到可玩3D初版闭环完成”。
 
-主要命令：`verify:spatial-environment`、`verify:spatial-assembly`、`verify:godot:splat`、`verify:spatial-builder`和`verify:r11`。R11.5使用`import:spatial-prototype-cache`把已经验证的R10 run与Spatial产物发布为独立overlay，再由`preview:spatial-prototype`启动一次性Compute预览工程；不会修改R10 run或`current.json`。完整回归仍使用`npm.cmd run verify`。
+当前状态由`docs/MVP_STATUS.json`和`npm.cmd run check:mvp-claim`机器化约束。完整回归仍使用`npm.cmd run verify`。

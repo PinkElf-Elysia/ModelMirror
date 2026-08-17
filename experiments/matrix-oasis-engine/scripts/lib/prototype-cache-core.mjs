@@ -20,6 +20,8 @@ const ARGUMENTS = Object.freeze({
 });
 const HASH = /^sha256:[0-9a-f]{64}$/u;
 const SAFE_RUN = /^[0-9a-f]{64}-[0-9a-f]{64}$/u;
+const ASSEMBLY_PROFILE_V1 = "matrix-oasis.prototype-assembly/1";
+const ASSEMBLY_PROFILE_V2 = "matrix-oasis.prototype-assembly/2";
 
 export class PrototypeCacheOperationalError extends Error {
   constructor(code = "PROTOTYPE_CACHE_INTERNAL_ERROR") {
@@ -28,6 +30,11 @@ export class PrototypeCacheOperationalError extends Error {
 }
 
 function fail(code) { throw new PrototypeCacheOperationalError(code); }
+function assemblyOptions(profile) {
+  if (profile === ASSEMBLY_PROFILE_V1) return undefined;
+  if (profile === ASSEMBLY_PROFILE_V2) return Object.freeze({ profile });
+  return null;
+}
 function sha256(bytes) { return `sha256:${createHash("sha256").update(bytes).digest("hex")}`; }
 function equalBytes(left, right) { return left.length === right.length && left.every((byte, index) => byte === right[index]); }
 function contained(root, candidate) { const relative = path.relative(root, candidate); return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)); }
@@ -139,12 +146,15 @@ function safeGenerationReport(value, texts) {
 }
 
 function safeEnvironmentReport(value, bundleText, environmentFiles) {
+  const liveCounts = value?.counts?.creates === 1 && Number.isSafeInteger(value.counts.polls) &&
+    value.counts.polls >= 1 && value.counts.polls <= 180;
+  const recoveredCounts = value?.counts?.creates === 0 && value.counts.polls === 0;
   if (!exactKeys(value, ["bundleSha256", "counts", "files", "format", "formatVersion", "provider"]) ||
       value.format !== "matrix-oasis.prototype-environment-materialization-report" || value.formatVersion !== "0.1.0" ||
       value.bundleSha256 !== sha256(new TextEncoder().encode(bundleText)) ||
       !exactKeys(value.provider, ["id", "model"]) || value.provider.id !== "world-labs-marble" || value.provider.model !== "marble-1.1" ||
-      !exactKeys(value.counts, ["creates", "downloads", "polls", "worldGets"]) || value.counts.creates !== 1 ||
-      value.counts.downloads !== 2 || value.counts.worldGets !== 1 || !Number.isSafeInteger(value.counts.polls) || value.counts.polls < 1 || value.counts.polls > 180 ||
+      !exactKeys(value.counts, ["creates", "downloads", "polls", "worldGets"]) ||
+      value.counts.downloads !== 2 || value.counts.worldGets !== 1 || (!liveCounts && !recoveredCounts) ||
       !Array.isArray(value.files) || value.files.length !== 2) return false;
   const expected = ["assets/environment-panorama.png", "assets/environment-collider.glb"];
   return expected.every((name, index) => {
@@ -259,6 +269,43 @@ async function publishRun(runRoot, runId, artifacts, services) {
   return target;
 }
 
+async function verifyExactPublishedArtifacts(runRoot, runId, artifacts, services) {
+  const runs = await trustedDirectory(path.join(runRoot.path, "runs"), runRoot.path, services,
+    "PROTOTYPE_CACHE_RUN_ROOT_INVALID");
+  const directory = await trustedDirectory(path.join(runs.path, runId), runs.path, services,
+    "PROTOTYPE_CACHE_INPUT_INVALID");
+  const expectedRoot = [];
+  const expectedAssets = [];
+  for (const artifact of artifacts) {
+    const nested = artifact.path.startsWith("assets/");
+    (nested ? expectedAssets : expectedRoot).push(nested ? artifact.path.slice(7) : artifact.path);
+  }
+  expectedRoot.push("assets");
+  expectedRoot.sort();
+  expectedAssets.sort();
+  const rootEntries = await services.readdir(directory.path, { withFileTypes: true });
+  if (JSON.stringify(rootEntries.map((entry) => entry.name).sort()) !== JSON.stringify(expectedRoot) ||
+      rootEntries.some((entry) => entry.isSymbolicLink() ||
+        (entry.name === "assets" ? !entry.isDirectory() : !entry.isFile()))) {
+    fail("PROTOTYPE_CACHE_INPUT_INVALID");
+  }
+  const assets = await trustedDirectory(path.join(directory.path, "assets"), directory.path, services,
+    "PROTOTYPE_CACHE_INPUT_INVALID");
+  const assetEntries = await services.readdir(assets.path, { withFileTypes: true });
+  if (JSON.stringify(assetEntries.map((entry) => entry.name).sort()) !== JSON.stringify(expectedAssets) ||
+      assetEntries.some((entry) => entry.isSymbolicLink() || !entry.isFile())) {
+    fail("PROTOTYPE_CACHE_INPUT_INVALID");
+  }
+  for (const artifact of artifacts) {
+    const nested = artifact.path.startsWith("assets/");
+    const parent = nested ? assets : directory;
+    const name = nested ? artifact.path.slice(7) : artifact.path;
+    const bytes = await readStableFile(parent, name, artifact.bytes.length, services,
+      "PROTOTYPE_CACHE_INPUT_INVALID");
+    if (!equalBytes(bytes, artifact.bytes)) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+  }
+}
+
 async function publishCurrent(runRoot, runId, services, canonicalize) {
   const text = canonicalize({ format: "matrix-oasis.prototype-current", formatVersion: "0.1.0", runId });
   const temporary = path.join(runRoot.path, `.current-${runId}.tmp`); let handle; let temporaryIdentity;
@@ -301,6 +348,7 @@ async function publishCurrent(runRoot, runId, services, canonicalize) {
 
 async function publishPreparedPrototypeRun({
   promptBytes,
+  promptSha256: suppliedPromptSha256,
   texts,
   assetText,
   assetBundle,
@@ -314,19 +362,25 @@ async function publishPreparedPrototypeRun({
   services,
   assemblePrototypeScene,
   canonicalizeJsonValue,
+  assemblyProfile = ASSEMBLY_PROFILE_V1,
+  activateCurrent = true,
+  reuseExisting = false,
 }) {
   const generationReport = parseCanonical(texts["generation-report.json"], canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
   if (!safeGenerationReport(generationReport, texts)) fail("PROTOTYPE_CACHE_INPUT_INVALID");
   const environmentReport = parseCanonical(environmentReportText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
   if (!safeEnvironmentReport(environmentReport, environmentText, environmentFiles)) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+  const selectedAssemblyOptions = assemblyOptions(assemblyProfile);
+  if (selectedAssemblyOptions === null) fail("PROTOTYPE_CACHE_INPUT_INVALID");
   const assembled = await assemblePrototypeScene({ authoringGamePackJson: texts["authoring-game-pack.json"],
     sceneBlueprintJson: texts["scene-blueprint.json"], runtimeGamePackJson: texts["runtime-game-pack.json"],
     runtimeReceiptJson: texts["runtime-receipt.json"], assetBundleJson: assetText, assetFiles,
-    environmentBundleJson: environmentText, environmentFiles });
+    environmentBundleJson: environmentText, environmentFiles }, selectedAssemblyOptions);
   if (!assembled?.ok) fail("PROTOTYPE_CACHE_ASSEMBLY_REJECTED");
-  const promptSha256 = sha256(promptBytes);
+  const promptSha256 = promptBytes instanceof Uint8Array ? sha256(promptBytes) : suppliedPromptSha256;
+  if (!HASH.test(promptSha256)) fail("PROTOTYPE_CACHE_INPUT_INVALID");
   const blueprintHash = sha256(new TextEncoder().encode(texts["scene-blueprint.json"])).slice(7);
-  const bundleHash = sha256(new TextEncoder().encode(canonicalizeJsonValue({
+  const cacheKey = {
     cacheKeyVersion: 1,
     promptSha256,
     model: generationReport.model,
@@ -334,7 +388,9 @@ async function publishPreparedPrototypeRun({
     assetBundleSha256: sha256(new TextEncoder().encode(assetText)),
     environmentBundleSha256: sha256(new TextEncoder().encode(environmentText)),
     assemblerVersion: "0.1.0-r10",
-  }))).slice(7);
+  };
+  if (assemblyProfile === ASSEMBLY_PROFILE_V2) cacheKey.assemblyProfile = assemblyProfile;
+  const bundleHash = sha256(new TextEncoder().encode(canonicalizeJsonValue(cacheKey))).slice(7);
   const runId = `${blueprintHash}-${bundleHash}`;
   const safeAssetReportText = canonicalizeJsonValue(assetReport(assetText, assetBundle, assetFiles));
   const runReportText = canonicalizeJsonValue({ format: "matrix-oasis.prototype-run-report", formatVersion: "0.1.0",
@@ -359,13 +415,20 @@ async function publishPreparedPrototypeRun({
   for (const [assetPath, value] of [...assetFiles.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) {
     if (!publishedPaths.has(assetPath)) { artifacts.push({ path: assetPath, bytes: value }); publishedPaths.add(assetPath); }
   }
-  await publishRun(runRoot, runId, artifacts, services);
-  await publishCurrent(runRoot, runId, services, canonicalizeJsonValue);
+  const target = path.join(runRoot.path, "runs", runId);
+  if (await exists(target, services)) {
+    if (!reuseExisting) fail("PROTOTYPE_CACHE_RUN_EXISTS");
+    await verifyExactPublishedArtifacts(runRoot, runId, artifacts, services);
+  } else {
+    await publishRun(runRoot, runId, artifacts, services);
+  }
+  if (activateCurrent) await publishCurrent(runRoot, runId, services, canonicalizeJsonValue);
   return Object.freeze({ runId, cacheHit: source === "verified-cache", files: artifacts.length });
 }
 
 export async function publishPrototypeRun({
   prompt,
+  promptSha256: suppliedPromptSha256,
   prototypeArtifacts,
   assetMaterialization,
   environmentMaterialization,
@@ -375,14 +438,21 @@ export async function publishPrototypeRun({
   services,
   assemblePrototypeScene,
   canonicalizeJsonValue,
+  assemblyProfile = ASSEMBLY_PROFILE_V1,
+  activateCurrent = true,
+  reuseExisting = false,
 }) {
   try {
     const promptBytes = typeof prompt === "string" ? new TextEncoder().encode(prompt) : null;
-    if (!promptBytes || promptBytes.length > 32_768 || prompt.trim().length < 1 ||
-        new TextDecoder("utf-8", { fatal: true }).decode(promptBytes) !== prompt ||
+    const promptSha256 = promptBytes === null ? suppliedPromptSha256 : sha256(promptBytes);
+    if ((promptBytes !== null && (promptBytes.length > 32_768 || prompt.trim().length < 1 ||
+        new TextDecoder("utf-8", { fatal: true }).decode(promptBytes) !== prompt)) ||
+        !HASH.test(promptSha256) || (suppliedPromptSha256 !== undefined && suppliedPromptSha256 !== promptSha256) ||
+        typeof activateCurrent !== "boolean" || typeof reuseExisting !== "boolean" ||
         !["live-provider", "verified-cache"].includes(source) || !path.isAbsolute(runRootPath) || !path.isAbsolute(temporaryRoot)) {
       fail("PROTOTYPE_CACHE_INPUT_INVALID");
     }
+    if (assemblyOptions(assemblyProfile) === null) fail("PROTOTYPE_CACHE_INPUT_INVALID");
     const artifactNames = ["authoringGamePackJson", "sceneBlueprintJson", "runtimeGamePackJson", "runtimeReceiptJson", "generationReportJson"];
     if (!exactKeys(prototypeArtifacts, artifactNames) || artifactNames.some((name) => typeof prototypeArtifacts[name] !== "string") ||
         !exactKeys(assetMaterialization, ["canonicalBundleJson", "files"]) ||
@@ -420,9 +490,9 @@ export async function publishPrototypeRun({
     };
     const assetFiles = captureOutputs(assetMaterialization.files);
     const environmentFiles = captureOutputs(environmentMaterialization.files);
-    return await publishPreparedPrototypeRun({ promptBytes, texts, assetText, assetBundle,
+    return await publishPreparedPrototypeRun({ promptBytes, promptSha256, texts, assetText, assetBundle,
       assetFiles, environmentText, environmentBundle, environmentReportText, environmentFiles, runRoot, source,
-      services, assemblePrototypeScene, canonicalizeJsonValue });
+      services, assemblePrototypeScene, canonicalizeJsonValue, assemblyProfile, activateCurrent, reuseExisting });
   } catch (error) {
     if (error instanceof PrototypeCacheOperationalError) throw error;
     fail("PROTOTYPE_CACHE_INTERNAL_ERROR");
@@ -457,10 +527,13 @@ async function verifyPublishedRun(directory, runId, services, canonicalizeJsonVa
   const environmentReport = parseCanonical(environmentReportText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
   if (!safeEnvironmentReport(environmentReport, environmentText, environmentFiles) ||
       assetReportText !== canonicalizeJsonValue(assetReport(assetText, assetBundle, assetFiles))) fail("PROTOTYPE_CACHE_INPUT_INVALID");
+  const assemblyReport = parseCanonical(assemblyReportText, canonicalizeJsonValue, "PROTOTYPE_CACHE_INPUT_INVALID");
+  const selectedAssemblyOptions = assemblyOptions(assemblyReport?.profile);
+  if (selectedAssemblyOptions === null) fail("PROTOTYPE_CACHE_INPUT_INVALID");
   const assembled = await assemblePrototypeScene({ authoringGamePackJson: texts["authoring-game-pack.json"],
     sceneBlueprintJson: texts["scene-blueprint.json"], runtimeGamePackJson: texts["runtime-game-pack.json"],
     runtimeReceiptJson: texts["runtime-receipt.json"], assetBundleJson: assetText, assetFiles,
-    environmentBundleJson: environmentText, environmentFiles });
+    environmentBundleJson: environmentText, environmentFiles }, selectedAssemblyOptions);
   if (!assembled?.ok || sceneText !== assembled.canonicalScenePackJson || assemblyReportText !== assembled.canonicalAssemblyReportJson) {
     fail("PROTOTYPE_CACHE_INPUT_INVALID");
   }

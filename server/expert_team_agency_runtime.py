@@ -11,7 +11,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 try:
-    from server.expert_team_agency import AGENCY_UPSTREAM_PROJECT
+    from server.expert_team_agency import (
+        AGENCY_UPSTREAM_PROJECT,
+        _literalize_unbound_role_placeholders,
+    )
     from server.meta_agent.schemas import MetaPlannerTask, MetaPlannerTaskPlan
     from server.orchestration_worker import (
         AGENCY_EXECUTION_PROTOCOL,
@@ -25,9 +28,17 @@ try:
     )
     from server.workflow_native.schemas import NativeWorkflowDefinition
     from server.workflow_native.validate import node_kind, validate_workflow_graph
-    from server.xpert_runtime import RunRegistry, WorkflowExecutionStore
+    from server.xpert_runtime import (
+        RunRegistry,
+        RuntimeApprovalRequest,
+        RuntimeApprovalStore,
+        WorkflowExecutionStore,
+    )
 except ModuleNotFoundError:
-    from expert_team_agency import AGENCY_UPSTREAM_PROJECT
+    from expert_team_agency import (
+        AGENCY_UPSTREAM_PROJECT,
+        _literalize_unbound_role_placeholders,
+    )
     from meta_agent.schemas import MetaPlannerTask, MetaPlannerTaskPlan
     from orchestration_worker import (
         AGENCY_EXECUTION_PROTOCOL,
@@ -41,7 +52,12 @@ except ModuleNotFoundError:
     )
     from workflow_native.schemas import NativeWorkflowDefinition
     from workflow_native.validate import node_kind, validate_workflow_graph
-    from xpert_runtime import RunRegistry, WorkflowExecutionStore
+    from xpert_runtime import (
+        RunRegistry,
+        RuntimeApprovalRequest,
+        RuntimeApprovalStore,
+        WorkflowExecutionStore,
+    )
 
 
 MAX_EXECUTION_STEPS = 6
@@ -51,7 +67,11 @@ MAX_EXECUTION_TOKENS = 4096
 MAX_EXECUTION_SECONDS = 900
 MAX_ACTIVE_EXECUTIONS = 2
 MAX_REVISION_FEEDBACK_CHARS = 4_000
-TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+MAX_HITL_INTERACTIONS = 2
+MAX_HITL_INPUT_CHARS = 20_000
+HITL_WAIT_SECONDS = 86_400
+AGENCY_HITL_PROTOCOL = "mm-agency-bridge/v3"
+TERMINAL_STATUSES = {"completed", "failed", "cancelled", "rejected"}
 VARIABLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 TEMPLATE_PATTERN = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
@@ -108,6 +128,19 @@ class AgencyRevisionCapabilities(BaseModel):
     budget_mode: Literal["fresh"] = "fresh"
 
 
+class AgencyHitlCapabilities(BaseModel):
+    enabled: bool = False
+    protocol: str = AGENCY_HITL_PROTOCOL
+    supports_human_input: bool = True
+    supports_approval: bool = True
+    max_interactions: int = MAX_HITL_INTERACTIONS
+    max_input_chars: int = MAX_HITL_INPUT_CHARS
+    wait_timeout_seconds: int = HITL_WAIT_SECONDS
+    supports_reopen: bool = True
+    supports_restart_wait: bool = True
+    auto_insert_policy: Literal["conservative"] = "conservative"
+
+
 class AgencyExecutionCapabilities(BaseModel):
     enabled: bool = False
     worker_available: bool = False
@@ -124,6 +157,7 @@ class AgencyExecutionCapabilities(BaseModel):
     revision: AgencyRevisionCapabilities = Field(
         default_factory=AgencyRevisionCapabilities
     )
+    hitl: AgencyHitlCapabilities = Field(default_factory=AgencyHitlCapabilities)
 
 
 class AgencyExecutionValidationError(ValueError):
@@ -133,7 +167,7 @@ class AgencyExecutionValidationError(ValueError):
 
 
 class AgencyExecutionCapacityError(RuntimeError):
-    pass
+    defer_resume = True
 
 
 @dataclass(slots=True)
@@ -166,9 +200,19 @@ def _task_map(plan: MetaPlannerTaskPlan) -> dict[str, MetaPlannerTask]:
     if len(tasks) != len(plan.tasks):
         raise AgencyExecutionValidationError("任务 ID 不得重复。")
     for task in plan.tasks:
-        if not task.agent_id:
+        if task.task_type == "expert" and not task.agent_id:
             raise AgencyExecutionValidationError(
                 f"任务 {task.task_id} 未绑定当前专家。"
+            )
+        if task.task_type != "expert" and (
+            task.agent_id
+            or task.method_skill_ids
+            or task.acceptance.strip()
+            or not task.interaction_prompt.strip()
+            or not task.output_variable
+        ):
+            raise AgencyExecutionValidationError(
+                f"HITL 任务 {task.task_id} 的字段不符合受控执行约束。"
             )
         if len(task.depends_on) != len(set(task.depends_on)):
             raise AgencyExecutionValidationError(
@@ -187,9 +231,50 @@ def _task_map(plan: MetaPlannerTaskPlan) -> dict[str, MetaPlannerTask]:
     sinks = [task for task in plan.tasks if task.task_id not in depended_on]
     if len(sinks) != 1:
         raise AgencyExecutionValidationError("执行计划必须恰好有一个最终汇点。")
-    if not sinks[0].acceptance.strip():
+    if sinks[0].task_type != "expert" or not sinks[0].acceptance.strip():
         raise AgencyExecutionValidationError("最终汇点必须包含验收标准。")
+    interactions = [task for task in plan.tasks if task.task_type != "expert"]
+    if len(interactions) > MAX_HITL_INTERACTIONS:
+        raise AgencyExecutionValidationError("HITL 节点最多允许两个。")
     return tasks
+
+
+def _assert_hitl_barriers(tasks: Mapping[str, MetaPlannerTask]) -> None:
+    children: dict[str, list[str]] = {task_id: [] for task_id in tasks}
+    for task in tasks.values():
+        for dependency in task.depends_on:
+            children[dependency].append(task.task_id)
+
+    def walk(initial: Iterable[str], next_ids: Callable[[str], Iterable[str]]) -> set[str]:
+        seen: set[str] = set()
+        pending = list(initial)
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            pending.extend(next_ids(current))
+        return seen
+
+    for task in tasks.values():
+        if task.task_type == "expert":
+            continue
+        ancestors = walk(task.depends_on, lambda item: tasks[item].depends_on)
+        descendants = walk(children[task.task_id], lambda item: children[item])
+        parallel = next(
+            (
+                other_id
+                for other_id in tasks
+                if other_id != task.task_id
+                and other_id not in ancestors
+                and other_id not in descendants
+            ),
+            None,
+        )
+        if parallel:
+            raise AgencyExecutionValidationError(
+                f"HITL 任务 {task.task_id} 必须是完整 DAG 屏障。"
+            )
 
 
 def _assert_acyclic(tasks: dict[str, MetaPlannerTask]) -> None:
@@ -255,7 +340,12 @@ def _task_nodes_by_plan_task(
                 raise AgencyExecutionValidationError(
                     f"工作流包含重复的任务节点：{task_id}。"
                 )
-            if str(node.data.get("plannerRef") or "").strip() != f"agent_{task_id}":
+            expected_ref = (
+                f"agent_{task_id}"
+                if tasks[task_id].task_type == "expert"
+                else f"hitl_{task_id}"
+            )
+            if str(node.data.get("plannerRef") or "").strip() != expected_ref:
                 raise AgencyExecutionValidationError(
                     f"工作流任务节点 {node.id} 的规划引用与任务 {task_id} 不一致。"
                 )
@@ -267,6 +357,8 @@ def _task_nodes_by_plan_task(
             )
         return mapped
 
+    if any(task.task_type != "expert" for task in tasks.values()):
+        raise AgencyExecutionValidationError("HITL 工作流缺少规划往返元数据。")
     # Backward compatibility for previews compiled before planner round-trip
     # metadata was added. The old path remains exact and does not normalize IDs.
     nodes_by_id = {node.id: node for node in task_nodes}
@@ -293,6 +385,7 @@ def prepare_agency_execution(
 
     tasks = _task_map(plan)
     _assert_acyclic(tasks)
+    _assert_hitl_barriers(tasks)
     records = {_record_id(record): record for record in expert_records}
     method_skills = dict(method_skills or {})
     validation = validate_workflow_graph(workflow)
@@ -307,21 +400,47 @@ def prepare_agency_execution(
     task_nodes = [
         node for node in workflow.nodes if node_kind(node) == "workflow_agent"
     ]
+    hitl_nodes = [
+        node for node in workflow.nodes if node_kind(node) == "human_intervention"
+    ]
     if (
         len(input_nodes) != 1
         or len(output_nodes) != 1
-        or len(task_nodes) != len(tasks)
+        or len(task_nodes) + len(hitl_nodes) != len(tasks)
         or len(workflow.nodes) != len(tasks) + 2
     ):
         raise AgencyExecutionValidationError(
-            "DAG Beta 仅接受一个输入、一个输出和普通专家任务节点。"
+            "DAG Beta 仅接受一个输入、一个输出、专家任务和受控 HITL 节点。"
         )
 
-    task_nodes_by_id = _task_nodes_by_plan_task(tasks, task_nodes)
+    task_nodes_by_id = _task_nodes_by_plan_task(tasks, [*task_nodes, *hitl_nodes])
 
     outputs: dict[str, str] = {}
     for task_id, task in tasks.items():
         node = task_nodes_by_id[task_id]
+        output = str(node.data.get("outputVariable") or "").strip()
+        expected_output = task.output_variable
+        if expected_output and output != expected_output:
+            raise AgencyExecutionValidationError(
+                f"任务 {task_id} 的输出变量与计划不一致。"
+            )
+        if not VARIABLE_PATTERN.fullmatch(output) or output in outputs.values():
+            raise AgencyExecutionValidationError(
+                f"任务 {task_id} 的输出变量无效或重复。"
+            )
+        outputs[task_id] = output
+        if task.task_type != "expert":
+            expected_mode = "approval" if task.task_type == "approval" else "input"
+            if (
+                node_kind(node) != "human_intervention"
+                or str(node.data.get("interactionMode") or "input") != expected_mode
+                or str(node.data.get("prompt") or "").strip()
+                != task.interaction_prompt.strip()
+            ):
+                raise AgencyExecutionValidationError(
+                    f"HITL 任务 {task_id} 与计划不一致。"
+                )
+            continue
         source_agent_id = str(node.data.get("sourceAgentId") or "").strip()
         if source_agent_id != task.agent_id:
             raise AgencyExecutionValidationError(
@@ -332,8 +451,22 @@ def prepare_agency_execution(
             raise AgencyExecutionValidationError(
                 f"未找到执行专家：{source_agent_id}", code="unknown_agent"
             )
-        expected_role_prompt = _record_field(expert, "prompt")[:20_000]
-        if str(node.data.get("rolePrompt") or "").strip() != expected_role_prompt:
+        role_variables = {
+            "user_input",
+            "conversation_history",
+            *(
+                str(
+                    task_nodes_by_id[dependency].data.get("outputVariable") or ""
+                ).strip()
+                for dependency in task.depends_on
+            ),
+        }
+        expected_role_prompt = _literalize_unbound_role_placeholders(
+            _record_field(expert, "prompt")[:20_000],
+            available_variables=role_variables,
+        ).strip()
+        actual_role_prompt = str(node.data.get("rolePrompt") or "").strip()
+        if actual_role_prompt != expected_role_prompt:
             raise AgencyExecutionValidationError(
                 f"任务 {task_id} 的角色提示词不是当前专家目录版本。"
             )
@@ -385,16 +518,15 @@ def prepare_agency_execution(
                 f"任务 {task_id} 引用了不可用工作方法：{', '.join(unavailable_skills)}。",
                 code="agency_method_skill_changed",
             )
-        output = str(node.data.get("outputVariable") or "").strip()
-        if not VARIABLE_PATTERN.fullmatch(output) or output in outputs.values():
-            raise AgencyExecutionValidationError(
-                f"任务 {task_id} 的输出变量无效或重复。"
-            )
-        outputs[task_id] = output
 
     for task_id, task in tasks.items():
         node = task_nodes_by_id[task_id]
-        task_input = str(node.data.get("taskInput") or "")
+        task_input = str(
+            node.data.get("taskInput")
+            if task.task_type == "expert"
+            else node.data.get("prompt")
+            or ""
+        )
         references = set(TEMPLATE_PATTERN.findall(task_input))
         if task.depends_on:
             required = {outputs[dependency] for dependency in task.depends_on}
@@ -405,11 +537,13 @@ def prepare_agency_execution(
         else:
             required = {"user_input"}
             allowed = {"user_input"}
-        if not task.objective.strip() or task.objective.strip() not in task_input:
+        if task.task_type == "expert" and (
+            not task.objective.strip() or task.objective.strip() not in task_input
+        ):
             raise AgencyExecutionValidationError(
                 f"任务 {task_id} 的执行输入未包含当前目标。"
             )
-        missing = required - references
+        missing = required - references if task.task_type == "expert" else set()
         unexpected = references - allowed
         if missing or unexpected:
             details = []
@@ -448,6 +582,8 @@ def prepare_agency_execution(
 
     selected_agent_ids: list[str] = []
     for task in plan.tasks:
+        if task.task_type != "expert":
+            continue
         assert task.agent_id is not None
         if task.agent_id not in records:
             raise AgencyExecutionValidationError(
@@ -462,6 +598,21 @@ def prepare_agency_execution(
 
     upstream_steps = []
     for task in plan.tasks:
+        if task.task_type != "expert":
+            upstream_steps.append(
+                {
+                    "id": task.task_id,
+                    "role": "",
+                    "name": task.title,
+                    "task": task.objective.strip(),
+                    "prompt": task.interaction_prompt.strip(),
+                    "output": outputs[task.task_id],
+                    "depends_on": list(task.depends_on),
+                    "type": task.task_type,
+                    "skills": [],
+                }
+            )
+            continue
         task_text = task.objective.strip()
         referenced_variables = set(TEMPLATE_PATTERN.findall(task_text))
         dependencies = [
@@ -490,6 +641,7 @@ def prepare_agency_execution(
         dict.fromkeys(
             skill_id
             for task in plan.tasks
+            if task.task_type == "expert"
             for skill_id in task.method_skill_ids
         )
     )
@@ -513,6 +665,7 @@ class AgencyExecutionCoordinator:
         store: WorkflowExecutionStore,
         run_registry: RunRegistry,
         model_runner: AgencyModelRunner,
+        approval_store: RuntimeApprovalStore | None = None,
         worker_entry: str | None = None,
         enabled: bool = False,
         client_factory: Callable[[], AgencyExecutionClient] | None = None,
@@ -520,6 +673,7 @@ class AgencyExecutionCoordinator:
         self.store = store
         self.run_registry = run_registry
         self.model_runner = model_runner
+        self.approval_store = approval_store
         self.worker_entry = worker_entry
         self.enabled = enabled
         self.client_factory = client_factory
@@ -633,7 +787,16 @@ class AgencyExecutionCoordinator:
                 inputs={"goal": goal},
                 source_kind="expert_team_agency",
                 runtime_metadata={
-                    "protocol": AGENCY_EXECUTION_PROTOCOL,
+                    "protocol": (
+                        AGENCY_HITL_PROTOCOL
+                        if any(
+                            str(step.get("type") or "normal")
+                            in {"human_input", "approval"}
+                            for step in prepared.workflow.get("steps", [])
+                            if isinstance(step, dict)
+                        )
+                        else AGENCY_EXECUTION_PROTOCOL
+                    ),
                     "model_id": model_id,
                     "upstream_revision": upstream_revision,
                     "capability_snapshot_version": capability_snapshot_version,
@@ -661,12 +824,148 @@ class AgencyExecutionCoordinator:
                     prepared=prepared,
                     resume=resume,
                     revision=revision,
+                    interaction_resume=None,
                 ),
                 name=f"expert-team-agency:{task_id}",
             )
             self._tasks[task_id] = task
             task.add_done_callback(lambda _task: self._tasks.pop(task_id, None))
             return self.serialize(item)
+
+    async def resume_interaction(
+        self,
+        *,
+        execution: Any,
+        approval: RuntimeApprovalRequest,
+        prepared: PreparedAgencyExecution,
+    ) -> None:
+        if self.approval_store is None:
+            raise AgencyExecutionValidationError(
+                "Agency HITL approval store is unavailable.",
+                code="agency_worker_unavailable",
+            )
+        if (
+            execution.source_kind != "expert_team_agency"
+            or execution.status != "running"
+            or execution.wait_id != approval.approval_id
+        ):
+            raise AgencyExecutionValidationError(
+                "Agency interaction is no longer pending.",
+                code="agency_interaction_not_pending",
+            )
+        continuation = dict(execution.continuation or {})
+        if (
+            str(continuation.get("step_id") or "") != approval.node_id
+            or str(continuation.get("kind") or "") != approval.request_type
+        ):
+            raise AgencyExecutionValidationError(
+                "Agency interaction checkpoint does not match the approval.",
+                code="agency_interaction_invalid",
+            )
+        if approval.request_type == "execution_gate" and approval.decision == "reject":
+            await self.reject_interaction(execution.task_id, approval)
+            return
+        if approval.request_type == "execution_gate" and approval.decision == "approve":
+            value = "approved"
+            kind = "approval"
+        elif approval.request_type == "manual_input" and approval.decision == "replace":
+            value = str(approval.replacement_text or "").strip()
+            kind = "human_input"
+        else:
+            raise AgencyExecutionValidationError(
+                "Agency interaction decision is invalid.",
+                code="agency_interaction_invalid",
+            )
+        if not value or len(value) > MAX_HITL_INPUT_CHARS:
+            raise AgencyExecutionValidationError(
+                "Agency interaction input must contain 1-20000 characters.",
+                code="agency_interaction_invalid",
+            )
+        interaction_resume = {
+            "source_task_id": execution.task_id,
+            "step_id": approval.node_id,
+            "kind": kind,
+            "value": value,
+            "completed_steps": list(continuation.get("completed_steps") or []),
+            "prior_model_calls": int(continuation.get("prior_model_calls") or 0),
+            "prior_usage": dict(continuation.get("prior_usage") or {}),
+            "prior_active_duration_ms": int(
+                continuation.get("prior_active_duration_ms") or 0
+            ),
+        }
+        async with self._lock:
+            self._prune_finished_unlocked()
+            if len(self._tasks) >= MAX_ACTIVE_EXECUTIONS:
+                raise AgencyExecutionCapacityError(
+                    "当前已有两个 DAG 正在执行，HITL 任务将在有容量后继续。"
+                )
+            task = asyncio.create_task(
+                self._run(
+                    task_id=execution.task_id,
+                    goal=str(execution.inputs.get("goal") or ""),
+                    model_id=str(execution.runtime_metadata.get("model_id") or ""),
+                    prepared=prepared,
+                    resume=None,
+                    revision=None,
+                    interaction_resume=interaction_resume,
+                ),
+                name=f"expert-team-agency-hitl:{execution.task_id}",
+            )
+            self._tasks[execution.task_id] = task
+            task.add_done_callback(
+                lambda _task: self._tasks.pop(execution.task_id, None)
+            )
+
+    async def reject_interaction(
+        self,
+        task_id: str,
+        approval: RuntimeApprovalRequest,
+    ) -> dict[str, Any]:
+        item = self.store.require(task_id)
+        if item.source_kind != "expert_team_agency":
+            raise AgencyExecutionValidationError("任务类型不匹配。")
+        completed_ids = {
+            str(event.get("task_id") or "")
+            for event in item.events
+            if event.get("event") == "agency.step.completed"
+        }
+        steps = item.workflow.get("steps") if isinstance(item.workflow, dict) else []
+        self.store.append_event(
+            task_id,
+            {
+                "event": "agency.interaction.rejected",
+                "task_id": approval.node_id,
+                "approval_id": approval.approval_id,
+                "status": "rejected",
+            },
+        )
+        for step in steps if isinstance(steps, list) else []:
+            if not isinstance(step, dict):
+                continue
+            step_id = str(step.get("id") or "")
+            if step_id and step_id not in completed_ids and step_id != approval.node_id:
+                self.store.append_event(
+                    task_id,
+                    {
+                        "event": "agency.step.skipped",
+                        "task_id": step_id,
+                        "agent_id": str(step.get("role") or ""),
+                        "status": "skipped",
+                        "error": "agency_interaction_rejected",
+                    },
+                )
+        self._append_terminal_event(
+            task_id,
+            {"event": "agency.run.rejected", "status": "rejected"},
+        )
+        current = self.store.reject(task_id, error="agency_interaction_rejected")
+        await self._safe_update_run(
+            current.run_id,
+            status="failed",
+            error="agency_interaction_rejected",
+            metadata={"terminal_status": "rejected"},
+        )
+        return self.serialize(current)
 
     async def retry(
         self,
@@ -733,11 +1032,6 @@ class AgencyExecutionCoordinator:
                     )[:4_000],
                 }
             )
-        if not completed_steps:
-            raise AgencyExecutionValidationError(
-                "没有可复用的已完成步骤，不能执行安全续跑。",
-                code="agency_execution_not_retryable",
-            )
         resume = {
             "source_task_id": source_task_id,
             "completed_steps": completed_steps,
@@ -771,10 +1065,10 @@ class AgencyExecutionCoordinator:
         source = self.store.require(source_task_id)
         if (
             source.source_kind != "expert_team_agency"
-            or source.status not in {"completed", "failed"}
+            or source.status not in {"completed", "failed", "rejected"}
         ):
             raise AgencyExecutionValidationError(
-                "只有已完成或失败的专家团 DAG 可以返工。",
+                "只有已完成、失败或用户拒绝的专家团 DAG 可以返工。",
                 code="agency_execution_not_revisable",
             )
         normalized_feedback = feedback.strip()
@@ -954,6 +1248,17 @@ class AgencyExecutionCoordinator:
             raise AgencyExecutionValidationError("任务类型不匹配。")
         if item.status in TERMINAL_STATUSES:
             return self.serialize(item)
+        if self.approval_store is not None and item.wait_id:
+            approval = self.approval_store.get(item.wait_id)
+            if approval is not None and approval.status in {"pending", "expired"}:
+                try:
+                    self.approval_store.cancel(
+                        approval.approval_id,
+                        revision=approval.revision,
+                        message="agency_execution_cancelled",
+                    )
+                except Exception:
+                    pass
         async with self._lock:
             task = self._tasks.get(task_id)
             if task is not None and not task.done():
@@ -982,23 +1287,74 @@ class AgencyExecutionCoordinator:
 
     def recover_interrupted(self) -> int:
         recovered = 0
+        valid_wait_ids: set[str] = set()
         for item in self.store.list_items(limit=1_000):
             if (
-                item.source_kind == "expert_team_agency"
-                and item.status not in TERMINAL_STATUSES
+                item.source_kind != "expert_team_agency"
+                or item.status in TERMINAL_STATUSES
             ):
-                self._append_terminal_event(
-                    item.task_id,
-                    {
-                        "event": "agency.run.failed",
-                        "status": "failed",
-                        "error": "agency_execution_interrupted",
-                    },
+                continue
+            approval = (
+                self.approval_store.get(item.wait_id)
+                if self.approval_store is not None and item.wait_id
+                else None
+            )
+            continuation = dict(item.continuation or {})
+            expected_request_type = str(continuation.get("kind") or "")
+            checkpoint_matches = bool(
+                item.status in {"waiting", "ready"}
+                and item.wait_kind == "approval"
+                and item.wait_id
+                and approval is not None
+                and approval.scope_type == "expert_team_agency"
+                and approval.scope_id == item.task_id
+                and approval.task_id == item.task_id
+                and approval.run_id == item.run_id
+                and approval.node_id == str(continuation.get("step_id") or "")
+                and approval.request_type == expected_request_type
+                and (
+                    (item.status == "waiting" and approval.status in {"pending", "expired", "decided"})
+                    or (item.status == "ready" and approval.status == "decided")
                 )
-                self.store.fail(
-                    item.task_id, error="agency_execution_interrupted"
-                )
-                recovered += 1
+            )
+            if checkpoint_matches:
+                valid_wait_ids.add(str(item.wait_id))
+                continue
+
+            code = (
+                "agency_execution_interrupted"
+                if item.status == "running"
+                else "agency_interaction_invalid"
+            )
+            self._append_terminal_event(
+                item.task_id,
+                {
+                    "event": "agency.run.failed",
+                    "status": "failed",
+                    "error": code,
+                },
+            )
+            self.store.fail(item.task_id, error=code)
+            recovered += 1
+
+        if self.approval_store is not None:
+            for approval in self.approval_store.list_requests(
+                scope_type="expert_team_agency", limit=1_000
+            ):
+                if (
+                    approval.status not in {"pending", "expired"}
+                    or approval.approval_id in valid_wait_ids
+                ):
+                    continue
+                try:
+                    self.approval_store.cancel(
+                        approval.approval_id,
+                        revision=approval.revision,
+                        operator="agency-recovery",
+                        message="agency_interaction_orphaned",
+                    )
+                except Exception:
+                    pass
         return recovered
 
     async def _run(
@@ -1010,6 +1366,7 @@ class AgencyExecutionCoordinator:
         prepared: PreparedAgencyExecution,
         resume: Mapping[str, Any] | None = None,
         revision: Mapping[str, Any] | None = None,
+        interaction_resume: Mapping[str, Any] | None = None,
     ) -> None:
         item = self.store.require(task_id)
 
@@ -1038,9 +1395,13 @@ class AgencyExecutionCoordinator:
                 skills=prepared.skills,
                 resume=resume,
                 revision=revision,
+                interaction_resume=interaction_resume,
                 on_event=on_event,
             )
             payload = result.payload
+            if payload.get("status") == "waiting":
+                await self._suspend_interaction(task_id, payload)
+                return
             final_output = str(payload.get("final_output") or "")
             if not final_output:
                 raise AgencyWorkerError(
@@ -1093,6 +1454,98 @@ class AgencyExecutionCoordinator:
                     item.run_id, status="failed", error=f"{code}: {exc}"[:500]
                 )
 
+    async def _suspend_interaction(
+        self,
+        task_id: str,
+        payload: Mapping[str, Any],
+    ) -> None:
+        if self.approval_store is None:
+            raise AgencyExecutionValidationError(
+                "Agency HITL approval store is unavailable.",
+                code="agency_worker_unavailable",
+            )
+        item = self.store.require(task_id)
+        wait = payload.get("wait")
+        wait = dict(wait) if isinstance(wait, Mapping) else {}
+        step_id = str(wait.get("step_id") or "").strip()
+        kind = str(wait.get("kind") or "").strip()
+        prompt = str(wait.get("prompt") or "").strip()
+        if kind not in {"human_input", "approval"} or not step_id or not prompt:
+            raise AgencyExecutionValidationError(
+                "Agency Worker returned an invalid HITL checkpoint.",
+                code="agency_interaction_invalid",
+            )
+        request_type = "manual_input" if kind == "human_input" else "execution_gate"
+        allowed_decisions = ["replace"] if kind == "human_input" else ["approve", "reject"]
+        approval = self.approval_store.create_request(
+            action_key=f"agency-hitl:{task_id}:{step_id}",
+            request_type=request_type,
+            task_id=task_id,
+            run_id=item.run_id,
+            node_id=step_id,
+            node_title=next(
+                (
+                    str(step.get("name") or step_id)
+                    for step in item.workflow.get("steps", [])
+                    if isinstance(step, dict) and str(step.get("id") or "") == step_id
+                ),
+                step_id,
+            ),
+            scope_type="expert_team_agency",
+            scope_id=task_id,
+            timeout_seconds=HITL_WAIT_SECONDS,
+            allowed_decisions=allowed_decisions,
+            description=prompt,
+            content_preview=str(wait.get("content_preview") or "")[:8_000],
+            metadata={
+                "interaction_kind": kind,
+                "output_variable": str(wait.get("output_variable") or "")[:128],
+                "upstream_revision": str(
+                    item.runtime_metadata.get("upstream_revision") or ""
+                ),
+                "capability_snapshot_hash": str(
+                    item.runtime_metadata.get("capability_snapshot_hash") or ""
+                ),
+            },
+        )
+        completed_steps = payload.get("completed_steps")
+        continuation = {
+            "step_id": step_id,
+            "kind": request_type,
+            "completed_steps": (
+                list(completed_steps) if isinstance(completed_steps, list) else []
+            ),
+            "prior_model_calls": int(payload.get("model_calls") or 0),
+            "prior_usage": dict(payload.get("usage") or {}),
+            "prior_active_duration_ms": int(
+                payload.get("active_duration_ms") or 0
+            ),
+        }
+        self.store.suspend(
+            task_id,
+            approval_id=approval.approval_id,
+            continuation=continuation,
+            safe_event={
+                "event": "agency.interaction.pending",
+                "task_id": step_id,
+                "approval_id": approval.approval_id,
+                "request_type": request_type,
+                "status": "waiting",
+                "model_calls": continuation["prior_model_calls"],
+                "cumulative_usage": continuation["prior_usage"],
+            },
+        )
+        await self._safe_update_run(
+            item.run_id,
+            status="waiting",
+            metadata={
+                "approval_id": approval.approval_id,
+                "interaction_step_id": step_id,
+                "model_calls": continuation["prior_model_calls"],
+                "usage": continuation["prior_usage"],
+            },
+        )
+
     def _client(self) -> AgencyExecutionClient:
         if self.client_factory is not None:
             return self.client_factory()
@@ -1120,8 +1573,7 @@ class AgencyExecutionCoordinator:
             if task.done():
                 self._tasks.pop(task_id, None)
 
-    @staticmethod
-    def serialize(item: Any) -> dict[str, Any]:
+    def serialize(self, item: Any) -> dict[str, Any]:
         public = WorkflowExecutionStore.serialize_public(item)
         latest_steps: dict[str, dict[str, Any]] = {}
         summary: dict[str, Any] = {}
@@ -1130,6 +1582,8 @@ class AgencyExecutionCoordinator:
             step_id = str(event.get("task_id") or "")
             if step_id and event_name.startswith("agency.step."):
                 latest_steps[step_id] = dict(event)
+            elif step_id and event_name == "agency.interaction.rejected":
+                latest_steps[step_id] = {**event, "status": "rejected"}
             if isinstance(event.get("model_calls"), (int, float)):
                 summary["model_calls"] = max(
                     0, int(event.get("model_calls") or 0)
@@ -1141,6 +1595,7 @@ class AgencyExecutionCoordinator:
                 "agency.run.completed",
                 "agency.run.failed",
                 "agency.run.cancelled",
+                "agency.run.rejected",
             }:
                 summary.update(event)
         completed_outputs = [
@@ -1160,7 +1615,6 @@ class AgencyExecutionCoordinator:
         retryable = (
             item.status == "failed"
             and str(item.error or "") in retryable_codes
-            and bool(completed_outputs)
             and int(summary.get("model_calls") or 0) < MAX_EXECUTION_MODEL_CALLS
         )
         raw_steps = item.workflow.get("steps") if isinstance(item.workflow, dict) else []
@@ -1178,6 +1632,13 @@ class AgencyExecutionCoordinator:
                 "depends_on": dependencies(step),
                 "agent_id": str(step.get("role") or "")[:160],
                 "acceptance": str(step.get("acceptance") or "")[:4_000],
+                "task_type": (
+                    "expert"
+                    if str(step.get("type") or "normal") == "normal"
+                    else str(step.get("type"))
+                ),
+                "interaction_prompt": str(step.get("prompt") or "")[:4_000],
+                "output_variable": str(step.get("output") or "")[:128],
                 "method_skill_ids": [
                     str(value)[:160]
                     for value in (
@@ -1247,6 +1708,49 @@ class AgencyExecutionCoordinator:
                     )[:MAX_EXECUTION_STEPS]
                 ],
             }
+        approval_history: list[dict[str, Any]] = []
+        pending_interaction = None
+        if self.approval_store is not None:
+            approvals = list(
+                reversed(
+                    self.approval_store.list_requests(
+                        task_id=item.task_id, limit=MAX_HITL_INTERACTIONS + 2
+                    )
+                )
+            )
+            for approval in approvals:
+                interaction = {
+                    "approval_id": approval.approval_id,
+                    "step_id": approval.node_id,
+                    "kind": (
+                        "human_input"
+                        if approval.request_type == "manual_input"
+                        else "approval"
+                    ),
+                    "prompt": approval.description,
+                    "content_preview": approval.content_preview,
+                    "allowed_decisions": list(approval.allowed_decisions),
+                    "revision": approval.revision,
+                    "status": approval.status,
+                    "decision": approval.decision,
+                    "input": (
+                        approval.replacement_text
+                        if approval.request_type == "manual_input"
+                        and approval.status == "decided"
+                        else None
+                    ),
+                    "message": (
+                        approval.message
+                        if approval.decision == "reject"
+                        else None
+                    ),
+                    "created_at": approval.created_at,
+                    "updated_at": approval.updated_at,
+                    "expires_at": approval.expires_at,
+                }
+                approval_history.append(interaction)
+                if approval.approval_id == item.wait_id:
+                    pending_interaction = interaction
         return {
             **public,
             "steps": list(latest_steps.values()),
@@ -1264,8 +1768,11 @@ class AgencyExecutionCoordinator:
             )[:4_000] or None,
             "retryable": retryable,
             "revisable": (
-                item.status in {"completed", "failed"} and bool(completed_outputs)
+                item.status in {"completed", "failed", "rejected"}
+                and bool(completed_outputs)
             ),
+            "pending_interaction": pending_interaction,
+            "interaction_history": approval_history,
             "revision": revision,
             "resumed_from_task_id": str(
                 item.runtime_metadata.get("resumed_from_task_id") or ""

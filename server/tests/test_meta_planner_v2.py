@@ -13,6 +13,7 @@ from server.meta_agent.meta_planner_v2 import (
     MetaPlannerV2Service,
     compile_xpert_candidate,
     validate_blueprint_authorization,
+    validate_task_plan,
 )
 from server.meta_agent.schemas import (
     MetaPlannerAgentBlueprint,
@@ -48,6 +49,39 @@ from server.xperts.validation import validate_xpert_definition
 
 
 client = TestClient(app)
+
+
+def test_generic_meta_planner_keeps_hitl_scoped_to_expert_team():
+    plan = MetaPlannerTaskPlan(
+        summary="A generic Meta Planner plan must remain expert-only.",
+        tasks=[
+            MetaPlannerTask(
+                task_id="manual_gate",
+                title="Manual gate",
+                objective="Wait for a human decision.",
+                depends_on=[],
+                input_contract=["user_input"],
+                output_contract="Decision",
+                task_type="approval",
+                interaction_prompt="Approve the next step.",
+                output_variable="manual_gate_output",
+            )
+        ],
+    )
+
+    issues = validate_task_plan(plan, max_agents=3)
+
+    assert issues == [
+        "Generic Meta Planner task plans support expert tasks only; "
+        "HITL is scoped to Expert Team: manual_gate."
+    ]
+    prompt = json.loads(MetaPlannerV2Service._plan_prompt(_request()))
+    task_properties = prompt["required_schema"]["$defs"]["MetaPlannerTask"][
+        "properties"
+    ]
+    assert "task_type" not in task_properties
+    assert "interaction_prompt" not in task_properties
+    assert "output_variable" not in task_properties
 
 
 def _resource(

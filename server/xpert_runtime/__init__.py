@@ -74,6 +74,7 @@ from .execution_store import (
 from .approval_coordinator import ApprovalCoordinator
 from .approval_api import (
     configure_approval_decision_validator,
+    configure_approval_reopen_validator,
     configure_approval_coordinator,
     configure_runtime_approvals,
     router as runtime_approval_router,
@@ -386,6 +387,7 @@ __all__ = [
     "human_in_the_loop_final_confirmation",
     "configure_approval_coordinator",
     "configure_approval_decision_validator",
+    "configure_approval_reopen_validator",
     "configure_runtime_approvals",
     "configure_runtime_sandbox",
     "runtime_sandbox_router",

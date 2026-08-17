@@ -52,11 +52,13 @@ from expert_team_agency import (
     ExpertTeamPlanPreviewRequest,
     ExpertTeamPlanPreviewResponse,
     build_meta_planner_inputs,
+    compile_expert_team_hitl_candidate,
 )
 from expert_team_agency_runtime import (
     AgencyExecutionCapacityError,
     AgencyExecutionCapabilities,
     AgencyExecutionCoordinator,
+    AgencyHitlCapabilities,
     AgencyRevisionCapabilities,
     AgencyExecutionValidationError,
     ExpertTeamDagRevisionRequest,
@@ -637,6 +639,7 @@ try:
         build_plugin_hooks_middleware,
         configure_approval_coordinator,
         configure_approval_decision_validator,
+        configure_approval_reopen_validator,
         configure_runtime_approvals,
         configure_runtime_todo_store,
         configure_runtime_sandbox,
@@ -752,6 +755,7 @@ except ModuleNotFoundError:
         build_plugin_hooks_middleware,
         configure_approval_coordinator,
         configure_approval_decision_validator,
+        configure_approval_reopen_validator,
         configure_runtime_approvals,
         configure_runtime_todo_store,
         configure_runtime_sandbox,
@@ -1379,6 +1383,81 @@ async def validate_runtime_approval_decision(
     approval: RuntimeApprovalRequest,
     decision_payload: Any,
 ) -> None:
+    if approval.scope_type == "expert_team_agency":
+        if not expert_team_agency_hitl_enabled():
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "专家团人工交互当前未启用。",
+                    "code": "agency_hitl_disabled",
+                },
+            )
+        execution = workflow_execution_store.get(approval.task_id)
+        if execution is None or execution.source_kind != "expert_team_agency":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "人工交互所属任务不存在。",
+                    "code": "agency_interaction_not_pending",
+                },
+            )
+        if approval.status == "expired":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "人工交互已到期，请先重新开启。",
+                    "code": "agency_interaction_expired",
+                },
+            )
+        if (
+            approval.status != "pending"
+            or execution.status != "waiting"
+            or execution.wait_id != approval.approval_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "人工交互已不再等待处理。",
+                    "code": "agency_interaction_not_pending",
+                },
+            )
+        if approval.request_type == "manual_input":
+            value = str(decision_payload.replacement_text or "").strip()
+            if decision_payload.decision != "replace" or not 1 <= len(value) <= 20_000:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "人工输入必须为 1–20000 个字符。",
+                        "code": "agency_interaction_invalid",
+                    },
+                )
+            return
+        if approval.request_type == "execution_gate":
+            if decision_payload.decision not in {"approve", "reject"}:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "审批只接受通过或拒绝。",
+                        "code": "agency_interaction_invalid",
+                    },
+                )
+            reason = str(decision_payload.message or "").strip()
+            if decision_payload.decision == "reject" and not 2 <= len(reason) <= 4_000:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "拒绝审批时必须填写 2–4000 个字符的原因。",
+                        "code": "agency_interaction_invalid",
+                    },
+                )
+            return
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "该审批类型不属于专家团 HITL。",
+                "code": "agency_interaction_invalid",
+            },
+        )
     if approval.request_type != "tool_call" or decision_payload.decision != "edit":
         return
     edited_arguments = decision_payload.edited_arguments
@@ -1426,6 +1505,47 @@ async def validate_runtime_approval_decision(
 
 
 configure_approval_decision_validator(validate_runtime_approval_decision)
+
+
+async def validate_runtime_approval_reopen(
+    approval: RuntimeApprovalRequest,
+    _payload: Any,
+) -> None:
+    if approval.scope_type != "expert_team_agency":
+        return
+    if not expert_team_agency_hitl_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "专家团人工交互当前未启用。",
+                "code": "agency_hitl_disabled",
+            },
+        )
+    execution = workflow_execution_store.get(approval.task_id)
+    if (
+        execution is None
+        or execution.source_kind != "expert_team_agency"
+        or execution.status != "waiting"
+        or execution.wait_id != approval.approval_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "人工交互已不再等待处理。",
+                "code": "agency_interaction_not_pending",
+            },
+        )
+    if approval.status != "expired":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "只有已到期的人工交互可以重新开启。",
+                "code": "agency_interaction_not_pending",
+            },
+        )
+
+
+configure_approval_reopen_validator(validate_runtime_approval_reopen)
 workflow_task_store: dict[str, dict[str, Any]] = {}
 chat_runtime_task_store: dict[str, dict[str, Any]] = {}
 
@@ -3172,6 +3292,64 @@ def completion_text_from_payload(payload: dict[str, Any]) -> str:
     return ""
 
 
+def completion_response_diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return provider response shape metadata without exposing model content."""
+
+    diagnostics: dict[str, Any] = {
+        "finish_reason": None,
+        "content_chars": 0,
+        "reasoning_chars": 0,
+        "reasoning_present": False,
+        "refusal_chars": 0,
+        "tool_call_count": 0,
+        "usage": {},
+    }
+    text = completion_text_from_payload(payload)
+    diagnostics["content_chars"] = len(text)
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return diagnostics
+    first_choice = choices[0]
+    if not isinstance(first_choice, dict):
+        return diagnostics
+    finish_reason = first_choice.get("finish_reason")
+    if isinstance(finish_reason, str) and finish_reason.strip():
+        diagnostics["finish_reason"] = finish_reason.strip()[:80]
+    message = first_choice.get("message")
+    if not isinstance(message, dict):
+        return diagnostics
+    reasoning_values: list[str] = []
+    for field in ("reasoning_content", "reasoning"):
+        value = message.get(field)
+        if isinstance(value, str) and value.strip():
+            reasoning_values.append(value)
+    details = message.get("reasoning_details")
+    if isinstance(details, list):
+        for detail in details:
+            if not isinstance(detail, dict):
+                continue
+            for field in ("text", "content", "reasoning"):
+                value = detail.get(field)
+                if isinstance(value, str) and value.strip():
+                    reasoning_values.append(value)
+    diagnostics["reasoning_chars"] = sum(len(value) for value in reasoning_values)
+    diagnostics["reasoning_present"] = bool(reasoning_values)
+    refusal = message.get("refusal")
+    if isinstance(refusal, str):
+        diagnostics["refusal_chars"] = len(refusal.strip())
+    tool_calls = message.get("tool_calls")
+    if isinstance(tool_calls, list):
+        diagnostics["tool_call_count"] = len(tool_calls)
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        diagnostics["usage"] = {
+            key: int(usage[key])
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+            if isinstance(usage.get(key), int)
+        }
+    return diagnostics
+
+
 def completion_json_text_from_payload(
     payload: dict[str, Any],
     *,
@@ -3200,14 +3378,10 @@ def completion_json_result_from_payload(
     """Return JSON text plus safe provider diagnostics without reasoning text."""
 
     diagnostics: dict[str, Any] = {
-        "finish_reason": None,
-        "content_chars": 0,
-        "reasoning_chars": 0,
-        "reasoning_present": False,
+        **completion_response_diagnostics(payload),
         "selected_source": "none",
         "contract_found": False,
         "candidate_top_level_keys": [],
-        "usage": {},
     }
     text = completion_text_from_payload(payload)
     choices = payload.get("choices")
@@ -3216,21 +3390,9 @@ def completion_json_result_from_payload(
     first_choice = choices[0]
     if not isinstance(first_choice, dict):
         return "", diagnostics
-    finish_reason = first_choice.get("finish_reason")
-    if isinstance(finish_reason, str) and finish_reason.strip():
-        diagnostics["finish_reason"] = finish_reason[:80]
     message = first_choice.get("message")
     if not isinstance(message, dict):
         return "", diagnostics
-
-    diagnostics["content_chars"] = len(text)
-    usage = payload.get("usage")
-    if isinstance(usage, dict):
-        diagnostics["usage"] = {
-            key: int(usage[key])
-            for key in ("prompt_tokens", "completion_tokens", "total_tokens")
-            if isinstance(usage.get(key), int)
-        }
 
     candidates: list[tuple[str, str]] = []
     for field in ("reasoning_content", "reasoning"):
@@ -3246,9 +3408,6 @@ def completion_json_result_from_payload(
                 value = detail.get(field)
                 if isinstance(value, str) and value.strip():
                     candidates.append(("reasoning", value))
-
-    diagnostics["reasoning_chars"] = sum(len(value) for _, value in candidates)
-    diagnostics["reasoning_present"] = bool(candidates)
 
     decoder = json.JSONDecoder()
     detected_keys: set[str] = set()
@@ -3481,15 +3640,16 @@ async def collect_chat_completion_text(
             if isinstance(raw_reported_model, str)
             else ""
         )
+        diagnostics = completion_response_diagnostics(data)
         if allow_json_reasoning_fallback:
             text, diagnostics = completion_json_result_from_payload(
                 data,
                 required_top_level_key=json_required_top_level_key,
             )
-            if completion_diagnostics is not None:
-                completion_diagnostics.update(diagnostics)
         else:
             text = completion_text_from_payload(data)
+        if completion_diagnostics is not None:
+            completion_diagnostics.update(diagnostics)
         if not text.strip():
             if allow_json_reasoning_fallback:
                 error_code = (
@@ -3507,7 +3667,19 @@ async def collect_chat_completion_text(
                     ),
                     diagnostics,
                 )
-            raise RuntimeError("模型没有返回可用内容。")
+            if diagnostics["reasoning_present"]:
+                error_code = "reasoning_only"
+                message = "Generator returned reasoning without deliverable content."
+            elif diagnostics["refusal_chars"]:
+                error_code = "refusal_only"
+                message = "Generator returned a refusal without deliverable content."
+            elif diagnostics["tool_call_count"]:
+                error_code = "tool_call_only"
+                message = "Generator returned tool calls without deliverable content."
+            else:
+                error_code = "empty_content"
+                message = "Generator returned no content."
+            raise ChatCompletionContentError(error_code, message, diagnostics)
         if actual_model_observer is not None:
             actual_model_observer(reported_model)
         return text
@@ -3520,6 +3692,7 @@ async def collect_agency_worker_model(
 
     usage: dict[str, int] = {}
     completion_metadata: dict[str, str] = {}
+    completion_diagnostics: dict[str, Any] = {}
 
     def observe_usage(values: dict[str, int]) -> None:
         usage.update(values)
@@ -3538,14 +3711,55 @@ async def collect_agency_worker_model(
             response_format=(
                 {"type": "json_object"} if request.json_response else None
             ),
-            reasoning={"effort": "low"},
+            reasoning={"effort": "none", "exclude": True},
             allow_json_reasoning_fallback=request.json_response,
             json_required_top_level_key=("pass" if request.json_response else None),
+            completion_diagnostics=completion_diagnostics,
         )
     except httpx.TimeoutException as exc:
         raise AgencyWorkerError(
             "模型网关请求超时。可仅重试失败步骤，已完成步骤不会重新计费。",
             code="model_gateway_timeout",
+        ) from exc
+    except ChatCompletionContentError as exc:
+        safe_diagnostics = {
+            key: exc.diagnostics.get(key)
+            for key in (
+                "finish_reason",
+                "content_chars",
+                "reasoning_chars",
+                "reasoning_present",
+                "refusal_chars",
+                "tool_call_count",
+                "usage",
+            )
+        }
+        logger.warning(
+            "Agency model response contained no deliverable content: %s",
+            json.dumps(safe_diagnostics, ensure_ascii=True, sort_keys=True),
+        )
+        if completion_metadata.get("finish_reason") == "length":
+            code = "model_output_truncated"
+            safe_message = "模型输出达到 token 上限，未作为完整结果保存。可缩短目标后仅重试失败步骤。"
+        elif exc.code == "refusal_only":
+            code = "model_response_invalid"
+            safe_message = "模型拒绝生成可交付正文。请调整任务后仅重试失败步骤。"
+        else:
+            code = "model_response_empty"
+            safe_message = "模型未返回可交付正文。未自动重试；可仅重试失败步骤，已完成步骤不会重新计费。"
+        raise AgencyWorkerError(
+            safe_message,
+            code=code,
+            diagnostics=json.dumps(safe_diagnostics, ensure_ascii=True),
+            usage={
+                "input_tokens": int(
+                    usage.get("input_tokens", usage.get("prompt_tokens", 0))
+                ),
+                "output_tokens": int(
+                    usage.get("output_tokens", usage.get("completion_tokens", 0))
+                ),
+            },
+            finish_reason=completion_metadata.get("finish_reason") or None,
         ) from exc
     except RuntimeError as exc:
         message = str(exc)
@@ -3603,6 +3817,7 @@ agency_execution_coordinator = AgencyExecutionCoordinator(
     store=workflow_execution_store,
     run_registry=run_registry,
     model_runner=collect_agency_worker_model,
+    approval_store=runtime_approval_store,
 )
 
 
@@ -4943,6 +5158,15 @@ def expert_team_agency_revision_enabled() -> bool:
     }
 
 
+def expert_team_agency_hitl_enabled() -> bool:
+    return os.getenv("EXPERT_TEAM_AGENCY_HITL_ENABLED", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 EXPERT_TEAM_METHOD_SKILL_ALLOWLIST = {
     "data-analysis",
     "software-engineering",
@@ -5109,6 +5333,7 @@ async def get_expert_team_planner_capabilities():
         revision=AgencyRevisionCapabilities(
             enabled=expert_team_agency_revision_enabled()
         ),
+        hitl=AgencyHitlCapabilities(enabled=expert_team_agency_hitl_enabled()),
     )
     return ExpertTeamAgencyCapabilities(
         enabled=expert_team_agency_planner_enabled(),
@@ -5328,6 +5553,7 @@ async def preview_expert_team_plan(
             pinned_agent_ids=payload.pinned_agent_ids,
             max_agents=payload.max_agents,
             temperature=payload.temperature,
+            allow_hitl=expert_team_agency_hitl_enabled(),
         )
         plan, blueprint, selected_agents = build_meta_planner_inputs(
             worker_result,
@@ -5350,43 +5576,73 @@ async def preview_expert_team_plan(
         ):
             raise ValueError("Agency Orchestrator changed the pinned expert lineup.")
         snapshot = build_meta_planner_capability_snapshot(AGENT_RECORDS)
-        available_node_kinds = {item["kind"] for item in snapshot.nodes}
-        planner_request = MetaPlannerGenerateRequest(
-            goal=planning_goal,
-            planner_model_id=payload.planner_model_id,
-            default_agent_model_id=payload.default_agent_model_id,
-            temperature=payload.temperature,
-            # Meta Planner V2's legacy max_agents field bounds task blueprints.
-            # Agency's public max_agents instead bounds distinct selected experts,
-            # while its DAG may legitimately contain up to max_steps tasks.
-            max_agents=len(plan.tasks),
-            scope=MetaPlannerScope(
-                allowed_node_kinds=sorted(
-                    {"input", "output", "workflow_agent"}
-                    & available_node_kinds
-                ),
-                agent_ids=selected_ids,
-            ),
-        )
-        service = MetaPlannerV2Service(
-            authoring_service=authoring_service,
-            preflight=preview_xpert_for_publish,
-        )
-        preview = service.preview(
-            planner_request,
-            snapshot,
-            plan=plan,
-            blueprint=blueprint,
-            warnings=[
-                *knowledge_warnings,
-                *[
-                    str(item)[:500]
-                    for item in worker_result.get("warnings", [])
+        preview_warnings = [
+            *knowledge_warnings,
+            *[str(item)[:500] for item in worker_result.get("warnings", [])],
+        ]
+        repair_used = bool(worker_result.get("repair_used"))
+        has_hitl = any(task.task_type != "expert" for task in plan.tasks)
+        if has_hitl:
+            if not expert_team_agency_hitl_enabled():
+                raise ValueError("专家团 HITL 当前未启用。")
+            candidate, workflow = compile_expert_team_hitl_candidate(
+                plan=plan,
+                blueprint=blueprint,
+                default_agent_model_id=payload.default_agent_model_id,
+            )
+            native_workflow = NativeWorkflowDefinition.model_validate(workflow)
+            native_validation = validate_workflow_graph(native_workflow)
+            validation = {
+                "valid": native_validation.valid,
+                "issues": [
+                    issue.model_dump(mode="json")
+                    for issue in native_validation.issues
                 ],
-            ],
-            repair_used=bool(worker_result.get("repair_used")),
-        )
-        workflow = dict(preview.candidate["draft"]["workflow"])
+            }
+            if not native_validation.valid:
+                raise ValueError(
+                    "HITL 工作流未通过静态校验："
+                    + "; ".join(issue.message for issue in native_validation.issues[:6])
+                )
+            preview_plan = plan
+            snapshot_version = snapshot.version
+            snapshot_hash = snapshot.snapshot_hash
+        else:
+            available_node_kinds = {item["kind"] for item in snapshot.nodes}
+            planner_request = MetaPlannerGenerateRequest(
+                goal=planning_goal,
+                planner_model_id=payload.planner_model_id,
+                default_agent_model_id=payload.default_agent_model_id,
+                temperature=payload.temperature,
+                max_agents=len(plan.tasks),
+                scope=MetaPlannerScope(
+                    allowed_node_kinds=sorted(
+                        {"input", "output", "workflow_agent"}
+                        & available_node_kinds
+                    ),
+                    agent_ids=selected_ids,
+                ),
+            )
+            service = MetaPlannerV2Service(
+                authoring_service=authoring_service,
+                preflight=preview_xpert_for_publish,
+            )
+            preview = service.preview(
+                planner_request,
+                snapshot,
+                plan=plan,
+                blueprint=blueprint,
+                warnings=preview_warnings,
+                repair_used=repair_used,
+            )
+            candidate = preview.candidate
+            workflow = dict(candidate["draft"]["workflow"])
+            validation = preview.validation
+            preview_plan = preview.plan
+            preview_warnings = preview.warnings
+            repair_used = preview.repair_used
+            snapshot_version = preview.capability_snapshot_version
+            snapshot_hash = preview.capability_snapshot_hash
         baseline_matches = [
             agent_public_payload(agent, score)
             for agent, score in match_agents(payload.goal, min(payload.max_agents, 5))
@@ -5399,9 +5655,9 @@ async def preview_expert_team_plan(
                 "surface": "expert_team",
                 "backend": "agency_orchestrator",
                 "selected_agent_ids": selected_ids,
-                "repair_used": preview.repair_used,
-                "valid": bool(preview.validation.get("valid")),
-                "snapshot_hash": preview.capability_snapshot_hash,
+                "repair_used": repair_used,
+                "valid": bool(validation.get("valid")),
+                "snapshot_hash": snapshot_hash,
                 "knowledge_base_id": payload.knowledge_base_id,
                 "method_skill_id": payload.method_skill_id,
             },
@@ -5411,22 +5667,22 @@ async def preview_expert_team_plan(
             status="completed",
             metadata={
                 "selected_agent_ids": selected_ids,
-                "snapshot_hash": preview.capability_snapshot_hash,
+                "snapshot_hash": snapshot_hash,
                 "model_calls": int(worker_result.get("model_calls") or 0),
                 "usage": worker_result.get("usage") or {},
             },
         )
         return ExpertTeamPlanPreviewResponse(
-            plan=preview.plan,
-            candidate=preview.candidate,
+            plan=preview_plan,
+            candidate=candidate,
             workflow=workflow,
-            validation=preview.validation,
+            validation=validation,
             selected_agents=selected_agents,
             baseline_matches=baseline_matches,
             knowledge_context=knowledge_context,
             method_skill=method_skill,
-            warnings=preview.warnings,
-            repair_used=preview.repair_used,
+            warnings=preview_warnings,
+            repair_used=repair_used,
             model_calls=int(worker_result.get("model_calls") or 0),
             usage={
                 str(key): max(0, int(value))
@@ -5434,8 +5690,8 @@ async def preview_expert_team_plan(
                 if isinstance(value, (int, float))
                 and not isinstance(value, bool)
             },
-            capability_snapshot_version=preview.capability_snapshot_version,
-            capability_snapshot_hash=preview.capability_snapshot_hash,
+            capability_snapshot_version=snapshot_version,
+            capability_snapshot_hash=snapshot_hash,
             upstream_revision=AGENCY_UPSTREAM_REVISION,
         )
     except AgencyWorkerError as exc:
@@ -5574,6 +5830,12 @@ async def start_expert_team_dag_run(
             expert_records=AGENT_RECORDS,
             method_skills=method_skills,
         )
+        if any(task.task_type != "expert" for task in payload.plan.tasks) and not expert_team_agency_hitl_enabled():
+            return agency_execution_error(
+                503,
+                "agency_hitl_disabled",
+                "专家团人工输入与审批当前未启用。",
+            )
         result = await agency_execution_coordinator.start(
             goal=payload.goal,
             model_id=payload.model_id,
@@ -5608,7 +5870,15 @@ async def list_expert_team_dag_runs(
     status: str | None = None,
     limit: int = 20,
 ):
-    allowed_statuses = {"running", "waiting", "ready", "completed", "failed", "cancelled"}
+    allowed_statuses = {
+        "running",
+        "waiting",
+        "ready",
+        "completed",
+        "failed",
+        "cancelled",
+        "rejected",
+    }
     if status is not None and status not in allowed_statuses:
         return agency_execution_error(
             422,
@@ -5637,6 +5907,21 @@ async def list_expert_team_dag_runs(
                 "feedback_preview": revision.get("feedback_preview") or "",
                 "affected_task_ids": revision.get("affected_task_ids") or [],
             }
+        interaction_summary = None
+        interaction_history = payload.get("interaction_history")
+        if isinstance(interaction_history, list) and interaction_history:
+            latest_interaction = interaction_history[-1]
+            if isinstance(latest_interaction, dict):
+                interaction_summary = {
+                    "step_id": str(latest_interaction.get("step_id") or "")[:64],
+                    "kind": str(latest_interaction.get("kind") or "")[:32],
+                    "status": str(latest_interaction.get("status") or "")[:32],
+                    "decision": str(latest_interaction.get("decision") or "")[:32]
+                    or None,
+                    "prompt_preview": str(
+                        latest_interaction.get("prompt") or ""
+                    )[:160],
+                }
         summaries.append(
             {
                 "task_id": payload["task_id"],
@@ -5653,6 +5938,7 @@ async def list_expert_team_dag_runs(
                 "lineage_usage": payload.get("lineage_usage") or {},
                 "revisable": bool(payload.get("revisable")),
                 "revision": revision_summary,
+                "interaction": interaction_summary,
                 "quality_status": payload.get("quality_status"),
                 "error_code": payload.get("error_code"),
                 "final_output_preview": final_output[:500],
@@ -5699,7 +5985,7 @@ async def stream_expert_team_dag_run_events(
             for event in pending:
                 cursor = max(cursor, int(event.get("sequence") or 0))
                 yield sse_payload(event)
-            if current.status in {"completed", "failed", "cancelled"}:
+            if current.status in {"completed", "failed", "cancelled", "rejected"}:
                 return
             idle_rounds += 1
             if idle_rounds % 30 == 0:
@@ -5741,7 +6027,12 @@ async def prepare_historical_agency_execution(source: Any) -> PreparedAgencyExec
         str(value)
         for value in (raw_selected if isinstance(raw_selected, list) else [])
     ]
-    current_agents = {agent.id: agent for agent in adapt_expert_catalog(AGENT_RECORDS)}
+    current_agents = {
+        agent.id: agent
+        for agent in adapt_expert_catalog(
+            AGENT_RECORDS, max_system_prompt_chars=16_000
+        )
+    }
     if not selected_ids or any(agent_id not in current_agents for agent_id in selected_ids):
         raise AgencyExecutionValidationError(
             "原计划中的专家已变化，请重新生成计划。",
@@ -5838,7 +6129,10 @@ async def retry_expert_team_dag_run(task_id: str, request: Request):
             for value in (raw_selected if isinstance(raw_selected, list) else [])
         ]
         current_agents = {
-            agent.id: agent for agent in adapt_expert_catalog(AGENT_RECORDS)
+            agent.id: agent
+            for agent in adapt_expert_catalog(
+                AGENT_RECORDS, max_system_prompt_chars=16_000
+            )
         }
         if not selected_ids or any(agent_id not in current_agents for agent_id in selected_ids):
             raise AgencyExecutionValidationError(
@@ -16004,6 +16298,20 @@ async def resume_runtime_approval_execution(
     execution: WorkflowExecution,
     approval: RuntimeApprovalRequest,
 ) -> None:
+    if execution.source_kind == "expert_team_agency":
+        if not expert_team_agency_hitl_enabled():
+            # Keep the decided continuation durable and retry it when the feature
+            # is enabled again. The ApprovalCoordinator releases the lease.
+            raise AgencyExecutionCapacityError(
+                "专家团人工交互当前未启用，任务将保持待恢复状态。"
+            )
+        prepared = await prepare_historical_agency_execution(execution)
+        await agency_execution_coordinator.resume_interaction(
+            execution=execution,
+            approval=approval,
+            prepared=prepared,
+        )
+        return
     workflow = WorkflowPayload.model_validate(execution.workflow)
     payload = WorkflowRunRequest(
         workflow=workflow,
@@ -16313,6 +16621,28 @@ async def expire_runtime_approval_execution(
     execution: WorkflowExecution,
     approval: RuntimeApprovalRequest,
 ) -> None:
+    if execution.source_kind == "expert_team_agency":
+        workflow_execution_store.append_event(
+            execution.task_id,
+            {
+                "event": "agency.interaction.expired",
+                "task_id": approval.node_id,
+                "approval_id": approval.approval_id,
+                "status": "expired",
+            },
+        )
+        try:
+            await run_registry.update_run(
+                execution.run_id,
+                status="waiting",
+                metadata={
+                    "approval_id": approval.approval_id,
+                    "approval_status": "expired",
+                },
+            )
+        except KeyError:
+            pass
+        return
     metadata = dict(execution.runtime_metadata or {})
     try:
         await run_registry.update_run(

@@ -781,6 +781,23 @@ const negativeCases = [
     },
   },
   {
+    name: "prototype host unvalidated dynamic port",
+    expectedRule: "prototype-host-network-invalid",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "prototype-host-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, [
+        'import { createServer } from "node:http";',
+        'export const PROTOTYPE_HOST = "127.0.0.1";',
+        "export const PROTOTYPE_HOST_PORT = 43_110;",
+        "export function start(port) {",
+        "  const server = createServer();",
+        "  server.listen(port, PROTOTYPE_HOST, () => {});",
+        "}",
+      ].join("\n"), "utf8");
+    },
+  },
+  {
     name: "smoke script non-loopback host",
     expectedRule: "smoke-host-not-fixed-loopback",
     setup: async ({ root }) => {

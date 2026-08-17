@@ -1,6 +1,6 @@
 {
   "name": "@matrix-oasis/engine",
-  "version": "0.11.0-r11",
+  "version": "0.12.0-r12",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -20,9 +20,10 @@
     "doctor": "node scripts/doctor.mjs",
     "doctor:godot": "node scripts/doctor.mjs --strict-godot",
     "check:boundary": "node scripts/check-boundary.mjs",
+    "check:mvp-claim": "node scripts/check-mvp-claim.mjs",
     "check:parent-scope": "node scripts/check-parent-scope.mjs",
     "check:round-scope": "node scripts/check-round-scope.mjs",
-    "test": "node --test tests/creator-shell.test.mjs tests/creator-pack-loader.test.mjs tests/creator-parity-loader.test.mjs tests/creator-parity-transaction.test.mjs tests/doctor.test.mjs tests/boundary.test.mjs tests/extraction-contract.test.mjs tests/godot-boundary.test.mjs tests/godot-harness.test.mjs tests/godot-runtime-adapter.test.mjs tests/godot-runtime-parity.test.mjs tests/godot-runtime-preview.test.mjs tests/godot-3d-controller.test.mjs tests/godot-3d-interaction.test.mjs tests/godot-3d-preview.test.mjs tests/godot-scene-binding.test.mjs tests/godot-scene-preview.test.mjs tests/godot-scene-verification.test.mjs tests/godot-splat.test.mjs tests/splat-qualification.test.mjs tests/vendor.test.mjs tests/parent-scope.test.mjs tests/round-scope.test.mjs tests/pack-cli.test.mjs tests/game-pack-examples.test.mjs tests/game-pack-simulator-semantics.test.mjs tests/compiler-cli.test.mjs tests/runtime-pack-cli.test.mjs tests/runtime-pack-simulator-semantics.test.mjs tests/game-pack-parity.test.mjs tests/scene-pack-bundle.test.mjs tests/prototype-generation-cli.test.mjs tests/prototype-model-qualification.test.mjs tests/prototype-asset-cli.test.mjs tests/prototype-asset-qualification.test.mjs tests/prototype-asset-godot.test.mjs tests/prototype-environment.test.mjs tests/prototype-assembly.test.mjs tests/prototype-host.test.mjs tests/prototype-builder.test.mjs tests/r10-qualification.test.mjs tests/spatial-builder.test.mjs packages/game-pack-contracts/tests/contract.test.mjs packages/game-pack-validator/tests/validator.test.mjs packages/game-pack-simulator/tests/simulator.test.mjs packages/runtime-pack-contracts/tests/canonical-json.test.mjs packages/runtime-pack-contracts/tests/contracts.test.mjs packages/runtime-pack-validator/tests/validator.test.mjs packages/game-pack-compiler/tests/compiler.test.mjs packages/runtime-pack-simulator/tests/simulator.test.mjs packages/game-pack-parity-harness/tests/harness.test.mjs packages/scene-pack-contracts/tests/contracts.test.mjs packages/scene-pack-validator/tests/validator.test.mjs tests/scene-pack-bundle.test.mjs packages/prototype-generation-contracts/tests/contracts.test.mjs packages/prototype-generator/tests/generator.test.mjs packages/prototype-asset-contracts/tests/contracts.test.mjs packages/prototype-asset-pipeline/tests/pipeline.test.mjs packages/prototype-spatial-environment/tests/spatial-environment.test.mjs packages/prototype-spatial-assembler/tests/spatial-assembler.test.mjs tests/spatial-assembly.test.mjs",
+    "test": "node --test tests/creator-shell.test.mjs tests/creator-pack-loader.test.mjs tests/creator-parity-loader.test.mjs tests/creator-parity-transaction.test.mjs tests/doctor.test.mjs tests/boundary.test.mjs tests/extraction-contract.test.mjs tests/godot-boundary.test.mjs tests/godot-harness.test.mjs tests/godot-runtime-adapter.test.mjs tests/godot-runtime-parity.test.mjs tests/godot-runtime-preview.test.mjs tests/godot-3d-controller.test.mjs tests/godot-3d-interaction.test.mjs tests/godot-3d-preview.test.mjs tests/godot-scene-binding.test.mjs tests/godot-scene-preview.test.mjs tests/godot-scene-verification.test.mjs tests/godot-splat.test.mjs tests/splat-qualification.test.mjs tests/vendor.test.mjs tests/parent-scope.test.mjs tests/round-scope.test.mjs tests/pack-cli.test.mjs tests/game-pack-examples.test.mjs tests/game-pack-simulator-semantics.test.mjs tests/compiler-cli.test.mjs tests/runtime-pack-cli.test.mjs tests/runtime-pack-simulator-semantics.test.mjs tests/game-pack-parity.test.mjs tests/scene-pack-bundle.test.mjs tests/prototype-generation-cli.test.mjs tests/prototype-model-qualification.test.mjs tests/prototype-asset-cli.test.mjs tests/prototype-asset-qualification.test.mjs tests/prototype-asset-godot.test.mjs tests/prototype-environment.test.mjs tests/r12-spatial-materialization.test.mjs tests/prototype-assembly.test.mjs tests/prototype-host.test.mjs tests/prototype-builder.test.mjs tests/r10-qualification.test.mjs tests/spatial-builder.test.mjs packages/game-pack-contracts/tests/contract.test.mjs packages/game-pack-validator/tests/validator.test.mjs packages/game-pack-simulator/tests/simulator.test.mjs packages/runtime-pack-contracts/tests/canonical-json.test.mjs packages/runtime-pack-contracts/tests/contracts.test.mjs packages/runtime-pack-validator/tests/validator.test.mjs packages/game-pack-compiler/tests/compiler.test.mjs packages/runtime-pack-simulator/tests/simulator.test.mjs packages/game-pack-parity-harness/tests/harness.test.mjs packages/scene-pack-contracts/tests/contracts.test.mjs packages/scene-pack-validator/tests/validator.test.mjs tests/scene-pack-bundle.test.mjs packages/prototype-generation-contracts/tests/contracts.test.mjs packages/prototype-generator/tests/generator.test.mjs packages/prototype-asset-contracts/tests/contracts.test.mjs packages/prototype-asset-pipeline/tests/pipeline.test.mjs packages/prototype-spatial-environment/tests/spatial-environment.test.mjs packages/prototype-spatial-assembler/tests/spatial-assembler.test.mjs tests/spatial-assembly.test.mjs",
     "test:harness": "node --test tests/creator-shell.test.mjs tests/creator-pack-loader.test.mjs tests/creator-parity-loader.test.mjs tests/creator-parity-transaction.test.mjs tests/doctor.test.mjs tests/boundary.test.mjs tests/extraction-contract.test.mjs tests/parent-scope.test.mjs tests/round-scope.test.mjs",
     "test:contracts": "node --test packages/game-pack-contracts/tests/contract.test.mjs",
     "test:pack": "node --test packages/game-pack-validator/tests/validator.test.mjs tests/pack-cli.test.mjs",
@@ -41,7 +42,7 @@
     "test:prototype-asset-provider": "node --test tests/prototype-asset-cli.test.mjs",
     "test:prototype-asset-pipeline": "node --test packages/prototype-asset-pipeline/tests/pipeline.test.mjs tests/prototype-asset-cli.test.mjs tests/prototype-asset-qualification.test.mjs",
     "test:prototype-assets": "npm run test:prototype-asset-contracts && npm run test:prototype-asset-pipeline",
-    "test:prototype-environment": "node --test tests/prototype-environment.test.mjs",
+    "test:prototype-environment": "node --test tests/prototype-environment.test.mjs tests/r12-spatial-materialization.test.mjs",
     "test:spatial-environment": "node --test packages/prototype-spatial-environment/tests/spatial-environment.test.mjs tests/spatial-environment.test.mjs",
     "test:prototype-assembly": "node --test tests/prototype-assembly.test.mjs",
     "test:prototype-host": "node --test tests/prototype-host.test.mjs",
@@ -90,6 +91,9 @@
     "preview:prototype": "npm run build:creator && node scripts/preview-prototype.mjs",
     "import:spatial-prototype-cache": "node scripts/import-spatial-prototype-cache.mjs",
     "preview:spatial-prototype": "npm run build:creator && node scripts/preview-spatial-prototype.mjs",
+    "plan:r12-call": "node scripts/plan-r12-call.mjs",
+    "qualify:r12": "node scripts/qualify-r12.mjs",
+    "preview:r12": "npm run build:creator && node scripts/preview-r12.mjs",
     "verify:pack": "npm run test:contracts && npm run test:pack && npm run validate:examples && npm run test:examples",
     "verify:simulator": "npm run test:simulator",
     "verify:runtime-pack": "npm run test:runtime-pack",
@@ -113,6 +117,8 @@
     "verify:spatial-assembly": "npm run test:spatial-assembly",
     "test:spatial-builder": "node --test tests/spatial-builder.test.mjs tests/r11-qualification.test.mjs",
     "verify:spatial-builder": "npm run test:spatial-builder && npm run build:creator && node scripts/verify-spatial-builder.mjs",
-    "verify:r11": "npm run verify:spatial-environment && npm run verify:spatial-assembly && npm run verify:spatial-builder"
+    "verify:r11": "npm run verify:spatial-environment && npm run verify:spatial-assembly && npm run verify:spatial-builder",
+    "test:r12": "node --test tests/r12-acceptance-profile.test.mjs tests/r12-multi-asset.test.mjs tests/r12-spatial-materialization.test.mjs tests/r12-generalization.test.mjs tests/r12-host.test.mjs tests/r12-qualification.test.mjs",
+    "verify:r12": "npm run test:r12"
   }
 }

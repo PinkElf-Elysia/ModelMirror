@@ -93,6 +93,36 @@ recorded upstream Blob SHA. There are no inline modifications in round 0.
   - Scheduling, template rendering, verification and rework logic remain the
     upstream implementation; omitting the resolver preserves file loading.
 
+## Round 7 durable HITL adaptation
+
+- `src/cli/compose.ts`
+  - Reuses upstream Blob SHA
+    `95f173675f0b17d2576bdefebf228d5d19740ad2` and adds an optional
+    host-owned system-prompt appendix after the upstream Compose prompt.
+  - ModelMirror uses the seam only to state execution invariants that differ
+    from the upstream CLI runtime, especially durable HITL full-DAG barriers.
+    Omitting the appendix preserves the upstream prompt byte-for-byte.
+- `src/core/executor.ts`
+  - Reuses the original upstream Blob SHA
+    `7ed21655e822950882b7274747ed489901a6f37b`.
+  - Adds an optional host-owned interaction resolver for `human_input` and
+    `approval` steps. ModelMirror uses it to return a durable checkpoint,
+    persist the wait in Python, exit the Node Worker, and resume later.
+  - Adds an optional host-owned deterministic output normalizer that runs
+    before acceptance verification and before rework verification. ModelMirror
+    uses it only to canonicalize entries from an explicitly closed user list;
+    omitting the hook preserves the generated output byte-for-byte.
+  - Adds an optional host-owned strict verification policy hook. ModelMirror
+    uses it only for an expert draft immediately before an approval checkpoint:
+    if verification is unavailable or still fails after the upstream one-round
+    rework, that draft step fails before any approval is requested while its
+    last bounded output remains available for diagnosis and targeted retry.
+    Omitting the hook preserves upstream's non-blocking quality-signal behavior.
+  - When the resolver is omitted, the existing upstream CLI/readline behavior
+    remains the default.
+  - Scheduling, template rendering, result restoration, verification and the
+    one-rework path remain the upstream implementation.
+
 ## Deliberately excluded
 
 The upstream Provider Factory and all provider implementations, website/Web

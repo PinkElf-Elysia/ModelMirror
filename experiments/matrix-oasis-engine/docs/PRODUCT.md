@@ -10,7 +10,7 @@ product
 
 ## Product Purpose
 
-提供案例无关、可拆分的AI原生3D游戏引擎实验模块。R10以Marble panorama与collider、Meshy道具/静态人物、确定性Scene Pack和Creator本地宿主完成初版闭环。
+提供案例无关、可拆分的AI原生3D游戏引擎实验模块。R1–R11已验证Pack、真实资产、空间环境与Godot可玩层；R12以末班地铁真实全链路和中性泛化证据作为初版完成的唯一声明门。
 
 ## Brand Personality
 
@@ -19,7 +19,7 @@ product
 ## Anti-references
 
 - 不做叙事落地页、剧情包装或宣传式Hero。
-- 不使用SPZ、HQ mesh人工导出、AI NPC、任务或世界事件暗示超出初版的能力。
+- R12使用Marble SPZ空间环境，但不引入HQ mesh人工导出、AI NPC、任务或世界事件等超出初版的能力。
 - 不使用装饰动画、玻璃拟态、渐变文字、密集卡片墙或超大圆角。
 - 不显示密钥、供应商任务ID、下载URL、原始HTTP响应或本机绝对路径。
 
