@@ -12,6 +12,8 @@ import PageContainer from "../components/PageContainer";
 import FilterPanel from "../components/filters/FilterPanel";
 import {
   defaultFilterState,
+  deserializeFilters,
+  serializeFilters,
   type ModelFilterState,
 } from "../data/filterState";
 import {
@@ -338,7 +340,9 @@ export function ModelMarketHero({
 export default function ModelListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] =
-    useState<ModelFilterState>(createDefaultFilters);
+    useState<ModelFilterState>(() =>
+      deserializeFilters(searchParams, createDefaultFilters()),
+    );
   const [searchTerm, setSearchTerm] = useState(
     () => searchParams.get("q") ?? "",
   );
@@ -971,8 +975,7 @@ export default function ModelListPage() {
     setSearchParams(nextParams, { replace: true });
   }
 
-  // 把搜索词与分页进度同步进 URL，返回列表时状态保留。
-  // 筛选条件（filters）仍走 state——完整序列化到 URL 复杂度高，留待后续。
+  // 把搜索词、筛选条件与分页进度同步进 URL，返回列表时状态保留。
   useEffect(() => {
     const nextParams = new URLSearchParams(searchParams);
     if (searchTerm.trim()) {
@@ -985,8 +988,18 @@ export default function ModelListPage() {
     } else {
       nextParams.delete("count");
     }
+    // 合并筛选条件参数；先清掉旧的筛选键，再写入当前非默认值。
+    const filterKeys = [
+      "mod", "series", "jobs", "cat", "params", "providers", "authors",
+      "regions", "discounted", "retention", "inactive", "distillable",
+      "minctx", "toolsr", "pricein", "priceout", "age",
+    ];
+    for (const key of filterKeys) nextParams.delete(key);
+    for (const [key, value] of Object.entries(serializeFilters(filters))) {
+      nextParams.set(key, value);
+    }
     setSearchParams(nextParams, { replace: true });
-  }, [searchTerm, visibleCount]);
+  }, [searchTerm, visibleCount, filters]);
 
   // 搜索防抖：输入框即时显示，过滤用防抖后的词，减少逐字符全量重算。
   useEffect(() => {
