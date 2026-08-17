@@ -125,6 +125,19 @@ class BrokerRPCServer:
         await writer.wait_closed()
 
     async def _execute(self, request: BrokerRPCRequest) -> ToolResult:
+        task = self.broker.store.get_task(request.task_id)
+        if task.runtime_protocol is RuntimeProtocol.V17 and request.lease_id is None:
+            resumed_leases = self._approved_v17_leases(request)
+            if resumed_leases is not None:
+                lease_id, network_lease_id = resumed_leases
+                return await self.broker.execute(
+                    task_id=request.task_id,
+                    operation_id=request.operation_id,
+                    tool_name=request.tool_name,
+                    arguments=request.arguments,
+                    lease_id=lease_id,
+                    network_lease_id=network_lease_id,
+                )
         try:
             return await self.broker.execute(
                 task_id=request.task_id,
@@ -137,7 +150,6 @@ class BrokerRPCServer:
         except ToolBrokerError as exc:
             if exc.code != "approval_required" or request.lease_id is not None:
                 raise
-        task = self.broker.store.get_task(request.task_id)
         if task.runtime_protocol is RuntimeProtocol.V17:
             operation = self.broker.store.get_operation(request.operation_id)
             return ToolResult(
@@ -155,6 +167,59 @@ class BrokerRPCServer:
             lease_id=lease_id,
             network_lease_id=network_lease_id,
         )
+
+    def _approved_v17_leases(
+        self, request: BrokerRPCRequest
+    ) -> tuple[str, str | None] | None:
+        try:
+            operation = self.broker.store.get_operation(request.operation_id)
+        except Exception as exc:
+            if getattr(exc, "code", None) == "operation_not_found":
+                return None
+            raise
+        if operation.task_id != request.task_id or operation.state is not OperationState.PREPARED:
+            return None
+        required_ids = [request.operation_id]
+        if request.tool_name in {"install_dependencies", "query_documentation"}:
+            required_ids.append(
+                "network_"
+                + hashlib.sha256(request.operation_id.encode("utf-8")).hexdigest()[:32]
+            )
+        approvals = {
+            approval.operation_id: approval
+            for approval in self.broker.store.list_approvals(request.task_id)
+            if approval.operation_id in required_ids
+        }
+        if len(approvals) != len(required_ids):
+            return None
+        if any(
+            approval.status
+            in {
+                ApprovalStatus.REJECTED,
+                ApprovalStatus.CANCELLED,
+                ApprovalStatus.EXPIRED,
+            }
+            for approval in approvals.values()
+        ):
+            self.broker.store.transition_operation(
+                request.operation_id,
+                OperationState.FAILED,
+                result={"code": "approval_rejected"},
+                expected_state=OperationState.PREPARED,
+            )
+            raise BrokerRPCError(
+                "Tool approval was rejected.", code="approval_rejected"
+            )
+        if not all(
+            approval.status is ApprovalStatus.APPROVED and approval.lease is not None
+            for approval in approvals.values()
+        ):
+            return None
+        main = approvals[request.operation_id].lease
+        network = approvals.get(required_ids[1]).lease if len(required_ids) > 1 else None
+        if main is None:
+            return None
+        return main.lease_id, network.lease_id if network is not None else None
 
     async def _wait_for_approval(
         self, request: BrokerRPCRequest

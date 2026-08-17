@@ -13,8 +13,14 @@ from server.coding_worker.source_adapters import (
     HostSnapshotWorkspaceSourceAdapter,
     ProjectSnapshotWorkspaceSourceAdapter,
 )
-from server.coding_worker.workspace import WorkspaceError
-from server.coding_worker.runtime import build_runtime_from_environment
+from server.coding_worker.workspace import (
+    InMemoryWorkspaceSourceAdapter,
+    WorkspaceError,
+)
+from server.coding_worker.runtime import (
+    CodingWorkerRuntimeError,
+    build_runtime_from_environment,
+)
 
 
 class FakeProjectSource:
@@ -205,6 +211,60 @@ def test_runtime_wires_host_snapshot_to_live_project_host(
         "react-test",
         "react-build",
     }
+
+
+def test_runtime_parity_profile_registers_only_public_fixtures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assets = Path(__file__).parent / "fixtures" / "coding_worker_v17_parity_assets.json"
+    environment = {
+        "CODING_WORKER_STATE_ROOT": str(tmp_path / "state"),
+        "CODING_WORKER_SLOT_A_ROOT": str(tmp_path / "slot-a"),
+        "CODING_WORKER_SLOT_B_ROOT": str(tmp_path / "slot-b"),
+        "CODING_WORKER_SLOT_A_TOKEN": "a" * 32,
+        "CODING_WORKER_SLOT_B_TOKEN": "b" * 32,
+        "CODING_WORKER_EXECUTOR_A_TOKEN": "c" * 32,
+        "CODING_WORKER_EXECUTOR_B_TOKEN": "d" * 32,
+        "CODING_WORKER_BROKER_SOCKET": str(tmp_path / "broker.sock"),
+        "CODING_WORKER_PARITY_ENABLED": "true",
+        "CODING_WORKER_PARITY_PUBLIC_FIXTURES": str(assets),
+    }
+    for key, value in environment.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("CODING_WORKER_BUILTIN_SOURCE_ROOT", raising=False)
+    monkeypatch.delenv("CODING_WORKER_BUILTIN_REVISION", raising=False)
+
+    runtime = build_runtime_from_environment()
+
+    assert isinstance(
+        runtime.workspace_broker._adapters["builtin"],
+        InMemoryWorkspaceSourceAdapter,
+    )
+    assert {"pytest", "npm_test"}.issubset(runtime.tool_broker.frozen_checks)
+
+
+def test_runtime_rejects_parity_profile_mixed_with_builtin_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assets = Path(__file__).parent / "fixtures" / "coding_worker_v17_parity_assets.json"
+    values = {
+        "CODING_WORKER_STATE_ROOT": str(tmp_path / "state"),
+        "CODING_WORKER_SLOT_A_ROOT": str(tmp_path / "slot-a"),
+        "CODING_WORKER_SLOT_B_ROOT": str(tmp_path / "slot-b"),
+        "CODING_WORKER_SLOT_A_TOKEN": "a" * 32,
+        "CODING_WORKER_SLOT_B_TOKEN": "b" * 32,
+        "CODING_WORKER_EXECUTOR_A_TOKEN": "c" * 32,
+        "CODING_WORKER_EXECUTOR_B_TOKEN": "d" * 32,
+        "CODING_WORKER_PARITY_ENABLED": "true",
+        "CODING_WORKER_PARITY_PUBLIC_FIXTURES": str(assets),
+        "CODING_WORKER_BUILTIN_SOURCE_ROOT": str(tmp_path),
+        "CODING_WORKER_BUILTIN_REVISION": "a" * 40,
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+
+    with pytest.raises(CodingWorkerRuntimeError, match="cannot replace"):
+        build_runtime_from_environment()
 
 
 @pytest.mark.asyncio

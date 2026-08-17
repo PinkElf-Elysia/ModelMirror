@@ -24,6 +24,7 @@ from .executor import ExecutorSidecarClientPool, SidecarExecutor
 
 
 MAX_PROVIDER_RPC_BYTES = 8 * 1024 * 1024
+_CLIENT_DISCONNECTED = (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)
 
 
 class ProviderRPCError(RuntimeError):
@@ -133,22 +134,32 @@ class ProviderRPCServer:
                 return
             result = await self._dispatch(request)
             await self._write(writer, {"ok": True, "result": result})
+        except _CLIENT_DISCONNECTED:
+            # Parking a turn closes the streaming client deliberately.  The
+            # provider may observe that close between yielding an event and
+            # draining it; it is a normal cancellation boundary, not a
+            # sidecar failure that should be written back to a dead socket.
+            return
         except Exception as exc:
-            await self._write(
-                writer,
-                {
-                    "ok": False,
-                    "error": {
-                        "code": getattr(exc, "code", "provider_failed"),
-                        "message": str(exc)
-                        if isinstance(exc, (ProviderRPCError, ValueError))
-                        else "Provider request failed.",
+            with contextlib.suppress(*_CLIENT_DISCONNECTED):
+                await self._write(
+                    writer,
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": getattr(exc, "code", "provider_failed"),
+                            "message": str(exc)
+                            if isinstance(exc, (ProviderRPCError, ValueError))
+                            else "Provider request failed.",
+                        },
                     },
-                },
-            )
+                )
         finally:
             writer.close()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(
+                asyncio.TimeoutError,
+                *_CLIENT_DISCONNECTED,
+            ):
                 await asyncio.wait_for(writer.wait_closed(), timeout=1)
             if current is not None:
                 self._connections.pop(current, None)

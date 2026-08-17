@@ -14,7 +14,11 @@ from .provider_rpc import ProviderSidecarClientPool
 from .service import CodingWorkerService
 from .store import CodingWorkerStore, DEFAULT_RETENTION_SECONDS
 from .tool_broker import FrozenCheck, ToolBroker
-from .workspace import WorkspaceBroker, WorkspaceSourceAdapter
+from .workspace import (
+    InMemoryWorkspaceSourceAdapter,
+    WorkspaceBroker,
+    WorkspaceSourceAdapter,
+)
 from .source_adapters import (
     BuiltinGitWorkspaceSourceAdapter,
     HostSnapshotWorkspaceSourceAdapter,
@@ -283,6 +287,7 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         if value.strip()
     )
     source_adapters = dict(_SOURCE_ADAPTERS)
+    frozen_checks = {**_DEFAULT_FROZEN_CHECKS, **_FROZEN_CHECKS}
     builtin_root = os.getenv("CODING_WORKER_BUILTIN_SOURCE_ROOT")
     builtin_revision = os.getenv("CODING_WORKER_BUILTIN_REVISION")
     if bool(builtin_root) != bool(builtin_revision):
@@ -290,7 +295,37 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
             "Builtin Worker source configuration is incomplete.",
             code="coding_worker_config_invalid",
         )
-    if builtin_root and builtin_revision:
+    parity_enabled = os.getenv("CODING_WORKER_PARITY_ENABLED", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    parity_assets = os.getenv("CODING_WORKER_PARITY_PUBLIC_FIXTURES")
+    if parity_enabled != bool(parity_assets):
+        raise CodingWorkerRuntimeError(
+            "Parity fixture configuration is incomplete.",
+            code="coding_worker_config_invalid",
+        )
+    if parity_enabled and (builtin_root or builtin_revision):
+        raise CodingWorkerRuntimeError(
+            "Parity fixtures cannot replace a configured builtin source.",
+            code="coding_worker_config_invalid",
+        )
+    if parity_enabled and parity_assets:
+        parity_adapter, parity_checks = _load_parity_public_fixtures(
+            Path(parity_assets)
+        )
+        source_adapters.setdefault("builtin", parity_adapter)
+        for check_id, check in parity_checks.items():
+            existing = frozen_checks.get(check_id)
+            if existing is not None and existing != check:
+                raise CodingWorkerRuntimeError(
+                    "Parity check conflicts with a frozen check.",
+                    code="coding_worker_config_invalid",
+                )
+            frozen_checks[check_id] = check
+    elif builtin_root and builtin_revision:
         source_adapters.setdefault(
             "builtin",
             BuiltinGitWorkspaceSourceAdapter(
@@ -336,7 +371,7 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         storage_root=root,
         slot_roots=slot_roots,
         source_adapters=source_adapters,
-        frozen_checks={**_DEFAULT_FROZEN_CHECKS, **_FROZEN_CHECKS},
+        frozen_checks=frozen_checks,
         provider_endpoints=endpoints,
         provider_tokens=tokens,
         executor_endpoints=executor_endpoints,
@@ -361,6 +396,41 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         route_context_tokens=_route_context_tokens_from_environment(),
         documentation_resources=_documentation_resources_from_environment(),
     )
+
+
+def _load_parity_public_fixtures(
+    path: Path,
+) -> tuple[InMemoryWorkspaceSourceAdapter, dict[str, FrozenCheck]]:
+    try:
+        from .parity import load_public_fixture_bundle
+
+        bundle = load_public_fixture_bundle(path)
+    except (OSError, ValueError) as exc:
+        raise CodingWorkerRuntimeError(
+            "Parity public fixture bundle is invalid.",
+            code="coding_worker_config_invalid",
+        ) from exc
+    snapshots: dict[tuple[str, str], dict[str, bytes]] = {}
+    checks: dict[str, FrozenCheck] = {}
+    for fixture in bundle.fixtures:
+        snapshots[(fixture.fixture_id, fixture.fixture_revision)] = {
+            entry.path: entry.content_bytes() for entry in fixture.files
+        }
+        for visible in fixture.visible_checks:
+            if visible.cwd != ".":
+                raise CodingWorkerRuntimeError(
+                    "Parity checks must execute at the fixture root.",
+                    code="coding_worker_config_invalid",
+                )
+            check = FrozenCheck(check_id=visible.check_id, argv=visible.argv)
+            existing = checks.get(check.check_id)
+            if existing is not None and existing != check:
+                raise CodingWorkerRuntimeError(
+                    "Parity check definitions conflict.",
+                    code="coding_worker_config_invalid",
+                )
+            checks[check.check_id] = check
+    return InMemoryWorkspaceSourceAdapter(snapshots), checks
 
 
 def _documentation_resources_from_environment() -> dict[str, str]:

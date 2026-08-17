@@ -153,6 +153,10 @@ async def test_provider_sidecar_pool_streams_neutral_events_and_revokes_broker_t
 async def test_closing_provider_stream_aborts_the_unfinished_sidecar_turn(
     tmp_path: Path,
 ) -> None:
+    loop = asyncio.get_running_loop()
+    previous_handler = loop.get_exception_handler()
+    unhandled: list[dict[str, object]] = []
+    loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
     store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
     workspace = WorkspaceBroker(tmp_path / "workspace", {}, id_key=b"z" * 32)
     broker_rpc = BrokerRPCServer(ToolBroker(store=store, workspace_broker=workspace))
@@ -190,6 +194,8 @@ async def test_closing_provider_stream_aborts_the_unfinished_sidecar_turn(
     await pool.close(session)
     await server.close()
     await broker_rpc.close()
+    loop.set_exception_handler(previous_handler)
+    assert unhandled == []
 
 
 @pytest.mark.asyncio

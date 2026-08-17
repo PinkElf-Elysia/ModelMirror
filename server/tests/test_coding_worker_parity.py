@@ -73,6 +73,9 @@ def _runs(*, worker_failures: set[str] | None = None) -> tuple[ParityRunOutcome,
                         raw_artifact_manifest_sha256=hashlib.sha256(
                             run_id.encode("utf-8")
                         ).hexdigest(),
+                        checker_receipt_sha256=hashlib.sha256(
+                            f"checker:{run_id}".encode("utf-8")
+                        ).hexdigest(),
                         candidate_sha=CANDIDATE,
                         task_manifest_sha256=manifest_hash,
                         initial_tree_hash=task.initial_tree_hash,
@@ -249,6 +252,9 @@ class _RecordingRunner:
             raw_artifact_manifest_sha256=hashlib.sha256(
                 request.run_id.encode("utf-8")
             ).hexdigest(),
+            checker_receipt_sha256=hashlib.sha256(
+                f"checker:{request.run_id}".encode("utf-8")
+            ).hexdigest(),
             candidate_sha=request.candidate_sha,
             task_manifest_sha256=request.task_manifest_sha256,
             initial_tree_hash=request.initial_tree_hash,
@@ -276,6 +282,7 @@ def test_matrix_uses_independent_bound_runners_and_randomized_order() -> None:
         },
         candidate_sha=CANDIDATE,
         model_route_receipt_sha256=ROUTE_RECEIPT,
+        round_id="round_1",
     )
 
     assert len(outcomes) == 144
@@ -284,6 +291,22 @@ def test_matrix_uses_independent_bound_runners_and_randomized_order() -> None:
         item.task_id for item in manifest.tasks[:6]
     ]
     assert all(request.fixture_id.startswith("fixture_") for request in native.requests)
+
+    second_native = _RecordingRunner(ParityEngine.NATIVE_OPENCODE)
+    second_worker = _RecordingRunner(ParityEngine.MODELMIRROR_WORKER)
+    second = run_parity_matrix(
+        manifest=manifest,
+        runners={
+            ParityEngine.NATIVE_OPENCODE: second_native,
+            ParityEngine.MODELMIRROR_WORKER: second_worker,
+        },
+        candidate_sha=CANDIDATE,
+        model_route_receipt_sha256=ROUTE_RECEIPT,
+        round_id="round_2",
+    )
+    assert {item.run_id for item in outcomes}.isdisjoint(
+        {item.run_id for item in second}
+    )
 
 
 def test_matrix_rejects_shared_runner_and_foreign_outcome() -> None:
@@ -298,6 +321,7 @@ def test_matrix_rejects_shared_runner_and_foreign_outcome() -> None:
             },
             candidate_sha=CANDIDATE,
             model_route_receipt_sha256=ROUTE_RECEIPT,
+            round_id="round_1",
         )
 
     class _ForeignRunner(_RecordingRunner):
@@ -316,6 +340,7 @@ def test_matrix_rejects_shared_runner_and_foreign_outcome() -> None:
             },
             candidate_sha=CANDIDATE,
             model_route_receipt_sha256=ROUTE_RECEIPT,
+            round_id="round_1",
         )
 
 
@@ -342,6 +367,7 @@ def test_subprocess_runner_accepts_only_exact_json_bound_outcome() -> None:
         model_route_catalog_sha256=(
             load_frozen_manifest(FIXTURE).model_route_catalog_sha256
         ),
+        model_route=load_frozen_manifest(FIXTURE).model_route,
         budget=task.budget,
         model_route_receipt_sha256=ROUTE_RECEIPT,
         candidate_sha=CANDIDATE,
@@ -358,6 +384,7 @@ print(json.dumps({
   'hidden_checker_bundle_sha256':r['hidden_checker_bundle_sha256'],
   'runner_image_digest':r['runner_image_digest'],
   'raw_artifact_manifest_sha256':'a'*64,
+  'checker_receipt_sha256':'b'*64,
   'candidate_sha':r['candidate_sha'],'task_manifest_sha256':r['task_manifest_sha256'],
   'initial_tree_hash':r['initial_tree_hash'],'final_tree_hash':'f'*64,
   'hidden_checks_passed':True,'allowed_diff':True,'policy_violations':[],

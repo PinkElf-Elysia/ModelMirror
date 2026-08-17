@@ -371,3 +371,23 @@ V16 继续使用同一 `/api/coding-worker/v1` 与 `TaskSpec`，新增的是可�
 - 公开会话能力包含 plan/todo、一次性问题回答、完整工具边界 compaction、turn history、undo/redo/fork 与脱敏 export。旧任务没有 turn checkpoint 时保持可读，但不伪造这些控制能力。
 
 这些确定性安全与恢复能力不等于 OpenCode 能力等效。只有固定 24 项任务、两侧各三次、连续两轮真实模型门禁和无 P0/P1 人工验收全部通过后，才允许使用任务卡中唯一的范围限定表述。
+
+## V17 Turn Transaction 与可执行认证边界
+
+V17 为新任务写入 `runtime_protocol=v17`。审批、用户输入、子任务、压缩与未知工具结果不再由通用 Provider 事件推导，而是统一进入持久 Turn Transaction：`open → parking → parked → resuming → completed/interrupted`。屏障出现后，Server 先停止当前 Provider turn、确认无活动请求、写入绑定当前 tree 的 checkpoint，再释放执行槽。只有 durable `parked` 才能结算审批或回答；恢复继续使用原 turn、operation 与 checkpoint，不能换 ID 重放副作用。旧 V16 任务保持原恢复路径，不迁移私有 checkpoint。
+
+任务能力由 `enabled / supported / available / reason` 四元组表达，并绑定任务固定路由、sidecar generation 与短期健康观测。Console 使用任务级 capability、平台 Plan/Todo/Question/Turn/Evidence；Provider 原生 plan、question 或 compaction 帧只作为非权威公开提示，不能改变业务状态。`turn_parking`、`turn_parked`、`turn_resumed` 和 `operation_reconciled` 是状态事件，不是失败。
+
+认证执行面使用独立 profile，并保持四个角色分离：
+
+```mermaid
+flowchart LR
+  C["Controller\n无网络、无隐藏检查"] --> N["Native OpenCode runner\n固定 1.18.9"]
+  C --> W["Worker runner\n正式 Worker API"]
+  N --> A["不透明终态 Workspace Artifact"]
+  W --> A
+  A --> K["Checker\n无网络、唯一挂载密封 bundle"]
+  K --> R["绑定 run/task/tree/check 的 receipt"]
+```
+
+Controller 只能读取公开 manifest、fixture 与三个 Unix socket，不挂载 checker bundle、模型密钥或 Docker socket。Native runner 与 Worker runner 使用不同全新 Workspace/session；checker 是唯一读取隐藏检查正文的进程。公开报告只保存 digest、分类与脱敏 Artifact 清单。确定性 Fake smoke、Compose 展开、CLI 版本探针和本仓库自动测试只能证明协议与隔离结构，不能证明成功率等效。

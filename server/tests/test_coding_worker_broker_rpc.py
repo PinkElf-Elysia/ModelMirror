@@ -18,8 +18,10 @@ from server.coding_worker.broker_mcp import (
 from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
+    OperationState,
     Origin,
     PolicyProfile,
+    RuntimeProtocol,
     TaskSpec,
     TaskState,
     WorkspaceSource,
@@ -41,7 +43,11 @@ class _Executor:
         return {"exit_code": 0, "output": "approved\n"}
 
 
-async def _rpc(tmp_path: Path) -> tuple[BrokerRPCServer, str, str, _Executor]:
+async def _rpc(
+    tmp_path: Path,
+    *,
+    runtime_protocol: RuntimeProtocol = RuntimeProtocol.V16,
+) -> tuple[BrokerRPCServer, str, str, _Executor]:
     source = WorkspaceSource(kind="manifest", source_id="rpc", revision="h0")
     workspace = WorkspaceBroker(
         tmp_path / "workspace",
@@ -64,10 +70,17 @@ async def _rpc(tmp_path: Path) -> tuple[BrokerRPCServer, str, str, _Executor]:
             ),
             model_route="coding/default",
             policy_profile=PolicyProfile.DEVELOP,
-        )
+        ),
+        runtime_protocol=runtime_protocol,
     )
     store.transition(task.task_id, TaskState.PREPARING)
     store.transition(task.task_id, TaskState.RUNNING, workspace_id=prepared.workspace_id)
+    if runtime_protocol is RuntimeProtocol.V17:
+        store.open_turn_transaction(
+            task_id=task.task_id,
+            turn_id="turn_rpc_v17",
+            workspace_tree_hash=prepared.baseline_tree_hash,
+        )
     executor = _Executor()
     server = BrokerRPCServer(
         ToolBroker(
@@ -452,6 +465,55 @@ async def test_rpc_waits_for_exact_approval_and_executes_same_operation_once(
     assert result["state"] == "completed"
     assert result["data"]["output"] == "approved\n"
     assert executor.calls == [("python", "-m", "pytest")]
+    await server.close()
+
+
+@pytest.mark.asyncio
+async def test_v17_rpc_reuses_the_approved_exact_operation_without_exposing_lease(
+    tmp_path: Path,
+) -> None:
+    server, task_id, endpoint, executor = await _rpc(
+        tmp_path, runtime_protocol=RuntimeProtocol.V17
+    )
+    client = BrokerRPCClient(
+        endpoint, token=server.register_task(task_id), task_id=task_id
+    )
+    request = {
+        "operation_id": "rpc-v17-command",
+        "tool_name": "run_command",
+        "arguments": {"argv": ["python", "-m", "pytest"], "timeout_seconds": 30},
+    }
+
+    parked = await client.call(**request)
+    assert parked["data"] == {"control": "turn_parking", "barrier": "approval"}
+    task = server.broker.store.get_task(task_id)
+    checkpoint = server.broker.store.create_checkpoint(
+        task_id=task_id,
+        workspace_tree_hash=server.broker.workspace_broker.current_tree_hash(
+            task.workspace_id or ""
+        ),
+        payload={"phase": "waiting_approval"},
+    )
+    server.broker.store.park_turn_transaction(
+        task_id=task_id,
+        turn_id="turn_rpc_v17",
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    server.broker.store.transition(
+        task_id,
+        TaskState.WAITING_APPROVAL,
+        expected_state=TaskState.RUNNING,
+    )
+    approval = server.broker.store.list_approvals(task_id)[0]
+    server.broker.store.decide_approval(approval.approval_id, approved=True)
+
+    completed = await client.call(**request)
+
+    assert completed["state"] == "completed"
+    assert executor.calls == [("python", "-m", "pytest")]
+    operation = server.broker.store.get_operation("rpc-v17-command")
+    assert operation.state is OperationState.COMPLETED
+    assert operation.turn_id == "turn_rpc_v17"
     await server.close()
 
 
