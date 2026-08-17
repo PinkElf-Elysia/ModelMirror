@@ -26,6 +26,7 @@ from server.coding_worker.contracts import (
 from server.coding_worker.evidence import HarnessRunner
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
+    ProviderCapabilities,
     ProviderEvent,
     ProviderEventKind,
     ProviderCheckpoint,
@@ -1196,3 +1197,40 @@ async def test_completed_provider_turn_is_reconciled_before_any_replay(
     assert provider.message_count == 1
     assert service.store.get_operation("lost-turn-write").state.value == "completed"
     await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_new_task_persists_explicit_provider_capability_snapshot(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path, FakeCodingAgentProvider())
+    task = await service.create_task(
+        Origin(module="test", object_id="capability-snapshot"),
+        _request("capability-snapshot"),
+    )
+    snapshot = service.store.get_task_capability_snapshot(task.task_id)
+    assert snapshot is not None
+    assert len(snapshot.binding_sha256) == 64
+    capabilities = ProviderCapabilities.model_validate(
+        snapshot.snapshot["capabilities"]
+    )
+    assert snapshot.snapshot["available"] is True
+    assert capabilities.supports_structured_plan is True
+    assert capabilities.tool_names
+    assert snapshot.expires_at - snapshot.observed_at == 30.0
+    await service.shutdown()
+
+
+def test_legacy_task_is_not_silently_given_a_capability_snapshot(
+    tmp_path: Path,
+) -> None:
+    store = CodingWorkerStore(
+        tmp_path / "legacy-worker", master_key=Fernet.generate_key()
+    )
+    task = store.create_task(
+        TaskSpec(
+            **_request("legacy-capability").model_dump(),
+            origin=Origin(module="test", object_id="legacy-capability"),
+        )
+    )
+    assert store.get_task_capability_snapshot(task.task_id) is None

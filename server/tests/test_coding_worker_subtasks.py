@@ -737,7 +737,9 @@ def test_subtask_capability_routes_and_runtime_wiring(
     )
     configure_coding_worker_for_tests(runtime.service, enabled=True)
     try:
-        assert coding_worker_capabilities().subtasks is True
+        # Flags do not make a provider-dependent capability available. These
+        # deliberately unreachable sidecars keep the public capability false.
+        assert coding_worker_capabilities().subtasks is False
         paths = {route.path for route in router.routes}
         assert "/api/coding-worker/v1/tasks/{task_id}/subtasks" in paths
         assert (

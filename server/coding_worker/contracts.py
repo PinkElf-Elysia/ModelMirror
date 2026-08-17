@@ -395,6 +395,74 @@ class WorkerCapabilities(StrictModel):
     subtasks: bool = False
 
 
+class WorkerFeatureName(StrEnum):
+    TASK_RUNTIME = "task_runtime"
+    PROFESSIONAL_FILE_TOOLS = "professional_file_tools"
+    SHELL = "shell"
+    OPERATION_OUTPUT = "operation_output"
+    CHANGESETS = "changesets"
+    CODE_INTELLIGENCE = "code_intelligence"
+    STRUCTURED_PLAN = "structured_plan"
+    USER_QUESTIONS = "user_questions"
+    CONTEXT_COMPACTION = "context_compaction"
+    TURN_HISTORY = "turn_history"
+    SUBTASKS = "subtasks"
+
+
+class WorkerCapabilityReason(StrEnum):
+    FEATURE_DISABLED = "feature_disabled"
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
+    PROVIDER_UNSUPPORTED = "provider_unsupported"
+    PROVIDER_BINDING_CHANGED = "provider_binding_changed"
+    ROUTE_UNAVAILABLE = "route_unavailable"
+    LEGACY_TASK = "legacy_task"
+
+
+class WorkerCapabilityStatus(StrictModel):
+    name: WorkerFeatureName
+    enabled: bool
+    supported: bool
+    available: bool
+    reason: WorkerCapabilityReason | None = None
+
+    @model_validator(mode="after")
+    def validate_availability(self) -> "WorkerCapabilityStatus":
+        if self.available and not (self.enabled and self.supported):
+            raise ValueError("capability availability is inconsistent")
+        if self.available != (self.reason is None):
+            raise ValueError("capability reason is inconsistent")
+        return self
+
+
+class TaskCapabilities(StrictModel):
+    task_id: str
+    observed_at: float | None = None
+    expires_at: float | None = None
+    capabilities: tuple[WorkerCapabilityStatus, ...]
+
+    @field_validator("task_id")
+    @classmethod
+    def validate_task_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("task capability identifier is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_capability_set(self) -> "TaskCapabilities":
+        names = [item.name for item in self.capabilities]
+        if len(names) != len(set(names)) or set(names) != set(WorkerFeatureName):
+            raise ValueError("task capability set is incomplete")
+        if (self.observed_at is None) != (self.expires_at is None):
+            raise ValueError("task capability observation is incomplete")
+        if (
+            self.observed_at is not None
+            and self.expires_at is not None
+            and self.expires_at <= self.observed_at
+        ):
+            raise ValueError("task capability observation expiry is invalid")
+        return self
+
+
 class SubtaskKind(StrEnum):
     EXPLORE = "explore"
     IMPLEMENT = "implement"

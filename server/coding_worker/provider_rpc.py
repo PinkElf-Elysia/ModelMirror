@@ -445,6 +445,25 @@ class ProviderSidecarClientPool(CodingAgentProvider):
             )
         return first
 
+    @property
+    def controller_generation(self) -> int:
+        return self._controller_generation
+
+    async def slot_capabilities(
+        self,
+    ) -> dict[str, ProviderCapabilities | None]:
+        """Return one fail-closed observation per configured provider slot."""
+
+        observations: dict[str, ProviderCapabilities | None] = {}
+        for slot_id in self._endpoints:
+            try:
+                observations[slot_id] = ProviderCapabilities.model_validate(
+                    await self._call(slot_id, "capabilities", {})
+                )
+            except (OSError, ValueError, ProviderRPCError, asyncio.TimeoutError):
+                observations[slot_id] = None
+        return observations
+
     async def open(self, request: ProviderOpenRequest) -> ProviderSession:
         return await self._open_or_restore(request, None)
 

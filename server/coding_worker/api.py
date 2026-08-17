@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import PurePosixPath
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
@@ -20,9 +20,13 @@ from .contracts import (
     OperationState,
     StrictModel,
     TaskCreateRequest,
+    TaskCapabilities,
     TaskRecord,
     TERMINAL_STATES,
     WorkerCapabilities,
+    WorkerCapabilityReason,
+    WorkerCapabilityStatus,
+    WorkerFeatureName,
     WorkerApproval,
     WorkerArtifact,
     WorkerChangeset,
@@ -37,6 +41,7 @@ from .contracts import (
     SubtaskRecord,
     SubtaskRequest,
 )
+from .provider import ProviderCapabilities
 from .service import CodingWorkerService
 from .runtime import CodingWorkerRuntime, build_runtime_from_environment
 from .store import WorkerConflictError, WorkerNotFoundError, WorkerStoreError
@@ -123,27 +128,173 @@ def _feature_enabled(name: str) -> bool:
     }
 
 
-def coding_worker_capabilities() -> WorkerCapabilities:
-    task_runtime = is_coding_worker_enabled() and _service is not None
+def _feature_flag_enabled(feature: WorkerFeatureName) -> bool:
+    task_runtime = is_coding_worker_enabled()
     v15 = task_runtime and _feature_enabled("CODING_WORKER_V15_ENABLED")
     v16 = task_runtime and _feature_enabled("CODING_WORKER_V16_ENABLED")
-    interaction = v16 and _feature_enabled("CODING_WORKER_INTERACTION_ENABLED")
-    return WorkerCapabilities(
-        task_runtime=task_runtime,
-        professional_file_tools=v15,
-        shell=v15 and _feature_enabled("CODING_WORKER_SHELL_ENABLED"),
-        operation_output=v15,
-        changesets=v15,
-        code_intelligence=(
+    flags = {
+        WorkerFeatureName.TASK_RUNTIME: task_runtime,
+        WorkerFeatureName.PROFESSIONAL_FILE_TOOLS: v15,
+        WorkerFeatureName.SHELL: (
+            v15 and _feature_enabled("CODING_WORKER_SHELL_ENABLED")
+        ),
+        WorkerFeatureName.OPERATION_OUTPUT: v15,
+        WorkerFeatureName.CHANGESETS: v15,
+        WorkerFeatureName.CODE_INTELLIGENCE: (
             v15 and _feature_enabled("CODING_WORKER_CODE_INTELLIGENCE_ENABLED")
         ),
-        structured_plan=interaction,
-        user_questions=interaction,
-        context_compaction=v16,
-        turn_history=(
+        WorkerFeatureName.STRUCTURED_PLAN: (
+            v16 and _feature_enabled("CODING_WORKER_INTERACTION_ENABLED")
+        ),
+        WorkerFeatureName.USER_QUESTIONS: (
+            v16 and _feature_enabled("CODING_WORKER_INTERACTION_ENABLED")
+        ),
+        WorkerFeatureName.CONTEXT_COMPACTION: v16,
+        WorkerFeatureName.TURN_HISTORY: (
             v16 and _feature_enabled("CODING_WORKER_SESSION_CONTROLS_ENABLED")
         ),
-        subtasks=(v16 and _feature_enabled("CODING_WORKER_SUBAGENTS_ENABLED")),
+        WorkerFeatureName.SUBTASKS: (
+            v16 and _feature_enabled("CODING_WORKER_SUBAGENTS_ENABLED")
+        ),
+    }
+    return flags[feature]
+
+
+def _provider_supports_feature(
+    capabilities: ProviderCapabilities, feature: WorkerFeatureName
+) -> bool:
+    tools = set(capabilities.tool_names)
+    if feature is WorkerFeatureName.TASK_RUNTIME:
+        return (
+            capabilities.supports_streaming
+            and capabilities.supports_checkpoint
+            and capabilities.supports_restore
+        )
+    if feature is WorkerFeatureName.PROFESSIONAL_FILE_TOOLS:
+        return {
+            "read_file_range",
+            "glob_files",
+            "search_regex",
+            "apply_changeset",
+        }.issubset(tools)
+    if feature is WorkerFeatureName.SHELL:
+        return "run_shell" in tools
+    if feature is WorkerFeatureName.OPERATION_OUTPUT:
+        return "read_operation_output" in tools
+    if feature is WorkerFeatureName.CHANGESETS:
+        return "apply_changeset" in tools
+    if feature is WorkerFeatureName.CODE_INTELLIGENCE:
+        return "code_diagnostics" in tools
+    if feature is WorkerFeatureName.STRUCTURED_PLAN:
+        return capabilities.supports_structured_plan or "update_plan" in tools
+    if feature is WorkerFeatureName.USER_QUESTIONS:
+        return capabilities.supports_questions or "request_user_input" in tools
+    if feature is WorkerFeatureName.CONTEXT_COMPACTION:
+        return capabilities.supports_compaction or "compact_context" in tools
+    if feature is WorkerFeatureName.TURN_HISTORY:
+        return True
+    if feature is WorkerFeatureName.SUBTASKS:
+        return {"create_subtask", "merge_subtask"}.issubset(tools)
+    return False
+
+
+def coding_worker_capabilities() -> WorkerCapabilities:
+    provider_capabilities = (
+        _service.cached_provider_capabilities() if _service is not None else ()
+    )
+
+    def available(feature: WorkerFeatureName) -> bool:
+        if not _feature_flag_enabled(feature):
+            return False
+        if feature is WorkerFeatureName.TURN_HISTORY:
+            return bool(provider_capabilities)
+        return any(
+            _provider_supports_feature(capabilities, feature)
+            for capabilities in provider_capabilities
+        )
+
+    return WorkerCapabilities(
+        task_runtime=available(WorkerFeatureName.TASK_RUNTIME),
+        professional_file_tools=available(
+            WorkerFeatureName.PROFESSIONAL_FILE_TOOLS
+        ),
+        shell=available(WorkerFeatureName.SHELL),
+        operation_output=available(WorkerFeatureName.OPERATION_OUTPUT),
+        changesets=available(WorkerFeatureName.CHANGESETS),
+        code_intelligence=available(WorkerFeatureName.CODE_INTELLIGENCE),
+        structured_plan=available(WorkerFeatureName.STRUCTURED_PLAN),
+        user_questions=available(WorkerFeatureName.USER_QUESTIONS),
+        context_compaction=available(WorkerFeatureName.CONTEXT_COMPACTION),
+        turn_history=available(WorkerFeatureName.TURN_HISTORY),
+        subtasks=available(WorkerFeatureName.SUBTASKS),
+    )
+
+
+def _task_capability_status(
+    *,
+    feature: WorkerFeatureName,
+    snapshot: ProviderCapabilities | None,
+    snapshot_exists: bool,
+    current: ProviderCapabilities | None,
+    binding_matches: bool,
+    current_reason: str | None,
+) -> WorkerCapabilityStatus:
+    enabled = _feature_flag_enabled(feature)
+    platform_owned = feature is WorkerFeatureName.TURN_HISTORY
+    basic_runtime = feature is WorkerFeatureName.TASK_RUNTIME
+    supported = platform_owned or (
+        (snapshot is not None and _provider_supports_feature(snapshot, feature))
+        or (
+            basic_runtime
+            and not snapshot_exists
+            and current is not None
+            and _provider_supports_feature(current, feature)
+        )
+    )
+    reason: WorkerCapabilityReason | None = None
+    if not enabled:
+        reason = WorkerCapabilityReason.FEATURE_DISABLED
+    elif platform_owned:
+        reason = (
+            None
+            if _service is not None
+            else WorkerCapabilityReason.PROVIDER_UNAVAILABLE
+        )
+    elif not snapshot_exists and not basic_runtime:
+        reason = WorkerCapabilityReason.LEGACY_TASK
+    elif basic_runtime and not snapshot_exists:
+        if current is None:
+            reason = (
+                WorkerCapabilityReason.ROUTE_UNAVAILABLE
+                if current_reason == "route_unavailable"
+                else WorkerCapabilityReason.PROVIDER_UNAVAILABLE
+            )
+        elif not supported:
+            reason = WorkerCapabilityReason.PROVIDER_UNSUPPORTED
+    elif snapshot is None:
+        reason = (
+            WorkerCapabilityReason.ROUTE_UNAVAILABLE
+            if current_reason == "route_unavailable"
+            else WorkerCapabilityReason.PROVIDER_UNAVAILABLE
+        )
+    elif not supported:
+        reason = WorkerCapabilityReason.PROVIDER_UNSUPPORTED
+    elif not binding_matches:
+        reason = WorkerCapabilityReason.PROVIDER_BINDING_CHANGED
+    elif current is None:
+        reason = (
+            WorkerCapabilityReason.ROUTE_UNAVAILABLE
+            if current_reason == "route_unavailable"
+            else WorkerCapabilityReason.PROVIDER_UNAVAILABLE
+        )
+    elif not _provider_supports_feature(current, feature):
+        reason = WorkerCapabilityReason.PROVIDER_UNSUPPORTED
+    return WorkerCapabilityStatus(
+        name=feature,
+        enabled=enabled,
+        supported=supported,
+        available=reason is None,
+        reason=reason,
     )
 
 
@@ -244,10 +395,13 @@ def _raise_worker_error(exc: Exception) -> None:
 @router.get("")
 async def coding_worker_status() -> dict[str, Any]:
     enabled = is_coding_worker_enabled()
+    if _service is not None:
+        with suppress(Exception):
+            await _service.refresh_provider_capabilities()
     capabilities = coding_worker_capabilities()
     return {
         "enabled": enabled,
-        "available": enabled and _service is not None,
+        "available": capabilities.task_runtime,
         "version": "v1",
         "max_active_tasks": _service.max_active_tasks if _service is not None else 2,
         "retention_seconds": (
@@ -267,6 +421,9 @@ async def coding_worker_status() -> dict[str, Any]:
 
 @router.get("/capabilities", response_model=WorkerCapabilities)
 async def get_worker_capabilities() -> WorkerCapabilities:
+    if _service is not None:
+        with suppress(Exception):
+            await _service.refresh_provider_capabilities()
     return coding_worker_capabilities()
 
 
@@ -291,6 +448,46 @@ async def list_tasks() -> dict[str, list[TaskRecord]]:
 async def get_task(task_id: str) -> TaskRecord:
     try:
         return get_coding_worker_service().store.get_task(task_id)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/capabilities", response_model=TaskCapabilities)
+async def get_task_capabilities(task_id: str) -> TaskCapabilities:
+    try:
+        service = get_coding_worker_service()
+        task = service.store.get_task(task_id)
+        persisted = service.store.get_task_capability_snapshot(task_id)
+        observation = await service.provider_capability_observation(
+            task.spec.model_route
+        )
+        snapshot_capabilities: ProviderCapabilities | None = None
+        if persisted is not None:
+            raw_capabilities = persisted.snapshot.get("capabilities")
+            if raw_capabilities is not None:
+                snapshot_capabilities = ProviderCapabilities.model_validate(
+                    raw_capabilities
+                )
+        binding_matches = (
+            persisted is not None
+            and persisted.binding_sha256 == observation.binding_sha256
+        )
+        return TaskCapabilities(
+            task_id=task_id,
+            observed_at=observation.observed_at,
+            expires_at=observation.expires_at,
+            capabilities=tuple(
+                _task_capability_status(
+                    feature=feature,
+                    snapshot=snapshot_capabilities,
+                    snapshot_exists=persisted is not None,
+                    current=observation.capabilities,
+                    binding_matches=binding_matches,
+                    current_reason=observation.reason,
+                )
+                for feature in WorkerFeatureName
+            ),
+        )
     except Exception as exc:
         _raise_worker_error(exc)
 

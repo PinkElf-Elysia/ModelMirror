@@ -140,6 +140,8 @@ class ClaudeCodeProvider(CodingAgentProvider):
             supports_restore=True,
             supports_steering=True,
             supports_usage=True,
+            supports_tool_boundaries=True,
+            tool_names=PROVIDER_TOOL_NAMES,
         )
 
     async def open(self, request: ProviderOpenRequest) -> ProviderSession:
