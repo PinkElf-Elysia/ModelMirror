@@ -11,12 +11,13 @@ import {
   useNodesState,
   useReactFlow,
   type Connection,
-  type NodeChange,
   type EdgeChange,
+  type NodeChange,
+  type OnConnectEnd,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Upload } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DEFAULT_WORKFLOW_AGENT_MODEL_ID } from "../../data/modelOptions";
 import { models } from "../../data/models";
@@ -25,11 +26,13 @@ import {
   type ConditionOperator,
   type HttpRequestMethod,
   type ListOperationOperator,
+  type NodeRunStatus,
   type WorkflowDefinition,
   type WorkflowEdge,
   type WorkflowNode,
   type WorkflowNodeData,
   type WorkflowNodeKind,
+  type WorkflowVariableDeclaration,
 } from "../../types/workflow";
 import {
   fetchRuntimeMiddlewareNodes,
@@ -53,9 +56,22 @@ import {
   reconcileSkillCatalogApprovals,
 } from "../../utils/skillCatalogApproval";
 import NodePalette from "./NodePalette";
+import {
+  fetchWorkflowNodeRegistry,
+  workflowNodeRegistryFallback,
+  type WorkflowNodeContractProjection,
+  type WorkflowNodeRegistryResponse,
+} from "./workflowNodeRegistry";
 import WorkflowTypedDataNodeConfig from "./WorkflowTypedDataNodeConfig";
 import WorkflowNodeCard from "./WorkflowNodeCard";
 import WorkflowRun from "./WorkflowRun";
+import WorkflowVariableCenter from "./WorkflowVariableCenter";
+import WorkflowVariableField from "./WorkflowVariableField";
+import {
+  analyzeWorkflowVariables,
+  planWorkflowVariableRename,
+  type WorkflowVariableRenamePlan,
+} from "./workflowVariables";
 import TrustedSkillSelect, {
   type TrustSelectableSkill,
 } from "../skill-trust/TrustedSkillSelect";
@@ -68,6 +84,178 @@ import {
 const nodeTypes = {
   workflowNode: WorkflowNodeCard,
 };
+
+// 模块级资源缓存：NodeConfig 每次挂载都触发 fetch（xperts/skills/vision 等），
+// 切节点/切面板即重复请求。这里按 URL 缓存原始数据，带 TTL 保新鲜度。
+const nodeConfigResourceCache = new Map<
+  string,
+  { data: unknown; at: number }
+>();
+const NODE_CONFIG_CACHE_TTL_MS = 60_000;
+
+async function cachedFetchResource<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+): Promise<T> {
+  const hit = nodeConfigResourceCache.get(key);
+  if (hit && Date.now() - hit.at < NODE_CONFIG_CACHE_TTL_MS) {
+    return hit.data as T;
+  }
+  const data = await fetcher();
+  nodeConfigResourceCache.set(key, { data, at: Date.now() });
+  return data;
+}
+
+/** MiniMap 节点按 kind 大类着色，与 WorkflowNodeCard 的 nodeMeta 配色呼应。 */
+function minimapNodeColor(kind: string): string {
+  if (["llm", "code", "variable_assign", "template_transform", "variable_aggregator", "parameter_extractor", "json_serialize", "json_deserialize"].includes(kind)) {
+    return "#22d3ee"; // brand 青
+  }
+  if (["condition", "iteration"].includes(kind)) return "#fbbf24"; // amber
+  if (["knowledge_retrieval", "knowledge_citation", "document_extractor", "vision_understanding", "knowledge_base"].includes(kind)) {
+    return "#2dd4bf"; // teal
+  }
+  if (["agent", "workflow_agent", "external_xpert", "agent_task", "agent_handoff", "handoff_router", "question_classifier"].includes(kind)) {
+    return "#a78bfa"; // violet
+  }
+  if (["toolset_resource", "plugin_resource", "mcp_tool", "time_tool", "http_request", "list_operation", "data_table_query", "data_table_insert", "data_table_update", "data_table_delete", "runtime_middleware"].includes(kind)) {
+    return "#38bdf8"; // sky
+  }
+  return "#64748b"; // slate（输入输出/人工/注释）
+}
+
+function MenuItem({
+  children,
+  onClick,
+  disabled = false,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      className={`w-full px-3 py-2 text-left text-sm transition ${
+        disabled
+          ? "cursor-not-allowed text-slate-500"
+          : "text-slate-200 hover:bg-white/10 hover:text-white"
+      }`}
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+}
+
+/** 拖拽连线松手在空白处时的迷你节点选择器。 */
+function QuickNodePicker({
+  x,
+  y,
+  onClose,
+  onPick,
+}: {
+  x: number;
+  y: number;
+  onClose: () => void;
+  onPick: (kind: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [registry, setRegistry] = useState<WorkflowNodeRegistryResponse>(
+    workflowNodeRegistryFallback,
+  );
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchWorkflowNodeRegistry()
+      .then((next) => {
+        if (isMounted) setRegistry(next);
+      })
+      .catch(() => {
+        // 回退到本地节点库。
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const items = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return registry.sections
+      .flatMap((section) => section.items)
+      .filter((item) => item.enabled !== false)
+      .filter(
+        (item) =>
+          !normalized ||
+          item.title.toLowerCase().includes(normalized) ||
+          item.description.toLowerCase().includes(normalized),
+      );
+  }, [query, registry.sections]);
+
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 z-40"
+        onClick={onClose}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onClose();
+        }}
+      />
+      <div
+        className="fixed z-50 w-72 overflow-hidden rounded-lg border border-white/10 bg-[#101828] shadow-xl shadow-ink-950/60"
+        style={{
+          left: Math.min(x, window.innerWidth - 300),
+          top: Math.min(y, window.innerHeight - 360),
+        }}
+      >
+        <div className="border-b border-white/10 p-3">
+          <input
+            autoFocus
+            className="w-full rounded-lg border border-white/10 bg-[#0f1728] px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索节点..."
+            value={query}
+          />
+        </div>
+        <div className="max-h-64 overflow-y-auto p-1.5">
+          {loading ? (
+            <p className="px-3 py-2 text-xs text-slate-500">同步节点库...</p>
+          ) : null}
+          {!loading && items.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-slate-500">没有匹配的节点。</p>
+          ) : null}
+          {items.map((item) => (
+            <button
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition hover:bg-white/10"
+              key={item.kind}
+              onClick={() => onPick(item.kind)}
+              type="button"
+            >
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-hire-300/25 bg-hire-300/10 text-[11px] font-semibold text-hire-100">
+                {item.icon}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-white">
+                  {item.title}
+                </span>
+                <span className="block truncate text-xs text-slate-400">
+                  {item.description}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
 
 interface RuntimeMiddlewareDragPayload {
   kind: "runtime_middleware";
@@ -190,7 +378,7 @@ function createNodeData(
       description: "根据变量内容决定走“是”或“否”。",
       conditionVariable: "user_input",
       conditionOperator: "contains",
-      conditionValue: "代码",
+      conditionValue: "",
     };
   }
 
@@ -200,12 +388,12 @@ function createNodeData(
       title: "安全加工",
       description: "只执行预置字符串操作，不运行任意代码。",
       codeOperation: "upper",
-      codeInputVariable: "llm_output",
+      codeInputVariable: "user_input",
       codeOutputVariable: "code_output",
       replaceFrom: "",
       replaceTo: "",
       concatValue: "",
-      pythonCode: "print(input)",
+      pythonCode: "",
     };
   }
 
@@ -649,6 +837,13 @@ function cloneDefinition(definition: WorkflowDefinition): WorkflowDefinition {
       data: normalizeRecentlyEnabledNodeData({ ...node.data }),
     })),
     edges: definition.edges.map((edge) => ({ ...edge })),
+    variables: definition.variables?.map((variable) => ({
+      ...variable,
+      defaultValue:
+        variable.defaultValue === undefined
+          ? undefined
+          : structuredClone(variable.defaultValue),
+    })),
   };
 }
 
@@ -687,7 +882,7 @@ function Field({
 }
 
 function textInputClass() {
-  return "modelmirror-form-control w-full rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10";
+  return "modelmirror-form-control w-full rounded-lg border border-white/10 bg-[#0f1728] px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 hover:border-white/20 focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10";
 }
 
 function runtimeMiddlewareFieldValue(
@@ -814,11 +1009,19 @@ function ConfigSwitch({
 }
 
 function HandoffExecutionConfig({
+  node,
+  nodes,
+  edges,
+  variableContract,
   data,
   update,
   publishedXperts,
   publishedXpertsError,
 }: {
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  variableContract: WorkflowNodeContractProjection | null;
   data: WorkflowNodeData;
   update: (patch: Partial<WorkflowNodeData>) => void;
   publishedXperts: XpertSummary[];
@@ -911,11 +1114,13 @@ function HandoffExecutionConfig({
           {waitForCompletion ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="结果变量">
-                <input
-                  className={textInputClass()}
-                  onChange={(event) =>
-                    update({ resultVariable: event.target.value })
-                  }
+                <WorkflowVariableField
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="resultVariable"
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ resultVariable: value })}
                   value={data.resultVariable ?? "handoff_result"}
                 />
               </Field>
@@ -940,6 +1145,10 @@ function HandoffExecutionConfig({
 }
 
 function AgentStudioPanel({
+  node,
+  nodes,
+  edges,
+  variableContract,
   data,
   update,
   registryTools,
@@ -948,6 +1157,10 @@ function AgentStudioPanel({
   boundResources,
   onSelectNode,
 }: {
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  variableContract: WorkflowNodeContractProjection | null;
   data: WorkflowNodeData;
   update: (patch: Partial<WorkflowNodeData>) => void;
   registryTools: RegistryToolOption[];
@@ -1136,16 +1349,28 @@ function AgentStudioPanel({
         {isWorkflowAgent ? (
           <>
             <Field label="角色提示词（支持 {{变量}}）">
-              <textarea
-                className={`${textInputClass()} min-h-32 resize-none leading-6`}
-                onChange={(event) => update({ rolePrompt: event.target.value })}
+              <WorkflowVariableField
+                className="min-h-32 resize-none leading-6"
+                contract={variableContract}
+                edges={edges}
+                fieldName="rolePrompt"
+                multiline
+                node={node}
+                nodes={nodes}
+                onChange={(value) => update({ rolePrompt: value })}
                 value={data.rolePrompt ?? ""}
               />
             </Field>
             <Field label="任务输入（支持 {{变量}}）">
-              <textarea
-                className={`${textInputClass()} min-h-32 resize-none leading-6`}
-                onChange={(event) => update({ taskInput: event.target.value })}
+              <WorkflowVariableField
+                className="min-h-32 resize-none leading-6"
+                contract={variableContract}
+                edges={edges}
+                fieldName="taskInput"
+                multiline
+                node={node}
+                nodes={nodes}
+                onChange={(value) => update({ taskInput: value })}
                 value={data.taskInput ?? ""}
               />
             </Field>
@@ -1153,9 +1378,15 @@ function AgentStudioPanel({
         ) : (
           <>
             <Field label="任务指令（支持 {{变量}}）">
-              <textarea
-                className={`${textInputClass()} min-h-36 resize-none leading-6`}
-                onChange={(event) => update({ instruction: event.target.value })}
+              <WorkflowVariableField
+                className="min-h-36 resize-none leading-6"
+                contract={variableContract}
+                edges={edges}
+                fieldName="instruction"
+                multiline
+                node={node}
+                nodes={nodes}
+                onChange={(value) => update({ instruction: value })}
                 placeholder="例如：请基于 {{user_input}} 制定处理计划。"
                 value={data.instruction ?? ""}
               />
@@ -1405,9 +1636,15 @@ function AgentStudioPanel({
         )}
 
         <Field label="补充提示词（可选，支持 {{变量}}）">
-          <textarea
-            className={`${textInputClass()} min-h-24 resize-none leading-6`}
-            onChange={(event) => update({ promptSuffix: event.target.value })}
+          <WorkflowVariableField
+            className="min-h-24 resize-none leading-6"
+            contract={variableContract}
+            edges={edges}
+            fieldName="promptSuffix"
+            multiline
+            node={node}
+            nodes={nodes}
+            onChange={(value) => update({ promptSuffix: value })}
             placeholder="可加入输出格式、语气或额外约束。"
             value={data.promptSuffix ?? ""}
           />
@@ -1466,9 +1703,13 @@ function AgentStudioPanel({
 
       <ConfigSection title="输出结构">
         <Field label="输出变量">
-          <input
-            className={textInputClass()}
-            onChange={(event) => update({ outputVariable: event.target.value })}
+          <WorkflowVariableField
+            contract={variableContract}
+            edges={edges}
+            fieldName="outputVariable"
+            node={node}
+            nodes={nodes}
+            onChange={(value) => update({ outputVariable: value })}
             value={data.outputVariable ?? ""}
           />
         </Field>
@@ -2026,9 +2267,17 @@ function KnowledgeBaseSelector({
 }
 
 function KnowledgeRetrievalNodeConfig({
+  node,
+  nodes,
+  edges,
+  variableContract,
   data,
   update,
 }: {
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  variableContract: WorkflowNodeContractProjection | null;
   data: WorkflowNodeData;
   update: (patch: Partial<WorkflowNodeData>) => void;
 }) {
@@ -2048,9 +2297,13 @@ function KnowledgeRetrievalNodeConfig({
         />
       </Field>
       <Field label="查询变量">
-        <input
-          className={textInputClass()}
-          onChange={(event) => update({ queryVariable: event.target.value })}
+        <WorkflowVariableField
+          contract={variableContract}
+          edges={edges}
+          fieldName="queryVariable"
+          node={node}
+          nodes={nodes}
+          onChange={(value) => update({ queryVariable: value })}
           value={data.queryVariable ?? ""}
         />
       </Field>
@@ -2082,9 +2335,13 @@ function KnowledgeRetrievalNodeConfig({
         </Field>
       ) : null}
       <Field label="输出变量">
-        <input
-          className={textInputClass()}
-          onChange={(event) => update({ outputVariable: event.target.value })}
+        <WorkflowVariableField
+          contract={variableContract}
+          edges={edges}
+          fieldName="outputVariable"
+          node={node}
+          nodes={nodes}
+          onChange={(value) => update({ outputVariable: value })}
           value={data.outputVariable ?? ""}
         />
       </Field>
@@ -2093,9 +2350,17 @@ function KnowledgeRetrievalNodeConfig({
 }
 
 function LegacyKnowledgeCitationConfig({
+  node,
+  nodes,
+  edges,
+  variableContract,
   data,
   update,
 }: {
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  variableContract: WorkflowNodeContractProjection | null;
   data: WorkflowNodeData;
   update: (patch: Partial<WorkflowNodeData>) => void;
 }) {
@@ -2105,9 +2370,13 @@ function LegacyKnowledgeCitationConfig({
         该节点已弃用，仅用于旧工作流兼容。新流程请使用知识检索 V2 的类型化结果。
       </div>
       <Field label="查询变量">
-        <input
-          className={textInputClass()}
-          onChange={(event) => update({ queryVariable: event.target.value })}
+        <WorkflowVariableField
+          contract={variableContract}
+          edges={edges}
+          fieldName="queryVariable"
+          node={node}
+          nodes={nodes}
+          onChange={(value) => update({ queryVariable: value })}
           value={data.queryVariable ?? ""}
         />
       </Field>
@@ -2130,9 +2399,13 @@ function LegacyKnowledgeCitationConfig({
         />
       </Field>
       <Field label="输出变量">
-        <input
-          className={textInputClass()}
-          onChange={(event) => update({ outputVariable: event.target.value })}
+        <WorkflowVariableField
+          contract={variableContract}
+          edges={edges}
+          fieldName="outputVariable"
+          node={node}
+          nodes={nodes}
+          onChange={(value) => update({ outputVariable: value })}
           value={data.outputVariable ?? ""}
         />
       </Field>
@@ -2172,6 +2445,9 @@ function NodeConfig({
     Array<{ model_id: string; label: string }>
   >([]);
   const [visionCapabilityError, setVisionCapabilityError] = useState("");
+  const [variableNodeContracts, setVariableNodeContracts] = useState<
+    Map<WorkflowNodeKind, WorkflowNodeContractProjection>
+  >(new Map());
   const [clientHosts, setClientHosts] = useState<Array<{
     host_id: string;
     name: string;
@@ -2188,16 +2464,16 @@ function NodeConfig({
 
     async function loadRegistryTools() {
       try {
-        const response = await fetch("/api/registry/tools");
-        if (!response.ok) {
-          throw new Error("工具注册表暂时不可用。");
-        }
-        const payload: unknown = await response.json();
-        const tools = Array.isArray(payload)
-          ? payload.filter(isRegistryToolOption)
-          : [];
+        const tools = await cachedFetchResource<unknown[]>("/api/registry/tools", async () => {
+          const response = await fetch("/api/registry/tools");
+          if (!response.ok) {
+            throw new Error("工具注册表暂时不可用。");
+          }
+          const payload: unknown = await response.json();
+          return Array.isArray(payload) ? payload : [];
+        });
         if (!cancelled) {
-          setRegistryTools(tools);
+          setRegistryTools(tools.filter(isRegistryToolOption));
           setRegistryToolsError("");
         }
       } catch (error) {
@@ -2212,11 +2488,17 @@ function NodeConfig({
 
     async function loadPublishedXperts() {
       try {
-        const response = await fetch("/api/xperts?status=published&limit=200");
-        const payload = (await response.json()) as XpertListResponse;
-        if (!response.ok || !Array.isArray(payload.items)) {
-          throw new Error("已发布智能体列表暂时不可用。");
-        }
+        const payload = await cachedFetchResource<XpertListResponse>(
+          "/api/xperts?status=published&limit=200",
+          async () => {
+            const response = await fetch("/api/xperts?status=published&limit=200");
+            const body = (await response.json()) as XpertListResponse;
+            if (!response.ok || !Array.isArray(body.items)) {
+              throw new Error("已发布智能体列表暂时不可用。");
+            }
+            return body;
+          },
+        );
         if (!cancelled) {
           setPublishedXperts(payload.items);
           setPublishedXpertsError("");
@@ -2233,9 +2515,15 @@ function NodeConfig({
 
     async function loadClientHosts() {
       try {
-        const response = await fetch("/api/runtime/client-hosts");
-        const payload = (await response.json()) as { hosts?: typeof clientHosts };
-        if (!response.ok) throw new Error("客户端宿主列表暂不可用");
+        const payload = await cachedFetchResource<{ hosts?: typeof clientHosts }>(
+          "/api/runtime/client-hosts",
+          async () => {
+            const response = await fetch("/api/runtime/client-hosts");
+            const body = (await response.json()) as { hosts?: typeof clientHosts };
+            if (!response.ok) throw new Error("客户端宿主列表暂不可用");
+            return body;
+          },
+        );
         if (!cancelled) setClientHosts(payload.hosts ?? []);
       } catch {
         if (!cancelled) setClientHosts([]);
@@ -2244,12 +2532,18 @@ function NodeConfig({
 
     async function loadInstalledSkills() {
       try {
-        const response = await fetch("/api/skills/installed");
-        const payload = (await response.json()) as { skills?: TrustSelectableSkill[] };
-        if (!response.ok || !Array.isArray(payload.skills)) {
-          throw new Error("已安装 Skill 列表暂不可用");
-        }
-        if (!cancelled) setInstalledSkills(payload.skills);
+        const payload = await cachedFetchResource<{ skills?: TrustSelectableSkill[] }>(
+          "/api/skills/installed",
+          async () => {
+            const response = await fetch("/api/skills/installed");
+            const body = (await response.json()) as { skills?: TrustSelectableSkill[] };
+            if (!response.ok || !Array.isArray(body.skills)) {
+              throw new Error("已安装 Skill 列表暂不可用");
+            }
+            return body;
+          },
+        );
+        if (!cancelled) setInstalledSkills(payload.skills ?? []);
       } catch {
         if (!cancelled) setInstalledSkills([]);
       }
@@ -2257,15 +2551,20 @@ function NodeConfig({
 
     async function loadVisionCapabilities() {
       try {
-        const response = await fetch("/api/workflow/vision-capabilities");
-        const payload = (await response.json()) as {
+        const payload = await cachedFetchResource<{
           models?: Array<{ model_id: string; label: string }>;
-        };
-        if (!response.ok || !Array.isArray(payload.models)) {
-          throw new Error("视觉模型目录暂不可用。");
-        }
+        }>("/api/workflow/vision-capabilities", async () => {
+          const response = await fetch("/api/workflow/vision-capabilities");
+          const body = (await response.json()) as {
+            models?: Array<{ model_id: string; label: string }>;
+          };
+          if (!response.ok || !Array.isArray(body.models)) {
+            throw new Error("视觉模型目录暂不可用。");
+          }
+          return body;
+        });
         if (!cancelled) {
-          setVisionModels(payload.models);
+          setVisionModels(payload.models ?? []);
           setVisionCapabilityError("");
         }
       } catch (error) {
@@ -2289,6 +2588,25 @@ function NodeConfig({
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetchWorkflowNodeRegistry()
+      .then((registry) => {
+        if (cancelled) return;
+        const contracts = new Map<WorkflowNodeKind, WorkflowNodeContractProjection>();
+        registry.sections.flatMap((section) => section.items).forEach((item) => {
+          if (item.contract) contracts.set(item.kind, item.contract);
+        });
+        setVariableNodeContracts(contracts);
+      })
+      .catch(() => {
+        // compatibility 节点会继续使用字段表中的保守类型回退。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   if (!node) {
     return (
       <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.035] px-4 py-8 text-center text-sm leading-6 text-slate-400">
@@ -2299,6 +2617,7 @@ function NodeConfig({
 
   const data = node.data;
   const update = (patch: Partial<WorkflowNodeData>) => onChange(node.id, patch);
+  const variableContract = variableNodeContracts.get(data.kind) ?? null;
   const runtimeMiddlewareConfig = isRecord(data.runtimeMiddlewareConfig)
     ? data.runtimeMiddlewareConfig
     : undefined;
@@ -2384,14 +2703,25 @@ function NodeConfig({
         "data_table_update",
         "data_table_delete",
       ].includes(data.kind) ? (
-        <WorkflowTypedDataNodeConfig data={data} onChange={update} />
+        <WorkflowTypedDataNodeConfig
+          contract={variableContract}
+          data={data}
+          edges={edges}
+          node={node}
+          nodes={nodes}
+          onChange={update}
+        />
       ) : null}
 
       {data.kind === "input" ? (
         <Field label="输入变量名">
-          <input
-            className={textInputClass()}
-            onChange={(event) => update({ variableName: event.target.value })}
+          <WorkflowVariableField
+            contract={variableContract}
+            edges={edges}
+            fieldName="variableName"
+            node={node}
+            nodes={nodes}
+            onChange={(value) => update({ variableName: value })}
             value={data.variableName ?? ""}
           />
         </Field>
@@ -2417,16 +2747,26 @@ function NodeConfig({
             </select>
           </Field>
           <Field label="提示词（支持 {{变量}}）">
-            <textarea
-              className={`${textInputClass()} min-h-36 resize-none leading-6`}
-              onChange={(event) => update({ prompt: event.target.value })}
+            <WorkflowVariableField
+              className="min-h-36 resize-none leading-6"
+              contract={variableContract}
+              edges={edges}
+              fieldName="prompt"
+              multiline
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ prompt: value })}
               value={data.prompt ?? ""}
             />
           </Field>
           <Field label="输出变量名">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -2436,11 +2776,13 @@ function NodeConfig({
       {data.kind === "condition" ? (
         <>
           <Field label="判断变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) =>
-                update({ conditionVariable: event.target.value })
-              }
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="conditionVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ conditionVariable: value })}
               value={data.conditionVariable ?? ""}
             />
           </Field>
@@ -2503,20 +2845,24 @@ function NodeConfig({
             </select>
           </Field>
           <Field label="输入变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) =>
-                update({ codeInputVariable: event.target.value })
-              }
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="codeInputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ codeInputVariable: value })}
               value={data.codeInputVariable ?? ""}
             />
           </Field>
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) =>
-                update({ codeOutputVariable: event.target.value })
-              }
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="codeOutputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ codeOutputVariable: value })}
               value={data.codeOutputVariable ?? ""}
             />
           </Field>
@@ -2566,16 +2912,26 @@ function NodeConfig({
       {data.kind === "variable_assign" ? (
         <>
           <Field label="写入变量名">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ variableName: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="variableName"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ variableName: value })}
               value={data.variableName ?? ""}
             />
           </Field>
           <Field label="赋值模板（支持 {{变量}}）">
-            <textarea
-              className={`${textInputClass()} min-h-28 resize-none leading-6`}
-              onChange={(event) => update({ template: event.target.value })}
+            <WorkflowVariableField
+              className="min-h-28 resize-none leading-6"
+              contract={variableContract}
+              edges={edges}
+              fieldName="template"
+              multiline
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ template: value })}
               value={data.template ?? ""}
             />
           </Field>
@@ -2585,16 +2941,26 @@ function NodeConfig({
       {data.kind === "template_transform" ? (
         <>
           <Field label="模板内容（支持 {{变量}}）">
-            <textarea
-              className={`${textInputClass()} min-h-36 resize-none leading-6`}
-              onChange={(event) => update({ template: event.target.value })}
+            <WorkflowVariableField
+              className="min-h-36 resize-none leading-6"
+              contract={variableContract}
+              edges={edges}
+              fieldName="template"
+              multiline
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ template: value })}
               value={data.template ?? ""}
             />
           </Field>
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -2604,9 +2970,13 @@ function NodeConfig({
       {data.kind === "variable_aggregator" ? (
         <>
           <Field label="变量名列表（逗号分隔）">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ variableNames: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="variableNames"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ variableNames: value })}
               value={data.variableNames ?? ""}
             />
           </Field>
@@ -2618,9 +2988,13 @@ function NodeConfig({
             />
           </Field>
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -2630,9 +3004,13 @@ function NodeConfig({
       {data.kind === "parameter_extractor" ? (
         <>
           <Field label="待提取文本变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ inputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="inputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ inputVariable: value })}
               value={data.inputVariable ?? ""}
             />
           </Field>
@@ -2661,9 +3039,13 @@ function NodeConfig({
             />
           </Field>
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -2671,11 +3053,25 @@ function NodeConfig({
       ) : null}
 
       {data.kind === "knowledge_retrieval" ? (
-        <KnowledgeRetrievalNodeConfig data={data} update={update} />
+        <KnowledgeRetrievalNodeConfig
+          data={data}
+          edges={edges}
+          node={node}
+          nodes={nodes}
+          update={update}
+          variableContract={variableContract}
+        />
       ) : null}
 
       {data.kind === "knowledge_citation" ? (
-        <LegacyKnowledgeCitationConfig data={data} update={update} />
+        <LegacyKnowledgeCitationConfig
+          data={data}
+          edges={edges}
+          node={node}
+          nodes={nodes}
+          update={update}
+          variableContract={variableContract}
+        />
       ) : null}
 
       {data.kind === "document_extractor" ? (
@@ -2700,20 +3096,26 @@ function NodeConfig({
                 运行前在试运行面板选择文件。后端只接受当前工作流作用域内的 asset_id，不接受服务器路径。
               </div>
               <Field label="文件资产变量">
-                <input
-                  className={textInputClass()}
-                  onChange={(event) =>
-                    update({ assetIdVariable: event.target.value })
-                  }
+                <WorkflowVariableField
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="assetIdVariable"
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ assetIdVariable: value })}
                   value={data.assetIdVariable ?? ""}
                 />
               </Field>
             </>
           )}
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -2726,9 +3128,13 @@ function NodeConfig({
             运行前为附件变量选择图片或 PDF。节点只读取当前私有运行显式共享的附件，不会创建知识索引。
           </div>
           <Field label="附件资产变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ assetIdVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="assetIdVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ assetIdVariable: value })}
               value={data.assetIdVariable ?? ""}
             />
           </Field>
@@ -2825,9 +3231,13 @@ function NodeConfig({
             </select>
           </Field>
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -2840,16 +3250,26 @@ function NodeConfig({
             运行到这里会暂停流水线，等待用户在运行面板提交文本后继续。
           </div>
           <Field label="提示文案（支持 {{变量}}）">
-            <textarea
-              className={`${textInputClass()} min-h-32 resize-none leading-6`}
-              onChange={(event) => update({ prompt: event.target.value })}
+            <WorkflowVariableField
+              className="min-h-32 resize-none leading-6"
+              contract={variableContract}
+              edges={edges}
+              fieldName="prompt"
+              multiline
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ prompt: value })}
               value={data.prompt ?? ""}
             />
           </Field>
           <Field label="写入变量名">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -2862,9 +3282,13 @@ function NodeConfig({
             默认只按关键词规则分类；LLM 回退关闭时不会产生模型调用。
           </div>
           <Field label="输入文本变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ inputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="inputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ inputVariable: value })}
               value={data.inputVariable ?? ""}
             />
           </Field>
@@ -2877,9 +3301,13 @@ function NodeConfig({
             />
           </Field>
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -2955,11 +3383,15 @@ function NodeConfig({
                 </select>
               </Field>
               <Field label="LLM 回退提示词（可选，支持 {{变量}}）">
-                <textarea
-                  className={`${textInputClass()} min-h-28 resize-none leading-6`}
-                  onChange={(event) =>
-                    update({ llmFallbackPrompt: event.target.value })
-                  }
+                <WorkflowVariableField
+                  className="min-h-28 resize-none leading-6"
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="llmFallbackPrompt"
+                  multiline
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ llmFallbackPrompt: value })}
                   placeholder="留空则使用后端默认分类提示词。"
                   value={data.llmFallbackPrompt ?? ""}
                 />
@@ -2981,10 +3413,14 @@ function NodeConfig({
           boundMiddlewares={boundMiddlewares}
           boundResources={boundResources}
           data={data}
+          edges={edges}
+          node={node}
+          nodes={nodes}
           onSelectNode={onSelectNode}
           registryTools={registryTools}
           registryToolsError={registryToolsError}
           update={update}
+          variableContract={variableContract}
         />
       ) : null}
 
@@ -2994,16 +3430,26 @@ function NodeConfig({
             该节点会在运行时创建 Agent Task，并将新任务的 task_id 写入输出变量；当前不做真实多 Agent 调度。
           </div>
           <Field label="任务标题（支持 {{变量}}）">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ taskTitle: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="taskTitle"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ taskTitle: value })}
               value={data.taskTitle ?? ""}
             />
           </Field>
           <Field label="任务输入（支持 {{变量}}）">
-            <textarea
-              className={`${textInputClass()} min-h-32 resize-none leading-6`}
-              onChange={(event) => update({ taskInput: event.target.value })}
+            <WorkflowVariableField
+              className="min-h-32 resize-none leading-6"
+              contract={variableContract}
+              edges={edges}
+              fieldName="taskInput"
+              multiline
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ taskInput: value })}
               value={data.taskInput ?? ""}
             />
           </Field>
@@ -3015,9 +3461,13 @@ function NodeConfig({
             />
           </Field>
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -3030,9 +3480,13 @@ function NodeConfig({
             读取已有 Agent Task 并创建 Handoff。人工目标进入 Inbox，指定智能体目标可自动执行并回传结果。
           </div>
           <Field label="任务 ID 变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ taskIdVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="taskIdVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ taskIdVariable: value })}
               value={data.taskIdVariable ?? ""}
             />
           </Field>
@@ -3045,21 +3499,35 @@ function NodeConfig({
           </Field>
           <HandoffExecutionConfig
             data={data}
+            edges={edges}
+            node={node}
+            nodes={nodes}
             publishedXperts={publishedXperts}
             publishedXpertsError={publishedXpertsError}
             update={update}
+            variableContract={variableContract}
           />
           <Field label="移交理由（支持 {{变量}}）">
-            <textarea
-              className={`${textInputClass()} min-h-28 resize-none leading-6`}
-              onChange={(event) => update({ reason: event.target.value })}
+            <WorkflowVariableField
+              className="min-h-28 resize-none leading-6"
+              contract={variableContract}
+              edges={edges}
+              fieldName="reason"
+              multiline
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ reason: value })}
               value={data.reason ?? ""}
             />
           </Field>
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -3072,16 +3540,24 @@ function NodeConfig({
             读取上游智能体输出并创建任务。可投递到人工 Inbox，也可调用已发布智能体完成协作。
           </div>
           <Field label="来源变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ sourceVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="sourceVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ sourceVariable: value })}
               value={data.sourceVariable ?? ""}
             />
           </Field>
           <Field label="任务标题（支持 {{变量}}）">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ taskTitle: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="taskTitle"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ taskTitle: value })}
               value={data.taskTitle ?? ""}
             />
           </Field>
@@ -3094,21 +3570,35 @@ function NodeConfig({
           </Field>
           <HandoffExecutionConfig
             data={data}
+            edges={edges}
+            node={node}
+            nodes={nodes}
             publishedXperts={publishedXperts}
             publishedXpertsError={publishedXpertsError}
             update={update}
+            variableContract={variableContract}
           />
           <Field label="移交理由模板（支持 {{变量}}）">
-            <textarea
-              className={`${textInputClass()} min-h-28 resize-none leading-6`}
-              onChange={(event) => update({ reasonTemplate: event.target.value })}
+            <WorkflowVariableField
+              className="min-h-28 resize-none leading-6"
+              contract={variableContract}
+              edges={edges}
+              fieldName="reasonTemplate"
+              multiline
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ reasonTemplate: value })}
               value={data.reasonTemplate ?? ""}
             />
           </Field>
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -3140,17 +3630,27 @@ function NodeConfig({
             ) : null}
           </Field>
           <Field label="参数 JSON（支持 {{变量}}）">
-            <textarea
-              className={`${textInputClass()} min-h-32 resize-none font-mono text-xs leading-5`}
-              onChange={(event) => update({ argumentsJson: event.target.value })}
+            <WorkflowVariableField
+              className="min-h-32 resize-none font-mono text-xs leading-5"
+              contract={variableContract}
+              edges={edges}
+              fieldName="argumentsJson"
+              multiline
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ argumentsJson: value })}
               placeholder='{"url":"{{user_input}}"}'
               value={data.argumentsJson ?? "{}"}
             />
           </Field>
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -3186,9 +3686,13 @@ function NodeConfig({
             />
           </Field>
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -3217,31 +3721,49 @@ function NodeConfig({
             </select>
           </Field>
           <Field label="URL（支持 {{变量}}）">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ url: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="url"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ url: value })}
               value={data.url ?? ""}
             />
           </Field>
           <Field label="请求头 JSON（可选）">
-            <textarea
-              className={`${textInputClass()} min-h-24 resize-none font-mono text-xs leading-5`}
-              onChange={(event) => update({ headersJson: event.target.value })}
+            <WorkflowVariableField
+              className="min-h-24 resize-none font-mono text-xs leading-5"
+              contract={variableContract}
+              edges={edges}
+              fieldName="headersJson"
+              multiline
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ headersJson: value })}
               placeholder='{"Content-Type":"application/json"}'
               value={data.headersJson ?? ""}
             />
           </Field>
           <Field label="请求正文变量（POST 可选）">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ bodyVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="bodyVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ bodyVariable: value })}
               value={data.bodyVariable ?? ""}
             />
           </Field>
           <Field label="响应输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -3251,9 +3773,13 @@ function NodeConfig({
       {data.kind === "list_operation" ? (
         <>
           <Field label="输入列表变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ inputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="inputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ inputVariable: value })}
               value={data.inputVariable ?? ""}
             />
           </Field>
@@ -3289,9 +3815,13 @@ function NodeConfig({
             </Field>
           ) : null}
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -3301,32 +3831,48 @@ function NodeConfig({
       {data.kind === "iteration" ? (
         <>
           <Field label="输入列表变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ inputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="inputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ inputVariable: value })}
               value={data.inputVariable ?? ""}
             />
           </Field>
           <Field label="单项变量名">
-            <input
-              className={textInputClass()}
-              onChange={(event) =>
-                update({ iterationVariable: event.target.value })
-              }
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="iterationVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ iterationVariable: value })}
               value={data.iterationVariable ?? ""}
             />
           </Field>
           <Field label="单项模板（支持 {{单项变量}}）">
-            <textarea
-              className={`${textInputClass()} min-h-28 resize-none leading-6`}
-              onChange={(event) => update({ itemTemplate: event.target.value })}
+            <WorkflowVariableField
+              className="min-h-28 resize-none leading-6"
+              contract={variableContract}
+              edges={edges}
+              fieldName="itemTemplate"
+              multiline
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ itemTemplate: value })}
               value={data.itemTemplate ?? ""}
             />
           </Field>
           <Field label="输出变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ outputVariable: event.target.value })}
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="outputVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
             />
           </Field>
@@ -3621,9 +4167,13 @@ function NodeConfig({
 
       {data.kind === "output" ? (
         <Field label="最终输出变量">
-          <input
-            className={textInputClass()}
-            onChange={(event) => update({ outputVariable: event.target.value })}
+          <WorkflowVariableField
+            contract={variableContract}
+            edges={edges}
+            fieldName="outputVariable"
+            node={node}
+            nodes={nodes}
+            onChange={(value) => update({ outputVariable: value })}
             value={data.outputVariable ?? ""}
           />
         </Field>
@@ -3663,12 +4213,41 @@ function WorkflowCanvas({
   const [edges, setEdges, onEdgesChange] = useEdgesState<WorkflowEdge>(
     loadedDefinition.edges,
   );
+  const [variables, setVariables] = useState<WorkflowVariableDeclaration[]>(
+    loadedDefinition.variables ?? [],
+  );
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [saveNotice, setSaveNotice] = useState("");
+  const [errorNotice, setErrorNotice] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const [isNodePaletteOpen, setIsNodePaletteOpen] = useState(false);
+  const [isVariableCenterOpen, setIsVariableCenterOpen] = useState(false);
+  const variableCenterTriggerRef = useRef<HTMLButtonElement>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    type: "node" | "pane";
+    nodeId?: string;
+  } | null>(null);
+  const [clipboard, setClipboard] = useState<{
+    nodes: WorkflowNode[];
+    edges: WorkflowEdge[];
+  } | null>(null);
+  const [quickAddMenu, setQuickAddMenu] = useState<{
+    x: number;
+    y: number;
+    sourceNodeId: string;
+    sourceHandle?: string;
+  } | null>(null);
+  type WorkflowHistorySnapshot = {
+    nodes: WorkflowNode[];
+    edges: WorkflowEdge[];
+    variables: WorkflowVariableDeclaration[];
+  };
+  const historyPastRef = useRef<WorkflowHistorySnapshot[]>([]);
+  const historyFutureRef = useRef<WorkflowHistorySnapshot[]>([]);
   const [workspaceTab, setWorkspaceTab] =
     useState<WorkflowWorkspaceTab>("config");
   const [fileInputFocusRequest, setFileInputFocusRequest] =
@@ -3676,7 +4255,7 @@ function WorkflowCanvas({
   const [runtimeMiddlewareRegistry, setRuntimeMiddlewareRegistry] = useState<
     RuntimeMiddlewareNode[]
   >([]);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
   const navigate = useNavigate();
 
   const openRunFileInput = useCallback((variableName: string) => {
@@ -3732,15 +4311,50 @@ function WorkflowCanvas({
       title,
       nodes,
       edges,
+      variables,
       updatedAt: new Date().toISOString(),
     }),
-    [edges, nodes, title, workflowId],
+    [edges, nodes, title, variables, workflowId],
   );
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
     [nodes, selectedNodeId],
   );
+  const workflowVariables = useMemo(
+    () => analyzeWorkflowVariables(nodes, edges, selectedNodeId, variables),
+    [edges, nodes, selectedNodeId, variables],
+  );
+
+  // 结构级变更历史（添加/删除/连线/粘贴等），用于撤销重做。
+  // 位置拖动不入栈——避免每次拖动都产生快照。
+  const commitHistory = useCallback(() => {
+    historyPastRef.current.push({ nodes, edges, variables });
+    if (historyPastRef.current.length > 60) historyPastRef.current.shift();
+    historyFutureRef.current = [];
+  }, [edges, nodes, variables]);
+
+  const undo = useCallback(() => {
+    const prev = historyPastRef.current.pop();
+    if (!prev) return;
+    historyFutureRef.current.push({ nodes, edges, variables });
+    setNodes(prev.nodes);
+    setEdges(prev.edges);
+    setVariables(prev.variables);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+  }, [edges, nodes, setEdges, setNodes, variables]);
+
+  const redo = useCallback(() => {
+    const next = historyFutureRef.current.pop();
+    if (!next) return;
+    historyPastRef.current.push({ nodes, edges, variables });
+    setNodes(next.nodes);
+    setEdges(next.edges);
+    setVariables(next.variables);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+  }, [edges, nodes, setEdges, setNodes, variables]);
 
   const renderedEdges = useMemo(
     () =>
@@ -3800,11 +4414,11 @@ function WorkflowCanvas({
           sourceNode?.data.kind !== expected.sourceKind ||
           targetNode?.data.kind !== "workflow_agent"
         ) {
-          setSaveNotice("资源节点必须连接到 workflow_agent 对应的资源入口。");
+          setErrorNotice("资源节点必须连接到 workflow_agent 对应的资源入口。");
           return;
         }
         if (edges.some((edge) => edge.source === connection.source)) {
-          setSaveNotice("一个资源节点只能绑定一个工作流智能体。");
+          setErrorNotice("一个资源节点只能绑定一个工作流智能体。");
           return;
         }
         setEdges((currentEdges) =>
@@ -3823,6 +4437,7 @@ function WorkflowCanvas({
             currentEdges,
           ),
         );
+        commitHistory();
         if (targetNode.data.toolMode !== "mcp_tools") {
           setNodes((currentNodes) =>
             currentNodes.map((item) =>
@@ -3836,6 +4451,7 @@ function WorkflowCanvas({
           );
         }
         setSaveNotice("");
+        setErrorNotice("");
         return;
       }
       if (
@@ -3847,7 +4463,7 @@ function WorkflowCanvas({
         sourceNode?.data.kind === "toolset_resource" ||
         sourceNode?.data.kind === "plugin_resource"
       ) {
-        setSaveNotice("资源节点只能通过专用端口绑定到 workflow_agent。");
+        setErrorNotice("资源节点只能通过专用端口绑定到 workflow_agent。");
         return;
       }
       if (middlewareBinding) {
@@ -3856,15 +4472,15 @@ function WorkflowCanvas({
           sourceNode?.data.kind !== "runtime_middleware" ||
           targetNode?.data.kind !== "workflow_agent"
         ) {
-          setSaveNotice("中间件绑定必须从 runtime_middleware 的紫色端口连接到 workflow_agent。")
+          setErrorNotice("中间件绑定必须从 runtime_middleware 的紫色端口连接到 workflow_agent。")
           return;
         }
         if (edges.some((edge) => edge.source === connection.source)) {
-          setSaveNotice("一个中间件节点只能绑定一个 Agent，且不能同时连接控制流。")
+          setErrorNotice("一个中间件节点只能绑定一个 Agent，且不能同时连接控制流。")
           return;
         }
       } else if (connection.sourceHandle === "middleware-binding") {
-        setSaveNotice("紫色中间件端口只能连接 workflow_agent 的 middleware 入口。")
+        setErrorNotice("紫色中间件端口只能连接 workflow_agent 的 middleware 入口。")
         return;
       } else if (
         sourceNode?.data.kind === "runtime_middleware" &&
@@ -3873,7 +4489,7 @@ function WorkflowCanvas({
             edge.source === connection.source && edge.targetHandle === "middleware",
         )
       ) {
-        setSaveNotice("已绑定 Agent 的中间件不能同时连接控制流。")
+        setErrorNotice("已绑定 Agent 的中间件不能同时连接控制流。")
         return;
       }
       setEdges((currentEdges) =>
@@ -3891,9 +4507,11 @@ function WorkflowCanvas({
           currentEdges,
         ),
       );
+      commitHistory();
       setSaveNotice("");
+      setErrorNotice("");
     },
-    [edges, nodes, setEdges],
+    [edges, nodes, setEdges, commitHistory],
   );
 
   const handleNodesChange = useCallback(
@@ -3918,14 +4536,16 @@ function WorkflowCanvas({
 
   const deleteSelectedEdge = useCallback(() => {
     if (!selectedEdgeId) return;
+    commitHistory();
     setEdges((currentEdges) =>
       currentEdges.filter((edge) => edge.id !== selectedEdgeId),
     );
     setSelectedEdgeId(null);
-  }, [selectedEdgeId, setEdges]);
+  }, [commitHistory, selectedEdgeId, setEdges]);
 
   const deleteSelectedNode = useCallback(() => {
     if (!selectedNodeId) return;
+    commitHistory();
     setNodes((currentNodes) =>
       currentNodes.filter((node) => node.id !== selectedNodeId),
     );
@@ -3935,9 +4555,11 @@ function WorkflowCanvas({
       ),
     );
     setSelectedNodeId(null);
-  }, [selectedNodeId, setEdges, setNodes]);
+  }, [commitHistory, selectedNodeId, setEdges, setNodes]);
 
   function updateNodeData(nodeId: string, patch: Partial<WorkflowNodeData>) {
+    // 配置面板与保存/运行共用同一份同步状态，避免输入后立即操作时
+    // 仍有防抖 patch 留在计时器中而被序列化遗漏。
     setNodes((currentNodes) =>
       currentNodes.map((node) =>
         node.id === nodeId
@@ -3987,11 +4609,265 @@ function WorkflowCanvas({
     }
   }
 
+  const handleStepSelect = useCallback(
+    (nodeId: string) => {
+      setSelectedEdgeId(null);
+      setSelectedNodeId(nodeId);
+      const node = nodes.find((item) => item.id === nodeId);
+      if (node) {
+        void fitView({ nodes: [{ id: nodeId }], duration: 350, padding: 1.6 });
+      }
+    },
+    [fitView, nodes],
+  );
+
+  const handleVariableSourceLocate = useCallback(
+    (nodeId: string) => {
+      handleStepSelect(nodeId);
+      setWorkspaceTab("config");
+    },
+    [handleStepSelect],
+  );
+
+  const createWorkflowVariable = useCallback(
+    (declaration: WorkflowVariableDeclaration) => {
+      commitHistory();
+      setVariables((current) => [...current, declaration]);
+      setSaveNotice("工作流变量已创建");
+    },
+    [commitHistory],
+  );
+
+  const updateWorkflowVariable = useCallback(
+    (declaration: WorkflowVariableDeclaration) => {
+      commitHistory();
+      setVariables((current) =>
+        current.map((candidate) =>
+          candidate.id === declaration.id ? declaration : candidate,
+        ),
+      );
+      setSaveNotice("工作流变量已更新");
+    },
+    [commitHistory],
+  );
+
+  const previewWorkflowVariableRename = useCallback(
+    (oldName: string, newName: string) =>
+      planWorkflowVariableRename(oldName, newName, nodes, edges, variables),
+    [edges, nodes, variables],
+  );
+
+  const applyWorkflowVariableRename = useCallback(
+    (plan: WorkflowVariableRenamePlan) => {
+      if (!plan.allowed) return;
+      commitHistory();
+      setNodes(plan.nodes);
+      setVariables(plan.declarations);
+      setSaveNotice("变量名称及已知引用已更新");
+    },
+    [commitHistory, setNodes],
+  );
+
+  const deleteWorkflowVariable = useCallback(
+    (declarationId: string) => {
+      const declaration = variables.find(
+        (candidate) => candidate.id === declarationId,
+      );
+      if (!declaration) return "变量已不存在。";
+      const descriptor = analyzeWorkflowVariables(
+        nodes,
+        edges,
+        null,
+        variables,
+      ).find((candidate) => candidate.name === declaration.name);
+      if ((descriptor?.references.length ?? 0) > 0) {
+        return "变量仍被引用，请先清空引用。";
+      }
+      commitHistory();
+      setVariables((current) =>
+        current.filter((candidate) => candidate.id !== declarationId),
+      );
+      setSaveNotice("工作流变量已删除");
+      return null;
+    },
+    [commitHistory, edges, nodes, variables],
+  );
+
+  const handleNodeStatusChange = useCallback(
+    (nodeId: string, status: NodeRunStatus | "idle") => {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  runStatus: status === "idle" ? undefined : status,
+                },
+              }
+            : node,
+        ),
+      );
+    },
+    [setNodes],
+  );
+
+  function stripRunStatus(def: WorkflowDefinition): WorkflowDefinition {
+    return {
+      ...def,
+      nodes: def.nodes.map((node) => ({
+        ...node,
+        data: { ...node.data, runStatus: undefined },
+      })),
+    };
+  }
+
+  const copySelectedNode = useCallback(() => {
+    if (!selectedNodeId) return;
+    const node = nodes.find((item) => item.id === selectedNodeId);
+    if (!node) return;
+    const nodeEdges = edges.filter(
+      (edge) => edge.source === selectedNodeId || edge.target === selectedNodeId,
+    );
+    setClipboard({
+      nodes: [
+        {
+          ...node,
+          position: { ...node.position },
+          data: { ...node.data, runStatus: undefined },
+        },
+      ],
+      edges: nodeEdges.map((edge) => ({ ...edge })),
+    });
+    setContextMenu(null);
+    setSaveNotice("已复制节点，在画布空白处右键可粘贴。");
+  }, [edges, nodes, selectedNodeId]);
+
+  const pasteClipboard = useCallback(
+    (position: { x: number; y: number }) => {
+      if (!clipboard || clipboard.nodes.length === 0) return;
+      const stamp = `${Date.now().toString(36)}${Math.random().toString(16).slice(2, 5)}`;
+      const anchor = clipboard.nodes[0];
+      const idMap = new Map<string, string>();
+      const pastedNodes = clipboard.nodes.map((node) => {
+        const newId = `${node.data.kind}-${stamp}-${node.id}`;
+        idMap.set(node.id, newId);
+        return {
+          ...node,
+          id: newId,
+          position: {
+            x: position.x + (node.position.x - anchor.position.x),
+            y: position.y + (node.position.y - anchor.position.y),
+          },
+          data: { ...node.data, runStatus: undefined },
+        };
+      });
+      const pastedEdges = clipboard.edges
+        .map((edge) => ({
+          ...edge,
+          id: `${edge.id}-${stamp}`,
+          source: idMap.get(edge.source) ?? edge.source,
+          target: idMap.get(edge.target) ?? edge.target,
+        }))
+        .filter(
+          (edge) =>
+            idMap.has(edge.source) &&
+            idMap.has(edge.target) &&
+            pastedNodes.some((n) => n.id === edge.source) &&
+            pastedNodes.some((n) => n.id === edge.target),
+        );
+      commitHistory();
+      setNodes((currentNodes) => [...currentNodes, ...pastedNodes]);
+      setEdges((currentEdges) => [...currentEdges, ...pastedEdges]);
+      setSelectedNodeId(pastedNodes[0]?.id ?? null);
+      setContextMenu(null);
+    },
+    [clipboard, commitHistory, setEdges, setNodes],
+  );
+
+  const pasteAtViewportCenter = useCallback(() => {
+    if (!clipboard || clipboard.nodes.length === 0) return;
+    const { x, y } = screenToFlowPosition({
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+    });
+    pasteClipboard({ x, y });
+  }, [clipboard, pasteClipboard, screenToFlowPosition]);
+
+  const addAnnotationAt = useCallback(
+    (position: { x: number; y: number }) => {
+      commitHistory();
+      const node = createNode("annotation", position.x, position.y);
+      setNodes((currentNodes) => [...currentNodes, node]);
+      setSelectedNodeId(node.id);
+      setContextMenu(null);
+    },
+    [commitHistory, setNodes],
+  );
+
+  const handleQuickAddPick = useCallback(
+    (kind: string) => {
+      if (!quickAddMenu) return;
+      const position = screenToFlowPosition({
+        x: quickAddMenu.x,
+        y: quickAddMenu.y,
+      });
+      const node = createNode(kind as WorkflowNodeKind, position.x, position.y);
+      commitHistory();
+      setNodes((currentNodes) => [...currentNodes, node]);
+      setEdges((currentEdges) =>
+        addEdge(
+          {
+            source: quickAddMenu.sourceNodeId,
+            target: node.id,
+            sourceHandle: quickAddMenu.sourceHandle ?? null,
+            targetHandle: null,
+          },
+          currentEdges,
+        ),
+      );
+      setSelectedNodeId(node.id);
+      setQuickAddMenu(null);
+    },
+    [commitHistory, quickAddMenu, screenToFlowPosition, setEdges, setNodes],
+  );
+
+  const handleConnectEnd: OnConnectEnd = useCallback((event, connectionState) => {
+      if (connectionState.isValid || !connectionState.fromNode) return;
+      if (!("clientX" in event)) return;
+      const { fromHandle, fromNode } = connectionState;
+      if (!fromHandle) return;
+      const fromHandleId = fromHandle.id ?? "";
+      // 资源/中间件绑定端口必须手动连到 workflow_agent，不允许松手创建节点。
+      if (
+        [
+          "expert-binding",
+          "knowledge-binding",
+          "toolset-binding",
+          "plugin-binding",
+          "middleware-binding",
+        ].includes(fromHandleId)
+      ) {
+        return;
+      }
+      if (fromNode.data.kind === "output" || fromNode.data.kind === "annotation") {
+        return;
+      }
+      setQuickAddMenu({
+        x: event.clientX,
+        y: event.clientY,
+        sourceNodeId: fromNode.id,
+        sourceHandle: fromHandle.id ?? undefined,
+      });
+    },
+    [],
+  );
+
   async function saveWorkflow() {
-    const savedDefinition = {
+    const savedDefinition = stripRunStatus({
       ...definition,
       updatedAt: new Date().toISOString(),
-    };
+    });
     setIsSaving(true);
     try {
       if (onSave) {
@@ -4013,10 +4889,10 @@ function WorkflowCanvas({
 
   async function convertToXpertDraft() {
     if (onSave || isConverting) return;
-    const currentDefinition = {
+    const currentDefinition = stripRunStatus({
       ...definition,
       updatedAt: new Date().toISOString(),
-    };
+    });
     setIsConverting(true);
     try {
       const inputVariable =
@@ -4072,6 +4948,7 @@ function WorkflowCanvas({
         position.y,
         runtimeMiddlewarePayload,
       );
+      commitHistory();
       setNodes((currentNodes) => [...currentNodes, nextNode]);
       setSelectedNodeId(nextNode.id);
       setIsNodePaletteOpen(false);
@@ -4087,6 +4964,7 @@ function WorkflowCanvas({
         position.y,
         fallbackPayload,
       );
+      commitHistory();
       setNodes((currentNodes) => [...currentNodes, nextNode]);
       setSelectedNodeId(nextNode.id);
       setIsNodePaletteOpen(false);
@@ -4098,12 +4976,14 @@ function WorkflowCanvas({
 
     try {
       const nextNode = createNode(kind, position.x, position.y);
+      commitHistory();
       setNodes((currentNodes) => [...currentNodes, nextNode]);
       setSelectedNodeId(nextNode.id);
       setIsNodePaletteOpen(false);
       setSaveNotice("");
+      setErrorNotice("");
     } catch (error) {
-      setSaveNotice(
+      setErrorNotice(
         error instanceof Error ? error.message : "无法创建该工作流节点。",
       );
     }
@@ -4116,17 +4996,50 @@ function WorkflowCanvas({
   }, [nodes]);
 
   useEffect(() => {
-    function handleDeleteKey(event: KeyboardEvent) {
-      if (event.key !== "Delete" && event.key !== "Backspace") return;
+    function handleEditorKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
-      if (
+      const isEditable =
         target?.isContentEditable ||
         target?.tagName === "INPUT" ||
         target?.tagName === "TEXTAREA" ||
-        target?.tagName === "SELECT"
-      ) {
+        target?.tagName === "SELECT";
+      const mod = event.metaKey || event.ctrlKey;
+
+      if (mod && event.key.toLowerCase() === "c") {
+        if (isEditable || !selectedNodeId) return;
+        event.preventDefault();
+        copySelectedNode();
         return;
       }
+      if (mod && event.key.toLowerCase() === "v") {
+        if (isEditable || !clipboard) return;
+        event.preventDefault();
+        pasteAtViewportCenter();
+        return;
+      }
+      if (mod && event.key.toLowerCase() === "z") {
+        if (isEditable) return;
+        event.preventDefault();
+        if (event.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+        return;
+      }
+      if (mod && event.key.toLowerCase() === "y") {
+        if (isEditable) return;
+        event.preventDefault();
+        redo();
+        return;
+      }
+      if (!mod && event.key.toLowerCase() === "f" && !isEditable) {
+        event.preventDefault();
+        void fitView({ padding: 0.2 });
+        return;
+      }
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      if (isEditable) return;
       if (selectedNodeId) {
         event.preventDefault();
         deleteSelectedNode();
@@ -4135,23 +5048,54 @@ function WorkflowCanvas({
         deleteSelectedEdge();
       }
     }
-    window.addEventListener("keydown", handleDeleteKey);
-    return () => window.removeEventListener("keydown", handleDeleteKey);
-  }, [deleteSelectedEdge, deleteSelectedNode, selectedEdgeId, selectedNodeId]);
+    window.addEventListener("keydown", handleEditorKeyDown);
+    return () => window.removeEventListener("keydown", handleEditorKeyDown);
+  }, [
+    clipboard,
+    copySelectedNode,
+    deleteSelectedEdge,
+    deleteSelectedNode,
+    fitView,
+    pasteAtViewportCenter,
+    redo,
+    selectedEdgeId,
+    selectedNodeId,
+    undo,
+  ]);
 
   return (
-    <div className="grid min-h-[calc(100vh-8rem)] gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <aside className="hidden">
-        <p className="text-sm font-semibold text-white">工位库</p>
-        <p className="mt-1 text-xs leading-5 text-slate-400">
-          拖拽节点到画布，像安排招聘会工位一样搭建 AI 流水线。
-        </p>
-        <div className="mt-4">
-          <NodePalette />
-        </div>
-      </aside>
+    <div
+      className={`grid min-h-[calc(100vh-8rem)] gap-5 ${
+        isNodePaletteOpen
+          ? "xl:grid-cols-[260px_minmax(0,1fr)_380px]"
+          : "xl:grid-cols-[minmax(0,1fr)_380px]"
+      }`}
+    >
+      {isNodePaletteOpen ? (
+        <aside className="surface-panel max-h-[50vh] overflow-y-auto rounded-lg p-4 xl:max-h-[calc(100vh-8rem)] xl:sticky xl:top-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold text-white">工位库</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">
+                拖拽节点到画布，像安排招聘会工位一样搭建 AI 流水线。
+              </p>
+            </div>
+            <button
+              className="shrink-0 rounded-md border border-white/10 px-2 py-1 text-xs text-slate-400 transition hover:bg-white/10 hover:text-white"
+              onClick={() => setIsNodePaletteOpen(false)}
+              title="收起节点库"
+              type="button"
+            >
+              ×
+            </button>
+          </div>
+          <div className="mt-4">
+            <NodePalette />
+          </div>
+        </aside>
+      ) : null}
 
-      <section className="relative min-w-0 rounded-lg border border-white/10 bg-ink-950/80 shadow-prism">
+      <section className="relative min-w-0 rounded-lg border border-white/10 bg-[#0d1424] shadow-md">
         <div className="flex flex-col gap-3 border-b border-white/10 bg-surface-900/90 p-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <input
@@ -4163,34 +5107,52 @@ function WorkflowCanvas({
               线性 + 条件分支 MVP，支持本地保存和后端流式试运行。
             </p>
           </div>
-          <div className="relative flex flex-wrap items-center gap-2">
+          <div className="relative flex flex-wrap items-center gap-1.5">
             <button
-              className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200/45 hover:bg-emerald-300/20"
+              aria-expanded={isVariableCenterOpen}
+              aria-haspopup="dialog"
+              className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
+                isVariableCenterOpen
+                  ? "border-brand-300/50 bg-brand-300/15 text-brand-100"
+                  : "border-white/10 bg-white/[0.05] text-slate-200 hover:border-brand-300/45 hover:bg-brand-300/10 hover:text-brand-100"
+              }`}
+              onClick={() => setIsVariableCenterOpen(true)}
+              ref={variableCenterTriggerRef}
+              type="button"
+            >
+              变量 {workflowVariables.length}
+            </button>
+            <button
+              className="rounded-md border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-emerald-200/45 hover:bg-emerald-300/10 hover:text-emerald-100"
               onClick={() => navigate("/data-tables")}
               type="button"
             >
               数据表
             </button>
             <button
-              className="rounded-full border border-hire-300/30 bg-hire-300/10 px-4 py-2 text-sm font-semibold text-hire-100 transition hover:border-hire-200/50 hover:bg-hire-300/20"
+              className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
+                isNodePaletteOpen
+                  ? "border-brand-300/50 bg-brand-300/15 text-brand-100 hover:bg-brand-300/25"
+                  : "border-white/10 bg-white/[0.05] text-slate-200 hover:border-hire-200/50 hover:bg-hire-300/10 hover:text-hire-100"
+              }`}
               onClick={() => setIsNodePaletteOpen((current) => !current)}
               type="button"
             >
-              节点库
+              {isNodePaletteOpen ? "收起节点库" : "节点库"}
             </button>
-            {isNodePaletteOpen ? (
-              <div className="absolute right-0 top-full z-30 mt-3 max-h-[72vh] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-white/10 bg-surface-900/95 p-4 shadow-2xl shadow-ink-950/50 backdrop-blur">
-                <NodePalette />
-              </div>
+            {errorNotice ? (
+              <span className="rounded-md border border-rose-300/40 bg-rose-400/10 px-2.5 py-1 text-[11px] font-semibold text-rose-100">
+                {errorNotice}
+              </span>
             ) : null}
             {saveNotice ? (
-              <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-3 py-1.5 text-xs font-semibold text-emerald-100">
+              <span className="rounded-md border border-emerald-300/25 bg-emerald-300/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-100">
                 {saveNotice}
               </span>
             ) : null}
             {!onSave ? (
               <button
-                className="rounded-full border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/20 disabled:opacity-50"
+                className="rounded-md border border-cyan-300/30 bg-cyan-300/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/20 disabled:opacity-50"
                 disabled={isConverting}
                 onClick={() => void convertToXpertDraft()}
                 type="button"
@@ -4199,7 +5161,7 @@ function WorkflowCanvas({
               </button>
             ) : null}
             <button
-              className="rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100"
+              className="rounded-md bg-brand-300 px-3.5 py-1.5 text-xs font-semibold text-ink-950 transition hover:bg-brand-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
               disabled={isSaving}
               onClick={() => void saveWorkflow()}
               type="button"
@@ -4210,7 +5172,7 @@ function WorkflowCanvas({
         </div>
 
         <div
-          className="h-[640px] min-h-[520px] overflow-hidden rounded-b-lg"
+          className="h-[calc(100vh-15rem)] min-h-[520px] overflow-hidden rounded-b-lg"
           onDragOver={(event) => {
             event.preventDefault();
             event.dataTransfer.dropEffect = "move";
@@ -4223,27 +5185,43 @@ function WorkflowCanvas({
             nodeTypes={nodeTypes}
             nodes={nodes}
             onConnect={handleConnect}
+            onConnectEnd={handleConnectEnd}
             onEdgeClick={(event, edge) => {
               event.stopPropagation();
               setSelectedNodeId(null);
               setSelectedEdgeId(edge.id);
+              setContextMenu(null);
             }}
             onEdgesChange={handleEdgesChange}
             onNodeClick={(_, node) => {
               setSelectedEdgeId(null);
               setSelectedNodeId(node.id);
+              setContextMenu(null);
+            }}
+            onNodeContextMenu={(event, node) => {
+              event.preventDefault();
+              setSelectedEdgeId(null);
+              setSelectedNodeId(node.id);
+              setContextMenu({
+                x: event.clientX,
+                y: event.clientY,
+                type: "node",
+                nodeId: node.id,
+              });
             }}
             onNodesChange={handleNodesChange}
             onPaneClick={() => {
               setSelectedEdgeId(null);
               setSelectedNodeId(null);
+              setContextMenu(null);
+            }}
+            onPaneContextMenu={(event) => {
+              event.preventDefault();
+              setSelectedEdgeId(null);
+              setSelectedNodeId(null);
+              setContextMenu({ x: event.clientX, y: event.clientY, type: "pane" });
             }}
           >
-            <Background
-              color="rgba(253, 186, 116, 0.22)"
-              gap={24}
-              variant={BackgroundVariant.Dots}
-            />
             <Controls className="modelmirror-flow-controls" />
             {selectedEdgeId ? (
               <Panel position="bottom-left">
@@ -4269,12 +5247,120 @@ function WorkflowCanvas({
             ) : null}
             <MiniMap
               maskColor="rgba(6, 9, 22, 0.68)"
-              nodeColor={() => "rgba(251, 146, 60, 0.9)"}
+              nodeColor={(node) => minimapNodeColor(String(node.data.kind))}
               pannable
               zoomable
             />
           </ReactFlow>
         </div>
+
+        {contextMenu ? (
+          <>
+            <div
+              aria-hidden="true"
+              className="fixed inset-0 z-40"
+              onClick={() => setContextMenu(null)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setContextMenu(null);
+              }}
+            />
+            <div
+              className="fixed z-50 w-44 overflow-hidden rounded-lg border border-white/10 bg-[#101828] py-1 shadow-xl shadow-ink-950/60"
+              style={{
+                left: Math.min(contextMenu.x, window.innerWidth - 184),
+                top: Math.min(
+                  contextMenu.y,
+                  window.innerHeight - (contextMenu.type === "node" ? 176 : 152),
+                ),
+              }}
+            >
+              {contextMenu.type === "node" ? (
+                <>
+                  <MenuItem onClick={() => setContextMenu(null)}>
+                    配置节点
+                  </MenuItem>
+                  <MenuItem onClick={copySelectedNode}>复制</MenuItem>
+                  <MenuItem
+                    onClick={() => {
+                      setContextMenu(null);
+                      deleteSelectedNode();
+                    }}
+                  >
+                    删除
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() => {
+                      const node = nodes.find(
+                        (item) => item.id === contextMenu.nodeId,
+                      );
+                      addAnnotationAt(
+                        node
+                          ? { x: node.position.x, y: node.position.y + 88 }
+                          : { x: 0, y: 0 },
+                      );
+                    }}
+                  >
+                    添加注释
+                  </MenuItem>
+                </>
+              ) : (
+                <>
+                  <MenuItem
+                    disabled={!clipboard}
+                    onClick={() =>
+                      pasteClipboard(
+                        screenToFlowPosition({
+                          x: contextMenu.x,
+                          y: contextMenu.y,
+                        }),
+                      )
+                    }
+                  >
+                    {clipboard ? "粘贴" : "粘贴（先复制节点）"}
+                  </MenuItem>
+                  <MenuItem
+                    disabled={historyPastRef.current.length === 0}
+                    onClick={() => {
+                      undo();
+                      setContextMenu(null);
+                    }}
+                  >
+                    撤销（Ctrl/⌘+Z）
+                  </MenuItem>
+                  <MenuItem
+                    disabled={historyFutureRef.current.length === 0}
+                    onClick={() => {
+                      redo();
+                      setContextMenu(null);
+                    }}
+                  >
+                    重做（Ctrl/⌘+Y）
+                  </MenuItem>
+                  <MenuItem onClick={() => fitView()}>适配视图</MenuItem>
+                  <MenuItem
+                    onClick={() => {
+                      setSelectedNodeId(null);
+                      setSelectedEdgeId(null);
+                      setContextMenu(null);
+                    }}
+                  >
+                    清空选中
+                  </MenuItem>
+                </>
+              )}
+            </div>
+          </>
+        ) : null}
+
+        {quickAddMenu ? (
+          <QuickNodePicker
+            onClose={() => setQuickAddMenu(null)}
+            onPick={handleQuickAddPick}
+            x={quickAddMenu.x}
+            y={quickAddMenu.y}
+          />
+        ) : null}
       </section>
 
       <aside className="surface-panel flex min-h-[520px] flex-col rounded-lg p-4">
@@ -4346,10 +5432,27 @@ function WorkflowCanvas({
             definition={definition}
             embedded
             fileInputFocusRequest={fileInputFocusRequest}
+            onNodeStatusChange={handleNodeStatusChange}
             onRunStart={() => setWorkspaceTab("run")}
+            onStepSelect={handleStepSelect}
           />
         </div>
       </aside>
+      <WorkflowVariableCenter
+        declarations={variables}
+        nodes={nodes}
+        onApplyRename={applyWorkflowVariableRename}
+        onClose={() => setIsVariableCenterOpen(false)}
+        onCreate={createWorkflowVariable}
+        onDelete={deleteWorkflowVariable}
+        onLocateSource={handleVariableSourceLocate}
+        onPlanRename={previewWorkflowVariableRename}
+        onUpdate={updateWorkflowVariable}
+        open={isVariableCenterOpen}
+        selectedNode={selectedNode}
+        triggerRef={variableCenterTriggerRef}
+        variables={workflowVariables}
+      />
     </div>
   );
 }

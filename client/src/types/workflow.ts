@@ -48,6 +48,23 @@ export type WorkflowValue =
   | WorkflowValue[]
   | { [key: string]: WorkflowValue };
 
+export type WorkflowVariableDeclarationKind = "input" | "constant";
+
+export type WorkflowVariableDeclarationValueType =
+  | "text"
+  | "number"
+  | "boolean"
+  | "json";
+
+export interface WorkflowVariableDeclaration {
+  id: string;
+  name: string;
+  kind: WorkflowVariableDeclarationKind;
+  valueType: WorkflowVariableDeclarationValueType;
+  defaultValue?: WorkflowValue;
+  description?: string;
+}
+
 export type ConditionOperator = "equals" | "contains";
 
 export type CodeOperation = "upper" | "lower" | "replace" | "concat" | "python";
@@ -55,6 +72,9 @@ export type CodeOperation = "upper" | "lower" | "replace" | "concat" | "python";
 export type HttpRequestMethod = "GET" | "POST";
 
 export type ListOperationOperator = "length" | "join" | "first" | "last";
+
+/** 画布节点运行态视觉状态（不持久化，运行时由 WorkflowRun 写回）。 */
+export type NodeRunStatus = "running" | "done" | "error";
 
 export interface WorkflowNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
@@ -175,6 +195,8 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   runtimeMiddlewareMetadata?: Record<string, unknown>;
   runtimeMiddlewareConfig?: Record<string, unknown>;
   middlewarePriority?: string;
+  /** 运行时状态（画布高亮），不参与持久化与运行序列化。 */
+  runStatus?: NodeRunStatus;
 }
 
 export type WorkflowNode = Node<WorkflowNodeData, "workflowNode">;
@@ -186,6 +208,7 @@ export interface WorkflowDefinition {
   title: string;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+  variables?: WorkflowVariableDeclaration[];
   updatedAt: string;
 }
 
@@ -211,6 +234,7 @@ export interface WorkflowRunEvent {
     | "skill_runtime_status"
     | "heartbeat"
     | "node_end"
+    | "workflow_cancelled"
     | "workflow_end"
     | "error";
   task_id?: string;

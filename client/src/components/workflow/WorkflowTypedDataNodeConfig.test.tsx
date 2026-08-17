@@ -2,7 +2,7 @@ import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type WorkflowNodeData } from "../../types/workflow";
+import { type WorkflowNode, type WorkflowNodeData } from "../../types/workflow";
 import WorkflowTypedDataNodeConfig from "./WorkflowTypedDataNodeConfig";
 
 const table = {
@@ -45,10 +45,19 @@ const detail = {
 
 function Harness({ initial }: { initial: WorkflowNodeData }) {
   const [data, setData] = useState(initial);
+  const node: WorkflowNode = {
+    id: "node-under-test",
+    type: "workflowNode",
+    position: { x: 0, y: 0 },
+    data,
+  };
   return (
     <MemoryRouter>
       <WorkflowTypedDataNodeConfig
         data={data}
+        edges={[]}
+        node={node}
+        nodes={[node]}
         onChange={(patch) => setData((current) => ({ ...current, ...patch }))}
       />
     </MemoryRouter>

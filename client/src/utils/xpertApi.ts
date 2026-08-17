@@ -439,6 +439,13 @@ export function toWorkflowDefinition(
   return {
     id: xpert.draft.workflow.id,
     title: xpert.draft.workflow.title,
+    variables: xpert.draft.workflow.variables?.map((variable) => ({
+      ...variable,
+      defaultValue:
+        variable.defaultValue === undefined
+          ? undefined
+          : structuredClone(variable.defaultValue),
+    })),
     nodes: xpert.draft.workflow.nodes.map((node) => ({
       id: node.id,
       type: "workflowNode" as const,
@@ -454,6 +461,13 @@ export function toXpertDraftWorkflow(definition: WorkflowDefinition) {
   return {
     id: definition.id,
     title: definition.title,
+    variables: definition.variables?.map((variable) => ({
+      ...variable,
+      defaultValue:
+        variable.defaultValue === undefined
+          ? undefined
+          : structuredClone(variable.defaultValue),
+    })),
     version: "xpert-draft-v1",
     source: "classic",
     nodes: definition.nodes.map((node) => ({
