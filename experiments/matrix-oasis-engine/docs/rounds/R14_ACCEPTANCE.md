@@ -1,6 +1,6 @@
 # R14验收记录
 
-状态：R14实施中；R14.2已验证，等待本地提交
+状态：R14实施中；R14.3已验证，等待本地提交
 
 ## 基线
 
@@ -15,8 +15,8 @@
 | 批次 | 状态 | SHA | 证据 |
 |---|---|---|---|
 | R14.1 治理与声明门 | 已完成 | `1086293c` | 见下方摘要 |
-| R14.2 Solution合同与Intent合成 | 已验证 | 本批提交，后续记录 | 见下方摘要 |
-| R14.3 确定性空间求解器 | 未开始 | — | — |
+| R14.2 Solution合同与Intent合成 | 已完成 | `474a7b2c` | 见下方摘要 |
+| R14.3 确定性空间求解器 | 已验证 | 本批提交，后续记录 | 见下方摘要 |
 | R14.4 Godot最终物理复验 | 未开始 | — | — |
 | R14.5 solved overlay与预览 | 未开始 | — | — |
 | R14.6 泛化与人工预览资格 | 未开始 | — | — |
@@ -43,6 +43,17 @@ R14.7前必须保持`pending-spatial-solver / claimAllowed=false / blockingRound
 - 新增`synthesize:spatial-intent`事务CLI，只向临时根下尚不存在的目录发布一个canonical artifact；输入FileHandle身份、fatal UTF-8、大小和输出换身均fail closed。
 - `verify:r14`定向22/22通过（R13合同9、Solution合同6、Intent合成与CLI7）；新声明文件strict TypeScript解析、`npm prefix`、`npm ls --all --depth=0`、boundary、round/parent scope和`git diff --check`均通过。
 - 本批未实现R14.3求解算法、Godot物理复验、overlay或产品预览切换；`MVP_STATUS`继续为`pending-spatial-solver / claimAllowed=false / blockingRound=R14`。
+
+## R14.3验证摘要
+
+- `solvePrototypeSpatialLayout`复验canonical Intent、Facts、Runtime/Receipt和Asset Bundle及其跨合同身份；显式区分旧Spatial Assembly与直接Environment Bundle两类R13 transform来源，禁止把后者伪标成前者。
+- 求解器使用整数/BigInt面积门选择单一Navigation component，以入口zone medoid和确定性最远点生成zone seeds，按导航polygon距离建立domain；同zone节点共享spawn/terminal station，不因普通node变化制造无意义传送目标。
+- placement按wall优先、large/human优先、约束数和声明顺序生成最多256个候选；有界DFS最多展开100000状态，验证support、真实Asset footprint、clearance、near/separate、facing和全局非重叠；无解或超限不返回部分Solution，也不回退R12网格。
+- Action terminal证明精确绑定冻结R6八列网格：单块`1250×500 mm`、列/行间距`1700/2250 mm`、网格原点`Z=-2400 mm`，并按0/1/8/9/64 action锁定整体footprint及中心偏移，避免把交互距离错误地量到整体矩形中心。
+- `solve:spatial-layout`使用稳定FileHandle读取、fatal UTF-8、大小/身份复验、同父staging和单次rename，原子发布canonical Solution与脱敏report；已存在目标、换身或中途失败均fail closed。
+- `verify:r14`为31/31；求解器覆盖0/2/6/7 placements、2/4/5 zones、floor/wall、互相facing、冲突约束、容量不足、身份漂移、同zone station、20次字节确定性和双文件事务发布。完整`npm.cmd test`在最终实现树为774/774；完整`npm.cmd run verify`为25/25阶段通过，包含Creator 248 modules构建与HTTP 200烟测。此前并发全量运行中冻结R8的20 ms timeout曾单次出现既有调度竞态，独立复跑1/1且最终全量已通过。
+- TypeScript声明严格解析、Node语法、boundary、round/parent scope、MVP声明门和`git diff --check`通过；一方求解源码无随机、时间退出、网络、供应商调用、题材ID或案例坐标。
+- 本批未实现R14.4真实Godot物理/导航/视线复验，未创建solved overlay，未接Creator或切换默认预览；`MVP_STATUS`继续为`pending-spatial-solver / claimAllowed=false / blockingRound=R14`。
 
 ## 回退
 

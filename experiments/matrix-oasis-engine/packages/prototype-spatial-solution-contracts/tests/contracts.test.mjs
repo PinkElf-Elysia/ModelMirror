@@ -15,13 +15,13 @@ function fixture() {
       runtime: { format: "matrix-oasis.runtime-game-pack", formatVersion: "0.1.0", id: "fixture-pack", contentVersion: "0.1.0", sourceSha256: hash("c"), artifactSha256: hash("d") },
       runtimeReceiptSha256: hash("e"),
       assetBundle: { format: "matrix-oasis.prototype-asset-bundle", formatVersion: "0.1.0", canonicalSha256: hash("f") },
-      spatialAssembly: { format: "matrix-oasis.prototype-spatial-assembly", formatVersion: "0.1.0", canonicalSha256: hash("1") },
+      analysisTransformSource: { profile: "spatial-assembly-collider-v1", format: "matrix-oasis.prototype-spatial-assembly", formatVersion: "0.1.0", canonicalSha256: hash("1") },
     },
     profile: {
       id: "matrix-oasis.spatial-solver/1",
       player: { radiusMm: 350, heightMm: 1800, floorSnapMm: 200 },
       clearanceMm: { compact: 250, human: 350, large: 600 },
-      terminal: { widthMm: 1250, depthMm: 500, columns: 8, columnSpacingMm: 1700, rowSpacingMm: 2250, interactionDistanceMm: 3000 },
+      terminal: { widthMm: 1250, depthMm: 500, columns: 8, columnSpacingMm: 1700, rowSpacingMm: 2250, originZMm: -2400, interactionDistanceMm: 3000 },
       limits: { maxCandidatesPerItem: 256, maxSearchStates: 100000 },
       tolerances: { floorContactMm: 20, pathEndpointMm: 100 },
     },
@@ -31,7 +31,7 @@ function fixture() {
       zoneDomains: [{ zoneId: "zone-main", componentIndex: 0, floorAnchorIds: ["floor-a", "floor-b"] }],
     },
     placements: [{ placementId: "placement-prop", anchorKind: "floor", anchorId: "floor-b", positionMm: [1000, 0, 1000], rotationMilliDegrees: [0, 0, 0], footprint: { widthMm: 1000, heightMm: 1000, depthMm: 1000 }, proof: { supportVerified: true, clearanceVerified: true, nonOverlapping: true } }],
-    nodeContexts: [{ nodeId: "node-entry", zoneId: "zone-main", visiblePlacementIds: ["placement-prop"], playerSpawn: { floorAnchorId: "floor-a", positionMm: [0, 0, 0], yawMilliDegrees: 0 }, actionTerminal: { floorAnchorId: "floor-b", approachFloorAnchorId: "floor-a", positionMm: [1500, 0, 0], yawMilliDegrees: 0, actionCount: 2, footprint: { widthMm: 1250, depthMm: 500 } }, approachPathFloorAnchorIds: ["floor-a", "floor-b"] }],
+    nodeContexts: [{ nodeId: "node-entry", zoneId: "zone-main", visiblePlacementIds: ["placement-prop"], playerSpawn: { floorAnchorId: "floor-a", positionMm: [0, 0, 0], yawMilliDegrees: 0 }, actionTerminal: { floorAnchorId: "floor-b", approachFloorAnchorId: "floor-a", positionMm: [1500, 0, 0], yawMilliDegrees: 0, actionCount: 2, footprint: { widthMm: 1250, depthMm: 500, layoutWidthMm: 2950, layoutDepthMm: 500, layoutCenterOffsetMm: [0, -2400] } }, approachPathFloorAnchorIds: ["floor-a", "floor-b"] }],
     metrics: { candidateCount: 8, expandedStates: 12 },
     proof: { allHardConstraintsSatisfied: true, singleNavigationComponent: true, allNodeApproachesReachable: true },
   };
@@ -72,6 +72,14 @@ test("closed schema rejects missing, unknown, float, profile drift and bounds", 
   }
 });
 
+test("analysis transform source binds either the old assembly or direct environment bundle exactly", () => {
+  const direct = fixture();
+  direct.source.analysisTransformSource = { profile: "spatial-environment-calibration-v1", format: "matrix-oasis.prototype-spatial-environment-bundle", formatVersion: "0.1.0", canonicalSha256: hash("2") };
+  assert.equal(api.validatePrototypeSpatialSolutionJson(canonicalizeJsonValue(direct)).valid, true);
+  direct.source.analysisTransformSource.format = "matrix-oasis.prototype-spatial-assembly";
+  assert.equal(api.validatePrototypeSpatialSolutionJson(canonicalizeJsonValue(direct)).valid, false);
+});
+
 test("semantic references, domains and approach evidence fail closed", () => {
   const cases = [
     ["PROTOTYPE_SPATIAL_SOLUTION_COMPONENT_MISMATCH", (value) => { value.navigation.zoneDomains[0].componentIndex = 1; }],
@@ -85,6 +93,21 @@ test("semantic references, domains and approach evidence fail closed", () => {
     const report = api.validatePrototypeSpatialSolutionJson(canonicalizeJsonValue(value));
     assert.equal(report.valid, false);
     assert.ok(report.diagnostics.some((item) => item.code === code));
+  }
+});
+
+test("terminal aggregate footprint is derived exactly from action count", () => {
+  for (const [actionCount, layoutWidthMm, layoutDepthMm, layoutCenterOffsetMm] of [
+    [0, 1250, 500, [0, -2400]], [1, 1250, 500, [0, -2400]], [8, 13150, 500, [0, -2400]], [9, 13150, 2750, [0, -3525]], [64, 13150, 16250, [0, -10275]],
+  ]) {
+    const value = fixture();
+    value.nodeContexts[0].actionTerminal.actionCount = actionCount;
+    value.nodeContexts[0].actionTerminal.footprint.layoutWidthMm = layoutWidthMm;
+    value.nodeContexts[0].actionTerminal.footprint.layoutDepthMm = layoutDepthMm;
+    value.nodeContexts[0].actionTerminal.footprint.layoutCenterOffsetMm = layoutCenterOffsetMm;
+    assert.equal(api.validatePrototypeSpatialSolutionJson(canonicalizeJsonValue(value)).valid, true);
+    value.nodeContexts[0].actionTerminal.footprint.layoutWidthMm += layoutWidthMm === 13150 ? -1 : 1;
+    assert.ok(api.validatePrototypeSpatialSolutionJson(canonicalizeJsonValue(value)).diagnostics.some((item) => item.code === "PROTOTYPE_SPATIAL_SOLUTION_TERMINAL_FOOTPRINT_MISMATCH"));
   }
 });
 

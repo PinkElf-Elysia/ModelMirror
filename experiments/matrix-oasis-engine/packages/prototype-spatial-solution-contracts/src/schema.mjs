@@ -9,6 +9,7 @@ export const PROTOTYPE_SPATIAL_SOLUTION_PROFILE = Object.freeze({
   compactClearanceMm: 250, humanClearanceMm: 350, largeClearanceMm: 600,
   terminalWidthMm: 1250, terminalDepthMm: 500, terminalColumns: 8,
   terminalColumnSpacingMm: 1700, terminalRowSpacingMm: 2250,
+  terminalOriginZMm: -2400,
   interactionDistanceMm: 3000, floorContactToleranceMm: 20,
   pathEndpointToleranceMm: 100,
 });
@@ -49,7 +50,7 @@ const schema = {
   },
   $defs: {
     id, hash, contentVersion, index, coordinate, rotation, footprint, hashIdentity,
-    source: { type: "object", additionalProperties: false, required: ["spatialIntent", "environmentFacts", "runtime", "runtimeReceiptSha256", "assetBundle", "spatialAssembly"], properties: {
+    source: { type: "object", additionalProperties: false, required: ["spatialIntent", "environmentFacts", "runtime", "runtimeReceiptSha256", "assetBundle", "analysisTransformSource"], properties: {
       spatialIntent: { ...hashIdentity, properties: { ...hashIdentity.properties, format: { const: "matrix-oasis.prototype-spatial-intent" } } },
       environmentFacts: { ...hashIdentity, properties: { ...hashIdentity.properties, format: { const: "matrix-oasis.prototype-environment-facts" } } },
       runtime: { type: "object", additionalProperties: false, required: ["format", "formatVersion", "id", "contentVersion", "sourceSha256", "artifactSha256"], properties: {
@@ -57,13 +58,16 @@ const schema = {
       } },
       runtimeReceiptSha256: { $ref: "#/$defs/hash" },
       assetBundle: { ...hashIdentity, properties: { ...hashIdentity.properties, format: { const: "matrix-oasis.prototype-asset-bundle" } } },
-      spatialAssembly: { ...hashIdentity, properties: { ...hashIdentity.properties, format: { const: "matrix-oasis.prototype-spatial-assembly" } } },
+      analysisTransformSource: { oneOf: [
+        { type: "object", additionalProperties: false, required: ["profile", "format", "formatVersion", "canonicalSha256"], properties: { profile: { const: "spatial-assembly-collider-v1" }, format: { const: "matrix-oasis.prototype-spatial-assembly" }, formatVersion: { const: "0.1.0" }, canonicalSha256: { $ref: "#/$defs/hash" } } },
+        { type: "object", additionalProperties: false, required: ["profile", "format", "formatVersion", "canonicalSha256"], properties: { profile: { const: "spatial-environment-calibration-v1" }, format: { const: "matrix-oasis.prototype-spatial-environment-bundle" }, formatVersion: { const: "0.1.0" }, canonicalSha256: { $ref: "#/$defs/hash" } } },
+      ] },
     } },
     profile: { type: "object", additionalProperties: false, required: ["id", "player", "clearanceMm", "terminal", "limits", "tolerances"], properties: {
       id: { const: "matrix-oasis.spatial-solver/1" },
       player: { type: "object", additionalProperties: false, required: ["radiusMm", "heightMm", "floorSnapMm"], properties: { radiusMm: { const: 350 }, heightMm: { const: 1800 }, floorSnapMm: { const: 200 } } },
       clearanceMm: { type: "object", additionalProperties: false, required: ["compact", "human", "large"], properties: { compact: { const: 250 }, human: { const: 350 }, large: { const: 600 } } },
-      terminal: { type: "object", additionalProperties: false, required: ["widthMm", "depthMm", "columns", "columnSpacingMm", "rowSpacingMm", "interactionDistanceMm"], properties: { widthMm: { const: 1250 }, depthMm: { const: 500 }, columns: { const: 8 }, columnSpacingMm: { const: 1700 }, rowSpacingMm: { const: 2250 }, interactionDistanceMm: { const: 3000 } } },
+      terminal: { type: "object", additionalProperties: false, required: ["widthMm", "depthMm", "columns", "columnSpacingMm", "rowSpacingMm", "originZMm", "interactionDistanceMm"], properties: { widthMm: { const: 1250 }, depthMm: { const: 500 }, columns: { const: 8 }, columnSpacingMm: { const: 1700 }, rowSpacingMm: { const: 2250 }, originZMm: { const: -2400 }, interactionDistanceMm: { const: 3000 } } },
       limits: { type: "object", additionalProperties: false, required: ["maxCandidatesPerItem", "maxSearchStates"], properties: { maxCandidatesPerItem: { const: 256 }, maxSearchStates: { const: 100_000 } } },
       tolerances: { type: "object", additionalProperties: false, required: ["floorContactMm", "pathEndpointMm"], properties: { floorContactMm: { const: 20 }, pathEndpointMm: { const: 100 } } },
     } },
@@ -75,7 +79,7 @@ const schema = {
       proof: { type: "object", additionalProperties: false, required: ["supportVerified", "clearanceVerified", "nonOverlapping"], properties: { supportVerified: { const: true }, clearanceVerified: { const: true }, nonOverlapping: { const: true } } },
     } },
     playerSpawn: { type: "object", additionalProperties: false, required: ["floorAnchorId", "positionMm", "yawMilliDegrees"], properties: { floorAnchorId: { $ref: "#/$defs/id" }, positionMm: { $ref: "#/$defs/coordinate" }, yawMilliDegrees: { type: "integer", minimum: -180_000, maximum: 180_000 } } },
-    actionTerminal: { type: "object", additionalProperties: false, required: ["floorAnchorId", "approachFloorAnchorId", "positionMm", "yawMilliDegrees", "actionCount", "footprint"], properties: { floorAnchorId: { $ref: "#/$defs/id" }, approachFloorAnchorId: { $ref: "#/$defs/id" }, positionMm: { $ref: "#/$defs/coordinate" }, yawMilliDegrees: { type: "integer", minimum: -180_000, maximum: 180_000 }, actionCount: { type: "integer", minimum: 0, maximum: 64 }, footprint: { type: "object", additionalProperties: false, required: ["widthMm", "depthMm"], properties: { widthMm: { const: 1250 }, depthMm: { const: 500 } } } } },
+    actionTerminal: { type: "object", additionalProperties: false, required: ["floorAnchorId", "approachFloorAnchorId", "positionMm", "yawMilliDegrees", "actionCount", "footprint"], properties: { floorAnchorId: { $ref: "#/$defs/id" }, approachFloorAnchorId: { $ref: "#/$defs/id" }, positionMm: { $ref: "#/$defs/coordinate" }, yawMilliDegrees: { type: "integer", minimum: -180_000, maximum: 180_000 }, actionCount: { type: "integer", minimum: 0, maximum: 64 }, footprint: { type: "object", additionalProperties: false, required: ["widthMm", "depthMm", "layoutWidthMm", "layoutDepthMm", "layoutCenterOffsetMm"], properties: { widthMm: { const: 1250 }, depthMm: { const: 500 }, layoutWidthMm: { type: "integer", minimum: 1250, maximum: 13_150 }, layoutDepthMm: { type: "integer", minimum: 500, maximum: 16_250 }, layoutCenterOffsetMm: { type: "array", minItems: 2, maxItems: 2, items: { type: "integer", minimum: -100_000, maximum: 100_000 } } } } } },
     nodeContext: { type: "object", additionalProperties: false, required: ["nodeId", "zoneId", "visiblePlacementIds", "playerSpawn", "actionTerminal", "approachPathFloorAnchorIds"], properties: { nodeId: { $ref: "#/$defs/id" }, zoneId: { $ref: "#/$defs/id" }, visiblePlacementIds: { type: "array", uniqueItems: true, maxItems: 6, items: { $ref: "#/$defs/id" } }, playerSpawn: { $ref: "#/$defs/playerSpawn" }, actionTerminal: { $ref: "#/$defs/actionTerminal" }, approachPathFloorAnchorIds: { type: "array", minItems: 1, uniqueItems: true, items: { $ref: "#/$defs/id" } } } },
     metrics: { type: "object", additionalProperties: false, required: ["candidateCount", "expandedStates"], properties: { candidateCount: { type: "integer", minimum: 1, maximum: 5632 }, expandedStates: { type: "integer", minimum: 1, maximum: 100_000 } } },
     proof: { type: "object", additionalProperties: false, required: ["allHardConstraintsSatisfied", "singleNavigationComponent", "allNodeApproachesReachable"], properties: { allHardConstraintsSatisfied: { const: true }, singleNavigationComponent: { const: true }, allNodeApproachesReachable: { const: true } } },

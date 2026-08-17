@@ -109,7 +109,10 @@ test("descriptor capture avoids getters and operational errors are static", asyn
   for (const [key, value] of Object.entries(input)) Object.defineProperty(hostile, key, { enumerable: true, get() { reads += 1; return value; } });
   const rejected = await api.synthesizePrototypeSpatialIntent(hostile);
   assert.equal(rejected.ok, false); assert.equal(reads, 0);
-  await assert.rejects(api.solvePrototypeSpatialLayout({}), (error) => error.name === "PrototypeSpatialSolverOperationalError" && error.code === "PROTOTYPE_SPATIAL_SOLVER_INTERNAL_ERROR" && error.message === error.code && !("cause" in error));
+  assert.deepEqual(await api.solvePrototypeSpatialLayout({}), {
+    ok: false,
+    diagnostics: [{ phase: "solver", severity: "error", code: "PROTOTYPE_SPATIAL_SOLVER_INPUT_INVALID", path: "", message: "PROTOTYPE_SPATIAL_SOLVER_INPUT_INVALID" }],
+  });
 });
 
 test("twenty runs are deterministic and inputs remain unchanged", async () => {

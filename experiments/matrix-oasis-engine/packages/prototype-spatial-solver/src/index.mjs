@@ -4,6 +4,7 @@ import { SCENE_BLUEPRINT_SCHEMA } from "@matrix-oasis/prototype-generation-contr
 import { validatePrototypeSpatialIntentJson } from "@matrix-oasis/prototype-spatial-planning-contracts";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import { validateRuntimeGamePackJson } from "@matrix-oasis/runtime-pack-validator";
+import { solvePrototypeSpatialLayoutInternal } from "./solver.mjs";
 
 const INTERNAL_CODE = "PROTOTYPE_SPATIAL_SOLVER_INTERNAL_ERROR";
 export const PROTOTYPE_SPATIAL_INTENT_SYNTHESIS_PROFILE = Object.freeze({
@@ -167,6 +168,7 @@ export async function synthesizePrototypeSpatialIntent(request) {
   catch (error) { if (error instanceof PrototypeSpatialSolverOperationalError) throw error; throw new PrototypeSpatialSolverOperationalError(); }
 }
 
-export async function solvePrototypeSpatialLayout() {
-  throw new PrototypeSpatialSolverOperationalError();
+export async function solvePrototypeSpatialLayout(request) {
+  try { return await solvePrototypeSpatialLayoutInternal(request); }
+  catch (error) { if (error instanceof PrototypeSpatialSolverOperationalError) throw error; throw new PrototypeSpatialSolverOperationalError(); }
 }
