@@ -72,7 +72,7 @@ function hasUnsafeAbsoluteLiteral(source) {
   for (const match of literals) {
     const value = match[2];
     const prefix = source.slice(Math.max(0, match.index - 32), match.index);
-    const safeJsonPointer = /^\/(?:runtimePack|receipt|scenePack|spatialAssembly)(?:\/[^\r\n]*)?$/u.test(value) ||
+    const safeJsonPointer = /^\/(?:runtimePack|receipt|scenePack|spatialAssembly|analysisRequest)(?:\/[^\r\n]*)?$/u.test(value) ||
       /^\/(?:prepared|options|actionId|runtime)$/u.test(value) ||
       /^\/snapshot(?:\/(?:pack|status|stepCount|variables))?$/u.test(value) ||
       (/\b(?:path|action_path)\s*\+\s*$/u.test(prefix) && /^(?:\/[A-Za-z][A-Za-z0-9]*)+$/u.test(value)) ||
@@ -115,7 +115,12 @@ function hasUnsafeFileOpen(source, relativePath) {
       /^\s*approved_path\s*,\s*FileAccess\s*\.\s*READ\s*$/u.test(args);
     const approvedSceneRead = relativePath === "scene_binding/scene_artifact_loader.gd" &&
       /^\s*path\s*,\s*FileAccess\s*\.\s*READ\s*$/u.test(args);
-    if (!staticResourceRead && !approvedRuntimeRead && !approvedSceneRead) {
+    const approvedAnalysisRead = relativePath === "spatial_analysis/environment_analyzer.gd" &&
+      /^\s*path\s*,\s*FileAccess\s*\.\s*READ\s*$/u.test(args);
+    const approvedAnalysisWrite = relativePath === "spatial_analysis/environment_analyzer.gd" &&
+      /^\s*paths\["output"\]\s*,\s*FileAccess\s*\.\s*WRITE\s*$/u.test(args);
+    if (!staticResourceRead && !approvedRuntimeRead && !approvedSceneRead &&
+      !approvedAnalysisRead && !approvedAnalysisWrite) {
       return true;
     }
   }

@@ -1,6 +1,6 @@
 # R13验收记录
 
-状态：R13实施中；R13.3已验证，等待本地提交
+状态：R13实施中；R13.4已验证，等待本地提交
 
 ## 固定基线
 
@@ -15,8 +15,8 @@
 |---|---|---|---|
 | R13.1 治理与声明门 | 已完成 | `a849899e0606ebda85bd2060011edd4d0ef010d1` | 见下方摘要 |
 | R13.2 开源参考来源护栏 | 已完成 | `43bb8f2869ea3b561677d1496bbf55f46e4484b8` | 见下方摘要 |
-| R13.3 Spatial Intent与Environment Facts合同 | 已验证 | 本批提交，SHA由R13.4记录 | 见下方摘要 |
-| R13.4 Godot环境分析器 | 未开始 | — | — |
+| R13.3 Spatial Intent与Environment Facts合同 | 已完成 | `059f215daa622df65f3d0954d403b458bcc9a377` | 见下方摘要 |
+| R13.4 Godot环境分析器 | 已验证 | 本批提交，SHA由R13.5记录 | 见下方摘要 |
 | R13.5 Node Harness与离线资格 | 未开始 | — | — |
 | R13.6 拆分与验收收口 | 未开始 | — | — |
 
@@ -60,6 +60,18 @@ R13只证明空间语义意图与Godot环境事实可以被严格、离线、确
 - `npm.cmd run check:round-scope`、`check:boundary`、`check:mvp-claim`与`git diff --check`均通过；`pending-spatial-solver`与`claimAllowed=false`保持不变，R1–R12冻结内容零差异。
 
 本批回退只删除新合同workspace及其root测试接线；不会改变Creator、Godot产品场景或任何既有Pack格式。
+
+## R13.4验证摘要
+
+- 新增私有`@matrix-oasis/prototype-environment-analyzer@0.1.0-r13`，公开不透明Godot analyzer句柄与单次离线分析接口；配置、请求和失败表面均descriptor-safe，内部故障只暴露`PROTOTYPE_SPATIAL_ANALYZER_INTERNAL_ERROR`。
+- 新增隔离`apps/runtime-godot/spatial_analysis/`场景；运行时载入已复验collider GLB，只应用Bundle声明的metric、ground offset与YXZ校准，不引用Creator、产品预览、供应商或案例坐标。
+- Godot在主线程解析source geometry，通过异步NavigationMesh bake取得拓扑；物理同步后以真实ray与capsule查询形成floor/wall anchor、净空、顶高和连通分量，所有输出先量化为毫米整数并稳定排序。
+- Godot边界新增一项精确例外：只有`spatial_analysis/environment_analyzer.gd`可读写Node创建的同目录临时路径；相同动态写入在其他文件、该文件使用其他参数形状、任意绝对路径和网络/进程/环境能力仍被拒绝。定向Godot边界16项全部通过。
+- `npm.cmd run verify:r13`通过：参考6项、合同9项、分析器5项及Godot 4.6.3 import均通过。未设置`GODOT_BIN`时只在import前置门以`GODOT_4_6_3_NOT_AVAILABLE`停止；以进程内环境变量指向已验证仓外工具后通过，未写系统配置。
+- 最新树上`npm.cmd run verify`全部24步通过；全量Node测试748/748，既有Godot import/adapter/parity/3D/Scene/Splat与Creator build/smoke全部通过。`check:boundary`为`checked=1126 tracked=1118`，`check:godot-boundary`为`checked=43`，`check:round-scope`为`checked=55 changed=52`，`git diff --check`通过。
+- R1–R12、Creator和既有Godot产品场景保持零差异；本批尚未执行真实环境分析或发布facts，这些属于R13.5离线资格门。
+
+本批回退只删除新analyzer workspace与隔离Godot分析目录，并恢复root验证及Godot边界的精确例外；不改变任何既有产品预览或运行数据。
 
 ## 最终证据清单
 
