@@ -4013,9 +4013,34 @@ def expert_team_agency_asset_root() -> Path:
     return (runtime_root / "expert_team_assets").resolve()
 
 
+def expert_team_agency_planner_timeout_seconds() -> float:
+    """Return the bounded v1 planner deadline without changing DAG limits."""
+
+    default_seconds = 450.0
+    configured = str(
+        os.getenv("EXPERT_TEAM_AGENCY_PLANNER_TIMEOUT_SECONDS") or default_seconds
+    ).strip()
+    try:
+        value = float(configured)
+    except ValueError:
+        logger.warning(
+            "Invalid EXPERT_TEAM_AGENCY_PLANNER_TIMEOUT_SECONDS; using %.0f seconds.",
+            default_seconds,
+        )
+        return default_seconds
+    if not 30.0 <= value <= 600.0:
+        logger.warning(
+            "Out-of-range EXPERT_TEAM_AGENCY_PLANNER_TIMEOUT_SECONDS; using %.0f seconds.",
+            default_seconds,
+        )
+        return default_seconds
+    return value
+
+
 agency_worker_client = AgencyWorkerClient(
     model_runner=collect_agency_worker_model,
     asset_root=expert_team_agency_asset_root(),
+    timeout_seconds=expert_team_agency_planner_timeout_seconds(),
 )
 agency_execution_coordinator = AgencyExecutionCoordinator(
     store=workflow_execution_store,
@@ -5600,7 +5625,7 @@ def agency_worker_http_status(code: str) -> int:
         "agency_asset_action_invalid",
     }:
         return 422
-    if code == "worker_timeout":
+    if code in {"worker_timeout", "model_gateway_timeout"}:
         return 504
     if code in {
         "worker_unavailable",

@@ -353,6 +353,15 @@ def test_planner_capabilities_remain_visible_when_feature_is_disabled(
     assert preview.json()["code"] == "expert_team_agency_planner_disabled"
 
 
+def test_planner_timeout_configuration_is_bounded(monkeypatch) -> None:
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_PLANNER_TIMEOUT_SECONDS", "450")
+    assert main_module.expert_team_agency_planner_timeout_seconds() == 450
+
+    for invalid in ("invalid", "29", "601", "nan"):
+        monkeypatch.setenv("EXPERT_TEAM_AGENCY_PLANNER_TIMEOUT_SECONDS", invalid)
+        assert main_module.expert_team_agency_planner_timeout_seconds() == 450
+
+
 def test_plan_preview_auto_compiles_without_authoring_proposal(
     monkeypatch,
 ) -> None:
@@ -512,6 +521,35 @@ def test_plan_preview_reports_planning_specific_token_limit(monkeypatch) -> None
     assert response.json()["code"] == "model_output_truncated"
     assert "未生成可执行计划" in response.json()["error"]
     assert "失败步骤" not in response.json()["error"]
+
+
+def test_plan_preview_reports_model_gateway_timeout_without_worker_blame(
+    monkeypatch,
+) -> None:
+    async def fake_compose(**_kwargs):
+        raise main_module.AgencyWorkerError(
+            "模型网关请求超过规划等待时间。上游可能仍在处理并产生费用，请勿立即自动重试。",
+            code="model_gateway_timeout",
+        )
+
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_PLANNER_ENABLED", "1")
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module.agency_worker_client, "compose", fake_compose)
+
+    response = client.post(
+        "/api/expert-team/plan-preview",
+        json={
+            "goal": "研究社区活动并形成可执行的运营方案。",
+            "planner_model_id": "model/planner",
+            "default_agent_model_id": "model/agent",
+        },
+    )
+
+    assert response.status_code == 504
+    assert response.json()["code"] == "model_gateway_timeout"
+    assert "上游可能仍在处理并产生费用" in response.json()["error"]
+    assert "Agency worker" not in response.json()["error"]
 
 
 def test_plan_preview_applies_only_allowlisted_method_skill(
