@@ -29,6 +29,8 @@ AGENCY_UPSTREAM_REVISION = "e3f69fdf9da8a4630edbb8abeb116893b983b57d"
 MAX_MESSAGE_BYTES = 2 * 1024 * 1024
 MAX_STDERR_BYTES = 512 * 1024
 MAX_MODEL_CALLS = 3
+DEFAULT_WORKER_TIMEOUT_SECONDS = 300.0
+MAX_WORKER_TIMEOUT_SECONDS = 600.0
 
 ModelRunner = Callable[[AgencyModelRequest], Awaitable[AgencyModelResponse | str]]
 
@@ -79,9 +81,9 @@ class AgencyWorkerClient:
         node_binary: str = "node",
         worker_entry: str | Path | None = None,
         asset_root: str | Path | None = None,
-        timeout_seconds: float = 300.0,
+        timeout_seconds: float = DEFAULT_WORKER_TIMEOUT_SECONDS,
     ) -> None:
-        if not 0.05 <= timeout_seconds <= 300:
+        if not 0.05 <= timeout_seconds <= MAX_WORKER_TIMEOUT_SECONDS:
             raise ValueError("Agency worker timeout is invalid")
         self.model_runner = model_runner
         self.node_binary = str(node_binary)
@@ -347,8 +349,8 @@ class AgencyWorkerClient:
                 )
             except TimeoutError as exc:
                 raise AgencyWorkerError(
-                    "Agency worker timed out during a model request.",
-                    code="worker_timeout",
+                    "模型网关请求超过规划等待时间。上游可能仍在处理并产生费用，请勿立即自动重试。",
+                    code="model_gateway_timeout",
                 ) from exc
             if isinstance(response, str):
                 response = AgencyModelResponse(content=response)
@@ -361,6 +363,15 @@ class AgencyWorkerClient:
                 "result": response.model_dump(mode="json"),
             }
         except Exception as exc:
+            # The planner-wide deadline can cancel an in-flight gateway request.
+            # Surface that boundary directly: there is no time left for Node to
+            # consume an error envelope, and calling it a Worker failure hides
+            # the upstream latency (and possible late billing) from the user.
+            if (
+                isinstance(exc, AgencyWorkerError)
+                and exc.code == "model_gateway_timeout"
+            ):
+                raise
             envelope = {
                 "protocol": AGENCY_BRIDGE_PROTOCOL,
                 "type": "model_response",

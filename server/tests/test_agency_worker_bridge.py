@@ -732,7 +732,9 @@ def test_worker_timeout_interrupts_then_kills(tmp_path: Path) -> None:
     assert exc_info.value.code == "worker_timeout"
 
 
-def test_worker_timeout_cancels_an_inflight_model_request(tmp_path: Path) -> None:
+def test_planner_model_timeout_cancels_inflight_request_with_gateway_code(
+    tmp_path: Path,
+) -> None:
     worker = write_worker(
         tmp_path,
         """
@@ -764,8 +766,16 @@ setInterval(() => {}, 1000);
     )
     with pytest.raises(AgencyWorkerError) as exc_info:
         run(client.health())
-    assert exc_info.value.code == "worker_timeout"
+    assert exc_info.value.code == "model_gateway_timeout"
+    assert "可能仍在处理并产生费用" in str(exc_info.value)
     assert cancelled is True
+
+
+def test_worker_timeout_allows_extended_planner_deadline(tmp_path: Path) -> None:
+    worker = write_worker(tmp_path, "process.exit(0)")
+    assert AgencyWorkerClient(worker_entry=worker, timeout_seconds=450).timeout_seconds == 450
+    with pytest.raises(ValueError, match="timeout is invalid"):
+        AgencyWorkerClient(worker_entry=worker, timeout_seconds=601)
 
 
 def test_stderr_is_isolated_and_environment_is_secret_free(
