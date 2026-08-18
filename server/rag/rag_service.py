@@ -42,7 +42,12 @@ from .document_processor import ProcessedDocument, StructuredDocumentProcessor
 from .embedder import EmbeddingClient, EmbeddingError
 from .lexical_store import LexicalChunk, LexicalSearchResult, SqliteLexicalStore
 from .reranker import RerankDocument, RerankService
-from .retrieval import RetrievalCandidate, RetrievalConfig, fuse_rankings
+from .retrieval import (
+    RetrievalCandidate,
+    RetrievalConfig,
+    fuse_rankings,
+    select_candidates,
+)
 from .source_metadata import normalize_heading_path
 from .processor_generator import ProcessorGenerationService
 from .pipeline_graph import (
@@ -74,6 +79,15 @@ MAX_DOCUMENT_WARNINGS = 20
 MAX_DOCUMENT_WARNING_CHARACTERS = 500
 MAX_DOCUMENT_WARNINGS_CHARACTERS = 4_000
 MAX_FILE_OUTPUT_SECTION_SOURCES = 2_000
+HASH_EMBEDDING_MODEL = "deterministic-hash-v1"
+HASH_EMBEDDING_MODEL_ALIASES = {
+    "hash",
+    "modelmirror-hash-v1",
+    HASH_EMBEDDING_MODEL,
+}
+EMBEDDING_PROVIDER_HASH = "hash"
+EMBEDDING_PROVIDER_OPENAI_COMPATIBLE = "openai_compatible"
+EMBEDDING_PROVIDER_UNAVAILABLE = "unavailable"
 _WARNING_CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -1901,18 +1915,14 @@ class RagService:
                 "truncated": len(items) > 20,
             }
         if kind == "embedding":
+            profile = self._validated_embedding_profile(config, None)
             return {
                 "node_id": node_id,
                 "kind": kind,
                 "preview_type": "capability",
                 "item_count": 0,
                 "items": [],
-                "metadata": {
-                    "provider": config.get("provider", self._default_embedding_profile()["provider"]),
-                    "model": config.get("model", self.embedder.model),
-                    "dimension": self.embedder.dimension,
-                    "degraded": self._default_embedding_profile()["degraded"],
-                },
+                "metadata": profile,
             }
         if kind == "dual_index":
             return {
@@ -2031,6 +2041,8 @@ class RagService:
         vision_stage = stages["stage_image_understanding"]
         vision_config = dict(vision_stage.get("config") or {})
         vision_capabilities = self.vision_processor.capabilities()
+        embedding_profile = dict(draft.get("embedding_profile") or {})
+        embedding_effective = dict(embedding_profile.get("effective") or {})
         visual_document_count = int(
             vision_stage.get("metadata", {}).get("visual_document_count", 0)
         )
@@ -2041,6 +2053,13 @@ class RagService:
             warnings.append("当前没有可检索 Artifact，上传文档后处理器才会产生结果。")
         if chunk_count == 0:
             warnings.append("当前没有 KnowledgeChunk，RAG 检索不会返回引用片段。")
+        if not bool(embedding_effective.get("ready")):
+            requested = dict(embedding_profile.get("requested") or {})
+            warnings.append(
+                "Embedding provider is unavailable for the requested model "
+                f"{str(requested.get('model') or '(unset)')[:200]}; configure "
+                "EMBEDDING_API_KEY before executing this pipeline."
+            )
         if processor_mode in {"qa", "summary"} and not processor_capabilities.get(
             "llm_configured"
         ):
@@ -2271,6 +2290,7 @@ class RagService:
                 raise PipelineJobStateError(
                     f"Pipeline draft changed. Expected v{draft_version}, current v{draft['version']}."
                 )
+            self._ensure_embedding_profile_ready(draft["embedding_profile"])
             graph = self._pipeline_graph_record(metadata, kb_id, draft)
             if graph_revision is not None and int(graph_revision) != int(graph["graph_revision"]):
                 raise PipelineGraphRevisionError(
@@ -3473,6 +3493,76 @@ class RagService:
         self._ensure_kb_exists(metadata, str(version.get("kb_id") or ""))
         return json.loads(json.dumps(version))
 
+    def pipeline_version_evidence(self, version_id: str) -> dict[str, Any]:
+        """Return a credential-free identity receipt for one immutable index."""
+
+        version = self.get_pipeline_version(version_id)
+        stored_embedding = version.get("embedding_profile")
+        if (
+            isinstance(stored_embedding, dict)
+            and isinstance(stored_embedding.get("requested"), dict)
+            and isinstance(stored_embedding.get("effective"), dict)
+        ):
+            embedding = json.loads(json.dumps(stored_embedding))
+        else:
+            embedding = self._resolved_embedding_profile_for_query(stored_embedding)
+        requested = dict(embedding.get("requested") or {})
+        effective = dict(embedding.get("effective") or {})
+        safe_embedding = {
+            "requested": {
+                "provider": str(requested.get("provider") or ""),
+                "model": str(requested.get("model") or ""),
+            },
+            "effective": {
+                "provider": str(effective.get("provider") or ""),
+                "model": str(effective.get("model") or ""),
+                "dimension": int(effective.get("dimension") or 0),
+                "degraded": bool(effective.get("degraded")),
+                "ready": bool(effective.get("ready")),
+                "reason": str(effective.get("reason") or "") or None,
+            },
+        }
+        retrieval = self._retrieval_config_for_version(
+            version,
+            None,
+            top_k=None,
+        ).payload()
+        source_manifest_fingerprint = self._mapping_sha256(
+            {"sources": list(version.get("source_summary") or [])}
+        )
+        configuration_fingerprint = self._mapping_sha256(
+            {
+                "index_schema_version": int(version.get("index_schema_version") or 1),
+                "embedding": safe_embedding,
+                "retrieval": retrieval,
+                "processor": dict(version.get("processor_profile") or {}),
+                "vision": dict(version.get("vision_profile") or {}),
+            }
+        )
+        version_fingerprint = self._mapping_sha256(
+            {
+                "version_id": version_id,
+                "version": int(version.get("version") or 0),
+                "source_manifest_fingerprint": source_manifest_fingerprint,
+                "configuration_fingerprint": configuration_fingerprint,
+                "document_count": int(version.get("document_count") or 0),
+                "chunk_count": int(version.get("chunk_count") or 0),
+            }
+        )
+        return {
+            "schema_version": "rag-version-evidence-v1",
+            "version_id": version_id,
+            "version": int(version.get("version") or 0),
+            "index_schema_version": int(version.get("index_schema_version") or 1),
+            "document_count": int(version.get("document_count") or 0),
+            "chunk_count": int(version.get("chunk_count") or 0),
+            "embedding": safe_embedding,
+            "retrieval": retrieval,
+            "source_manifest_fingerprint": source_manifest_fingerprint,
+            "configuration_fingerprint": configuration_fingerprint,
+            "version_fingerprint": version_fingerprint,
+        }
+
     def pipeline_version_payload(
         self,
         version: dict[str, Any],
@@ -3637,6 +3727,7 @@ class RagService:
             question,
             config=profile,
             lexical_ready=bool(version.get("lexical_index_ready")),
+            embedding_profile=version.get("embedding_profile"),
             generate_answer=generate_answer,
         )
         result = self._with_source_document_ids(result, version_id)
@@ -3776,6 +3867,30 @@ class RagService:
                 source_id = str(result.get("source_id") or "")
                 if source_id in counts:
                     result["chunk_count"] = int(counts[source_id])
+
+        self._update_pipeline_job(job_id, update)
+
+    def update_pipeline_embedding_dimension(
+        self,
+        job_id: str,
+        dimension: int,
+    ) -> None:
+        if dimension <= 0:
+            raise PipelineJobStateError("Embedding dimension must be positive.")
+
+        def update(job: dict[str, Any]) -> None:
+            snapshot = job.get("config_snapshot")
+            if not isinstance(snapshot, dict):
+                raise PipelineJobStateError("Pipeline embedding snapshot is missing.")
+            profile = snapshot.get("embedding_profile")
+            if not isinstance(profile, dict):
+                raise PipelineJobStateError("Pipeline embedding profile is missing.")
+            effective = profile.get("effective")
+            if not isinstance(effective, dict) or not bool(effective.get("ready")):
+                raise PipelineJobStateError("Pipeline embedding profile is unavailable.")
+            effective["dimension"] = int(dimension)
+            profile["effective"] = effective
+            profile["dimension"] = int(dimension)
 
         self._update_pipeline_job(job_id, update)
 
@@ -4018,6 +4133,9 @@ class RagService:
             question,
             config=config,
             lexical_ready=bool(isinstance(version, dict) and version.get("lexical_index_ready")),
+            embedding_profile=(
+                version.get("embedding_profile") if isinstance(version, dict) else None
+            ),
             generate_answer=False,
         )
         version_id = str(version.get("version_id") or "") if isinstance(version, dict) else None
@@ -4586,6 +4704,7 @@ class RagService:
             question,
             config=config,
             lexical_ready=bool(version and version.get("lexical_index_ready")),
+            embedding_profile=version.get("embedding_profile") if version else None,
         )
         return self._with_source_document_ids(
             result,
@@ -4600,6 +4719,7 @@ class RagService:
         *,
         config: RetrievalConfig,
         lexical_ready: bool,
+        embedding_profile: dict[str, Any] | None = None,
         generate_answer: bool = True,
     ) -> dict[str, Any]:
         """Query one explicit index namespace while preserving public KB identity."""
@@ -4616,10 +4736,19 @@ class RagService:
         warnings: list[str] = []
         vector_results: list[SearchResult] = []
         lexical_results: list[LexicalSearchResult] = []
+        resolved_embedding_profile = self._resolved_embedding_profile_for_query(
+            embedding_profile
+        )
+
+        async def query_vector_candidates() -> list[SearchResult]:
+            query_embedding = await self._embed_query(
+                clean_question,
+                resolved_embedding_profile,
+            )
+            return self.vector_store.query(namespace, query_embedding, candidate_count)
 
         if config.mode in {"vector", "hybrid"}:
-            query_embedding = (await self.embedder.embed_texts([clean_question]))[0]
-            vector_results = self.vector_store.query(namespace, query_embedding, candidate_count)
+            vector_results = await query_vector_candidates()
         if config.mode in {"fulltext", "hybrid"}:
             if lexical_ready or self.lexical_store.count_namespace(namespace) > 0:
                 lexical_results = self.lexical_store.query(namespace, clean_question, candidate_count)
@@ -4651,8 +4780,7 @@ class RagService:
                 {**config.payload(), "mode": "vector", "rerank_enabled": config.rerank_enabled}
             )
             if not vector_candidates:
-                query_embedding = (await self.embedder.embed_texts([clean_question]))[0]
-                vector_results = self.vector_store.query(namespace, query_embedding, candidate_count)
+                vector_results = await query_vector_candidates()
                 vector_results = [
                     item
                     for item in vector_results
@@ -4662,8 +4790,12 @@ class RagService:
                 ]
                 vector_candidates = [self._candidate_from_vector(item) for item in vector_results]
         fused = fuse_rankings(vector_candidates, lexical_candidates, effective_config)
+        fused = [
+            item for item in fused if item.fused_score >= config.score_threshold
+        ]
 
         rerank_provider = "none"
+        rerank_model = ""
         if config.rerank_enabled and fused:
             outcome = await self.reranker.rerank(
                 clean_question,
@@ -4673,6 +4805,7 @@ class RagService:
                 top_n=min(config.rerank_top_n, len(fused)),
             )
             rerank_provider = outcome.provider
+            rerank_model = outcome.model
             if outcome.warning:
                 warnings.append(outcome.warning)
             by_id = {item.chunk_id: item for item in fused}
@@ -4688,14 +4821,17 @@ class RagService:
             )
 
         deleted_document_ids = self._deleted_document_ids()
-        results = [
-            item
-            for item in fused
-            if item.score >= config.score_threshold
-            and not self._indexed_document_is_deleted(
-                str(item.doc_id), deleted_document_ids
-            )
-        ][: config.top_k]
+        results = select_candidates(
+            [
+                item
+                for item in fused
+                if not self._indexed_document_is_deleted(
+                    str(item.doc_id), deleted_document_ids
+                )
+            ],
+            score_threshold=config.score_threshold,
+            top_k=config.top_k,
+        )
         if not results:
             return {
                 "answer": "没有在该知识库中找到相关内容，请尝试换一种问法或上传更多资料。",
@@ -4706,6 +4842,8 @@ class RagService:
                     vector_count=len(vector_results),
                     fulltext_count=len(lexical_results),
                     rerank_provider=rerank_provider,
+                    rerank_model=rerank_model,
+                    embedding_profile=resolved_embedding_profile,
                 ),
             }
 
@@ -4745,6 +4883,8 @@ class RagService:
                 vector_count=len(vector_results),
                 fulltext_count=len(lexical_results),
                 rerank_provider=rerank_provider,
+                rerank_model=rerank_model,
+                embedding_profile=resolved_embedding_profile,
             ),
         }
 
@@ -4927,52 +5067,257 @@ class RagService:
         vector_count: int,
         fulltext_count: int,
         rerank_provider: str,
+        rerank_model: str,
+        embedding_profile: dict[str, Any],
     ) -> dict[str, Any]:
+        effective = dict(embedding_profile.get("effective") or {})
         return {
             **config.payload(),
             "vector_candidate_count": vector_count,
             "fulltext_candidate_count": fulltext_count,
             "rerank_provider_used": rerank_provider,
+            "rerank_model_used": rerank_model,
+            "rerank_applied": rerank_provider != "none",
+            "embedding_provider": str(effective.get("provider") or ""),
+            "embedding_model": str(effective.get("model") or ""),
+            "embedding_dimension": int(effective.get("dimension") or 0),
         }
 
+    def _resolved_embedding_profile_for_query(
+        self,
+        profile: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if not isinstance(profile, dict):
+            return self._default_embedding_profile()
+        resolved = self._validated_embedding_profile(profile, None)
+        stored_effective = profile.get("effective")
+        if not isinstance(stored_effective, dict):
+            stored_effective = profile
+        resolved_effective = dict(resolved.get("effective") or {})
+        stored_dimension = int(stored_effective.get("dimension") or 0)
+        if (
+            bool(resolved_effective.get("ready"))
+            and stored_dimension > 0
+            and str(stored_effective.get("provider") or "")
+            == str(resolved_effective.get("provider") or "")
+            and str(stored_effective.get("model") or "")
+            == str(resolved_effective.get("model") or "")
+        ):
+            resolved_effective["dimension"] = stored_dimension
+            resolved["dimension"] = stored_dimension
+            resolved["effective"] = resolved_effective
+        return resolved
+
+    async def _embed_query(
+        self,
+        text: str,
+        profile: dict[str, Any],
+    ) -> list[float]:
+        self._ensure_embedding_profile_ready(profile)
+        effective = dict(profile.get("effective") or {})
+        provider = str(effective.get("provider") or "")
+        model = str(effective.get("model") or "")
+        dimension = int(effective.get("dimension") or 0)
+        if dimension <= 0:
+            raise EmbeddingError("Embedding profile has no valid vector dimension.")
+
+        if provider == EMBEDDING_PROVIDER_HASH:
+            embedder = EmbeddingClient(
+                api_base="",
+                api_key="",
+                model=HASH_EMBEDDING_MODEL,
+                dimension=dimension,
+            )
+            embedder.api_key = ""
+            embedder.embedding_mode = "hash"
+        else:
+            if model == self.embedder.model:
+                embedder = self.embedder
+            else:
+                embedder = EmbeddingClient(
+                    api_base=self.embedder.api_base,
+                    api_key=self.embedder.api_key,
+                    model=model,
+                    dimension=dimension,
+                )
+        vectors = await embedder.embed_texts([text])
+        if len(vectors) != 1 or len(vectors[0]) != dimension:
+            actual = len(vectors[0]) if vectors else 0
+            raise EmbeddingError(
+                "Embedding query dimension mismatch: "
+                f"expected {dimension}, received {actual}."
+            )
+        return vectors[0]
+
     def _default_embedding_profile(self) -> dict[str, Any]:
-        degraded = self.embedder.embedding_mode == "hash" or not self.embedder.api_key
-        return {
-            "provider": "hash" if degraded else "openai_compatible",
-            "model": self.embedder.model,
-            "dimension": self.embedder.dimension,
-            "degraded": degraded,
-        }
+        use_hash = self.embedder.embedding_mode == "hash" or not self.embedder.api_key
+        return self._embedding_profile_from_request(
+            provider=(
+                EMBEDDING_PROVIDER_HASH
+                if use_hash
+                else EMBEDDING_PROVIDER_OPENAI_COMPATIBLE
+            ),
+            model=HASH_EMBEDDING_MODEL if use_hash else self.embedder.model,
+        )
 
     def _validated_embedding_profile(
         self,
         current: dict[str, Any] | None,
         patch: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        config = {**self._default_embedding_profile(), **dict(current or {})}
+        requested = self._requested_embedding_profile(current)
         if patch:
             unknown = set(patch) - {"model", "provider"}
             if unknown:
                 raise PipelineDraftValidationError(
                     f"Unsupported embedding profile field: {sorted(unknown)[0]}"
                 )
-            model = str(patch.get("model") or config["model"]).strip()
-            if not model or len(model) > 200:
-                raise PipelineDraftValidationError("embedding_profile.model is invalid.")
-            config["model"] = model
-            provider = str(patch.get("provider") or config.get("provider") or "").strip()
-            if provider not in {"hash", "openai_compatible"}:
+            provider_supplied = "provider" in patch and bool(
+                str(patch.get("provider") or "").strip()
+            )
+            model_supplied = "model" in patch and bool(
+                str(patch.get("model") or "").strip()
+            )
+            provider = str(
+                patch.get("provider") if provider_supplied else requested["provider"]
+            ).strip()
+            model = str(
+                patch.get("model") if model_supplied else requested["model"]
+            ).strip()
+            if provider not in {
+                EMBEDDING_PROVIDER_HASH,
+                EMBEDDING_PROVIDER_OPENAI_COMPATIBLE,
+            }:
                 raise PipelineDraftValidationError(
                     "embedding_profile.provider must be hash or openai_compatible."
                 )
-            config["provider"] = provider
-        provider = str(config.get("provider") or self._default_embedding_profile()["provider"])
-        if provider == "openai_compatible" and not self.embedder.api_key:
-            provider = "hash"
-        config["provider"] = provider
-        config["dimension"] = self.embedder.dimension
-        config["degraded"] = provider == "hash"
-        return config
+            if (
+                model_supplied
+                and not provider_supplied
+                and provider == EMBEDDING_PROVIDER_HASH
+                and model not in HASH_EMBEDDING_MODEL_ALIASES
+            ):
+                provider = EMBEDDING_PROVIDER_OPENAI_COMPATIBLE
+            if provider == EMBEDDING_PROVIDER_HASH:
+                if model_supplied and model not in HASH_EMBEDDING_MODEL_ALIASES:
+                    raise PipelineDraftValidationError(
+                        "hash embedding does not accept a semantic model label; use "
+                        "provider=openai_compatible for that model."
+                    )
+                model = HASH_EMBEDDING_MODEL
+            elif not model or model in HASH_EMBEDDING_MODEL_ALIASES or len(model) > 200:
+                raise PipelineDraftValidationError("embedding_profile.model is invalid.")
+            requested = {"provider": provider, "model": model}
+        return self._embedding_profile_from_request(
+            provider=str(requested["provider"]),
+            model=str(requested["model"]),
+        )
+
+    def _requested_embedding_profile(
+        self,
+        current: dict[str, Any] | None,
+    ) -> dict[str, str]:
+        profile = dict(current or {})
+        nested = profile.get("requested")
+        if isinstance(nested, dict):
+            provider = str(nested.get("provider") or "").strip()
+            model = str(nested.get("model") or "").strip()
+        else:
+            defaults = self._default_embedding_profile()["requested"]
+            provider = str(profile.get("provider") or defaults["provider"]).strip()
+            model = str(profile.get("model") or defaults["model"]).strip()
+            if provider == EMBEDDING_PROVIDER_UNAVAILABLE:
+                provider = EMBEDDING_PROVIDER_OPENAI_COMPATIBLE
+            if (
+                provider == EMBEDDING_PROVIDER_HASH
+                and model not in {"", *HASH_EMBEDDING_MODEL_ALIASES}
+            ):
+                # Legacy profiles retained the requested semantic model label after
+                # silently downgrading the effective provider to hash.
+                provider = EMBEDDING_PROVIDER_OPENAI_COMPATIBLE
+
+        if provider not in {
+            EMBEDDING_PROVIDER_HASH,
+            EMBEDDING_PROVIDER_OPENAI_COMPATIBLE,
+        }:
+            defaults = self._default_embedding_profile()["requested"]
+            return {
+                "provider": str(defaults["provider"]),
+                "model": str(defaults["model"]),
+            }
+        if provider == EMBEDDING_PROVIDER_HASH:
+            model = HASH_EMBEDDING_MODEL
+        elif not model or model in HASH_EMBEDDING_MODEL_ALIASES:
+            model = self.embedder.model
+        return {"provider": provider, "model": model[:200]}
+
+    def _embedding_profile_from_request(
+        self,
+        *,
+        provider: str,
+        model: str,
+    ) -> dict[str, Any]:
+        requested = {"provider": provider, "model": model}
+        if provider == EMBEDDING_PROVIDER_HASH:
+            effective = {
+                "provider": EMBEDDING_PROVIDER_HASH,
+                "model": HASH_EMBEDDING_MODEL,
+                "dimension": self.embedder.dimension,
+                "degraded": True,
+                "ready": True,
+                "reason": None,
+            }
+        else:
+            reason: str | None = None
+            if not self.embedder.api_key:
+                reason = "embedding_credentials_missing"
+            elif self.embedder.embedding_mode == "hash":
+                reason = "embedding_hash_mode_forced"
+            if reason:
+                effective = {
+                    "provider": EMBEDDING_PROVIDER_UNAVAILABLE,
+                    "model": "",
+                    "dimension": 0,
+                    "degraded": False,
+                    "ready": False,
+                    "reason": reason,
+                }
+            else:
+                effective = {
+                    "provider": EMBEDDING_PROVIDER_OPENAI_COMPATIBLE,
+                    "model": model,
+                    "dimension": self.embedder.dimension,
+                    "degraded": False,
+                    "ready": True,
+                    "reason": None,
+                }
+        return {
+            "provider": effective["provider"],
+            "model": effective["model"],
+            "dimension": effective["dimension"],
+            "degraded": effective["degraded"],
+            "ready": effective["ready"],
+            "reason": effective["reason"],
+            "requested": requested,
+            "effective": effective,
+        }
+
+    @staticmethod
+    def _ensure_embedding_profile_ready(profile: dict[str, Any]) -> None:
+        effective = profile.get("effective")
+        if isinstance(effective, dict) and bool(effective.get("ready")):
+            return
+        requested = profile.get("requested")
+        requested_model = (
+            str(requested.get("model") or "")
+            if isinstance(requested, dict)
+            else str(profile.get("model") or "")
+        )
+        raise PipelineDraftValidationError(
+            "Embedding provider is unavailable for the requested model "
+            f"{requested_model[:200] or '(unset)'}; configure EMBEDDING_API_KEY "
+            "before creating a pipeline job."
+        )
 
     def _default_pipeline_draft_stages(self) -> dict[str, dict[str, Any]]:
         return {

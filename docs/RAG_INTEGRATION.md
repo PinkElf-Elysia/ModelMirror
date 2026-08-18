@@ -2,12 +2,28 @@
 
 本文件说明模镜本地 RAG 模块的架构、API、扩展方式和测试方法。该模块位于 `server/rag/`，前端入口为 `/rag`，聊天页可选择知识库进行检索增强问答。
 
-最后更新日期：2026-08-11
+最后更新日期：2026-08-17
 
 > **当前状态：** `/rag` 是 ModelMirror 本地主路径。知识流水线已支持候选版本、
 > 人工激活/回滚、Processor、可选视觉理解、向量 + FTS5 双索引、检索评测和
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
+
+## 2026-08-17 P0：Embedding 请求与生效合同
+
+Pipeline Draft 的 `embedding_profile` 现在同时返回安全的 `requested` 与 `effective`
+摘要。原有顶层 `provider / model / dimension / degraded` 保留为 `effective` 的兼容投影，
+不得再把请求的语义模型名称附着在实际 hash 向量上。
+
+- 新建本地/CI 草稿在没有 `EMBEDDING_API_KEY` 时显式使用
+  `hash / deterministic-hash-v1`。
+- 选择 `openai_compatible` 模型但 Provider 当前不可用时，草稿保留请求信息，
+  `effective.ready=false` 且 Provider 为 `unavailable`；预检和 Job 创建均 fail-closed，
+  不会静默生成 hash 索引。
+- 旧版 `hash + 语义模型名` 草稿按历史静默降级记录读取为未就绪的真实模型请求；
+  已发布版本和活动索引不做原地修改。
+- `requested/effective` 只包含 Provider、模型、维度、状态和安全原因码，不返回 endpoint、
+  API Key 或其他凭据。
 
 ## 2026-08-10 增量：Benchmark 驱动的 RAG Strategy Auto Tuner
 
@@ -401,7 +417,7 @@ FastAPI RAG Router
         |
         +--> document_parser.py  解析 TXT / Markdown / PDF
         +--> splitter.py         本地递归字符 / 父子分段与字符偏移
-        +--> embedder.py         OpenAI-compatible Embedding API，缺失 key 时 hash fallback
+        +--> embedder.py         OpenAI-compatible Embedding API；显式 hash 仅用于本地/CI
         +--> vector_store.py     ChromaDB 持久化，缺失依赖时 LocalJsonVectorStore fallback
         +--> lexical_store.py    SQLite FTS5 与中英文规范化词元
         +--> reranker.py         专用 Rerank API / LLM JSON fail-open
@@ -616,7 +632,11 @@ EMBEDDING_API_KEY=sk-...
 EMBEDDING_MODEL=text-embedding-3-small
 ```
 
-如果没有 `EMBEDDING_API_KEY`，系统会自动使用确定性 hash embedding，便于本地开发和 CI 测试。生产环境建议配置真实 Embedding API。
+如果没有 `EMBEDDING_API_KEY`，新草稿默认显式使用
+`hash / deterministic-hash-v1`，便于本地开发和 CI 测试。用户选择真实语义模型后，
+系统会保存 `requested` 配置，但将 `effective` 标记为 `unavailable`，并阻止预检通过和
+索引 Job 创建；不会再自动回退到 hash。生产索引应配置真实 Embedding API，并在执行前
+确认 `embedding_profile.effective.ready=true`。
 
 RAG 回答生成使用 OpenRouter：
 
@@ -723,3 +743,26 @@ POST  /api/rag/knowledge-write-proposals/{proposal_id}/reject
 ```
 
 工具响应、审计和 checkpoint 只保留 ID、状态、分数诊断、长度与安全错误摘要，不保存完整知识正文、提议正文、prompt、路径、embedding 或密钥。GraphRAG、实体关系抽取、社区摘要和图检索继续暂缓。
+
+## 2026-08-17 增量：RAG P0 1B–1D 检索一致性修复
+
+本轮修复将查询、检索和评测证据绑定到不可变 Pipeline Version，边界止于 1D；不迁移或激活现有索引，也不修改共享持久化数据。
+
+- 1B：查询按版本中保存的 requested/effective embedding 身份选择 embedder，并校验服务实际返回的向量维度。Chroma 新写入按版本 namespace 使用独立 collection，因此不同维度可以并存；旧 `modelmirror_rag_chunks` collection 保持只读兼容回退。
+- 1C：weighted RRF 使用理论 rank-1 上限归一化，分数不再随候选池最小值/最大值漂移。`score_threshold` 只判断融合召回分数并在 rerank 前执行；最终选择先去重同一 parent context，再优先覆盖不同文档。
+- 1D：专用 rerank API 与 chat-completions LLM rerank 使用各自模型身份；`auto` 从 API 回退 LLM 时不会传递 reranker-only model。Provider 返回结果在验证后按分数降序截断。Evaluation case 和 benchmark provisioning 保存脱敏的实际检索 receipt、版本配置指纹与来源清单指纹。
+- 1D.1 验收闭环：Promotion Gate 的默认 `min_no_result_accuracy` 从 `0` 收紧为 `0.8`。含无答案样例的评测若全部误召回，将默认判为未通过；运维者仍可显式保存 `0` 以兼容既有策略，但测试和审计不得再隐式依赖该宽松值。
+
+版本证据描述“该索引建成时保存的身份”，不会因当前凭据增加或撤销而改变 fingerprint；实际 vector 查询仍会重新检查当前凭据并 fail-closed。证据不包含 API key、端点、原文、路径、embedding 向量或完整 prompt。
+
+真实 API 隔离 smoke：
+
+```bash
+python scripts/rag_real_api_smoke.py
+```
+
+脚本只使用临时上传、向量和 SQLite 目录，不生成答案、不激活候选版本。环境需要可用的 `LLM_GATEWAY_URL`、`LLM_GATEWAY_KEY`、LLM rerank model，以及显式 Embedding 配置或 `OPENROUTER_API_KEY`。若 Embedding provider 不可用，脚本失败退出，不回退到 hash。详细脱敏结果见 `docs/task-cards/rag-p0-round1b-1d-evidence.json`。
+
+独立预览器使用同一不可变 6-case Gold v1 复测后，fulltext v1 与 hybrid + LLM rerank v2 的无答案准确率均为 `0`、误召回率均为 `1`，两者现在都因默认 80% 门槛被正确阻断；v2 还因 citation hit rate 回退和 P95 延迟超限而失败。测试过程中没有激活候选版本。语料相关的阈值校准、Rerank 延迟和 citation precision 调优不属于 1D.1 正确性修复。
+
+回退时只需撤销本轮代码文件；由于没有活动版本切换或共享数据写入，不需要数据回滚。人工验收通过前不得迁移索引、部署或将候选版本设为活动版本。

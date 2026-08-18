@@ -1,0 +1,214 @@
+{
+  "schema_version": "modelmirror-rag-p0-round1b-1d-evidence-v2",
+  "captured_at": "2026-08-20T10:11:19Z",
+  "scope": {
+    "base_commit": "9d441c736c1f74842c560ff44762cefc0e035ebf",
+    "submission_base_commit": "c7cec3800ed00ea5b0c8c28768c7c52baf601ddf",
+    "branch": "codex/rag-p0-r1a",
+    "isolated_worktree": true,
+    "through_batch": "1D",
+    "acceptance_closure": "1D.1",
+    "supersedes_round0_1a_exclusions": [
+      "query-time version-scoped embedder selection",
+      "vector collection isolation",
+      "hybrid scoring and threshold changes",
+      "retrieval diversity",
+      "rerank protocol changes",
+      "benchmark evidence changes"
+    ],
+    "still_excluded": [
+      "active index migration",
+      "candidate activation",
+      "deployment",
+      "shared persistent storage mutation",
+      "production configuration changes",
+      "work beyond 1D"
+    ],
+    "manual_acceptance_required": true
+  },
+  "batches": {
+    "1B": {
+      "objective": "Pin query embeddings to immutable version identity and isolate Chroma dimensions by version namespace.",
+      "red_phase": "3 failed as expected",
+      "green_phase": "3 passed",
+      "affected_regression": "55 passed, 4 warnings",
+      "acceptance": [
+        "hash versions do not use a conflicting process-level embedder",
+        "real-provider versions persist the provider-returned dimension and fail closed when credentials disappear",
+        "two Chroma namespaces with different dimensions can coexist and be deleted independently"
+      ]
+    },
+    "1C": {
+      "objective": "Make fused scores candidate-pool invariant and apply recall threshold before rerank with parent and document diversity.",
+      "red_phase": "2 failed as expected",
+      "green_phase": "2 passed",
+      "affected_regression": "58 passed, 4 warnings",
+      "acceptance": [
+        "adding a tail candidate does not change existing weighted-RRF scores",
+        "score_threshold is evaluated against fused recall scores",
+        "duplicate parent contexts are removed and distinct documents are selected before same-document fill"
+      ]
+    },
+    "1D": {
+      "objective": "Separate rerank protocols and persist credential-free, reproducible evaluation evidence.",
+      "red_phase": "4 failed as expected; one additional evidence-stability test failed as expected during final review",
+      "green_phase": "4 passed; additional evidence-stability test 1 passed",
+      "affected_regression": "46 passed, 4 warnings",
+      "acceptance": [
+        "an API reranker model is never forwarded to chat-completions during auto fallback",
+        "provider results are sorted by validated score before top_n",
+        "explicit LLM rerank rejects reranker-only model identifiers without an HTTP request",
+        "evaluation cases record the actual embedding and rerank receipt",
+        "benchmark provisioning records an immutable version fingerprint",
+        "credential changes do not alter the stored version fingerprint"
+      ]
+    },
+    "1D.1": {
+      "objective": "Fail closed by default when an evaluation set contains no-result cases that the retrieval configuration answers with false positives.",
+      "red_phase": "2 failed as expected: the unit gate and evaluation-gate API both exposed a zero no-result floor",
+      "green_phase": "2 passed",
+      "affected_regression": "201 passed, 4 warnings",
+      "acceptance": [
+        "the default minimum no-result accuracy is 0.8 in the evaluator and PATCH request contract",
+        "zero no-result accuracy fails the default promotion gate",
+        "an operator can still explicitly set the minimum to 0.0 for compatibility",
+        "strategy-tuner tests that require the legacy permissive behavior declare the override explicitly"
+      ]
+    }
+  },
+  "real_api_smoke": {
+    "status": "passed",
+    "isolation": {
+      "temporary_container": true,
+      "temporary_upload_storage": true,
+      "temporary_vector_storage": true,
+      "temporary_lexical_storage": true,
+      "active_version_mutations": 0,
+      "shared_storage_mutations": 0,
+      "answer_generation_calls": 0
+    },
+    "successful_run": {
+      "embedding": {
+        "provider": "openai_compatible",
+        "route": "openrouter",
+        "model": "openai/text-embedding-3-small",
+        "dimension": 1536,
+        "successful_requests": 2
+      },
+      "rerank": {
+        "provider": "llm",
+        "model": "deepseek/deepseek-chat",
+        "applied": true,
+        "successful_requests": 1
+      },
+      "retrieval": {
+        "source_count": 2,
+        "top_document": "release.txt",
+        "version_fingerprint": "7841f9a41b5aee73318b48e643a9585abec35b66d8737363be02c3034334b0a6"
+      }
+    },
+    "diagnostic_attempts": [
+      {
+        "stage": "process startup",
+        "result": "failed before any provider request because the script entrypoint lacked the repository root on sys.path"
+      },
+      {
+        "stage": "newAPI embedding route",
+        "result": "one embedding request failed closed with HTTP 503; no hash fallback occurred"
+      }
+    ],
+    "catalog_reads": 2,
+    "successful_inference_requests": 3,
+    "failed_inference_requests": 1,
+    "secret_values_recorded": false,
+    "endpoint_values_recorded": false,
+    "document_content_recorded": false
+  },
+  "real_ui_acceptance": {
+    "status": "p0_gate_fix_passed_candidate_quality_blocked",
+    "isolation": {
+      "independent_preview": true,
+      "temporary_rag_storage": true,
+      "shared_storage_mutations": 0,
+      "production_configuration_changes": 0,
+      "candidate_activation": false
+    },
+    "dataset": {
+      "document_count": 2,
+      "pipeline_version_count": 2,
+      "evaluation_set_version": 1,
+      "case_count": 6,
+      "positive_case_count": 5,
+      "no_result_case_count": 1
+    },
+    "evaluation_run": {
+      "run_id": "evalrun_daa24c0f67ec44a4ad621ce26be980ec",
+      "status": "succeeded",
+      "gate_policy": {
+        "min_recall_at_5": 0.8,
+        "min_no_result_accuracy": 0.8,
+        "max_p95_latency_ratio": 2.0
+      },
+      "baseline_v1": {
+        "mode": "fulltext",
+        "recall_at_1": 0.6,
+        "recall_at_5": 1.0,
+        "mrr_at_10": 0.75,
+        "citation_coverage": 1.0,
+        "no_result_accuracy": 0.0,
+        "false_positive_rate": 1.0,
+        "p95_latency_ms": 5.187,
+        "gate_passed": false,
+        "failed_gate_checks": [
+          "min_no_result_accuracy"
+        ]
+      },
+      "candidate_v2": {
+        "mode": "hybrid",
+        "recall_at_1": 0.8,
+        "recall_at_5": 1.0,
+        "mrr_at_10": 0.84,
+        "citation_coverage": 1.0,
+        "no_result_accuracy": 0.0,
+        "false_positive_rate": 1.0,
+        "p95_latency_ms": 6275.771,
+        "gate_passed": false,
+        "failed_gate_checks": [
+          "min_no_result_accuracy",
+          "max_citation_hit_regression",
+          "max_p95_latency_ratio"
+        ]
+      }
+    },
+    "provider_receipts": {
+      "embedding_provider": "openai_compatible",
+      "embedding_model": "openai/text-embedding-3-small",
+      "embedding_dimension": 1536,
+      "rerank_provider": "llm",
+      "rerank_model": "deepseek/deepseek-chat",
+      "rerank_applied_cases": 6,
+      "billed_request_count_asserted": false
+    },
+    "quality_decision": "Both versions are correctly blocked by the no-result floor. The active baseline remains unchanged and v2 is not eligible for promotion. Threshold calibration, rerank latency, and citation precision remain follow-up tuning work."
+  },
+  "final_verification": {
+    "p0_default_gate_red": "2 failed as expected",
+    "p0_default_gate_green": "2 passed, 4 warnings",
+    "rag_and_knowledge_workflow": "201 passed, 4 warnings",
+    "frontend_tests_pre_rebase": "78 files passed, 385 tests passed",
+    "frontend_tests_post_rebase": "The full 80-file run completed 77 files and 390 tests successfully; three unrelated Agent/Skill page tests hit the shared 5-second timeout. Each affected file passed when rerun alone: 10/10, 9/9, and 2/2 tests.",
+    "frontend_production_build": "passed with the pre-existing large-chunk warning",
+    "full_backend": "3203 passed, 22 failed, 29 skipped, 6 warnings",
+    "full_backend_baseline_comparison": "The same 22 non-RAG tests failed on detached base commit 9d441c736c1f74842c560ff44762cefc0e035ebf; no RAG test failed.",
+    "chroma_adapter_compatibility": "One final-regression failure was reproduced, fixed, and then passed before the 187-test rerun.",
+    "commit_created": true,
+    "push_performed": false,
+    "pull_request_created": false,
+    "deployment_performed": false
+  },
+  "rollback": {
+    "code": "Revert only the files listed by the final scoped diff.",
+    "data": "No data rollback is required because no candidate was activated and shared persistent RAG storage was not mutated.",
+    "compatibility": "The legacy Chroma collection remains readable; new version namespaces can be removed independently."
+  }
+}

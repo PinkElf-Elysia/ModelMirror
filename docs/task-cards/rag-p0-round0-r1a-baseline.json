@@ -1,0 +1,160 @@
+{
+  "schema_version": "modelmirror-rag-p0-baseline-v1",
+  "captured_at": "2026-08-18T02:38:27.4050124Z",
+  "task_contract": {
+    "objective": "Capture a reproducible RAG baseline and make requested versus effective embedding configuration truthful and fail-closed.",
+    "included": [
+      "source-runtime-data baseline evidence",
+      "P0 regression tests for silent embedding degradation",
+      "requested and effective embedding profile contract",
+      "pipeline preflight and job creation guard when the requested provider is unavailable"
+    ],
+    "excluded": [
+      "query-time version-scoped embedder selection",
+      "vector collection isolation",
+      "hybrid scoring and threshold changes",
+      "retrieval diversity",
+      "rerank protocol changes",
+      "benchmark generation changes",
+      "active index migration or deployment"
+    ],
+    "allowed_paths": [
+      "server/rag/rag_service.py",
+      "server/rag/pipeline_executor.py",
+      "server/tests/test_rag_pipeline.py",
+      "client/src/pages/RagPage.tsx",
+      "docs/RAG_INTEGRATION.md",
+      "docs/task-cards/rag-p0-round0-r1a-baseline.json"
+    ],
+    "file_count_exception": "Six files are required because the executor must consume the new effective profile; omitting it would cause canonical hash model metadata to instantiate a different embedder and break execution identity.",
+    "protected_state": [
+      "server/rag/storage",
+      "the active knowledge version",
+      "shared Docker services and persistent volumes",
+      "the dirty primary checkout"
+    ],
+    "public_api_impact": "Embedding profiles add requested and effective safe metadata while retaining flat effective fields for compatibility. Draft execution becomes fail-closed when a requested provider is unavailable.",
+    "data_migration": "none",
+    "dependency_change": "none",
+    "risk": "high correctness risk, low data-mutation risk"
+  },
+  "source_control": {
+    "repository_base": "origin/main",
+    "base_commit": "9d441c736c1f74842c560ff44762cefc0e035ebf",
+    "branch": "codex/rag-p0-r1a",
+    "isolated_worktree": true,
+    "primary_checkout_modified": false
+  },
+  "runtime": {
+    "health": {
+      "status": "ok"
+    },
+    "container": {
+      "container_id": "3b03f35f426384515f181a1fff3fb31811c05388ffbd90cffb114b853c2d29ca",
+      "image_id": "sha256:3112e04d783e459eea0b240ac947cc3d2135dace74946a7b9e37c41bcbc90b90",
+      "created_at": "2026-08-17T13:32:32.938637644Z",
+      "image_name": "modelmirror-server"
+    },
+    "retrieval_capabilities": {
+      "version": "rag-retrieval-capabilities-v2",
+      "index_schema_version": 2,
+      "vector": {
+        "available": true,
+        "backend": "ChromaVectorStore"
+      },
+      "fulltext": {
+        "available": true,
+        "backend": "sqlite_fts5"
+      },
+      "embedding": {
+        "provider": "hash",
+        "model": "text-embedding-3-small",
+        "dimension": 384,
+        "degraded": true
+      },
+      "rerank": {
+        "api_configured": false,
+        "api_model": "",
+        "llm_configured": true,
+        "llm_model": "deepseek/deepseek-chat"
+      },
+      "modes": [
+        "vector",
+        "fulltext",
+        "hybrid"
+      ]
+    }
+  },
+  "protected_data_summary": {
+    "raw_files_copied": false,
+    "document_content_recorded": false,
+    "secret_values_recorded": false,
+    "metadata_sha256": "ad2d7a612ad5c92bcdb1fb3ba19305b5eda140e028a1b791601483e3b006dd72",
+    "evaluations_sha256": "83d0dabfc1ce662da904f5a097740f11776f0e095067182f89b61c499d97cd05",
+    "knowledge_base_id": "kb_8018fa2ae4a2489db7bb9fdfaab978a3",
+    "active_version_id": "kpv_4c7c7a47a21f455fa8207b64022907b7",
+    "pipeline_version_count": 1,
+    "active_chunk_count": 4006,
+    "active_embedding_profile": {
+      "provider": "hash",
+      "model": "baai/bge-m3",
+      "dimension": 384,
+      "degraded": true
+    },
+    "active_retrieval_profile": {
+      "mode": "fulltext",
+      "vector_weight": 0.0,
+      "fulltext_weight": 1.0,
+      "top_k": 10,
+      "score_threshold": 0.0,
+      "candidate_multiplier": 4,
+      "rerank_enabled": true,
+      "rerank_provider": "llm",
+      "rerank_model": "cohere/rerank-4-fast",
+      "rerank_top_n": 10
+    },
+    "evaluation_run_count": 1,
+    "evaluation_target_count": 2,
+    "evaluation_targets_present_in_current_metadata": 0,
+    "evaluation_status": "orphaned_unreproducible"
+  },
+  "acceptance": {
+    "normal": "An explicitly configured provider reports matching requested and effective provider/model metadata.",
+    "degraded_local": "An explicitly selected hash provider reports deterministic hash as both requested and effective without a semantic model label.",
+    "blocked": "An OpenAI-compatible request without credentials is persisted as unavailable, preflight is not ready, and no pipeline job is created.",
+    "rollback": "Revert only the six files listed in task_contract.allowed_paths; no active version or persistent data pointer changes are required."
+  },
+  "verification": {
+    "red_phase": {
+      "result": "4 failed as expected",
+      "covered_failures": [
+        "requested profile metadata absent",
+        "real provider request silently downgraded to hash",
+        "unavailable provider did not block execution",
+        "configured provider did not expose requested and effective identity"
+      ]
+    },
+    "green_phase": {
+      "pipeline_tests": "24 passed",
+      "all_rag_tests": "175 passed",
+      "frontend_tests": "385 passed",
+      "frontend_production_build": "passed",
+      "backend_syntax": "passed",
+      "baseline_manifest_json": "passed",
+      "diff_check": "passed"
+    },
+    "full_backend_regression": {
+      "branch_result": "3193 passed, 22 failed, 29 skipped",
+      "failed_areas": [
+        "agency worker build artifact unavailable",
+        "agency execution worker unavailable",
+        "multimodal catalog environment baseline",
+        "skill Node and TypeScript execution environment"
+      ],
+      "base_commit_comparison": "The same 22 tests failed when rerun from the detached source commit; no RAG test failed."
+    },
+    "external_provider_calls": 0,
+    "active_version_mutations": 0,
+    "shared_service_mutations": 0
+  }
+}

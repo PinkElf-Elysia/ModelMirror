@@ -25,6 +25,7 @@ class RerankItem:
 class RerankOutcome:
     items: list[RerankItem]
     provider: str
+    model: str = ""
     warning: str | None = None
 
 
@@ -51,7 +52,7 @@ class RerankService:
         top_n: int,
     ) -> RerankOutcome:
         if not documents:
-            return RerankOutcome(items=[], provider="none")
+            return RerankOutcome(items=[], provider="none", model="")
         providers = [provider]
         if provider == "auto":
             providers = ["api", "llm"]
@@ -60,14 +61,36 @@ class RerankService:
         for candidate in providers:
             try:
                 if candidate == "api" and self.capabilities()["api_configured"]:
+                    effective_model = model or self._api_model()
                     return RerankOutcome(
-                        items=await self._rerank_api(query, documents, model=model, top_n=top_n),
+                        items=await self._rerank_api(
+                            query,
+                            documents,
+                            model=effective_model,
+                            top_n=top_n,
+                        ),
                         provider="api",
+                        model=effective_model,
                     )
                 if candidate == "llm" and self.capabilities()["llm_configured"]:
+                    effective_model = self._llm_model()
+                    if provider == "llm" and model:
+                        effective_model = model
+                    if _looks_like_reranker_model(effective_model):
+                        warnings.append(
+                            "llm rerank unavailable: reranker-only model cannot be sent "
+                            "to a chat-completions endpoint"
+                        )
+                        continue
                     return RerankOutcome(
-                        items=await self._rerank_llm(query, documents, model=model, top_n=top_n),
+                        items=await self._rerank_llm(
+                            query,
+                            documents,
+                            model=effective_model,
+                            top_n=top_n,
+                        ),
                         provider="llm",
+                        model=effective_model,
                     )
             except Exception as exc:
                 warnings.append(f"{candidate} rerank unavailable: {str(exc)[:160]}")
@@ -75,6 +98,7 @@ class RerankService:
         return RerankOutcome(
             items=[],
             provider="none",
+            model="",
             warning="; ".join(warnings) or "No rerank provider is configured; fused ranking was used.",
         )
 
@@ -234,11 +258,14 @@ def _parse_ranked_items(
                 score=max(0.0, min(1.0, score)),
             )
         )
-        if len(items) >= top_n:
-            break
     if not items:
         raise ValueError("Rerank provider returned no valid candidates.")
-    return items
+    return sorted(items, key=lambda item: -item.score)[:top_n]
+
+
+def _looks_like_reranker_model(model: str) -> bool:
+    normalized = model.strip().lower()
+    return "rerank" in normalized or "reranker" in normalized
 
 
 def _parse_json_object(content: str) -> dict[str, Any]:

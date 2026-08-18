@@ -43,7 +43,7 @@ DEFAULT_GATE_POLICY: dict[str, Any] = {
     "max_mrr_regression": 0.03,
     "max_citation_hit_regression": 0.02,
     "max_no_result_increase": 0.05,
-    "min_no_result_accuracy": 0.0,
+    "min_no_result_accuracy": 0.8,
     "min_citation_coverage": 0.0,
     "max_p95_latency_ratio": 2.0,
     "require_zero_errors": True,
@@ -58,6 +58,7 @@ def evaluate_retrieval_case(
     latency_ms: float = 0.0,
     warnings: list[str] | None = None,
     expected_no_result: bool = False,
+    retrieval_receipt: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Score one ranked retrieval response against stable relevance references."""
 
@@ -79,6 +80,7 @@ def evaluate_retrieval_case(
             "warning_count": len(warnings or []),
             "warnings": [str(item)[:240] for item in (warnings or [])[:10]],
             "ranking": [_ranking_item(source, rank) for rank, source in enumerate(sources, 1)],
+            "retrieval_receipt": _safe_retrieval_receipt(retrieval_receipt),
         }
     relevant_ranks: list[int] = []
     matched_ref_indexes: set[int] = set()
@@ -154,6 +156,7 @@ def evaluate_retrieval_case(
         "warning_count": len(warnings or []),
         "warnings": [str(item)[:240] for item in (warnings or [])[:10]],
         "ranking": ranking,
+        "retrieval_receipt": _safe_retrieval_receipt(retrieval_receipt),
     }
 
 
@@ -1174,6 +1177,37 @@ def _float_or_none(value: Any) -> float | None:
         return round(float(value), 6)
     except (TypeError, ValueError):
         return None
+
+
+def _safe_retrieval_receipt(value: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    allowed = {
+        "mode",
+        "vector_weight",
+        "fulltext_weight",
+        "top_k",
+        "score_threshold",
+        "candidate_multiplier",
+        "rerank_enabled",
+        "rerank_provider",
+        "rerank_model",
+        "rerank_top_n",
+        "rerank_provider_used",
+        "rerank_model_used",
+        "rerank_applied",
+        "embedding_provider",
+        "embedding_model",
+        "embedding_dimension",
+        "vector_candidate_count",
+        "fulltext_candidate_count",
+    }
+    receipt: dict[str, Any] = {}
+    for key in allowed:
+        item = value.get(key)
+        if isinstance(item, (str, int, float, bool, type(None))):
+            receipt[key] = item
+    return receipt
 
 
 def _ranking_item(source: dict[str, Any], rank: int) -> dict[str, Any]:
