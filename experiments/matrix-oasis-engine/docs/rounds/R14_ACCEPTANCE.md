@@ -1,6 +1,6 @@
 # R14验收记录
 
-状态：R14实施中；R14.3已验证，等待本地提交
+状态：R14实施中；R14.4已验证，等待本地提交
 
 ## 基线
 
@@ -16,8 +16,8 @@
 |---|---|---|---|
 | R14.1 治理与声明门 | 已完成 | `1086293c` | 见下方摘要 |
 | R14.2 Solution合同与Intent合成 | 已完成 | `474a7b2c` | 见下方摘要 |
-| R14.3 确定性空间求解器 | 已验证 | 本批提交，后续记录 | 见下方摘要 |
-| R14.4 Godot最终物理复验 | 未开始 | — | — |
+| R14.3 确定性空间求解器 | 已完成 | `ca7ca3da` | 见下方摘要 |
+| R14.4 Godot最终物理复验 | 已验证 | 本批提交，后续记录 | 见下方摘要 |
 | R14.5 solved overlay与预览 | 未开始 | — | — |
 | R14.6 泛化与人工预览资格 | 未开始 | — | — |
 | R14.7 默认切换与初版收口 | 等待用户人工验收 | — | — |
@@ -54,6 +54,16 @@ R14.7前必须保持`pending-spatial-solver / claimAllowed=false / blockingRound
 - `verify:r14`为31/31；求解器覆盖0/2/6/7 placements、2/4/5 zones、floor/wall、互相facing、冲突约束、容量不足、身份漂移、同zone station、20次字节确定性和双文件事务发布。完整`npm.cmd test`在最终实现树为774/774；完整`npm.cmd run verify`为25/25阶段通过，包含Creator 248 modules构建与HTTP 200烟测。此前并发全量运行中冻结R8的20 ms timeout曾单次出现既有调度竞态，独立复跑1/1且最终全量已通过。
 - TypeScript声明严格解析、Node语法、boundary、round/parent scope、MVP声明门和`git diff --check`通过；一方求解源码无随机、时间退出、网络、供应商调用、题材ID或案例坐标。
 - 本批未实现R14.4真实Godot物理/导航/视线复验，未创建solved overlay，未接Creator或切换默认预览；`MVP_STATUS`继续为`pending-spatial-solver / claimAllowed=false / blockingRound=R14`。
+
+## R14.4验证摘要
+
+- 新增私有、`UNLICENSED`的`prototype-spatial-verifier@0.1.0-r14`，公开面仅包含`createGodotSpatialSolutionVerifier`、`verifyPrototypeSpatialSolution`和固定operational error；类型直接引用权威Solution合同，不复制合同结构，lock只增加一个workspace link且无新增registry依赖。
+- Node桥先复验canonical Intent、Facts、Solution、Runtime/Receipt、Asset Bundle及所有环境/资产字节的身份与哈希，再复制到一次性Godot工程；验证失败返回冻结静态diagnostics，进程或引擎故障只暴露`PROTOTYPE_SPATIAL_VERIFIER_INTERNAL_ERROR`。
+- 独立`spatial_solution_verification`场景通过`GLTFDocument`载入真实环境collider和资产GLB，显式应用Solution的Godot YXZ世界变换；等待physics与NavigationServer同步后，使用`query_path`、Capsule `intersect_shape`/`cast_motion`和真实R6 Action Terminal复验接地、穿透、资产重叠、spawn净空、路径端点、terminal碰撞与3 m视线。
+- 中性12×12 m真实Godot集成夹具验证2个placement、5个node context、5条路径与9个terminal；重复成功报告字节一致，placement移入墙体稳定拒绝为`PROTOTYPE_SPATIAL_VERIFY_ASSET_PENETRATION`，资产byte漂移在启动Godot前稳定拒绝。
+- `verify:r14`为38/38定向Node测试并通过真实Godot集成；完整`npm.cmd test`在锁定`GODOT_BIN`、允许测试于`C:\\tmp`创建自有临时夹具的环境中为782/782，最终完整`npm.cmd run verify`为25/25阶段通过，包含Creator 248 modules生产构建与HTTP 200烟测。沙箱内首次全量仅因34项`mkdtemp C:\\tmp`被拒及未注入Godot路径失败，按原命令无沙箱重跑后全部消除，未改冻结测试规避证据。
+- TypeScript声明严格解析、Node语法、workspace依赖树、Godot import、boundary与Godot boundary、`git diff --check`均通过；一方Verifier源码无网络、供应商、题材ID、随机布局或产品场景依赖。
+- 本批未创建R14.5 solved overlay，未修改Creator、旧preview或任何产品Godot场景，也未进行人工图形验收；`MVP_STATUS`继续为`pending-spatial-solver / claimAllowed=false / blockingRound=R14`。
 
 ## 回退
 

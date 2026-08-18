@@ -127,6 +127,31 @@ test("only the isolated analyzer may read and write its Node-owned temporary pat
   assert.equal(codes(auditGodotBoundary({ root })).includes("GODOT_FIRST_PARTY_FILESYSTEM_WRITE"), true);
 });
 
+test("only the isolated R14 verifier may read and write its Node-owned temporary paths", (context) => {
+  const root = fixture("extends Node\n");
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const verifierRoot = path.join(root, "spatial_solution_verification");
+  fs.mkdirSync(verifierRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(verifierRoot, "solution_verifier.gd"),
+    [
+      "extends Node",
+      "const POINTERS = [\"/verificationRequest\", \"/placements/0\", \"/nodeContexts/0/actionTerminal\"]",
+      "func transfer(path):",
+      "\tvar input = FileAccess.open(path, FileAccess.READ)",
+      "\treturn FileAccess.open(path, FileAccess.WRITE)",
+    ].join("\n"),
+    "utf8",
+  );
+  assert.equal(auditGodotBoundary({ root }).ok, true);
+  fs.writeFileSync(
+    path.join(root, "scripts", "case.gd"),
+    "extends Node\nfunc write(path):\n\treturn FileAccess.open(path, FileAccess.WRITE)\n",
+    "utf8",
+  );
+  assert.equal(codes(auditGodotBoundary({ root })).includes("GODOT_FIRST_PARTY_FILESYSTEM_WRITE"), true);
+});
+
 const cases = [
   ["network", ["HTTP", "Request.new()"].join(""), "GODOT_FIRST_PARTY_NETWORK"],
   ["socket", ["StreamPeer", "TCP.new()"].join(""), "GODOT_FIRST_PARTY_NETWORK"],
