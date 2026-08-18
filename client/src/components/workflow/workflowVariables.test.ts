@@ -73,6 +73,28 @@ describe("analyzeWorkflowVariables", () => {
     ).toBe("available");
   });
 
+  it("registers deployment event, body, and resume outputs in the global inventory", () => {
+    const nodes = [
+      node("schedule", "scheduled_start", { eventVariable: "schedule_event" }),
+      node("http", "http_event_entry", {
+        eventVariable: "http_event",
+        bodyVariable: "request_body",
+      }),
+      node("wait", "suspend_wait", { outputVariable: "resume_event" }),
+    ];
+
+    const variables = analyzeWorkflowVariables(nodes, [], null);
+    expect(variables.map((variable) => variable.name)).toEqual([
+      "http_event",
+      "request_body",
+      "resume_event",
+      "schedule_event",
+    ]);
+    expect(
+      getWorkflowVariableFieldDescriptor("http_event_entry", "bodyVariable")?.mode,
+    ).toBe("declaration");
+  });
+
   it("distinguishes guaranteed, conditional, downstream, and unrelated outputs", () => {
     const nodes = [
       node("input", "input"),

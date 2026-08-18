@@ -27,15 +27,27 @@ describe("workflowNodeRegistry NodeContract V3 guard", () => {
       "knowledge_base",
       "knowledge_retrieval",
       "vision_understanding",
+      "scheduled_start",
+      "http_event_entry",
+      "suspend_wait",
+      "http_event_reply",
     ]));
     expect(items.every((item) => item.contract === undefined)).toBe(true);
     expect(items.every((item) => item.planner === undefined)).toBe(true);
+    expect(items.every((item) => item.enabled === false)).toBe(true);
+    expect(
+      items.every(
+        (item) =>
+          item.metadata?.status_reason ===
+          "节点注册表不可用，无法确认当前执行契约。",
+      ),
+    ).toBe(true);
   });
 
   it("rejects a nominal V3 registry without per-node contracts", () => {
     expect(hasNodeContractV3({
       ...workflowNodeRegistryFallback,
-      version: "xpert-workflow-node-registry-v3",
+      version: "xpert-workflow-node-registry-v4",
       contract_version: 3,
       contract_checksum: "registry-checksum",
     })).toBe(false);
@@ -43,7 +55,7 @@ describe("workflowNodeRegistry NodeContract V3 guard", () => {
 
   it("rejects an empty registry even with V3 metadata", () => {
     expect(hasNodeContractV3({
-      version: "xpert-workflow-node-registry-v3",
+      version: "xpert-workflow-node-registry-v4",
       contract_version: 3,
       contract_checksum: "registry-checksum",
       tabs: [],

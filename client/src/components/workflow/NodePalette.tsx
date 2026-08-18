@@ -6,12 +6,14 @@ import {
 } from "../../types/runtimeMiddleware";
 import {
   fetchWorkflowNodeRegistry,
+  hasNodeContractV3,
   matchesWorkflowPaletteQuery,
   type WorkflowPaletteItem,
   type WorkflowPalettePlaceholder,
   type WorkflowNodeRegistryResponse,
   workflowNodeRegistryFallback,
 } from "./workflowNodeRegistry";
+import { type WorkflowNodeKind } from "../../types/workflow";
 
 type PaletteTab = "workflow" | "middleware" | "knowledge";
 
@@ -156,7 +158,11 @@ export function disabledPaletteItem(
   };
 }
 
-export default function NodePalette() {
+export default function NodePalette({
+  excludeKinds = [],
+}: {
+  excludeKinds?: WorkflowNodeKind[];
+}) {
   const [activeTab, setActiveTab] = useState<PaletteTab>("workflow");
   const [searchQuery, setSearchQuery] = useState("");
   const [nodeRegistry, setNodeRegistry] = useState<WorkflowNodeRegistryResponse>(
@@ -171,6 +177,9 @@ export default function NodePalette() {
   const [middlewareError, setMiddlewareError] = useState<string | null>(null);
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
+  const excludedKinds = useMemo(() => new Set(excludeKinds), [excludeKinds]);
+  const registryAuthorized =
+    !registryLoading && registryError === null && hasNodeContractV3(nodeRegistry);
 
   useEffect(() => {
     let isMounted = true;
@@ -189,7 +198,7 @@ export default function NodePalette() {
           return;
         }
         setNodeRegistry(workflowNodeRegistryFallback);
-        setRegistryError("节点注册表加载失败，已使用本地节点库。");
+        setRegistryError("节点注册表加载失败；本地目录仅供查看，暂时不能新增节点。");
       })
       .finally(() => {
         if (isMounted) {
@@ -238,11 +247,13 @@ export default function NodePalette() {
         .map((section) => ({
           ...section,
           items: section.items
+            .filter((item) => !excludedKinds.has(item.kind))
             .filter((item) => item.enabled !== false)
             .filter((item) => matchesWorkflowPaletteQuery(item, normalizedSearch)),
           placeholders: [
             ...(section.placeholders ?? []),
             ...section.items
+              .filter((item) => !excludedKinds.has(item.kind))
               .filter((item) => item.enabled === false)
               .map(disabledPaletteItem),
           ].filter((item) =>
@@ -253,15 +264,17 @@ export default function NodePalette() {
           (section) =>
             section.items.length > 0 || (section.placeholders ?? []).length > 0,
         ),
-    [nodeRegistry.sections, normalizedSearch],
+    [excludedKinds, nodeRegistry.sections, normalizedSearch],
   );
 
   const filteredMiddlewareNodes = useMemo(
     () =>
-      middlewareNodes.filter((node) =>
-        matchesMiddlewareNode(node, normalizedSearch),
-      ),
-    [middlewareNodes, normalizedSearch],
+      registryAuthorized
+        ? middlewareNodes.filter((node) =>
+            matchesMiddlewareNode(node, normalizedSearch),
+          )
+        : [],
+    [middlewareNodes, normalizedSearch, registryAuthorized],
   );
 
   const filteredKnowledgeItems = useMemo(
@@ -355,13 +368,19 @@ export default function NodePalette() {
             ) : null}
           </div>
 
+          {!registryAuthorized && !registryLoading ? (
+            <p className="rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+              节点注册表门禁不可用；中间件目录仅供已有节点配置，暂时不能新增。
+            </p>
+          ) : null}
+
           {middlewareError ? (
             <p className="rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
               {middlewareError}，工作流节点可继续使用。
             </p>
           ) : null}
 
-          {!middlewareError && filteredMiddlewareNodes.length === 0 ? (
+          {!middlewareError && registryAuthorized && filteredMiddlewareNodes.length === 0 ? (
             <EmptyState>
               {middlewareLoading
                 ? "正在加载中间件节点。"
@@ -369,7 +388,7 @@ export default function NodePalette() {
             </EmptyState>
           ) : null}
 
-          {!middlewareError && filteredMiddlewareNodes.length > 0 ? (
+          {!middlewareError && registryAuthorized && filteredMiddlewareNodes.length > 0 ? (
             <div className="space-y-2">
               {filteredMiddlewareNodes.map((node) => (
                 <button

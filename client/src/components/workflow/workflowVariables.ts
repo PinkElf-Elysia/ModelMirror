@@ -161,6 +161,12 @@ function field(
  */
 export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescriptor[] = [
   field("input", "variableName", "declaration", TEXT_TYPES),
+  field("scheduled_start", "eventVariable", "declaration", JSON_TYPES),
+  field("http_event_entry", "eventVariable", "declaration", JSON_TYPES),
+  field("http_event_entry", "bodyVariable", "declaration", ANY_RENDERABLE_TYPES),
+  field("suspend_wait", "untilTemplate", "template", TEMPLATE_TYPES),
+  field("suspend_wait", "outputVariable", "declaration", JSON_TYPES),
+  field("http_event_reply", "bodyTemplate", "template", TEMPLATE_TYPES),
   field("output", "outputVariable", "binding", ANY_RENDERABLE_TYPES, "result"),
   field("llm", "prompt", "template", TEMPLATE_TYPES),
   field("llm", "outputVariable", "declaration", TEXT_TYPES),
@@ -307,7 +313,7 @@ const RESOURCE_TARGET_HANDLES = new Set([
 ]);
 
 interface OutputSpec {
-  field: "outputVariable" | "codeOutputVariable" | "variableName" | "resultVariable";
+  field: "outputVariable" | "codeOutputVariable" | "variableName" | "eventVariable" | "bodyVariable" | "resultVariable";
   fallback: string;
   valueType: WorkflowVariableValueType;
   conditional?: (node: WorkflowNode) => boolean;
@@ -315,6 +321,21 @@ interface OutputSpec {
 }
 
 const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
+  scheduled_start: [
+    { field: "eventVariable", fallback: "schedule_event", valueType: "json" },
+  ],
+  http_event_entry: [
+    { field: "eventVariable", fallback: "http_event", valueType: "json" },
+    {
+      field: "bodyVariable",
+      fallback: "request_body",
+      valueType: "unknown",
+      enabled: (node) => Boolean(String(node.data.bodyVariable ?? "").trim()),
+    },
+  ],
+  suspend_wait: [
+    { field: "outputVariable", fallback: "resume_event", valueType: "json" },
+  ],
   llm: [{ field: "outputVariable", fallback: "llm_output", valueType: "text" }],
   code: [{ field: "codeOutputVariable", fallback: "code_output", valueType: "text" }],
   variable_assign: [
@@ -597,6 +618,7 @@ const AMBIGUOUS_SCAN_IGNORED_FIELDS = new Set([
   "outputVariable",
   "codeOutputVariable",
   "variableName",
+  "eventVariable",
   "resultVariable",
   "assetIdVariable",
   "iterationVariable",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import json
 from collections import defaultdict, deque
+from datetime import datetime
 from string import Formatter
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -24,6 +25,10 @@ NODE_KIND_ALIASES = {
     "start": "input",
     "input": "input",
     "user-input": "input",
+    "scheduled_start": "scheduled_start",
+    "scheduled-start": "scheduled_start",
+    "http_event_entry": "http_event_entry",
+    "http-event-entry": "http_event_entry",
     "llm": "llm",
     "if-else": "condition",
     "condition": "condition",
@@ -95,6 +100,10 @@ NODE_KIND_ALIASES = {
     "note": "annotation",
     "runtime_middleware": "runtime_middleware",
     "runtime-middleware": "runtime_middleware",
+    "suspend_wait": "suspend_wait",
+    "suspend-wait": "suspend_wait",
+    "http_event_reply": "http_event_reply",
+    "http-event-reply": "http_event_reply",
     "end": "output",
     "answer": "output",
     "output": "output",
@@ -378,19 +387,22 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
                 )
             )
 
-    if not any(kind == "input" for kind in kinds_by_id.values()):
+    if not any(
+        kind in {"input", "scheduled_start", "http_event_entry"}
+        for kind in kinds_by_id.values()
+    ):
         issues.append(
             ValidationIssue(
                 code="missing_input_node",
-                message="Workflow needs at least one input/start node.",
+                message="Workflow needs at least one input or deployment start node.",
             )
         )
 
-    if not any(kind == "output" for kind in kinds_by_id.values()):
+    if not any(kind in {"output", "http_event_reply"} for kind in kinds_by_id.values()):
         issues.append(
             ValidationIssue(
                 code="missing_output_node",
-                message="Workflow needs at least one output/end node.",
+                message="Workflow needs at least one output or HTTP reply end node.",
             )
         )
 
@@ -452,6 +464,12 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
         nodes_by_id={node.id: node for node in workflow.nodes},
         kinds_by_id=kinds_by_id,
     )
+    validate_http_event_reply_structure(
+        workflow.nodes,
+        valid_edges,
+        issues,
+        kinds_by_id=kinds_by_id,
+    )
     validate_sandbox_middleware_bindings(
         workflow.nodes,
         valid_edges,
@@ -500,6 +518,58 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
     )
 
 
+def validate_http_event_reply_structure(
+    nodes: list[NativeWorkflowNode],
+    edges: list[NativeWorkflowEdge],
+    issues: list[ValidationIssue],
+    *,
+    kinds_by_id: dict[str, str],
+) -> None:
+    reply_ids = {
+        node.id for node in nodes if kinds_by_id.get(node.id) == "http_event_reply"
+    }
+    if not reply_ids:
+        return
+    has_http_entry = any(kind == "http_event_entry" for kind in kinds_by_id.values())
+    parents: dict[str, set[str]] = defaultdict(set)
+    for edge in edges:
+        parents[edge.target].add(edge.source)
+        if edge.source in reply_ids:
+            issues.append(
+                ValidationIssue(
+                    code="http_event_reply_not_terminal",
+                    message="HTTP event reply must be a terminal node.",
+                    node_id=edge.source,
+                )
+            )
+    for reply_id in sorted(reply_ids):
+        if not has_http_entry:
+            issues.append(
+                ValidationIssue(
+                    code="http_event_reply_without_entry",
+                    message="HTTP event reply requires an HTTP event entry.",
+                    node_id=reply_id,
+                )
+            )
+        stack = list(parents.get(reply_id, set()))
+        visited: set[str] = set()
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            if kinds_by_id.get(current) == "suspend_wait":
+                issues.append(
+                    ValidationIssue(
+                        code="http_event_reply_after_suspend_wait",
+                        message="HTTP event reply cannot have a suspend wait upstream.",
+                        node_id=reply_id,
+                    )
+                )
+                break
+            stack.extend(parents.get(current, set()))
+
+
 def validate_node_configuration(
     node: NativeWorkflowNode,
     kind: str,
@@ -526,12 +596,197 @@ def validate_node_configuration(
                 )
             )
 
+    if kind in {"scheduled_start", "http_event_entry"}:
+        event_variable = str(data.get("eventVariable") or "").strip()
+        if not is_variable_name(event_variable):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_trigger_event_variable",
+                    message="Trigger eventVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "scheduled_start":
+        schedule_type = str(data.get("scheduleType") or "").strip()
+        timezone_name = str(data.get("timezone") or "").strip()
+        if schedule_type not in {"once", "interval", "cron"}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_schedule_type",
+                    message="Scheduled start type must be once, interval, or cron.",
+                    node_id=node.id,
+                )
+            )
+        try:
+            ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_schedule_timezone",
+                    message="Scheduled start needs a valid IANA timezone.",
+                    node_id=node.id,
+                )
+            )
+        if schedule_type == "once":
+            once_at = str(data.get("onceAt") or "").strip()
+            try:
+                datetime.fromisoformat(once_at.replace("Z", "+00:00"))
+            except ValueError:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_schedule_once_at",
+                        message="onceAt must be an ISO date and time.",
+                        node_id=node.id,
+                    )
+                )
+        if schedule_type == "interval":
+            try:
+                interval_seconds = int(data.get("intervalSeconds") or 0)
+            except (TypeError, ValueError):
+                interval_seconds = 0
+            if not 30 <= interval_seconds <= 31_536_000:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_schedule_interval",
+                        message="intervalSeconds must be between 30 and 31536000.",
+                        node_id=node.id,
+                    )
+                )
+        if schedule_type == "cron":
+            cron_expression = str(data.get("cronExpression") or "").strip()
+            if len(cron_expression.split()) != 5:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_schedule_cron",
+                        message="cronExpression must contain five fields.",
+                        node_id=node.id,
+                    )
+                )
+
+    if kind == "http_event_entry":
+        body_variable = str(data.get("bodyVariable") or "").strip()
+        if body_variable and not is_variable_name(body_variable):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_http_event_body_variable",
+                    message="HTTP bodyVariable must be an identifier when configured.",
+                    node_id=node.id,
+                )
+            )
+        accepted_content_type = str(
+            data.get("acceptedContentType") or "both"
+        ).strip()
+        if accepted_content_type not in {"both", "json", "text"}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_http_event_content_type",
+                    message="HTTP acceptedContentType must be both, json, or text.",
+                    node_id=node.id,
+                )
+            )
+        try:
+            max_body_bytes = int(data.get("maxBodyBytes") or 1_048_576)
+        except (TypeError, ValueError):
+            max_body_bytes = 0
+        if not 1_024 <= max_body_bytes <= 1_048_576:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_http_event_max_body_bytes",
+                    message="HTTP maxBodyBytes must be between 1024 and 1048576.",
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "suspend_wait":
+        wait_mode = str(data.get("waitMode") or "").strip()
+        output_variable = str(data.get("outputVariable") or "").strip()
+        if wait_mode not in {"duration", "until"}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_suspend_wait_mode",
+                    message="Suspend waitMode must be duration or until.",
+                    node_id=node.id,
+                )
+            )
+        if not is_variable_name(output_variable):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_suspend_wait_output_variable",
+                    message="Suspend outputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+        if wait_mode == "duration":
+            try:
+                duration_seconds = int(data.get("durationSeconds") or 0)
+            except (TypeError, ValueError):
+                duration_seconds = 0
+            if not 1 <= duration_seconds <= 2_592_000:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_suspend_wait_duration",
+                        message="durationSeconds must be between 1 and 2592000.",
+                        node_id=node.id,
+                    )
+                )
+        if wait_mode == "until":
+            if not str(data.get("untilTemplate") or "").strip():
+                issues.append(
+                    ValidationIssue(
+                        code="missing_suspend_wait_until",
+                        message="Until mode needs data.untilTemplate.",
+                        node_id=node.id,
+                    )
+                )
+            until_timezone = str(data.get("untilTimezone") or "UTC").strip()
+            try:
+                ZoneInfo(until_timezone)
+            except (ZoneInfoNotFoundError, ValueError):
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_suspend_wait_timezone",
+                        message="Suspend wait needs a valid IANA timezone.",
+                        node_id=node.id,
+                    )
+                )
+
+    if kind == "http_event_reply":
+        try:
+            status_code = int(data.get("statusCode") or 0)
+        except (TypeError, ValueError):
+            status_code = 0
+        if not 200 <= status_code <= 599:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_http_event_reply_status",
+                    message="HTTP event reply statusCode must be between 200 and 599.",
+                    node_id=node.id,
+                )
+            )
+        if str(data.get("responseBodyType") or "") not in {"text", "json"}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_http_event_reply_body_type",
+                    message="HTTP event reply body type must be text or json.",
+                    node_id=node.id,
+                )
+            )
     if kind == "llm":
-        if not str(data.get("modelId") or "").strip():
+        model_id = str(data.get("modelId") or "").strip()
+        if not model_id:
             issues.append(
                 ValidationIssue(
                     code="missing_llm_model",
                     message="LLM node needs data.modelId.",
+                    node_id=node.id,
+                )
+            )
+        elif len(model_id) > 256:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_llm_model",
+                    message="LLM modelId cannot exceed 256 characters.",
                     node_id=node.id,
                 )
             )
@@ -544,11 +799,28 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
-        if not str(data.get("outputVariable") or "").strip():
+        elif len(prompt) > 100_000:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_llm_prompt",
+                    message="LLM prompt cannot exceed 100000 characters.",
+                    node_id=node.id,
+                )
+            )
+        output_variable = str(data.get("outputVariable") or "").strip()
+        if not output_variable:
             issues.append(
                 ValidationIssue(
                     code="missing_llm_output_variable",
                     message="LLM node needs data.outputVariable.",
+                    node_id=node.id,
+                )
+            )
+        elif not is_variable_name(output_variable) or len(output_variable) > 64:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_llm_output_variable",
+                    message="LLM outputVariable must be an identifier up to 64 characters.",
                     node_id=node.id,
                 )
             )
@@ -2744,10 +3016,15 @@ def collect_declared_variables(
     for node in nodes:
         data = node.data
         kind = kinds_by_id[node.id]
-        if kind == "input":
-            variable = str(data.get("variableName") or "").strip()
+        if kind in {"input", "scheduled_start", "http_event_entry"}:
+            field_name = "variableName" if kind == "input" else "eventVariable"
+            variable = str(data.get(field_name) or "").strip()
             if is_variable_name(variable):
                 variables.add(variable)
+        if kind == "http_event_entry":
+            body_variable = str(data.get("bodyVariable") or "").strip()
+            if is_variable_name(body_variable):
+                variables.add(body_variable)
         if kind == "llm":
             variable = str(data.get("outputVariable") or "").strip()
             if is_variable_name(variable):
@@ -2786,6 +3063,7 @@ def collect_declared_variables(
             "data_table_insert",
             "data_table_update",
             "data_table_delete",
+            "suspend_wait",
         }:
             variable = str(data.get("outputVariable") or "").strip()
             if is_variable_name(variable):
@@ -2807,6 +3085,8 @@ def collect_node_variable_producers(
     producers: dict[str, list[str]] = {}
     declaration_fields: dict[str, tuple[str, ...]] = {
         "input": ("variableName",),
+        "scheduled_start": ("eventVariable",),
+        "http_event_entry": ("eventVariable", "bodyVariable"),
         "llm": ("outputVariable",),
         "code": ("codeOutputVariable",),
         "variable_assign": ("variableName",),
@@ -2835,6 +3115,7 @@ def collect_node_variable_producers(
         "data_table_insert": ("outputVariable",),
         "data_table_update": ("outputVariable",),
         "data_table_delete": ("outputVariable",),
+        "suspend_wait": ("outputVariable",),
     }
     for node in nodes:
         for field_name in declaration_fields.get(kinds_by_id[node.id], ()):
@@ -2852,6 +3133,18 @@ def validate_variable_references(
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     data = node.data
+
+    if kind in {"suspend_wait", "http_event_reply"}:
+        template_field = "untilTemplate" if kind == "suspend_wait" else "bodyTemplate"
+        for variable in sorted(extract_template_variables(str(data.get(template_field) or ""))):
+            if variable not in available_variables:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_deployment_template_variable",
+                        message=f"Deployment node references undefined variable '{variable}'.",
+                        node_id=node.id,
+                    )
+                )
 
     if kind == "llm":
         prompt = str(data.get("prompt") or "")

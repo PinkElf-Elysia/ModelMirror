@@ -115,6 +115,34 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["input", "start", "trigger"],
       },
       {
+        kind: "scheduled_start",
+        icon: "TIME",
+        title: "定时启动",
+        description: "从已发布版本按单次、固定间隔或日历规则私有启动。",
+        tags: ["schedule", "cron", "deployment"],
+      },
+      {
+        kind: "http_event_entry",
+        icon: "POST",
+        title: "HTTP 事件入口",
+        description: "接收带私有密钥与幂等键的 POST 事件。",
+        tags: ["webhook", "http", "deployment"],
+      },
+      {
+        kind: "suspend_wait",
+        icon: "WAIT",
+        title: "挂起等待",
+        description: "持久挂起至指定持续时间或带时区时间点。",
+        tags: ["wait", "timer", "continuation"],
+      },
+      {
+        kind: "http_event_reply",
+        icon: "REPLY",
+        title: "HTTP 事件回执",
+        description: "以文本或 JSON 终止 HTTP 事件工作流。",
+        tags: ["webhook", "response", "terminal"],
+      },
+      {
         kind: "condition",
         icon: "⌁",
         title: "路由",
@@ -403,6 +431,19 @@ export const knowledgePipelineItems: WorkflowPaletteItem[] = [
 
 export const knowledgePipelinePlaceholders: WorkflowPalettePlaceholder[] = [];
 
+function disableFallbackItems(
+  items: WorkflowPaletteItem[],
+): WorkflowPaletteItem[] {
+  return items.map((item) => ({
+    ...item,
+    enabled: false,
+    metadata: {
+      ...(item.metadata ?? {}),
+      status_reason: "节点注册表不可用，无法确认当前执行契约。",
+    },
+  }));
+}
+
 export function matchesWorkflowPaletteQuery(
   item: WorkflowPaletteItem | WorkflowPalettePlaceholder,
   query: string,
@@ -430,20 +471,27 @@ export const workflowNodeRegistryFallback: WorkflowNodeRegistryResponse = {
     { id: "workflow", label: "工作流" },
     { id: "knowledge", label: "知识流水线" },
   ],
-  sections: workflowPaletteSections,
+  sections: workflowPaletteSections.map((section) => ({
+    ...section,
+    items: disableFallbackItems(section.items),
+  })),
   knowledge_pipeline: {
-    items: knowledgePipelineItems,
+    items: disableFallbackItems(knowledgePipelineItems),
     placeholders: knowledgePipelinePlaceholders,
   },
 };
+
+function isSha256(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
+}
 
 export function hasNodeContractV3(
   registry: WorkflowNodeRegistryResponse,
 ): boolean {
   if (
-    registry.version !== "xpert-workflow-node-registry-v3" ||
+    registry.version !== "xpert-workflow-node-registry-v4" ||
     registry.contract_version !== 3 ||
-    !registry.contract_checksum
+    !isSha256(registry.contract_checksum)
   ) {
     return false;
   }
@@ -458,8 +506,8 @@ export function hasNodeContractV3(
     (item) =>
       item.contract?.contract_version === 3 &&
       item.contract.kind === item.kind &&
-      Boolean(item.contract.checksum) &&
-      Boolean(item.contract.compiler_checksum),
+      isSha256(item.contract.checksum) &&
+      isSha256(item.contract.compiler_checksum),
   );
 }
 

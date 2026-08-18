@@ -46,6 +46,15 @@ import {
   updateXpert,
 } from "../../utils/xpertApi";
 import {
+  createWorkflowProject,
+  fetchWorkflowExecutions,
+  fetchWorkflowProject,
+  rotateWorkflowWebhookKey,
+  saveWorkflowProjectDraft,
+  type WorkflowDeploymentSummary,
+  type WorkflowExecutionSummary,
+} from "../../utils/workflowDeployments";
+import {
   isLegacyStarterWorkflow,
   readStoredWorkflow,
   saveStoredWorkflow,
@@ -63,6 +72,7 @@ import {
   type WorkflowNodeRegistryResponse,
 } from "./workflowNodeRegistry";
 import WorkflowTypedDataNodeConfig from "./WorkflowTypedDataNodeConfig";
+import WorkflowDeploymentNodeConfig from "./WorkflowDeploymentNodeConfig";
 import WorkflowNodeCard from "./WorkflowNodeCard";
 import WorkflowRun from "./WorkflowRun";
 import WorkflowVariableCenter from "./WorkflowVariableCenter";
@@ -166,15 +176,19 @@ function QuickNodePicker({
     workflowNodeRegistryFallback,
   );
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
     fetchWorkflowNodeRegistry()
       .then((next) => {
-        if (isMounted) setRegistry(next);
+        if (isMounted) {
+          setRegistry(next);
+          setLoadFailed(false);
+        }
       })
       .catch(() => {
-        // 回退到本地节点库。
+        if (isMounted) setLoadFailed(true);
       })
       .finally(() => {
         if (isMounted) setLoading(false);
@@ -229,7 +243,11 @@ function QuickNodePicker({
             <p className="px-3 py-2 text-xs text-slate-500">同步节点库...</p>
           ) : null}
           {!loading && items.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-slate-500">没有匹配的节点。</p>
+            <p className="px-3 py-2 text-xs text-slate-500">
+              {loadFailed
+                ? "节点注册表不可用，暂时不能新增节点。"
+                : "没有匹配的节点。"}
+            </p>
           ) : null}
           {items.map((item) => (
             <button
@@ -337,7 +355,7 @@ function createRuntimeMiddlewareConfig(
   }, {});
 }
 
-function createNodeData(
+export function createNodeData(
   kind: WorkflowNodeKind,
   payload?: RuntimeMiddlewareDragPayload,
 ): WorkflowNodeData {
@@ -357,6 +375,57 @@ function createNodeData(
       title: "接待处输入",
       description: "收集用户给流水线的原始任务。",
       variableName: "user_input",
+    };
+  }
+
+  if (kind === "scheduled_start") {
+    return {
+      kind,
+      title: "定时启动",
+      description: "从已发布版本按单次、固定间隔或日历规则启动。",
+      scheduleType: "interval",
+      intervalSeconds: 30,
+      onceAt: new Date(Date.now() + 60_000).toISOString(),
+      cronExpression: "*/5 * * * *",
+      timezone: "UTC",
+      eventVariable: "schedule_event",
+    };
+  }
+
+  if (kind === "http_event_entry") {
+    return {
+      kind,
+      title: "HTTP 事件入口",
+      description: "接收带私有密钥与幂等键的 POST 事件。",
+      eventVariable: "http_event",
+      acceptedContentType: "both",
+      maxBodyBytes: 1_048_576,
+      bodyVariable: "request_body",
+    };
+  }
+
+  if (kind === "suspend_wait") {
+    return {
+      kind,
+      title: "挂起等待",
+      description: "持久挂起至指定持续时间或带时区时间点。",
+      waitMode: "duration",
+      durationSeconds: 60,
+      untilTemplate: "",
+      untilInputMode: "fixed",
+      untilTimezone: "UTC",
+      outputVariable: "resume_event",
+    };
+  }
+
+  if (kind === "http_event_reply") {
+    return {
+      kind,
+      title: "HTTP 事件回执",
+      description: "以文本或 JSON 终止 HTTP 事件工作流。",
+      statusCode: 200,
+      responseBodyType: "json",
+      bodyTemplate: '{"ok":true}',
     };
   }
 
@@ -2727,6 +2796,17 @@ function NodeConfig({
         </Field>
       ) : null}
 
+      {["scheduled_start", "http_event_entry", "suspend_wait", "http_event_reply"].includes(data.kind) ? (
+        <WorkflowDeploymentNodeConfig
+          contract={variableContract}
+          data={data}
+          edges={edges}
+          node={node}
+          nodes={nodes}
+          onChange={update}
+        />
+      ) : null}
+
       {data.kind === "llm" ? (
         <>
           <Field label="调用模型">
@@ -4191,6 +4271,13 @@ interface WorkflowCanvasProps {
 
 type WorkflowWorkspaceTab = "config" | "run";
 
+const INDEPENDENT_DEPLOYMENT_NODE_KINDS = new Set<WorkflowNodeKind>([
+  "scheduled_start",
+  "http_event_entry",
+  "http_event_reply",
+  "suspend_wait",
+]);
+
 interface WorkflowFileInputFocusRequest {
   requestId: number;
   variableName: string;
@@ -4222,6 +4309,14 @@ function WorkflowCanvas({
   const [errorNotice, setErrorNotice] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
+  const [projectRevision, setProjectRevision] = useState<number | null>(null);
+  const [activeDeployment, setActiveDeployment] =
+    useState<WorkflowDeploymentSummary | null>(null);
+  const [deploymentExecutions, setDeploymentExecutions] = useState<
+    WorkflowExecutionSummary[]
+  >([]);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [oneTimeWebhookKey, setOneTimeWebhookKey] = useState("");
   const [isNodePaletteOpen, setIsNodePaletteOpen] = useState(false);
   const [isVariableCenterOpen, setIsVariableCenterOpen] = useState(false);
   const variableCenterTriggerRef = useRef<HTMLButtonElement>(null);
@@ -4257,6 +4352,53 @@ function WorkflowCanvas({
   >([]);
   const { screenToFlowPosition, fitView } = useReactFlow();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (onSave || !workflowId.startsWith("wf_")) return;
+    let cancelled = false;
+    fetchWorkflowProject(workflowId)
+      .then((project) => {
+        if (cancelled) return;
+        setTitle(project.draft.title);
+        setNodes(project.draft.nodes);
+        setEdges(project.draft.edges);
+        setVariables(project.draft.variables ?? []);
+        setProjectRevision(project.draft_revision);
+        setActiveDeployment(project.active_deployment ?? null);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setErrorNotice(
+            error instanceof Error ? error.message : "服务端工作流加载失败。",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onSave, setEdges, setNodes, workflowId]);
+
+  useEffect(() => {
+    if (onSave || workspaceTab !== "run" || !workflowId.startsWith("wf_")) {
+      return;
+    }
+    let cancelled = false;
+    const refresh = () => {
+      void fetchWorkflowExecutions(workflowId)
+        .then((response) => {
+          if (!cancelled) setDeploymentExecutions(response.items);
+        })
+        .catch(() => {
+          if (!cancelled) setDeploymentExecutions([]);
+        });
+    };
+    refresh();
+    const intervalId = window.setInterval(refresh, 2_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [onSave, workflowId, workspaceTab]);
 
   const openRunFileInput = useCallback((variableName: string) => {
     if (!variableName) return;
@@ -4325,7 +4467,6 @@ function WorkflowCanvas({
     () => analyzeWorkflowVariables(nodes, edges, selectedNodeId, variables),
     [edges, nodes, selectedNodeId, variables],
   );
-
   // 结构级变更历史（添加/删除/连线/粘贴等），用于撤销重做。
   // 位置拖动不入栈——避免每次拖动都产生快照。
   const commitHistory = useCallback(() => {
@@ -4808,6 +4949,11 @@ function WorkflowCanvas({
   const handleQuickAddPick = useCallback(
     (kind: string) => {
       if (!quickAddMenu) return;
+      if (onSave && INDEPENDENT_DEPLOYMENT_NODE_KINDS.has(kind as WorkflowNodeKind)) {
+        setErrorNotice("Xpert 内嵌画布不能使用独立部署节点。");
+        setQuickAddMenu(null);
+        return;
+      }
       const position = screenToFlowPosition({
         x: quickAddMenu.x,
         y: quickAddMenu.y,
@@ -4829,7 +4975,7 @@ function WorkflowCanvas({
       setSelectedNodeId(node.id);
       setQuickAddMenu(null);
     },
-    [commitHistory, quickAddMenu, screenToFlowPosition, setEdges, setNodes],
+    [commitHistory, onSave, quickAddMenu, screenToFlowPosition, setEdges, setNodes],
   );
 
   const handleConnectEnd: OnConnectEnd = useCallback((event, connectionState) => {
@@ -4850,7 +4996,11 @@ function WorkflowCanvas({
       ) {
         return;
       }
-      if (fromNode.data.kind === "output" || fromNode.data.kind === "annotation") {
+      if (
+        fromNode.data.kind === "output" ||
+        fromNode.data.kind === "http_event_reply" ||
+        fromNode.data.kind === "annotation"
+      ) {
         return;
       }
       setQuickAddMenu({
@@ -4863,28 +5013,69 @@ function WorkflowCanvas({
     [],
   );
 
-  async function saveWorkflow() {
+  async function persistIndependentWorkflow(
+    savedDefinition: WorkflowDefinition,
+  ): Promise<string> {
+    saveStoredWorkflow(savedDefinition);
+    if (workflowId.startsWith("wf_") && projectRevision !== null) {
+      const project = await saveWorkflowProjectDraft(
+        workflowId,
+        projectRevision,
+        savedDefinition,
+      );
+      setProjectRevision(project.draft_revision);
+      setActiveDeployment(project.active_deployment ?? null);
+      return project.project_id;
+    }
+    const project = await createWorkflowProject(savedDefinition);
+    setProjectRevision(project.draft_revision);
+    setActiveDeployment(project.active_deployment ?? null);
+    navigate(`/workflow/${project.project_id}`, { replace: true });
+    return project.project_id;
+  }
+
+  async function saveWorkflow(): Promise<string | null> {
     const savedDefinition = stripRunStatus({
       ...definition,
       updatedAt: new Date().toISOString(),
     });
     setIsSaving(true);
+    let savedProjectId: string | null = null;
     try {
       if (onSave) {
         await onSave(savedDefinition);
         setSaveNotice("智能体草稿已保存");
       } else {
-        saveStoredWorkflow(savedDefinition);
-        setSaveNotice("已保存到本地草稿箱");
+        savedProjectId = await persistIndependentWorkflow(savedDefinition);
+        setSaveNotice("服务端草稿已保存；本地副本已保留");
       }
+      setErrorNotice("");
     } catch (error) {
-      setSaveNotice(
+      setErrorNotice(
         error instanceof Error ? error.message : "草稿保存失败，请稍后重试",
       );
     } finally {
       setIsSaving(false);
     }
     window.setTimeout(() => setSaveNotice(""), 1800);
+    return savedProjectId;
+  }
+
+  async function rotateWebhookKey() {
+    if (!activeDeployment?.active || activeDeployment.trigger_kind !== "http") return;
+    setIsPublishing(true);
+    try {
+      const deployment = await rotateWorkflowWebhookKey(
+        workflowId,
+        activeDeployment.version,
+      );
+      setActiveDeployment(deployment);
+      setOneTimeWebhookKey(deployment.webhook_key ?? "");
+    } catch (error) {
+      setErrorNotice(error instanceof Error ? error.message : "密钥轮换失败。");
+    } finally {
+      setIsPublishing(false);
+    }
   }
 
   async function convertToXpertDraft() {
@@ -4973,6 +5164,10 @@ function WorkflowCanvas({
 
     const kind = rawKind as WorkflowNodeKind;
     if (!kind) return;
+    if (onSave && INDEPENDENT_DEPLOYMENT_NODE_KINDS.has(kind)) {
+      setErrorNotice("Xpert 内嵌画布不能使用独立部署节点。");
+      return;
+    }
 
     try {
       const nextNode = createNode(kind, position.x, position.y);
@@ -5090,7 +5285,9 @@ function WorkflowCanvas({
             </button>
           </div>
           <div className="mt-4">
-            <NodePalette />
+            <NodePalette
+              excludeKinds={onSave ? Array.from(INDEPENDENT_DEPLOYMENT_NODE_KINDS) : []}
+            />
           </div>
         </aside>
       ) : null}
@@ -5150,6 +5347,21 @@ function WorkflowCanvas({
                 {saveNotice}
               </span>
             ) : null}
+            {!onSave && activeDeployment?.next_run_at ? (
+              <span className="rounded-md border border-amber-300/20 bg-amber-300/10 px-2.5 py-1 text-[11px] text-amber-100">
+                下次 {new Date(activeDeployment.next_run_at * 1000).toLocaleString()}
+              </span>
+            ) : null}
+            {!onSave && activeDeployment?.active && activeDeployment.trigger_kind === "http" ? (
+              <button
+                className="rounded-md border border-cyan-300/30 bg-cyan-300/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 disabled:opacity-50"
+                disabled={isPublishing}
+                onClick={() => void rotateWebhookKey()}
+                type="button"
+              >
+                轮换密钥
+              </button>
+            ) : null}
             {!onSave ? (
               <button
                 className="rounded-md border border-cyan-300/30 bg-cyan-300/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/20 disabled:opacity-50"
@@ -5170,6 +5382,36 @@ function WorkflowCanvas({
             </button>
           </div>
         </div>
+
+        {oneTimeWebhookKey ? (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-6">
+            <div className="w-full max-w-xl rounded-xl border border-cyan-300/30 bg-slate-950 p-5 shadow-2xl">
+              <h3 className="text-base font-semibold text-white">Webhook 密钥仅显示一次</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                请立即复制并安全保存。关闭后服务端只保留 SHA-256 哈希，无法再次查看。
+              </p>
+              <code className="mt-4 block break-all rounded-lg border border-white/10 bg-black/30 p-3 text-sm text-cyan-100">
+                {oneTimeWebhookKey}
+              </code>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-slate-200"
+                  onClick={() => void navigator.clipboard.writeText(oneTimeWebhookKey)}
+                  type="button"
+                >
+                  复制
+                </button>
+                <button
+                  className="rounded-md bg-cyan-300 px-3 py-1.5 text-xs font-semibold text-slate-950"
+                  onClick={() => setOneTimeWebhookKey("")}
+                  type="button"
+                >
+                  我已保存，关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div
           className="h-[calc(100vh-15rem)] min-h-[520px] overflow-hidden rounded-b-lg"
@@ -5428,6 +5670,24 @@ function WorkflowCanvas({
               : "hidden"
           }
         >
+          {!onSave && deploymentExecutions[0] ? (
+            <div className="mb-3 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.06] p-3 text-xs text-slate-300">
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                <span>触发：{deploymentExecutions[0].trigger_kind}</span>
+                <span>固定版本：v{deploymentExecutions[0].version}</span>
+                <span>状态：{deploymentExecutions[0].status}</span>
+                {deploymentExecutions[0].wait_kind ? (
+                  <span>等待：{deploymentExecutions[0].wait_kind}</span>
+                ) : null}
+                {deploymentExecutions[0].resume_at ? (
+                  <span>
+                    恢复时间：
+                    {new Date(deploymentExecutions[0].resume_at * 1000).toLocaleString()}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           <WorkflowRun
             definition={definition}
             embedded

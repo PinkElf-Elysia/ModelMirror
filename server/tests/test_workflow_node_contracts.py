@@ -38,6 +38,30 @@ EXPECTED_PLANNER_KINDS = {
     "plugin_resource",
 }
 
+BASELINE_213_COMPATIBILITY_KINDS = {
+    "agent",
+    "agent_handoff",
+    "agent_task",
+    "code",
+    "condition",
+    "document_extractor",
+    "handoff_router",
+    "http_request",
+    "human_intervention",
+    "iteration",
+    "knowledge_citation",
+    "list_operation",
+    "llm",
+    "mcp_tool",
+    "parameter_extractor",
+    "question_classifier",
+    "template_transform",
+    "time_tool",
+    "variable_aggregator",
+    "variable_assign",
+}
+PROMOTED_COMPLETE_KINDS = {"llm"}
+
 
 def test_contract_registry_covers_every_native_kind_once() -> None:
     expected = set(get_args(NativeNodeKind))
@@ -65,6 +89,30 @@ def test_contract_projection_and_checksums_are_deterministic() -> None:
         assert item["execution"]
         assert item["availability"]
         assert item["planner"]
+
+
+def test_compatibility_contracts_cannot_expand_beyond_pr_213_baseline() -> None:
+    compatibility = {
+        contract.kind
+        for contract in workflow_node_contract_registry.list()
+        if contract.contract_status == "compatibility"
+    }
+
+    assert compatibility == BASELINE_213_COMPATIBILITY_KINDS - PROMOTED_COMPLETE_KINDS
+
+
+def test_llm_contract_is_complete_without_enabling_planner() -> None:
+    contract = workflow_node_contract_registry.require("llm")
+
+    assert contract.contract_status == "complete"
+    assert set(contract.config_schema["required"]) == {
+        "modelId",
+        "prompt",
+        "outputVariable",
+    }
+    assert contract.execution.external_io is True
+    assert contract.execution.can_wait is False
+    assert contract.planner.enabled is False
 
 
 def test_only_current_seven_nodes_have_valid_planner_contracts() -> None:
@@ -135,6 +183,12 @@ def test_workflow_agent_adapter_round_trip_is_stable() -> None:
 
 
 def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
+    independent_deployment_kinds = {
+        "scheduled_start",
+        "http_event_entry",
+        "suspend_wait",
+        "http_event_reply",
+    }
     evaluation_denied = {
         "agent_handoff",
         "handoff_router",
@@ -144,6 +198,10 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "data_table_insert",
         "data_table_update",
         "data_table_delete",
+        "scheduled_start",
+        "http_event_entry",
+        "suspend_wait",
+        "http_event_reply",
     }
     app_denied = {
         "external_xpert",
@@ -154,6 +212,10 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "data_table_insert",
         "data_table_update",
         "data_table_delete",
+        "scheduled_start",
+        "http_event_entry",
+        "suspend_wait",
+        "http_event_reply",
     }
 
     assert {
@@ -166,6 +228,10 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         for kind in workflow_node_contract_registry.kinds()
         if not node_policy_service.decision(kind, "app").allowed
     } == app_denied
+    assert all(
+        not node_policy_service.decision(kind, "xpert").allowed
+        for kind in independent_deployment_kinds
+    )
     assert node_policy_service.evolution_control_kinds() == {"workflow_agent"}
     assert not node_policy_service.decision("not-a-node", "app").allowed
 
@@ -204,7 +270,7 @@ def test_old_capability_snapshot_remains_readable() -> None:
     assert snapshot.contract_checksum == ""
 
 
-def test_registry_ui_projection_is_v3_and_contains_no_runtime_payloads() -> None:
+def test_registry_ui_projection_is_v4_and_contains_no_runtime_payloads() -> None:
     payload = workflow_node_registry.to_payload()
     serialized = str(payload).lower()
     items = [
@@ -213,7 +279,7 @@ def test_registry_ui_projection_is_v3_and_contains_no_runtime_payloads() -> None
         for item in section["items"]
     ] + list(payload["knowledge_pipeline"]["items"])
 
-    assert payload["version"] == "xpert-workflow-node-registry-v3"
+    assert payload["version"] == "xpert-workflow-node-registry-v4"
     assert payload["contract_version"] == 3
     assert payload["contract_checksum"] == workflow_node_contract_registry.checksum
     assert all(item["contract"]["kind"] == item["kind"] for item in items)

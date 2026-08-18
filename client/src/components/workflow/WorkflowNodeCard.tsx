@@ -10,6 +10,34 @@ const nodeMeta = {
     bg: "bg-slate-300/10",
     text: "text-slate-100",
   },
+  scheduled_start: {
+    icon: "⏱",
+    label: "定时启动",
+    border: "border-amber-300/40",
+    bg: "bg-amber-300/10",
+    text: "text-amber-100",
+  },
+  http_event_entry: {
+    icon: "POST",
+    label: "HTTP 事件入口",
+    border: "border-cyan-300/40",
+    bg: "bg-cyan-300/10",
+    text: "text-cyan-100",
+  },
+  suspend_wait: {
+    icon: "WAIT",
+    label: "挂起等待",
+    border: "border-amber-300/40",
+    bg: "bg-amber-300/10",
+    text: "text-amber-100",
+  },
+  http_event_reply: {
+    icon: "↩",
+    label: "HTTP 事件回执",
+    border: "border-cyan-300/40",
+    bg: "bg-cyan-300/10",
+    text: "text-cyan-100",
+  },
   llm: {
     icon: "🤖",
     label: "LLM 工位",
@@ -360,6 +388,8 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
         </>
       ) : ![
           "input",
+          "scheduled_start",
+          "http_event_entry",
           "external_xpert",
           "knowledge_base",
           "toolset_resource",
@@ -466,7 +496,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           title="绑定到 workflow_agent 的 plugin 入口"
           type="source"
         />
-      ) : !["output", "annotation"].includes(data.kind) ? (
+      ) : !["output", "http_event_reply", "annotation"].includes(data.kind) ? (
         <Handle
           className="!h-3 !w-3 !border-2 !border-surface-900 !bg-hire-300"
           position={Position.Right}

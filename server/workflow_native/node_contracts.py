@@ -478,6 +478,175 @@ def _complete_contracts() -> dict[str, NodeContract]:
             default_data={"variableName": "user_input"},
         ),
     )
+    deployment_only_availability = NodeAvailabilityPolicy(
+        workflow=_rule("allow"),
+        xpert=_rule(
+            "deny",
+            code="deployment_node_xpert_forbidden",
+            message="Independent deployment nodes are unavailable in Xpert workflows.",
+        ),
+        goal=_rule("deny"),
+        handoff=_rule("deny"),
+        app=_rule("deny"),
+        evaluation=_rule("deny"),
+        evolution=_rule("deny"),
+    )
+    event_value = WorkflowValueSchema(type="object")
+    contracts["scheduled_start"] = NodeContract(
+        kind="scheduled_start",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "scheduleType": {"type": "string", "enum": ["once", "interval", "cron"]},
+                "onceAt": {"type": "string"},
+                "intervalSeconds": {"type": "integer", "minimum": 30, "maximum": 31_536_000},
+                "cronExpression": {"type": "string"},
+                "timezone": {"type": "string"},
+                "eventVariable": {"type": "string"},
+            },
+            required=["scheduleType", "timezone", "eventVariable"],
+        ),
+        ports=(NodePortContract(name="event", direction="output", value_schema=event_value),),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=False,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="private_trigger",
+        ),
+        availability=deployment_only_availability,
+        planner=_planner(),
+    )
+    contracts["http_event_entry"] = NodeContract(
+        kind="http_event_entry",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "eventVariable": {"type": "string"},
+                "bodyVariable": {"type": "string"},
+                "acceptedContentType": {
+                    "type": "string",
+                    "enum": ["both", "json", "text"],
+                },
+                "maxBodyBytes": {
+                    "type": "integer",
+                    "minimum": 1_024,
+                    "maximum": 1_048_576,
+                },
+            },
+            required=["eventVariable"],
+        ),
+        ports=(
+            NodePortContract(name="event", direction="output", value_schema=event_value),
+            NodePortContract(name="body", direction="output", value_schema=any_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_read",
+            deterministic=False,
+            idempotent=True,
+            external_io=True,
+            error_semantics="fail_closed",
+            security_category="private_webhook",
+        ),
+        availability=deployment_only_availability,
+        planner=_planner(),
+    )
+    contracts["suspend_wait"] = NodeContract(
+        kind="suspend_wait",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "waitMode": {"type": "string", "enum": ["duration", "until"]},
+                "durationSeconds": {"type": "integer", "minimum": 1, "maximum": 2_592_000},
+                "untilTemplate": {"type": "string"},
+                "untilInputMode": {"type": "string", "enum": ["fixed", "template"]},
+                "untilTimezone": {"type": "string"},
+                "outputVariable": {"type": "string"},
+            },
+            required=["waitMode", "outputVariable"],
+        ),
+        ports=(
+            NodePortContract(name="input", direction="input", value_schema=any_value, required=False),
+            NodePortContract(name="resumed", direction="output", value_schema=event_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=False,
+            idempotent=True,
+            can_wait=True,
+            error_semantics="fail_closed",
+            security_category="durable_timer",
+        ),
+        availability=deployment_only_availability,
+        planner=_planner(),
+    )
+    contracts["http_event_reply"] = NodeContract(
+        kind="http_event_reply",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "statusCode": {"type": "integer", "minimum": 200, "maximum": 599},
+                "responseBodyType": {"type": "string", "enum": ["text", "json"]},
+                "bodyTemplate": {"type": "string"},
+            },
+            required=["statusCode", "responseBodyType"],
+        ),
+        ports=(NodePortContract(name="response", direction="input", value_schema=any_value, required=False),),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=True,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="private_webhook_reply",
+        ),
+        availability=deployment_only_availability,
+        planner=_planner(),
+    )
+    contracts["llm"] = NodeContract(
+        kind="llm",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "modelId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                },
+                "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100_000,
+                },
+                "outputVariable": {
+                    "type": "string",
+                    "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+                },
+            },
+            required=["modelId", "prompt", "outputVariable"],
+        ),
+        ports=(
+            NodePortContract(
+                name="prompt",
+                direction="input",
+                value_schema=string_value,
+                required=False,
+            ),
+            NodePortContract(
+                name="result",
+                direction="output",
+                value_schema=string_value,
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_read",
+            deterministic=False,
+            idempotent=False,
+            external_io=True,
+            error_semantics="fail_closed",
+            security_category="model",
+        ),
+        planner=_planner(),
+    )
     contracts["output"] = NodeContract(
         kind="output",
         contract_status="complete",

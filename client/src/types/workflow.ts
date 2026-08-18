@@ -3,6 +3,8 @@ import { type RuntimeMiddlewareField } from "./runtimeMiddleware";
 
 export type WorkflowNodeKind =
   | "input"
+  | "scheduled_start"
+  | "http_event_entry"
   | "llm"
   | "condition"
   | "code"
@@ -38,6 +40,8 @@ export type WorkflowNodeKind =
   | "data_table_delete"
   | "annotation"
   | "runtime_middleware"
+  | "suspend_wait"
+  | "http_event_reply"
   | "output";
 
 export type WorkflowValue =
@@ -81,6 +85,22 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   title: string;
   description: string;
   variableName?: string;
+  eventVariable?: string;
+  scheduleType?: "once" | "interval" | "cron";
+  onceAt?: string;
+  intervalSeconds?: number | string;
+  cronExpression?: string;
+  timezone?: string;
+  acceptedContentType?: "both" | "json" | "text";
+  maxBodyBytes?: number | string;
+  waitMode?: "duration" | "until";
+  untilInputMode?: "fixed" | "template";
+  untilTimezone?: string;
+  durationSeconds?: number | string;
+  untilTemplate?: string;
+  statusCode?: number | string;
+  responseBodyType?: "text" | "json";
+  bodyTemplate?: string;
   modelId?: string;
   prompt?: string;
   outputVariable?: string;
@@ -221,6 +241,7 @@ export interface WorkflowRunEvent {
     | "runtime_approval_pending"
     | "runtime_approval_resolved"
     | "client_tool_waiting"
+    | "timer_waiting"
     | "client_tool_dispatched"
     | "client_tool_completed"
     | "office_document_bound"
@@ -247,6 +268,9 @@ export interface WorkflowRunEvent {
   approval_status?: string;
   request_id?: string;
   request_status?: string;
+  wait_kind?: string;
+  wait_id?: string;
+  resume_at?: number;
   host_id?: string;
   request_type?: "tool_call" | "final_output" | "manual_input";
   tool_name?: string;

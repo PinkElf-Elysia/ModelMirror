@@ -21,6 +21,7 @@ WorkflowExecutionStatus = Literal[
 ]
 WorkflowExecutionSourceKind = Literal[
     "workflow_classic",
+    "workflow_deployment",
     "xpert_chat",
     "expert_team_agency",
 ]
@@ -51,6 +52,7 @@ class WorkflowExecution:
     continuation: dict[str, Any] = field(default_factory=dict)
     wait_kind: str | None = None
     wait_id: str | None = None
+    resume_at: float | None = None
     approval_id: str | None = None
     result: str | None = None
     error: str | None = None
@@ -205,6 +207,7 @@ class WorkflowExecutionStore:
         wait_id: str | None = None,
         continuation: dict[str, Any],
         safe_event: dict[str, Any] | None = None,
+        resume_at: float | None = None,
     ) -> WorkflowExecution:
         with self._lock:
             item = self._require_unlocked(task_id)
@@ -221,6 +224,7 @@ class WorkflowExecutionStore:
             item.approval_id = (
                 resolved_wait_id if item.wait_kind == "approval" else None
             )
+            item.resume_at = float(resume_at) if resume_at is not None else None
             item.continuation = dict(continuation)
             item.lease_owner = None
             item.lease_token = None
@@ -254,6 +258,25 @@ class WorkflowExecutionStore:
             item.revision += 1
             self._persist_unlocked()
             return item
+
+    def list_due_timers(
+        self,
+        *,
+        now: float | None = None,
+        limit: int = 100,
+    ) -> list[WorkflowExecution]:
+        current = time.time() if now is None else float(now)
+        with self._lock:
+            items = [
+                item
+                for item in self._items.values()
+                if item.status == "waiting"
+                and item.wait_kind == "timer"
+                and item.resume_at is not None
+                and item.resume_at <= current
+            ]
+        items.sort(key=lambda item: (item.resume_at or 0.0, item.task_id))
+        return items[: max(1, min(int(limit), 1000))]
 
     def claim(
         self,
@@ -420,6 +443,7 @@ class WorkflowExecutionStore:
             item.approval_id = None
             item.wait_kind = None
             item.wait_id = None
+            item.resume_at = None
             item.continuation = {}
             item.lease_owner = None
             item.lease_token = None
@@ -441,6 +465,7 @@ class WorkflowExecutionStore:
             "approval_id": item.approval_id,
             "wait_kind": item.wait_kind,
             "wait_id": item.wait_id,
+            "resume_at": item.resume_at,
             "result": item.result,
             "error": item.error,
             "revision": item.revision,
@@ -486,6 +511,7 @@ class WorkflowExecutionStore:
             "approval_id",
             "wait_kind",
             "wait_id",
+            "resume_at",
             "approval_status",
             "request_type",
             "request_id",
@@ -607,6 +633,7 @@ class WorkflowExecutionStore:
             return None
         expected_run_types = {
             "workflow_classic": "workflow",
+            "workflow_deployment": "workflow",
             "xpert_chat": "xpert",
             "expert_team_agency": "expert_team",
         }
