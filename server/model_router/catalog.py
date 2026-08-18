@@ -26,6 +26,7 @@ except ModuleNotFoundError:
     )
 
 from .api import get_model_router_service
+from .model_ids import is_realtime_chat_model_id
 from .schemas import RouterConnection
 from .service import ModelRouterService
 
@@ -152,6 +153,8 @@ class NativeCatalogService:
             return []
         models: list[ModelCandidate] = []
         for record in records:
+            if not is_realtime_chat_model_id(record.get("id")):
+                continue
             architecture = record.get("architecture")
             architecture = architecture if isinstance(architecture, dict) else {}
             normalized = normalize_model(

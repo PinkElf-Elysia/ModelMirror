@@ -865,6 +865,7 @@ except ModuleNotFoundError:
 try:
     from server.model_router import (
         NoEligibleCandidateError,
+        classify_task,
         get_model_router_service,
         get_native_router_engine,
         infer_task_tags,
@@ -874,6 +875,7 @@ try:
 except ModuleNotFoundError:
     from model_router import (
         NoEligibleCandidateError,
+        classify_task,
         get_model_router_service,
         get_native_router_engine,
         infer_task_tags,
@@ -887,9 +889,13 @@ except ModuleNotFoundError:
     from model_router.api import get_catalog_coordinator
 
 try:
-    from server.context_engine import estimate_messages_tokens, optimize_context
+    from server.context_engine import (
+        estimate_messages_tokens,
+        estimate_text_tokens,
+        optimize_context,
+    )
 except ModuleNotFoundError:
-    from context_engine import estimate_messages_tokens, optimize_context
+    from context_engine import estimate_messages_tokens, estimate_text_tokens, optimize_context
 
 try:
     from server.multimodal import router as multimodal_router
@@ -3371,6 +3377,45 @@ def llm_client_kwargs() -> dict[str, Any]:
     if proxy:
         client_kwargs["proxy"] = proxy
     return client_kwargs
+
+
+_shared_llm_client: httpx.AsyncClient | None = None
+_shared_llm_client_factory: object | None = None
+_shared_llm_client_lock = asyncio.Lock()
+
+
+async def get_shared_llm_client() -> httpx.AsyncClient:
+    """Reuse the connection pool for native routing and its bounded fallbacks."""
+
+    global _shared_llm_client, _shared_llm_client_factory
+    if (
+        _shared_llm_client is not None
+        and not bool(getattr(_shared_llm_client, "is_closed", False))
+        and _shared_llm_client_factory is httpx.AsyncClient
+    ):
+        return _shared_llm_client
+    async with _shared_llm_client_lock:
+        if (
+            _shared_llm_client is not None
+            and _shared_llm_client_factory is not httpx.AsyncClient
+        ):
+            await _shared_llm_client.aclose()
+            _shared_llm_client = None
+        if _shared_llm_client is None or bool(
+            getattr(_shared_llm_client, "is_closed", False)
+        ):
+            _shared_llm_client = httpx.AsyncClient(**llm_client_kwargs())
+            _shared_llm_client_factory = httpx.AsyncClient
+        return _shared_llm_client
+
+
+async def close_shared_llm_client() -> None:
+    global _shared_llm_client, _shared_llm_client_factory
+    client = _shared_llm_client
+    _shared_llm_client = None
+    _shared_llm_client_factory = None
+    if client is not None and not bool(getattr(client, "is_closed", False)):
+        await client.aclose()
 
 
 def openrouter_client_kwargs() -> dict[str, Any]:
@@ -18743,6 +18788,7 @@ async def start_mcp_ttl_cleanup() -> None:
 
 @app.on_event("shutdown")
 async def shutdown_mcp_sessions() -> None:
+    await close_shared_llm_client()
     await get_pipeline_executor().stop()
     await get_evaluation_executor().stop()
     await get_strategy_tuner().stop()
@@ -20580,6 +20626,8 @@ async def chat(payload: ChatRequest, request: Request):
     native_fallback_attempts = 0
     native_attempt_started_at = 0.0
     native_current_failure_recorded = False
+    planning_optimization = None
+    observed_task_type = "medium"
     if use_native_router or shadow_native_router:
         requested_mode = payload.routing.mode if payload.routing else None
         native_mode = native_router_engine.mode_for_request(
@@ -20606,6 +20654,14 @@ async def chat(payload: ChatRequest, request: Request):
             ),
             "",
         )
+        native_task = classify_task(
+            latest_user_text,
+            message_count=len(payload.messages),
+            tool_count=(1 if payload.tool_mode == "mcp_tools" else 0),
+            output_tokens=payload.max_tokens,
+            system_prompt=request.headers.get("x-system-prompt", ""),
+        )
+        observed_task_type = native_task.intent
         if not preferred_tags:
             preferred_tags.update(infer_task_tags(latest_user_text))
             if not preferred_tags:
@@ -20643,6 +20699,8 @@ async def chat(payload: ChatRequest, request: Request):
                     else "cheapest"
                 ),
                 audit_engine="native" if use_native_router else "shadow",
+                task_type=native_task.intent,
+                task_level=native_task.level,
             )
         except NoEligibleCandidateError as exc:
             if use_native_router:
@@ -20682,14 +20740,20 @@ async def chat(payload: ChatRequest, request: Request):
             if payload.compression is not None
             else native_router_policy.compression_mode
         )
-        optimization = await optimize_context(
-            chat_messages_json(payload.messages),
-            profile=compression_mode,
-            max_context_tokens=(
-                native_plan.targets[0].context_length or 128_000
-            ),
-            max_output_tokens=payload.max_tokens,
-        )
+        selected_context = native_plan.targets[0].context_length or 128_000
+        if (
+            planning_optimization is not None
+            and planning_optimization.report.final_tokens + payload.max_tokens
+            <= selected_context
+        ):
+            optimization = planning_optimization
+        else:
+            optimization = await optimize_context(
+                chat_messages_json(payload.messages),
+                profile=compression_mode,
+                max_context_tokens=selected_context,
+                max_output_tokens=payload.max_tokens,
+            )
         native_compression_report = optimization.report.as_dict()
         record_compression = getattr(
             get_model_router_service().repository,
@@ -20759,7 +20823,16 @@ async def chat(payload: ChatRequest, request: Request):
                 exc,
             )
 
-    client = httpx.AsyncClient(**llm_client_kwargs())
+    client_is_shared = bool(use_native_router)
+    client = (
+        await get_shared_llm_client()
+        if client_is_shared
+        else httpx.AsyncClient(**llm_client_kwargs())
+    )
+
+    async def close_request_client() -> None:
+        if not client_is_shared:
+            await client.aclose()
     actual_model_id = (
         native_plan.targets[0].model_id
         if use_native_router and native_plan is not None
@@ -20925,6 +20998,7 @@ async def chat(payload: ChatRequest, request: Request):
             runtime_status = "completed"
             runtime_error: str | None = None
             tool_stream_started_at = time.perf_counter()
+            tool_ttft_ms: float | None = None
             try:
                 async for delta in stream_chat_toolset_text(
                     payload,
@@ -20938,6 +21012,10 @@ async def chat(payload: ChatRequest, request: Request):
                     gateway_url=url if use_native_router else None,
                     gateway_key=key if use_native_router else None,
                 ):
+                    if tool_ttft_ms is None and delta:
+                        tool_ttft_ms = (
+                            time.perf_counter() - tool_stream_started_at
+                        ) * 1000
                     accumulated_chunks.append(delta)
                     yield chat_sse_delta(delta)
                     await asyncio.sleep(0)
@@ -20946,12 +21024,23 @@ async def chat(payload: ChatRequest, request: Request):
                     elapsed_ms = (
                         time.perf_counter() - tool_stream_started_at
                     ) * 1000
+                    output_tokens = estimate_text_tokens(
+                        "".join(accumulated_chunks)
+                    )
+                    generation_seconds = max(
+                        0.001,
+                        (elapsed_ms - (tool_ttft_ms or 0.0)) / 1000,
+                    )
                     native_router_engine.record_outcome(
                         native_plan,
                         selected_target,
                         success=True,
                         latency_ms=elapsed_ms,
                         outcome="success",
+                        ttft_ms=tool_ttft_ms,
+                        e2e_ms=elapsed_ms,
+                        output_tokens=output_tokens,
+                        tokens_per_second=output_tokens / generation_seconds,
                     )
                     tool_actual_cost, tool_budget_status = (
                         native_router_engine.settle_budget(
@@ -20970,6 +21059,14 @@ async def chat(payload: ChatRequest, request: Request):
                             "engine": "native",
                             "reason_codes": list(native_plan.reason_codes),
                             "latency_ms": round(elapsed_ms, 2),
+                            "ttft_ms": (
+                                round(tool_ttft_ms, 2)
+                                if tool_ttft_ms is not None
+                                else None
+                            ),
+                            "task_type": native_plan.task_type,
+                            "selection_kind": native_plan.selection_kind,
+                            "algorithm_version": native_plan.algorithm_version,
                             "tokens": {
                                 "input": None,
                                 "output": None,
@@ -21040,7 +21137,7 @@ async def chat(payload: ChatRequest, request: Request):
                     except Exception as update_exc:
                         logger.warning("Chat runtime run completion update failed: %s", update_exc)
                 yield b"data: [DONE]\n\n"
-                await client.aclose()
+                await close_request_client()
                 await finalize_runtime(
                     runtime_status,
                     payload.model_id,
@@ -21290,6 +21387,7 @@ async def chat(payload: ChatRequest, request: Request):
             raise last_error
         raise httpx.ConnectError("No native dispatch target was available.")
 
+    chat_request_started_at = time.perf_counter()
     try:
         response = await send_initial_response()
     except httpx.TimeoutException:
@@ -21302,7 +21400,7 @@ async def chat(payload: ChatRequest, request: Request):
             logger.exception("OpenRouter request timed out model=%s", actual_model_id)
         finalize_native_audio_failure("timeout")
         await finalize_runtime("error", actual_model_id, error="timeout")
-        await client.aclose()
+        await close_request_client()
         return JSONResponse(status_code=504, content={"error": "模型响应超时，请稍后重试。"})
     except httpx.HTTPError as exc:
         if direct_file_requested:
@@ -21322,7 +21420,7 @@ async def chat(payload: ChatRequest, request: Request):
             actual_model_id,
             error="transport_error" if direct_file_requested else str(exc),
         )
-        await client.aclose()
+        await close_request_client()
         return JSONResponse(status_code=502, content={"error": "模型服务暂时无法连接，请检查网络或代理配置。"})
     except Exception:
         if direct_file_requested:
@@ -21337,7 +21435,7 @@ async def chat(payload: ChatRequest, request: Request):
             )
         finalize_native_audio_failure("upstream_error")
         await finalize_runtime("error", actual_model_id, error="unexpected upstream error")
-        await client.aclose()
+        await close_request_client()
         return JSONResponse(status_code=500, content={"error": "后端代理请求时出错，请查看服务日志。"})
 
     if response.status_code >= 400:
@@ -21407,7 +21505,7 @@ async def chat(payload: ChatRequest, request: Request):
                         actual_model_id,
                     )
                 await finalize_runtime("error", actual_model_id, error="gateway fallback timeout")
-                await client.aclose()
+                await close_request_client()
                 return JSONResponse(
                     status_code=504,
                     content={"error": "OpenRouter 兜底模型响应超时，请稍后重试。"},
@@ -21433,7 +21531,7 @@ async def chat(payload: ChatRequest, request: Request):
                         else str(exc)
                     ),
                 )
-                await client.aclose()
+                await close_request_client()
                 return JSONResponse(
                     status_code=502,
                     content={"error": "本地 newAPI 当前不可用，OpenRouter 兜底也暂时无法连接。"},
@@ -21458,7 +21556,7 @@ async def chat(payload: ChatRequest, request: Request):
                         fallback_body,
                     )
                 await finalize_runtime("error", actual_model_id, error=fallback_message)
-                await client.aclose()
+                await close_request_client()
                 return JSONResponse(
                     status_code=response.status_code,
                     content={
@@ -21495,7 +21593,7 @@ async def chat(payload: ChatRequest, request: Request):
                     actual_model_id,
                     error="no multimodal fallback model",
                 )
-                await client.aclose()
+                await close_request_client()
                 return JSONResponse(
                     status_code=response.status_code,
                     content={"error": "该模型在当前地区暂不可用，且当前图片请求没有可用的多模态兜底模型。"},
@@ -21519,7 +21617,7 @@ async def chat(payload: ChatRequest, request: Request):
                         fallback_model_id,
                     )
                 await finalize_runtime("error", fallback_model_id, error="fallback timeout")
-                await client.aclose()
+                await close_request_client()
                 return JSONResponse(status_code=504, content={"error": "兜底模型响应超时，请稍后重试。"})
             except httpx.HTTPError as exc:
                 if direct_file_requested:
@@ -21542,13 +21640,13 @@ async def chat(payload: ChatRequest, request: Request):
                         else str(exc)
                     ),
                 )
-                await client.aclose()
+                await close_request_client()
                 return JSONResponse(status_code=502, content={"error": "当前模型和兜底模型都暂时无法连接。"})
 
             if response.status_code >= 400:
                 fallback_body = await response.aread()
                 await response.aclose()
-                await client.aclose()
+                await close_request_client()
                 if direct_file_requested:
                     fallback_message, fallback_error_code = (
                         chat_file_upstream_error(response.status_code)
@@ -21593,7 +21691,7 @@ async def chat(payload: ChatRequest, request: Request):
                 )
             await finalize_runtime("error", actual_model_id, error=message)
             finalize_native_audio_failure(f"http_{response.status_code}")
-            await client.aclose()
+            await close_request_client()
             return JSONResponse(
                 status_code=response.status_code,
                 content={"error": message},
@@ -21627,6 +21725,7 @@ async def chat(payload: ChatRequest, request: Request):
         runtime_error: str | None = None
         terminal_error_emitted = False
         final_transport_completed = False
+        final_ttft_ms: float | None = None
         selected_target = native_plan.targets[native_target_index]
 
         while native_target_index < len(native_plan.targets):
@@ -21690,6 +21789,7 @@ async def chat(payload: ChatRequest, request: Request):
             candidate_chunks: list[str] = []
             buffer = ""
             content_started = False
+            attempt_ttft_ms: float | None = None
             stream_transport_finished = False
             deferred_done = False
             stream_exception: Exception | None = None
@@ -21721,6 +21821,10 @@ async def chat(payload: ChatRequest, request: Request):
                             pending.append(encoded)
                             if state.get("content_observed"):
                                 content_started = True
+                                attempt_ttft_ms = (
+                                    time.perf_counter()
+                                    - native_attempt_started_at
+                                ) * 1000
                                 for pending_line in pending:
                                     yield pending_line
                                 pending.clear()
@@ -21753,6 +21857,10 @@ async def chat(payload: ChatRequest, request: Request):
                             pending.append(encoded)
                             if state.get("content_observed"):
                                 content_started = True
+                                attempt_ttft_ms = (
+                                    time.perf_counter()
+                                    - native_attempt_started_at
+                                ) * 1000
                                 for pending_line in pending:
                                     yield pending_line
                                 pending.clear()
@@ -21773,7 +21881,17 @@ async def chat(payload: ChatRequest, request: Request):
             if content_started:
                 accumulated_chunks.extend(candidate_chunks)
                 final_state = state
+                final_ttft_ms = attempt_ttft_ms
                 final_transport_completed = stream_transport_finished
+                recorded_output_tokens = (
+                    state.get("tokens_out")
+                    if isinstance(state.get("tokens_out"), int)
+                    else estimate_text_tokens("".join(candidate_chunks))
+                )
+                generation_seconds = max(
+                    0.001,
+                    (elapsed_ms - (attempt_ttft_ms or 0.0)) / 1000,
+                )
                 if stream_completed:
                     runtime_status = (
                         "output_limit"
@@ -21790,6 +21908,12 @@ async def chat(payload: ChatRequest, request: Request):
                             if runtime_status == "output_limit"
                             else "success"
                         ),
+                        ttft_ms=attempt_ttft_ms,
+                        e2e_ms=elapsed_ms,
+                        output_tokens=recorded_output_tokens,
+                        tokens_per_second=(
+                            recorded_output_tokens / generation_seconds
+                        ),
                     )
                 else:
                     runtime_error = "stream interrupted"
@@ -21799,6 +21923,12 @@ async def chat(payload: ChatRequest, request: Request):
                         success=False,
                         latency_ms=elapsed_ms,
                         outcome="stream_interrupted",
+                        ttft_ms=attempt_ttft_ms,
+                        e2e_ms=elapsed_ms,
+                        output_tokens=recorded_output_tokens,
+                        tokens_per_second=(
+                            recorded_output_tokens / generation_seconds
+                        ),
                     )
                     error_payload = {
                         "error": {
@@ -21897,6 +22027,14 @@ async def chat(payload: ChatRequest, request: Request):
                 (time.perf_counter() - native_attempt_started_at) * 1000,
                 2,
             ),
+            "ttft_ms": (
+                round(final_ttft_ms, 2)
+                if final_ttft_ms is not None
+                else None
+            ),
+            "task_type": native_plan.task_type,
+            "selection_kind": native_plan.selection_kind,
+            "algorithm_version": native_plan.algorithm_version,
             "tokens": {
                 "input": tokens_in,
                 "output": tokens_out,
@@ -21954,7 +22092,7 @@ async def chat(payload: ChatRequest, request: Request):
         else:
             yield route_receipt_sse(receipt)
             yield b"data: [DONE]\n\n"
-        await client.aclose()
+        await close_request_client()
         await finalize_runtime(
             runtime_status,
             selected_target.model_id,
@@ -21982,6 +22120,7 @@ async def chat(payload: ChatRequest, request: Request):
         stream_completed = False
         deferred_done = False
         file_terminal_receipt: dict[str, Any] | None = None
+        sidecar_ttft_ms: float | None = None
         try:
             if fallback_notice:
                 payload_json = json.dumps(
@@ -22007,6 +22146,13 @@ async def chat(payload: ChatRequest, request: Request):
                 for line in complete_lines:
                     if use_omniroute:
                         update_stream_state(line, omniroute_stream_state)
+                        if (
+                            sidecar_ttft_ms is None
+                            and omniroute_stream_state.get("content_observed")
+                        ):
+                            sidecar_ttft_ms = (
+                                time.perf_counter() - chat_request_started_at
+                            ) * 1000
                     if native_audio_requested:
                         update_stream_state(line, native_audio_stream_state)
                     if direct_file_requested:
@@ -22068,6 +22214,13 @@ async def chat(payload: ChatRequest, request: Request):
             if buffer:
                 if use_omniroute:
                     update_stream_state(buffer, omniroute_stream_state)
+                    if (
+                        sidecar_ttft_ms is None
+                        and omniroute_stream_state.get("content_observed")
+                    ):
+                        sidecar_ttft_ms = (
+                            time.perf_counter() - chat_request_started_at
+                        ) * 1000
                 if native_audio_requested:
                     update_stream_state(buffer, native_audio_stream_state)
                 if direct_file_requested:
@@ -22429,6 +22582,19 @@ async def chat(payload: ChatRequest, request: Request):
                     header_state=omniroute_header_state,
                     stream_state=omniroute_stream_state,
                 )
+                receipt.update(
+                    {
+                        "engine": "sidecar",
+                        "task_type": observed_task_type,
+                        "selection_kind": "sidecar",
+                        "ttft_ms": (
+                            round(sidecar_ttft_ms, 2)
+                            if sidecar_ttft_ms is not None
+                            else None
+                        ),
+                        "algorithm_version": "sidecar",
+                    }
+                )
                 yield route_receipt_sse(receipt)
                 if not omniroute_stream_state.get("content_observed"):
                     runtime_status = "error"
@@ -22444,6 +22610,60 @@ async def chat(payload: ChatRequest, request: Request):
                     yield (
                         f"data: {json.dumps(empty_error, ensure_ascii=False)}\n\n"
                     ).encode("utf-8")
+            if use_omniroute:
+                sidecar_e2e_ms = (
+                    time.perf_counter() - chat_request_started_at
+                ) * 1000
+                sidecar_output_tokens = (
+                    omniroute_stream_state.get("tokens_out")
+                    if isinstance(
+                        omniroute_stream_state.get("tokens_out"), int
+                    )
+                    else estimate_text_tokens("".join(accumulated_chunks))
+                )
+                sidecar_generation_seconds = max(
+                    0.001,
+                    (sidecar_e2e_ms - (sidecar_ttft_ms or 0.0)) / 1000,
+                )
+                sidecar_outcome = (
+                    "success"
+                    if runtime_status in {"completed", "output_limit"}
+                    and omniroute_stream_state.get("content_observed")
+                    else "empty_stream"
+                    if runtime_error == "empty upstream response"
+                    else "stream_interrupted"
+                    if runtime_error == "stream interrupted"
+                    else "stream_error"
+                )
+                recorder = getattr(
+                    get_model_router_service().repository,
+                    "record_router_candidate_sample",
+                    None,
+                )
+                if callable(recorder):
+                    recorder(
+                        get_model_router_service().tenant_id,
+                        connection_id=None,
+                        model_id=(
+                            omniroute_stream_state.get("actual_model")
+                            or omniroute_header_state.get("actual_model")
+                            or actual_model_id
+                        ),
+                        engine="sidecar",
+                        algorithm_version="sidecar",
+                        config_hash="sidecar",
+                        task_type=observed_task_type,
+                        success=sidecar_outcome == "success",
+                        outcome=sidecar_outcome,
+                        ttft_ms=sidecar_ttft_ms,
+                        e2e_ms=sidecar_e2e_ms,
+                        output_tokens=sidecar_output_tokens,
+                        tokens_per_second=(
+                            sidecar_output_tokens
+                            / sidecar_generation_seconds
+                        ),
+                        planning_latency_ms=None,
+                    )
             if (
                 captured_outputs
                 and not native_audio_requested
@@ -22495,7 +22715,7 @@ async def chat(payload: ChatRequest, request: Request):
             ):
                 yield b"data: [DONE]\n\n"
             await response.aclose()
-            await client.aclose()
+            await close_request_client()
             await finalize_runtime(
                 runtime_status,
                 actual_model_id,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from server.model_router.engine import NativeRouterEngine, infer_task_tags
+from server.model_router.omniroute_parity import LEGACY_ALGORITHM_VERSION
 from server.model_router.routing import (
     DEFAULT_WEIGHTS,
     MODE_WEIGHTS,
@@ -63,13 +64,13 @@ def test_task_hints_only_boost_matching_model_categories() -> None:
     assert infer_task_tags("请概括这段普通说明") == set()
 
     generic_code_fit = NativeRouterEngine._task_fit(
-        "openrouter/pareto-code", "auto", set()
+        "openrouter/pareto-code", "medium", "standard", set(), 128_000
     )
     coding_fit = NativeRouterEngine._task_fit(
-        "openrouter/pareto-code", "auto", {"coding"}
+        "openrouter/pareto-code", "code", "standard", set(), 128_000
     )
     general_quality_fit = NativeRouterEngine._task_fit(
-        "openai/gpt-5.6-sol", "auto", set()
+        "openai/gpt-5.6-sol", "medium", "critical", set(), 128_000
     )
     assert coding_fit > generic_code_fit
     assert general_quality_fit > generic_code_fit
@@ -89,17 +90,20 @@ def test_six_modes_produce_result_oriented_choices() -> None:
     offline = candidate("offline", cost=2, latency=700, task_fit=0.4, quota=100)
     pool = [quality, cheap, offline, fast]
 
-    assert decide_route(pool, RoutingRequest("local", mode="fast")).selected == fast
+    request = lambda mode: RoutingRequest(
+        "local", mode=mode, algorithm_version=LEGACY_ALGORITHM_VERSION
+    )
+    assert decide_route(pool, request("fast")).selected == fast
     assert (
-        decide_route(pool, RoutingRequest("local", mode="quality")).selected
+        decide_route(pool, request("quality")).selected
         == quality
     )
-    assert decide_route(pool, RoutingRequest("local", mode="cheap")).selected == cheap
+    assert decide_route(pool, request("cheap")).selected == cheap
     assert (
-        decide_route(pool, RoutingRequest("local", mode="offline")).selected
+        decide_route(pool, request("offline")).selected
         == offline
     )
-    assert decide_route(pool, RoutingRequest("local", mode="auto")).ranked
+    assert decide_route(pool, request("auto")).ranked
 
 
 def test_reliable_mode_prefers_healthy_lkgp_and_exits_open_path() -> None:
@@ -109,6 +113,7 @@ def test_reliable_mode_prefers_healthy_lkgp_and_exits_open_path() -> None:
         "local",
         mode="reliable",
         last_known_good=(sticky.connection_id, sticky.model_id),
+        algorithm_version=LEGACY_ALGORITHM_VERSION,
     )
     decision = decide_route([top, sticky], request)
     assert decision.selected == sticky
@@ -153,6 +158,7 @@ def test_preference_can_fail_open_but_strict_budget_cannot() -> None:
     preference = RoutingRequest(
         "local",
         preferred_tags=frozenset({"vision"}),
+        algorithm_version=LEGACY_ALGORITHM_VERSION,
     )
     decision = decide_route([known], preference)
     assert decision.selected == known

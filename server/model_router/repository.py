@@ -8,12 +8,14 @@ import sqlite3
 import threading
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from .gate import REQUIRED_DRILLS, evaluate_native_gate, percentile
+from .omniroute_parity import ALGORITHM_VERSION, CONFIG_HASH
 from .schemas import (
     RouterConnection,
     RouterConnectionCreate,
@@ -24,7 +26,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 DEFAULT_TENANT_ID = "local"
 
 
@@ -132,6 +134,10 @@ class SQLiteRouterRepository:
             failure_count INTEGER NOT NULL DEFAULT 0,
             latency_ema_ms REAL,
             latency_stddev_ms REAL NOT NULL DEFAULT 0,
+            ttft_ema_ms REAL,
+            e2e_ema_ms REAL,
+            tokens_per_second_ema REAL,
+            sample_count INTEGER NOT NULL DEFAULT 0,
             consecutive_failures INTEGER NOT NULL DEFAULT 0,
             breaker_state TEXT NOT NULL DEFAULT 'closed',
             breaker_open_until REAL,
@@ -157,6 +163,19 @@ class SQLiteRouterRepository:
             reserved_cost_usd REAL,
             settled_cost_usd REAL,
             budget_status TEXT,
+            algorithm_version TEXT,
+            config_hash TEXT,
+            task_type TEXT,
+            task_level TEXT,
+            selection_kind TEXT,
+            score_tier TEXT,
+            planning_latency_ms REAL,
+            eligible_count INTEGER,
+            finalist_count INTEGER,
+            ttft_ms REAL,
+            e2e_ms REAL,
+            output_tokens INTEGER,
+            tokens_per_second REAL,
             created_at TEXT NOT NULL,
             PRIMARY KEY (tenant_id, id)
         );
@@ -249,6 +268,33 @@ class SQLiteRouterRepository:
             updated_at TEXT NOT NULL,
             PRIMARY KEY (tenant_id, id)
         );
+        CREATE TABLE IF NOT EXISTS router_candidate_samples (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            connection_id TEXT,
+            model_id TEXT,
+            engine TEXT NOT NULL,
+            algorithm_version TEXT NOT NULL,
+            config_hash TEXT NOT NULL,
+            task_type TEXT,
+            success INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            ttft_ms REAL,
+            e2e_ms REAL,
+            output_tokens INTEGER,
+            tokens_per_second REAL,
+            planning_latency_ms REAL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, id)
+        );
+        CREATE TABLE IF NOT EXISTS router_gate_approvals (
+            tenant_id TEXT PRIMARY KEY,
+            algorithm_version TEXT NOT NULL,
+            config_hash TEXT NOT NULL,
+            no_open_p0_p1 INTEGER NOT NULL,
+            drills_json TEXT NOT NULL,
+            approved_at TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_router_connections_tenant_enabled
             ON router_connections (tenant_id, enabled);
         CREATE INDEX IF NOT EXISTS idx_router_decisions_tenant_created
@@ -267,6 +313,14 @@ class SQLiteRouterRepository:
             ON realtime_calls (tenant_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_realtime_calls_tenant_status
             ON realtime_calls (tenant_id, status);
+        CREATE INDEX IF NOT EXISTS idx_router_samples_gate
+            ON router_candidate_samples (
+                tenant_id, engine, algorithm_version, config_hash, created_at
+            );
+        CREATE INDEX IF NOT EXISTS idx_router_samples_candidate
+            ON router_candidate_samples (
+                tenant_id, connection_id, model_id, algorithm_version, created_at
+            );
         """
         with self._lock, self._connect() as connection:
             previous_schema_version = int(
@@ -319,6 +373,22 @@ class SQLiteRouterRepository:
                     "ALTER TABLE router_candidate_stats "
                     "ADD COLUMN last_success_at TEXT"
                 ),
+                "ttft_ema_ms": (
+                    "ALTER TABLE router_candidate_stats "
+                    "ADD COLUMN ttft_ema_ms REAL"
+                ),
+                "e2e_ema_ms": (
+                    "ALTER TABLE router_candidate_stats "
+                    "ADD COLUMN e2e_ema_ms REAL"
+                ),
+                "tokens_per_second_ema": (
+                    "ALTER TABLE router_candidate_stats "
+                    "ADD COLUMN tokens_per_second_ema REAL"
+                ),
+                "sample_count": (
+                    "ALTER TABLE router_candidate_stats "
+                    "ADD COLUMN sample_count INTEGER NOT NULL DEFAULT 0"
+                ),
             }
             for column, statement in migrations.items():
                 if column not in existing:
@@ -361,6 +431,48 @@ class SQLiteRouterRepository:
                 "media_seconds": (
                     "ALTER TABLE router_decisions "
                     "ADD COLUMN media_seconds REAL"
+                ),
+                "algorithm_version": (
+                    "ALTER TABLE router_decisions "
+                    "ADD COLUMN algorithm_version TEXT"
+                ),
+                "config_hash": (
+                    "ALTER TABLE router_decisions ADD COLUMN config_hash TEXT"
+                ),
+                "task_type": (
+                    "ALTER TABLE router_decisions ADD COLUMN task_type TEXT"
+                ),
+                "task_level": (
+                    "ALTER TABLE router_decisions ADD COLUMN task_level TEXT"
+                ),
+                "selection_kind": (
+                    "ALTER TABLE router_decisions ADD COLUMN selection_kind TEXT"
+                ),
+                "score_tier": (
+                    "ALTER TABLE router_decisions ADD COLUMN score_tier TEXT"
+                ),
+                "planning_latency_ms": (
+                    "ALTER TABLE router_decisions "
+                    "ADD COLUMN planning_latency_ms REAL"
+                ),
+                "eligible_count": (
+                    "ALTER TABLE router_decisions ADD COLUMN eligible_count INTEGER"
+                ),
+                "finalist_count": (
+                    "ALTER TABLE router_decisions ADD COLUMN finalist_count INTEGER"
+                ),
+                "ttft_ms": (
+                    "ALTER TABLE router_decisions ADD COLUMN ttft_ms REAL"
+                ),
+                "e2e_ms": (
+                    "ALTER TABLE router_decisions ADD COLUMN e2e_ms REAL"
+                ),
+                "output_tokens": (
+                    "ALTER TABLE router_decisions ADD COLUMN output_tokens INTEGER"
+                ),
+                "tokens_per_second": (
+                    "ALTER TABLE router_decisions "
+                    "ADD COLUMN tokens_per_second REAL"
                 ),
             }
             for column, statement in decision_migrations.items():
@@ -1111,8 +1223,13 @@ class SQLiteRouterRepository:
             return {
                 "success_count": 0,
                 "failure_count": 0,
-                "latency_ema_ms": 1000.0,
-                "latency_stddev_ms": 0.0,
+                "latency_ema_ms": None,
+                "p95_latency_ms": None,
+                "latency_stddev_ms": None,
+                "ttft_ema_ms": None,
+                "e2e_ema_ms": None,
+                "tokens_per_second_ema": None,
+                "sample_count": 0,
                 "error_rate": 0.0,
                 "consecutive_failures": 0,
                 "breaker_state": "closed",
@@ -1131,8 +1248,23 @@ class SQLiteRouterRepository:
         return {
             "success_count": int(row["success_count"]),
             "failure_count": int(row["failure_count"]),
-            "latency_ema_ms": float(row["latency_ema_ms"] or 1000),
-            "latency_stddev_ms": float(row["latency_stddev_ms"] or 0),
+            "latency_ema_ms": (
+                float(row["latency_ema_ms"])
+                if row["latency_ema_ms"] is not None
+                else None
+            ),
+            "p95_latency_ms": self._candidate_latency_p95(
+                clean_tenant, connection_id, model_id
+            ),
+            "latency_stddev_ms": (
+                float(row["latency_stddev_ms"])
+                if int(row["sample_count"] or 0) > 0
+                else None
+            ),
+            "ttft_ema_ms": row["ttft_ema_ms"],
+            "e2e_ema_ms": row["e2e_ema_ms"],
+            "tokens_per_second_ema": row["tokens_per_second_ema"],
+            "sample_count": int(row["sample_count"] or 0),
             "error_rate": (
                 float(row["failure_count"]) / total if total > 0 else 0.0
             ),
@@ -1142,6 +1274,97 @@ class SQLiteRouterRepository:
             "last_success_at": row["last_success_at"],
         }
 
+    def get_candidate_stats_bulk(
+        self, tenant_id: str
+    ) -> dict[tuple[str, str], dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM router_candidate_stats WHERE tenant_id = ?",
+                (clean_tenant,),
+            ).fetchall()
+            sample_rows = connection.execute(
+                """
+                SELECT connection_id, model_id, e2e_ms
+                FROM router_candidate_samples
+                WHERE tenant_id = ? AND e2e_ms IS NOT NULL
+                """,
+                (clean_tenant,),
+            ).fetchall()
+        latencies: dict[tuple[str, str], list[float]] = {}
+        for row in sample_rows:
+            if row["connection_id"] is None or row["model_id"] is None:
+                continue
+            key = (str(row["connection_id"]), str(row["model_id"]))
+            latencies.setdefault(key, []).append(float(row["e2e_ms"]))
+        result: dict[tuple[str, str], dict[str, object]] = {}
+        for row in rows:
+            key = (str(row["connection_id"]), str(row["model_id"]))
+            breaker_state = str(row["breaker_state"])
+            open_until = row["breaker_open_until"]
+            if (
+                breaker_state == "open"
+                and open_until is not None
+                and float(open_until) <= time.time()
+            ):
+                breaker_state = "half_open"
+            total = int(row["success_count"]) + int(row["failure_count"])
+            sample_count = int(row["sample_count"] or 0)
+            result[key] = {
+                "success_count": int(row["success_count"]),
+                "failure_count": int(row["failure_count"]),
+                "latency_ema_ms": row["latency_ema_ms"],
+                "p95_latency_ms": percentile(latencies.get(key, ()), 0.95),
+                "latency_stddev_ms": (
+                    float(row["latency_stddev_ms"])
+                    if sample_count > 0
+                    else None
+                ),
+                "ttft_ema_ms": row["ttft_ema_ms"],
+                "e2e_ema_ms": row["e2e_ema_ms"],
+                "tokens_per_second_ema": row["tokens_per_second_ema"],
+                "sample_count": sample_count,
+                "error_rate": (
+                    float(row["failure_count"]) / total if total > 0 else 0.0
+                ),
+                "consecutive_failures": int(row["consecutive_failures"]),
+                "breaker_state": breaker_state,
+                "breaker_open_until": open_until,
+                "last_success_at": row["last_success_at"],
+            }
+        return result
+
+    def _candidate_latency_p95(
+        self, tenant_id: str, connection_id: str, model_id: str
+    ) -> float | None:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT e2e_ms FROM router_candidate_samples
+                WHERE tenant_id = ? AND connection_id = ? AND model_id = ?
+                    AND e2e_ms IS NOT NULL
+                ORDER BY created_at DESC LIMIT 200
+                """,
+                (tenant_id, connection_id, model_id),
+            ).fetchall()
+        return percentile((row["e2e_ms"] for row in rows), 0.95)
+
+    @staticmethod
+    def _optional_float(value: object) -> float | None:
+        try:
+            parsed = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return max(0.0, parsed)
+
+    @staticmethod
+    def _ema(previous: float | None, sample: float | None) -> float | None:
+        if sample is None:
+            return previous
+        if previous is None:
+            return sample
+        return previous * 0.8 + sample * 0.2
+
     def record_candidate_outcome(
         self,
         tenant_id: str,
@@ -1150,6 +1373,9 @@ class SQLiteRouterRepository:
         *,
         success: bool,
         latency_ms: float | None,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        tokens_per_second: float | None = None,
     ) -> dict[str, object]:
         clean_tenant = self._tenant_id(tenant_id)
         current = self.get_candidate_stats(
@@ -1158,14 +1384,35 @@ class SQLiteRouterRepository:
         success_count = int(current["success_count"]) + int(success)
         failure_count = int(current["failure_count"]) + int(not success)
         consecutive = 0 if success else int(current["consecutive_failures"]) + 1
-        old_latency = float(current["latency_ema_ms"])
-        sample = max(0.0, float(latency_ms or old_latency))
-        latency_ema = sample if success_count + failure_count == 1 else (
-            old_latency * 0.8 + sample * 0.2
-        )
+        old_latency = self._optional_float(current.get("latency_ema_ms"))
+        sample = self._optional_float(latency_ms)
+        latency_ema = self._ema(old_latency, sample)
         latency_stddev = (
-            float(current["latency_stddev_ms"]) * 0.8
-            + abs(sample - old_latency) * 0.2
+            self._ema(
+                self._optional_float(current.get("latency_stddev_ms")),
+                abs(sample - old_latency)
+                if sample is not None and old_latency is not None
+                else None,
+            )
+            or 0.0
+        )
+        ttft_ema = self._ema(
+            self._optional_float(current.get("ttft_ema_ms")),
+            self._optional_float(ttft_ms),
+        )
+        e2e_ema = self._ema(
+            self._optional_float(current.get("e2e_ema_ms")),
+            self._optional_float(e2e_ms),
+        )
+        tps_ema = self._ema(
+            self._optional_float(current.get("tokens_per_second_ema")),
+            self._optional_float(tokens_per_second),
+        )
+        sample_count = int(current.get("sample_count") or 0) + int(
+            any(
+                value is not None
+                for value in (sample, ttft_ms, e2e_ms, tokens_per_second)
+            )
         )
         breaker_state = "closed"
         breaker_open_until: float | None = None
@@ -1182,14 +1429,20 @@ class SQLiteRouterRepository:
                 INSERT INTO router_candidate_stats (
                     tenant_id, connection_id, model_id, success_count,
                     failure_count, latency_ema_ms, latency_stddev_ms,
+                    ttft_ema_ms, e2e_ema_ms, tokens_per_second_ema,
+                    sample_count,
                     consecutive_failures, breaker_state, breaker_open_until,
                     last_success_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(tenant_id, connection_id, model_id) DO UPDATE SET
                     success_count = excluded.success_count,
                     failure_count = excluded.failure_count,
                     latency_ema_ms = excluded.latency_ema_ms,
                     latency_stddev_ms = excluded.latency_stddev_ms,
+                    ttft_ema_ms = excluded.ttft_ema_ms,
+                    e2e_ema_ms = excluded.e2e_ema_ms,
+                    tokens_per_second_ema = excluded.tokens_per_second_ema,
+                    sample_count = excluded.sample_count,
                     consecutive_failures = excluded.consecutive_failures,
                     breaker_state = excluded.breaker_state,
                     breaker_open_until = excluded.breaker_open_until,
@@ -1204,6 +1457,10 @@ class SQLiteRouterRepository:
                     failure_count,
                     latency_ema,
                     latency_stddev,
+                    ttft_ema,
+                    e2e_ema,
+                    tps_ema,
+                    sample_count,
                     consecutive,
                     breaker_state,
                     breaker_open_until,
@@ -1228,6 +1485,15 @@ class SQLiteRouterRepository:
         input_bytes: int | None = None,
         budget_limit_usd: float | None = None,
         reserved_cost_usd: float | None = None,
+        algorithm_version: str | None = None,
+        config_hash: str | None = None,
+        task_type: str | None = None,
+        task_level: str | None = None,
+        selection_kind: str | None = None,
+        score_tier: str | None = None,
+        planning_latency_ms: float | None = None,
+        eligible_count: int | None = None,
+        finalist_count: int | None = None,
     ) -> str:
         clean_tenant = self._tenant_id(tenant_id)
         decision_id = f"decision_{uuid.uuid4().hex}"
@@ -1238,8 +1504,12 @@ class SQLiteRouterRepository:
                     id, tenant_id, session_id_hash, engine, strategy, operation,
                     selected_connection_id, selected_model_id,
                     reason_codes_json, outcome, input_bytes, budget_limit_usd,
-                    reserved_cost_usd, budget_status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    reserved_cost_usd, budget_status, algorithm_version,
+                    config_hash, task_type, task_level, selection_kind,
+                    score_tier, planning_latency_ms, eligible_count,
+                    finalist_count, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     decision_id,
@@ -1256,6 +1526,15 @@ class SQLiteRouterRepository:
                     budget_limit_usd,
                     reserved_cost_usd,
                     "reserved" if budget_limit_usd is not None else None,
+                    algorithm_version,
+                    config_hash,
+                    task_type,
+                    task_level,
+                    selection_kind,
+                    score_tier,
+                    planning_latency_ms,
+                    eligible_count,
+                    finalist_count,
                     utc_now(),
                 ),
             )
@@ -1305,15 +1584,180 @@ class SQLiteRouterRepository:
             )
 
     def update_routing_decision_outcome(
-        self, tenant_id: str, decision_id: str, outcome: str
+        self,
+        tenant_id: str,
+        decision_id: str,
+        outcome: str,
+        *,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        output_tokens: int | None = None,
+        tokens_per_second: float | None = None,
     ) -> None:
         with self._lock, self._connect() as connection:
             connection.execute(
                 """
-                UPDATE router_decisions SET outcome = ?
+                UPDATE router_decisions
+                SET outcome = ?, ttft_ms = ?, e2e_ms = ?,
+                    output_tokens = ?, tokens_per_second = ?
                 WHERE tenant_id = ? AND id = ?
                 """,
-                (outcome, self._tenant_id(tenant_id), decision_id),
+                (
+                    outcome,
+                    self._optional_float(ttft_ms),
+                    self._optional_float(e2e_ms),
+                    max(0, int(output_tokens)) if output_tokens is not None else None,
+                    self._optional_float(tokens_per_second),
+                    self._tenant_id(tenant_id),
+                    decision_id,
+                ),
+            )
+
+    def record_router_candidate_sample(
+        self,
+        tenant_id: str,
+        *,
+        connection_id: str | None,
+        model_id: str | None,
+        engine: str,
+        algorithm_version: str,
+        config_hash: str,
+        task_type: str | None,
+        success: bool,
+        outcome: str,
+        ttft_ms: float | None,
+        e2e_ms: float | None,
+        output_tokens: int | None,
+        tokens_per_second: float | None,
+        planning_latency_ms: float | None,
+        created_at: str | None = None,
+    ) -> str:
+        clean_tenant = self._tenant_id(tenant_id)
+        sample_id = f"sample_{uuid.uuid4().hex}"
+        timestamp = created_at or utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO router_candidate_samples (
+                    id, tenant_id, connection_id, model_id, engine,
+                    algorithm_version, config_hash, task_type, success,
+                    outcome, ttft_ms, e2e_ms, output_tokens,
+                    tokens_per_second, planning_latency_ms, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    sample_id,
+                    clean_tenant,
+                    connection_id,
+                    model_id,
+                    str(engine),
+                    str(algorithm_version),
+                    str(config_hash),
+                    task_type,
+                    int(bool(success)),
+                    str(outcome or "unknown"),
+                    self._optional_float(ttft_ms),
+                    self._optional_float(e2e_ms),
+                    max(0, int(output_tokens)) if output_tokens is not None else None,
+                    self._optional_float(tokens_per_second),
+                    self._optional_float(planning_latency_ms),
+                    timestamp,
+                ),
+            )
+            connection.execute(
+                """
+                DELETE FROM router_candidate_samples
+                WHERE tenant_id = ? AND created_at < ?
+                """,
+                (
+                    clean_tenant,
+                    (datetime.now(UTC) - timedelta(days=30)).isoformat(),
+                ),
+            )
+            if connection_id and model_id:
+                connection.execute(
+                    """
+                    DELETE FROM router_candidate_samples
+                    WHERE tenant_id = ? AND connection_id = ? AND model_id = ?
+                        AND algorithm_version = ? AND id NOT IN (
+                            SELECT id FROM router_candidate_samples
+                            WHERE tenant_id = ? AND connection_id = ?
+                                AND model_id = ? AND algorithm_version = ?
+                            ORDER BY created_at DESC LIMIT 200
+                        )
+                    """,
+                    (
+                        clean_tenant,
+                        connection_id,
+                        model_id,
+                        algorithm_version,
+                        clean_tenant,
+                        connection_id,
+                        model_id,
+                        algorithm_version,
+                    ),
+                )
+        return sample_id
+
+    def save_native_gate_approval(
+        self,
+        tenant_id: str,
+        *,
+        algorithm_version: str,
+        config_hash: str,
+        no_open_p0_p1: bool,
+        drills: dict[str, bool],
+    ) -> dict[str, object]:
+        if not no_open_p0_p1 or not all(drills.get(item) for item in REQUIRED_DRILLS):
+            raise ValueError("all safety drills and the P0/P1 attestation are required")
+        clean_tenant = self._tenant_id(tenant_id)
+        approved_at = utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO router_gate_approvals (
+                    tenant_id, algorithm_version, config_hash,
+                    no_open_p0_p1, drills_json, approved_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id) DO UPDATE SET
+                    algorithm_version = excluded.algorithm_version,
+                    config_hash = excluded.config_hash,
+                    no_open_p0_p1 = excluded.no_open_p0_p1,
+                    drills_json = excluded.drills_json,
+                    approved_at = excluded.approved_at
+                """,
+                (
+                    clean_tenant,
+                    algorithm_version,
+                    config_hash,
+                    1,
+                    json.dumps(drills, sort_keys=True),
+                    approved_at,
+                ),
+            )
+        return self.get_native_gate_approval(clean_tenant) or {}
+
+    def get_native_gate_approval(self, tenant_id: str) -> dict[str, object] | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM router_gate_approvals WHERE tenant_id = ?",
+                (self._tenant_id(tenant_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "algorithm_version": row["algorithm_version"],
+            "config_hash": row["config_hash"],
+            "no_open_p0_p1": bool(row["no_open_p0_p1"]),
+            "drills": json.loads(str(row["drills_json"] or "{}")),
+            "approved_at": row["approved_at"],
+        }
+
+    def revoke_native_gate_approval(self, tenant_id: str) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "DELETE FROM router_gate_approvals WHERE tenant_id = ?",
+                (self._tenant_id(tenant_id),),
             )
 
     def settle_routing_budget(
@@ -1408,7 +1852,11 @@ class SQLiteRouterRepository:
                     d.media_seconds,
                     d.reason_codes_json, d.outcome, d.budget_limit_usd,
                     d.reserved_cost_usd, d.settled_cost_usd,
-                    d.budget_status, d.created_at,
+                    d.budget_status, d.algorithm_version, d.config_hash,
+                    d.task_type, d.task_level, d.selection_kind,
+                    d.score_tier, d.planning_latency_ms, d.eligible_count,
+                    d.finalist_count, d.ttft_ms, d.e2e_ms,
+                    d.output_tokens, d.tokens_per_second, d.created_at,
                     c.name AS connection_name
                 FROM router_decisions d
                 LEFT JOIN router_connections c
@@ -1440,58 +1888,59 @@ class SQLiteRouterRepository:
                 """,
                 (clean_tenant,),
             ).fetchall()
-            aggregate = connection.execute(
+            native_sample_rows = connection.execute(
                 """
                 SELECT
-                    COUNT(*) AS request_count,
-                    SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END)
-                        AS success_count,
-                    SUM(CASE WHEN outcome = 'empty_stream' THEN 1 ELSE 0 END)
-                        AS empty_stream_count,
-                    MIN(created_at) AS first_request_at,
-                    MAX(created_at) AS last_request_at
+                    CASE WHEN outcome IN ('success', 'output_limit')
+                        THEN 1 ELSE 0 END AS success,
+                    outcome, ttft_ms, e2e_ms, output_tokens,
+                    planning_latency_ms, created_at
                 FROM router_decisions
                 WHERE tenant_id = ? AND engine = 'native'
+                    AND algorithm_version = ? AND config_hash = ?
+                    AND outcome IS NOT NULL
+                ORDER BY created_at ASC
                 """,
+                (clean_tenant, ALGORITHM_VERSION, CONFIG_HASH),
+            ).fetchall()
+            first_native_at = (
+                native_sample_rows[0]["created_at"]
+                if native_sample_rows
+                else "9999-12-31T23:59:59+00:00"
+            )
+            sidecar_sample_rows = connection.execute(
+                """
+                SELECT success, outcome, ttft_ms, e2e_ms, output_tokens,
+                    planning_latency_ms, created_at
+                FROM router_candidate_samples
+                WHERE tenant_id = ? AND engine = 'sidecar'
+                    AND created_at >= ?
+                ORDER BY created_at ASC
+                """,
+                (clean_tenant, first_native_at),
+            ).fetchall()
+            approval_row = connection.execute(
+                "SELECT * FROM router_gate_approvals WHERE tenant_id = ?",
                 (clean_tenant,),
             ).fetchone()
-        request_count = int(aggregate["request_count"] or 0)
-        success_count = int(aggregate["success_count"] or 0)
-        empty_count = int(aggregate["empty_stream_count"] or 0)
-        first_request = aggregate["first_request_at"]
-        observed_days = 0.0
-        if first_request:
-            try:
-                observed_days = max(
-                    0.0,
-                    (
-                        datetime.now(UTC)
-                        - datetime.fromisoformat(str(first_request))
-                    ).total_seconds()
-                    / 86_400,
-                )
-            except ValueError:
-                observed_days = 0.0
-        gate = {
-            "request_count": request_count,
-            "success_count": success_count,
-            "success_rate": (
-                success_count / request_count if request_count else None
-            ),
-            "empty_stream_count": empty_count,
-            "empty_stream_rate": (
-                empty_count / request_count if request_count else None
-            ),
-            "first_request_at": first_request,
-            "last_request_at": aggregate["last_request_at"],
-            "observed_days": round(observed_days, 2),
-            "request_gate_met": request_count >= 500,
-            "duration_gate_met": observed_days >= 14,
-            "automatic_native_default_allowed": (
-                request_count >= 500 and observed_days >= 14
-            ),
-            "manual_safety_gates_required": True,
-        }
+        approval = (
+            {
+                "algorithm_version": approval_row["algorithm_version"],
+                "config_hash": approval_row["config_hash"],
+                "no_open_p0_p1": bool(approval_row["no_open_p0_p1"]),
+                "drills": json.loads(str(approval_row["drills_json"] or "{}")),
+                "approved_at": approval_row["approved_at"],
+            }
+            if approval_row is not None
+            else None
+        )
+        gate = evaluate_native_gate(
+            [dict(row) for row in native_sample_rows],
+            [dict(row) for row in sidecar_sample_rows],
+            algorithm_version=ALGORITHM_VERSION,
+            config_hash=CONFIG_HASH,
+            approval=approval,
+        )
         return {
             "tenant_id": clean_tenant,
             "redacted": True,
@@ -1515,6 +1964,19 @@ class SQLiteRouterRepository:
                         str(row["reason_codes_json"] or "[]")
                     ),
                     "outcome": row["outcome"],
+                    "algorithm_version": row["algorithm_version"],
+                    "config_hash": row["config_hash"],
+                    "task_type": row["task_type"],
+                    "task_level": row["task_level"],
+                    "selection_kind": row["selection_kind"],
+                    "score_tier": row["score_tier"],
+                    "planning_latency_ms": row["planning_latency_ms"],
+                    "eligible_count": row["eligible_count"],
+                    "finalist_count": row["finalist_count"],
+                    "ttft_ms": row["ttft_ms"],
+                    "e2e_ms": row["e2e_ms"],
+                    "output_tokens": row["output_tokens"],
+                    "tokens_per_second": row["tokens_per_second"],
                     "budget": {
                         "limit_usd": row["budget_limit_usd"],
                         "reserved_cost_usd": row["reserved_cost_usd"],
@@ -1525,6 +1987,7 @@ class SQLiteRouterRepository:
                 }
                 for row in decision_rows
             ],
+            "gate_approval": approval,
             "recent_compressions": [
                 {
                     "id": row["id"],

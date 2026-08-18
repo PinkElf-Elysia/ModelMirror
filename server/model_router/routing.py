@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Literal
 
+from .omniroute_parity import (
+    ALGORITHM_VERSION,
+    LEGACY_ALGORITHM_VERSION,
+    select_ranked_candidate,
+    speed_score,
+)
 from .schemas import RoutingMode
 
 
@@ -42,7 +49,21 @@ DEFAULT_WEIGHTS = {
 
 MODE_WEIGHTS: dict[RoutingMode, dict[str, float]] = {
     "auto": DEFAULT_WEIGHTS,
-    "reliable": DEFAULT_WEIGHTS,
+    "reliable": {
+        "quota": 0.14,
+        "health": 0.37,
+        "cost_inverse": 0.04,
+        "latency_inverse": 0.05,
+        "task_fit": 0.10,
+        "stability": 0.20,
+        "tier_priority": 0.05,
+        "tier_affinity": 0.00,
+        "specificity_match": 0.00,
+        "context_affinity": 0.00,
+        "cache_affinity": 0.00,
+        "reset_window_affinity": 0.00,
+        "connection_density": 0.05,
+    },
     "fast": {
         "quota": 0.14,
         "health": 0.28,
@@ -53,10 +74,10 @@ MODE_WEIGHTS: dict[RoutingMode, dict[str, float]] = {
         "tier_priority": 0.05,
         "tier_affinity": 0.00,
         "specificity_match": 0.00,
-        "context_affinity": 0.00,
+        "context_affinity": 0.01,
         "cache_affinity": 0.00,
         "reset_window_affinity": 0.00,
-        "connection_density": 0.06,
+        "connection_density": 0.05,
     },
     "cheap": {
         "quota": 0.14,
@@ -112,7 +133,7 @@ def clamp01(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RoutingCandidate:
     tenant_id: str
     connection_id: str
@@ -127,8 +148,11 @@ class RoutingCandidate:
     quota_remaining: float = 100.0
     cost_per_million_tokens: float | None = None
     estimated_request_cost: float | None = None
-    p95_latency_ms: float = 1000.0
-    latency_stddev_ms: float = 0.0
+    p95_latency_ms: float | None = None
+    avg_ttft_ms: float | None = None
+    avg_e2e_latency_ms: float | None = None
+    avg_tokens_per_second: float | None = None
+    latency_stddev_ms: float | None = None
     error_rate: float = 0.0
     breaker_state: BreakerState = "closed"
     task_fit: float = 0.5
@@ -142,7 +166,7 @@ class RoutingCandidate:
     preference_tags: frozenset[str] = frozenset()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RoutingRequest:
     tenant_id: str
     mode: RoutingMode = "auto"
@@ -156,22 +180,32 @@ class RoutingRequest:
     preferred_tags: frozenset[str] = frozenset()
     last_known_good: tuple[str, str] | None = None
     excluded_paths: frozenset[tuple[str, str]] = frozenset()
+    task_type: str = "medium"
+    algorithm_version: str = ALGORITHM_VERSION
+    rotator_key: str = "local:auto:medium"
+    incident_mode: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RankedCandidate:
     candidate: RoutingCandidate
     score: float
-    factors: dict[str, float]
+    factors: dict[str, float] | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RouterDecision:
     selected: RoutingCandidate
     ranked: tuple[RankedCandidate, ...]
     mode: RoutingMode
     reason_codes: tuple[str, ...]
     filtered_counts: dict[str, int] = field(default_factory=dict)
+    algorithm_version: str = LEGACY_ALGORITHM_VERSION
+    task_type: str = "medium"
+    selection_kind: str = "ranked"
+    score_tier: str = "top"
+    eligible_count: int = 0
+    finalist_count: int = 0
 
 
 class NoEligibleCandidateError(Exception):
@@ -294,15 +328,32 @@ def _apply_soft_budget(
 def calculate_factors(
     candidate: RoutingCandidate,
     pool: list[RoutingCandidate],
+    *,
+    metric_context: dict[str, float] | None = None,
 ) -> dict[str, float]:
-    known_costs = [
-        value
-        for value in (item.cost_per_million_tokens for item in pool)
-        if value is not None and value >= 0
-    ]
-    max_cost = max(known_costs, default=0.001)
-    max_latency = max((item.p95_latency_ms for item in pool), default=1.0)
-    max_stddev = max((item.latency_stddev_ms for item in pool), default=0.001)
+    metrics = metric_context or _metric_context(pool)
+    metric_key = tuple(metrics[name] for name in (
+        "cost", "p95", "ttft", "e2e", "tps", "stddev"
+    ))
+    values = _cached_factor_values(
+        candidate,
+        metric_key,
+    )
+    return dict(zip(FACTOR_NAMES, values, strict=True))
+
+
+def _factor_values_uncached(
+    candidate: RoutingCandidate,
+    metrics: dict[str, float],
+) -> tuple[float, ...]:
+    max_cost = metrics["cost"]
+    maxima = {
+        "p95": metrics["p95"],
+        "ttft": metrics["ttft"],
+        "e2e": metrics["e2e"],
+        "tps": metrics["tps"],
+        "stddev": metrics["stddev"],
+    }
     cost = candidate.cost_per_million_tokens
     cost_inverse = 0.0 if cost is None else 1 - cost / max(max_cost, 0.001)
     health = (
@@ -312,27 +363,83 @@ def calculate_factors(
         if candidate.breaker_state == "half_open"
         else 0.0
     )
-    return {
-        "quota": clamp01(candidate.quota_remaining / 100),
-        "health": health,
-        "cost_inverse": clamp01(cost_inverse),
-        "latency_inverse": clamp01(
-            1 - candidate.p95_latency_ms / max(max_latency, 1)
-        ),
-        "task_fit": clamp01(candidate.task_fit),
-        "stability": clamp01(
-            (1 - candidate.latency_stddev_ms / max(max_stddev, 0.001))
-            * (1 - candidate.error_rate)
-        ),
-        "tier_priority": clamp01(candidate.tier_priority),
-        "tier_affinity": clamp01(candidate.tier_affinity),
-        "specificity_match": clamp01(candidate.specificity_match),
-        "context_affinity": clamp01(candidate.context_affinity),
-        "cache_affinity": clamp01(candidate.cache_affinity),
-        "reset_window_affinity": clamp01(candidate.reset_window_affinity),
-        "connection_density": clamp01(
+    composite_speed = speed_score(
+        ttft_ms=candidate.avg_ttft_ms,
+        tps=candidate.avg_tokens_per_second,
+        e2e_ms=candidate.avg_e2e_latency_ms,
+        p95_ms=candidate.p95_latency_ms,
+        stddev_ms=candidate.latency_stddev_ms,
+        failure_rate=candidate.error_rate,
+        breaker_state=candidate.breaker_state,
+        maxima=maxima,
+    )
+    stddev = candidate.latency_stddev_ms
+    stability = 0.5 if stddev is None else (
+        1 - stddev / max(maxima["stddev"], 0.001)
+    ) * (1 - candidate.error_rate)
+    return (
+        clamp01(candidate.quota_remaining / 100),
+        health,
+        clamp01(cost_inverse),
+        composite_speed,
+        clamp01(candidate.task_fit),
+        clamp01(stability),
+        clamp01(candidate.tier_priority),
+        clamp01(candidate.tier_affinity),
+        clamp01(candidate.specificity_match),
+        clamp01(candidate.context_affinity),
+        clamp01(candidate.cache_affinity),
+        clamp01(candidate.reset_window_affinity),
+        clamp01(
             (max(1, candidate.connection_pool_size) - 1) / 10
         ),
+    )
+
+
+@lru_cache(maxsize=8_192)
+def _cached_factor_values(
+    candidate: RoutingCandidate,
+    metric_key: tuple[float, ...],
+) -> tuple[float, ...]:
+    return _factor_values_uncached(
+        candidate,
+        dict(
+            zip(
+                ("cost", "p95", "ttft", "e2e", "tps", "stddev"),
+                metric_key,
+                strict=True,
+            )
+        ),
+    )
+
+
+def _metric_context(pool: list[RoutingCandidate]) -> dict[str, float]:
+    max_cost = 0.001
+    max_p95 = 1.0
+    max_ttft = 0.0
+    max_e2e = 0.0
+    max_tps = 1.0
+    max_stddev = 0.001
+    for item in pool:
+        if item.cost_per_million_tokens is not None:
+            max_cost = max(max_cost, item.cost_per_million_tokens)
+        if item.p95_latency_ms is not None:
+            max_p95 = max(max_p95, item.p95_latency_ms)
+        if item.avg_ttft_ms is not None:
+            max_ttft = max(max_ttft, item.avg_ttft_ms)
+        if item.avg_e2e_latency_ms is not None:
+            max_e2e = max(max_e2e, item.avg_e2e_latency_ms)
+        if item.avg_tokens_per_second is not None:
+            max_tps = max(max_tps, item.avg_tokens_per_second)
+        if item.latency_stddev_ms is not None:
+            max_stddev = max(max_stddev, item.latency_stddev_ms)
+    return {
+        "cost": max_cost,
+        "p95": max_p95,
+        "ttft": max_ttft or max_p95,
+        "e2e": max_e2e or max_p95,
+        "tps": max_tps,
+        "stddev": max_stddev,
     }
 
 
@@ -341,14 +448,24 @@ def rank_candidates(
     mode: RoutingMode,
 ) -> list[RankedCandidate]:
     weights = MODE_WEIGHTS[mode]
+    metric_context = _metric_context(candidates)
+    metric_key = tuple(metric_context[name] for name in (
+        "cost", "p95", "ttft", "e2e", "tps", "stddev"
+    ))
+    weight_values = tuple(weights[name] for name in FACTOR_NAMES)
     ranked = []
     for candidate in candidates:
-        factors = calculate_factors(candidate, candidates)
+        factor_values = _cached_factor_values(candidate, metric_key)
         score = clamp01(
-            sum(weights[name] * factors[name] for name in FACTOR_NAMES)
+            sum(
+                weight * value
+                for weight, value in zip(
+                    weight_values, factor_values, strict=True
+                )
+            )
         )
         ranked.append(
-            RankedCandidate(candidate=candidate, score=score, factors=factors)
+            RankedCandidate(candidate=candidate, score=score)
         )
     return sorted(
         ranked,
@@ -384,7 +501,10 @@ def decide_route(
             code, message, filtered_counts=filtered_counts
         )
 
-    eligible, preference_fallback = _apply_soft_preferences(eligible, request)
+    if request.algorithm_version == LEGACY_ALGORITHM_VERSION:
+        eligible, preference_fallback = _apply_soft_preferences(eligible, request)
+    else:
+        preference_fallback = False
     eligible, budget_fallback = _apply_soft_budget(eligible, request)
     reason_codes: list[str] = []
     if preference_fallback:
@@ -393,15 +513,35 @@ def decide_route(
         reason_codes.append("soft_budget_cheapest_fallback")
 
     ranked = rank_candidates(eligible, request.mode)
-    if request.mode == "reliable" and request.last_known_good is not None:
-        for index, item in enumerate(ranked):
-            path = (item.candidate.connection_id, item.candidate.model_id)
-            if path == request.last_known_good:
-                ranked.insert(0, ranked.pop(index))
-                reason_codes.append("last_known_good")
-                break
-
-    selected = ranked[0].candidate
+    selection_kind = "ranked"
+    score_tier = "top"
+    finalist_count = len(ranked)
+    if request.algorithm_version == LEGACY_ALGORITHM_VERSION:
+        if request.mode == "reliable" and request.last_known_good is not None:
+            for index, item in enumerate(ranked):
+                path = (item.candidate.connection_id, item.candidate.model_id)
+                if path == request.last_known_good:
+                    ranked.insert(0, ranked.pop(index))
+                    reason_codes.append("last_known_good")
+                    selection_kind = "lkgp"
+                    break
+        selected_item = ranked[0]
+    else:
+        selection = select_ranked_candidate(
+            ranked,
+            mode=request.mode,
+            rotator_key=request.rotator_key,
+            incident_mode=request.incident_mode,
+            last_known_good=request.last_known_good,
+        )
+        selected_item = selection.selected
+        ranked = list(selection.ordered)
+        selection_kind = selection.selection_kind
+        score_tier = selection.score_tier
+        finalist_count = selection.finalist_count
+        reason_codes.append(f"selection_{selection_kind}")
+        reason_codes.append(f"score_tier_{score_tier}")
+    selected = selected_item.candidate
     reason_codes.append(f"mode_{request.mode}")
     if selected.breaker_state == "half_open":
         reason_codes.append("half_open_probe")
@@ -411,4 +551,10 @@ def decide_route(
         mode=request.mode,
         reason_codes=tuple(reason_codes),
         filtered_counts=filtered_counts,
+        algorithm_version=request.algorithm_version,
+        task_type=request.task_type,
+        selection_kind=selection_kind,
+        score_tier=score_tier,
+        eligible_count=len(eligible),
+        finalist_count=finalist_count,
     )

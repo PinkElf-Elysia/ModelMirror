@@ -1,0 +1,56 @@
+{
+  "project": "diegosouzapw/OmniRoute",
+  "license": "MIT",
+  "release": "release/v3.8.49",
+  "commit": "36f8fd10052fd88f07e188b566f19a59c9cf5ea7",
+  "files": [
+    {
+      "path": "open-sse/services/intentClassifier.ts",
+      "gitBlob": "0ed15f96d70f6f4a40aca5781a5bf6bb86cde4f2",
+      "sha256": "bf7dd3ff6de07532879a51640a7bd5f63e4de63fcdc1c0bc4d07ce6e6c5f4488",
+      "local": "intent.py"
+    },
+    {
+      "path": "open-sse/services/taskAwareRouting.ts",
+      "gitBlob": "3cc2da730c4b3bb803276b83973fd770511ae778",
+      "sha256": "8e9a1ee387fcb8e42eb437323d12dfa3479df6f48ad71cfdb33fface1ddc4806",
+      "local": "intent.py"
+    },
+    {
+      "path": "open-sse/services/autoCombo/engine.ts",
+      "gitBlob": "9e91552f36d173df0ccddcd9842ad686b6173330",
+      "sha256": "0d7ea868a7a62410a8faecd545423dcef464577ecafc4ac7039fb8a95a7c522b",
+      "local": "selection.py"
+    },
+    {
+      "path": "open-sse/services/autoCombo/scoring.ts",
+      "gitBlob": "ed410c36bef3d270db1aba96451c64663f05dbad",
+      "sha256": "6a64dd9ed01e287b392d3a78ee7e7bc58406f568df42cd12484aade6011428d7",
+      "local": "selection.py"
+    },
+    {
+      "path": "open-sse/services/autoCombo/modePacks.ts",
+      "gitBlob": "7344496d106caab2a01c19ac88c4d29eb7c74dd6",
+      "sha256": "4cf933c93f2f1e2d11bfb62ba83b3239f421614e43daf6b8cc83e97e7c2d944f",
+      "local": "selection.py"
+    },
+    {
+      "path": "open-sse/services/autoCombo/speedRanking.ts",
+      "gitBlob": "553676111a3e71ee526ee121b68b946a3ab28322",
+      "sha256": "9416d8abe6b650f78159fbfa8426f0f3d214d7668ba13062b973464b9c07b92a",
+      "local": "selection.py"
+    },
+    {
+      "path": "open-sse/services/autoCombo/taskFitness.ts",
+      "gitBlob": "35b38fae12725a0b40a582cac6e3d51a5e71c671",
+      "sha256": "102f4fdf170cfa8b956a6c7fddc924ae18d56efadc0da7e3fe9695320163aee7",
+      "local": "selection.py"
+    },
+    {
+      "path": "open-sse/services/autoCombo/selfHealing.ts",
+      "gitBlob": "94609f75ad89c6e1011cd4085542ae9591a3e6ce",
+      "sha256": "77789ce3ea8be7434b66d1d863b158bb0f4c0b7188412629d7c3e0f76d58b7a7",
+      "local": "selection.py"
+    }
+  ]
+}
