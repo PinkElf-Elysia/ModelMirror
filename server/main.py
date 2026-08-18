@@ -20,6 +20,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 # Make subpackages (rag/api/mcp/world/...) importable as top-level modules
 # in both environments: locally (repo/server) and inside Docker (/app).
@@ -71,6 +72,29 @@ try:
     from server.api.dify_proxy import router as dify_router
 except ModuleNotFoundError:
     from api.dify_proxy import router as dify_router
+
+try:
+    from server.api.workflow_deployments import (
+        WorkflowTriggerCoordinator,
+        configure_workflow_deployment_runtime,
+        router as workflow_deployments_router,
+    )
+    from server.workflow_deployments import (
+        WorkflowDeploymentStore,
+        WorkflowTriggerExecution,
+        WorkflowVersion,
+    )
+except ModuleNotFoundError:
+    from api.workflow_deployments import (
+        WorkflowTriggerCoordinator,
+        configure_workflow_deployment_runtime,
+        router as workflow_deployments_router,
+    )
+    from workflow_deployments import (
+        WorkflowDeploymentStore,
+        WorkflowTriggerExecution,
+        WorkflowVersion,
+    )
 
 try:
     from server.rag.api import (
@@ -1123,6 +1147,7 @@ app.include_router(coding_worker_router)
 app.include_router(xperts_router)
 app.include_router(xpert_apps_router)
 app.include_router(workflow_native_router)
+app.include_router(workflow_deployments_router)
 app.include_router(world_router)
 app.include_router(runtime_todo_router)
 app.include_router(runtime_approval_router)
@@ -1267,6 +1292,21 @@ run_registry = RunRegistry()
 workflow_execution_store = WorkflowExecutionStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
 )
+workflow_deployment_store = WorkflowDeploymentStore(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None
+)
+workflow_trigger_coordinator = WorkflowTriggerCoordinator(
+    poll_seconds=env_float("WORKFLOW_TRIGGER_POLL_SECONDS", 1.0, 0.1)
+)
+
+
+def workflow_trigger_coordinator_enabled() -> bool:
+    return os.getenv("WORKFLOW_TRIGGER_COORDINATOR_ENABLED", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 configure_runtime_approvals(runtime_approval_store, workflow_execution_store)
 knowledge_pipeline_executor = configure_pipeline_executor(run_registry=run_registry)
 knowledge_evaluation_executor = configure_evaluation_executor(run_registry=run_registry)
@@ -2008,6 +2048,8 @@ class WorkflowPayload(BaseModel):
         producer_names: set[str] = set()
         declaration_fields = {
             "input": ("variableName",),
+            "scheduled_start": ("eventVariable",),
+            "http_event_entry": ("eventVariable",),
             "llm": ("outputVariable",),
             "code": ("codeOutputVariable",),
             "variable_assign": ("variableName",),
@@ -2036,6 +2078,7 @@ class WorkflowPayload(BaseModel):
             "data_table_insert": ("outputVariable",),
             "data_table_update": ("outputVariable",),
             "data_table_delete": ("outputVariable",),
+            "suspend_wait": ("outputVariable",),
         }
         for node in self.nodes:
             kind = str(node.type or node.data.get("kind") or "").strip()
@@ -4463,6 +4506,8 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
     data_kind = node.data.get("kind")
     if data_kind in {
         "input",
+        "scheduled_start",
+        "http_event_entry",
         "llm",
         "condition",
         "code",
@@ -4494,6 +4539,8 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
         "data_table_delete",
         "annotation",
         "runtime_middleware",
+        "suspend_wait",
+        "http_event_reply",
         "output",
     }:
         return data_kind  # type: ignore[return-value]
@@ -4552,6 +4599,44 @@ def render_workflow_template(
         return workflow_value_to_text(variables.get(variable_name, ""))
 
     return re.sub(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}", replace, template)
+
+
+def checkpoint_safe_workflow_variables(
+    variables: dict[str, WorkflowValue],
+    *,
+    ephemeral_names: set[str],
+) -> dict[str, WorkflowValue]:
+    """Remove private HTTP bodies before a durable continuation is written."""
+
+    safe = dict(variables)
+    for name in ephemeral_names:
+        if name not in safe:
+            continue
+        value = safe[name]
+        if isinstance(value, dict) and "body" in value:
+            sanitized: dict[str, WorkflowValue] = dict(value)
+            body = sanitized.pop("body")
+        else:
+            sanitized = {}
+            body = value
+        encoded = json.dumps(
+            body,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        sanitized.update(
+            {
+                "body_size": len(encoded),
+                "body_sha256": hashlib.sha256(encoded).hexdigest(),
+                "body_unavailable_after_resume": True,
+            }
+        )
+        safe[name] = normalize_workflow_value(
+            sanitized,
+            path=f"$.variables.{name}",
+        )
+    return safe
 
 
 def split_workflow_variable_names(value: str) -> list[str]:
@@ -7179,11 +7264,15 @@ async def _run_workflow_response(
     resume_execution: WorkflowExecution | None = None,
     resolved_approval: RuntimeApprovalRequest | None = None,
     resolved_client_request: ClientToolRequest | None = None,
+    runtime_execution_source_kind: str | None = None,
+    runtime_trigger_event: dict[str, Any] | None = None,
 ):
-    trusted_source_kind = _trusted_workflow_execution_source_kind(
-        request,
-        runtime_run_type=runtime_run_type,
-        resume_execution=resume_execution,
+    trusted_source_kind = runtime_execution_source_kind or (
+        _trusted_workflow_execution_source_kind(
+            request,
+            runtime_run_type=runtime_run_type,
+            resume_execution=resume_execution,
+        )
     )
     requires_model = any(
         (node.data.get("kind") if isinstance(node.data.get("kind"), str) else node.type)
@@ -7213,7 +7302,9 @@ async def _run_workflow_response(
         outgoing[edge.source].append(edge)
 
     start_node_ids = [
-        node.id for node in payload.workflow.nodes if workflow_node_kind(node) == "input"
+        node.id
+        for node in payload.workflow.nodes
+        if workflow_node_kind(node) in {"input", "scheduled_start", "http_event_entry"}
     ]
     if not start_node_ids and order:
         start_node_ids = [order[0]]
@@ -7394,6 +7485,18 @@ async def _run_workflow_response(
             if resolved_client_request is not None
             else None
         ),
+        "runtime_trigger_event": dict(runtime_trigger_event or {}),
+        "private_http_event": bool(
+            isinstance(runtime_trigger_event, dict)
+            and runtime_trigger_event.get("type") == "http_event"
+        ),
+        "ephemeral_variable_names": {
+            str(node.data.get(field_name) or "").strip()
+            for node in payload.workflow.nodes
+            if workflow_node_kind(node) == "http_event_entry"
+            for field_name in ("eventVariable", "bodyVariable")
+            if str(node.data.get(field_name) or "").strip()
+        },
         "cancel_requested": False,
     }
     if (
@@ -10939,6 +11042,30 @@ async def _run_workflow_response(
                         variables.get("user_input", ""),
                     )
                     output = workflow_value_to_text(variables[variable_name])
+
+                elif kind in {"scheduled_start", "http_event_entry"}:
+                    variable_name = str(node.data.get("eventVariable") or "trigger_event")
+                    event_value: dict[str, Any] = dict(
+                        task_state.get("runtime_trigger_event") or {}
+                    )
+                    if not event_value:
+                        event_value = {
+                            "type": "manual_test_event",
+                            "test": True,
+                            "started_at": time.time(),
+                        }
+                    variables[variable_name] = normalize_workflow_value(
+                        event_value,
+                        path=f"$.variables.{variable_name}",
+                    )
+                    if kind == "http_event_entry":
+                        body_variable = str(node.data.get("bodyVariable") or "").strip()
+                        if body_variable:
+                            variables[body_variable] = normalize_workflow_value(
+                                event_value.get("body"),
+                                path=f"$.variables.{body_variable}",
+                            )
+                    output = json.dumps(event_value, ensure_ascii=False)
 
                 elif kind == "llm":
                     model_id = str(node.data.get("modelId") or TEXT_FALLBACK_MODEL)
@@ -15402,6 +15529,110 @@ async def _run_workflow_response(
                         }
                     )
 
+                elif kind == "suspend_wait":
+                    output_variable = str(
+                        node.data.get("outputVariable") or "resume_event"
+                    )
+                    wait_started_at = time.time()
+                    wait_id = f"timer:{task_id}:{node.id}"
+                    resume_agent_state = task_state.get("agent_resume_state")
+                    resolved_wait_id = (
+                        str(resume_agent_state.get("resolved_timer_wait_id") or "")
+                        if isinstance(resume_agent_state, dict)
+                        else ""
+                    )
+                    if resolved_wait_id == wait_id:
+                        scheduled_resume_at = float(
+                            resume_agent_state.get("resume_at") or time.time()
+                        )
+                        resumed_event = {
+                            "wait_kind": "timer",
+                            "scheduled_resume_at": scheduled_resume_at,
+                            "resumed_at": time.time(),
+                        }
+                        variables[output_variable] = normalize_workflow_value(
+                            resumed_event,
+                            path=f"$.variables.{output_variable}",
+                        )
+                        output = json.dumps(resumed_event, ensure_ascii=False)
+                    else:
+                        wait_mode = str(node.data.get("waitMode") or "duration")
+                        if wait_mode == "duration":
+                            resume_at = wait_started_at + int(
+                                node.data.get("durationSeconds") or 1
+                            )
+                        else:
+                            rendered_until = render_workflow_template(
+                                str(node.data.get("untilTemplate") or ""),
+                                variables,
+                            ).strip()
+                            parsed_until = datetime.fromisoformat(
+                                rendered_until.replace("Z", "+00:00")
+                            )
+                            if parsed_until.tzinfo is None:
+                                parsed_until = parsed_until.replace(
+                                    tzinfo=ZoneInfo(
+                                        str(node.data.get("untilTimezone") or "UTC")
+                                    )
+                                )
+                            resume_at = parsed_until.timestamp()
+                        if resume_at - wait_started_at > 2_592_000:
+                            raise ValueError(
+                                "suspend_wait cannot wait for more than 30 days"
+                            )
+                        if resume_at <= wait_started_at:
+                            resumed_event = {
+                                "wait_kind": "timer",
+                                "scheduled_resume_at": resume_at,
+                                "resumed_at": time.time(),
+                            }
+                            variables[output_variable] = normalize_workflow_value(
+                                resumed_event,
+                                path=f"$.variables.{output_variable}",
+                            )
+                            output = json.dumps(resumed_event, ensure_ascii=False)
+                        else:
+                            raise RuntimeInterrupt(
+                                task_id=task_id,
+                                run_id=workflow_run.run_id,
+                                wait_kind="timer",
+                                wait_id=wait_id,
+                                continuation={
+                                    "agent_state": {
+                                        "timer_node_id": node.id,
+                                        "resume_at": resume_at,
+                                        "output_variable": output_variable,
+                                    }
+                                },
+                            )
+
+                elif kind == "http_event_reply":
+                    status_code = int(node.data.get("statusCode") or 200)
+                    body_type = str(node.data.get("responseBodyType") or "text")
+                    rendered_body = render_workflow_template(
+                        str(node.data.get("bodyTemplate") or ""),
+                        variables,
+                    )
+                    if status_code == 204:
+                        rendered_body = ""
+                    reply_body: Any = rendered_body
+                    content_type = "text/plain"
+                    if body_type == "json":
+                        reply_body = json.loads(rendered_body or "null")
+                        content_type = "application/json"
+                    task_state["webhook_reply"] = {
+                        "status_code": status_code,
+                        "content_type": content_type,
+                        "body": reply_body,
+                    }
+                    final_output = (
+                        json.dumps(reply_body, ensure_ascii=False)
+                        if body_type == "json"
+                        else str(reply_body)
+                    )
+                    task_state["final_output"] = final_output
+                    output = final_output
+
                 elif kind == "output":
                     output_variable = str(node.data.get("outputVariable") or "llm_output")
                     final_output = workflow_value_to_text(
@@ -15608,9 +15839,16 @@ async def _run_workflow_response(
                 yield sse_payload(cancellation_event())
                 return
 
+            persisted_final_output = final_output
+            if bool(task_state.get("private_http_event")):
+                encoded_final_output = final_output.encode("utf-8")
+                persisted_final_output = (
+                    f"webhook output_bytes={len(encoded_final_output)} "
+                    f"sha256={hashlib.sha256(encoded_final_output).hexdigest()}"
+                )
             completed_execution = workflow_execution_store.complete(
                 task_id,
-                result=final_output,
+                result=persisted_final_output,
             )
             if completed_execution.status == "cancelled":
                 yield sse_payload(cancellation_event())
@@ -15619,11 +15857,13 @@ async def _run_workflow_response(
             yield sse_payload(
                 {
                     "event": "workflow_end",
+                    "task_id": task_id,
                     "run_id": workflow_run.run_id,
                     "final_output": final_output,
                     "variables": variables,
                     "suggestions": conversation_suggestions,
                     "conversation_title": generated_conversation_title or None,
+                    "webhook_reply": task_state.get("webhook_reply"),
                 }
             )
             workflow_execution_store.append_event(
@@ -15632,15 +15872,40 @@ async def _run_workflow_response(
                     "event": "workflow_end",
                     "task_id": task_id,
                     "run_id": workflow_run.run_id,
-                    "final_output": final_output,
+                    "final_output": persisted_final_output,
                     "suggestions": conversation_suggestions,
                     "conversation_title": generated_conversation_title or None,
                 },
             )
         except RuntimeInterrupt as interrupt:
+            if (
+                bool(task_state.get("private_http_event"))
+                and interrupt.wait_kind != "timer"
+            ):
+                failure_message = (
+                    "HTTP event workflows cannot persist an interactive continuation."
+                )
+                workflow_execution_store.fail(task_id, error=failure_message)
+                await run_registry.update_run(
+                    workflow_run.run_id,
+                    status="failed",
+                    error=failure_message,
+                )
+                yield sse_payload(
+                    {
+                        "event": "error",
+                        "task_id": task_id,
+                        "run_id": workflow_run.run_id,
+                        "message": failure_message,
+                    }
+                )
+                return
             current_node_id = str(locals().get("node_id") or "")
             continuation = {
-                "variables": dict(variables),
+                "variables": checkpoint_safe_workflow_variables(
+                    variables,
+                    ephemeral_names=set(task_state.get("ephemeral_variable_names") or set()),
+                ),
                 "queue": [current_node_id, *list(queue)] if current_node_id else list(queue),
                 "queued": sorted(queued),
                 "executed": sorted(executed),
@@ -15675,7 +15940,44 @@ async def _run_workflow_response(
                     else None
                 ),
             }
-            if interrupt.wait_kind == "client_tool":
+            if interrupt.wait_kind == "timer":
+                timer_state = dict(interrupt.continuation.get("agent_state") or {})
+                resume_at = float(timer_state.get("resume_at") or 0)
+                if resume_at <= 0:
+                    raise RuntimeMiddlewareFatalError(
+                        "Timer interrupt is missing resume_at."
+                    )
+                pending_event = {
+                    "event": "timer_waiting",
+                    "task_id": task_id,
+                    "run_id": workflow_run.run_id,
+                    "wait_kind": "timer",
+                    "wait_id": interrupt.wait_id,
+                    "node_id": timer_state.get("timer_node_id"),
+                    "resume_at": resume_at,
+                    "message": "Workflow is durably suspended until the timer expires.",
+                }
+                workflow_execution_store.suspend(
+                    task_id,
+                    wait_kind="timer",
+                    wait_id=interrupt.wait_id,
+                    continuation=continuation,
+                    safe_event=pending_event,
+                    resume_at=resume_at,
+                )
+                await run_registry.update_run(
+                    workflow_run.run_id,
+                    status="waiting",
+                    metadata={"wait_kind": "timer", "resume_at": resume_at},
+                )
+                await run_registry.record_checkpoint(
+                    workflow_run.run_id,
+                    event_type="runtime.timer.waiting",
+                    title="Timer waiting",
+                    summary=f"resume_at={resume_at}",
+                    metadata={"wait_id": interrupt.wait_id, "resume_at": resume_at},
+                )
+            elif interrupt.wait_kind == "client_tool":
                 client_request = client_tool_store.require_request(interrupt.wait_id)
                 client_host = client_tool_store.require_host(client_request.host_id)
                 is_office_request = client_request.tool_name.startswith("office_")
@@ -16111,6 +16413,8 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                     pending_wait_event = event
                 elif event.get("event") == "client_tool_waiting":
                     pending_wait_event = event
+                elif event.get("event") == "timer_waiting":
+                    pending_wait_event = event
     if error_message:
         raise RuntimeError(error_message)
     if pending_wait_event is not None:
@@ -16118,6 +16422,163 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
     if final_event is None:
         raise RuntimeError("Xpert workflow ended without a final result.")
     return final_event
+
+
+async def run_deployed_workflow_trigger(
+    execution: WorkflowTriggerExecution,
+    release: WorkflowVersion,
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    runtime_workflow = {
+        **release.workflow,
+        "nodes": [
+            {
+                **node,
+                "type": str((node.get("data") or {}).get("kind") or node.get("type") or ""),
+            }
+            for node in list(release.workflow.get("nodes") or [])
+            if isinstance(node, dict)
+        ],
+    }
+    payload = WorkflowRunRequest.model_validate(
+        {"workflow": runtime_workflow, "inputs": {}}
+    )
+    metadata = {
+        "workflow_deployment_execution_id": execution.execution_id,
+        "workflow_project_id": execution.project_id,
+        "workflow_version": execution.version,
+        "workflow_trigger_kind": execution.trigger_kind,
+        "workflow_trigger_summary": dict(execution.trigger_summary),
+    }
+    response = await _run_workflow_response(
+        payload,
+        None,
+        runtime_run_type="workflow",
+        runtime_source_id=execution.project_id,
+        runtime_metadata=metadata,
+        runtime_execution_source_kind="workflow_deployment",
+        runtime_trigger_event=event,
+    )
+    final_event = await consume_workflow_stream(response)
+    if final_event.get("event") in {
+        "runtime_approval_pending",
+        "client_tool_waiting",
+        "timer_waiting",
+    }:
+        return {
+            "status": "waiting",
+            "task_id": final_event.get("task_id"),
+            "run_id": final_event.get("run_id"),
+            "wait_kind": final_event.get("wait_kind") or (
+                "approval"
+                if final_event.get("event") == "runtime_approval_pending"
+                else "client_tool"
+                if final_event.get("event") == "client_tool_waiting"
+                else "timer"
+            ),
+            "wait_id": final_event.get("wait_id")
+            or final_event.get("approval_id")
+            or final_event.get("request_id"),
+            "resume_at": final_event.get("resume_at"),
+        }
+    return {
+        "status": "completed",
+        "task_id": final_event.get("task_id"),
+        "run_id": final_event.get("run_id"),
+        "result": final_event.get("final_output"),
+        "webhook_reply": final_event.get("webhook_reply"),
+    }
+
+
+async def resume_runtime_timer_execution(task_id: str) -> dict[str, Any]:
+    execution = workflow_execution_store.require(task_id)
+    if (
+        execution.status != "waiting"
+        or execution.wait_kind != "timer"
+        or execution.resume_at is None
+        or execution.resume_at > time.time()
+    ):
+        return {"status": execution.status, "task_id": task_id}
+    wait_id = str(execution.wait_id or "")
+    workflow_execution_store.mark_ready(
+        task_id,
+        wait_kind="timer",
+        wait_id=wait_id,
+    )
+    claimed = workflow_execution_store.claim(
+        task_id,
+        worker_id=f"workflow-timer-{uuid.uuid4().hex[:12]}",
+        lease_seconds=120,
+    )
+    continuation = dict(claimed.continuation or {})
+    agent_state = dict(continuation.get("agent_state") or {})
+    agent_state["resolved_timer_wait_id"] = wait_id
+    continuation["agent_state"] = agent_state
+    claimed.continuation = continuation
+    workflow = WorkflowPayload.model_validate(claimed.workflow)
+    payload = WorkflowRunRequest(
+        workflow=workflow,
+        inputs=dict(claimed.inputs),
+    )
+    response = await _run_workflow_response(
+        payload,
+        None,
+        runtime_run_type=claimed.run_type,
+        runtime_source_id=str(
+            claimed.runtime_metadata.get("workflow_project_id") or workflow.id
+        ),
+        runtime_metadata=dict(claimed.runtime_metadata),
+        resume_execution=claimed,
+        runtime_execution_source_kind=claimed.source_kind,
+    )
+    final_event = await consume_workflow_stream(response)
+    deployment_execution_id = str(
+        claimed.runtime_metadata.get("workflow_deployment_execution_id") or ""
+    )
+    if deployment_execution_id:
+        pending_event = str(final_event.get("event") or "")
+        if pending_event in {
+            "timer_waiting",
+            "runtime_approval_pending",
+            "client_tool_waiting",
+        }:
+            wait_kind = (
+                "approval"
+                if pending_event == "runtime_approval_pending"
+                else "client_tool"
+                if pending_event == "client_tool_waiting"
+                else "timer"
+            )
+            workflow_deployment_store.mark_execution_waiting(
+                deployment_execution_id,
+                task_id=str(final_event.get("task_id") or task_id),
+                run_id=str(final_event.get("run_id") or claimed.run_id),
+                wait_kind=wait_kind,
+                wait_id=str(
+                    final_event.get("wait_id")
+                    or final_event.get("approval_id")
+                    or final_event.get("request_id")
+                    or ""
+                ),
+                resume_at=final_event.get("resume_at"),
+            )
+        else:
+            workflow_deployment_store.complete_execution(
+                deployment_execution_id,
+                task_id=str(final_event.get("task_id") or task_id),
+                run_id=str(final_event.get("run_id") or claimed.run_id),
+                result=str(final_event.get("final_output") or ""),
+                webhook_reply=final_event.get("webhook_reply"),
+            )
+    return final_event
+
+
+configure_workflow_deployment_runtime(
+    workflow_deployment_store,
+    trigger_executor=run_deployed_workflow_trigger,
+    timer_due_source=lambda: workflow_execution_store.list_due_timers(limit=20),
+    timer_resume_executor=resume_runtime_timer_execution,
+)
 
 
 async def run_skill_creator_generation(
@@ -16575,7 +17036,7 @@ async def resume_runtime_approval_execution(
     workflow = WorkflowPayload.model_validate(execution.workflow)
     payload = WorkflowRunRequest(
         workflow=workflow,
-        inputs={str(key): str(value) for key, value in execution.inputs.items()},
+        inputs=dict(execution.inputs),
     )
     metadata = dict(execution.runtime_metadata or {})
     response = await _run_workflow_response(
@@ -16702,7 +17163,7 @@ async def resume_runtime_client_tool_execution(
     workflow = WorkflowPayload.model_validate(execution.workflow)
     payload = WorkflowRunRequest(
         workflow=workflow,
-        inputs={str(key): str(value) for key, value in execution.inputs.items()},
+        inputs=dict(execution.inputs),
     )
     metadata = dict(execution.runtime_metadata or {})
     response = await _run_workflow_response(
@@ -18784,6 +19245,8 @@ async def start_mcp_ttl_cleanup() -> None:
     get_approval_coordinator().start()
     get_client_tool_coordinator().start()
     get_automation_coordinator().start()
+    if workflow_trigger_coordinator_enabled():
+        await workflow_trigger_coordinator.start()
 
 
 @app.on_event("shutdown")
@@ -18806,6 +19269,7 @@ async def shutdown_mcp_sessions() -> None:
         await client_tool_coordinator.stop()
     if automation_coordinator is not None:
         await automation_coordinator.stop()
+    await workflow_trigger_coordinator.stop()
     await mcp_catalog_service.clear_sessions()
     await toolset_service.close()
     await mcp_manager.stop_ttl_cleanup()

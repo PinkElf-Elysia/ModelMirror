@@ -153,7 +153,7 @@ class WorkflowNodeRegistry:
     """Xpert-style metadata registry for classic workflow palette nodes."""
 
     def __init__(self) -> None:
-        self.version = "xpert-workflow-node-registry-v3"
+        self.version = "xpert-workflow-node-registry-v4"
         self.contract_registry = workflow_node_contract_registry
         self._tabs: list[WorkflowPaletteTab] = []
         self._sections: list[WorkflowPaletteSection] = []
@@ -231,6 +231,42 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="定义流水线入口变量，默认 user_input。",
                     category="logic",
                     tags=["input", "start", "trigger"],
+                ),
+                WorkflowPaletteItem(
+                    kind="scheduled_start",
+                    icon="TIME",
+                    title="定时启动",
+                    description="从已发布版本按单次、固定间隔或日历规则私有启动。",
+                    category="logic",
+                    tags=["schedule", "cron", "deployment"],
+                    metadata={"classic_only": True, "planner_enabled": False},
+                ),
+                WorkflowPaletteItem(
+                    kind="http_event_entry",
+                    icon="POST",
+                    title="HTTP 事件入口",
+                    description="接收带私有密钥与幂等键的 POST 事件。",
+                    category="logic",
+                    tags=["webhook", "http", "deployment"],
+                    metadata={"classic_only": True, "planner_enabled": False},
+                ),
+                WorkflowPaletteItem(
+                    kind="suspend_wait",
+                    icon="WAIT",
+                    title="挂起等待",
+                    description="持久挂起至指定持续时间或带时区时间点。",
+                    category="logic",
+                    tags=["wait", "timer", "continuation"],
+                    metadata={"classic_only": True, "planner_enabled": False},
+                ),
+                WorkflowPaletteItem(
+                    kind="http_event_reply",
+                    icon="REPLY",
+                    title="HTTP 事件回执",
+                    description="以文本或 JSON 终止 HTTP 事件工作流。",
+                    category="logic",
+                    tags=["webhook", "response", "terminal"],
+                    metadata={"classic_only": True, "planner_enabled": False},
                 ),
                 WorkflowPaletteItem(
                     kind="condition",

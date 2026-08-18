@@ -82,6 +82,359 @@ async def test_valid_linear_workflow_returns_topological_order(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("entry", "middle", "end"),
+    [
+        (
+            {
+                "id": "start",
+                "type": "scheduled_start",
+                "data": {
+                    "kind": "scheduled_start",
+                    "scheduleType": "interval",
+                    "intervalSeconds": 30,
+                    "timezone": "UTC",
+                    "eventVariable": "schedule_event",
+                },
+            },
+            None,
+            {
+                "id": "end",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "schedule_event"},
+            },
+        ),
+        (
+            {
+                "id": "start",
+                "type": "http_event_entry",
+                "data": {"kind": "http_event_entry", "eventVariable": "http_event"},
+            },
+            None,
+            {
+                "id": "end",
+                "type": "http_event_reply",
+                "data": {
+                    "kind": "http_event_reply",
+                    "statusCode": 200,
+                    "responseBodyType": "json",
+                    "bodyTemplate": '{"accepted":true}',
+                },
+            },
+        ),
+        (
+            {
+                "id": "start",
+                "type": "input",
+                "data": {"kind": "input", "variableName": "user_input"},
+            },
+            {
+                "id": "wait",
+                "type": "suspend_wait",
+                "data": {
+                    "kind": "suspend_wait",
+                    "waitMode": "duration",
+                    "durationSeconds": 1,
+                    "outputVariable": "resume_event",
+                },
+            },
+            {
+                "id": "end",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "resume_event"},
+            },
+        ),
+    ],
+)
+async def test_valid_independent_deployment_nodes(
+    client: httpx.AsyncClient,
+    entry: dict,
+    middle: dict | None,
+    end: dict,
+) -> None:
+    nodes = [entry, *([middle] if middle else []), end]
+    edges = [
+        {"id": f"e{index}", "source": nodes[index]["id"], "target": nodes[index + 1]["id"]}
+        for index in range(len(nodes) - 1)
+    ]
+
+    data = await validate(
+        client,
+        {"id": "deployment", "title": "deployment", "nodes": nodes, "edges": edges},
+    )
+
+    assert data["valid"] is True, data["issues"]
+
+
+@pytest.mark.asyncio
+async def test_http_event_can_suspend_without_a_reply_node(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = {
+        "id": "http-wait",
+        "title": "http wait",
+        "nodes": [
+            {
+                "id": "entry",
+                "type": "http_event_entry",
+                "data": {
+                    "kind": "http_event_entry",
+                    "eventVariable": "http_event",
+                    "bodyVariable": "request_body",
+                },
+            },
+            {
+                "id": "wait",
+                "type": "suspend_wait",
+                "data": {
+                    "kind": "suspend_wait",
+                    "waitMode": "duration",
+                    "durationSeconds": 1,
+                    "outputVariable": "resume_event",
+                },
+            },
+            {
+                "id": "output",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "resume_event"},
+            },
+        ],
+        "edges": [
+            {"id": "e1", "source": "entry", "target": "wait"},
+            {"id": "e2", "source": "wait", "target": "output"},
+        ],
+    }
+
+    data = await validate(client, workflow)
+
+    assert data["valid"] is True, data["issues"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("node", "expected_code"),
+    [
+        (
+            {
+                "id": "start",
+                "type": "scheduled_start",
+                "data": {
+                    "kind": "scheduled_start",
+                    "scheduleType": "interval",
+                    "intervalSeconds": 29,
+                    "timezone": "UTC",
+                    "eventVariable": "event",
+                },
+            },
+            "invalid_schedule_interval",
+        ),
+        (
+            {
+                "id": "start",
+                "type": "http_event_entry",
+                "data": {"kind": "http_event_entry", "eventVariable": "bad-name"},
+            },
+            "invalid_trigger_event_variable",
+        ),
+        (
+            {
+                "id": "start",
+                "type": "http_event_entry",
+                "data": {
+                    "kind": "http_event_entry",
+                    "eventVariable": "event",
+                    "bodyVariable": "bad-name",
+                },
+            },
+            "invalid_http_event_body_variable",
+        ),
+        (
+            {
+                "id": "start",
+                "type": "http_event_entry",
+                "data": {
+                    "kind": "http_event_entry",
+                    "eventVariable": "event",
+                    "acceptedContentType": "xml",
+                },
+            },
+            "invalid_http_event_content_type",
+        ),
+        (
+            {
+                "id": "start",
+                "type": "http_event_entry",
+                "data": {
+                    "kind": "http_event_entry",
+                    "eventVariable": "event",
+                    "maxBodyBytes": 1_048_577,
+                },
+            },
+            "invalid_http_event_max_body_bytes",
+        ),
+        (
+            {
+                "id": "wait",
+                "type": "suspend_wait",
+                "data": {
+                    "kind": "suspend_wait",
+                    "waitMode": "duration",
+                    "durationSeconds": 0,
+                    "outputVariable": "resume_event",
+                },
+            },
+            "invalid_suspend_wait_duration",
+        ),
+        (
+            {
+                "id": "wait",
+                "type": "suspend_wait",
+                "data": {
+                    "kind": "suspend_wait",
+                    "waitMode": "until",
+                    "untilTemplate": "2026-08-20T09:30",
+                    "untilTimezone": "Not/A_Zone",
+                    "outputVariable": "resume_event",
+                },
+            },
+            "invalid_suspend_wait_timezone",
+        ),
+        (
+            {
+                "id": "end",
+                "type": "http_event_reply",
+                "data": {
+                    "kind": "http_event_reply",
+                    "statusCode": 199,
+                    "responseBodyType": "text",
+                },
+            },
+            "invalid_http_event_reply_status",
+        ),
+    ],
+)
+async def test_invalid_independent_deployment_node_configuration(
+    client: httpx.AsyncClient,
+    node: dict,
+    expected_code: str,
+) -> None:
+    workflow = linear_workflow()
+    if node["id"] == "start":
+        workflow["nodes"][0] = node
+    elif node["id"] == "end":
+        workflow["nodes"][2] = node
+    else:
+        workflow["nodes"][1] = node
+
+    data = await validate(client, workflow)
+
+    assert data["valid"] is False
+    assert expected_code in issue_codes(data)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("nodes", "edges", "expected_code"),
+    [
+        (
+            [
+                {
+                    "id": "start",
+                    "type": "input",
+                    "data": {"kind": "input", "variableName": "user_input"},
+                },
+                {
+                    "id": "reply",
+                    "type": "http_event_reply",
+                    "data": {
+                        "kind": "http_event_reply",
+                        "statusCode": 200,
+                        "responseBodyType": "text",
+                    },
+                },
+            ],
+            [{"id": "e1", "source": "start", "target": "reply"}],
+            "http_event_reply_without_entry",
+        ),
+        (
+            [
+                {
+                    "id": "start",
+                    "type": "http_event_entry",
+                    "data": {"kind": "http_event_entry", "eventVariable": "event"},
+                },
+                {
+                    "id": "reply",
+                    "type": "http_event_reply",
+                    "data": {
+                        "kind": "http_event_reply",
+                        "statusCode": 200,
+                        "responseBodyType": "text",
+                    },
+                },
+                {
+                    "id": "end",
+                    "type": "output",
+                    "data": {"kind": "output", "outputVariable": "event"},
+                },
+            ],
+            [
+                {"id": "e1", "source": "start", "target": "reply"},
+                {"id": "e2", "source": "reply", "target": "end"},
+            ],
+            "http_event_reply_not_terminal",
+        ),
+        (
+            [
+                {
+                    "id": "start",
+                    "type": "http_event_entry",
+                    "data": {"kind": "http_event_entry", "eventVariable": "event"},
+                },
+                {
+                    "id": "wait",
+                    "type": "suspend_wait",
+                    "data": {
+                        "kind": "suspend_wait",
+                        "waitMode": "duration",
+                        "durationSeconds": 1,
+                        "outputVariable": "resume_event",
+                    },
+                },
+                {
+                    "id": "reply",
+                    "type": "http_event_reply",
+                    "data": {
+                        "kind": "http_event_reply",
+                        "statusCode": 200,
+                        "responseBodyType": "text",
+                    },
+                },
+            ],
+            [
+                {"id": "e1", "source": "start", "target": "wait"},
+                {"id": "e2", "source": "wait", "target": "reply"},
+            ],
+            "http_event_reply_after_suspend_wait",
+        ),
+    ],
+)
+async def test_http_event_reply_static_structure_rules(
+    client: httpx.AsyncClient,
+    nodes: list[dict],
+    edges: list[dict],
+    expected_code: str,
+) -> None:
+    data = await validate(
+        client,
+        {"id": "invalid-http", "title": "invalid", "nodes": nodes, "edges": edges},
+    )
+
+    assert data["valid"] is False
+    assert expected_code in issue_codes(data)
+
+
+@pytest.mark.asyncio
 async def test_missing_input_and_output_nodes_are_structured_issues(
     client: httpx.AsyncClient,
 ) -> None:

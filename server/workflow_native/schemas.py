@@ -10,6 +10,8 @@ from .values import normalize_workflow_value
 
 NativeNodeKind = Literal[
     "input",
+    "scheduled_start",
+    "http_event_entry",
     "llm",
     "condition",
     "code",
@@ -45,6 +47,8 @@ NativeNodeKind = Literal[
     "data_table_delete",
     "annotation",
     "runtime_middleware",
+    "suspend_wait",
+    "http_event_reply",
     "output",
 ]
 IssueSeverity = Literal["error", "warning"]

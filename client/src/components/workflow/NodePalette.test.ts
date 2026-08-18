@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import NodePalette, { disabledPaletteItem } from "./NodePalette";
@@ -47,9 +47,9 @@ describe("NodePalette disabled workflow nodes", () => {
         }
         return new Response(
           JSON.stringify({
-            version: "xpert-workflow-node-registry-v3",
+            version: "xpert-workflow-node-registry-v4",
             contract_version: 3,
-            contract_checksum: "registry-checksum",
+            contract_checksum: "a".repeat(64),
             tabs: [
               { id: "workflow", label: "工作流" },
               { id: "knowledge", label: "知识流水线" },
@@ -78,8 +78,8 @@ describe("NodePalette disabled workflow nodes", () => {
                       resources: [],
                       planner: {},
                       contract_version: 3,
-                      checksum: "input-checksum",
-                      compiler_checksum: "input-compiler-checksum",
+                      checksum: "b".repeat(64),
+                      compiler_checksum: "c".repeat(64),
                     },
                   },
                   {
@@ -113,6 +113,41 @@ describe("NodePalette disabled workflow nodes", () => {
     expect(placeholder).not.toHaveAttribute("draggable");
     expect(
       screen.queryByRole("button", { name: /文档提取器/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("blocks middleware dragging when the authoritative registry fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/runtime/middleware-nodes") {
+          return new Response(
+            JSON.stringify([
+              {
+                id: "human_in_the_loop",
+                kind: "runtime.middleware.human_in_the_loop",
+                title: "人工审批",
+                description: "测试中间件",
+                category: "control",
+                icon: "Shield",
+                enabled: true,
+                fields: [],
+              },
+            ]),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("unavailable", { status: 503 });
+      }),
+    );
+
+    render(createElement(NodePalette));
+    await screen.findByText(/本地目录仅供查看/);
+    fireEvent.click(screen.getByRole("button", { name: "中间件" }));
+
+    expect(await screen.findByText(/节点注册表门禁不可用/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /人工审批/ }),
     ).not.toBeInTheDocument();
   });
 });
