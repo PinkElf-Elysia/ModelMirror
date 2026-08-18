@@ -1,6 +1,6 @@
 # R14验收记录
 
-状态：R14实施中；R14.4已验证，等待本地提交
+状态：R14实施中；R14.5已验证，等待本地提交
 
 ## 基线
 
@@ -17,8 +17,8 @@
 | R14.1 治理与声明门 | 已完成 | `1086293c` | 见下方摘要 |
 | R14.2 Solution合同与Intent合成 | 已完成 | `474a7b2c` | 见下方摘要 |
 | R14.3 确定性空间求解器 | 已完成 | `ca7ca3da` | 见下方摘要 |
-| R14.4 Godot最终物理复验 | 已验证 | 本批提交，后续记录 | 见下方摘要 |
-| R14.5 solved overlay与预览 | 未开始 | — | — |
+| R14.4 Godot最终物理复验 | 已完成 | `6a3c85bb` | 见下方摘要 |
+| R14.5 solved overlay与预览 | 已验证 | 本批提交，后续记录 | 见下方摘要 |
 | R14.6 泛化与人工预览资格 | 未开始 | — | — |
 | R14.7 默认切换与初版收口 | 等待用户人工验收 | — | — |
 
@@ -64,6 +64,16 @@ R14.7前必须保持`pending-spatial-solver / claimAllowed=false / blockingRound
 - `verify:r14`为38/38定向Node测试并通过真实Godot集成；完整`npm.cmd test`在锁定`GODOT_BIN`、允许测试于`C:\\tmp`创建自有临时夹具的环境中为782/782，最终完整`npm.cmd run verify`为25/25阶段通过，包含Creator 248 modules生产构建与HTTP 200烟测。沙箱内首次全量仅因34项`mkdtemp C:\\tmp`被拒及未注入Godot路径失败，按原命令无沙箱重跑后全部消除，未改冻结测试规避证据。
 - TypeScript声明严格解析、Node语法、workspace依赖树、Godot import、boundary与Godot boundary、`git diff --check`均通过；一方Verifier源码无网络、供应商、题材ID、随机布局或产品场景依赖。
 - 本批未创建R14.5 solved overlay，未修改Creator、旧preview或任何产品Godot场景，也未进行人工图形验收；`MVP_STATUS`继续为`pending-spatial-solver / claimAllowed=false / blockingRound=R14`。
+
+## R14.5验证摘要
+
+- 新增独立`solved-runs/<R10 source run>/<solution hash>/` overlay与`solved-current.json`；发布使用同父staging、独占FileHandle、bigint身份/状态复验和单次目录rename，current最后原子替换。R10/R11既有run与current均不写入，失败或漂移不会替换现有可运行结果。
+- 每次恢复、cache查找和启动均重新取R10+R11来源交集，并复验canonical Intent、Facts、Solution、Solver report、Godot verification report、Runtime/Receipt、真实Asset Bundle、Spatial Assembly和全部预览资产；verification计数、identity或任一字节漂移均使overlay失效。
+- 新增显式`preview:r14`离线入口和独立`solved_spatial_prototype` Godot wrapper。wrapper只在Compute guard、冻结R11空间载入、Solution严格解码和Godot复验证据全部通过后输出`MATRIX_OASIS_R14_SOLVED_SPATIAL_READY`；不读panorama、不调用供应商、不回退R12 AABB网格或隐藏ground常量。
+- Godot运行时使用Solution世界坐标放置人物/道具、player spawn和Action terminal；初始/reset使用已验证spawn，普通node transition默认保留玩家位置，仅当新显隐资产真实footprint与玩家重叠时使用该node安全spawn，ending和冻结Runtime语义保持不变。
+- `verify:r14`共42项Node测试通过，并通过真实Godot物理复验夹具（2 placements、5 nodes、5 paths、9 terminals）；R14 preview定向4/4、Godot import、Godot一方源码边界、模块boundary、round/parent scope、workspace依赖树与`git diff --check`均通过。
+- 最终完整`npm.cmd run verify`在锁定`GODOT_BIN`且允许模块于`C:\\tmp`创建自有临时目录的环境中为25/25阶段通过，含786/786 Node测试、Godot 4.6.3全门、Creator 248 modules生产build和HTTP 200 smoke。此前一次长链后段重复Godot import瞬态返回`GODOT_COMMAND_FAILED`，原`verify:spatial-analysis`立即完整复跑通过，最终全量重验消除该瞬态，未修改冻结实现掩盖证据。
+- 本批未修改Creator默认预览、旧显式预览或MVP声明。R14.6仍需用中性与末班地铁真实缓存生成overlay并完成用户人工图形验收；`MVP_STATUS`继续为`pending-spatial-solver / claimAllowed=false / blockingRound=R14`。
 
 ## 回退
 
