@@ -1,0 +1,117 @@
+{
+  "schema_version": "modelmirror-rag-p0-round3-implementation-v1",
+  "status": "local_implementation_verified_external_gates_pending",
+  "created_at": "2026-08-20T17:35:18.2764123Z",
+  "base": {
+    "branch": "origin/main",
+    "commit": "0e0202b313b2378d13d899cf53166665baac6bee",
+    "source_pr": 220,
+    "source_pr_merged": true
+  },
+  "branch": {
+    "name": "codex/rag-p0-r3",
+    "implementation_commits": [
+      "8a4d96b3c5a66277aee7df2334c89970e09d315b",
+      "929c4304615daa7b5f727a45798da2e1c97be305"
+    ]
+  },
+  "constraints": {
+    "real_provider_calls": 0,
+    "gold_generation_calls": 0,
+    "embedding_preflight_calls": 0,
+    "real_candidate_builds": 0,
+    "formal_evaluation_runs": 0,
+    "human_reviews_recorded": 0,
+    "gold_versions_published": 0,
+    "candidate_activation": false,
+    "candidate_promotion": false,
+    "index_migration": false,
+    "shared_data_modified": false,
+    "deployment_performed": false
+  },
+  "batches": {
+    "3A": {
+      "status": "implemented_and_locally_verified",
+      "acceptance": [
+        "rag-gold-v2 identifies evidence through a retrieval-parameter-independent corpus snapshot",
+        "all generated cases require manual UI review and semantic edits invalidate prior review",
+        "publication verifies provenance, review, corpus snapshot, coverage, duplication, leakage, and checksum invariants",
+        "historical v1 data remains readable but cannot qualify new promotion evidence"
+      ]
+    },
+    "3B": {
+      "status": "implemented_and_locally_verified",
+      "acceptance": [
+        "formal mode accepts only one baseline and one candidate over the same published rag-gold-v2 corpus snapshot",
+        "SHA-256-seeded paired interleaving and stratified 10000-sample bootstrap are deterministic",
+        "failed cases remain in fixed quality and latency denominators and any execution error fails promotion",
+        "promotion requires comparable formal v2 evidence, complete manifests, fixed denominators, paired CI, and all compatibility gates"
+      ]
+    },
+    "3C": {
+      "status": "workbench_implemented_real_sequence_not_started",
+      "implemented": [
+        "42-case review workbench for positive grounding, negative answer absence, review reasons, rejection, blockers, and readiness",
+        "formal-run readiness and paired confidence/comparability presentation",
+        "bounded one-attempt Gold generation contract and explicit no-calibration-before-formal quota boundary"
+      ],
+      "pending_external_sequence": [
+        "obtain separate authorization and make one real Gold generation call",
+        "complete manual review of all 42 cases and replace any rejected cases only with new authorization or manual edits",
+        "publish one immutable rag-gold-v2 version",
+        "obtain separate authorization and make one sanitized embedding preflight",
+        "build one unactivated real embedding candidate only after a successful preflight",
+        "run exactly one paired Formal evaluation without answer generation or automatic retry"
+      ]
+    }
+  },
+  "validation": {
+    "backend_core": {
+      "command": "python -m pytest server/tests/test_rag_benchmark_generator.py server/tests/test_rag_evaluation.py server/tests/test_rag_strategy_tuner.py -q --tb=short",
+      "result": "78 passed, 4 warnings"
+    },
+    "backend_affected_area": {
+      "command": "python -m pytest server/tests -q -k 'rag or knowledge or benchmark' --tb=short",
+      "result": "311 passed, 3189 deselected, 6 warnings"
+    },
+    "backend_full": {
+      "command": "python -m pytest server/tests -q",
+      "result": "3450 passed, 29 skipped, 21 failed, 6 warnings",
+      "classification": "not_green_unrelated_baseline_or_environment_failures",
+      "failure_clusters": [
+        "17 agency tests: worker build output unavailable in the validation image",
+        "1 model-router P95 timing test: passed on immediate isolated rerun",
+        "3 Skill Python/TypeScript parity tests: Node TypeScript subprocess exits before assertion; no Skill files are changed by this branch"
+      ]
+    },
+    "frontend_targeted": {
+      "command": "npm.cmd run test:run -- src/pages/RagPage.test.ts src/components/evaluations/KnowledgeBenchmarkGenerator.test.ts src/pages/KnowledgeEvaluationPage.test.ts",
+      "result": "17 passed"
+    },
+    "frontend_full": {
+      "command": "npm.cmd run test:run",
+      "result": "408 passed, 2 timed out",
+      "classification": "not_green_load_sensitive_unrelated_timeouts",
+      "isolated_rerun": "AgentWorkbenchPage and SkillCreatorPages: 19 passed"
+    },
+    "frontend_build": {
+      "command": "npm.cmd run build",
+      "result": "passed, 3121 modules transformed, existing large-chunk warning retained"
+    },
+    "python_syntax": {
+      "command": "python -m py_compile <nine changed backend modules>",
+      "result": "passed"
+    }
+  },
+  "prohibited_claims": [
+    "Third-round formal promotion evidence exists.",
+    "A rag-gold-v2 dataset has been generated, reviewed, or published.",
+    "The real embedding route or candidate has passed preflight.",
+    "A candidate passed or was authorized for promotion.",
+    "The repository-wide backend or frontend test suite is fully green."
+  ],
+  "rollback": {
+    "data_rollback_required": false,
+    "procedure": "Revert the third-round branch commits; no shared data, index, activation, promotion, or deployment rollback is required."
+  }
+}
