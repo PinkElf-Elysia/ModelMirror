@@ -200,6 +200,12 @@ except ModuleNotFoundError:
     )
 
 try:
+    from server.skills.application_receipts import (
+        SkillApplicationObserver,
+        SkillApplicationReceiptError,
+        SkillApplicationReceiptStore,
+        application_receipt_mode,
+    )
     from server.skills.api import (
         get_builtin_skill_library,
         get_skill_draft_store,
@@ -208,6 +214,7 @@ try:
         router as skills_router,
     )
     from server.skills.local_import_api import router as skill_local_import_router
+    from server.skills.trust_service import SkillRuntimeEnvironment
     from server.skills.creator_api import (
         configure_skill_creator,
         configure_skill_creator_evaluation,
@@ -269,6 +276,12 @@ try:
         SkillCreatorSessionStore,
     )
 except ModuleNotFoundError:
+    from skills.application_receipts import (
+        SkillApplicationObserver,
+        SkillApplicationReceiptError,
+        SkillApplicationReceiptStore,
+        application_receipt_mode,
+    )
     from skills.api import (
         get_builtin_skill_library,
         get_skill_draft_store,
@@ -277,6 +290,7 @@ except ModuleNotFoundError:
         router as skills_router,
     )
     from skills.local_import_api import router as skill_local_import_router
+    from skills.trust_service import SkillRuntimeEnvironment
     from skills.creator_api import (
         configure_skill_creator,
         configure_skill_creator_evaluation,
@@ -1292,9 +1306,150 @@ run_registry = RunRegistry()
 workflow_execution_store = WorkflowExecutionStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
 )
+skill_application_receipt_store = SkillApplicationReceiptStore(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None
+)
+skill_application_observer = SkillApplicationObserver(
+    skill_application_receipt_store,
+    lambda: get_skill_manager(),
+)
 workflow_deployment_store = WorkflowDeploymentStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
 )
+
+
+def record_skill_application(
+    *,
+    skill_id: str,
+    run_id: str | None,
+    task_id: str | None,
+    node_id: str | None,
+    runtime_kind: str,
+    version_id: str | None = None,
+    source_kind: str | None = None,
+    content_digest: str | None = None,
+    trust_fingerprint: str | None = None,
+    policy: Literal["advisory", "require_read", "require_stage"] = "require_read",
+    required_resource_paths: Iterable[str] = (),
+    method: Literal["prompt_injected", "skill_read", "skill_stage"] | None = None,
+    resource_paths: Iterable[str] = (),
+    resource_digests: dict[str, str] | None = None,
+    expected_resource_digests: dict[str, str] | None = None,
+    tool_name: str | None = None,
+    error_code: str | None = None,
+) -> str | None:
+    """Record audit evidence; only explicit enforce mode fails runtime closed."""
+
+    if application_receipt_mode() == "off":
+        return None
+    try:
+        receipt = skill_application_observer.record(
+            skill_id=skill_id,
+            run_id=run_id,
+            task_id=task_id,
+            node_id=node_id,
+            runtime_kind=runtime_kind,
+            version_id=version_id,
+            source_kind=source_kind,
+            content_digest=content_digest,
+            trust_fingerprint=trust_fingerprint,
+            policy=policy,
+            required_resource_paths=required_resource_paths,
+            method=method,
+            resource_paths=resource_paths,
+            resource_digests=resource_digests,
+            expected_resource_digests=expected_resource_digests,
+            tool_name=tool_name,
+            error_code=error_code,
+        )
+        return receipt.receipt_id if receipt is not None else None
+    except Exception as exc:
+        logger.warning(
+            "Skill application receipt unavailable: code=%s",
+            str(getattr(exc, "code", "skill_application_receipt_unavailable")),
+        )
+        if application_receipt_mode() == "enforce":
+            if isinstance(exc, SkillApplicationReceiptError):
+                raise
+            raise SkillApplicationReceiptError(
+                "Skill application receipt could not be persisted.",
+                code="skill_application_receipt_unavailable",
+            ) from exc
+        return None
+
+
+def record_expert_team_method_skill_applications(
+    result: dict[str, Any],
+    skills: Iterable[AgencySkillDefinition],
+) -> None:
+    for skill in skills:
+        record_skill_application(
+            skill_id=skill.skill_id,
+            run_id=str(result.get("run_id") or "").strip() or None,
+            task_id=str(result.get("task_id") or "").strip() or None,
+            node_id="agency-orchestrator",
+            runtime_kind="expert_team",
+            version_id=f"builtin:{skill.digest}",
+            source_kind="builtin",
+            content_digest=skill.digest,
+            policy="advisory",
+            method="prompt_injected",
+        )
+
+
+def resolve_chat_skill_application(
+    application: "ChatSkillApplication",
+    messages: Iterable["ChatMessage"],
+) -> dict[str, str]:
+    """Resolve one client selection to the exact server-owned injected package."""
+
+    manager = get_skill_manager()
+    skill_id = application.skill_id
+    expected_digest = application.expected_content_digest.lower()
+    installed = manager.require_activation(
+        skill_id,
+        runtime_environment=SkillRuntimeEnvironment(),
+    )
+    if str(installed.content_digest or "").lower() != expected_digest:
+        raise SkillApplicationReceiptError(
+            "The selected Skill changed before the chat request was sent.",
+            code="skill_application_contract_stale",
+        )
+    bindings = manager.bind_skill_versions({skill_id})
+    version_id = str(bindings.get(skill_id) or "").strip()
+    if not version_id:
+        raise SkillApplicationReceiptError(
+            "The selected Skill has no immutable runtime version.",
+            code="skill_application_version_missing",
+        )
+    version = manager.lifecycle_store.require_version(version_id)
+    if (
+        version.skill_id != skill_id
+        or str(version.package_digest or "").lower() != expected_digest
+    ):
+        raise SkillApplicationReceiptError(
+            "The selected Skill version no longer matches the chat request.",
+            code="skill_application_contract_stale",
+        )
+    skill_markdown = manager.get_skill_content(skill_id, version_id=version_id)
+    if not any(
+        message.role == "system"
+        and skill_markdown in message_text(message.content)
+        for message in messages
+    ):
+        raise SkillApplicationReceiptError(
+            "The selected Skill was not present in the server-bound chat prompt.",
+            code="skill_application_prompt_missing",
+        )
+    return {
+        "skill_id": skill_id,
+        "version_id": version_id,
+        "source_kind": str(version.source_kind),
+        "content_digest": expected_digest,
+        "trust_fingerprint": str(version.trust_fingerprint or ""),
+    }
+
+
 workflow_trigger_coordinator = WorkflowTriggerCoordinator(
     poll_seconds=env_float("WORKFLOW_TRIGGER_POLL_SECONDS", 1.0, 0.1)
 )
@@ -1810,6 +1965,19 @@ class ChatResponseAudioOptions(BaseModel):
     format: Literal["mp3"] = "mp3"
 
 
+class ChatSkillApplication(BaseModel):
+    skill_id: str = Field(
+        min_length=1,
+        max_length=120,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+    )
+    expected_content_digest: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+    )
+
+
 class ChatRequest(BaseModel):
     model_id: str = Field(min_length=1, max_length=256)
     messages: list[ChatMessage] = Field(min_length=1, max_length=80)
@@ -1826,6 +1994,7 @@ class ChatRequest(BaseModel):
     routing: ChatRoutingOptions | None = None
     compression: ChatCompressionOptions | None = None
     response_audio: ChatResponseAudioOptions | None = None
+    skill_application: ChatSkillApplication | None = None
     file_scope_id: str | None = Field(
         default=None,
         min_length=1,
@@ -6132,6 +6301,11 @@ async def start_expert_team_dag_run(
             capability_snapshot_hash=payload.capability_snapshot_hash,
             upstream_revision=payload.upstream_revision,
         )
+        await asyncio.to_thread(
+            record_expert_team_method_skill_applications,
+            result,
+            method_skills.values(),
+        )
     except AgencyExecutionCapacityError as exc:
         return agency_execution_error(
             429, "agency_execution_capacity_reached", str(exc)
@@ -6455,6 +6629,11 @@ async def retry_expert_team_dag_run(task_id: str, request: Request):
             source_task_id=task_id,
             prepared=prepared,
         )
+        await asyncio.to_thread(
+            record_expert_team_method_skill_applications,
+            result,
+            prepared.skills,
+        )
     except AgencyExecutionCapacityError as exc:
         return agency_execution_error(
             429, "agency_execution_capacity_reached", str(exc)
@@ -6530,6 +6709,11 @@ async def revise_expert_team_dag_run(
             target_task_id=revision_request.target_task_id,
             feedback=revision_request.feedback,
             prepared=prepared,
+        )
+        await asyncio.to_thread(
+            record_expert_team_method_skill_applications,
+            result,
+            prepared.skills,
         )
     except AgencyExecutionCapacityError as exc:
         return agency_execution_error(
@@ -9923,6 +10107,27 @@ async def _run_workflow_response(
                 ).items()
                 if str(skill_id).strip() and str(version_id).strip()
             }
+            skill_application_policy = str(
+                runtime_metadata.get("skill_application_policy") or "require_read"
+            ).strip()
+            if skill_application_policy not in {
+                "advisory",
+                "require_read",
+                "require_stage",
+            }:
+                skill_application_policy = "require_read"
+            raw_application_paths = runtime_metadata.get(
+                "skill_application_required_resource_paths"
+            )
+            skill_application_required_paths = (
+                [
+                    str(path)
+                    for path in raw_application_paths
+                    if isinstance(path, str) and path.strip()
+                ]
+                if isinstance(raw_application_paths, list)
+                else []
+            )
             if include_skills:
                 skills_config_for_bindings = dict(
                     skills_spec.config if skills_spec is not None else {}
@@ -9962,6 +10167,20 @@ async def _run_workflow_response(
                     runtime_metadata["skill_version_bindings"] = dict(
                         sorted(skill_version_bindings.items())
                     )
+                    for selected_skill_id, selected_version_id in sorted(
+                        skill_version_bindings.items()
+                    ):
+                        await asyncio.to_thread(
+                            record_skill_application,
+                            skill_id=selected_skill_id,
+                            run_id=workflow_run.run_id,
+                            task_id=task_id,
+                            node_id=node.id,
+                            runtime_kind=runtime_run_type,
+                            version_id=selected_version_id,
+                            policy=skill_application_policy,
+                            required_resource_paths=skill_application_required_paths,
+                        )
             if middleware_context is not None:
                 middleware_context.metadata["skill_version_bindings"] = (
                     skill_version_bindings
@@ -9983,6 +10202,35 @@ async def _run_workflow_response(
                 int(pending_state.get("catalog_install_count") or 0),
             )
             run_tool_memory: list[str] = []
+
+            async def record_skill_runtime_failure(
+                tool_name: str,
+                arguments: dict[str, Any],
+                *,
+                error_code: str,
+            ) -> None:
+                if tool_name not in {"skill_read", "skill_stage"}:
+                    return
+                application_skill_id = str(
+                    arguments.get("skill_id") or ""
+                ).strip()
+                if not application_skill_id:
+                    return
+                await asyncio.to_thread(
+                    record_skill_application,
+                    skill_id=application_skill_id,
+                    run_id=workflow_run.run_id,
+                    task_id=task_id,
+                    node_id=node.id,
+                    runtime_kind=runtime_run_type,
+                    version_id=(
+                        skill_version_bindings.get(application_skill_id) or None
+                    ),
+                    policy=skill_application_policy,
+                    required_resource_paths=skill_application_required_paths,
+                    tool_name=tool_name,
+                    error_code=error_code,
+                )
 
             async def apply_skill_runtime_result(
                 tool_name: str,
@@ -10023,6 +10271,109 @@ async def _run_workflow_response(
                             runtime_metadata["skill_version_bindings"] = dict(
                                 sorted(skill_version_bindings.items())
                             )
+                    activated_version_id = skill_version_bindings.get(
+                        activated_skill_id
+                    )
+                    if activated_version_id:
+                        await asyncio.to_thread(
+                            record_skill_application,
+                            skill_id=activated_skill_id,
+                            run_id=workflow_run.run_id,
+                            task_id=task_id,
+                            node_id=node.id,
+                            runtime_kind=runtime_run_type,
+                            version_id=activated_version_id,
+                            policy=skill_application_policy,
+                            required_resource_paths=skill_application_required_paths,
+                        )
+                application_method = str(
+                    metadata.get("application_method") or ""
+                ).strip()
+                if not application_method and tool_name in {
+                    "skill_read",
+                    "skill_stage",
+                }:
+                    application_method = tool_name
+                if application_method in {"skill_read", "skill_stage"}:
+                    application_skill_id = str(
+                        metadata.get("skill_id")
+                        or arguments.get("skill_id")
+                        or ""
+                    ).strip()
+                    application_paths = metadata.get(
+                        "application_resource_paths"
+                    )
+                    application_digests = metadata.get(
+                        "application_resource_digests"
+                    )
+                    expected_application_digests = metadata.get(
+                        "application_expected_resource_digests"
+                    )
+                    if application_skill_id:
+                        application_failed = bool(result.is_error)
+                        await asyncio.to_thread(
+                            record_skill_application,
+                            skill_id=application_skill_id,
+                            run_id=workflow_run.run_id,
+                            task_id=task_id,
+                            node_id=node.id,
+                            runtime_kind=runtime_run_type,
+                            version_id=(
+                                str(
+                                    metadata.get("application_version_id")
+                                    or metadata.get("skill_version_id")
+                                    or skill_version_bindings.get(
+                                        application_skill_id
+                                    )
+                                    or ""
+                                ).strip()
+                                or None
+                            ),
+                            source_kind=(
+                                str(
+                                    metadata.get("application_source_kind")
+                                    or ""
+                                ).strip()
+                                or None
+                            ),
+                            content_digest=(
+                                str(
+                                    metadata.get("application_content_digest")
+                                    or ""
+                                ).strip()
+                                or None
+                            ),
+                            policy=skill_application_policy,
+                            required_resource_paths=skill_application_required_paths,
+                            method=(None if application_failed else application_method),
+                            resource_paths=(
+                                application_paths
+                                if not application_failed
+                                and isinstance(application_paths, list)
+                                else ()
+                            ),
+                            resource_digests=(
+                                dict(application_digests)
+                                if not application_failed
+                                and isinstance(application_digests, dict)
+                                else None
+                            ),
+                            expected_resource_digests=(
+                                dict(expected_application_digests)
+                                if not application_failed
+                                and isinstance(expected_application_digests, dict)
+                                else None
+                            ),
+                            tool_name=tool_name,
+                            error_code=(
+                                str(
+                                    metadata.get("error_code")
+                                    or "skill_application_tool_failed"
+                                )
+                                if application_failed
+                                else None
+                            ),
+                        )
                 trust_authorization = metadata.get("trust_authorization")
                 if isinstance(trust_authorization, dict):
                     authorized_skill_id = str(
@@ -10092,6 +10443,34 @@ async def _run_workflow_response(
                         "run_id": run_id,
                     }
                 )
+
+            async def call_workflow_runtime_tool_observed(
+                *,
+                tool_name: str,
+                arguments: dict[str, Any],
+                metadata: dict[str, Any],
+            ) -> RuntimeToolResult:
+                try:
+                    return await call_workflow_runtime_tool(
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        node=node,
+                        title=title,
+                        metadata=metadata,
+                        pipeline=pipeline,
+                        middleware_context=middleware_context,
+                        middleware_specs=middleware_specs,
+                    )
+                except RuntimeToolError as exc:
+                    await record_skill_runtime_failure(
+                        tool_name,
+                        arguments,
+                        error_code=str(
+                            getattr(exc, "code", "skill_application_tool_failed")
+                            or "skill_application_tool_failed"
+                        ),
+                    )
+                    raise
 
             async def remember_tool_result(
                 tool: Any,
@@ -10244,15 +10623,10 @@ async def _run_workflow_response(
                 if isinstance(client_payload, dict):
                     resume_metadata["resolved_client_tool"] = client_payload
                 try:
-                    call_result = await call_workflow_runtime_tool(
+                    call_result = await call_workflow_runtime_tool_observed(
                         tool_name=pending_tool_name,
                         arguments=pending_arguments,
-                        node=node,
-                        title=title,
                         metadata=resume_metadata,
-                        pipeline=pipeline,
-                        middleware_context=middleware_context,
-                        middleware_specs=middleware_specs,
                     )
                 except RuntimeInterrupt as interrupt:
                     pending_state["resolved_approval"] = (
@@ -10546,19 +10920,14 @@ async def _run_workflow_response(
                         batch_tool_name, batch_arguments, batch_tool = batch_item
                         started_at = time.perf_counter()
                         try:
-                            batch_result = await call_workflow_runtime_tool(
+                            batch_result = await call_workflow_runtime_tool_observed(
                                 tool_name=batch_tool_name,
                                 arguments=batch_arguments,
-                                node=node,
-                                title=title,
                                 metadata=tool_call_metadata(
                                     iteration=iteration_index + 1,
                                     batch_id=batch_id,
                                     batch_index=batch_index,
                                 ),
-                                pipeline=pipeline,
-                                middleware_context=middleware_context,
-                                middleware_specs=middleware_specs,
                             )
                             await append_skill_runtime_event(
                                 batch_tool_name,
@@ -10733,17 +11102,12 @@ async def _run_workflow_response(
                 else:
                     ensure_tool_call_budget(1)
                     try:
-                        call_result = await call_workflow_runtime_tool(
+                        call_result = await call_workflow_runtime_tool_observed(
                             tool_name=tool_name,
                             arguments=arguments,
-                            node=node,
-                            title=title,
                             metadata=tool_call_metadata(
                                 iteration=iteration_index + 1
                             ),
-                            pipeline=pipeline,
-                            middleware_context=middleware_context,
-                            middleware_specs=middleware_specs,
                         )
                     except RuntimeInterrupt as interrupt:
                         interrupt.continuation["agent_state"] = {
@@ -20450,6 +20814,9 @@ async def get_openrouter_batch(batch_id: str):
 
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request):
+    runtime_task_id = uuid.uuid4().hex
+    chat_skill_application: dict[str, str] | None = None
+    chat_skill_application_recorded = False
     omniroute_settings = get_omniroute_settings()
     native_router_engine = get_native_router_engine()
     native_router_policy = get_model_router_service().get_policy()
@@ -20644,6 +21011,17 @@ async def chat(payload: ChatRequest, request: Request):
             trust_gateway_catalog=use_omniroute or use_native_router,
         )
         validate_content(payload.messages)
+        if payload.skill_application is not None:
+            if direct_audio_requested or direct_video_requested:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Direct audio or video analysis cannot apply a Skill prompt.",
+                )
+            chat_skill_application = await asyncio.to_thread(
+                resolve_chat_skill_application,
+                payload.skill_application,
+                payload.messages,
+            )
         if direct_file_requested:
             selections = tuple(
                 ChatFileSelection(
@@ -20705,12 +21083,39 @@ async def chat(payload: ChatRequest, request: Request):
             status_code=exc.status_code,
             content={"error": exc.message, "code": exc.error_code},
         )
+    except SkillApplicationReceiptError as exc:
+        return JSONResponse(
+            status_code=409,
+            content={"error": str(exc), "code": exc.code},
+        )
     except Exception:
         logger.exception("Chat request validation failed")
         return JSONResponse(
             status_code=500,
             content={"error": "后端校验请求时出错，请查看服务日志。"},
         )
+
+    async def record_chat_skill_application_once() -> None:
+        nonlocal chat_skill_application_recorded
+        if chat_skill_application is None or chat_skill_application_recorded:
+            return
+        receipt_id = await asyncio.to_thread(
+            record_skill_application,
+            skill_id=chat_skill_application["skill_id"],
+            run_id=None,
+            task_id=runtime_task_id,
+            node_id="chat",
+            runtime_kind="chat",
+            version_id=chat_skill_application["version_id"],
+            source_kind=chat_skill_application["source_kind"],
+            content_digest=chat_skill_application["content_digest"],
+            trust_fingerprint=(
+                chat_skill_application["trust_fingerprint"] or None
+            ),
+            policy="advisory",
+            method="prompt_injected",
+        )
+        chat_skill_application_recorded = receipt_id is not None
 
     if payload.output_mode == "allowlisted":
         try:
@@ -20741,6 +21146,7 @@ async def chat(payload: ChatRequest, request: Request):
                 output_context_id=payload.output_context_id or "",
                 provider_tag=provider_tag,
             )
+            await record_chat_skill_application_once()
         except ChatOutputError as exc:
             return JSONResponse(
                 status_code=exc.status_code,
@@ -21300,7 +21706,6 @@ async def chat(payload: ChatRequest, request: Request):
 
     runtime_pipeline = None
     runtime_context = None
-    runtime_task_id = uuid.uuid4().hex
     if not native_audio_requested and not direct_file_requested:
         try:
             runtime_pipeline, runtime_context = create_default_runtime()
@@ -21633,6 +22038,7 @@ async def chat(payload: ChatRequest, request: Request):
                 yield chat_sse_error(str(exc))
             finally:
                 if runtime_status == "completed":
+                    await record_chat_skill_application_once()
                     try:
                         await run_registry.update_run(
                             chat_run.run_id,
@@ -22599,6 +23005,8 @@ async def chat(payload: ChatRequest, request: Request):
         else:
             yield route_receipt_sse(receipt)
             yield b"data: [DONE]\n\n"
+        if runtime_status in {"completed", "output_limit"}:
+            await record_chat_skill_application_once()
         await close_request_client()
         await finalize_runtime(
             runtime_status,
@@ -23221,6 +23629,8 @@ async def chat(payload: ChatRequest, request: Request):
                 deferred_done or native_audio_succeeded or captured_outputs
             ):
                 yield b"data: [DONE]\n\n"
+            if runtime_status in {"completed", "output_limit"}:
+                await record_chat_skill_application_once()
             await response.aclose()
             await close_request_client()
             await finalize_runtime(
