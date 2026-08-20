@@ -1,7 +1,8 @@
 {
   "schema_version": "modelmirror-rag-p0-round3-implementation-v1",
-  "status": "local_implementation_verified_external_gates_pending",
+  "status": "real_gold_generation_failed_configuration_gate_closed",
   "created_at": "2026-08-20T17:35:18.2764123Z",
+  "updated_at": "2026-08-20T18:03:22.9067437Z",
   "base": {
     "branch": "origin/main",
     "commit": "0e0202b313b2378d13d899cf53166665baac6bee",
@@ -16,8 +17,10 @@
     ]
   },
   "constraints": {
-    "real_provider_calls": 0,
-    "gold_generation_calls": 0,
+    "real_provider_http_attempts": 1,
+    "gold_generation_job_attempts": 1,
+    "successful_gold_generations": 0,
+    "reported_model_token_usage": null,
     "embedding_preflight_calls": 0,
     "real_candidate_builds": 0,
     "formal_evaluation_runs": 0,
@@ -49,14 +52,31 @@
       ]
     },
     "3C": {
-      "status": "workbench_implemented_real_sequence_not_started",
+      "status": "workbench_implemented_real_gold_attempt_failed_no_retry",
       "implemented": [
         "42-case review workbench for positive grounding, negative answer absence, review reasons, rejection, blockers, and readiness",
         "formal-run readiness and paired confidence/comparability presentation",
         "bounded one-attempt Gold generation contract and explicit no-calibration-before-formal quota boundary"
       ],
+      "real_gold_generation": {
+        "status": "failed_before_model_generation",
+        "job_id": "benchmark_job_463addad44b34b858e4b23e690fe5545",
+        "generator_model_id": "openai/gpt-5.6-sol",
+        "seed": 0,
+        "attempts": 1,
+        "generation_attempt_receipts": 0,
+        "provider_http_status": 404,
+        "provider_http_target": "configured local gateway /v1 endpoint",
+        "error": "Invalid URL (POST /v1)",
+        "dataset_id": null,
+        "dataset_revision": null,
+        "reported_usage": null,
+        "automatic_repair": false,
+        "automatic_retry": false,
+        "root_cause": "The benchmark generator posts to LLM_GATEWAY_URL as an exact endpoint, but the isolated preview was configured with the /v1 base instead of /v1/chat/completions."
+      },
       "pending_external_sequence": [
-        "obtain separate authorization and make one real Gold generation call",
+        "correct the isolated preview endpoint without invoking the provider, then obtain new explicit authorization for one replacement Gold generation attempt",
         "complete manual review of all 42 cases and replace any rejected cases only with new authorization or manual edits",
         "publish one immutable rag-gold-v2 version",
         "obtain separate authorization and make one sanitized embedding preflight",
@@ -64,6 +84,23 @@
         "run exactly one paired Formal evaluation without answer generation or automatic retry"
       ]
     }
+  },
+  "isolated_preview": {
+    "url": "http://127.0.0.1:15127/rag/kb_4d81724e8eb44aca9ee8c8fafc124d3a/evaluation",
+    "data_root": "C:\\tmp\\modelmirror-rag-p0-r3-preview-data",
+    "knowledge_base_id": "kb_4d81724e8eb44aca9ee8c8fafc124d3a",
+    "pipeline_version_id": "kpv_4e5dfbf3047f4a1ebe1598c1d89f9eea",
+    "pipeline_version": 1,
+    "document_count": 4,
+    "chunk_count": 53,
+    "stable_evidence_count": 36,
+    "sampled_evidence_count": 36,
+    "estimated_context_chars": 4030,
+    "corpus_snapshot_hash": "3efe18b42c41bbec51214e825a248648dbbb17dd268220c927aa58ad4537adef",
+    "embedding_provider": "hash",
+    "embedding_model": "deterministic-hash-v1",
+    "pipeline_version_activated": false,
+    "shared_data_modified": false
   },
   "validation": {
     "backend_core": {
@@ -106,6 +143,7 @@
   "prohibited_claims": [
     "Third-round formal promotion evidence exists.",
     "A rag-gold-v2 dataset has been generated, reviewed, or published.",
+    "The failed Gold request reported model token usage or proved that provider billing occurred.",
     "The real embedding route or candidate has passed preflight.",
     "A candidate passed or was authorized for promotion.",
     "The repository-wide backend or frontend test suite is fully green."
