@@ -144,6 +144,23 @@ async def test_valid_linear_workflow_returns_topological_order(
                 "data": {"kind": "output", "outputVariable": "resume_event"},
             },
         ),
+        (
+            {
+                "id": "start",
+                "type": "failure_event_entry",
+                "data": {
+                    "kind": "failure_event_entry",
+                    "sourceProjectIds": [f"wf_{'a' * 32}"],
+                    "eventVariable": "failure_event",
+                },
+            },
+            None,
+            {
+                "id": "end",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "failure_event"},
+            },
+        ),
     ],
 )
 async def test_valid_independent_deployment_nodes(
@@ -284,6 +301,18 @@ async def test_http_event_can_suspend_without_a_reply_node(
                 },
             },
             "invalid_suspend_wait_duration",
+        ),
+        (
+            {
+                "id": "start",
+                "type": "failure_event_entry",
+                "data": {
+                    "kind": "failure_event_entry",
+                    "sourceProjectIds": [f"wf_{'a' * 32}", f"wf_{'a' * 32}"],
+                    "eventVariable": "failure_event",
+                },
+            },
+            "invalid_failure_source_projects",
         ),
         (
             {

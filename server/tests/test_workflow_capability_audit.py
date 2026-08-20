@@ -25,8 +25,9 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert mapped["webhook"]["模镜对应节点"] == "http_event_entry"
     assert mapped["wait"]["模镜对应节点"] == "suspend_wait"
     assert mapped["respondToWebhook"]["模镜对应节点"] == "http_event_reply"
+    assert mapped["errorTrigger"]["模镜对应节点"] == "failure_event_entry"
     assert all(mapped[key]["模镜当前状态"] == "已实现" for key in (
-        "scheduleTrigger", "webhook", "wait", "respondToWebhook"
+        "scheduleTrigger", "webhook", "wait", "respondToWebhook", "errorTrigger"
     ))
     assert all("不复制代码" in row["许可证边界"] or "企业条目" in row["许可证边界"] for row in rows)
 
@@ -47,8 +48,8 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         for contract in workflow_node_contract_registry.list()
     )
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
-    assert f"{native_count - 4} 个 `NativeNodeKind`" in markdown
-    assert f"{palette_count - 4} 个画布目录项" in markdown
+    assert f"{native_count - 5} 个 `NativeNodeKind`" in markdown
+    assert f"{palette_count - 5} 个画布目录项" in markdown
     assert f"{compatibility_count} 个冻结 compatibility 合同" in markdown
     assert f"自研节点总数 {native_count}" in markdown
     assert f"画布目录项 {palette_count}" in markdown

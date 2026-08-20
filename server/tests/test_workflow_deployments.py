@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -12,6 +14,7 @@ from server.workflow_deployments import (
     WorkflowDeploymentConflictError,
     WorkflowDeploymentStore,
     WorkflowDeploymentValidationError,
+    _safe_error_summary,
 )
 
 
@@ -181,6 +184,30 @@ def schedule_workflow() -> dict:
     }
 
 
+def failure_workflow(source_project_ids: list[str]) -> dict:
+    return {
+        "id": "draft",
+        "title": "failure handler",
+        "nodes": [
+            {
+                "id": "start",
+                "type": "failure_event_entry",
+                "data": {
+                    "kind": "failure_event_entry",
+                    "sourceProjectIds": source_project_ids,
+                    "eventVariable": "failure_event",
+                },
+            },
+            {
+                "id": "end",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "failure_event"},
+            },
+        ],
+        "edges": [{"id": "e1", "source": "start", "target": "end"}],
+    }
+
+
 def test_draft_revision_and_immutable_versions(tmp_path) -> None:
     store = WorkflowDeploymentStore(tmp_path)
     project = store.create_project(manual_workflow())
@@ -303,6 +330,409 @@ def test_private_webhook_key_idempotency_and_safe_snapshot(tmp_path) -> None:
     assert "not persisted" not in snapshot
     assert "same-request" not in snapshot
     assert "sensitive result" not in snapshot
+
+
+def test_failure_subscription_activation_conflicts_and_source_validation(tmp_path) -> None:
+    store = WorkflowDeploymentStore(tmp_path)
+    source = store.create_project(schedule_workflow())
+    first_handler = store.create_project(failure_workflow([source.project_id]))
+    first_release = store.publish(first_handler.project_id)
+
+    with pytest.raises(WorkflowDeploymentConflictError, match="disabled"):
+        store.activate(
+            first_handler.project_id,
+            first_release.version,
+            webhooks_enabled=False,
+        )
+    first_deployment, _ = store.activate(
+        first_handler.project_id,
+        first_release.version,
+        webhooks_enabled=False,
+        failure_triggers_enabled=True,
+    )
+    subscription = store.failure_subscription(source.project_id)
+    assert subscription is not None
+    assert subscription.handler_deployment_id == first_deployment.deployment_id
+
+    store.save_draft(
+        first_handler.project_id,
+        expected_revision=1,
+        workflow={
+            **failure_workflow([source.project_id]),
+            "title": "failure handler v2",
+        },
+    )
+    replacement_release = store.publish(first_handler.project_id)
+    replacement_deployment, _ = store.activate(
+        first_handler.project_id,
+        replacement_release.version,
+        webhooks_enabled=False,
+        failure_triggers_enabled=True,
+    )
+    replacement_subscription = store.failure_subscription(source.project_id)
+    assert first_deployment.active is False
+    assert replacement_subscription is not None
+    assert replacement_subscription.handler_deployment_id == (
+        replacement_deployment.deployment_id
+    )
+
+    second_handler = store.create_project(failure_workflow([source.project_id]))
+    second_release = store.publish(second_handler.project_id)
+    with pytest.raises(WorkflowDeploymentConflictError, match="already has"):
+        store.activate(
+            second_handler.project_id,
+            second_release.version,
+            webhooks_enabled=False,
+            failure_triggers_enabled=True,
+        )
+    assert store.active_deployment(first_handler.project_id) is not None
+
+    missing = store.create_project(failure_workflow([f"wf_{'f' * 32}"]))
+    with pytest.raises(WorkflowDeploymentConflictError, match="does not exist"):
+        store.publish(missing.project_id)
+
+    self_handler = store.create_project(failure_workflow([source.project_id]))
+    store.save_draft(
+        self_handler.project_id,
+        expected_revision=1,
+        workflow=failure_workflow([self_handler.project_id]),
+    )
+    with pytest.raises(WorkflowDeploymentConflictError, match="subscribe to itself"):
+        store.publish(self_handler.project_id)
+
+
+def test_failure_dispatch_is_atomic_idempotent_sanitized_and_persistent(tmp_path) -> None:
+    store = WorkflowDeploymentStore(tmp_path)
+    source = store.create_project(schedule_workflow())
+    source_release = store.publish(source.project_id)
+    source_deployment, _ = store.activate(
+        source.project_id,
+        source_release.version,
+        webhooks_enabled=False,
+        now=100,
+    )
+    handler = store.create_project(failure_workflow([source.project_id]))
+    handler_release = store.publish(handler.project_id)
+    handler_deployment, _ = store.activate(
+        handler.project_id,
+        handler_release.version,
+        webhooks_enabled=False,
+        failure_triggers_enabled=True,
+        now=101,
+    )
+
+    source_execution = store.materialize_due_schedules(now=130)[0]
+    store.claim_execution(
+        source_execution.execution_id,
+        worker_id="source-worker",
+        now=130,
+    )
+    store.fail_execution(
+        source_execution.execution_id,
+        error=(
+            "Traceback: request_body=private\n"
+            "RuntimeError: Authorization: Bearer bearer-secret "
+            "api_key=secret-token boom"
+        ),
+        failed_node_id="dangerous-node-webhook_key=plain-node-secret",
+        failed_node_title="外部调用 Authorization: plain-title-secret",
+    )
+    store.fail_execution(
+        source_execution.execution_id,
+        error="a duplicate failure callback",
+    )
+
+    handler_executions = store.list_executions(handler.project_id)
+    assert len(handler_executions) == 1
+    dispatched = handler_executions[0]
+    assert dispatched.occurrence_key == (
+        f"failure:{source_execution.execution_id}:{handler_deployment.deployment_id}"
+    )
+    assert dispatched.trigger_summary == {
+        "source_project_id": source.project_id,
+        "source_version": source_release.version,
+        "source_deployment_id": source_deployment.deployment_id,
+        "source_execution_id": source_execution.execution_id,
+        "source_task_id": None,
+        "source_run_id": None,
+        "source_trigger_kind": "schedule",
+        "failed_at": dispatched.scheduled_at,
+        "error_summary": "RuntimeError: Authorization: [redacted]",
+        "occurrence_key": dispatched.occurrence_key,
+        "suppress_failure_dispatch": True,
+        "test_mode": False,
+        "failed_node_id": "dangerous-node-webhook_key=[redacted]",
+        "failed_node_title": "外部调用 Authorization: [redacted]",
+    }
+    snapshot = store.snapshot_path.read_text(encoding="utf-8")
+    assert '"version": "workflow-deployments-v2"' in snapshot
+    assert "request_body=private" not in snapshot
+    assert "secret-token" not in snapshot
+    assert "bearer-secret" not in snapshot
+    assert "plain-node-secret" not in snapshot
+    assert "plain-title-secret" not in snapshot
+    assert "Traceback" not in snapshot
+
+    store.claim_execution(
+        dispatched.execution_id,
+        worker_id="handler-worker",
+        now=131,
+    )
+    reloaded = WorkflowDeploymentStore(tmp_path)
+    recovered = reloaded.get_execution(dispatched.execution_id)
+    assert recovered is not None
+    assert recovered.status == "pending"
+    assert reloaded.failure_subscription(source.project_id) is not None
+
+    reloaded.claim_execution(
+        dispatched.execution_id,
+        worker_id="handler-recovery",
+        now=132,
+    )
+    reloaded.fail_execution(dispatched.execution_id, error="handler failed")
+    assert len(reloaded.list_executions(handler.project_id)) == 1
+
+
+@pytest.mark.parametrize(
+    "unsafe_error, secrets",
+    [
+        (
+            'request failed: {"authorization": "plain-auth-value", '
+            '"cookie": "sid=plain-cookie-value"}',
+            ["plain-auth-value", "plain-cookie-value"],
+        ),
+        ("client_secret=plain-client-secret", ["plain-client-secret"]),
+        ("webhook_key=plain-webhook-secret", ["plain-webhook-secret"]),
+        (
+            "request=https://operator:plain-password@example.test/private",
+            ["operator", "plain-password"],
+        ),
+        (
+            "Authorization: Basic dXNlcjpwd2Q= downstream refused",
+            ["dXNlcjpwd2Q="],
+        ),
+        (
+            "token=eyJhbGciOiJIUzI1NiJ9.abcdefghijklmno.signaturevalue",
+            ["eyJhbGciOiJIUzI1NiJ9", "abcdefghijklmno", "signaturevalue"],
+        ),
+    ],
+)
+def test_failure_error_summary_redacts_structured_credentials(
+    unsafe_error: str,
+    secrets: list[str],
+) -> None:
+    summary = _safe_error_summary(unsafe_error)
+    assert "[redacted]" in summary
+    for secret in secrets:
+        assert secret not in summary
+
+
+def test_trigger_lease_renewal_and_fencing_reject_stale_worker(tmp_path) -> None:
+    store = WorkflowDeploymentStore(tmp_path)
+    source = store.create_project(schedule_workflow())
+    release = store.publish(source.project_id)
+    store.activate(
+        source.project_id,
+        release.version,
+        webhooks_enabled=False,
+        now=100,
+    )
+    execution = store.materialize_due_schedules(now=130)[0]
+    first_claim = store.claim_execution(
+        execution.execution_id,
+        worker_id="worker-one",
+        lease_seconds=10,
+        now=130,
+    )
+    first_token = str(first_claim.lease_token)
+    store.renew_execution_lease(
+        execution.execution_id,
+        lease_token=first_token,
+        lease_seconds=10,
+        now=135,
+    )
+
+    with pytest.raises(WorkflowDeploymentConflictError, match="already leased"):
+        store.claim_execution(
+            execution.execution_id,
+            worker_id="worker-two-too-soon",
+            now=144,
+        )
+
+    second_claim = store.claim_execution(
+        execution.execution_id,
+        worker_id="worker-two",
+        now=146,
+    )
+    second_token = str(second_claim.lease_token)
+    assert second_token != first_token
+    with pytest.raises(WorkflowDeploymentConflictError, match="no longer owned"):
+        store.complete_execution(
+            execution.execution_id,
+            result="stale result",
+            expected_lease_token=first_token,
+        )
+    assert store.get_execution(execution.execution_id).lease_owner == "worker-two"
+
+    completed = store.complete_execution(
+        execution.execution_id,
+        result="current result",
+        expected_lease_token=second_token,
+    )
+    assert completed.status == "completed"
+
+
+def test_concurrent_failure_callbacks_materialize_once(tmp_path) -> None:
+    store = WorkflowDeploymentStore(tmp_path)
+    source = store.create_project(schedule_workflow())
+    source_release = store.publish(source.project_id)
+    store.activate(
+        source.project_id,
+        source_release.version,
+        webhooks_enabled=False,
+        now=100,
+    )
+    handler = store.create_project(failure_workflow([source.project_id]))
+    handler_release = store.publish(handler.project_id)
+    store.activate(
+        handler.project_id,
+        handler_release.version,
+        webhooks_enabled=False,
+        failure_triggers_enabled=True,
+        now=101,
+    )
+    source_execution = store.materialize_due_schedules(now=130)[0]
+    barrier = threading.Barrier(4)
+
+    def fail_from_worker(index: int) -> str:
+        barrier.wait()
+        return store.fail_execution(
+            source_execution.execution_id,
+            error=f"worker {index} failed",
+        ).status
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        statuses = list(pool.map(fail_from_worker, range(4)))
+    assert statuses == ["failed"] * 4
+    assert len(store.list_executions(handler.project_id)) == 1
+
+
+def test_concurrent_handler_activation_keeps_single_subscription(tmp_path) -> None:
+    store = WorkflowDeploymentStore(tmp_path)
+    source = store.create_project(schedule_workflow())
+    handlers = [
+        store.create_project(failure_workflow([source.project_id]))
+        for _ in range(2)
+    ]
+    releases = [store.publish(handler.project_id) for handler in handlers]
+    barrier = threading.Barrier(2)
+
+    def activate_handler(index: int) -> str:
+        barrier.wait()
+        try:
+            store.activate(
+                handlers[index].project_id,
+                releases[index].version,
+                webhooks_enabled=False,
+                failure_triggers_enabled=True,
+            )
+            return "activated"
+        except WorkflowDeploymentConflictError:
+            return "conflict"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(activate_handler, range(2)))
+    assert sorted(results) == ["activated", "conflict"]
+    subscription = store.failure_subscription(source.project_id)
+    assert subscription is not None
+    assert subscription.handler_project_id in {handler.project_id for handler in handlers}
+
+
+def test_v2_load_rejects_duplicate_failure_subscription_source(tmp_path) -> None:
+    store = WorkflowDeploymentStore(tmp_path)
+    source = store.create_project(schedule_workflow())
+    handler = store.create_project(failure_workflow([source.project_id]))
+    release = store.publish(handler.project_id)
+    store.activate(
+        handler.project_id,
+        release.version,
+        webhooks_enabled=False,
+        failure_triggers_enabled=True,
+    )
+    raw = json.loads(store.snapshot_path.read_text(encoding="utf-8"))
+    raw["failure_subscriptions"].append(dict(raw["failure_subscriptions"][0]))
+    store.snapshot_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(WorkflowDeploymentValidationError, match="snapshot is invalid"):
+        WorkflowDeploymentStore(tmp_path)
+
+
+def test_failure_deactivation_stops_new_events_without_cancelling_materialized(tmp_path) -> None:
+    store = WorkflowDeploymentStore(tmp_path)
+    source = store.create_project(schedule_workflow())
+    source_release = store.publish(source.project_id)
+    store.activate(
+        source.project_id,
+        source_release.version,
+        webhooks_enabled=False,
+        now=100,
+    )
+    handler = store.create_project(failure_workflow([source.project_id]))
+    handler_release = store.publish(handler.project_id)
+    store.activate(
+        handler.project_id,
+        handler_release.version,
+        webhooks_enabled=False,
+        failure_triggers_enabled=True,
+        now=101,
+    )
+
+    first_source_execution = store.materialize_due_schedules(now=130)[0]
+    store.fail_execution(first_source_execution.execution_id, error="first")
+    materialized = store.list_executions(handler.project_id)[0]
+    store.deactivate(handler.project_id, handler_release.version)
+    assert store.failure_subscription(source.project_id) is None
+    assert store.get_execution(materialized.execution_id).status == "pending"
+
+    second_source_execution = store.materialize_due_schedules(now=160)[0]
+    store.fail_execution(second_source_execution.execution_id, error="second")
+    assert len(store.list_executions(handler.project_id)) == 1
+
+
+def test_failure_activation_does_not_replay_history_and_v1_loads_empty_table(tmp_path) -> None:
+    store = WorkflowDeploymentStore(tmp_path)
+    source = store.create_project(schedule_workflow())
+    source_release = store.publish(source.project_id)
+    store.activate(
+        source.project_id,
+        source_release.version,
+        webhooks_enabled=False,
+        now=100,
+    )
+    historical = store.materialize_due_schedules(now=130)[0]
+    store.fail_execution(historical.execution_id, error="failed before subscription")
+
+    handler = store.create_project(failure_workflow([source.project_id]))
+    handler_release = store.publish(handler.project_id)
+    store.activate(
+        handler.project_id,
+        handler_release.version,
+        webhooks_enabled=False,
+        failure_triggers_enabled=True,
+        now=131,
+    )
+    store.fail_execution(historical.execution_id, error="historical callback repeated")
+    assert store.list_executions(handler.project_id) == []
+
+    raw = json.loads(store.snapshot_path.read_text(encoding="utf-8"))
+    raw["version"] = "workflow-deployments-v1"
+    raw.pop("failure_subscriptions")
+    store.snapshot_path.write_text(
+        json.dumps(raw, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    loaded_v1 = WorkflowDeploymentStore(tmp_path)
+    assert loaded_v1.failure_subscription(source.project_id) is None
 
 
 def test_schedule_uses_latest_misfire_and_skips_overlap(tmp_path) -> None:

@@ -11,7 +11,7 @@ from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,7 @@ try:
         WorkflowDeploymentStore,
         WorkflowDeploymentValidationError,
         WorkflowTriggerExecution,
+        WorkflowTriggerKind,
         WorkflowVersion,
     )
 except ModuleNotFoundError:
@@ -31,12 +32,15 @@ except ModuleNotFoundError:
         WorkflowDeploymentStore,
         WorkflowDeploymentValidationError,
         WorkflowTriggerExecution,
+        WorkflowTriggerKind,
         WorkflowVersion,
     )
 
 
 router = APIRouter(tags=["workflow-deployments"])
 logger = logging.getLogger(__name__)
+WORKFLOW_TRIGGER_LEASE_SECONDS = 120.0
+WORKFLOW_TRIGGER_HEARTBEAT_SECONDS = 30.0
 TriggerExecutor = Callable[
     [WorkflowTriggerExecution, WorkflowVersion, dict[str, Any]],
     Awaitable[dict[str, Any]],
@@ -89,6 +93,12 @@ def _webhooks_enabled() -> bool:
     }
 
 
+def workflow_failure_triggers_enabled() -> bool:
+    return os.getenv("WORKFLOW_FAILURE_TRIGGERS_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 def _map_error(exc: Exception) -> HTTPException:
     if isinstance(exc, WorkflowDeploymentNotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
@@ -120,6 +130,31 @@ async def create_workflow(payload: CreateWorkflowRequest) -> dict[str, Any]:
     try:
         project = store.create_project(payload.workflow)
         return _project_payload(store, project.project_id)
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+@router.get("/api/workflows")
+async def list_workflows(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    active_only: bool = False,
+    trigger_kind: WorkflowTriggerKind | None = None,
+) -> dict[str, Any]:
+    store = _require_store()
+    try:
+        items, total = store.list_projects(
+            limit=limit,
+            offset=offset,
+            active_only=active_only,
+            trigger_kind=trigger_kind,
+        )
+        return {
+            "items": items,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
     except Exception as exc:
         raise _map_error(exc) from exc
 
@@ -177,6 +212,7 @@ async def activate_workflow(project_id: str, version: int) -> dict[str, Any]:
             project_id,
             version,
             webhooks_enabled=_webhooks_enabled(),
+            failure_triggers_enabled=workflow_failure_triggers_enabled(),
         )
         payload = store.serialize_deployment(deployment)
         if plaintext_key:
@@ -297,12 +333,33 @@ async def _execute_trigger(
 ) -> WorkflowTriggerExecution:
     store = _require_store()
     if _trigger_executor is None:
-        return store.fail_execution(item.execution_id, error="Workflow trigger executor is unavailable.")
+        return store.fail_execution(
+            item.execution_id,
+            error="Workflow trigger executor is unavailable.",
+            dispatch_failures=workflow_failure_triggers_enabled(),
+        )
+    lease_stop: asyncio.Event | None = None
+    lease_heartbeat: asyncio.Task[None] | None = None
+    lease_token: str | None = None
     try:
         claimed = store.claim_execution(
             item.execution_id,
             worker_id=f"workflow-trigger-{uuid.uuid4().hex[:12]}",
-            lease_seconds=120,
+            lease_seconds=WORKFLOW_TRIGGER_LEASE_SECONDS,
+        )
+        lease_token = str(claimed.lease_token or "")
+        if not lease_token:
+            raise WorkflowDeploymentConflictError(
+                "Trigger execution lease token was not created."
+            )
+        lease_stop = asyncio.Event()
+        lease_heartbeat = asyncio.create_task(
+            _renew_trigger_execution_lease(
+                store,
+                claimed.execution_id,
+                lease_token=lease_token,
+                stop=lease_stop,
+            )
         )
         release = store.require_version(claimed.project_id, claimed.version)
         outcome = await _trigger_executor(claimed, release, event)
@@ -315,6 +372,7 @@ async def _execute_trigger(
                 wait_kind=str(outcome.get("wait_kind") or ""),
                 wait_id=str(outcome.get("wait_id") or ""),
                 resume_at=outcome.get("resume_at"),
+                expected_lease_token=lease_token,
             )
         if status == "completed":
             return store.complete_execution(
@@ -323,16 +381,89 @@ async def _execute_trigger(
                 run_id=str(outcome.get("run_id") or "") or None,
                 result=str(outcome.get("result") or ""),
                 webhook_reply=outcome.get("webhook_reply"),
+                expected_lease_token=lease_token,
             )
         return store.fail_execution(
             claimed.execution_id,
             error=str(outcome.get("error") or "Workflow trigger execution failed."),
+            task_id=str(outcome.get("task_id") or "") or None,
+            run_id=str(outcome.get("run_id") or "") or None,
+            dispatch_failures=workflow_failure_triggers_enabled(),
+            failed_node_id=(
+                str(outcome.get("failed_node_id"))
+                if outcome.get("failed_node_id")
+                else None
+            ),
+            failed_node_title=(
+                str(outcome.get("failed_node_title"))
+                if outcome.get("failed_node_title")
+                else None
+            ),
+            expected_lease_token=lease_token,
         )
     except WorkflowDeploymentConflictError:
         current = store.get_execution(item.execution_id)
         return current or item
     except Exception as exc:
-        return store.fail_execution(item.execution_id, error=str(exc))
+        try:
+            return store.fail_execution(
+                item.execution_id,
+                error=str(exc),
+                task_id=str(getattr(exc, "task_id", "") or "") or None,
+                run_id=str(getattr(exc, "run_id", "") or "") or None,
+                dispatch_failures=workflow_failure_triggers_enabled(),
+                failed_node_id=(
+                    str(getattr(exc, "failed_node_id", "") or "") or None
+                ),
+                failed_node_title=(
+                    str(getattr(exc, "failed_node_title", "") or "") or None
+                ),
+                expected_lease_token=lease_token,
+            )
+        except WorkflowDeploymentConflictError:
+            current = store.get_execution(item.execution_id)
+            return current or item
+    finally:
+        if lease_stop is not None:
+            lease_stop.set()
+        if lease_heartbeat is not None:
+            await lease_heartbeat
+
+
+async def _renew_trigger_execution_lease(
+    store: WorkflowDeploymentStore,
+    execution_id: str,
+    *,
+    lease_token: str,
+    stop: asyncio.Event,
+) -> None:
+    heartbeat_seconds = max(
+        0.01,
+        min(
+            float(WORKFLOW_TRIGGER_HEARTBEAT_SECONDS),
+            float(WORKFLOW_TRIGGER_LEASE_SECONDS) / 2,
+        ),
+    )
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=heartbeat_seconds)
+            return
+        except TimeoutError:
+            pass
+        try:
+            store.renew_execution_lease(
+                execution_id,
+                lease_token=lease_token,
+                lease_seconds=WORKFLOW_TRIGGER_LEASE_SECONDS,
+            )
+        except WorkflowDeploymentConflictError:
+            return
+        except Exception as exc:
+            logger.warning(
+                "Workflow trigger lease renewal failed execution=%s: %s",
+                execution_id,
+                exc,
+            )
 
 
 @router.post("/api/workflow-hooks/{hook_id}")
@@ -447,9 +578,12 @@ class WorkflowTriggerCoordinator:
         store = _require_store()
         store.materialize_due_schedules()
         for item in store.claimable_executions(limit=20):
-            if item.trigger_kind != "schedule":
+            if item.trigger_kind == "schedule":
+                event = {"type": "schedule_event", **dict(item.trigger_summary)}
+            elif item.trigger_kind == "failure" and workflow_failure_triggers_enabled():
+                event = {"type": "workflow_failure", **dict(item.trigger_summary)}
+            else:
                 continue
-            event = {"type": "schedule_event", **dict(item.trigger_summary)}
             asyncio.create_task(_execute_trigger(item, event))
         if _timer_due_source is not None and _timer_resume_executor is not None:
             for execution in _timer_due_source()[:20]:

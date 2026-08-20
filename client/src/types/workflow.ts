@@ -5,6 +5,7 @@ export type WorkflowNodeKind =
   | "input"
   | "scheduled_start"
   | "http_event_entry"
+  | "failure_event_entry"
   | "llm"
   | "condition"
   | "code"
@@ -202,6 +203,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   method?: HttpRequestMethod;
   headersJson?: string;
   bodyVariable?: string;
+  sourceProjectIds?: string[];
   inputVariable?: string;
   format?: "compact" | "pretty";
   content?: string;

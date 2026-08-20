@@ -1,8 +1,13 @@
+import { useEffect, useMemo, useState } from "react";
 import type {
   WorkflowEdge,
   WorkflowNode,
   WorkflowNodeData,
 } from "../../types/workflow";
+import {
+  fetchWorkflowProjects,
+  type WorkflowProjectSummary,
+} from "../../utils/workflowDeployments";
 import WorkflowVariableField from "./WorkflowVariableField";
 import type { WorkflowNodeContractProjection } from "./workflowNodeRegistry";
 
@@ -312,7 +317,8 @@ function GlobalVariableField({
   );
 }
 
-export default function WorkflowDeploymentNodeConfig({
+function FailureEntryConfig({
+  currentProjectId,
   node,
   nodes,
   edges,
@@ -320,6 +326,7 @@ export default function WorkflowDeploymentNodeConfig({
   data,
   onChange,
 }: {
+  currentProjectId?: string;
   node: WorkflowNode;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
@@ -327,6 +334,249 @@ export default function WorkflowDeploymentNodeConfig({
   data: WorkflowNodeData;
   onChange: (patch: Partial<WorkflowNodeData>) => void;
 }) {
+  const [projects, setProjects] = useState<WorkflowProjectSummary[]>([]);
+  const [search, setSearch] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
+  const selectedIds = data.sourceProjectIds ?? [];
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadProjects() {
+      setIsLoading(true);
+      setLoadError("");
+      try {
+        const collected: WorkflowProjectSummary[] = [];
+        let offset = 0;
+        let total = 0;
+        do {
+          const page = await fetchWorkflowProjects({ limit: 100, offset });
+          collected.push(...page.items);
+          total = page.total;
+          offset += page.items.length;
+        } while (offset < total && offset < 1_000);
+        if (!cancelled) setProjects(collected);
+      } catch (error) {
+        if (!cancelled) {
+          setProjects([]);
+          setLoadError(
+            error instanceof Error ? error.message : "工作流目录暂时不可用。",
+          );
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+    void loadProjects();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
+
+  const availableProjects = useMemo(
+    () => projects.filter((project) => project.project_id !== currentProjectId),
+    [currentProjectId, projects],
+  );
+  const filteredProjects = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    if (!query) return availableProjects;
+    return availableProjects.filter(
+      (project) =>
+        project.title.toLocaleLowerCase().includes(query) ||
+        project.project_id.toLocaleLowerCase().includes(query),
+    );
+  }, [availableProjects, search]);
+  const knownProjectIds = new Set(availableProjects.map((project) => project.project_id));
+  const unavailableSelectedIds = selectedIds.filter((id) => !knownProjectIds.has(id));
+
+  const toggleProject = (projectId: string) => {
+    if (selectedIds.includes(projectId)) {
+      onChange({ sourceProjectIds: selectedIds.filter((id) => id !== projectId) });
+      return;
+    }
+    if (selectedIds.length >= 50) return;
+    onChange({ sourceProjectIds: [...selectedIds, projectId] });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-xs leading-5 text-rose-50">
+        只接收启用之后产生的独立工作流失败；事件会移除正文、变量、凭据、认证信息和堆栈，也不会递归触发失败处理器。
+      </div>
+      <Section
+        title="监听哪些工作流"
+        description="按项目跟随其当前启用版本。每个来源同时只能绑定一个已启用的失败处理器。"
+      >
+        <div className="flex items-center justify-between gap-3 text-xs">
+          <span className="text-slate-400">已选择 {selectedIds.length} / 50</span>
+          <button
+            className="text-cyan-200 transition hover:text-cyan-100"
+            onClick={() => setReloadToken((value) => value + 1)}
+            type="button"
+          >
+            刷新目录
+          </button>
+        </div>
+        {!selectedIds.length ? (
+          <p className="rounded-lg border border-rose-300/20 bg-rose-300/[0.06] px-3 py-2 text-xs leading-5 text-rose-100">
+            至少选择一个来源工作流后才能发布。
+          </p>
+        ) : null}
+        <input
+          aria-label="搜索来源工作流"
+          className={inputClass}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="按名称或工作流 ID 搜索"
+          type="search"
+          value={search}
+        />
+        {isLoading ? (
+          <p className="rounded-lg border border-white/10 bg-black/15 px-3 py-4 text-center text-xs text-slate-400">
+            正在读取工作流目录…
+          </p>
+        ) : loadError ? (
+          <div className="space-y-2">
+            <p className="rounded-lg border border-rose-300/20 bg-rose-300/[0.06] px-3 py-3 text-xs leading-5 text-rose-100">
+              {loadError} 已保存的选择不会被自动清除。
+            </p>
+            {selectedIds.map((projectId) => (
+              <button
+                className="flex w-full items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/15 px-3 py-2 text-left"
+                key={projectId}
+                onClick={() => toggleProject(projectId)}
+                type="button"
+              >
+                <span className="min-w-0 truncate font-mono text-[11px] text-slate-400">
+                  {projectId}
+                </span>
+                <span className="shrink-0 text-xs text-rose-200">移除</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+            {unavailableSelectedIds.map((projectId) => (
+              <label
+                className="flex cursor-pointer items-start gap-3 rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-3"
+                key={projectId}
+              >
+                <input
+                  checked
+                  className="mt-0.5 h-4 w-4 accent-rose-300"
+                  onChange={() => toggleProject(projectId)}
+                  type="checkbox"
+                />
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold text-amber-100">
+                    来源暂不可用
+                  </span>
+                  <span className="mt-1 block break-all font-mono text-[11px] text-slate-500">
+                    {projectId}
+                  </span>
+                </span>
+              </label>
+            ))}
+            {filteredProjects.map((project) => {
+              const selected = selectedIds.includes(project.project_id);
+              const selectionLimitReached = selectedIds.length >= 50 && !selected;
+              return (
+                <label
+                  className={`flex items-start gap-3 rounded-lg border p-3 transition ${
+                    selectionLimitReached
+                      ? "cursor-not-allowed border-white/5 bg-white/[0.015] opacity-50"
+                      : "cursor-pointer border-white/10 bg-black/15 hover:border-white/20"
+                  }`}
+                  key={project.project_id}
+                >
+                  <input
+                    checked={selected}
+                    className="mt-0.5 h-4 w-4 accent-rose-300"
+                    disabled={selectionLimitReached}
+                    onChange={() => toggleProject(project.project_id)}
+                    type="checkbox"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-semibold text-slate-100">
+                        {project.title}
+                      </span>
+                      <span
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${
+                          project.active_version
+                            ? "bg-emerald-300/10 text-emerald-200"
+                            : "bg-slate-400/10 text-slate-400"
+                        }`}
+                      >
+                        {project.active_version ? `已启用 v${project.active_version}` : "未启用"}
+                      </span>
+                    </span>
+                    <span className="mt-1 block truncate font-mono text-[11px] text-slate-500">
+                      {project.project_id}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+            {!filteredProjects.length && !unavailableSelectedIds.length ? (
+              <p className="rounded-lg border border-dashed border-white/10 px-3 py-5 text-center text-xs leading-5 text-slate-500">
+                {search ? "没有匹配的工作流。" : "还没有其他服务端工作流可供选择。"}
+              </p>
+            ) : null}
+          </div>
+        )}
+      </Section>
+      <Section
+        title="失败事件变量"
+        description="后续节点可读取来源项目、固定版本、运行 ID、失败时间和脱敏错误摘要。"
+      >
+        <GlobalVariableField
+          contract={contract}
+          edges={edges}
+          fieldName="eventVariable"
+          hint="例如 failure_event"
+          label="失败事件变量"
+          node={node}
+          nodes={nodes}
+          onChange={(eventVariable) => onChange({ eventVariable })}
+          value={String(data.eventVariable ?? "")}
+        />
+      </Section>
+    </div>
+  );
+}
+
+export default function WorkflowDeploymentNodeConfig({
+  currentProjectId,
+  node,
+  nodes,
+  edges,
+  contract,
+  data,
+  onChange,
+}: {
+  currentProjectId?: string;
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  contract: WorkflowNodeContractProjection | null;
+  data: WorkflowNodeData;
+  onChange: (patch: Partial<WorkflowNodeData>) => void;
+}) {
+  if (data.kind === "failure_event_entry") {
+    return (
+      <FailureEntryConfig
+        contract={contract}
+        currentProjectId={currentProjectId}
+        data={data}
+        edges={edges}
+        node={node}
+        nodes={nodes}
+        onChange={onChange}
+      />
+    );
+  }
+
   if (data.kind === "scheduled_start") {
     const scheduleType = data.scheduleType ?? "interval";
     const cron = parseCronExpressionForUi(data.cronExpression);
