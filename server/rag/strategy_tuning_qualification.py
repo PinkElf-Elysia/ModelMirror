@@ -371,9 +371,7 @@ def _is_hard_negative(case: dict[str, Any]) -> bool:
     targeting = case.get("targeting") if isinstance(case.get("targeting"), dict) else {}
     tags = {str(item).strip().lower() for item in case.get("tags") or []}
     query_type = str(targeting.get("query_type") or "").strip().lower()
-    has_context = bool(targeting.get("context_evidence_ids"))
     return bool(
-        query_type in {"no_result", "confusable_content", "corpus_near"}
-        and (has_context or targeting.get("blueprint_id"))
-        or tags.intersection({"hard_negative", "corpus_near", "near_miss", "confusable"})
+        query_type in {"confusable_content", "corpus_near"}
+        or tags.intersection({"corpus_near", "confusable"})
     )

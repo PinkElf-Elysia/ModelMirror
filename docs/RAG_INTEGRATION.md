@@ -304,9 +304,9 @@ POST /api/rag/pipeline/versions/{version_id}/query
 
 混合检索使用加权归一化 RRF；`score_threshold` 始终过滤 Rerank 前的 `fused_score`。Rerank 成功时，Provider 返回的 Top-N 是最终候选上限，不会重新补回未重排尾部；只有 Provider 失败、超时、非法 JSON 或空结果时才完整回退融合排序并返回 warning。
 
-RAG Rerank 默认最多发送 20 个候选、合计 24,000 个查询与候选字符，专用 API 与 OpenAI-compatible LLM fallback 共用一次 5 秒总预算。可通过服务端 `RAG_RERANK_MAX_CANDIDATES`、`RAG_RERANK_MAX_INPUT_CHARS`、`RAG_RERANK_TIMEOUT_SECONDS` 调整；专用端点使用完整 `RERANK_API_URL`，或使用会自动追加 `/rerank` 的 `RERANK_API_BASE`，并配置 `RERANK_API_KEY`、`RERANK_MODEL`；LLM fallback 模型使用 `RAG_RERANK_LLM_MODEL`。Compose 会将这些变量传入服务容器。不要将任何密钥写入前端或版本库。
+RAG Rerank 默认最多发送 20 个候选，单次序列化 Provider 请求最多 24,000 个字符；裁剪按当前可执行 Provider 中最坏的请求结构计算，专用 API 与 OpenAI-compatible LLM fallback 共用一次 5 秒总预算。可通过服务端 `RAG_RERANK_MAX_CANDIDATES`、`RAG_RERANK_MAX_INPUT_CHARS`、`RAG_RERANK_TIMEOUT_SECONDS` 调整；专用端点使用完整 `RERANK_API_URL`，或使用会自动追加 `/rerank` 的 `RERANK_API_BASE`，并配置 `RERANK_API_KEY`、`RERANK_MODEL`；LLM fallback 模型使用 `RAG_RERANK_LLM_MODEL`。Compose 会将这些变量传入服务容器。不要将任何密钥写入前端或版本库。
 
-响应会增加可选的 `vector_score`、`fulltext_score`、`fused_score`、`rerank_score`、`parent_lifted` 与安全 warnings，原有 CitationAnchor 字段保持兼容。检索回执只记录 Provider/模型、候选数、输入字符、耗时、预算和脱敏降级原因，不记录查询、候选正文、端点或密钥。
+响应会增加可选的 `vector_score`、`fulltext_score`、`fused_score`、`rerank_score`、`parent_lifted` 与安全 warnings，原有 CitationAnchor 字段保持兼容。检索回执只记录 Provider/模型、成功 target、已尝试 target、候选数、实际尝试中的最大序列化输入字符、耗时、预算和脱敏降级原因，不记录查询、候选正文、端点或密钥。
 
 父子分段只索引子段。召回后回答上下文使用父段，引用仍指向命中子段。向量与全文索引必须同时成功，候选版本才可 ready；任一失败会同时清理两个候选索引，不切换 active version。旧索引不自动迁移，继续使用 vector-only legacy 路径。
 

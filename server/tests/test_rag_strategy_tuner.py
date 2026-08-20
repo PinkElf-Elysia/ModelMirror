@@ -964,6 +964,35 @@ def test_threshold_calibration_fails_closed_without_fused_score_evidence() -> No
     assert calibrated["retrieval"]["score_threshold"] == 0
 
 
+@pytest.mark.parametrize(
+    "case_results",
+    [
+        [{"case_id": "positive", "ranking": [], "latency_ms": 1}],
+        [],
+    ],
+)
+def test_threshold_calibration_fails_closed_without_any_ranking_evidence(
+    case_results: list[dict],
+) -> None:
+    calibrated = calibrate_threshold(
+        {
+            "cases": [
+                {
+                    "case_id": "positive",
+                    "expected_refs": [{"document_id": "doc-positive"}],
+                    "expected_no_result": False,
+                }
+            ],
+            "case_results": case_results,
+        },
+        {"mode": "fulltext", "top_k": 5, "score_threshold": 0},
+    )
+
+    assert calibrated["threshold_calibration_eligible"] is False
+    assert calibrated["threshold_selection_reason"] == "missing_fused_score_evidence"
+    assert calibrated["missing_fused_score_count"] == 1
+
+
 @pytest.mark.asyncio
 async def test_preflight_degrades_chunk_tuning_and_hides_sensitive_snapshot(
     tuning_runtime,

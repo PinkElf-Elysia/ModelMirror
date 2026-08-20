@@ -33,7 +33,11 @@ def _case(
         "expected_refs": refs,
         "expected_no_result": expected_no_result,
         "review_status": review_status,
-        "tags": [query_type],
+        "tags": (
+            [query_type, "corpus_near", "hard_negative"]
+            if expected_no_result
+            else [query_type]
+        ),
         "targeting": {
             "blueprint_id": f"blueprint-{index}",
             "query_type": query_type,
@@ -111,6 +115,27 @@ def test_targeted_benchmark_qualifies_each_search_dimension() -> None:
         "single_dense": 8,
         "sparse": 14,
     }
+
+
+def test_hard_negative_requires_explicit_corpus_near_or_confusable_mark() -> None:
+    cases = _qualified_cases()
+    for case in cases:
+        if case["expected_no_result"]:
+            case["tags"] = ["hard_negative"]
+            case["targeting"]["query_type"] = "no_result"
+
+    readiness = build_tuning_readiness(
+        {
+            "origin": "generated",
+            "benchmark_role": "strategy_tuning",
+            "cases": cases,
+            "calibration": {"status": "calibrated"},
+        }
+    )
+
+    assert readiness["counts"]["reviewed_no_result"] == 12
+    assert readiness["counts"]["reviewed_hard_negative"] == 0
+    assert readiness["dimensions"]["threshold"]["eligible"] is False
 
 
 def test_small_targeted_set_is_insufficient_and_does_not_enable_threshold() -> None:

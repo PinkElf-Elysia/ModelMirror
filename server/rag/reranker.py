@@ -40,6 +40,15 @@ class RerankOutcome:
     attempted_provider: str = "none"
     attempted_model: str = ""
     fallback_reason: str | None = None
+    provider_target: str = ""
+    attempted_targets: tuple[str, ...] = ()
+
+
+@dataclass(slots=True)
+class _LLMRerankResult:
+    items: list[RerankItem]
+    target: str
+    fallback_reasons: tuple[str, ...]
 
 
 class RerankAttemptError(RuntimeError):
@@ -78,17 +87,33 @@ class RerankService:
         timeout_seconds = _bounded_env_float(
             "RAG_RERANK_TIMEOUT_SECONDS", 5.0, minimum=0.01, maximum=60.0
         )
-        limited_query, limited_documents, input_char_count = _limit_rerank_input(
+        providers = [provider]
+        if provider == "auto":
+            providers = ["api", "llm"]
+        capabilities = self.capabilities()
+        payload_specs: list[tuple[str, str]] = []
+        if "api" in providers and capabilities["api_configured"]:
+            payload_specs.append(("api", model or self._api_model()))
+        if "llm" in providers and capabilities["llm_configured"]:
+            llm_model = self._llm_model()
+            if provider == "llm" and model:
+                llm_model = model
+            if not _looks_like_reranker_model(llm_model):
+                payload_specs.append(("llm", llm_model))
+        limited_query, limited_documents, _ = _limit_rerank_payload(
             query,
             documents,
             candidate_limit=candidate_limit,
             input_char_limit=input_char_limit,
+            top_n=top_n,
+            payload_specs=payload_specs,
         )
+        attempted_input_char_counts: list[int] = []
 
         def finalize(outcome: RerankOutcome) -> RerankOutcome:
             outcome.requested_input_count = len(documents)
             outcome.input_count = len(limited_documents)
-            outcome.input_char_count = input_char_count
+            outcome.input_char_count = max(attempted_input_char_counts, default=0)
             outcome.output_count = len(outcome.items)
             outcome.candidate_limit = candidate_limit
             outcome.input_char_limit = input_char_limit
@@ -117,13 +142,10 @@ class RerankService:
                     fallback_reason="input_budget_exhausted",
                 )
             )
-        providers = [provider]
-        if provider == "auto":
-            providers = ["api", "llm"]
-
         warnings: list[str] = []
         attempted_provider = "none"
         attempted_model = ""
+        attempted_targets: list[str] = []
 
         async def run_with_shared_budget() -> RerankOutcome:
             nonlocal attempted_model, attempted_provider
@@ -133,6 +155,17 @@ class RerankService:
                         effective_model = model or self._api_model()
                         attempted_provider = "api"
                         attempted_model = effective_model
+                        attempted_targets.append("rerank_api")
+                        attempted_input_char_counts.append(
+                            _serialized_payload_char_count(
+                                _rerank_api_payload(
+                                    limited_query,
+                                    limited_documents,
+                                    model=effective_model,
+                                    top_n=min(top_n, len(limited_documents)),
+                                )
+                            )
+                        )
                         return RerankOutcome(
                             items=await self._rerank_api(
                                 limited_query,
@@ -145,6 +178,8 @@ class RerankService:
                             model=effective_model,
                             attempted_provider="api",
                             attempted_model=effective_model,
+                            provider_target="rerank_api",
+                            attempted_targets=tuple(attempted_targets),
                         )
                     if candidate == "llm" and self.capabilities()["llm_configured"]:
                         effective_model = self._llm_model()
@@ -157,24 +192,33 @@ class RerankService:
                                 "llm:reranker_model_not_chat_compatible"
                             )
                             continue
+                        llm_result = await self._rerank_llm(
+                            limited_query,
+                            limited_documents,
+                            model=effective_model,
+                            top_n=min(top_n, len(limited_documents)),
+                            timeout_seconds=timeout_seconds,
+                            attempted_targets=attempted_targets,
+                            attempted_input_char_counts=attempted_input_char_counts,
+                        )
+                        fallback_reasons = [
+                            *warnings,
+                            *llm_result.fallback_reasons,
+                        ]
                         return RerankOutcome(
-                            items=await self._rerank_llm(
-                                limited_query,
-                                limited_documents,
-                                model=effective_model,
-                                top_n=min(top_n, len(limited_documents)),
-                                timeout_seconds=timeout_seconds,
-                            ),
+                            items=llm_result.items,
                             provider="llm",
                             model=effective_model,
                             attempted_provider="llm",
                             attempted_model=effective_model,
                             warning=(
-                                f"Rerank fallback used ({';'.join(warnings)})."
-                                if warnings
+                                f"Rerank fallback used ({';'.join(fallback_reasons)})."
+                                if fallback_reasons
                                 else None
                             ),
-                            fallback_reason=";".join(warnings) or None,
+                            fallback_reason=";".join(fallback_reasons) or None,
+                            provider_target=llm_result.target,
+                            attempted_targets=tuple(attempted_targets),
                         )
                 except asyncio.CancelledError:
                     raise
@@ -190,6 +234,7 @@ class RerankService:
                 attempted_provider=attempted_provider,
                 attempted_model=attempted_model,
                 fallback_reason=reason,
+                attempted_targets=tuple(attempted_targets),
             )
 
         try:
@@ -208,6 +253,7 @@ class RerankService:
                     attempted_provider=attempted_provider,
                     attempted_model=attempted_model,
                     fallback_reason="timeout_budget_exhausted",
+                    attempted_targets=tuple(attempted_targets),
                 )
             )
 
@@ -220,12 +266,12 @@ class RerankService:
         top_n: int,
         timeout_seconds: float,
     ) -> list[RerankItem]:
-        payload = {
-            "model": model or self._api_model(),
-            "query": query,
-            "documents": [item.text for item in documents],
-            "top_n": min(top_n, len(documents)),
-        }
+        payload = _rerank_api_payload(
+            query,
+            documents,
+            model=model or self._api_model(),
+            top_n=top_n,
+        )
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(timeout_seconds, connect=min(2.0, timeout_seconds))
         ) as client:
@@ -249,35 +295,21 @@ class RerankService:
         model: str,
         top_n: int,
         timeout_seconds: float,
-    ) -> list[RerankItem]:
-        compact_documents = [
-            {"index": index, "text": item.text}
-            for index, item in enumerate(documents)
-        ]
-        payload = {
-            "model": model or self._llm_model(),
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "Rank retrieval candidates by relevance. Return JSON only as "
-                        '{"results":[{"index":0,"score":0.9}]}. Scores must be 0..1.'
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {"query": query, "documents": compact_documents, "top_n": top_n},
-                        ensure_ascii=False,
-                    ),
-                },
-            ],
-            "temperature": 0,
-            "max_tokens": 1200,
-            "stream": False,
-        }
+        attempted_targets: list[str],
+        attempted_input_char_counts: list[int],
+    ) -> _LLMRerankResult:
+        payload = _rerank_llm_payload(
+            query,
+            documents,
+            model=model or self._llm_model(),
+            top_n=top_n,
+        )
         errors: list[str] = []
         for target_name, target_url, target_key in self._llm_targets():
+            attempted_targets.append(target_name)
+            attempted_input_char_counts.append(
+                _serialized_payload_char_count(payload)
+            )
             try:
                 async with httpx.AsyncClient(
                     timeout=httpx.Timeout(
@@ -301,7 +333,11 @@ class RerankService:
                 raw_results = parsed.get("results") if isinstance(parsed, dict) else None
                 if not isinstance(raw_results, list):
                     raise ValueError("LLM rerank response is missing results.")
-                return _parse_ranked_items(raw_results, documents, top_n)
+                return _LLMRerankResult(
+                    items=_parse_ranked_items(raw_results, documents, top_n),
+                    target=target_name,
+                    fallback_reasons=tuple(errors),
+                )
             except Exception as exc:
                 errors.append(f"{target_name}:{_safe_rerank_error(exc)}")
         raise RerankAttemptError(";".join(errors) or "llm_target_not_configured")
@@ -399,6 +435,135 @@ def _parse_json_object(content: str) -> dict[str, Any]:
     return value
 
 
+_RERANK_LLM_SYSTEM_PROMPT = (
+    "Rank retrieval candidates by relevance. Return JSON only as "
+    '{"results":[{"index":0,"score":0.9}]}. Scores must be 0..1.'
+)
+
+
+def _rerank_api_payload(
+    query: str,
+    documents: list[RerankDocument],
+    *,
+    model: str,
+    top_n: int,
+) -> dict[str, Any]:
+    return {
+        "model": model,
+        "query": query,
+        "documents": [item.text for item in documents],
+        "top_n": min(top_n, len(documents)),
+    }
+
+
+def _rerank_llm_payload(
+    query: str,
+    documents: list[RerankDocument],
+    *,
+    model: str,
+    top_n: int,
+) -> dict[str, Any]:
+    compact_documents = [
+        {"index": index, "text": item.text}
+        for index, item in enumerate(documents)
+    ]
+    return {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": _RERANK_LLM_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {"query": query, "documents": compact_documents, "top_n": top_n},
+                    ensure_ascii=False,
+                ),
+            },
+        ],
+        "temperature": 0,
+        "max_tokens": 1200,
+        "stream": False,
+    }
+
+
+def _serialized_payload_char_count(payload: dict[str, Any]) -> int:
+    return len(json.dumps(payload, ensure_ascii=False))
+
+
+def _limit_rerank_payload(
+    query: str,
+    documents: list[RerankDocument],
+    *,
+    candidate_limit: int,
+    input_char_limit: int,
+    top_n: int,
+    payload_specs: list[tuple[str, str]],
+) -> tuple[str, list[RerankDocument], int]:
+    if not payload_specs:
+        return _limit_rerank_input(
+            query,
+            documents,
+            candidate_limit=candidate_limit,
+            input_char_limit=input_char_limit,
+        )
+
+    def candidate_for(
+        text_budget: int,
+        max_candidates: int,
+    ) -> tuple[str, list[RerankDocument], int]:
+        limited_query, limited_documents, _ = _limit_rerank_input(
+            query,
+            documents,
+            candidate_limit=max_candidates,
+            input_char_limit=text_budget,
+        )
+        payload_counts = []
+        for kind, model in payload_specs:
+            if kind == "api":
+                payload = _rerank_api_payload(
+                    limited_query,
+                    limited_documents,
+                    model=model,
+                    top_n=top_n,
+                )
+            else:
+                payload = _rerank_llm_payload(
+                    limited_query,
+                    limited_documents,
+                    model=model,
+                    top_n=top_n,
+                )
+            payload_counts.append(_serialized_payload_char_count(payload))
+        return limited_query, limited_documents, max(payload_counts, default=0)
+
+    max_candidates = min(candidate_limit, len(documents))
+    low = 0
+    high = max_candidates
+    feasible_candidate_count = 0
+    while low <= high:
+        midpoint = (low + high) // 2
+        candidate = candidate_for(0, midpoint)
+        if candidate[2] <= input_char_limit:
+            feasible_candidate_count = midpoint
+            low = midpoint + 1
+        else:
+            high = midpoint - 1
+    if feasible_candidate_count == 0:
+        return candidate_for(0, 0)
+
+    best = candidate_for(0, feasible_candidate_count)
+    low = 0
+    high = input_char_limit
+    while low <= high:
+        midpoint = (low + high) // 2
+        candidate = candidate_for(midpoint, feasible_candidate_count)
+        if candidate[2] <= input_char_limit:
+            best = candidate
+            low = midpoint + 1
+        else:
+            high = midpoint - 1
+    return best
+
+
 def _limit_rerank_input(
     query: str,
     documents: list[RerankDocument],
@@ -407,7 +572,7 @@ def _limit_rerank_input(
     input_char_limit: int,
 ) -> tuple[str, list[RerankDocument], int]:
     selected = documents[:candidate_limit]
-    query_limit = min(4_000, max(1, input_char_limit // 6))
+    query_limit = min(4_000, max(0, input_char_limit // 6))
     limited_query = query[:query_limit]
     remaining = max(0, input_char_limit - len(limited_query))
     limited_documents: list[RerankDocument] = []

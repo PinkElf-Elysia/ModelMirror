@@ -642,16 +642,28 @@ def chunker_candidates(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
 
 def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> dict[str, Any]:
     cases_by_id = {str(case["case_id"]): case for case in result["cases"]}
+    case_results = [
+        item for item in result.get("case_results") or [] if isinstance(item, dict)
+    ]
+    observed_case_ids = {
+        str(item.get("case_id") or "") for item in case_results if item.get("case_id")
+    }
     rankings = [
         item
-        for case_result in result.get("case_results") or []
+        for case_result in case_results
         for item in case_result.get("ranking") or []
         if isinstance(item, dict)
     ]
+    empty_ranking_case_count = sum(
+        1
+        for case_result in case_results
+        if not any(isinstance(item, dict) for item in case_result.get("ranking") or [])
+    )
+    missing_case_result_count = len(set(cases_by_id) - observed_case_ids)
     missing_fused_scores = [
         item for item in rankings if item.get("fused_score") is None
     ]
-    if missing_fused_scores:
+    if missing_fused_scores or empty_ranking_case_count or missing_case_result_count:
         current = round(float(retrieval.get("score_threshold") or 0), 6)
         return {
             "retrieval": {**_copy(retrieval), "score_threshold": current},
@@ -661,7 +673,10 @@ def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> di
             "threshold_selection_reason": "missing_fused_score_evidence",
             "threshold_calibration_eligible": False,
             "threshold_score_domain": "fused_score",
-            "missing_fused_score_count": len(missing_fused_scores),
+            "missing_fused_score_count": (
+                len(missing_fused_scores) + empty_ranking_case_count
+                + missing_case_result_count
+            ),
         }
     thresholds = _threshold_candidates(result, retrieval, cases_by_id=cases_by_id)
     points: list[dict[str, Any]] = []

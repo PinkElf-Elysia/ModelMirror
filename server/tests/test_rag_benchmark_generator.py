@@ -385,7 +385,7 @@ async def test_strategy_tuning_generation_waits_for_hard_negative_review(
     for case in reviewed["cases"]:
         if case["expected_no_result"]:
             case["review_status"] = "approved"
-    assert qualify_promotion_evidence(reviewed)["status"] == "qualified"
+    assert qualify_promotion_evidence(reviewed)["status"] == "diagnostic_only"
 
 
 def test_generation_rejects_unknown_evidence_and_quote_drift(tmp_path: Path) -> None:

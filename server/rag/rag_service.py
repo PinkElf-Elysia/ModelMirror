@@ -4822,12 +4822,15 @@ class RagService:
                 "rerank_attempted_provider": str(outcome.attempted_provider or "none"),
                 "rerank_attempted_model": str(outcome.attempted_model or ""),
                 "rerank_fallback_reason": str(outcome.fallback_reason or "") or None,
+                "rerank_provider_target_used": str(outcome.provider_target or "") or None,
+                "rerank_attempted_targets": ";".join(outcome.attempted_targets) or None,
+                "rerank_target_attempt_count": len(outcome.attempted_targets),
             }
             if outcome.warning:
                 warnings.append(outcome.warning)
             by_id = {item.chunk_id: item for item in fused_before_rerank}
             reranked: list[RetrievalCandidate] = []
-            for ranked in outcome.items:
+            for ranked in outcome.items[: config.rerank_top_n]:
                 candidate = by_id.pop(ranked.chunk_id, None)
                 if candidate is None:
                     continue

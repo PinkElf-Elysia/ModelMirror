@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from pathlib import Path
 
@@ -504,26 +505,28 @@ def test_candidate_selection_uses_fused_threshold_then_parent_and_doc_diversity(
 async def test_successful_rerank_top_n_does_not_restore_unranked_tail(
     tmp_path: Path,
 ) -> None:
-    class TwoItemReranker:
+    class OversizedReranker:
         async def rerank(self, _query, documents, **_kwargs):
             return RerankOutcome(
                 items=[
-                    RerankItem(documents[1].chunk_id, 0.99),
-                    RerankItem(documents[0].chunk_id, 0.98),
+                    RerankItem(document.chunk_id, 1 - index / 100)
+                    for index, document in enumerate(documents)
                 ],
                 provider="api",
                 model="bounded-reranker",
                 requested_input_count=len(documents),
                 input_count=len(documents),
                 input_char_count=sum(len(item.text) for item in documents),
-                output_count=2,
+                output_count=len(documents),
                 timeout_budget_ms=5_000,
                 elapsed_ms=12.5,
                 attempted_provider="api",
                 attempted_model="bounded-reranker",
+                provider_target="rerank_api",
+                attempted_targets=("rerank_api",),
             )
 
-    service = build_service(tmp_path, reranker=TwoItemReranker())
+    service = build_service(tmp_path, reranker=OversizedReranker())
     kb = service.create_knowledge_base("rerank top-n")
     documents = [
         await service.upload_document(
@@ -569,6 +572,9 @@ async def test_successful_rerank_top_n_does_not_restore_unranked_tail(
     assert result["retrieval"]["rerank_requested_input_count"] == 8
     assert result["retrieval"]["rerank_timeout_budget_ms"] == 5_000
     assert result["retrieval"]["rerank_elapsed_ms"] == 12.5
+    assert result["retrieval"]["rerank_provider_target_used"] == "rerank_api"
+    assert result["retrieval"]["rerank_attempted_targets"] == "rerank_api"
+    assert result["retrieval"]["rerank_target_attempt_count"] == 1
 
     class FailedReranker:
         async def rerank(self, _query, documents, **_kwargs):
@@ -680,11 +686,89 @@ async def test_rerank_input_is_deterministically_bounded(
     assert outcome.requested_input_count == 25
     assert outcome.input_count == 20
     assert len(captured["documents"]) == 20
-    assert len(captured["query"]) + sum(map(len, captured["documents"])) <= 24_000
+    serialized_chars = len(json.dumps(captured, ensure_ascii=False))
+    assert serialized_chars <= 24_000
+    assert outcome.input_char_count == serialized_chars
     assert outcome.input_char_count <= 24_000
     assert outcome.candidate_limit == 20
     assert outcome.input_char_limit == 24_000
     assert outcome.timeout_budget_ms == 5_000
+
+
+@pytest.mark.asyncio
+async def test_llm_rerank_budget_includes_prompt_and_serialization_overhead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RerankService()
+    documents = [
+        RerankDocument(f"chunk-{index}", ('\\"\n' + str(index)) * 1_000)
+        for index in range(20)
+    ]
+    captured: dict = {}
+    monkeypatch.setenv("LLM_GATEWAY_URL", "https://gateway.test/v1")
+    monkeypatch.setenv("LLM_GATEWAY_KEY", "gateway-key")
+    monkeypatch.setenv("RAG_RERANK_LLM_MODEL", "test-llm")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    async def post(self, url, **kwargs):
+        captured.update(kwargs["json"])
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": '{"results":[{"index":0,"score":0.9}]}'}}
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank("q" * 4_000, documents, provider="llm", top_n=5)
+
+    serialized_chars = len(json.dumps(captured, ensure_ascii=False))
+    assert outcome.provider == "llm"
+    assert serialized_chars <= 24_000
+    assert outcome.input_char_count == serialized_chars
+
+
+@pytest.mark.asyncio
+async def test_llm_rerank_budget_drops_tail_when_empty_payload_exceeds_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RerankService()
+    documents = [
+        RerankDocument(f"chunk-{index}", "x" * 100)
+        for index in range(100)
+    ]
+    captured: dict = {}
+    monkeypatch.setenv("LLM_GATEWAY_URL", "https://gateway.test/v1")
+    monkeypatch.setenv("LLM_GATEWAY_KEY", "gateway-key")
+    monkeypatch.setenv("RAG_RERANK_LLM_MODEL", "test-llm")
+    monkeypatch.setenv("RAG_RERANK_MAX_CANDIDATES", "100")
+    monkeypatch.setenv("RAG_RERANK_MAX_INPUT_CHARS", "1000")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    async def post(self, url, **kwargs):
+        captured.update(kwargs["json"])
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": '{"results":[{"index":0,"score":0.9}]}'}}
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank("q" * 4_000, documents, provider="llm", top_n=5)
+
+    serialized_chars = len(json.dumps(captured, ensure_ascii=False))
+    user_payload = json.loads(captured["messages"][1]["content"])
+    assert 0 < outcome.input_count < 100
+    assert len(user_payload["documents"]) == outcome.input_count
+    assert serialized_chars <= 1_000
+    assert outcome.input_char_count == serialized_chars
 
 
 @pytest.mark.asyncio
@@ -840,6 +924,10 @@ async def test_llm_rerank_falls_back_from_gateway_to_openrouter(
         "http://gateway.test/v1/chat/completions",
         "https://openrouter.ai/api/v1/chat/completions",
     ]
+    assert outcome.provider_target == "openrouter"
+    assert outcome.attempted_targets == ("llm_gateway", "openrouter")
+    assert outcome.fallback_reason == "llm_gateway:http_status_502"
+    assert "llm_gateway:http_status_502" in str(outcome.warning)
 
 
 @pytest.mark.asyncio

@@ -415,10 +415,24 @@ def qualify_promotion_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
 
     readiness = build_tuning_readiness(snapshot)
     counts = dict(readiness.get("counts") or {})
+    benchmark_role = str(readiness.get("benchmark_role") or "unclassified")
+    immutable_snapshot = bool(snapshot.get("version_id") and snapshot.get("published_at"))
     positive_count = int(counts.get("positive") or 0)
     stable_positive_count = int(counts.get("stable_source_block_positive") or 0)
     reviewed_hard_negative_count = int(counts.get("reviewed_hard_negative") or 0)
     checks = [
+        {
+            "id": "immutable_evaluation_version",
+            "passed": immutable_snapshot,
+            "actual": immutable_snapshot,
+            "required": True,
+        },
+        {
+            "id": "selection_eligible",
+            "passed": bool(readiness.get("selection_eligible")),
+            "actual": bool(readiness.get("selection_eligible")),
+            "required": True,
+        },
         {
             "id": "minimum_positive_cases",
             "passed": positive_count >= MIN_POSITIVE_CASES,
@@ -443,6 +457,9 @@ def qualify_promotion_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
         "version": "rag-promotion-evidence-v1",
         "status": "qualified" if qualified else "diagnostic_only",
         "qualified": qualified,
+        "benchmark_role": benchmark_role,
+        "immutable_snapshot": immutable_snapshot,
+        "selection_eligible": bool(readiness.get("selection_eligible")),
         "positive_case_count": positive_count,
         "stable_source_block_positive_count": stable_positive_count,
         "reviewed_hard_negative_count": reviewed_hard_negative_count,
@@ -1355,6 +1372,9 @@ def _safe_retrieval_receipt(value: dict[str, Any] | None) -> dict[str, Any]:
         "rerank_attempted_provider",
         "rerank_attempted_model",
         "rerank_fallback_reason",
+        "rerank_provider_target_used",
+        "rerank_attempted_targets",
+        "rerank_target_attempt_count",
         "threshold_score_domain",
         "embedding_provider",
         "embedding_model",

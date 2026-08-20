@@ -226,6 +226,8 @@ def test_promotion_evidence_requires_30_stable_positives_and_12_hard_negatives()
     snapshot = {
         "origin": "manual",
         "benchmark_role": "promotion_evidence",
+        "version_id": "evalsetver-fixed",
+        "published_at": 1.0,
         "cases": [*positives, *negatives],
     }
 
@@ -242,6 +244,19 @@ def test_promotion_evidence_requires_30_stable_positives_and_12_hard_negatives()
         "stable_source_block_positive": 30,
         "reviewed_hard_negative": 12,
     }
+
+    mutable_unclassified = qualify_promotion_evidence(
+        {
+            **snapshot,
+            "version_id": None,
+            "published_at": None,
+            "benchmark_role": "unclassified",
+        }
+    )
+    assert mutable_unclassified["status"] == "diagnostic_only"
+    assert mutable_unclassified["qualified"] is False
+    assert mutable_unclassified["immutable_snapshot"] is False
+    assert mutable_unclassified["selection_eligible"] is False
 
 
 def test_legacy_citation_gate_policy_maps_to_precision_at_5(tmp_path: Path) -> None:
