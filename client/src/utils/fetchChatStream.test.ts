@@ -68,6 +68,30 @@ describe("fetchChatStream file completion gate", () => {
     });
   });
 
+  it("sends the server-bound Skill application contract without altering messages", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse("data: [DONE]\n\n"));
+    vi.stubGlobal("fetch", fetchMock);
+    const contentDigest = "a".repeat(64);
+
+    await fetchChatStream({
+      modelId: "openai/text-model",
+      messages: textMessages,
+      skillApplication: {
+        skill_id: "incident-review",
+        expected_content_digest: contentDigest,
+      },
+      onDelta: vi.fn(),
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+      messages: textMessages,
+      skill_application: {
+        skill_id: "incident-review",
+        expected_content_digest: contentDigest,
+      },
+    });
+  });
+
   it("preserves server-confirmed output bindings on existing media inputs", async () => {
     const fetchMock = vi.fn().mockResolvedValue(streamResponse("data: [DONE]\n\n"));
     vi.stubGlobal("fetch", fetchMock);

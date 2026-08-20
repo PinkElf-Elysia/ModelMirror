@@ -348,6 +348,7 @@ interface InstalledSkill extends TrustSelectableSkill {
   repo_url: string;
   sub_path: string;
   installed_at: number;
+  content_digest: string;
 }
 
 interface InstalledSkillsResponse {
@@ -2989,6 +2990,13 @@ function ChatConversationPage() {
               format: "mp3",
             }
           : undefined,
+        skillApplication:
+          selectedSkill && /^[0-9a-f]{64}$/i.test(selectedSkill.content_digest)
+            ? {
+                skill_id: selectedSkill.skill_id,
+                expected_content_digest: selectedSkill.content_digest,
+              }
+            : undefined,
         fileScopeId: chatFileScopeId,
         outputMode: requestFileOutput ? "allowlisted" : "none",
         outputContextId: assistantId,

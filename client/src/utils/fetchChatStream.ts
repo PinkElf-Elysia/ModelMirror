@@ -84,6 +84,11 @@ export interface ChatResponseAudioOptions {
   format: "mp3";
 }
 
+export interface ChatSkillApplication {
+  skill_id: string;
+  expected_content_digest: string;
+}
+
 export interface ChatAudioDelta {
   data?: string;
   transcript?: string;
@@ -148,6 +153,7 @@ interface FetchChatStreamOptions {
   routing?: ChatRoutingOptions;
   compression?: ChatCompressionOptions;
   responseAudio?: ChatResponseAudioOptions;
+  skillApplication?: ChatSkillApplication;
   fileScopeId?: string;
   outputMode?: "none" | "allowlisted";
   outputContextId?: string;
@@ -430,6 +436,7 @@ export async function fetchChatStream({
   routing,
   compression,
   responseAudio,
+  skillApplication,
   fileScopeId,
   outputMode = "none",
   outputContextId,
@@ -460,6 +467,7 @@ export async function fetchChatStream({
       routing,
       compression,
       response_audio: responseAudio,
+      skill_application: skillApplication,
       file_scope_id: fileScopeId,
       output_mode: outputMode,
       output_context_id: outputContextId,
