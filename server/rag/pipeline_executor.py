@@ -5,7 +5,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from .embedder import EmbeddingClient
+from .embedder import EmbeddingClient, EmbeddingError
 from .lexical_store import LexicalChunk
 from .rag_service import RagService
 from .splitter import ParentChildTextSplitter, TextSplitter
@@ -578,31 +578,57 @@ class KnowledgePipelineExecutor:
         job = self.service.get_pipeline_job(job_id)
         snapshot = job["config_snapshot"]
         profile = snapshot.get("embedding_profile", {}) if isinstance(snapshot, dict) else {}
-        model = str(profile.get("model") or self.service.embedder.model)
+        effective = profile.get("effective") if isinstance(profile, dict) else None
+        effective_profile = effective if isinstance(effective, dict) else profile
+        provider = str(effective_profile.get("provider") or profile.get("provider") or "")
+        dimension = int(
+            effective_profile.get("dimension")
+            or profile.get("dimension")
+            or self.service.embedder.dimension
+        )
+        model = str(
+            effective_profile.get("model")
+            or profile.get("model")
+            or self.service.embedder.model
+        )
         embedder = self.service.embedder
         if (
-            str(profile.get("provider") or "") == "hash"
-            and bool(self.service.embedder.api_key)
-            and getattr(self.service.embedder, "embedding_mode", "hash") != "hash"
+            provider == "hash"
+            and (
+                bool(self.service.embedder.api_key)
+                or self.service.embedder.dimension != dimension
+            )
         ):
             embedder = EmbeddingClient(
                 api_base="",
                 api_key="",
                 model=model,
-                dimension=self.service.embedder.dimension,
+                dimension=dimension,
             )
             embedder.api_key = ""
             embedder.embedding_mode = "hash"
-        elif model != self.service.embedder.model:
+        elif provider != "hash" and model != self.service.embedder.model:
             embedder = EmbeddingClient(
                 api_base=self.service.embedder.api_base,
                 api_key=self.service.embedder.api_key,
                 model=model,
-                dimension=self.service.embedder.dimension,
+                dimension=dimension,
             )
-        return await embedder.embed_texts(
+        embeddings = await embedder.embed_texts(
             [str(item.get("index_text") or "") for item in chunks]
         )
+        if len(embeddings) != len(chunks):
+            raise EmbeddingError(
+                "Embedding provider returned a different number of vectors than inputs."
+            )
+        dimensions = {len(vector) for vector in embeddings}
+        if not dimensions or 0 in dimensions or len(dimensions) != 1:
+            raise EmbeddingError(
+                "Embedding provider returned empty or inconsistent vector dimensions."
+            )
+        actual_dimension = next(iter(dimensions))
+        self.service.update_pipeline_embedding_dimension(job_id, actual_dimension)
+        return embeddings
 
     async def _store_chunks(
         self,

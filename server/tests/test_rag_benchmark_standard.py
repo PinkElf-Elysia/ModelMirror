@@ -64,6 +64,11 @@ async def test_managed_rag_benchmark_builds_real_indexes_and_immutable_gold(
     assert state["phase"] == "completed"
     assert state["uploaded_document_count"] == 12
     assert state["resolved_case_count"] == 40
+    assert state["version_evidence"]["version_id"] == state["version_id"]
+    assert state["version_evidence"]["version_fingerprint"]
+    assert state["version_evidence"]["embedding"]["effective"]["model"] == (
+        "deterministic-hash-v1"
+    )
 
     kb_id = str(state["kb_id"])
     knowledge_base = next(item for item in service.list_knowledge_bases() if item["id"] == kb_id)

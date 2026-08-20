@@ -117,6 +117,18 @@ async def test_rag_pipeline_draft_empty_knowledge_base(client: httpx.AsyncClient
     assert data["index_schema_version"] == 2
     assert data["retrieval_profile"]["mode"] == "hybrid"
     assert data["embedding_profile"]["degraded"] is True
+    assert data["embedding_profile"]["requested"] == {
+        "provider": "hash",
+        "model": "deterministic-hash-v1",
+    }
+    assert data["embedding_profile"]["effective"] == {
+        "provider": "hash",
+        "model": "deterministic-hash-v1",
+        "dimension": 128,
+        "degraded": True,
+        "ready": True,
+        "reason": None,
+    }
     assert stages["chunker"]["config"]["strategy"] == "recursive_character"
     assert stages["chunker"]["config"]["chunk_size"] == 500
     assert stages["chunker"]["config"]["chunk_overlap"] == 50
@@ -160,7 +172,10 @@ async def test_rag_pipeline_draft_patch_persists_chunker_config(
     response = await client.patch(
         f"/api/rag/pipeline/draft/{kb_id}",
         json={
-            "embedding_profile": {"model": "text-embedding-3-small"},
+            "embedding_profile": {
+                "provider": "openai_compatible",
+                "model": "text-embedding-3-small",
+            },
             "retrieval_profile": {
                 "mode": "hybrid",
                 "vector_weight": 0.6,
@@ -191,7 +206,16 @@ async def test_rag_pipeline_draft_patch_persists_chunker_config(
     assert patched["retrieval_profile"]["vector_weight"] == 0.6
     assert patched["retrieval_profile"]["fulltext_weight"] == 0.4
     assert patched["retrieval_profile"]["top_k"] == 8
-    assert patched["embedding_profile"]["model"] == "text-embedding-3-small"
+    assert patched["embedding_profile"]["provider"] == "unavailable"
+    assert patched["embedding_profile"]["model"] == ""
+    assert patched["embedding_profile"]["requested"] == {
+        "provider": "openai_compatible",
+        "model": "text-embedding-3-small",
+    }
+    assert patched["embedding_profile"]["effective"]["ready"] is False
+    assert patched["embedding_profile"]["effective"]["reason"] == (
+        "embedding_credentials_missing"
+    )
 
     response = await client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")
     assert response.status_code == 200, response.text
@@ -201,6 +225,128 @@ async def test_rag_pipeline_draft_patch_persists_chunker_config(
     assert chunker["config"]["chunk_size"] == 800
     assert chunker["config"]["chunk_overlap"] == 120
     assert data["retrieval_profile"]["score_threshold"] == 0.2
+
+
+@pytest.mark.asyncio
+async def test_rag_pipeline_blocks_unavailable_requested_embedding(
+    client: httpx.AsyncClient,
+) -> None:
+    kb_id = await create_kb(client, "blocked semantic embedding")
+    document = await upload_pipeline_document(client, kb_id)
+
+    response = await client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={
+            "embedding_profile": {
+                "provider": "openai_compatible",
+                "model": "baai/bge-m3",
+            }
+        },
+    )
+    assert response.status_code == 200, response.text
+    draft = response.json()
+    assert draft["embedding_profile"]["requested"]["model"] == "baai/bge-m3"
+    assert draft["embedding_profile"]["effective"]["ready"] is False
+    assert draft["embedding_profile"]["effective"]["provider"] == "unavailable"
+
+    preflight = await client.post(f"/api/rag/pipeline/draft/{kb_id}/preflight")
+    assert preflight.status_code == 200, preflight.text
+    assert preflight.json()["ready"] is False
+    assert any("Embedding" in warning for warning in preflight.json()["warnings"])
+
+    execute = await client.post(
+        f"/api/rag/pipeline/draft/{kb_id}/execute",
+        json={
+            "draft_version": draft["version"],
+            "source_document_ids": [document["id"]],
+            "xpert_file_refs": [],
+        },
+    )
+    assert execute.status_code == 400, execute.text
+    assert "Embedding provider is unavailable" in execute.text
+
+    jobs = await client.get(f"/api/rag/pipeline/jobs?kb_id={kb_id}")
+    assert jobs.status_code == 200, jobs.text
+    assert jobs.json()["job_count"] == 0
+
+
+def test_rag_pipeline_reclassifies_legacy_silent_hash_profile(
+    tmp_path: Path,
+) -> None:
+    service = RagService(
+        storage_dir=tmp_path / "legacy-storage",
+        uploads_dir=tmp_path / "legacy-uploads",
+        embedder=EmbeddingClient(
+            api_base="https://embedding.test/v1",
+            api_key="",
+            model="text-embedding-3-small",
+            dimension=96,
+        ),
+        vector_store=LocalJsonVectorStore(tmp_path / "legacy-storage" / "vectors.json"),
+        llm_enabled=False,
+    )
+
+    profile = service._validated_embedding_profile(
+        {
+            "provider": "hash",
+            "model": "baai/bge-m3",
+            "dimension": 96,
+            "degraded": True,
+        },
+        None,
+    )
+
+    assert profile["requested"] == {
+        "provider": "openai_compatible",
+        "model": "baai/bge-m3",
+    }
+    assert profile["effective"]["provider"] == "unavailable"
+    assert profile["effective"]["ready"] is False
+    assert profile["effective"]["reason"] == "embedding_credentials_missing"
+
+
+def test_rag_pipeline_records_ready_requested_and_effective_embedding(
+    tmp_path: Path,
+) -> None:
+    service = RagService(
+        storage_dir=tmp_path / "configured-storage",
+        uploads_dir=tmp_path / "configured-uploads",
+        embedder=EmbeddingClient(
+            api_base="https://embedding.test/v1",
+            api_key="test-key",
+            model="text-embedding-3-small",
+            dimension=96,
+        ),
+        vector_store=LocalJsonVectorStore(
+            tmp_path / "configured-storage" / "vectors.json"
+        ),
+        llm_enabled=False,
+    )
+    kb = service.create_knowledge_base("configured semantic embedding")
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        embedding_profile={
+            "provider": "openai_compatible",
+            "model": "baai/bge-m3",
+        },
+    )
+
+    profile = draft["embedding_profile"]
+    assert profile["requested"] == {
+        "provider": "openai_compatible",
+        "model": "baai/bge-m3",
+    }
+    assert profile["effective"] == {
+        "provider": "openai_compatible",
+        "model": "baai/bge-m3",
+        "dimension": 96,
+        "degraded": False,
+        "ready": True,
+        "reason": None,
+    }
+    assert profile["provider"] == "openai_compatible"
+    assert profile["model"] == "baai/bge-m3"
 
 
 @pytest.mark.asyncio

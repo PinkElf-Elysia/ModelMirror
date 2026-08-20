@@ -167,12 +167,58 @@ def fuse_rankings(
 
     if not raw_scores:
         return []
-    minimum = min(raw_scores.values())
-    maximum = max(raw_scores.values())
-    spread = maximum - minimum
+    # Normalize against the theoretical rank-1 maximum, not the observed
+    # candidate min/max. Observed min/max makes every result set manufacture a
+    # score of both 0 and 1 and changes existing scores when a tail candidate is
+    # added, so thresholds cannot be compared across queries or benchmarks.
+    maximum = (
+        config.vector_weight / (RRF_CONSTANT + 1)
+        + config.fulltext_weight / (RRF_CONSTANT + 1)
+    )
     for chunk_id, raw_score in raw_scores.items():
-        by_id[chunk_id].fused_score = 1.0 if spread == 0 else (raw_score - minimum) / spread
+        by_id[chunk_id].fused_score = max(
+            0.0,
+            min(1.0, raw_score / maximum if maximum > 0 else 0.0),
+        )
     return sorted(by_id.values(), key=lambda item: (-item.fused_score, item.chunk_id))
+
+
+def select_candidates(
+    items: list[RetrievalCandidate],
+    *,
+    score_threshold: float,
+    top_k: int,
+) -> list[RetrievalCandidate]:
+    """Apply a stable recall threshold, parent dedupe, then document diversity."""
+
+    eligible = [item for item in items if item.fused_score >= score_threshold]
+    deduplicated: list[RetrievalCandidate] = []
+    seen_parent_groups: set[tuple[str, str]] = set()
+    for item in eligible:
+        if item.parent_chunk_id:
+            group = (item.doc_id, item.parent_chunk_id)
+            if group in seen_parent_groups:
+                continue
+            seen_parent_groups.add(group)
+        deduplicated.append(item)
+
+    selected: list[RetrievalCandidate] = []
+    deferred: list[RetrievalCandidate] = []
+    seen_documents: set[str] = set()
+    for item in deduplicated:
+        if item.doc_id in seen_documents:
+            deferred.append(item)
+            continue
+        selected.append(item)
+        seen_documents.add(item.doc_id)
+        if len(selected) >= top_k:
+            return selected
+
+    for item in deferred:
+        selected.append(item)
+        if len(selected) >= top_k:
+            break
+    return selected
 
 
 def _coerce_int(value: Any, name: str) -> int:

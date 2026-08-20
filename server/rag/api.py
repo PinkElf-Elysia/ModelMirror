@@ -767,7 +767,7 @@ class EvaluationGateUpdateRequest(BaseModel):
     max_mrr_regression: float = Field(ge=0, le=1)
     max_citation_hit_regression: float = Field(ge=0, le=1)
     max_no_result_increase: float = Field(ge=0, le=1)
-    min_no_result_accuracy: float = Field(default=0, ge=0, le=1)
+    min_no_result_accuracy: float = Field(default=0.8, ge=0, le=1)
     min_citation_coverage: float = Field(default=0, ge=0, le=1)
     max_p95_latency_ratio: float = Field(ge=1, le=10)
     require_zero_errors: bool = True
@@ -2100,6 +2100,9 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
                     "version": int(version["version"]),
                     "label": target.label or f"v{version['version']}",
                     "retrieval": target.retrieval.model_dump(exclude_none=True) if target.retrieval else {},
+                    "version_evidence": get_rag_service().pipeline_version_evidence(
+                        target.version_id
+                    ),
                 }
             )
         run = get_evaluation_store().create_run(

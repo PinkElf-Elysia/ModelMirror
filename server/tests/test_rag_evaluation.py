@@ -187,6 +187,74 @@ def test_source_block_and_no_result_metrics_are_aggregated_separately() -> None:
     assert aggregate["false_positive_rate"] == 0.5
 
 
+def test_default_gate_rejects_false_positive_no_result_behavior() -> None:
+    positive = evaluate_retrieval_case(
+        [{"chunk_id": "answer", "source_document_id": "doc-a", "score": 0.9}],
+        [{"document_id": "doc-a"}],
+        ks=[1, 5, 10],
+    )
+    false_positive = evaluate_retrieval_case(
+        [{"chunk_id": "noise", "source_document_id": "doc-z", "score": 0.1}],
+        [],
+        ks=[1, 5, 10],
+        expected_no_result=True,
+    )
+    aggregate = aggregate_target_metrics([positive, false_positive], ks=[1, 5, 10])
+
+    gate = evaluate_promotion_gate(aggregate, baseline=None)
+    no_result_check = next(
+        item for item in gate["checks"] if item["id"] == "min_no_result_accuracy"
+    )
+
+    assert aggregate["no_result_accuracy"] == 0.0
+    assert no_result_check["threshold"] == 0.8
+    assert no_result_check["passed"] is False
+    assert gate["passed"] is False
+
+    explicitly_disabled = evaluate_promotion_gate(
+        aggregate,
+        baseline=None,
+        policy={"min_no_result_accuracy": 0.0},
+    )
+    assert explicitly_disabled["passed"] is True
+
+
+@pytest.mark.asyncio
+async def test_evaluation_gate_api_defaults_no_result_floor_and_allows_explicit_override(
+    evaluation_runtime,
+) -> None:
+    client, _service, _pipeline_executor, _evaluation_executor, _registry = evaluation_runtime
+    kb_id = await _create_kb(client, "default no-result gate")
+
+    default_response = await client.get(f"/api/rag/evaluation-gate/{kb_id}")
+    assert default_response.status_code == 200, default_response.text
+    assert default_response.json()["min_no_result_accuracy"] == 0.8
+
+    payload = {
+        "mode": "advisory",
+        "min_recall_at_5": 0.8,
+        "max_mrr_regression": 0.03,
+        "max_citation_hit_regression": 0.02,
+        "max_no_result_increase": 0.05,
+        "min_citation_coverage": 0.0,
+        "max_p95_latency_ratio": 2.0,
+        "require_zero_errors": True,
+    }
+    omitted_response = await client.patch(
+        f"/api/rag/evaluation-gate/{kb_id}",
+        json=payload,
+    )
+    assert omitted_response.status_code == 200, omitted_response.text
+    assert omitted_response.json()["min_no_result_accuracy"] == 0.8
+
+    override_response = await client.patch(
+        f"/api/rag/evaluation-gate/{kb_id}",
+        json={**payload, "min_no_result_accuracy": 0.0},
+    )
+    assert override_response.status_code == 200, override_response.text
+    assert override_response.json()["min_no_result_accuracy"] == 0.0
+
+
 def test_promotion_gate_does_not_penalize_correct_no_result_abstention() -> None:
     positive = evaluate_retrieval_case(
         [{"chunk_id": "answer", "source_document_id": "doc-a", "score": 0.9}],
@@ -442,9 +510,20 @@ async def test_evaluation_api_runs_versions_and_enforces_required_gate(
     )
     assert candidate["metrics"]["recall_at_5"] == 1.0, candidate
     assert candidate["promotion_gate"]["passed"] is True
+    evidence = candidate["version_evidence"]
+    assert evidence["version_id"] == candidate_version
+    assert evidence["version_fingerprint"]
+    assert evidence["embedding"]["effective"]["provider"] == "hash"
+    assert evidence["embedding"]["effective"]["model"] == "deterministic-hash-v1"
+    receipt = candidate["case_results"][0]["retrieval_receipt"]
+    assert receipt["embedding_provider"] == "hash"
+    assert receipt["embedding_model"] == "deterministic-hash-v1"
+    assert receipt["embedding_dimension"] == 128
+    assert receipt["rerank_provider_used"] == "none"
     serialized = str(completed).lower()
     assert "project orion deployment requires a signed" not in serialized
-    assert "embedding" not in serialized
+    assert "api_key" not in serialized
+    assert "endpoint" not in serialized
     assert "stored_path" not in serialized
     assert "sk-" not in serialized
 

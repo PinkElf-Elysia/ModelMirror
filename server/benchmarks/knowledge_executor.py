@@ -63,6 +63,11 @@ class KnowledgeBenchmarkProvisioner:
             await self._ensure_pipeline_draft(job_id, kb_id, state)
             pipeline_job = await self._ensure_pipeline_job(job_id, kb_id, state)
             version_id = await self._wait_for_pipeline(job_id, pipeline_job, state)
+            state["version_evidence"] = await asyncio.to_thread(
+                self.rag_service.pipeline_version_evidence,
+                version_id,
+            )
+            await self._save(job_id, state)
             resolved_cases = await asyncio.to_thread(
                 self._resolve_gold_cases,
                 kb_id,

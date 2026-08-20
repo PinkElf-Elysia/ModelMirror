@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -229,6 +230,9 @@ class LocalJsonVectorStore:
 class ChromaVectorStore:
     """ChromaDB-backed vector store with local persistence."""
 
+    _LEGACY_COLLECTION = "modelmirror_rag_chunks"
+    _NAMESPACE_COLLECTION_PREFIX = "modelmirror_rag_v2_"
+
     def __init__(self, persist_path: Path) -> None:
         try:
             import chromadb  # type: ignore[import-not-found]
@@ -237,12 +241,25 @@ class ChromaVectorStore:
 
         persist_path.mkdir(parents=True, exist_ok=True)
         self._client = chromadb.PersistentClient(path=str(persist_path))
-        self._collection = self._client.get_or_create_collection("modelmirror_rag_chunks")
+        # Keep the original collection readable for existing installations. New
+        # writes use one deterministic collection per immutable version namespace
+        # because Chroma fixes a collection's dimension on its first insert.
+        self._collection = self._client.get_or_create_collection(self._LEGACY_COLLECTION)
 
     def add_chunks(self, chunks: list[VectorChunk]) -> None:
         if not chunks:
             return
-        self._collection.upsert(
+        grouped: dict[str, list[VectorChunk]] = {}
+        for chunk in chunks:
+            grouped.setdefault(chunk.kb_id, []).append(chunk)
+        for namespace, namespace_chunks in grouped.items():
+            collection = self._namespace_collection(namespace, create=True)
+            if collection is None:  # pragma: no cover - create=True is total.
+                raise RuntimeError("Unable to create the Chroma namespace collection.")
+            self._upsert(collection, namespace_chunks)
+
+    def _upsert(self, collection: Any, chunks: list[VectorChunk]) -> None:
+        collection.upsert(
             ids=[chunk.id for chunk in chunks],
             embeddings=[chunk.embedding for chunk in chunks],
             documents=[chunk.text for chunk in chunks],
@@ -271,11 +288,35 @@ class ChromaVectorStore:
         )
 
     def query(self, kb_id: str, embedding: list[float], top_k: int) -> list[SearchResult]:
-        response = self._collection.query(
-            query_embeddings=[embedding],
-            n_results=top_k,
-            where={"kb_id": kb_id},
-            include=["documents", "metadatas", "distances"],
+        collection = self._namespace_collection(kb_id, create=False)
+        if collection is not None and collection.count() > 0:
+            return self._query_collection(collection, kb_id, embedding, top_k)
+        return self._query_collection(
+            self._collection,
+            kb_id,
+            embedding,
+            top_k,
+            legacy=True,
+        )
+
+    def _query_collection(
+        self,
+        collection: Any,
+        kb_id: str,
+        embedding: list[float],
+        top_k: int,
+        *,
+        legacy: bool = False,
+    ) -> list[SearchResult]:
+        query: dict[str, Any] = {
+            "query_embeddings": [embedding],
+            "n_results": top_k,
+            "include": ["documents", "metadatas", "distances"],
+        }
+        if legacy:
+            query["where"] = {"kb_id": kb_id}
+        response = collection.query(
+            **query,
         )
         ids = (response.get("ids") or [[]])[0]
         documents = (response.get("documents") or [[]])[0]
@@ -311,16 +352,32 @@ class ChromaVectorStore:
         return results
 
     def delete_document(self, doc_id: str) -> None:
-        self._collection.delete(where={"doc_id": doc_id})
+        for collection in self._managed_collections():
+            collection.delete(where={"doc_id": doc_id})
 
     def delete_knowledge_base(self, kb_id: str) -> None:
+        collection_name = self._namespace_collection_name(kb_id)
+        if self._get_collection(collection_name) is not None:
+            self._client.delete_collection(collection_name)
         self._collection.delete(where={"kb_id": kb_id})
 
     def list_document_chunks(self, doc_id: str) -> list[StoredVectorChunk]:
-        response = self._collection.get(
-            where={"doc_id": doc_id},
-            include=["documents", "metadatas"],
-        )
+        chunks: dict[tuple[str, str], StoredVectorChunk] = {}
+        for collection in self._managed_collections():
+            response = collection.get(
+                where={"doc_id": doc_id},
+                include=["documents", "metadatas"],
+            )
+            for chunk in self._stored_chunks(response, fallback_doc_id=doc_id):
+                chunks[(chunk.kb_id, chunk.chunk_id)] = chunk
+        return sorted(chunks.values(), key=lambda item: item.chunk_index)
+
+    def _stored_chunks(
+        self,
+        response: dict[str, Any],
+        *,
+        fallback_doc_id: str,
+    ) -> list[StoredVectorChunk]:
         ids = response.get("ids") or []
         documents = response.get("documents") or []
         metadatas = response.get("metadatas") or []
@@ -333,7 +390,7 @@ class ChromaVectorStore:
                 StoredVectorChunk(
                     chunk_id=str(chunk_id),
                     kb_id=str(metadata.get("kb_id", "")),
-                    doc_id=str(metadata.get("doc_id", doc_id)),
+                    doc_id=str(metadata.get("doc_id", fallback_doc_id)),
                     document_name=str(metadata.get("document_name", "")),
                     text=str(documents[index] if index < len(documents) else ""),
                     chunk_index=int(metadata.get("chunk_index", index)),
@@ -350,14 +407,36 @@ class ChromaVectorStore:
                     source_block_id=str(metadata.get("source_block_id") or "") or None,
                 )
             )
-        return sorted(chunks, key=lambda item: item.chunk_index)
+        return chunks
 
     def get_chunk(self, kb_id: str, chunk_id: str) -> StoredVectorChunk | None:
-        response = self._collection.get(
-            ids=[chunk_id],
-            where={"kb_id": kb_id},
-            include=["documents", "metadatas"],
+        collection = self._namespace_collection(kb_id, create=False)
+        if collection is not None:
+            chunk = self._get_chunk_from_collection(collection, kb_id, chunk_id)
+            if chunk is not None:
+                return chunk
+        return self._get_chunk_from_collection(
+            self._collection,
+            kb_id,
+            chunk_id,
+            legacy=True,
         )
+
+    def _get_chunk_from_collection(
+        self,
+        collection: Any,
+        kb_id: str,
+        chunk_id: str,
+        *,
+        legacy: bool = False,
+    ) -> StoredVectorChunk | None:
+        query: dict[str, Any] = {
+            "ids": [chunk_id],
+            "include": ["documents", "metadatas"],
+        }
+        if legacy:
+            query["where"] = {"kb_id": kb_id}
+        response = collection.get(**query)
         ids = response.get("ids") or []
         if not ids:
             return None
@@ -383,6 +462,50 @@ class ChromaVectorStore:
             visual_kind=str(metadata.get("visual_kind") or "") or None,
             source_block_id=str(metadata.get("source_block_id") or "") or None,
         )
+
+    @classmethod
+    def _namespace_collection_name(cls, namespace: str) -> str:
+        digest = hashlib.sha256(namespace.encode("utf-8")).hexdigest()[:32]
+        return f"{cls._NAMESPACE_COLLECTION_PREFIX}{digest}"
+
+    def _namespace_collection(self, namespace: str, *, create: bool) -> Any | None:
+        if not hasattr(self, "_client"):
+            # Preserve the small adapter/test seam that injects a collection
+            # directly without constructing a persistent Chroma client.
+            return self._collection if create else None
+        name = self._namespace_collection_name(namespace)
+        if not create:
+            return self._get_collection(name)
+        collection = self._client.get_or_create_collection(
+            name,
+            metadata={
+                "modelmirror_namespace": namespace,
+                "modelmirror_schema_version": 2,
+            },
+        )
+        stored_namespace = str((collection.metadata or {}).get("modelmirror_namespace") or "")
+        if stored_namespace and stored_namespace != namespace:
+            raise RuntimeError("Chroma namespace collection identity collision.")
+        return collection
+
+    def _get_collection(self, name: str) -> Any | None:
+        try:
+            return self._client.get_collection(name)
+        except Exception:
+            return None
+
+    def _managed_collections(self) -> list[Any]:
+        collections: list[Any] = []
+        for item in self._client.list_collections():
+            name = item if isinstance(item, str) else str(getattr(item, "name", ""))
+            if name != self._LEGACY_COLLECTION and not name.startswith(
+                self._NAMESPACE_COLLECTION_PREFIX
+            ):
+                continue
+            collection = self._get_collection(name)
+            if collection is not None:
+                collections.append(collection)
+        return collections
 
 
 def create_vector_store(storage_dir: Path) -> VectorStore:

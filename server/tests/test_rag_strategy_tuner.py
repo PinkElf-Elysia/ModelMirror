@@ -1073,6 +1073,10 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
     eval_set_id, eval_version = await _published_set_for_version(
         service, evaluation_store, kb_id, base_version_id
     )
+    evaluation_store.set_gate_policy(
+        kb_id,
+        {"min_no_result_accuracy": 0.0},
+    )
     request = {
         "kb_id": kb_id,
         "base_version_id": base_version_id,

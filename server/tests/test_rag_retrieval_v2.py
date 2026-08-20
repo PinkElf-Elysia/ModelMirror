@@ -6,14 +6,16 @@ from pathlib import Path
 import httpx
 import pytest
 
+from server.rag import retrieval as retrieval_module
 from server.rag.embedder import EmbeddingClient
 from server.rag.lexical_store import LexicalChunk, SqliteLexicalStore, tokenize_for_search
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import RagService
+from server.rag.rag_service import PipelineDraftValidationError
 from server.rag.reranker import RerankDocument, RerankService
-from server.rag.retrieval import RetrievalConfig
+from server.rag.retrieval import RetrievalCandidate, RetrievalConfig, fuse_rankings
 from server.rag.splitter import ParentChildTextSplitter, TextSplitter
-from server.rag.vector_store import LocalJsonVectorStore
+from server.rag.vector_store import ChromaVectorStore, LocalJsonVectorStore, VectorChunk
 
 
 def build_service(tmp_path: Path, *, reranker=None) -> RagService:
@@ -237,6 +239,161 @@ async def test_v2_candidate_builds_dual_index_and_lifts_parent_context(tmp_path:
     assert result["retrieval"]["fulltext_candidate_count"] > 0
 
 
+@pytest.mark.asyncio
+async def test_version_query_uses_pinned_hash_embedder_not_process_default(
+    tmp_path: Path,
+) -> None:
+    service = build_service(tmp_path)
+    kb = service.create_knowledge_base("version-pinned embedding")
+    document = await service.upload_document(
+        kb["id"],
+        "pinned.txt",
+        "PINNED-ORBIT requires a version-scoped embedding query.".encode(),
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "vector", "top_k": 2},
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+    version = service.get_pipeline_version(job["candidate_version_id"])
+
+    wrong_process_embedder = EmbeddingClient(
+        api_base="https://wrong-embedding.test/v1",
+        api_key="configured-but-wrong",
+        model="wrong-process-model",
+        dimension=32,
+    )
+
+    async def reject_process_default(_texts: list[str]) -> list[list[float]]:
+        raise AssertionError("query used the process-level embedder")
+
+    wrong_process_embedder.embed_texts = reject_process_default  # type: ignore[method-assign]
+    service.embedder = wrong_process_embedder
+
+    result = await service.query_pipeline_version(
+        version["version_id"],
+        "PINNED-ORBIT",
+        retrieval={"mode": "vector", "top_k": 2},
+        generate_answer=False,
+    )
+
+    assert result["sources"]
+    assert result["retrieval"]["embedding_provider"] == "hash"
+    assert result["retrieval"]["embedding_model"] == "deterministic-hash-v1"
+    assert result["retrieval"]["embedding_dimension"] == 64
+
+
+@pytest.mark.asyncio
+async def test_real_embedding_version_records_actual_dimension_and_fails_closed(
+    tmp_path: Path,
+) -> None:
+    storage = tmp_path / "real-storage"
+    embedder = EmbeddingClient(
+        api_base="https://embedding.test/v1",
+        api_key="configured",
+        model="real-model",
+        dimension=64,
+    )
+
+    async def fake_real_embeddings(texts: list[str]) -> list[list[float]]:
+        return [[1.0, float(len(text) % 7), 0.25] for text in texts]
+
+    embedder.embed_texts = fake_real_embeddings  # type: ignore[method-assign]
+    service = RagService(
+        storage_dir=storage,
+        uploads_dir=tmp_path / "real-uploads",
+        embedder=embedder,
+        vector_store=LocalJsonVectorStore(storage / "vectors.json"),
+        lexical_store=SqliteLexicalStore(storage / "lexical.sqlite3"),
+        llm_enabled=False,
+    )
+    kb = service.create_knowledge_base("real embedding identity")
+    document = await service.upload_document(
+        kb["id"],
+        "real.txt",
+        "REAL-VECTOR-IDENTITY must remain pinned.".encode(),
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        embedding_profile={
+            "provider": "openai_compatible",
+            "model": "real-model",
+        },
+        retrieval_profile={"mode": "vector", "top_k": 2},
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+    version = service.get_pipeline_version(job["candidate_version_id"])
+    assert version["embedding_profile"]["effective"]["dimension"] == 3
+    assert version["embedding_profile"]["dimension"] == 3
+    evidence_before = service.pipeline_version_evidence(version["version_id"])
+
+    embedder.api_key = ""
+    evidence_after = service.pipeline_version_evidence(version["version_id"])
+    assert evidence_after["version_fingerprint"] == evidence_before["version_fingerprint"]
+    assert evidence_after["embedding"]["effective"]["provider"] == (
+        "openai_compatible"
+    )
+    with pytest.raises(PipelineDraftValidationError, match="unavailable"):
+        await service.query_pipeline_version(
+            version["version_id"],
+            "REAL-VECTOR-IDENTITY",
+            retrieval={"mode": "vector"},
+            generate_answer=False,
+        )
+
+
+def test_chroma_isolates_namespaces_with_different_dimensions(tmp_path: Path) -> None:
+    pytest.importorskip("chromadb")
+    store = ChromaVectorStore(tmp_path / "chroma")
+    store.add_chunks(
+        [
+            VectorChunk(
+                id="chunk-two",
+                kb_id="kb::version-two",
+                doc_id="doc-two",
+                document_name="two.txt",
+                text="two dimensional vector",
+                embedding=[1.0, 0.0],
+                chunk_index=0,
+            )
+        ]
+    )
+    store.add_chunks(
+        [
+            VectorChunk(
+                id="chunk-three",
+                kb_id="kb::version-three",
+                doc_id="doc-three",
+                document_name="three.txt",
+                text="three dimensional vector",
+                embedding=[1.0, 0.0, 0.0],
+                chunk_index=0,
+            )
+        ]
+    )
+
+    assert store.query("kb::version-two", [1.0, 0.0], 1)[0].chunk_id == "chunk-two"
+    assert (
+        store.query("kb::version-three", [1.0, 0.0, 0.0], 1)[0].chunk_id
+        == "chunk-three"
+    )
+    store.delete_knowledge_base("kb::version-two")
+    assert store.query("kb::version-two", [1.0, 0.0], 1) == []
+    assert store.query("kb::version-three", [1.0, 0.0, 0.0], 1)
+
+
 def test_retrieval_config_validates_weights_and_limits() -> None:
     config = RetrievalConfig.from_mapping(
         {"mode": "hybrid", "vector_weight": 0.7, "fulltext_weight": 0.3, "top_k": 10}
@@ -247,6 +404,99 @@ def test_retrieval_config_validates_weights_and_limits() -> None:
         RetrievalConfig.from_mapping({"top_k": 51})
     with pytest.raises(ValueError):
         RetrievalConfig.from_mapping({"score_threshold": 1.1})
+
+
+def _retrieval_candidate(
+    chunk_id: str,
+    doc_id: str,
+    *,
+    vector_score: float | None = None,
+    fulltext_score: float | None = None,
+    fused_score: float = 0.0,
+    rerank_score: float | None = None,
+    parent_chunk_id: str | None = None,
+) -> RetrievalCandidate:
+    return RetrievalCandidate(
+        chunk_id=chunk_id,
+        doc_id=doc_id,
+        document_name=f"{doc_id}.txt",
+        matched_text=chunk_id,
+        context_text=chunk_id,
+        vector_score=vector_score,
+        fulltext_score=fulltext_score,
+        fused_score=fused_score,
+        rerank_score=rerank_score,
+        parent_chunk_id=parent_chunk_id,
+    )
+
+
+def test_weighted_rrf_score_is_candidate_pool_invariant() -> None:
+    config = RetrievalConfig.from_mapping(
+        {
+            "mode": "hybrid",
+            "vector_weight": 0.7,
+            "fulltext_weight": 0.3,
+        }
+    )
+    base = fuse_rankings(
+        [
+            _retrieval_candidate("shared", "doc-a", vector_score=0.9),
+            _retrieval_candidate("vector-only", "doc-b", vector_score=0.8),
+        ],
+        [_retrieval_candidate("shared", "doc-a", fulltext_score=1.0)],
+        config,
+    )
+    expanded = fuse_rankings(
+        [
+            _retrieval_candidate("shared", "doc-a", vector_score=0.9),
+            _retrieval_candidate("vector-only", "doc-b", vector_score=0.8),
+            _retrieval_candidate("tail", "doc-c", vector_score=0.1),
+        ],
+        [_retrieval_candidate("shared", "doc-a", fulltext_score=1.0)],
+        config,
+    )
+
+    base_scores = {item.chunk_id: item.fused_score for item in base}
+    expanded_scores = {item.chunk_id: item.fused_score for item in expanded}
+    assert expanded_scores["shared"] == pytest.approx(base_scores["shared"])
+    assert expanded_scores["vector-only"] == pytest.approx(
+        base_scores["vector-only"]
+    )
+    assert 0 < expanded_scores["tail"] < expanded_scores["vector-only"] < 1
+
+
+def test_candidate_selection_uses_fused_threshold_then_parent_and_doc_diversity() -> None:
+    candidates = [
+        _retrieval_candidate(
+            "a-parent-best",
+            "doc-a",
+            fused_score=0.95,
+            rerank_score=0.1,
+            parent_chunk_id="parent-a",
+        ),
+        _retrieval_candidate(
+            "a-parent-duplicate",
+            "doc-a",
+            fused_score=0.94,
+            rerank_score=0.99,
+            parent_chunk_id="parent-a",
+        ),
+        _retrieval_candidate("a-second", "doc-a", fused_score=0.93),
+        _retrieval_candidate("b-first", "doc-b", fused_score=0.92),
+        _retrieval_candidate("c-below-threshold", "doc-c", fused_score=0.79),
+    ]
+
+    selected = retrieval_module.select_candidates(
+        candidates,
+        score_threshold=0.8,
+        top_k=3,
+    )
+
+    assert [item.chunk_id for item in selected] == [
+        "a-parent-best",
+        "b-first",
+        "a-second",
+    ]
 
 
 @pytest.mark.asyncio
@@ -370,3 +620,110 @@ async def test_llm_rerank_falls_back_from_gateway_to_openrouter(
         "http://gateway.test/v1/chat/completions",
         "https://openrouter.ai/api/v1/chat/completions",
     ]
+
+
+@pytest.mark.asyncio
+async def test_auto_rerank_keeps_api_model_out_of_llm_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    documents = [RerankDocument("a", "alpha"), RerankDocument("b", "beta")]
+    service = RerankService()
+    payloads: list[tuple[str, dict]] = []
+    monkeypatch.setenv("RERANK_API_URL", "https://rerank.test/v1/rerank")
+    monkeypatch.setenv("RERANK_API_KEY", "rerank-key")
+    monkeypatch.setenv("RERANK_MODEL", "default-reranker")
+    monkeypatch.setenv("LLM_GATEWAY_URL", "https://gateway.test/v1")
+    monkeypatch.setenv("LLM_GATEWAY_KEY", "gateway-key")
+    monkeypatch.setenv("RAG_RERANK_LLM_MODEL", "deepseek/deepseek-chat")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    async def post(self, url, **kwargs):
+        payloads.append((url, dict(kwargs["json"])))
+        if url == "https://rerank.test/v1/rerank":
+            return httpx.Response(
+                503,
+                json={"error": "rerank unavailable"},
+                request=httpx.Request("POST", url),
+            )
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": '{"results":[{"index":1,"score":0.9}]}'}}
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank(
+        "beta",
+        documents,
+        provider="auto",
+        model="cohere/rerank-4-fast",
+        top_n=1,
+    )
+
+    assert outcome.provider == "llm"
+    assert outcome.model == "deepseek/deepseek-chat"
+    assert payloads[0][1]["model"] == "cohere/rerank-4-fast"
+    assert payloads[1][1]["model"] == "deepseek/deepseek-chat"
+
+
+@pytest.mark.asyncio
+async def test_rerank_provider_results_are_sorted_by_validated_score(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    documents = [RerankDocument("a", "alpha"), RerankDocument("b", "beta")]
+    service = RerankService()
+    monkeypatch.setenv("RERANK_API_URL", "https://rerank.test/v1/rerank")
+    monkeypatch.setenv("RERANK_API_KEY", "test-key")
+    monkeypatch.setenv("RERANK_MODEL", "test-reranker")
+
+    async def post(self, url, **kwargs):
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"index": 0, "relevance_score": 0.2},
+                    {"index": 1, "relevance_score": 0.9},
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank("beta", documents, provider="api", top_n=2)
+
+    assert [item.chunk_id for item in outcome.items] == ["b", "a"]
+    assert outcome.model == "test-reranker"
+
+
+@pytest.mark.asyncio
+async def test_explicit_llm_rerank_rejects_reranker_only_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RerankService()
+    calls: list[str] = []
+    monkeypatch.setenv("LLM_GATEWAY_URL", "https://gateway.test/v1")
+    monkeypatch.setenv("LLM_GATEWAY_KEY", "gateway-key")
+    monkeypatch.setenv("RAG_RERANK_LLM_MODEL", "deepseek/deepseek-chat")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    async def post(self, url, **kwargs):
+        calls.append(url)
+        raise AssertionError("reranker-only model reached chat completions")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank(
+        "alpha",
+        [RerankDocument("a", "alpha")],
+        provider="llm",
+        model="cohere/rerank-4-fast",
+        top_n=1,
+    )
+
+    assert outcome.provider == "none"
+    assert outcome.model == ""
+    assert "reranker-only model" in str(outcome.warning)
+    assert calls == []

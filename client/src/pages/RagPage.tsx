@@ -159,6 +159,7 @@ interface PipelineDraftEdits {
   childChunkSize: string;
   childChunkOverlap: string;
   childSeparators: string;
+  embeddingProvider: "hash" | "openai_compatible";
   embeddingModel: string;
   retrievalMode: "vector" | "fulltext" | "hybrid";
   vectorWeight: string;
@@ -535,10 +536,22 @@ function numericProfileValue(profile: Record<string, unknown>, key: string, fall
   return Number.isFinite(value) ? value : fallback;
 }
 
+function embeddingProfileSection(
+  profile: Record<string, unknown> | undefined,
+  key: "requested" | "effective",
+) {
+  const value = profile?.[key];
+  return isUnknownRecord(value) ? value : {};
+}
+
 function draftEditsFromResponse(draft: PipelineDraftResponse): PipelineDraftEdits {
   const processor = draft.stages.find((stage) => stage.kind === "processor")?.config ?? {};
   const chunker = draft.stages.find((stage) => stage.kind === "chunker")?.config ?? {};
   const retrieval = draft.retrieval_profile ?? {};
+  const requestedEmbedding = embeddingProfileSection(
+    draft.embedding_profile,
+    "requested",
+  );
   const strategy = chunker.strategy === "parent_child" ? "parent_child" : "recursive_character";
   const retrievalMode = ["vector", "fulltext", "hybrid"].includes(String(retrieval.mode))
     ? String(retrieval.mode) as PipelineDraftEdits["retrievalMode"]
@@ -567,8 +580,14 @@ function draftEditsFromResponse(draft: PipelineDraftResponse): PipelineDraftEdit
     childChunkSize: String(chunker.child_chunk_size ?? 400),
     childChunkOverlap: String(chunker.child_chunk_overlap ?? 50),
     childSeparators: separatorsToText(chunker.child_separators),
+    embeddingProvider:
+      requestedEmbedding.provider === "openai_compatible"
+        ? "openai_compatible"
+        : "hash",
     embeddingModel: String(
-      draft.embedding_profile?.model ?? DEFAULT_EMBEDDING_MODEL_ID,
+      requestedEmbedding.model
+        ?? draft.embedding_profile?.model
+        ?? DEFAULT_EMBEDDING_MODEL_ID,
     ),
     retrievalMode,
     vectorWeight: String(numericProfileValue(retrieval, "vector_weight", 0.7)),
@@ -751,6 +770,7 @@ export default function RagPage() {
     childChunkSize: "",
     childChunkOverlap: "",
     childSeparators: "",
+    embeddingProvider: "openai_compatible",
     embeddingModel: DEFAULT_EMBEDDING_MODEL_ID,
     retrievalMode: "hybrid",
     vectorWeight: "0.7",
@@ -836,6 +856,14 @@ export default function RagPage() {
           (item.deletion_status ?? "active") === "active",
       ) ?? null,
     [knowledgeBases, selectedKbId],
+  );
+  const requestedEmbeddingProfile = embeddingProfileSection(
+    pipelineDraft?.embedding_profile,
+    "requested",
+  );
+  const effectiveEmbeddingProfile = embeddingProfileSection(
+    pipelineDraft?.embedding_profile,
+    "effective",
   );
   const ragFileSelectionDisabled = ragCapabilityDisabled || Boolean(selectedKnowledgeBase?.corpus_locked);
 
@@ -1150,6 +1178,7 @@ export default function RagPage() {
             },
           },
           embedding_profile: {
+            provider: pipelineDraftEdits.embeddingProvider,
             model: pipelineDraftEdits.embeddingModel.trim(),
           },
           retrieval_profile: {
@@ -2420,6 +2449,7 @@ export default function RagPage() {
                                     className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50"
                                     onChange={(event) => setPipelineDraftEdits((current) => ({
                                       ...current,
+                                      embeddingProvider: "openai_compatible",
                                       embeddingModel: event.target.value,
                                     }))}
                                     value={pipelineDraftEdits.embeddingModel}
@@ -2441,6 +2471,24 @@ export default function RagPage() {
                                   </select>
                                 </label>
                               </div>
+                              {pipelineDraft ? (
+                                <p
+                                  className={`mt-2 text-[11px] leading-5 ${
+                                    effectiveEmbeddingProfile.ready === false
+                                      ? "text-amber-200"
+                                      : "text-slate-500"
+                                  }`}
+                                >
+                                  请求：{String(requestedEmbeddingProfile.provider || "未设置")} / {String(requestedEmbeddingProfile.model || "未设置")}
+                                  {" · "}
+                                  生效：{String(effectiveEmbeddingProfile.provider || "未设置")} / {String(effectiveEmbeddingProfile.model || "未设置")}
+                                  {effectiveEmbeddingProfile.ready === false
+                                    ? "（不可用，预检与执行将被阻止）"
+                                    : effectiveEmbeddingProfile.degraded
+                                      ? "（显式降级模式）"
+                                      : ""}
+                                </p>
+                              ) : null}
 
                               {pipelineDraftEdits.strategy === "recursive_character" ? (
                                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
