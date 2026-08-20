@@ -11,7 +11,8 @@
     "index_migration": false,
     "shared_data_modified": false,
     "deployment_performed": false,
-    "answer_generation": false
+    "answer_generation": false,
+    "promotion_performed": false
   },
   "batches": {
     "2.0": {
@@ -48,13 +49,33 @@
         "total_timeout_ms": 5000
       },
       "focused_rerank_tests": "11 passed",
-      "retrieval_v2_tests": "23 passed"
+      "retrieval_v2_tests": "25 passed"
     },
     "2D": {
-      "status": "blocked_real_embedding_and_awaiting_human_negative_review",
+      "status": "closed_without_formal_promotion_evidence",
+      "closure": {
+        "closed_at": "2026-08-20T14:37:44.231Z",
+        "disposition": "closed_failed_gate_transferred_to_round3",
+        "promotion_gate_passed": false,
+        "promotion_evidence_created": false,
+        "exception_or_waiver": false,
+        "carried_to_round": 3,
+        "unmet_requirements": [
+          "The configured real OpenAI-compatible embedding path returned HTTP 503 before candidate version creation.",
+          "All 12 corpus-near/confusable hard negatives remain pending human approval.",
+          "The fixed 42-case Gold dataset remains an unpublished mutable draft.",
+          "No formal real evaluation run was executed."
+        ],
+        "prohibited_claims": [
+          "Round 2 produced formal promotion evidence.",
+          "The 42-case dataset is immutable or promotion-qualified.",
+          "The candidate passed the promotion gate.",
+          "Smoke, generation, or automated-test results substitute for the missing real evaluation."
+        ]
+      },
       "automated_generation_tests": "13 passed",
       "combined_rag_tests": "51 passed",
-      "rag_knowledge_regression": "214 passed",
+      "rag_knowledge_regression": "220 passed",
       "gold": {
         "dataset_id": "evalset_b9f4b2e4b4cd4e6995b6eb182e605c95",
         "revision": 1,
@@ -76,8 +97,8 @@
       },
       "real_evaluation": {
         "run_count": 0,
-        "status": "blocked_before_final_run",
-        "reason": "The final run is blocked by the missing real embedding provider path and by the 12 pending corpus-near hard-negative reviews."
+        "status": "not_executed_gate_closed",
+        "reason": "The gate was closed without a final run because the real embedding path returned HTTP 503, 12 hard negatives remain unapproved, and the fixed 42-case dataset is unpublished."
       },
       "real_embedding_setup": {
         "requested_model": "text-embedding-3-small",
@@ -85,7 +106,10 @@
         "status": "failed_before_version_creation",
         "error": "HTTP 503 from the configured gateway /v1/embeddings endpoint",
         "additional_quota_retry": false,
-        "resulting_version": null
+        "resulting_version": null,
+        "physical_vector_collection_exists": false,
+        "physical_vector_chunk_count": 0,
+        "physical_lexical_chunk_count": 0
       }
     }
   },
@@ -95,6 +119,8 @@
     "baseline_version": "v1",
     "diagnostic_candidate_version": "v2",
     "failed_real_embedding_candidate_attempt": "v3",
+    "failed_v3_job_record_retained_for_audit_and_retry": true,
+    "failed_v3_physical_candidate_index_residue": false,
     "all_created_versions_unactivated": true,
     "isolated_data_root": "C:\\tmp\\modelmirror-rag-p0-r2-preview-data"
   },
@@ -102,12 +128,14 @@
     "frontend_full_tests": "393 passed",
     "rag_page_tests": "14 passed",
     "frontend_production_build": "passed with pre-existing large-chunk warning",
-    "backend_effective_result": "3276 passed, 29 skipped, 2 pre-existing unrelated audio catalog failures",
-    "backend_baseline_failures": [
-      "test_audio_catalog_only_marks_verified_interactions_ready",
-      "test_audio_catalog_endpoint_does_not_expose_credentials"
-    ],
-    "backend_baseline_reason": "Tests expect audio contract 2026-08-13-c1 while unchanged main code returns 2026-08-14-c2."
+    "backend_effective_result": "3283 passed, 29 skipped, 6 warnings",
+    "github_ci": "4 of 4 checks passed",
+    "final_commit": "e9ca3b88736ca6da5bbac6b391a0095d2be43915"
   },
-  "next_gate": "Provide a working OpenAI-compatible embedding endpoint, rebuild the unactivated real-embedding candidate, regenerate its fixed 42-case Gold set, approve all 12 hard negatives, then run exactly one real full evaluation. Do not activate any index version."
+  "next_gate": {
+    "status": "transferred_to_round3_without_waiver",
+    "readiness_file": "docs/task-cards/rag-p0-round3-readiness.json",
+    "automatic_resume": false,
+    "candidate_activation_allowed": false
+  }
 }
