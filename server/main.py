@@ -221,6 +221,7 @@ try:
         configure_skill_creator,
         configure_skill_creator_evaluation,
         configure_skill_creator_evaluation_suite,
+        configure_skill_creator_evolution,
         configure_skill_creator_resource_build,
         configure_skill_creator_resource_planning,
         router as skill_creator_router,
@@ -278,6 +279,12 @@ try:
     from server.skills.creator_evaluation_suite_service import (
         SkillCreatorEvaluationSuiteService,
     )
+    from server.skills.creator_evolution import SkillEvolutionPlanStore
+    from server.skills.creator_evolution_runtime import (
+        EvolutionWorkflowInvocation,
+        WorkflowCreatorEvolutionPlanner,
+    )
+    from server.skills.creator_evolution_service import SkillCreatorEvolutionService
     from server.skills.creator_service import (
         SkillCreatorService,
         configure_creator_generation_executor,
@@ -306,6 +313,7 @@ except ModuleNotFoundError:
         configure_skill_creator,
         configure_skill_creator_evaluation,
         configure_skill_creator_evaluation_suite,
+        configure_skill_creator_evolution,
         configure_skill_creator_resource_build,
         configure_skill_creator_resource_planning,
         router as skill_creator_router,
@@ -357,6 +365,12 @@ except ModuleNotFoundError:
     from skills.creator_evaluation_suite_service import (
         SkillCreatorEvaluationSuiteService,
     )
+    from skills.creator_evolution import SkillEvolutionPlanStore
+    from skills.creator_evolution_runtime import (
+        EvolutionWorkflowInvocation,
+        WorkflowCreatorEvolutionPlanner,
+    )
+    from skills.creator_evolution_service import SkillCreatorEvolutionService
     from skills.creator_service import (
         SkillCreatorService,
         configure_creator_generation_executor,
@@ -1056,9 +1070,11 @@ SKILL_CREATOR_AGENT_MAX_TOKENS = 12_288
 SKILL_CREATOR_RESOURCE_PLANNER_MAX_TOKENS = 8_192
 SKILL_CREATOR_RESOURCE_BUILDER_MAX_TOKENS = 8_192
 SKILL_CREATOR_EVALUATION_SUITE_MAX_TOKENS = 8_192
+SKILL_CREATOR_EVOLUTION_MAX_TOKENS = 8_192
 SKILL_CREATOR_RESOURCE_PLANNER_TEMPERATURE = 0.1
 SKILL_CREATOR_RESOURCE_BUILDER_TEMPERATURE = 0.1
 SKILL_CREATOR_EVALUATION_SUITE_TEMPERATURE = 0.1
+SKILL_CREATOR_EVOLUTION_TEMPERATURE = 0.1
 SKILL_EVALUATION_AGENT_MAX_TOKENS = 4_096
 AGENT_TASK_STORAGE_DIR = os.getenv("AGENT_TASK_STORAGE_DIR", "").strip()
 
@@ -1087,6 +1103,8 @@ def workflow_agent_token_budget(runtime_metadata: dict[str, Any] | None) -> int:
             return SKILL_CREATOR_RESOURCE_BUILDER_MAX_TOKENS
         if metadata.get("creator_phase") == "evaluation_suite":
             return SKILL_CREATOR_EVALUATION_SUITE_MAX_TOKENS
+        if metadata.get("creator_phase") == "resource_evolution":
+            return SKILL_CREATOR_EVOLUTION_MAX_TOKENS
         return SKILL_CREATOR_AGENT_MAX_TOKENS
     metadata = dict(runtime_metadata or {})
     if is_trusted_skill_evaluation_metadata(metadata):
@@ -1104,6 +1122,8 @@ def workflow_agent_temperature(runtime_metadata: dict[str, Any] | None) -> float
             return SKILL_CREATOR_RESOURCE_BUILDER_TEMPERATURE
         if phase == "evaluation_suite":
             return SKILL_CREATOR_EVALUATION_SUITE_TEMPERATURE
+        if phase == "resource_evolution":
+            return SKILL_CREATOR_EVOLUTION_TEMPERATURE
     return skill_evaluation_model_temperature(metadata, default=0.7)
 
 
@@ -1558,6 +1578,17 @@ skill_creator_evaluation_suite_service = SkillCreatorEvaluationSuiteService(
     skill_evaluation_store,
     resource_plan_store=skill_creator_resource_plan_store,
 )
+skill_creator_evolution_store = SkillEvolutionPlanStore(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None
+)
+skill_creator_evolution_service = SkillCreatorEvolutionService(
+    skill_creator_service,
+    skill_creator_evolution_store,
+    skill_evaluation_store,
+    skill_creator_evaluation_suite_store,
+    skill_creator_resource_planning_service,
+    resource_build_store=skill_creator_resource_build_store,
+)
 workflow_xpert_authoring_provider = AuthoringToolsetProvider(
     authoring_service, "xpert"
 )
@@ -1569,6 +1600,7 @@ configure_skill_creator(skill_creator_service)
 configure_skill_creator_resource_planning(skill_creator_resource_planning_service)
 configure_skill_creator_resource_build(skill_creator_resource_build_service)
 configure_skill_creator_evaluation_suite(skill_creator_evaluation_suite_service)
+configure_skill_creator_evolution(skill_creator_evolution_service)
 runtime_capabilities.register(
     "mcp_tools",
     workflow_mcp_provider,
@@ -17291,6 +17323,44 @@ skill_creator_evaluation_suite_generator = WorkflowCreatorEvaluationSuiteGenerat
 skill_creator_evaluation_suite_service.generator = (
     skill_creator_evaluation_suite_generator
 )
+
+
+async def run_skill_creator_evolution_planning(
+    invocation: EvolutionWorkflowInvocation,
+) -> str:
+    payload = WorkflowRunRequest.model_validate(
+        {"workflow": invocation.workflow, "inputs": invocation.inputs}
+    )
+    session_id = str(
+        invocation.runtime_metadata.get("creator_session_id") or ""
+    ).strip()
+    response = await _run_workflow_response(
+        payload,
+        None,
+        runtime_run_type="workflow",
+        runtime_source_id=session_id,
+        runtime_metadata=dict(invocation.runtime_metadata),
+    )
+    final_event = await consume_workflow_stream(response)
+    if final_event.get("event") in {
+        "runtime_approval_pending",
+        "client_tool_waiting",
+    }:
+        raise RuntimeError(
+            "The dedicated Skill evolution planner cannot pause for tools."
+        )
+    output = str(final_event.get("final_output") or "").strip()
+    if not output:
+        raise RuntimeError("The Skill evolution planner returned no plan.")
+    return output
+
+
+skill_creator_evolution_planner = WorkflowCreatorEvolutionPlanner(
+    model_id=TEXT_FALLBACK_MODEL,
+    model_available=lambda: bool(get_llm_gateway_config()[0]),
+    runner=run_skill_creator_evolution_planning,
+)
+skill_creator_evolution_service.planner = skill_creator_evolution_planner
 
 
 async def execute_external_xpert_resource(

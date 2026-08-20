@@ -143,6 +143,8 @@ node scripts/audit-skill-experience.mjs
 
 `SKILL_CREATOR_EVOLUTION_V2_ENABLED=true` 时，可显式把旧三例无模型迁移为不可变评测套件，或由固定 Creator Agent 生成“正常、歧义/信息不足、边界/失败”三个核心案例。用户确认的失败案例最多追加 9 条回归案例；模型不得自行写入回归集。V2 run 冻结套件 revision/digest，Candidate 每项必须持有与 Overlay、资源路径和实际 `skill_read`/`skill_stage` 一致的 verified 应用凭据；人工接受和崩溃恢复时都会重新核对权威凭据 Store。该开关在跨版本回归治理完成前默认关闭，旧会话不会被静默迁移。
 
+反馈驱动的资源级进化沿用同一开关并保持默认关闭。用户把 V2 评测结论设为 `revise` 后，固定 Creator Agent 只能读取冻结的 run/review、套件摘要、断言状态、应用凭据结论和当前资源计划，不接收旧模型输出或任意客户端反馈正文。Agent 先生成不可变 Evolution Plan，按案例绑定失败类型、需求、资源/章节和证据 item；最多提出 5 个澄清问题。只有本地用户修改并确认计划后，服务端才将其转换为新的 Resource Plan revision，并复用现有 Resource Build 选择性重建受影响的 `references/`、`scripts/` 或 `assets/`。未变化资源保持 `keep`，脚本测试凭据按内容 digest 复用；变化脚本必须重新离线实测。全部资源再次确认后才重新生成最终 `SKILL.md` 并形成普通 update proposal；新草稿 digest 会使旧评测过期，且不会自动接受或安装。开关开启时旧的一次性 `/iterate` 捷径返回 `skill_creator_evolution_plan_required`，关闭时保留既有流程作为回退。
+
 资源化创作在行为质量门之前增加了“澄清 → 资源计划 → 用户确认 → 逐资源生成与验证 → 最终 `SKILL.md` → 提案确认”的阶段：
 
 - 根据任务重复性与确定性，主动判断是否应生成 `scripts/`，并要求脚本具有清晰入口、失败行为、语法检查和实际测试证据；不为凑目录生成脆弱脚本。
