@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 try:
     from server.omniroute.catalog import OmniRouteCatalogService
@@ -12,6 +12,15 @@ except ModuleNotFoundError:
     from omniroute.schemas import ModelCatalogResponse, RouterStatusResponse
 
 from .repository import RouterRepositoryError
+from .egress import ProviderEgressError
+from .admin_auth import (
+    AdminPairingRequest,
+    AdminSessionResponse,
+    ProviderControlPrincipal,
+    get_provider_admin_auth,
+    require_provider_admin,
+    require_provider_admin_csrf,
+)
 from .schemas import (
     ConnectionTestResult,
     RouterConnection,
@@ -81,11 +90,42 @@ def _raise_public_error(exc: Exception) -> None:
     ) from exc
 
 
+@router.post("/admin/session", response_model=AdminSessionResponse)
+def pair_admin_session(
+    payload: AdminPairingRequest,
+    request: Request,
+    response: Response,
+) -> AdminSessionResponse:
+    return get_provider_admin_auth().pair(
+        request,
+        response,
+        payload.pairing_secret.get_secret_value(),
+    )
+
+
+@router.get("/admin/session", response_model=AdminSessionResponse)
+def get_admin_session(request: Request) -> AdminSessionResponse:
+    return get_provider_admin_auth().status(request)
+
+
+@router.delete(
+    "/admin/session",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def delete_admin_session(request: Request) -> Response:
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    get_provider_admin_auth().logout(request, response)
+    return response
+
+
 @router.get("/connections", response_model=list[RouterConnection])
-def list_connections() -> list[RouterConnection]:
+def list_connections(
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> list[RouterConnection]:
     try:
         return get_model_router_service().list_connections()
-    except RouterRepositoryError as exc:
+    except (RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
 
@@ -94,20 +134,25 @@ def list_connections() -> list[RouterConnection]:
     response_model=RouterConnection,
     status_code=status.HTTP_201_CREATED,
 )
-def create_connection(payload: RouterConnectionCreate) -> RouterConnection:
+async def create_connection(
+    payload: RouterConnectionCreate,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> RouterConnection:
     try:
-        return get_model_router_service().create_connection(payload)
-    except (RouterServiceError, RouterRepositoryError) as exc:
+        return await get_model_router_service().create_connection(payload)
+    except (ProviderEgressError, RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
 
 @router.patch("/connections/{connection_id}", response_model=RouterConnection)
-def update_connection(
-    connection_id: str, payload: RouterConnectionUpdate
+async def update_connection(
+    connection_id: str,
+    payload: RouterConnectionUpdate,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
 ) -> RouterConnection:
     try:
-        return get_model_router_service().update_connection(connection_id, payload)
-    except (RouterServiceError, RouterRepositoryError) as exc:
+        return await get_model_router_service().update_connection(connection_id, payload)
+    except (ProviderEgressError, RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
 
@@ -117,10 +162,11 @@ def update_connection(
 )
 async def test_unsaved_connection(
     payload: RouterConnectionCreate,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
 ) -> ConnectionTestResult:
     try:
         return await get_model_router_service().test_unsaved_connection(payload)
-    except (RouterServiceError, RouterRepositoryError) as exc:
+    except (ProviderEgressError, RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
 
@@ -128,23 +174,31 @@ async def test_unsaved_connection(
     "/connections/{connection_id}/test",
     response_model=ConnectionTestResult,
 )
-async def test_saved_connection(connection_id: str) -> ConnectionTestResult:
+async def test_saved_connection(
+    connection_id: str,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ConnectionTestResult:
     try:
         return await get_model_router_service().test_saved_connection(connection_id)
-    except (RouterServiceError, RouterRepositoryError) as exc:
+    except (ProviderEgressError, RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
 
 @router.get("/policy", response_model=RouterPolicy)
-def get_policy() -> RouterPolicy:
+def get_policy(
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> RouterPolicy:
     try:
         return get_model_router_service().get_policy()
-    except RouterRepositoryError as exc:
+    except (RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
 
 @router.put("/policy", response_model=RouterPolicy)
-def save_policy(policy: RouterPolicy) -> RouterPolicy:
+def save_policy(
+    policy: RouterPolicy,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> RouterPolicy:
     try:
         return get_model_router_service().save_policy(policy)
     except (RouterServiceError, RouterRepositoryError) as exc:
@@ -152,24 +206,29 @@ def save_policy(policy: RouterPolicy) -> RouterPolicy:
 
 
 @router.get("/status", response_model=RouterStatus)
-def get_status() -> RouterStatus:
+def get_status(
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> RouterStatus:
     try:
         return get_model_router_service().status()
-    except RouterRepositoryError as exc:
+    except (RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
 
 @router.get("/diagnostics")
-def get_diagnostics() -> dict[str, object]:
+def get_diagnostics(
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> dict[str, object]:
     try:
         return get_model_router_service().diagnostics()
-    except RouterRepositoryError as exc:
+    except (RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
 
 @router.put("/gate/approval")
 def approve_native_gate(
     payload: RouterGateApprovalRequest,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
 ) -> dict[str, object]:
     try:
         return get_model_router_service().approve_native_gate(
@@ -181,7 +240,9 @@ def approve_native_gate(
 
 
 @router.delete("/gate/approval")
-def revoke_native_gate() -> dict[str, object]:
+def revoke_native_gate(
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> dict[str, object]:
     try:
         return get_model_router_service().revoke_native_gate()
     except (RouterServiceError, RouterRepositoryError) as exc:

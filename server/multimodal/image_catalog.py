@@ -11,8 +11,10 @@ import httpx
 from pydantic import BaseModel, Field
 
 try:
+    from server.model_router.egress import request_provider_url
     from server.model_router.service import ModelRouterService
 except ModuleNotFoundError:
+    from model_router.egress import request_provider_url
     from model_router.service import ModelRouterService
 
 from .stt import MultimodalServiceError, OpenRouterTarget
@@ -89,6 +91,7 @@ class ImageCatalogService:
             lambda: httpx.AsyncClient(
                 timeout=httpx.Timeout(15.0, connect=5.0),
                 follow_redirects=False,
+                trust_env=False,
             )
         )
         self._cache: _CachedImageCatalog | None = None
@@ -183,7 +186,11 @@ class ImageCatalogService:
             requests = []
             if analysis_enabled:
                 requests.append(
-                    client.get(
+                    request_provider_url(
+                        client,
+                        self.router_service.egress_policy,
+                        target.connection_id,
+                        "GET",
                         self._api_url(target.base_url, "models"),
                         headers=headers,
                         params={"input_modalities": "image"},
@@ -191,7 +198,11 @@ class ImageCatalogService:
                 )
             if generation_enabled:
                 requests.append(
-                    client.get(
+                    request_provider_url(
+                        client,
+                        self.router_service.egress_policy,
+                        target.connection_id,
+                        "GET",
                         self._api_url(target.base_url, "images/models"),
                         headers=headers,
                     )
@@ -286,7 +297,11 @@ class ImageCatalogService:
     ) -> list[ImagePricingItem]:
         try:
             async with self.client_factory() as client:
-                response = await client.get(
+                response = await request_provider_url(
+                    client,
+                    self.router_service.egress_policy,
+                    target.connection_id,
+                    "GET",
                     self._api_url(
                         target.base_url,
                         f"images/models/{model_id}/endpoints",

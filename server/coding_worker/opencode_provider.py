@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 from pydantic import Field
@@ -378,7 +378,7 @@ class OpenCodeProvider(CodingAgentProvider):
             "provider": {
                 "modelmirror": {
                     "npm": "@ai-sdk/openai-compatible",
-                    "name": "ModelMirror Internal Gateway",
+                    "name": "Independent Coding Provider",
                     "options": {
                         "baseURL": route.base_url,
                         "apiKey": "{env:CODING_WORKER_ROUTE_KEY}",
@@ -411,6 +411,10 @@ class OpenCodeProvider(CodingAgentProvider):
         password = secrets.token_urlsafe(32)
         port = _unused_loopback_port()
         broker_environment, revoke_broker = self._broker_environment(request.task_id)
+        provider_host = urlparse(route.base_url).hostname
+        no_proxy = ",".join(
+            ["localhost", "127.0.0.1", *([provider_host] if provider_host else [])]
+        )
         environment = {
             "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
             "HOME": str(home),
@@ -431,8 +435,8 @@ class OpenCodeProvider(CodingAgentProvider):
             "OPENCODE_AUTH_CONTENT": "{}",
             "OPENCODE_SERVER_PASSWORD": password,
             "CODING_WORKER_ROUTE_KEY": route.api_key,
-            "NO_PROXY": "127.0.0.1,localhost,new-api",
-            "no_proxy": "127.0.0.1,localhost,new-api",
+            "NO_PROXY": no_proxy,
+            "no_proxy": no_proxy,
             **OPENCODE_SECURITY_ENVIRONMENT,
             **broker_environment,
         }

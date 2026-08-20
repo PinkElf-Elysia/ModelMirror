@@ -7,6 +7,30 @@ const port = Number(process.env.PORT || 80);
 const apiTarget = process.env.API_TARGET || "http://server:8000";
 const distDir = path.resolve("dist");
 
+function normalizePublicManagementUrl(value) {
+  const configured = String(value || "").trim().replace(/\/+$/, "");
+  if (!configured) return "";
+  try {
+    const url = new URL(configured);
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      return "";
+    }
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+const runtimeConfig = JSON.stringify({
+  newApiWebUrl: normalizePublicManagementUrl(process.env.NEWAPI_WEB_URL),
+});
+
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
   [".js", "application/javascript; charset=utf-8"],
@@ -87,8 +111,26 @@ async function serveStatic(req, res) {
   createReadStream(filePath).pipe(res);
 }
 
+function serveRuntimeConfig(req, res) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405, { Allow: "GET, HEAD" });
+    res.end();
+    return;
+  }
+  res.writeHead(200, {
+    "Cache-Control": "no-store",
+    "Content-Type": "application/json; charset=utf-8",
+  });
+  res.end(req.method === "HEAD" ? undefined : runtimeConfig);
+}
+
 createServer(async (req, res) => {
   try {
+    const requestPath = new URL(req.url || "/", "http://localhost").pathname;
+    if (requestPath === "/runtime-config.json") {
+      serveRuntimeConfig(req, res);
+      return;
+    }
     if ((req.url || "").startsWith("/api/")) {
       await proxyApi(req, res);
       return;

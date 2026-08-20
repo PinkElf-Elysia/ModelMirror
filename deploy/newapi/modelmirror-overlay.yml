@@ -1,0 +1,13 @@
+services:
+  server:
+    environment:
+      LLM_GATEWAY_URL: ${LLM_GATEWAY_URL:?Set LLM_GATEWAY_URL explicitly before using modelmirror-overlay.yml}
+      MODEL_MIRROR_PROVIDER_INTERNAL_ALLOWLIST: ${MODEL_MIRROR_PROVIDER_INTERNAL_ALLOWLIST:-new-api:3000}
+    networks:
+      - default
+      - provider
+
+networks:
+  provider:
+    external: true
+    name: ${MODEL_PROVIDER_NETWORK_NAME:-modelmirror-provider}

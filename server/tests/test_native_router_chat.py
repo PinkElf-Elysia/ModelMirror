@@ -18,6 +18,7 @@ from server.model_router import (
     configure_model_router,
     get_model_router_service,
 )
+from server.model_router.egress import ProviderEgressPolicy
 
 
 @pytest_asyncio.fixture
@@ -42,6 +43,24 @@ class CatalogClient:
     async def get(self, _url: str, headers: dict[str, str]):
         assert headers["Authorization"] == "Bearer native-secret"
         return httpx.Response(200, json={"data": self.records})
+
+    def build_request(self, method: str, url: str, **kwargs: object):
+        return httpx.Request(method, url, **kwargs)
+
+    async def send(
+        self,
+        request: httpx.Request,
+        *,
+        stream: bool = False,
+        follow_redirects: bool = False,
+    ):
+        assert follow_redirects is False
+        assert request.headers["Authorization"] == "Bearer native-secret"
+        return httpx.Response(
+            200,
+            json={"data": self.records},
+            request=request,
+        )
 
 
 def native_service(tmp_path: Path) -> ModelRouterService:
@@ -91,6 +110,9 @@ def native_service(tmp_path: Path) -> ModelRouterService:
     return ModelRouterService(
         repository,
         client_factory=lambda: CatalogClient(records),  # type: ignore[arg-type]
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
     )
 
 
@@ -137,7 +159,7 @@ async def test_native_auto_retries_empty_stream_before_visible_output(
         def __init__(self, *args, **kwargs):
             pass
 
-        def build_request(self, method, url, headers, json):
+        def build_request(self, method, url, headers, json, **_kwargs):
             return {
                 "method": method,
                 "url": url,
@@ -145,8 +167,9 @@ async def test_native_auto_retries_empty_stream_before_visible_output(
                 "json": json,
             }
 
-        async def send(self, request, stream):
+        async def send(self, request, stream, follow_redirects=False):
             assert stream is True
+            assert follow_redirects is False
             model_id = request["json"]["model"]
             sent_models.append(model_id)
             return FakeResponse(model_id)
@@ -295,7 +318,7 @@ async def test_native_stream_requires_a_terminal_marker_and_reports_output_limit
         def __init__(self, *args, **kwargs):
             pass
 
-        def build_request(self, method, url, headers, json):
+        def build_request(self, method, url, headers, json, **_kwargs):
             return {
                 "method": method,
                 "url": url,
@@ -303,8 +326,9 @@ async def test_native_stream_requires_a_terminal_marker_and_reports_output_limit
                 "json": json,
             }
 
-        async def send(self, request, stream):
+        async def send(self, request, stream, follow_redirects=False):
             assert stream is True
+            assert follow_redirects is False
             return FakeResponse()
 
         async def aclose(self):

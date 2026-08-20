@@ -11,8 +11,10 @@ from typing import Any
 import httpx
 
 try:
+    from server.model_router.egress import ProviderEgressPolicy, request_provider_url
     from server.model_router.service import ModelRouterService
 except ModuleNotFoundError:
+    from model_router.egress import ProviderEgressPolicy, request_provider_url
     from model_router.service import ModelRouterService
 
 from .stt import MultimodalServiceError, OpenRouterTarget
@@ -208,10 +210,13 @@ class OpenRouterTtsAdapter:
         *,
         client_factory: Callable[[], httpx.AsyncClient] | None = None,
         catalog_cache_seconds: float = CATALOG_CACHE_SECONDS,
+        egress_policy: ProviderEgressPolicy | None = None,
     ) -> None:
         self._client_factory = client_factory or self._default_client
+        self._managed_client_factory = client_factory or self._direct_client
         self.catalog_cache_seconds = max(0.0, float(catalog_cache_seconds))
         self._catalog_cache: dict[str, tuple[float, set[str]]] = {}
+        self._egress_policy = egress_policy
 
     async def synthesize(
         self,
@@ -226,9 +231,18 @@ class OpenRouterTtsAdapter:
         await self._verify_speech_model(target, model_id, provider=provider)
         output_format = speech_output_format(model_id)
         upstream_format = "pcm" if output_format == "wav" else "mp3"
-        async with self._client_factory() as client:
+        client_factory = (
+            self._managed_client_factory
+            if target.connection_id
+            else self._client_factory
+        )
+        async with client_factory() as client:
             try:
-                response = await client.post(
+                response = await request_provider_url(
+                    client,
+                    self._egress_policy or ProviderEgressPolicy(),
+                    target.connection_id if self._egress_policy else None,
+                    "POST",
                     self._api_url(target.base_url, "audio/speech"),
                     headers=self._headers(target.api_key, provider=provider),
                     json={
@@ -282,9 +296,18 @@ class OpenRouterTtsAdapter:
         if cached and now - cached[0] <= self.catalog_cache_seconds:
             model_ids = cached[1]
         else:
-            async with self._client_factory() as client:
+            client_factory = (
+                self._managed_client_factory
+                if target.connection_id
+                else self._client_factory
+            )
+            async with client_factory() as client:
                 try:
-                    response = await client.get(
+                    response = await request_provider_url(
+                        client,
+                        self._egress_policy or ProviderEgressPolicy(),
+                        target.connection_id if self._egress_policy else None,
+                        "GET",
                         self._api_url(target.base_url, "models"),
                         headers=self._headers(
                             target.api_key,
@@ -357,11 +380,20 @@ class OpenRouterTtsAdapter:
             )
 
     @staticmethod
+    def _direct_client() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=15, read=90, write=30, pool=10),
+            follow_redirects=False,
+            trust_env=False,
+        )
+
+    @staticmethod
     def _default_client() -> httpx.AsyncClient:
         timeout = httpx.Timeout(connect=15, read=90, write=30, pool=10)
         kwargs: dict[str, Any] = {
             "timeout": timeout,
             "follow_redirects": False,
+            "trust_env": False,
         }
         proxy = (
             os.getenv("OPENROUTER_PROXY")
@@ -563,7 +595,9 @@ class SpeechService:
         adapter: OpenRouterTtsAdapter | None = None,
     ) -> None:
         self.router_service = router_service
-        self.adapter = adapter or OpenRouterTtsAdapter()
+        self.adapter = adapter or OpenRouterTtsAdapter(
+            egress_policy=router_service.egress_policy
+        )
 
     async def synthesize(
         self,

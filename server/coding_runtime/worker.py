@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from .acp_client import AcpClient, AcpProcessConfig, AcpRequestTimeout
 from .command_bridge import (
@@ -91,7 +92,6 @@ VERIFIER_SOCKET_PATH = Path(
 )
 OPENCODE_PATH = "/usr/local/bin/opencode"
 RIPGREP_PATH = "/usr/bin/rg"
-INTERNAL_GATEWAY_BASE_URL = "http://new-api:3000/v1"
 SAFE_MODEL_ID = re.compile(r"^[A-Za-z0-9._:/-]{1,200}$")
 SAFE_RECOVERY_REASON = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 SAFE_RUNNER_TOKEN = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
@@ -242,6 +242,22 @@ def build_opencode_config(
             "Coding project commands are not configured safely.",
             code="not_configured",
         )
+    gateway_base_url = (
+        os.getenv("CODING_AGENT_MODEL_BASE_URL", "").strip().rstrip("/")
+    )
+    parsed_gateway = urlparse(gateway_base_url)
+    if (
+        parsed_gateway.scheme not in {"http", "https"}
+        or not parsed_gateway.netloc
+        or parsed_gateway.username
+        or parsed_gateway.password
+        or parsed_gateway.query
+        or parsed_gateway.fragment
+    ):
+        raise CodingWorkerError(
+            "Coding Agent model provider is not configured safely.",
+            code="not_configured",
+        )
     permission = _permission_for_mode(
         mode,
         commands_enabled=commands_enabled,
@@ -268,9 +284,9 @@ def build_opencode_config(
         "provider": {
             "modelmirror": {
                 "npm": "@ai-sdk/openai-compatible",
-                "name": "ModelMirror Internal Gateway",
+                "name": "Independent Coding Provider",
                 "options": {
-                    "baseURL": INTERNAL_GATEWAY_BASE_URL,
+                    "baseURL": gateway_base_url,
                     "apiKey": "{env:CODING_AGENT_GATEWAY_KEY}",
                 },
                 "models": {
@@ -352,6 +368,12 @@ def create_acp_client(
         ensure_ascii=False,
         separators=(",", ":"),
     )
+    provider_host = urlparse(
+        os.getenv("CODING_AGENT_MODEL_BASE_URL", "")
+    ).hostname
+    no_proxy = ",".join(
+        ["localhost", "127.0.0.1", *([provider_host] if provider_host else [])]
+    )
     child_environment = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
         "PYTHONPATH": "/opt/modelmirror",
@@ -369,8 +391,8 @@ def create_acp_client(
         "OPENCODE_DISABLE_MODELS_FETCH": "1",
         "OPENCODE_AUTH_CONTENT": "{}",
         "CODING_AGENT_GATEWAY_KEY": gateway_key,
-        "NO_PROXY": "new-api,localhost,127.0.0.1",
-        "no_proxy": "new-api,localhost,127.0.0.1",
+        "NO_PROXY": no_proxy,
+        "no_proxy": no_proxy,
     }
     return AcpClient(
         AcpProcessConfig(

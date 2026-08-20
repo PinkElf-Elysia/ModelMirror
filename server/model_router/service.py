@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
+import logging
 from collections.abc import Callable
-from urllib.parse import urlparse
 
 import httpx
 
@@ -13,6 +13,7 @@ from .repository import (
     SQLiteRouterRepository,
     utc_now,
 )
+from .egress import ProviderEgressError, ProviderEgressPolicy
 from .schemas import (
     ConnectionScope,
     ConnectionTestResult,
@@ -32,27 +33,6 @@ class RouterServiceError(Exception):
         self.status_code = status_code
 
 
-def normalize_base_url(value: str) -> str:
-    url = str(value or "").strip().rstrip("/")
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise RouterServiceError(
-            "invalid_address",
-            "请输入以 http:// 或 https:// 开头的模型服务地址。",
-        )
-    if parsed.username or parsed.password:
-        raise RouterServiceError(
-            "invalid_address",
-            "服务地址不能包含用户名或密码，请单独填写密钥。",
-        )
-    if parsed.query or parsed.fragment:
-        raise RouterServiceError(
-            "invalid_address",
-            "服务地址不能包含查询参数或片段。",
-        )
-    return url
-
-
 class ModelRouterService:
     def __init__(
         self,
@@ -60,19 +40,50 @@ class ModelRouterService:
         *,
         tenant_id: str | None = None,
         client_factory: Callable[[], httpx.AsyncClient] | None = None,
+        egress_policy: ProviderEgressPolicy | None = None,
     ) -> None:
+        self.tenant_id = self._resolve_tenant_id(tenant_id)
         self.repository = repository or SQLiteRouterRepository()
-        self.tenant_id = (
-            tenant_id
-            or os.getenv("MODELMIRROR_DEFAULT_TENANT_ID", "").strip()
-            or DEFAULT_TENANT_ID
-        )
         self._client_factory = client_factory or (
             lambda: httpx.AsyncClient(
                 timeout=httpx.Timeout(12.0, connect=5.0),
                 follow_redirects=False,
+                trust_env=False,
             )
         )
+        self.egress_policy = egress_policy or ProviderEgressPolicy()
+
+    @staticmethod
+    def _resolve_tenant_id(explicit: str | None) -> str:
+        if explicit is not None:
+            clean = explicit.strip()
+            if not clean:
+                raise RouterServiceError(
+                    "invalid_tenant_configuration",
+                    "The injected provider tenant identifier cannot be empty.",
+                    status_code=503,
+                )
+            return clean
+        canonical = os.getenv("MODELMIRROR_DEFAULT_TENANT_ID", "").strip()
+        legacy = os.getenv("MODEL_ROUTER_TENANT_ID", "").strip()
+        if canonical and legacy and canonical != legacy:
+            raise RouterServiceError(
+                "tenant_configuration_conflict",
+                "MODELMIRROR_DEFAULT_TENANT_ID conflicts with MODEL_ROUTER_TENANT_ID.",
+                status_code=503,
+            )
+        selected = canonical or legacy or DEFAULT_TENANT_ID
+        if selected != DEFAULT_TENANT_ID:
+            raise RouterServiceError(
+                "unsupported_tenant",
+                "The initial provider control plane supports only tenant 'local'.",
+                status_code=503,
+            )
+        if legacy and not canonical:
+            logging.getLogger("modelmirror.model_router").warning(
+                "MODEL_ROUTER_TENANT_ID is deprecated; use MODELMIRROR_DEFAULT_TENANT_ID."
+            )
+        return selected
 
     def list_connections(
         self,
@@ -88,22 +99,22 @@ class ModelRouterService:
             if scope in connection.scopes
         ]
 
-    def create_connection(
+    async def create_connection(
         self, payload: RouterConnectionCreate
     ) -> RouterConnection:
-        normalized = payload.model_copy(
-            update={"base_url": normalize_base_url(payload.base_url)}
-        )
+        normalized_url = self.egress_policy.validate_for_storage(payload.base_url)
+        await self.egress_policy.authorize(normalized_url)
+        normalized = payload.model_copy(update={"base_url": normalized_url})
         return self.repository.create_connection(self.tenant_id, normalized)
 
-    def update_connection(
+    async def update_connection(
         self, connection_id: str, payload: RouterConnectionUpdate
     ) -> RouterConnection:
         normalized = payload
         if payload.base_url is not None:
-            normalized = payload.model_copy(
-                update={"base_url": normalize_base_url(payload.base_url)}
-            )
+            normalized_url = self.egress_policy.validate_for_storage(payload.base_url)
+            await self.egress_policy.authorize(normalized_url)
+            normalized = payload.model_copy(update={"base_url": normalized_url})
         return self.repository.update_connection(
             self.tenant_id, connection_id, normalized
         )
@@ -112,7 +123,7 @@ class ModelRouterService:
         self, payload: RouterConnectionCreate
     ) -> ConnectionTestResult:
         return await self._probe(
-            normalize_base_url(payload.base_url),
+            self.egress_policy.validate_for_storage(payload.base_url),
             payload.api_key.get_secret_value(),
         )
 
@@ -318,7 +329,11 @@ class ModelRouterService:
         headers = {"Authorization": f"Bearer {api_key.strip()}"}
         try:
             async with self._client_factory() as client:
-                response = await client.get(models_url, headers=headers)
+                response = await self.egress_policy.request(
+                    client, "GET", models_url, headers=headers
+                )
+        except ProviderEgressError:
+            raise
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
             return (
                 ConnectionTestResult(
@@ -481,6 +496,8 @@ class ModelRouterService:
 
 
 def translate_repository_error(exc: Exception) -> RouterServiceError:
+    if isinstance(exc, ProviderEgressError):
+        return RouterServiceError(exc.code, exc.message, status_code=422)
     if isinstance(exc, RouterConnectionNotFound):
         return RouterServiceError("not_found", str(exc), status_code=404)
     return RouterServiceError(

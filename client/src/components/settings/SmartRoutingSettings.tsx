@@ -130,6 +130,8 @@ const COMPRESSION_OPTIONS: Array<{
 ];
 
 async function readError(response: Response) {
+  if (response.status === 401) return "管理会话已失效，请重新配对。";
+  if (response.status === 503) return "Provider 管理面尚未配置或暂时不可用。";
   try {
     const payload = await response.json();
     if (typeof payload?.detail === "string") return payload.detail;
@@ -146,7 +148,11 @@ function percent(value?: number | null) {
   return value == null ? "暂无样本" : `${Math.round(value * 1000) / 10}%`;
 }
 
-export default function SmartRoutingSettings() {
+export default function SmartRoutingSettings({
+  csrfToken,
+}: {
+  csrfToken: string;
+}) {
   const [policy, setPolicy] = useState<RouterPolicy | null>(null);
   const [status, setStatus] = useState<RouterStatus | null>(null);
   const [diagnostics, setDiagnostics] = useState<RouterDiagnostics | null>(null);
@@ -205,7 +211,10 @@ export default function SmartRoutingSettings() {
     try {
       const response = await fetch("/api/router/policy", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-ModelMirror-CSRF": csrfToken,
+        },
         body: JSON.stringify(policy),
       });
       if (!response.ok) throw new Error(await readError(response));
@@ -217,7 +226,7 @@ export default function SmartRoutingSettings() {
     } finally {
       setSaving(false);
     }
-  }, [load, policy]);
+  }, [csrfToken, load, policy]);
 
   return (
     <section className="mb-6 overflow-hidden rounded-lg border border-white/10 bg-ink-950/82 shadow-prism">

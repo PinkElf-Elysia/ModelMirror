@@ -16,8 +16,10 @@ import httpx
 from pydantic import BaseModel, Field
 
 try:
+    from server.model_router.egress import ProviderEgressPolicy, request_provider_url
     from server.model_router.service import ModelRouterService
 except ModuleNotFoundError:
+    from model_router.egress import ProviderEgressPolicy, request_provider_url
     from model_router.service import ModelRouterService
 
 from .stt import MultimodalServiceError, OpenRouterTarget
@@ -129,17 +131,29 @@ class OpenRouterVideoJobAdapter:
         self,
         *,
         client_factory: Callable[[], httpx.AsyncClient] | None = None,
+        egress_policy: ProviderEgressPolicy | None = None,
     ) -> None:
         self._client_factory = client_factory or self._default_client
+        self._managed_client_factory = client_factory or self._direct_client
+        self._egress_policy = egress_policy
 
     async def submit(
         self,
         target: OpenRouterTarget,
         payload: dict[str, object],
     ) -> dict[str, Any]:
-        async with self._client_factory() as client:
+        client_factory = (
+            self._managed_client_factory
+            if target.connection_id
+            else self._client_factory
+        )
+        async with client_factory() as client:
             try:
-                response = await client.post(
+                response = await request_provider_url(
+                    client,
+                    self._egress_policy or ProviderEgressPolicy(),
+                    target.connection_id if self._egress_policy else None,
+                    "POST",
                     self._api_url(target.base_url, "videos"),
                     headers=self._headers(target.api_key),
                     json=payload,
@@ -160,9 +174,18 @@ class OpenRouterVideoJobAdapter:
         target: OpenRouterTarget,
         upstream_job_id: str,
     ) -> dict[str, Any]:
-        async with self._client_factory() as client:
+        client_factory = (
+            self._managed_client_factory
+            if target.connection_id
+            else self._client_factory
+        )
+        async with client_factory() as client:
             try:
-                response = await client.get(
+                response = await request_provider_url(
+                    client,
+                    self._egress_policy or ProviderEgressPolicy(),
+                    target.connection_id if self._egress_policy else None,
+                    "GET",
                     self._api_url(
                         target.base_url, f"videos/{upstream_job_id}"
                     ),
@@ -186,9 +209,17 @@ class OpenRouterVideoJobAdapter:
         *,
         index: int,
     ) -> VideoContent:
-        client = self._client_factory()
+        client_factory = (
+            self._managed_client_factory
+            if target.connection_id
+            else self._client_factory
+        )
+        client = client_factory()
         try:
-            request = client.build_request(
+            response = await request_provider_url(
+                client,
+                self._egress_policy or ProviderEgressPolicy(),
+                target.connection_id if self._egress_policy else None,
                 "GET",
                 self._api_url(
                     target.base_url,
@@ -196,8 +227,8 @@ class OpenRouterVideoJobAdapter:
                 ),
                 headers=self._headers(target.api_key),
                 params={"index": index},
+                stream=True,
             )
-            response = await client.send(request, stream=True)
             self._raise_for_status(response, submitting=False)
             media_type = (
                 response.headers.get("content-type", "")
@@ -239,11 +270,20 @@ class OpenRouterVideoJobAdapter:
         )
 
     @staticmethod
+    def _direct_client() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=15, read=180, write=60, pool=10),
+            follow_redirects=False,
+            trust_env=False,
+        )
+
+    @staticmethod
     def _default_client() -> httpx.AsyncClient:
         timeout = httpx.Timeout(connect=15, read=180, write=60, pool=10)
         kwargs: dict[str, Any] = {
             "timeout": timeout,
             "follow_redirects": False,
+            "trust_env": False,
         }
         proxy = (
             os.getenv("OPENROUTER_PROXY")
@@ -391,7 +431,9 @@ class VideoJobService:
     ) -> None:
         self.router_service = router_service
         self.catalog_service = catalog_service
-        self.adapter = adapter or OpenRouterVideoJobAdapter()
+        self.adapter = adapter or OpenRouterVideoJobAdapter(
+            egress_policy=router_service.egress_policy
+        )
 
     async def create(
         self,

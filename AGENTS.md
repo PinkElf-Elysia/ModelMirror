@@ -36,7 +36,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 - Agent Table：`/data-tables` 提供本地类型化业务记录、Schema 版本和人工 CRUD；它不是 Data X 或外部 Database MCP。
 - 上下文：Xpert Chat 支持会话附件、文件理解、显式记忆和待确认记忆候选。
 - 运行观测：`/runtime` 聚合 MCP、Tool Registry、RunRegistry、Skill 和脱敏环境状态。
-- 设置：`/settings` 内嵌 newAPI 控制台。
+- 设置：`/settings` 提供 Provider 控制面和可选的 newAPI 外部管理链接；不得嵌入或代理 newAPI 管理界面。
 - 资源页：模型、智能体、MCP/Toolset、Skill、版本化 Prompt Command、声明式 Plugin、专家团。
 - 平台自编写：私有 Xpert 可创建版本化 Xpert/Skill 提案；批准只写草稿，发布与安装必须由用户另行确认。
 

@@ -63,7 +63,7 @@ client/
 | `/rag/:kbId/evaluation` | `KnowledgeEvaluationPage` | 检索评测。 |
 | `/datax` | `DataXHomePage` | Data X 项目。 |
 | `/runtime` | `RuntimeOpsPage` | 运行诊断。 |
-| `/settings` | `SystemSettingsPage` | newAPI 控制台 iframe。 |
+| `/settings` | `SystemSettingsPage` | Provider 连接与策略；newAPI 仅通过 client 运行时 `NEWAPI_WEB_URL` 提供可选外部管理链接。 |
 
 `Xpert*` 仍是内部组件、类型和兼容 API 名称。面向用户的标题、按钮和帮助文案
 统一使用“智能体”“Agent Studio”“Agent App”，不要仅为改名破坏已持久化 ID

@@ -8,6 +8,7 @@ import pytest
 from httpx import MockTransport, Request, Response
 
 from server.model_router.repository import SQLiteRouterRepository
+from server.model_router.egress import ProviderEgressPolicy
 from server.model_router.schemas import RouterConnectionCreate
 from server.model_router.service import ModelRouterService
 from server.multimodal.image_catalog import ImageCatalogService
@@ -38,7 +39,12 @@ def openrouter_service(tmp_path: Path) -> ModelRouterService:
         error_code=None,
         error_hint=None,
     )
-    return ModelRouterService(repository)
+    return ModelRouterService(
+        repository,
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
+    )
 
 
 def image_catalog_handler(request: Request) -> Response:
