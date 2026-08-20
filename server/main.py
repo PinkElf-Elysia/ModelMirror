@@ -218,6 +218,7 @@ try:
     from server.skills.creator_api import (
         configure_skill_creator,
         configure_skill_creator_evaluation,
+        configure_skill_creator_evaluation_suite,
         configure_skill_creator_resource_build,
         configure_skill_creator_resource_planning,
         router as skill_creator_router,
@@ -267,6 +268,14 @@ try:
     from server.skills.creator_evaluation_service import (
         SkillCreatorEvaluationService,
     )
+    from server.skills.creator_evaluation_suite import SkillEvaluationSuiteStore
+    from server.skills.creator_evaluation_suite_runtime import (
+        EvaluationSuiteWorkflowInvocation,
+        WorkflowCreatorEvaluationSuiteGenerator,
+    )
+    from server.skills.creator_evaluation_suite_service import (
+        SkillCreatorEvaluationSuiteService,
+    )
     from server.skills.creator_service import (
         SkillCreatorService,
         configure_creator_generation_executor,
@@ -294,6 +303,7 @@ except ModuleNotFoundError:
     from skills.creator_api import (
         configure_skill_creator,
         configure_skill_creator_evaluation,
+        configure_skill_creator_evaluation_suite,
         configure_skill_creator_resource_build,
         configure_skill_creator_resource_planning,
         router as skill_creator_router,
@@ -337,6 +347,14 @@ except ModuleNotFoundError:
         skill_evaluation_model_temperature,
     )
     from skills.creator_evaluation_service import SkillCreatorEvaluationService
+    from skills.creator_evaluation_suite import SkillEvaluationSuiteStore
+    from skills.creator_evaluation_suite_runtime import (
+        EvaluationSuiteWorkflowInvocation,
+        WorkflowCreatorEvaluationSuiteGenerator,
+    )
+    from skills.creator_evaluation_suite_service import (
+        SkillCreatorEvaluationSuiteService,
+    )
     from skills.creator_service import (
         SkillCreatorService,
         configure_creator_generation_executor,
@@ -1035,8 +1053,10 @@ WORKFLOW_AGENT_MAX_TOKENS = 1024
 SKILL_CREATOR_AGENT_MAX_TOKENS = 12_288
 SKILL_CREATOR_RESOURCE_PLANNER_MAX_TOKENS = 8_192
 SKILL_CREATOR_RESOURCE_BUILDER_MAX_TOKENS = 8_192
+SKILL_CREATOR_EVALUATION_SUITE_MAX_TOKENS = 8_192
 SKILL_CREATOR_RESOURCE_PLANNER_TEMPERATURE = 0.1
 SKILL_CREATOR_RESOURCE_BUILDER_TEMPERATURE = 0.1
+SKILL_CREATOR_EVALUATION_SUITE_TEMPERATURE = 0.1
 SKILL_EVALUATION_AGENT_MAX_TOKENS = 4_096
 AGENT_TASK_STORAGE_DIR = os.getenv("AGENT_TASK_STORAGE_DIR", "").strip()
 
@@ -1063,11 +1083,26 @@ def workflow_agent_token_budget(runtime_metadata: dict[str, Any] | None) -> int:
             return SKILL_CREATOR_RESOURCE_PLANNER_MAX_TOKENS
         if metadata.get("creator_phase") == "resource_build":
             return SKILL_CREATOR_RESOURCE_BUILDER_MAX_TOKENS
+        if metadata.get("creator_phase") == "evaluation_suite":
+            return SKILL_CREATOR_EVALUATION_SUITE_MAX_TOKENS
         return SKILL_CREATOR_AGENT_MAX_TOKENS
     metadata = dict(runtime_metadata or {})
     if is_trusted_skill_evaluation_metadata(metadata):
         return SKILL_EVALUATION_AGENT_MAX_TOKENS
     return WORKFLOW_AGENT_MAX_TOKENS
+
+
+def workflow_agent_temperature(runtime_metadata: dict[str, Any] | None) -> float:
+    metadata = dict(runtime_metadata or {})
+    if is_trusted_skill_creator_runtime(metadata):
+        phase = metadata.get("creator_phase")
+        if phase == "resource_plan":
+            return SKILL_CREATOR_RESOURCE_PLANNER_TEMPERATURE
+        if phase == "resource_build":
+            return SKILL_CREATOR_RESOURCE_BUILDER_TEMPERATURE
+        if phase == "evaluation_suite":
+            return SKILL_CREATOR_EVALUATION_SUITE_TEMPERATURE
+    return skill_evaluation_model_temperature(metadata, default=0.7)
 
 
 HANDOFF_EXECUTOR_ENABLED = os.getenv(
@@ -1512,6 +1547,15 @@ skill_creator_resource_build_service = SkillCreatorResourceBuildService(
     skill_creator_resource_build_store,
     script_runner=SandboxCreatorScriptRunner(sandbox_sidecar_client),
 )
+skill_creator_evaluation_suite_store = SkillEvaluationSuiteStore(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None
+)
+skill_creator_evaluation_suite_service = SkillCreatorEvaluationSuiteService(
+    skill_creator_service,
+    skill_creator_evaluation_suite_store,
+    skill_evaluation_store,
+    resource_plan_store=skill_creator_resource_plan_store,
+)
 workflow_xpert_authoring_provider = AuthoringToolsetProvider(
     authoring_service, "xpert"
 )
@@ -1522,6 +1566,7 @@ configure_runtime_authoring(authoring_service)
 configure_skill_creator(skill_creator_service)
 configure_skill_creator_resource_planning(skill_creator_resource_planning_service)
 configure_skill_creator_resource_build(skill_creator_resource_build_service)
+configure_skill_creator_evaluation_suite(skill_creator_evaluation_suite_service)
 runtime_capabilities.register(
     "mcp_tools",
     workflow_mcp_provider,
@@ -13929,22 +13974,7 @@ async def _run_workflow_response(
                         actual_model_successful_responses = 0
                         actual_model_missing_count = 0
                         evaluation_token_usage: dict[str, int] = {}
-                        agent_temperature = (
-                            (
-                                SKILL_CREATOR_RESOURCE_PLANNER_TEMPERATURE
-                                if run_context.get("creator_phase") == "resource_plan"
-                                else SKILL_CREATOR_RESOURCE_BUILDER_TEMPERATURE
-                            )
-                            if (
-                                is_trusted_skill_creator_runtime(run_context)
-                                and run_context.get("creator_phase")
-                                in {"resource_plan", "resource_build"}
-                            )
-                            else skill_evaluation_model_temperature(
-                                run_context,
-                                default=0.7,
-                            )
-                        )
+                        agent_temperature = workflow_agent_temperature(run_context)
 
                         def observe_actual_model(reported_model_id: str) -> None:
                             nonlocal actual_model_missing_count
@@ -17103,6 +17133,48 @@ skill_creator_resource_builder = WorkflowCreatorResourceBuilder(
 skill_creator_resource_build_service.builder = skill_creator_resource_builder
 
 
+async def run_skill_creator_evaluation_suite_generation(
+    invocation: EvaluationSuiteWorkflowInvocation,
+) -> str:
+    payload = WorkflowRunRequest.model_validate(
+        {"workflow": invocation.workflow, "inputs": invocation.inputs}
+    )
+    session_id = str(
+        invocation.runtime_metadata.get("creator_session_id") or ""
+    ).strip()
+    response = await _run_workflow_response(
+        payload,
+        None,
+        runtime_run_type="workflow",
+        runtime_source_id=session_id,
+        runtime_metadata=dict(invocation.runtime_metadata),
+    )
+    final_event = await consume_workflow_stream(response)
+    if final_event.get("event") in {
+        "runtime_approval_pending",
+        "client_tool_waiting",
+    }:
+        raise RuntimeError(
+            "The dedicated Skill Creator evaluation designer cannot pause for tools."
+        )
+    output = str(final_event.get("final_output") or "").strip()
+    if not output:
+        raise RuntimeError(
+            "The Skill Creator evaluation designer returned no suite."
+        )
+    return output
+
+
+skill_creator_evaluation_suite_generator = WorkflowCreatorEvaluationSuiteGenerator(
+    model_id=TEXT_FALLBACK_MODEL,
+    model_available=lambda: bool(get_llm_gateway_config()[0]),
+    runner=run_skill_creator_evaluation_suite_generation,
+)
+skill_creator_evaluation_suite_service.generator = (
+    skill_creator_evaluation_suite_generator
+)
+
+
 async def execute_external_xpert_resource(
     resource: dict[str, Any],
     task: str,
@@ -19368,6 +19440,37 @@ async def run_skill_evaluation_item(
             )
         child = completed[0]
         actual_model = require_skill_evaluation_actual_model(child.metadata)
+        application_receipt = None
+        if item.target == "candidate" and run.evaluation_suite_id is not None:
+            expected_policy = (
+                "require_stage" if case.required_resource_paths else "require_read"
+            )
+            candidates = await asyncio.to_thread(
+                skill_application_receipt_store.list_receipts,
+                run_id=runtime_run_id,
+                skill_id="evaluation-skill",
+            )
+            verified = [
+                receipt
+                for receipt in candidates
+                if receipt.compliance_status == "verified"
+                and receipt.source_kind == "evaluation_overlay"
+                and receipt.version_id == getattr(overlay, "overlay_id", None)
+                and receipt.content_digest == getattr(overlay, "content_digest", None)
+                and receipt.policy == expected_policy
+                and tuple(receipt.required_resource_paths)
+                == tuple(case.required_resource_paths)
+            ]
+            if len(verified) != 1:
+                raise SkillEvaluationValidationError(
+                    "Skill evaluation could not prove one verified application receipt.",
+                    code="skill_application_receipt_missing",
+                )
+            application_receipt = await asyncio.to_thread(
+                skill_application_receipt_store.protect,
+                verified[0].receipt_id,
+                reference_id=f"evaluation-item:{item.item_id}",
+            )
         raw_usage = child.metadata.get("token_usage")
         raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
         usage = {
@@ -19383,6 +19486,17 @@ async def run_skill_evaluation_item(
             work_manifest=manifest,
             usage=usage,
             runtime_run_id=runtime_run_id or None,
+            application_receipt_id=(
+                application_receipt.receipt_id if application_receipt else None
+            ),
+            application_receipt_revision=(
+                application_receipt.revision if application_receipt else None
+            ),
+            application_compliance=(
+                application_receipt.compliance_status
+                if application_receipt
+                else None
+            ),
         )
     finally:
         # Do not let model-visible traces retain case inputs, tool outputs, or
@@ -19456,6 +19570,44 @@ async def iterate_skill_creator_from_evaluation(
     )
 
 
+def verify_skill_evaluation_application_receipts(run: Any) -> None:
+    if run.evaluation_suite_id is None:
+        return
+    cases = {case.case_id: case for case in run.cases}
+    for item in run.items:
+        if item.target != "candidate":
+            continue
+        try:
+            receipt = skill_application_receipt_store.require_verified(
+                item.application_receipt_id or ""
+            )
+        except SkillApplicationReceiptError as exc:
+            raise SkillEvaluationValidationError(
+                "A verified Skill application receipt is unavailable.",
+                code=exc.code,
+            ) from exc
+        case = cases[item.case_id]
+        expected_policy = (
+            "require_stage" if case.required_resource_paths else "require_read"
+        )
+        if (
+            receipt.revision != item.application_receipt_revision
+            or receipt.run_id != item.runtime_run_id
+            or receipt.skill_id != "evaluation-skill"
+            or receipt.source_kind != "evaluation_overlay"
+            or receipt.version_id != item.overlay_id
+            or receipt.content_digest != run.frozen_digest
+            or receipt.policy != expected_policy
+            or tuple(receipt.required_resource_paths)
+            != tuple(case.required_resource_paths)
+            or f"evaluation-item:{item.item_id}" not in receipt.references
+        ):
+            raise SkillEvaluationValidationError(
+                "A Skill application receipt no longer matches the frozen evaluation item.",
+                code="skill_application_receipt_mismatch",
+            )
+
+
 skill_creator_evaluation_service = SkillCreatorEvaluationService(
     skill_creator_session_store,
     get_skill_draft_store(),
@@ -19464,6 +19616,8 @@ skill_creator_evaluation_service = SkillCreatorEvaluationService(
     preflight=preflight_skill_evaluation,
     actor_id=authoring_service.local_console_actor_id,
     iteration=iterate_skill_creator_from_evaluation,
+    suite_service=skill_creator_evaluation_suite_service,
+    application_receipt_verifier=verify_skill_evaluation_application_receipts,
 )
 configure_skill_creator_evaluation(skill_creator_evaluation_service)
 

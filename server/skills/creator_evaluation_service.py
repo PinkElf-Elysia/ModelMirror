@@ -7,6 +7,7 @@ from typing import Any, Literal, Mapping, Protocol
 
 from .creator_evaluation import (
     SkillEvaluationConflictError,
+    SkillEvaluationError,
     SkillEvaluationExecutor,
     SkillEvaluationNotFoundError,
     SkillEvaluationRun,
@@ -15,6 +16,8 @@ from .creator_evaluation import (
     SkillEvaluationValidationError,
     aggregate_skill_evaluation_report,
 )
+from .creator_evaluation_suite import SkillEvaluationSuite, SkillEvaluationSuiteStore
+from .creator_evaluation_suite_service import SkillCreatorEvaluationSuiteService
 from .creator_store import (
     CreatorQualityMode,
     SkillCreatorConflictError,
@@ -50,6 +53,10 @@ class SkillEvaluationIteration(Protocol):
     ) -> Any: ...
 
 
+class SkillEvaluationReceiptVerifier(Protocol):
+    def __call__(self, run: SkillEvaluationRun) -> None: ...
+
+
 class SkillCreatorEvaluationService:
     """Cross-store quality gate for one private Skill Creator session.
 
@@ -70,6 +77,8 @@ class SkillCreatorEvaluationService:
         preflight: SkillEvaluationPreflight,
         actor_id: str,
         iteration: SkillEvaluationIteration | None = None,
+        suite_service: SkillCreatorEvaluationSuiteService | None = None,
+        application_receipt_verifier: SkillEvaluationReceiptVerifier | None = None,
     ) -> None:
         clean_actor_id = str(actor_id or "").strip()
         if not clean_actor_id:
@@ -81,6 +90,8 @@ class SkillCreatorEvaluationService:
         self.preflight = preflight
         self.actor_id = clean_actor_id
         self.iteration = iteration
+        self.suite_service = suite_service
+        self.application_receipt_verifier = application_receipt_verifier
 
     def get_projection(
         self, session_id: str
@@ -135,6 +146,15 @@ class SkillCreatorEvaluationService:
             expected_revision=expected_revision,
             expected_digest=expected_digest,
         )
+        if (
+            self.suite_service is not None
+            and self.suite_service.enabled
+            and self.suite_service.suite_store.current_for_session(session.session_id)
+            is not None
+        ):
+            raise SkillCreatorConflictError(
+                "This Creator session uses an evaluation suite; edit the suite instead."
+            )
         if session.active_evaluation_run_id:
             raise SkillCreatorConflictError(
                 "Cancel the active evaluation before changing its cases."
@@ -216,6 +236,8 @@ class SkillCreatorEvaluationService:
         expected_revision: int,
         expected_digest: str,
         repetitions: int = 1,
+        evaluation_suite_revision: int | None = None,
+        evaluation_suite_digest: str | None = None,
     ) -> tuple[SkillCreatorSession, WorkspaceSkillDraft, SkillEvaluationRun]:
         session, draft = self._require_context(
             session_id,
@@ -223,12 +245,41 @@ class SkillCreatorEvaluationService:
             expected_revision=expected_revision,
             expected_digest=expected_digest,
         )
-        case_set = self._require_current_cases(session, draft)
-        if len(case_set.cases) != SkillEvaluationStore.REQUIRED_CASE_COUNT:
-            raise SkillEvaluationValidationError(
-                "Evaluation requires exactly three frozen cases.",
-                code="skill_evaluation_three_cases_required",
+        suite = self._current_v2_suite(session, draft)
+        if (evaluation_suite_revision is None) != (
+            evaluation_suite_digest is None
+        ):
+            raise SkillEvaluationConflictError(
+                "Evaluation suite revision and digest must be supplied together."
             )
+        if suite is not None:
+            if (
+                evaluation_suite_revision is not None
+                and int(evaluation_suite_revision) != suite.suite_revision
+            ) or (
+                evaluation_suite_digest is not None
+                and str(evaluation_suite_digest).lower() != suite.suite_digest
+            ):
+                raise SkillEvaluationConflictError(
+                    "Evaluation suite changed. Reload before starting the evaluation."
+                )
+            cases = SkillEvaluationSuiteStore.to_evaluation_cases(suite)
+            case_set = None
+        else:
+            if (
+                evaluation_suite_revision is not None
+                or evaluation_suite_digest is not None
+            ):
+                raise SkillEvaluationConflictError(
+                    "The requested evaluation suite is unavailable."
+                )
+            case_set = self._require_current_cases(session, draft)
+            if len(case_set.cases) != SkillEvaluationStore.REQUIRED_CASE_COUNT:
+                raise SkillEvaluationValidationError(
+                    "Evaluation requires exactly three frozen cases.",
+                    code="skill_evaluation_three_cases_required",
+                )
+            cases = None
         preflight = await self._run_preflight(draft, "evaluate")
         model_id = str(preflight.model_id or "").strip()
         if not model_id:
@@ -245,7 +296,26 @@ class SkillCreatorEvaluationService:
             expected_revision=expected_revision,
             expected_digest=expected_digest,
         )
-        existing = self._recoverable_run(session, draft, case_set.cases_revision)
+        if suite is not None:
+            refreshed_suite = self._require_v2_suite(session, draft)
+            if (
+                refreshed_suite.suite_id != suite.suite_id
+                or refreshed_suite.suite_revision != suite.suite_revision
+                or not self._same_digest(
+                    refreshed_suite.suite_digest, suite.suite_digest
+                )
+            ):
+                raise SkillEvaluationConflictError(
+                    "Evaluation suite changed during preflight. Reload before starting."
+                )
+            suite = refreshed_suite
+            cases = SkillEvaluationSuiteStore.to_evaluation_cases(suite)
+        existing = self._recoverable_run(
+            session,
+            draft,
+            cases_revision=(case_set.cases_revision if case_set else None),
+            suite=suite,
+        )
         if existing is not None:
             draft = self._begin_or_reuse_draft_run(draft, existing.run_id)
             if session.active_evaluation_run_id != existing.run_id:
@@ -290,7 +360,12 @@ class SkillCreatorEvaluationService:
             frozen_digest=draft.content_digest,
             candidate_overlay_id=candidate.overlay_id,
             baseline_overlay_id=baseline_id,
-            case_set_revision=case_set.cases_revision,
+            cases=cases,
+            case_set_revision=(case_set.cases_revision if case_set else None),
+            evaluation_suite_id=(suite.suite_id if suite else None),
+            evaluation_suite_revision=(suite.suite_revision if suite else None),
+            evaluation_suite_digest=(suite.suite_digest if suite else None),
+            evaluation_suite_version=(suite.version if suite else None),
             model_id=model_id,
             repetitions=repetitions,
             config=dict(preflight.config or {}),
@@ -440,6 +515,7 @@ class SkillCreatorEvaluationService:
                 expected_digest=expected_digest,
                 expected_run_revision=expected_run_revision,
             )
+            self._require_v2_application_receipts(run)
         run = self.evaluation_store.review_run(
             run_id,
             expected_revision=expected_run_revision,
@@ -750,7 +826,8 @@ class SkillCreatorEvaluationService:
         self,
         session: SkillCreatorSession,
         draft: WorkspaceSkillDraft,
-        cases_revision: int,
+        cases_revision: int | None,
+        suite: SkillEvaluationSuite | None = None,
     ) -> SkillEvaluationRun | None:
         for run in self.evaluation_store.list_runs(
             session_id=session.session_id, limit=20
@@ -759,11 +836,47 @@ class SkillCreatorEvaluationService:
                 run.draft_id == draft.draft_id
                 and run.draft_revision == draft.content_revision
                 and self._same_digest(run.frozen_digest, draft.content_digest)
-                and run.case_set_revision == cases_revision
+                and (
+                    (
+                        suite is not None
+                        and run.evaluation_suite_id == suite.suite_id
+                        and run.evaluation_suite_revision == suite.suite_revision
+                        and self._same_digest(
+                            run.evaluation_suite_digest, suite.suite_digest
+                        )
+                    )
+                    or (
+                        suite is None
+                        and run.evaluation_suite_id is None
+                        and run.case_set_revision == cases_revision
+                    )
+                )
                 and run.status in {"queued", "running"}
             ):
                 return run
         return None
+
+    def _current_v2_suite(
+        self, session: SkillCreatorSession, draft: WorkspaceSkillDraft
+    ) -> SkillEvaluationSuite | None:
+        if self.suite_service is None or not self.suite_service.enabled:
+            return None
+        # Enabling Evolution V2 must not silently migrate an existing Creator
+        # session. Only a session with an explicitly generated or migrated
+        # suite enters the V2 evaluation contract.
+        if self.suite_service.suite_store.current_for_session(session.session_id) is None:
+            return None
+        return self._require_v2_suite(session, draft)
+
+    def _require_v2_suite(
+        self, session: SkillCreatorSession, draft: WorkspaceSkillDraft
+    ) -> SkillEvaluationSuite:
+        if self.suite_service is None:
+            raise SkillEvaluationValidationError(
+                "Skill Creator evaluation suite is unavailable.",
+                code="skill_evaluation_suite_unavailable",
+            )
+        return self.suite_service.require_confirmed_current(session, draft)
 
     def _begin_or_reuse_draft_run(
         self, draft: WorkspaceSkillDraft, run_id: str
@@ -793,14 +906,42 @@ class SkillCreatorEvaluationService:
             session_id=session.session_id, limit=20
         )
         current_runs: list[SkillEvaluationRun] = []
+        superseded_v2_acceptance = False
         for run in runs:
+            binding_current = run.case_set_revision == session.cases_revision
+            if run.evaluation_suite_id is not None and self.suite_service is not None:
+                try:
+                    suite = self.suite_service.suite_store.current_for_session(
+                        session.session_id
+                    )
+                    binding_current = bool(
+                        suite is not None
+                        and suite.state == "confirmed"
+                        and suite.suite_id == run.evaluation_suite_id
+                        and suite.suite_revision == run.evaluation_suite_revision
+                        and suite.suite_digest == run.evaluation_suite_digest
+                        and suite.session_id == session.session_id
+                        and suite.draft_id == draft.draft_id
+                        and suite.draft_revision == draft.content_revision
+                        and self._same_digest(suite.draft_digest, draft.content_digest)
+                    )
+                except SkillEvaluationError:
+                    binding_current = False
             if (
                 run.draft_id == draft.draft_id
                 and run.draft_revision == draft.content_revision
                 and self._same_digest(run.frozen_digest, draft.content_digest)
-                and run.case_set_revision == session.cases_revision
+                and binding_current
             ):
                 current_runs.append(run)
+            elif (
+                run.evaluation_suite_id is not None
+                and run.review_state == "accepted"
+                and run.draft_id == draft.draft_id
+                and run.draft_revision == draft.content_revision
+                and self._same_digest(run.frozen_digest, draft.content_digest)
+            ):
+                superseded_v2_acceptance = True
             elif run.status in {"queued", "running"}:
                 self.evaluation_store.mark_stale(
                     run.run_id,
@@ -811,6 +952,7 @@ class SkillCreatorEvaluationService:
             draft = self._begin_or_reuse_draft_run(draft, run.run_id)
         if run is not None and run.review_state == "accepted" and run.reviews:
             self._require_failed_assertion_acknowledgement(run)
+            self._require_v2_application_receipts(run)
             decision = draft.quality_decision
             if not (
                 draft.quality_status == "accepted"
@@ -832,6 +974,8 @@ class SkillCreatorEvaluationService:
             draft = self._mark_outdated_if_needed(draft)
         elif run is not None and run.status in {"failed", "cancelled", "stale"}:
             draft = self._mark_outdated_if_needed(draft)
+        elif run is None and superseded_v2_acceptance:
+            draft = self._mark_outdated_if_needed(draft)
         session = self._project_session(session, draft, run)
         return session, draft, run
 
@@ -852,6 +996,25 @@ class SkillCreatorEvaluationService:
             raise SkillEvaluationStateError(
                 "Accepted failed assertions are missing explicit acknowledgement."
             )
+
+    def _require_v2_application_receipts(self, run: SkillEvaluationRun) -> None:
+        if run.evaluation_suite_id is None:
+            return
+        verifier = self.application_receipt_verifier
+        if verifier is None:
+            raise SkillEvaluationValidationError(
+                "Verified Skill application receipts are unavailable.",
+                code="skill_application_receipt_unavailable",
+            )
+        try:
+            verifier(run)
+        except SkillEvaluationError:
+            raise
+        except Exception as exc:
+            raise SkillEvaluationValidationError(
+                "Verified Skill application receipts are unavailable.",
+                code=getattr(exc, "code", "skill_application_receipt_unavailable"),
+            ) from exc
 
     def _project_session(
         self,

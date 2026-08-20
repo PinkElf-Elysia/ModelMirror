@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from server.sandbox_sidecar.engine import SandboxEngine
@@ -210,7 +212,7 @@ def _overlay() -> SkillEvaluationOverlay:
     )
 
 
-def _case() -> SkillEvaluationCase:
+def _case(*, resources: list[str] | None = None) -> SkillEvaluationCase:
     return SkillEvaluationCase(
         case_id="case_runtime",
         name="Runtime case",
@@ -218,6 +220,7 @@ def _case() -> SkillEvaluationCase:
         expected_behavior="Return a short summary.",
         fixtures=[{"path": "note.txt", "content": "Frozen note."}],
         assertions=[],
+        required_resource_paths=resources or [],
         case_fingerprint="c" * 64,
     )
 
@@ -276,6 +279,21 @@ def test_fixed_workflow_keeps_case_inputs_identical_and_expectations_hidden():
     assert agent["data"]["toolMode"] == "none"
     assert left.runtime_metadata["skill_evaluation_overlay_id"] is None
     assert right.runtime_metadata["skill_evaluation_overlay_id"] == _overlay().overlay_id
+
+
+def test_v2_resource_case_freezes_stage_policy_and_exact_paths():
+    run, _baseline, candidate = _run_and_items()
+    case = _case(resources=["references/guide.md"])
+    invocation = build_skill_evaluation_workflow_invocation(
+        run, candidate, case, _overlay(), workspace_id="ws_candidate"
+    )
+    request = json.loads(invocation.inputs["evaluation_request"])
+
+    assert request["required_skill_resource_paths"] == ["references/guide.md"]
+    assert invocation.runtime_metadata["skill_application_policy"] == "require_stage"
+    assert invocation.runtime_metadata[
+        "skill_application_required_resource_paths"
+    ] == ["references/guide.md"]
 
 
 @pytest.mark.asyncio

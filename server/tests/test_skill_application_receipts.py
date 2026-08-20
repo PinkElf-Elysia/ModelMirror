@@ -17,6 +17,7 @@ from server.skills.application_receipts import (
     SkillApplicationScope,
     build_application_contract,
 )
+from server.skills.creator_evaluation import SkillEvaluationValidationError
 from server.xpert_runtime.sandbox_store import SandboxWorkspace
 from server.xpert_runtime.sandbox_toolset import SandboxToolsetProvider
 from server.xpert_runtime.toolset import RuntimeToolCall
@@ -613,6 +614,65 @@ def test_main_observer_records_sanitized_failed_application(tmp_path, monkeypatc
     persisted = receipt_store.snapshot_path.read_text(encoding="utf-8")
     assert "arguments" not in persisted
     assert "output" not in persisted
+
+
+def test_creator_v2_accept_verifier_rechecks_protected_receipt(
+    tmp_path, monkeypatch
+):
+    import server.main as main
+
+    store = SkillApplicationReceiptStore(tmp_path)
+    package_digest = _digest("evaluation package")
+    content_digest = _digest("skill markdown")
+    contract = build_application_contract(
+        skill_id="evaluation-skill",
+        source_kind="evaluation_overlay",
+        version_id="skill_eval_overlay_one",
+        content_digest=package_digest,
+        policy="require_read",
+    )
+    receipt = store.observe(
+        contract,
+        SkillApplicationScope(
+            run_id="runtime_eval_one",
+            task_id="task_eval_one",
+            node_id="evaluation-agent",
+            runtime_kind="skill_evaluation",
+        ),
+        method="skill_read",
+        resource_paths=["SKILL.md"],
+        resource_digests={"SKILL.md": content_digest},
+        expected_resource_digests={"SKILL.md": content_digest},
+        tool_name="skill_read",
+    )
+    assert receipt is not None and receipt.compliance_status == "verified"
+    receipt = store.protect(
+        receipt.receipt_id,
+        reference_id="evaluation-item:skill_eval_item_one",
+    )
+    monkeypatch.setattr(main, "skill_application_receipt_store", store)
+    item = SimpleNamespace(
+        item_id="skill_eval_item_one",
+        case_id="case-one",
+        target="candidate",
+        runtime_run_id="runtime_eval_one",
+        overlay_id="skill_eval_overlay_one",
+        application_receipt_id=receipt.receipt_id,
+        application_receipt_revision=receipt.revision,
+    )
+    run = SimpleNamespace(
+        evaluation_suite_id="skill_eval_suite_one",
+        frozen_digest=package_digest,
+        cases=[SimpleNamespace(case_id="case-one", required_resource_paths=())],
+        items=[item],
+    )
+
+    main.verify_skill_evaluation_application_receipts(run)
+
+    item.application_receipt_revision -= 1
+    with pytest.raises(SkillEvaluationValidationError) as captured:
+        main.verify_skill_evaluation_application_receipts(run)
+    assert captured.value.code == "skill_application_receipt_mismatch"
 
 
 def test_enforce_mode_propagates_receipt_failures(monkeypatch):

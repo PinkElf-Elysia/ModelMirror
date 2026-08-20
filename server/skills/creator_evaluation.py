@@ -97,6 +97,7 @@ class SkillEvaluationCase:
     expected_behavior: str
     fixtures: list[dict[str, str]] = field(default_factory=list)
     assertions: list[dict[str, Any]] = field(default_factory=list)
+    required_resource_paths: list[str] = field(default_factory=list)
     case_fingerprint: str = ""
 
 
@@ -134,6 +135,9 @@ class SkillEvaluationItem:
     usage: dict[str, int] = field(default_factory=dict)
     latency_ms: float = 0.0
     runtime_run_id: str | None = None
+    application_receipt_id: str | None = None
+    application_receipt_revision: int | None = None
+    application_compliance: str | None = None
     error_code: str | None = None
     error: str | None = None
     attempt_history: list[dict[str, Any]] = field(default_factory=list)
@@ -169,6 +173,10 @@ class SkillEvaluationRun:
     items: list[SkillEvaluationItem]
     config: dict[str, Any]
     case_set_revision: int | None = None
+    evaluation_suite_id: str | None = None
+    evaluation_suite_revision: int | None = None
+    evaluation_suite_digest: str | None = None
+    evaluation_suite_version: str | None = None
     status: SkillEvaluationRunStatus = "queued"
     revision: int = 1
     review_state: Literal["pending", "accepted", "revise"] = "pending"
@@ -192,6 +200,9 @@ class SkillEvaluationRunnerResult:
     work_manifest: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
     runtime_run_id: str | None = None
+    application_receipt_id: str | None = None
+    application_receipt_revision: int | None = None
+    application_compliance: str | None = None
 
 
 class SkillEvaluationRunner(Protocol):
@@ -431,6 +442,10 @@ class SkillEvaluationStore:
         repetitions: int = 1,
         baseline_overlay_id: str | None = None,
         case_set_revision: int | None = None,
+        evaluation_suite_id: str | None = None,
+        evaluation_suite_revision: int | None = None,
+        evaluation_suite_digest: str | None = None,
+        evaluation_suite_version: str | None = None,
         config: Mapping[str, Any] | None = None,
     ) -> SkillEvaluationRun:
         clean_session_id = self._identifier(session_id, "session_id")
@@ -468,10 +483,37 @@ class SkillEvaluationStore:
                     code="skill_evaluation_cases_required",
                 )
             clean_cases = [self.normalize_case(item) for item in cases]
-        if len(clean_cases) != self.REQUIRED_CASE_COUNT:
+        suite_values = (
+            evaluation_suite_id,
+            evaluation_suite_revision,
+            evaluation_suite_digest,
+            evaluation_suite_version,
+        )
+        suite_bound = all(value is not None for value in suite_values)
+        if any(value is not None for value in suite_values) and not suite_bound:
             raise SkillEvaluationValidationError(
-                "Objective Skill evaluation requires exactly three cases.",
-                code="skill_evaluation_three_cases_required",
+                "Evaluation suite binding is incomplete.",
+                code="skill_evaluation_suite_binding_invalid",
+            )
+        if suite_bound and case_set_revision is not None:
+            raise SkillEvaluationValidationError(
+                "An evaluation run cannot bind both a V1 case set and a V2 suite.",
+                code="skill_evaluation_suite_binding_invalid",
+            )
+        if (not suite_bound and len(clean_cases) != self.REQUIRED_CASE_COUNT) or (
+            suite_bound and not self.REQUIRED_CASE_COUNT <= len(clean_cases) <= 12
+        ):
+            raise SkillEvaluationValidationError(
+                (
+                    "A V2 Skill evaluation suite requires three to twelve cases."
+                    if suite_bound
+                    else "Objective Skill evaluation requires exactly three cases."
+                ),
+                code=(
+                    "skill_evaluation_suite_case_limit"
+                    if suite_bound
+                    else "skill_evaluation_three_cases_required"
+                ),
             )
         if len({item.case_id for item in clean_cases}) != len(clean_cases):
             raise SkillEvaluationValidationError(
@@ -545,6 +587,32 @@ class SkillEvaluationStore:
                 config=clean_config,
                 case_set_revision=(
                     bound_case_set.cases_revision if bound_case_set else None
+                ),
+                evaluation_suite_id=(
+                    self._identifier(evaluation_suite_id, "evaluation_suite_id")
+                    if suite_bound
+                    else None
+                ),
+                evaluation_suite_revision=(
+                    self._positive_int(
+                        evaluation_suite_revision, "evaluation_suite_revision"
+                    )
+                    if suite_bound
+                    else None
+                ),
+                evaluation_suite_digest=(
+                    self._digest(evaluation_suite_digest, "evaluation_suite_digest")
+                    if suite_bound
+                    else None
+                ),
+                evaluation_suite_version=(
+                    self._required_text(
+                        evaluation_suite_version,
+                        "evaluation_suite_version",
+                        maximum=120,
+                    )
+                    if suite_bound
+                    else None
                 ),
                 created_at=now,
                 updated_at=now,
@@ -949,6 +1017,23 @@ class SkillEvaluationStore:
         )
         fixtures = cls._normalize_fixtures(source.get("fixtures") or [])
         assertions = cls._normalize_assertions(source.get("assertions") or [])
+        raw_resource_paths = source.get("required_resource_paths") or []
+        if not isinstance(raw_resource_paths, list) or len(raw_resource_paths) > 20:
+            raise SkillEvaluationValidationError(
+                "Evaluation case resource paths are invalid.",
+                code="skill_evaluation_case_resources_invalid",
+            )
+        required_resource_paths: list[str] = []
+        for value in raw_resource_paths:
+            path = cls._relative_path(value, "required resource path")
+            if not path.startswith(("scripts/", "references/", "assets/")):
+                raise SkillEvaluationValidationError(
+                    "Evaluation cases may only require Skill package resources.",
+                    code="skill_evaluation_case_resources_invalid",
+                )
+            if path not in required_resource_paths:
+                required_resource_paths.append(path)
+        required_resource_paths.sort(key=str.casefold)
         fingerprint_payload = {
             "case_id": case_id,
             "name": name,
@@ -957,6 +1042,10 @@ class SkillEvaluationStore:
             "fixtures": fixtures,
             "assertions": assertions,
         }
+        # Preserve the legacy three-case fingerprint when no V2 resource
+        # requirement exists. Old snapshots remain readable byte-for-byte.
+        if required_resource_paths:
+            fingerprint_payload["required_resource_paths"] = required_resource_paths
         fingerprint = hashlib.sha256(
             cls._canonical_json(fingerprint_payload).encode("utf-8")
         ).hexdigest()
@@ -1258,8 +1347,22 @@ class SkillEvaluationStore:
             raise ValueError("invalid review state")
         cases_raw = raw.get("cases")
         items_raw = raw.get("items")
-        if not isinstance(cases_raw, list) or len(cases_raw) != cls.REQUIRED_CASE_COUNT:
-            raise ValueError("run must contain exactly three cases")
+        suite_values = (
+            raw.get("evaluation_suite_id"),
+            raw.get("evaluation_suite_revision"),
+            raw.get("evaluation_suite_digest"),
+            raw.get("evaluation_suite_version"),
+        )
+        suite_bound = all(value is not None for value in suite_values)
+        if any(value is not None for value in suite_values) and not suite_bound:
+            raise ValueError("run evaluation suite binding is incomplete")
+        if suite_bound and raw.get("case_set_revision") is not None:
+            raise ValueError("run cannot bind a case set and evaluation suite")
+        if not isinstance(cases_raw, list) or (
+            (not suite_bound and len(cases_raw) != cls.REQUIRED_CASE_COUNT)
+            or (suite_bound and not cls.REQUIRED_CASE_COUNT <= len(cases_raw) <= 12)
+        ):
+            raise ValueError("run contains an invalid evaluation case count")
         if not isinstance(items_raw, list):
             raise ValueError("run items must be a list")
         cases = [cls.normalize_case(item) for item in cases_raw]
@@ -1303,6 +1406,34 @@ class SkillEvaluationStore:
                 else cls._positive_int(
                     raw.get("case_set_revision"), "case_set_revision"
                 )
+            ),
+            evaluation_suite_id=(
+                cls._identifier(raw.get("evaluation_suite_id"), "evaluation_suite_id")
+                if suite_bound
+                else None
+            ),
+            evaluation_suite_revision=(
+                cls._positive_int(
+                    raw.get("evaluation_suite_revision"), "evaluation_suite_revision"
+                )
+                if suite_bound
+                else None
+            ),
+            evaluation_suite_digest=(
+                cls._digest(
+                    raw.get("evaluation_suite_digest"), "evaluation_suite_digest"
+                )
+                if suite_bound
+                else None
+            ),
+            evaluation_suite_version=(
+                cls._required_text(
+                    raw.get("evaluation_suite_version"),
+                    "evaluation_suite_version",
+                    maximum=120,
+                )
+                if suite_bound
+                else None
             ),
             status=status,  # type: ignore[arg-type]
             revision=cls._positive_int(raw.get("revision"), "revision"),
@@ -1356,6 +1487,21 @@ class SkillEvaluationStore:
         assertion_results = raw.get("assertion_results", [])
         if not isinstance(assertion_results, list):
             raise ValueError("invalid assertion results")
+        receipt_id = cls._optional_identifier(raw.get("application_receipt_id"))
+        receipt_revision = (
+            None
+            if raw.get("application_receipt_revision") is None
+            else cls._positive_int(
+                raw.get("application_receipt_revision"),
+                "application_receipt_revision",
+            )
+        )
+        compliance = cls._optional_text(
+            raw.get("application_compliance"), maximum=40
+        )
+        if any(value is not None for value in (receipt_id, receipt_revision, compliance)):
+            if not receipt_id or receipt_revision is None or compliance != "verified":
+                raise ValueError("invalid Skill application receipt binding")
         return SkillEvaluationItem(
             item_id=cls._identifier(raw.get("item_id"), "item_id"),
             pair_id=cls._identifier(raw.get("pair_id"), "pair_id"),
@@ -1378,6 +1524,9 @@ class SkillEvaluationStore:
             usage=cls._normalize_usage(raw.get("usage") or {}),
             latency_ms=max(0.0, float(raw.get("latency_ms") or 0.0)),
             runtime_run_id=cls._optional_identifier(raw.get("runtime_run_id")),
+            application_receipt_id=receipt_id,
+            application_receipt_revision=receipt_revision,
+            application_compliance=compliance,
             error_code=cls._optional_text(raw.get("error_code"), maximum=120),
             error=cls._optional_text(raw.get("error"), maximum=500),
             attempt_history=copy.deepcopy(history),
@@ -1614,6 +1763,36 @@ class SkillEvaluationStore:
         item.runtime_run_id = cls._optional_identifier(
             result.get("runtime_run_id")
         )
+        item.application_receipt_id = cls._optional_identifier(
+            result.get("application_receipt_id")
+        )
+        item.application_receipt_revision = (
+            None
+            if result.get("application_receipt_revision") is None
+            else cls._positive_int(
+                result.get("application_receipt_revision"),
+                "application_receipt_revision",
+            )
+        )
+        item.application_compliance = cls._optional_text(
+            result.get("application_compliance"), maximum=40
+        )
+        if any(
+            value is not None
+            for value in (
+                item.application_receipt_id,
+                item.application_receipt_revision,
+                item.application_compliance,
+            )
+        ) and (
+            not item.application_receipt_id
+            or item.application_receipt_revision is None
+            or item.application_compliance != "verified"
+        ):
+            raise SkillEvaluationValidationError(
+                "Skill application receipt binding is invalid.",
+                code="skill_application_receipt_invalid",
+            )
         item.error_code = cls._optional_text(result.get("error_code"), maximum=120)
         item.error = cls._optional_text(result.get("error"), maximum=500)
         item.updated_at = time.time()
@@ -1655,6 +1834,9 @@ class SkillEvaluationStore:
             "usage": copy.deepcopy(item.usage),
             "latency_ms": item.latency_ms,
             "runtime_run_id": item.runtime_run_id,
+            "application_receipt_id": item.application_receipt_id,
+            "application_receipt_revision": item.application_receipt_revision,
+            "application_compliance": item.application_compliance,
             "error_code": item.error_code,
             "error": item.error,
             "finished_at": item.updated_at,
@@ -1672,6 +1854,9 @@ class SkillEvaluationStore:
         item.usage = {}
         item.latency_ms = 0.0
         item.runtime_run_id = None
+        item.application_receipt_id = None
+        item.application_receipt_revision = None
+        item.application_compliance = None
         item.error_code = None
         item.error = None
         item.updated_at = time.time()
@@ -1944,6 +2129,32 @@ def normalize_runner_result(
             "Skill evaluation runner must report skill_read.",
             code="skill_evaluation_runner_result_invalid",
         )
+    receipt_id = SkillEvaluationStore._optional_identifier(
+        source.get("application_receipt_id")
+    )
+    receipt_revision = (
+        None
+        if source.get("application_receipt_revision") is None
+        else SkillEvaluationStore._positive_int(
+            source.get("application_receipt_revision"),
+            "application_receipt_revision",
+        )
+    )
+    application_compliance = SkillEvaluationStore._optional_text(
+        source.get("application_compliance"), maximum=40
+    )
+    if any(
+        value is not None
+        for value in (receipt_id, receipt_revision, application_compliance)
+    ) and (
+        not receipt_id
+        or receipt_revision is None
+        or application_compliance != "verified"
+    ):
+        raise SkillEvaluationValidationError(
+            "Skill evaluation runner returned an invalid application receipt.",
+            code="skill_application_receipt_invalid",
+        )
     return SkillEvaluationRunnerResult(
         output=output[:max_output_chars],
         actual_model=actual_model,
@@ -1953,6 +2164,9 @@ def normalize_runner_result(
         runtime_run_id=SkillEvaluationStore._optional_identifier(
             source.get("runtime_run_id")
         ),
+        application_receipt_id=receipt_id,
+        application_receipt_revision=receipt_revision,
+        application_compliance=application_compliance,
     )
 
 
@@ -2134,6 +2348,12 @@ def aggregate_skill_evaluation_report(run: SkillEvaluationRun) -> dict[str, Any]
                 "actual_model_match": actual_model_match,
                 "comparable": comparable,
                 "candidate_skill_read": candidate.skill_read if candidate else None,
+                "candidate_application_receipt_id": (
+                    candidate.application_receipt_id if candidate else None
+                ),
+                "candidate_application_verified": bool(
+                    candidate and candidate.application_compliance == "verified"
+                ),
                 "score_delta": score_delta,
             }
         )
@@ -2154,6 +2374,13 @@ def aggregate_skill_evaluation_report(run: SkillEvaluationRun) -> dict[str, Any]
         for item in run.items
         if item.target == "candidate"
     )
+    application_receipts_verified = bool(run.evaluation_suite_id is None) or all(
+        item.application_compliance == "verified"
+        and bool(item.application_receipt_id)
+        and item.application_receipt_revision is not None
+        for item in run.items
+        if item.target == "candidate"
+    )
     return {
         "run_id": run.run_id,
         "item_count": len(run.items),
@@ -2163,10 +2390,20 @@ def aggregate_skill_evaluation_report(run: SkillEvaluationRun) -> dict[str, Any]
         "pairs": pairs,
         "model_mismatch_count": model_mismatch_count,
         "skill_not_read_count": statuses.get("skill_not_read", 0),
+        "application_receipt_verified_count": sum(
+            item.application_compliance == "verified"
+            for item in run.items
+            if item.target == "candidate"
+        ),
         "assertion_count": len(assertion_results),
         "assertion_passed_count": len(assertion_results) - assertion_failed_count,
         "assertion_failed_count": assertion_failed_count,
-        "eligible_for_accept": all_completed and candidate_read and model_mismatch_count == 0,
+        "eligible_for_accept": (
+            all_completed
+            and candidate_read
+            and application_receipts_verified
+            and model_mismatch_count == 0
+        ),
         "ranker_or_judge_used": False,
     }
 
@@ -2278,6 +2515,20 @@ class SkillEvaluationExecutor:
                     status = "skill_not_read"
                     error_code = "skill_not_read"
                     error = "Candidate did not read the frozen Skill overlay."
+                elif (
+                    item.target == "candidate"
+                    and claimed.evaluation_suite_id is not None
+                    and (
+                        not result.application_receipt_id
+                        or result.application_receipt_revision is None
+                        or result.application_compliance != "verified"
+                    )
+                ):
+                    status = "failed"
+                    error_code = "skill_application_receipt_missing"
+                    error = (
+                        "Candidate did not produce a verified Skill application receipt."
+                    )
                 payload = {
                     "status": status,
                     "output": result.output,
@@ -2286,6 +2537,11 @@ class SkillEvaluationExecutor:
                     "work_manifest": result.work_manifest,
                     "usage": result.usage,
                     "runtime_run_id": result.runtime_run_id,
+                    "application_receipt_id": result.application_receipt_id,
+                    "application_receipt_revision": (
+                        result.application_receipt_revision
+                    ),
+                    "application_compliance": result.application_compliance,
                     "latency_ms": round((time.perf_counter() - started) * 1000, 3),
                     "error_code": error_code,
                     "error": error,

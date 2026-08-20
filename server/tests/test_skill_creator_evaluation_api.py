@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from server.skills import creator_api
 from server.skills.creator_evaluation import (
+    SkillEvaluationConflictError,
     SkillEvaluationExecutor,
     SkillEvaluationRunnerResult,
     SkillEvaluationStore,
@@ -15,6 +16,10 @@ from server.skills.creator_evaluation import (
 )
 from server.skills.creator_evaluation_service import (
     SkillCreatorEvaluationService,
+)
+from server.skills.creator_evaluation_suite import SkillEvaluationSuiteStore
+from server.skills.creator_evaluation_suite_service import (
+    SkillCreatorEvaluationSuiteService,
 )
 from server.skills.creator_service import SkillCreatorService
 from server.skills.creator_store import (
@@ -112,8 +117,16 @@ def _services(tmp_path: Path):
     )
     session = session_store.create(
         intent="Turn note review into a reusable Skill.",
+        positive_examples=["Review these completed meeting notes."],
+        near_miss_examples=["Rewrite this paragraph without extracting actions."],
         expected_output="A traceable action report.",
         success_criteria=["No invented owners"],
+    )
+    session = session_store.set_evidence(
+        session.session_id,
+        expected_session_revision=session.session_revision,
+        preview_fingerprint="a" * 64,
+        selected_evidence=[],
     )
     draft = draft_store.create_creator_draft(
         creator_session_id=session.session_id,
@@ -146,6 +159,42 @@ def _services(tmp_path: Path):
     return creator, evaluation, executor, session, draft
 
 
+def _suite_case(role: str, *, regression: bool = False) -> dict:
+    case = _case({"normal": 1, "ambiguous": 2, "boundary": 3}.get(role, 4))
+    case.update(
+        {
+            "case_id": f"case-{role}",
+            "role": role,
+            "requirement_ids": [
+                "intent",
+                "positive_example:0",
+                "near_miss:0",
+                "expected_output",
+                "success_criterion:0",
+            ],
+            "required_resource_paths": [],
+            "workflow_step_ids": [],
+        }
+    )
+    if regression:
+        case["name"] = "Confirmed regression case"
+    return case
+
+
+class _SuiteGenerator:
+    def available(self) -> bool:
+        return True
+
+    async def generate(self, _request):
+        return {
+            "cases": [
+                _suite_case("normal"),
+                _suite_case("ambiguous"),
+                _suite_case("boundary"),
+            ]
+        }
+
+
 def _write_context(session, draft) -> dict:
     return {
         "expected_session_revision": session.session_revision,
@@ -172,7 +221,12 @@ def test_evaluation_service_cannot_bypass_disabled_creator(tmp_path: Path) -> No
 
 @pytest.mark.parametrize(
     "code",
-    ["model_gateway_unconfigured", "skill_evaluation_sidecar_unavailable"],
+    [
+        "model_gateway_unconfigured",
+        "skill_evaluation_sidecar_unavailable",
+        "skill_application_receipt_unavailable",
+        "skill_application_receipt_store_corrupt",
+    ],
 )
 def test_preflight_dependencies_are_reported_as_service_unavailable(code: str) -> None:
     response = creator_api._api_error(
@@ -180,6 +234,23 @@ def test_preflight_dependencies_are_reported_as_service_unavailable(code: str) -
     )
 
     assert response.status_code == 503
+    assert response.detail["code"] == code
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "skill_application_receipt_missing",
+        "skill_application_receipt_incomplete",
+        "skill_application_receipt_mismatch",
+    ],
+)
+def test_stale_application_evidence_is_a_structured_conflict(code: str) -> None:
+    response = creator_api._api_error(
+        SkillEvaluationValidationError("application evidence changed", code=code)
+    )
+
+    assert response.status_code == 409
     assert response.detail["code"] == code
 
 
@@ -280,6 +351,392 @@ async def test_objective_three_case_evaluation_accepts_only_current_digest(
     assert draft.quality_decision.actor_kind == "local_console"
     assert draft.quality_decision.content_digest == draft.content_digest
     assert session.quality_status == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_enabling_suite_service_does_not_silently_migrate_legacy_session(
+    tmp_path: Path,
+) -> None:
+    creator, evaluation, _, session, draft = _services(tmp_path)
+    suites = SkillCreatorEvaluationSuiteService(
+        creator,
+        SkillEvaluationSuiteStore(tmp_path / "suites"),
+        evaluation.evaluation_store,
+        generator=_SuiteGenerator(),
+        enabled=True,
+    )
+    evaluation.suite_service = suites
+    session, draft, _ = evaluation.save_cases(
+        session.session_id,
+        **_write_context(session, draft),
+        quality_mode="objective",
+        cases=[_case(1), _case(2), _case(3)],
+    )
+
+    session, draft, run = await evaluation.start_evaluation(
+        session.session_id, **_write_context(session, draft)
+    )
+
+    assert run.evaluation_suite_id is None
+    assert run.case_set_revision == 1
+    assert suites.suite_store.current_for_session(session.session_id) is None
+
+
+@pytest.mark.asyncio
+async def test_v2_accept_rechecks_authoritative_application_receipts(
+    tmp_path: Path,
+) -> None:
+    creator, evaluation, executor, session, draft = _services(tmp_path)
+    suites = SkillCreatorEvaluationSuiteService(
+        creator,
+        SkillEvaluationSuiteStore(tmp_path / "suites"),
+        evaluation.evaluation_store,
+        generator=_SuiteGenerator(),
+        enabled=True,
+    )
+    evaluation.suite_service = suites
+    generated = await suites.generate(
+        session.session_id,
+        expected_session_revision=session.session_revision,
+        expected_draft_state_revision=draft.revision,
+        expected_draft_revision=draft.content_revision,
+        expected_draft_digest=draft.content_digest,
+        expected_suite_revision=None,
+        expected_suite_digest=None,
+    )
+    suite = suites.confirm(
+        session.session_id,
+        suite_id=generated.suite_id,
+        expected_session_revision=session.session_revision,
+        expected_draft_state_revision=draft.revision,
+        expected_draft_revision=draft.content_revision,
+        expected_draft_digest=draft.content_digest,
+        expected_suite_revision=generated.suite_revision,
+        expected_suite_digest=generated.suite_digest,
+    )
+
+    async def receipt_runner(run, item, case, overlay):
+        del case, overlay
+        return SkillEvaluationRunnerResult(
+            output="ok - Alice owns follow-up.",
+            actual_model=run.model_id,
+            skill_read=item.target == "candidate",
+            application_receipt_id=(
+                f"skillappreceipt_{item.item_id}"
+                if item.target == "candidate"
+                else None
+            ),
+            application_receipt_revision=(
+                1 if item.target == "candidate" else None
+            ),
+            application_compliance=(
+                "verified" if item.target == "candidate" else None
+            ),
+        )
+
+    executor.runner = receipt_runner
+    session, draft, run = await evaluation.start_evaluation(
+        session.session_id,
+        **_write_context(session, draft),
+        evaluation_suite_revision=suite.suite_revision,
+        evaluation_suite_digest=suite.suite_digest,
+    )
+    assert await executor.execute_next() is True
+    session, draft, _, run = evaluation.get_projection(session.session_id)
+    assert run is not None and run.report["eligible_for_accept"] is True
+
+    with pytest.raises(SkillEvaluationValidationError) as unavailable:
+        await evaluation.review(
+            run.run_id,
+            **_write_context(session, draft),
+            expected_run_revision=run.revision,
+            expected_review_revision=run.feedback_revision,
+            decision="accept",
+            reason="Reviewed paired outputs and application evidence.",
+        )
+    assert unavailable.value.code == "skill_application_receipt_unavailable"
+    assert evaluation.evaluation_store.require_run(run.run_id).review_state == "pending"
+
+    evaluation.application_receipt_verifier = lambda _run: None
+    session, draft, run = await evaluation.review(
+        run.run_id,
+        **_write_context(session, draft),
+        expected_run_revision=run.revision,
+        expected_review_revision=run.feedback_revision,
+        decision="accept",
+        reason="Reviewed paired outputs and application evidence.",
+    )
+    assert run.review_state == "accepted"
+    assert draft.quality_status == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_confirmed_suite_change_invalidates_acceptance_and_recovers_interrupted_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    creator, evaluation, executor, session, draft = _services(tmp_path)
+    suites = SkillCreatorEvaluationSuiteService(
+        creator,
+        SkillEvaluationSuiteStore(tmp_path / "suites"),
+        evaluation.evaluation_store,
+        generator=_SuiteGenerator(),
+        enabled=True,
+    )
+    evaluation.suite_service = suites
+    generated = await suites.generate(
+        session.session_id,
+        expected_session_revision=session.session_revision,
+        expected_draft_state_revision=draft.revision,
+        expected_draft_revision=draft.content_revision,
+        expected_draft_digest=draft.content_digest,
+        expected_suite_revision=None,
+        expected_suite_digest=None,
+    )
+    suite = suites.confirm(
+        session.session_id,
+        suite_id=generated.suite_id,
+        expected_session_revision=session.session_revision,
+        expected_draft_state_revision=draft.revision,
+        expected_draft_revision=draft.content_revision,
+        expected_draft_digest=draft.content_digest,
+        expected_suite_revision=generated.suite_revision,
+        expected_suite_digest=generated.suite_digest,
+    )
+
+    async def receipt_runner(run, item, case, overlay):
+        del case, overlay
+        return SkillEvaluationRunnerResult(
+            output="ok - Alice owns follow-up.",
+            actual_model=run.model_id,
+            skill_read=item.target == "candidate",
+            application_receipt_id=(
+                f"skillappreceipt_{item.item_id}"
+                if item.target == "candidate"
+                else None
+            ),
+            application_receipt_revision=(
+                1 if item.target == "candidate" else None
+            ),
+            application_compliance=(
+                "verified" if item.target == "candidate" else None
+            ),
+        )
+
+    executor.runner = receipt_runner
+    evaluation.application_receipt_verifier = lambda _run: None
+    session, draft, run = await evaluation.start_evaluation(
+        session.session_id,
+        **_write_context(session, draft),
+        evaluation_suite_revision=suite.suite_revision,
+        evaluation_suite_digest=suite.suite_digest,
+    )
+    assert await executor.execute_next() is True
+    session, draft, _, run = evaluation.get_projection(session.session_id)
+    assert run is not None
+    session, draft, run = await evaluation.review(
+        run.run_id,
+        **_write_context(session, draft),
+        expected_run_revision=run.revision,
+        expected_review_revision=run.feedback_revision,
+        decision="accept",
+        reason="Reviewed paired outputs and verified application evidence.",
+    )
+    assert draft.quality_status == "accepted"
+
+    original_suite_save = suites.suite_store._save_unlocked
+
+    def fail_suite_write():
+        raise OSError("simulated disk failure")
+
+    changed_cases = [
+        SkillEvaluationSuiteStore.serialize_case(item) for item in suite.cases
+    ]
+    changed_cases[0]["prompt"] = "Review the notes and call out every missing owner."
+    changed_cases[0].pop("case_fingerprint", None)
+    monkeypatch.setattr(suites.suite_store, "_save_unlocked", fail_suite_write)
+    with pytest.raises(OSError, match="simulated disk failure"):
+        suites.patch(
+            session.session_id,
+            suite_id=suite.suite_id,
+            expected_session_revision=session.session_revision,
+            expected_draft_state_revision=draft.revision,
+            expected_draft_revision=draft.content_revision,
+            expected_draft_digest=draft.content_digest,
+            expected_suite_revision=suite.suite_revision,
+            expected_suite_digest=suite.suite_digest,
+            cases=changed_cases,
+            change_reason="Preserve a newly observed ownership failure.",
+        )
+    monkeypatch.setattr(suites.suite_store, "_save_unlocked", original_suite_save)
+    assert creator.draft_store.require(draft.draft_id).quality_status == "outdated"
+    assert suites.suite_store.require(suite.suite_id).suite_revision == suite.suite_revision
+
+    # The immutable Suite did not change, so projection recovery may safely replay
+    # the still-current accepted run.
+    session, draft, _, replayed_run = evaluation.get_projection(session.session_id)
+    assert replayed_run is not None and replayed_run.run_id == run.run_id
+    assert draft.quality_status == "accepted"
+
+    # Simulate a snapshot written by an older build that crashed before it could
+    # invalidate the Draft Store. Reconciliation must fail closed on the newer Suite.
+    allowed_requirements = {
+        value for item in suite.cases for value in item.requirement_ids
+    }
+    allowed_resources = {
+        value for item in suite.cases for value in item.required_resource_paths
+    }
+    allowed_steps = {
+        value for item in suite.cases for value in item.workflow_step_ids
+    }
+    suites.suite_store.patch(
+        suite.suite_id,
+        expected_suite_revision=suite.suite_revision,
+        expected_suite_digest=suite.suite_digest,
+        session_revision=session.session_revision,
+        session_definition_digest=suites._session_definition_digest(session),
+        draft_state_revision=draft.revision,
+        cases=changed_cases,
+        change_reason="Simulate an interrupted older cross-Store write.",
+        allowed_requirement_ids=allowed_requirements,
+        allowed_resource_paths=allowed_resources,
+        allowed_workflow_step_ids=allowed_steps,
+    )
+
+    recovered_session, recovered_draft, _, recovered_run = evaluation.get_projection(
+        session.session_id
+    )
+    assert recovered_run is None
+    assert recovered_draft.quality_status == "outdated"
+    assert recovered_session.quality_status == "outdated"
+    assert recovered_session.review_state == "none"
+
+
+@pytest.mark.asyncio
+async def test_active_v2_evaluation_blocks_suite_mutation(tmp_path: Path) -> None:
+    creator, evaluation, _, session, draft = _services(tmp_path)
+    suites = SkillCreatorEvaluationSuiteService(
+        creator,
+        SkillEvaluationSuiteStore(tmp_path / "suites"),
+        evaluation.evaluation_store,
+        generator=_SuiteGenerator(),
+        enabled=True,
+    )
+    evaluation.suite_service = suites
+    generated = await suites.generate(
+        session.session_id,
+        expected_session_revision=session.session_revision,
+        expected_draft_state_revision=draft.revision,
+        expected_draft_revision=draft.content_revision,
+        expected_draft_digest=draft.content_digest,
+        expected_suite_revision=None,
+        expected_suite_digest=None,
+    )
+    suite = suites.confirm(
+        session.session_id,
+        suite_id=generated.suite_id,
+        expected_session_revision=session.session_revision,
+        expected_draft_state_revision=draft.revision,
+        expected_draft_revision=draft.content_revision,
+        expected_draft_digest=draft.content_digest,
+        expected_suite_revision=generated.suite_revision,
+        expected_suite_digest=generated.suite_digest,
+    )
+    session, draft, _ = await evaluation.start_evaluation(
+        session.session_id,
+        **_write_context(session, draft),
+        evaluation_suite_revision=suite.suite_revision,
+        evaluation_suite_digest=suite.suite_digest,
+    )
+
+    with pytest.raises(SkillCreatorConflictError, match="Cancel the active evaluation"):
+        suites.patch(
+            session.session_id,
+            suite_id=suite.suite_id,
+            expected_session_revision=session.session_revision,
+            expected_draft_state_revision=draft.revision,
+            expected_draft_revision=draft.content_revision,
+            expected_draft_digest=draft.content_digest,
+            expected_suite_revision=suite.suite_revision,
+            expected_suite_digest=suite.suite_digest,
+            cases=[
+                SkillEvaluationSuiteStore.serialize_case(item)
+                for item in suite.cases
+            ],
+            change_reason="This edit must wait until the active run is cancelled.",
+        )
+
+
+@pytest.mark.asyncio
+async def test_suite_change_during_preflight_creates_no_stale_run(
+    tmp_path: Path,
+) -> None:
+    creator, evaluation, _, session, draft = _services(tmp_path)
+    suites = SkillCreatorEvaluationSuiteService(
+        creator,
+        SkillEvaluationSuiteStore(tmp_path / "suites"),
+        evaluation.evaluation_store,
+        generator=_SuiteGenerator(),
+        enabled=True,
+    )
+    evaluation.suite_service = suites
+    generated = await suites.generate(
+        session.session_id,
+        expected_session_revision=session.session_revision,
+        expected_draft_state_revision=draft.revision,
+        expected_draft_revision=draft.content_revision,
+        expected_draft_digest=draft.content_digest,
+        expected_suite_revision=None,
+        expected_suite_digest=None,
+    )
+    suite = suites.confirm(
+        session.session_id,
+        suite_id=generated.suite_id,
+        expected_session_revision=session.session_revision,
+        expected_draft_state_revision=draft.revision,
+        expected_draft_revision=draft.content_revision,
+        expected_draft_digest=draft.content_digest,
+        expected_suite_revision=generated.suite_revision,
+        expected_suite_digest=generated.suite_digest,
+    )
+
+    async def mutate_suite_during_preflight(_draft, purpose):
+        assert purpose == "evaluate"
+        revised = suites.patch(
+            session.session_id,
+            suite_id=suite.suite_id,
+            expected_session_revision=session.session_revision,
+            expected_draft_state_revision=draft.revision,
+            expected_draft_revision=draft.content_revision,
+            expected_draft_digest=draft.content_digest,
+            expected_suite_revision=suite.suite_revision,
+            expected_suite_digest=suite.suite_digest,
+            cases=[
+                SkillEvaluationSuiteStore.serialize_case(item)
+                for item in suite.cases
+            ],
+            change_reason="Adjust the frozen suite while preflight is pending.",
+        )
+        suites.confirm(
+            session.session_id,
+            suite_id=revised.suite_id,
+            expected_session_revision=session.session_revision,
+            expected_draft_state_revision=draft.revision,
+            expected_draft_revision=draft.content_revision,
+            expected_draft_digest=draft.content_digest,
+            expected_suite_revision=revised.suite_revision,
+            expected_suite_digest=revised.suite_digest,
+        )
+        return {"model_id": "test/model", "config": {}}
+
+    evaluation.preflight = mutate_suite_during_preflight
+    with pytest.raises(SkillEvaluationConflictError, match="during preflight"):
+        await evaluation.start_evaluation(
+            session.session_id,
+            **_write_context(session, draft),
+            evaluation_suite_revision=suite.suite_revision,
+            evaluation_suite_digest=suite.suite_digest,
+        )
+    assert evaluation.evaluation_store.list_runs(session_id=session.session_id) == []
 
 
 @pytest.mark.asyncio
@@ -468,6 +925,133 @@ async def test_creator_evaluation_api_exposes_cases_run_and_structured_conflict(
     finally:
         creator_api.configure_skill_creator(previous_creator)
         creator_api.configure_skill_creator_evaluation(previous_evaluation)
+
+
+@pytest.mark.asyncio
+async def test_evaluation_suite_api_generates_user_regression_confirms_and_starts_v2(
+    tmp_path: Path,
+) -> None:
+    creator, evaluation, _, session, draft = _services(tmp_path)
+    suites = SkillCreatorEvaluationSuiteService(
+        creator,
+        SkillEvaluationSuiteStore(tmp_path / "suites"),
+        evaluation.evaluation_store,
+        generator=_SuiteGenerator(),
+        enabled=True,
+    )
+    evaluation.suite_service = suites
+    app = FastAPI()
+    app.include_router(creator_api.router)
+    previous_creator = creator_api._service
+    previous_evaluation = creator_api._evaluation_service
+    previous_suites = creator_api._evaluation_suite_service
+    creator_api.configure_skill_creator(creator)
+    creator_api.configure_skill_creator_evaluation(evaluation)
+    creator_api.configure_skill_creator_evaluation_suite(suites)
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            expected = {
+                "expected_session_revision": session.session_revision,
+                "expected_draft_state_revision": draft.revision,
+                "expected_draft_revision": draft.content_revision,
+                "expected_draft_digest": draft.content_digest,
+            }
+            generated = await client.post(
+                f"/api/skills/creator/sessions/{session.session_id}/evaluation-suite/generate",
+                json=expected,
+            )
+            assert generated.status_code == 200, generated.text
+            suite = generated.json()["evaluation_suite"]
+            assert suite["state"] == "draft"
+            assert [item["role"] for item in suite["cases"]] == [
+                "normal",
+                "ambiguous",
+                "boundary",
+            ]
+
+            legacy_write = await client.put(
+                f"/api/skills/creator/sessions/{session.session_id}/cases",
+                json={
+                    **_write_context(session, draft),
+                    "quality_mode": "objective",
+                    "cases": [_case(1), _case(2), _case(3)],
+                },
+            )
+            assert legacy_write.status_code == 409
+            assert legacy_write.json()["detail"]["code"] == "skill_creator_conflict"
+
+            editable_cases = [
+                {
+                    key: value
+                    for key, value in item.items()
+                    if key
+                    in {
+                        "case_id",
+                        "role",
+                        "name",
+                        "prompt",
+                        "expected_behavior",
+                        "fixtures",
+                        "assertions",
+                        "requirement_ids",
+                        "required_resource_paths",
+                        "workflow_step_ids",
+                    }
+                }
+                for item in suite["cases"]
+            ]
+            editable_cases.append(_suite_case("regression", regression=True))
+            patched = await client.patch(
+                f"/api/skills/creator/sessions/{session.session_id}/evaluation-suite",
+                json={
+                    **expected,
+                    "suite_id": suite["suite_id"],
+                    "expected_suite_revision": suite["suite_revision"],
+                    "expected_suite_digest": suite["suite_digest"],
+                    "cases": editable_cases,
+                    "change_reason": "Preserve a failure the user explicitly observed.",
+                },
+            )
+            assert patched.status_code == 200, patched.text
+            suite = patched.json()["evaluation_suite"]
+            assert len(suite["cases"]) == 4
+            assert suite["cases"][-1]["source"] == "user"
+
+            confirmed = await client.post(
+                f"/api/skills/creator/sessions/{session.session_id}/evaluation-suite/confirm",
+                json={
+                    **expected,
+                    "suite_id": suite["suite_id"],
+                    "expected_suite_revision": suite["suite_revision"],
+                    "expected_suite_digest": suite["suite_digest"],
+                },
+            )
+            assert confirmed.status_code == 200, confirmed.text
+            suite = confirmed.json()["evaluation_suite"]
+            assert suite["state"] == "confirmed"
+
+            started = await client.post(
+                f"/api/skills/creator/sessions/{session.session_id}/evaluations",
+                json={
+                    **_write_context(session, draft),
+                    "evaluation_suite_revision": suite["suite_revision"],
+                    "evaluation_suite_digest": suite["suite_digest"],
+                    "repetitions": 1,
+                },
+            )
+            assert started.status_code == 202, started.text
+            run = started.json()["evaluation_run"]
+            assert run["evaluation_suite_id"] == suite["suite_id"]
+            assert len(run["items"]) == 8
+            assert started.json()["cases"] == []
+            assert started.json()["evaluation_suite"]["stale"] is False
+    finally:
+        creator_api.configure_skill_creator(previous_creator)
+        creator_api.configure_skill_creator_evaluation(previous_evaluation)
+        creator_api.configure_skill_creator_evaluation_suite(previous_suites)
 
 
 @pytest.mark.asyncio
