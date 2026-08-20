@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Server,
 } from "lucide-react";
+import NewApiChatCertification from "./NewApiChatCertification";
 
 type ConnectionKind =
   | "openrouter"
@@ -562,6 +563,13 @@ export default function ModelServiceConnections({
                         <p className="mt-2 text-xs leading-5 text-amber-200">
                           {connection.last_error_hint}
                         </p>
+                      ) : null}
+                      {connection.kind === "newapi" ? (
+                        <NewApiChatCertification
+                          connectionEnabled={connection.enabled}
+                          connectionId={connection.id}
+                          csrfToken={csrfToken}
+                        />
                       ) : null}
                     </div>
                     <div className="flex shrink-0 gap-2">

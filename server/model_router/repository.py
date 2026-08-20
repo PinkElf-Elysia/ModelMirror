@@ -28,7 +28,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 DEFAULT_TENANT_ID = "local"
 CANONICAL_MASTER_KEY_ENV = "MODEL_MIRROR_CREDENTIAL_MASTER_KEY"
 LEGACY_MASTER_KEY_ENV = "MODEL_ROUTER_CREDENTIAL_MASTER_KEY"
@@ -312,6 +312,30 @@ class SQLiteRouterRepository:
             drills_json TEXT NOT NULL,
             approved_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS provider_chat_certifications (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            connection_id TEXT NOT NULL,
+            connection_fingerprint TEXT NOT NULL,
+            contract_version TEXT NOT NULL,
+            requested_model TEXT NOT NULL,
+            actual_model TEXT,
+            idempotency_key_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            checks_json TEXT NOT NULL DEFAULT '{}',
+            warnings_json TEXT NOT NULL DEFAULT '[]',
+            error_code TEXT,
+            ttft_ms REAL,
+            e2e_ms REAL,
+            prompt_tokens INTEGER,
+            completion_tokens INTEGER,
+            total_tokens INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id),
+            UNIQUE (tenant_id, connection_id, idempotency_key_hash)
+        );
         CREATE INDEX IF NOT EXISTS idx_router_connections_tenant_enabled
             ON router_connections (tenant_id, enabled);
         CREATE INDEX IF NOT EXISTS idx_router_decisions_tenant_created
@@ -338,6 +362,13 @@ class SQLiteRouterRepository:
             ON router_candidate_samples (
                 tenant_id, connection_id, model_id, algorithm_version, created_at
             );
+        CREATE INDEX IF NOT EXISTS idx_provider_chat_certifications_recent
+            ON provider_chat_certifications (
+                tenant_id, connection_id, created_at DESC
+            );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_chat_certifications_running
+            ON provider_chat_certifications (tenant_id, connection_id)
+            WHERE status = 'running';
         """
         with self._lock, self._connect() as connection:
             previous_schema_version = int(
@@ -520,6 +551,16 @@ class SQLiteRouterRepository:
             for column, statement in video_job_migrations.items():
                 if column not in video_job_columns:
                     connection.execute(statement)
+            now = utc_now()
+            connection.execute(
+                """
+                UPDATE provider_chat_certifications
+                SET status = 'uncertain', error_code = 'server_restarted',
+                    updated_at = ?, completed_at = ?
+                WHERE status = 'running'
+                """,
+                (now, now),
+            )
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def create_connection(
@@ -659,6 +700,172 @@ class SQLiteRouterRepository:
             raise RouterCredentialUnavailable(
                 "The saved credential is unavailable. Please enter the key again."
             ) from exc
+
+    def connection_config_fingerprint(
+        self, tenant_id: str, connection_id: str
+    ) -> str:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT kind, base_url, scopes_json, api_key_ciphertext
+                FROM router_connections
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, connection_id),
+            ).fetchone()
+        if row is None:
+            raise RouterConnectionNotFound("Model service connection was not found.")
+        material = json.dumps(
+            {
+                "kind": row["kind"],
+                "base_url": row["base_url"],
+                "scopes": json.loads(row["scopes_json"]),
+                "credential": row["api_key_ciphertext"],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    def claim_chat_certification(
+        self,
+        tenant_id: str,
+        *,
+        certification_id: str,
+        connection_id: str,
+        connection_fingerprint: str,
+        contract_version: str,
+        requested_model: str,
+        idempotency_key_hash: str,
+    ) -> tuple[dict[str, object], bool]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            existing = connection.execute(
+                """
+                SELECT * FROM provider_chat_certifications
+                WHERE tenant_id = ? AND connection_id = ?
+                    AND idempotency_key_hash = ?
+                """,
+                (clean_tenant, connection_id, idempotency_key_hash),
+            ).fetchone()
+            if existing is not None:
+                return dict(existing), False
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO provider_chat_certifications (
+                        id, tenant_id, connection_id, connection_fingerprint,
+                        contract_version, requested_model,
+                        idempotency_key_hash, status, checks_json,
+                        warnings_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', '{}', '[]', ?, ?)
+                    """,
+                    (
+                        certification_id,
+                        clean_tenant,
+                        connection_id,
+                        connection_fingerprint,
+                        contract_version,
+                        requested_model,
+                        idempotency_key_hash,
+                        now,
+                        now,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise RouterRepositoryError(
+                    "provider_chat_certification_already_running"
+                ) from exc
+            row = connection.execute(
+                """
+                SELECT * FROM provider_chat_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+        return dict(row), True
+
+    def complete_chat_certification(
+        self,
+        tenant_id: str,
+        certification_id: str,
+        *,
+        status: str,
+        checks: dict[str, bool],
+        warning_codes: list[str],
+        error_code: str | None = None,
+        actual_model: str | None = None,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> dict[str, object]:
+        if status not in {"passed", "failed", "uncertain"}:
+            raise RouterRepositoryError("invalid_provider_chat_certification_status")
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_chat_certifications
+                SET status = ?, checks_json = ?, warnings_json = ?,
+                    error_code = ?, actual_model = ?, ttft_ms = ?, e2e_ms = ?,
+                    prompt_tokens = ?, completion_tokens = ?, total_tokens = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    status,
+                    json.dumps(checks, sort_keys=True, separators=(",", ":")),
+                    json.dumps(warning_codes, separators=(",", ":")),
+                    error_code,
+                    actual_model,
+                    ttft_ms,
+                    e2e_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    now,
+                    now,
+                    clean_tenant,
+                    certification_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_chat_certification_not_running")
+            row = connection.execute(
+                """
+                SELECT * FROM provider_chat_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+        return dict(row)
+
+    def list_chat_certifications(self, tenant_id: str) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT certification.*
+                FROM provider_chat_certifications AS certification
+                JOIN (
+                    SELECT connection_id, MAX(created_at) AS latest_created_at
+                    FROM provider_chat_certifications
+                    WHERE tenant_id = ?
+                    GROUP BY connection_id
+                ) AS latest
+                ON latest.connection_id = certification.connection_id
+                    AND latest.latest_created_at = certification.created_at
+                WHERE certification.tenant_id = ?
+                ORDER BY certification.created_at DESC, certification.id DESC
+                """,
+                (clean_tenant, clean_tenant),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def save_test_result(
         self,

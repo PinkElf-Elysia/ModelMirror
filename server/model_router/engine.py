@@ -16,6 +16,7 @@ from .omniroute_parity import (
     classify_prompt_intent,
     get_task_fitness,
 )
+from .provider_chat import ProviderChatTarget
 from .repository import SQLiteRouterRepository
 from .routing import (
     NoEligibleCandidateError,
@@ -44,13 +45,20 @@ class NativeDispatchTarget:
     connection_id: str
     connection_name: str
     model_id: str
-    chat_completions_url: str
-    api_key: str
+    provider_chat_target: ProviderChatTarget
     context_length: int | None
     input_price_per_token: float | None
     output_price_per_token: float | None
     estimated_request_cost: float | None
     score: float
+
+    @property
+    def chat_completions_url(self) -> str:
+        return self.provider_chat_target.chat_completions_url
+
+    @property
+    def api_key(self) -> str:
+        return self.provider_chat_target.api_key
 
 
 @dataclass(frozen=True)
@@ -565,9 +573,14 @@ class NativeRouterEngine:
                     connection_id=connection.id,
                     connection_name=connection.name,
                     model_id=candidate.model_id,
-                    chat_completions_url=self._chat_url(connection.base_url),
-                    api_key=self.repository.resolve_api_key(
-                        self.service.tenant_id, connection.id
+                    provider_chat_target=ProviderChatTarget.create(
+                        source="managed",
+                        provider_kind=connection.kind,
+                        base_url=connection.base_url,
+                        api_key=self.repository.resolve_api_key(
+                            self.service.tenant_id, connection.id
+                        ),
+                        connection_id=connection.id,
                     ),
                     context_length=candidate.context_length,
                     input_price_per_token=self._prices(
@@ -822,12 +835,14 @@ class NativeRouterEngine:
 
     @staticmethod
     def _chat_url(base_url: str) -> str:
-        base = base_url.rstrip("/")
-        if base.lower().endswith("/models"):
-            return f"{base[:-7]}/chat/completions"
-        if base.lower().endswith("/v1"):
-            return f"{base}/chat/completions"
-        return f"{base}/v1/chat/completions"
+        """Compatibility seam for consumers migrating to Provider Chat v1."""
+
+        return ProviderChatTarget.create(
+            source="static",
+            provider_kind="openai_compatible",
+            base_url=base_url,
+            api_key="",
+        ).chat_completions_url
 
     @staticmethod
     def _integer(value: Any) -> int | None:

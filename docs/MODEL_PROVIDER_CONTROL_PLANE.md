@@ -1,8 +1,8 @@
 # Model Provider Control Plane
 
-状态：Round 0–1C 建设批准，默认数据面切换未批准
-基线：`origin/main@6cc223505c4dc394f65902d3cb6e61f34ae11ea1`
-决策日期：2026-08-13
+状态：Round 0–2 建设批准，默认数据面切换未批准
+Round 2 基线：`origin/main@ed27945e676986a5f7bb7d07619b10e96a03e534`
+更新日期：2026-08-20
 
 ## 决策
 
@@ -27,6 +27,8 @@ Provider Control Plane 的会话、SQLite 或主密钥。它只加入独立外�
 - `native` 默认仍需至少 500 次真实请求、连续 14 天、无 P0/P1、故障演练和人工
   验收；数据不能被修改来伪造门槛。
 - Round 0–1C 不改变 `/api/chat`、SSE、公开模型目录或默认路由协议。
+- Round 2 统一普通文本 Chat 的内部调用契约，但不改变默认 Provider、公开请求协议、
+  SSE 或路由回执，也不产生影子复制流量。
 - newAPI 是否成为强制默认数据面由后续独立决策决定。
 - 任一门禁失败时保留现有静态数据面和 SQLite，不自动迁移或删除数据。
 
@@ -68,6 +70,24 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 命令先全量解密预检，再使用 SQLite Backup API 创建时间戳备份，在
 `BEGIN IMMEDIATE` 中重加密并逐条回读验证，最后写入密钥指纹。失败会 Rollback；旧
 数据库备份和本地旧密钥文件不会被删除。回退时恢复备份并重新启用旧密钥来源。
+
+## 文本 Chat 契约与 newAPI 认证
+
+- 内部契约版本为 `modelmirror-provider-chat-v1`。Static、OmniRoute sidecar 与 Native
+  managed target 使用相同的 Base URL、`/models`、`/chat/completions` 解析规则。
+- Managed target 在真实请求前继续执行 DNS 解析、地址审批与 IP pinning；Static 与
+  sidecar 仍是可信部署输入，不被动态内网白名单误阻断。
+- newAPI 认证只验证核心文本 Chat 兼容性。它不证明多模态、RAG、Workflow、Agent、
+  Coding 或默认数据面资格，也不计入 Native Router 的 500 次/14 天门禁。
+- `POST /api/router/connections/{id}/models/refresh` 刷新可认证模型；认证 POST 要求管理
+  会话、CSRF、`Idempotency-Key` 和显式费用确认。
+- 每次认证先刷新模型目录，再发送最多一个固定合成请求；付费 POST 不重试、不轮换 IP、
+  不跟随重定向。SQLite v12 只保存脱敏检查、指标和配置指纹，不保存 Prompt、模型正文
+  或凭据。
+- `MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_ENABLED=false` 可停止新的认证操作，不影响
+  连接管理、现有认证记录或默认数据面。
+- 连接的 Base URL、类型、scope 或凭据变化会让旧结果派生为 `stale`；名称或健康检查
+  时间变化不会。Server 重启会把遗留 `running` 标为 `uncertain`，不会自动重放。
 
 ## 回退
 

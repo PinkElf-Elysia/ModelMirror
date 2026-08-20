@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+import threading
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 
 try:
     from server.omniroute.catalog import OmniRouteCatalogService
@@ -23,6 +25,10 @@ from .admin_auth import (
 )
 from .schemas import (
     ConnectionTestResult,
+    ProviderChatCertificationListResponse,
+    ProviderChatCertificationRequest,
+    ProviderChatCertificationSummary,
+    ProviderModelsRefreshResponse,
     RouterConnection,
     RouterConnectionCreate,
     RouterConnectionUpdate,
@@ -30,6 +36,7 @@ from .schemas import (
     RouterPolicy,
     RouterStatus,
 )
+from .chat_certification import ProviderChatCertificationService
 from .service import (
     ModelRouterService,
     RouterServiceError,
@@ -40,21 +47,25 @@ from .service import (
 router = APIRouter(prefix="/api/router", tags=["model-router"])
 models_router = APIRouter(prefix="/api/models", tags=["model-catalog"])
 _service: ModelRouterService | None = None
+_service_lock = threading.Lock()
 _catalog_coordinator: object | None = None
 _native_engine: object | None = None
 
 
 def configure_model_router(service: ModelRouterService) -> None:
     global _service, _native_engine, _catalog_coordinator
-    _service = service
-    _native_engine = None
-    _catalog_coordinator = None
+    with _service_lock:
+        _service = service
+        _native_engine = None
+        _catalog_coordinator = None
 
 
 def get_model_router_service() -> ModelRouterService:
     global _service
     if _service is None:
-        _service = ModelRouterService()
+        with _service_lock:
+            if _service is None:
+                _service = ModelRouterService()
     return _service
 
 
@@ -180,6 +191,56 @@ async def test_saved_connection(
 ) -> ConnectionTestResult:
     try:
         return await get_model_router_service().test_saved_connection(connection_id)
+    except (ProviderEgressError, RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.post(
+    "/connections/{connection_id}/models/refresh",
+    response_model=ProviderModelsRefreshResponse,
+)
+async def refresh_connection_models(
+    connection_id: str,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderModelsRefreshResponse:
+    try:
+        return await ProviderChatCertificationService(
+            get_model_router_service()
+        ).refresh_models(connection_id)
+    except (ProviderEgressError, RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.get(
+    "/certifications/chat",
+    response_model=ProviderChatCertificationListResponse,
+)
+def list_chat_certifications(
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> ProviderChatCertificationListResponse:
+    try:
+        return ProviderChatCertificationService(get_model_router_service()).list()
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.post(
+    "/connections/{connection_id}/certifications/chat",
+    response_model=ProviderChatCertificationSummary,
+)
+async def run_chat_certification(
+    connection_id: str,
+    payload: ProviderChatCertificationRequest,
+    idempotency_key: str = Header(default="", alias="Idempotency-Key"),
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderChatCertificationSummary:
+    try:
+        return await ProviderChatCertificationService(get_model_router_service()).run(
+            connection_id,
+            model_id=payload.model_id,
+            acknowledge_billed_call=payload.acknowledge_billed_call,
+            idempotency_key=idempotency_key,
+        )
     except (ProviderEgressError, RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
