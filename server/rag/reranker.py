@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,6 +29,21 @@ class RerankOutcome:
     provider: str
     model: str = ""
     warning: str | None = None
+    requested_input_count: int = 0
+    input_count: int = 0
+    input_char_count: int = 0
+    output_count: int = 0
+    candidate_limit: int = 20
+    input_char_limit: int = 24_000
+    timeout_budget_ms: int = 5_000
+    elapsed_ms: float = 0.0
+    attempted_provider: str = "none"
+    attempted_model: str = ""
+    fallback_reason: str | None = None
+
+
+class RerankAttemptError(RuntimeError):
+    """A provider attempt failed with an already-sanitized reason."""
 
 
 class RerankService:
@@ -51,56 +68,148 @@ class RerankService:
         model: str = "",
         top_n: int,
     ) -> RerankOutcome:
+        started = time.perf_counter()
+        candidate_limit = _bounded_env_int(
+            "RAG_RERANK_MAX_CANDIDATES", 20, minimum=1, maximum=100
+        )
+        input_char_limit = _bounded_env_int(
+            "RAG_RERANK_MAX_INPUT_CHARS", 24_000, minimum=1_000, maximum=200_000
+        )
+        timeout_seconds = _bounded_env_float(
+            "RAG_RERANK_TIMEOUT_SECONDS", 5.0, minimum=0.01, maximum=60.0
+        )
+        limited_query, limited_documents, input_char_count = _limit_rerank_input(
+            query,
+            documents,
+            candidate_limit=candidate_limit,
+            input_char_limit=input_char_limit,
+        )
+
+        def finalize(outcome: RerankOutcome) -> RerankOutcome:
+            outcome.requested_input_count = len(documents)
+            outcome.input_count = len(limited_documents)
+            outcome.input_char_count = input_char_count
+            outcome.output_count = len(outcome.items)
+            outcome.candidate_limit = candidate_limit
+            outcome.input_char_limit = input_char_limit
+            outcome.timeout_budget_ms = int(round(timeout_seconds * 1000))
+            outcome.elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+            return outcome
+
         if not documents:
-            return RerankOutcome(items=[], provider="none", model="")
+            return finalize(
+                RerankOutcome(
+                    items=[],
+                    provider="none",
+                    model="",
+                    fallback_reason="no_candidates",
+                )
+            )
+        if not limited_documents:
+            return finalize(
+                RerankOutcome(
+                    items=[],
+                    provider="none",
+                    warning=(
+                        "Rerank input budget contained no candidate text; "
+                        "fused ranking was used."
+                    ),
+                    fallback_reason="input_budget_exhausted",
+                )
+            )
         providers = [provider]
         if provider == "auto":
             providers = ["api", "llm"]
 
         warnings: list[str] = []
-        for candidate in providers:
-            try:
-                if candidate == "api" and self.capabilities()["api_configured"]:
-                    effective_model = model or self._api_model()
-                    return RerankOutcome(
-                        items=await self._rerank_api(
-                            query,
-                            documents,
-                            model=effective_model,
-                            top_n=top_n,
-                        ),
-                        provider="api",
-                        model=effective_model,
-                    )
-                if candidate == "llm" and self.capabilities()["llm_configured"]:
-                    effective_model = self._llm_model()
-                    if provider == "llm" and model:
-                        effective_model = model
-                    if _looks_like_reranker_model(effective_model):
-                        warnings.append(
-                            "llm rerank unavailable: reranker-only model cannot be sent "
-                            "to a chat-completions endpoint"
-                        )
-                        continue
-                    return RerankOutcome(
-                        items=await self._rerank_llm(
-                            query,
-                            documents,
-                            model=effective_model,
-                            top_n=top_n,
-                        ),
-                        provider="llm",
-                        model=effective_model,
-                    )
-            except Exception as exc:
-                warnings.append(f"{candidate} rerank unavailable: {str(exc)[:160]}")
+        attempted_provider = "none"
+        attempted_model = ""
 
-        return RerankOutcome(
-            items=[],
-            provider="none",
-            model="",
-            warning="; ".join(warnings) or "No rerank provider is configured; fused ranking was used.",
-        )
+        async def run_with_shared_budget() -> RerankOutcome:
+            nonlocal attempted_model, attempted_provider
+            for candidate in providers:
+                try:
+                    if candidate == "api" and self.capabilities()["api_configured"]:
+                        effective_model = model or self._api_model()
+                        attempted_provider = "api"
+                        attempted_model = effective_model
+                        return RerankOutcome(
+                            items=await self._rerank_api(
+                                limited_query,
+                                limited_documents,
+                                model=effective_model,
+                                top_n=min(top_n, len(limited_documents)),
+                                timeout_seconds=timeout_seconds,
+                            ),
+                            provider="api",
+                            model=effective_model,
+                            attempted_provider="api",
+                            attempted_model=effective_model,
+                        )
+                    if candidate == "llm" and self.capabilities()["llm_configured"]:
+                        effective_model = self._llm_model()
+                        if provider == "llm" and model:
+                            effective_model = model
+                        attempted_provider = "llm"
+                        attempted_model = effective_model
+                        if _looks_like_reranker_model(effective_model):
+                            warnings.append(
+                                "llm:reranker_model_not_chat_compatible"
+                            )
+                            continue
+                        return RerankOutcome(
+                            items=await self._rerank_llm(
+                                limited_query,
+                                limited_documents,
+                                model=effective_model,
+                                top_n=min(top_n, len(limited_documents)),
+                                timeout_seconds=timeout_seconds,
+                            ),
+                            provider="llm",
+                            model=effective_model,
+                            attempted_provider="llm",
+                            attempted_model=effective_model,
+                            warning=(
+                                f"Rerank fallback used ({';'.join(warnings)})."
+                                if warnings
+                                else None
+                            ),
+                            fallback_reason=";".join(warnings) or None,
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    warnings.append(f"{candidate}:{_safe_rerank_error(exc)}")
+
+            reason = ";".join(warnings) or "provider_not_configured"
+            return RerankOutcome(
+                items=[],
+                provider="none",
+                model="",
+                warning=f"Rerank unavailable ({reason}); fused ranking was used.",
+                attempted_provider=attempted_provider,
+                attempted_model=attempted_model,
+                fallback_reason=reason,
+            )
+
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                return finalize(await run_with_shared_budget())
+        except TimeoutError:
+            return finalize(
+                RerankOutcome(
+                    items=[],
+                    provider="none",
+                    model="",
+                    warning=(
+                        "Rerank total timeout budget was exhausted; "
+                        "fused ranking was used."
+                    ),
+                    attempted_provider=attempted_provider,
+                    attempted_model=attempted_model,
+                    fallback_reason="timeout_budget_exhausted",
+                )
+            )
 
     async def _rerank_api(
         self,
@@ -109,14 +218,17 @@ class RerankService:
         *,
         model: str,
         top_n: int,
+        timeout_seconds: float,
     ) -> list[RerankItem]:
         payload = {
             "model": model or self._api_model(),
             "query": query,
-            "documents": [item.text[:6000] for item in documents],
+            "documents": [item.text for item in documents],
             "top_n": min(top_n, len(documents)),
         }
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout_seconds, connect=min(2.0, timeout_seconds))
+        ) as client:
             response = await client.post(
                 self._api_url(),
                 headers={"Authorization": f"Bearer {self._api_key()}"},
@@ -136,10 +248,11 @@ class RerankService:
         *,
         model: str,
         top_n: int,
+        timeout_seconds: float,
     ) -> list[RerankItem]:
         compact_documents = [
-            {"index": index, "text": item.text[:3000]}
-            for index, item in enumerate(documents[:50])
+            {"index": index, "text": item.text}
+            for index, item in enumerate(documents)
         ]
         payload = {
             "model": model or self._llm_model(),
@@ -154,7 +267,7 @@ class RerankService:
                 {
                     "role": "user",
                     "content": json.dumps(
-                        {"query": query[:4000], "documents": compact_documents, "top_n": top_n},
+                        {"query": query, "documents": compact_documents, "top_n": top_n},
                         ensure_ascii=False,
                     ),
                 },
@@ -167,7 +280,9 @@ class RerankService:
         for target_name, target_url, target_key in self._llm_targets():
             try:
                 async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(45.0, connect=10.0)
+                    timeout=httpx.Timeout(
+                        timeout_seconds, connect=min(2.0, timeout_seconds)
+                    )
                 ) as client:
                     response = await client.post(
                         target_url,
@@ -188,8 +303,8 @@ class RerankService:
                     raise ValueError("LLM rerank response is missing results.")
                 return _parse_ranked_items(raw_results, documents, top_n)
             except Exception as exc:
-                errors.append(f"{target_name}: {str(exc)[:120]}")
-        raise RuntimeError("; ".join(errors) or "No LLM rerank target is configured.")
+                errors.append(f"{target_name}:{_safe_rerank_error(exc)}")
+        raise RerankAttemptError(";".join(errors) or "llm_target_not_configured")
 
     def _api_url(self) -> str:
         url = os.getenv("RERANK_API_URL", "").strip()
@@ -282,3 +397,73 @@ def _parse_json_object(content: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Rerank response must be a JSON object.")
     return value
+
+
+def _limit_rerank_input(
+    query: str,
+    documents: list[RerankDocument],
+    *,
+    candidate_limit: int,
+    input_char_limit: int,
+) -> tuple[str, list[RerankDocument], int]:
+    selected = documents[:candidate_limit]
+    query_limit = min(4_000, max(1, input_char_limit // 6))
+    limited_query = query[:query_limit]
+    remaining = max(0, input_char_limit - len(limited_query))
+    limited_documents: list[RerankDocument] = []
+    for index, document in enumerate(selected):
+        remaining_slots = len(selected) - index
+        per_document_limit = remaining // remaining_slots if remaining_slots else 0
+        limited_text = document.text[:per_document_limit]
+        limited_documents.append(
+            RerankDocument(chunk_id=document.chunk_id, text=limited_text)
+        )
+        remaining -= len(limited_text)
+    input_char_count = len(limited_query) + sum(
+        len(document.text) for document in limited_documents
+    )
+    return limited_query, limited_documents, input_char_count
+
+
+def _bounded_env_int(
+    name: str,
+    default: int,
+    *,
+    minimum: int,
+    maximum: int,
+) -> int:
+    try:
+        value = int(os.getenv(name, str(default)).strip())
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _bounded_env_float(
+    name: str,
+    default: float,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        value = float(os.getenv(name, str(default)).strip())
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _safe_rerank_error(exc: Exception) -> str:
+    if isinstance(exc, RerankAttemptError):
+        return str(exc)[:160]
+    if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+        return "provider_timeout"
+    if isinstance(exc, json.JSONDecodeError):
+        return "invalid_json_response"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"http_status_{exc.response.status_code}"
+    if isinstance(exc, httpx.HTTPError):
+        return "http_request_failed"
+    if isinstance(exc, ValueError):
+        return "invalid_provider_response"
+    return "provider_error"

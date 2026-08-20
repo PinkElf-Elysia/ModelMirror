@@ -9,7 +9,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .strategy_tuning_qualification import normalize_benchmark_role
+from .strategy_tuning_qualification import (
+    MIN_HARD_NEGATIVES,
+    MIN_POSITIVE_CASES,
+    build_tuning_readiness,
+    normalize_benchmark_role,
+)
 
 
 class EvaluationError(RuntimeError):
@@ -42,10 +47,12 @@ DEFAULT_GATE_POLICY: dict[str, Any] = {
     "min_recall_at_5": 0.8,
     "max_mrr_regression": 0.03,
     "max_citation_hit_regression": 0.02,
+    "max_citation_precision_at_5_regression": 0.02,
     "max_no_result_increase": 0.05,
     "min_no_result_accuracy": 0.8,
     "min_citation_coverage": 0.0,
     "max_p95_latency_ratio": 2.0,
+    "max_p95_latency_ms": 1500.0,
     "require_zero_errors": True,
 }
 
@@ -140,6 +147,9 @@ def evaluate_retrieval_case(
     metrics["citation_hit_rate"] = (
         relevant_source_count / len(ranking) if ranking else 0.0
     )
+    metrics["citation_precision_at_5"] = (
+        sum(1 for item in ranking[:5] if int(item["relevance"]) > 0) / 5.0
+    )
     metrics["citation_coverage"] = (
         len(matched_ref_indexes) / total_relevant if total_relevant else 0.0
     )
@@ -178,6 +188,7 @@ def aggregate_target_metrics(
         f"mrr_at_{max(normalized_ks, default=10)}",
         f"ndcg_at_{max(normalized_ks, default=10)}",
         "citation_hit_rate",
+        "citation_precision_at_5",
         "citation_coverage",
     ]
     metrics = {
@@ -239,10 +250,11 @@ def evaluate_promotion_gate(
     *,
     baseline: dict[str, Any] | None,
     policy: dict[str, Any] | None = None,
+    evidence_qualification: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Evaluate absolute and regression thresholds for one candidate target."""
 
-    effective = {**DEFAULT_GATE_POLICY, **dict(policy or {})}
+    effective = _compatible_gate_policy(policy)
     checks: list[dict[str, Any]] = []
 
     def add_check(check_id: str, passed: bool, actual: float, threshold: float, message: str) -> None:
@@ -304,16 +316,25 @@ def evaluate_promotion_gate(
             float(effective["max_mrr_regression"]),
             "MRR@10 regression must stay within the configured tolerance.",
         )
-        citation_regression = float(baseline.get("citation_hit_rate", 0.0)) - float(
-            candidate.get("citation_hit_rate", 0.0)
+        has_precision = (
+            "citation_precision_at_5" in baseline
+            and "citation_precision_at_5" in candidate
+        )
+        citation_metric = (
+            "citation_precision_at_5" if has_precision else "citation_hit_rate"
+        )
+        citation_regression = float(baseline.get(citation_metric, 0.0)) - float(
+            candidate.get(citation_metric, 0.0)
         )
         add_check(
-            "max_citation_hit_regression",
-            citation_regression <= float(effective["max_citation_hit_regression"]),
+            "max_citation_precision_at_5_regression",
+            citation_regression
+            <= float(effective["max_citation_precision_at_5_regression"]),
             citation_regression,
-            float(effective["max_citation_hit_regression"]),
-            "Citation hit-rate regression must stay within tolerance.",
+            float(effective["max_citation_precision_at_5_regression"]),
+            "Citation Precision@5 regression must stay within tolerance.",
         )
+        checks[-1]["metric_source"] = citation_metric
         no_result_increase = float(
             candidate.get("positive_no_result_rate", candidate.get("no_result_rate", 0.0))
         ) - float(
@@ -326,20 +347,111 @@ def evaluate_promotion_gate(
             float(effective["max_no_result_increase"]),
             "Positive-case no-result rate increase must stay within tolerance.",
         )
-        baseline_p95 = float(baseline.get("p95_latency_ms", 0.0))
-        candidate_p95 = float(candidate.get("p95_latency_ms", 0.0))
-        latency_ratio = candidate_p95 / baseline_p95 if baseline_p95 > 0 else 1.0
-        add_check(
-            "max_p95_latency_ratio",
-            latency_ratio <= float(effective["max_p95_latency_ratio"]),
-            latency_ratio,
-            float(effective["max_p95_latency_ratio"]),
-            "P95 latency ratio must stay within the configured limit.",
+
+    baseline_p95 = float((baseline or {}).get("p95_latency_ms", 0.0))
+    candidate_p95 = float(candidate.get("p95_latency_ms", 0.0))
+    has_relative_baseline = baseline is not None and baseline_p95 > 0
+    latency_ratio = (
+        candidate_p95 / baseline_p95
+        if has_relative_baseline
+        else (0.0 if candidate_p95 <= 0 else 1_000_000_000.0)
+    )
+    relative_passed = has_relative_baseline and latency_ratio <= float(
+        effective["max_p95_latency_ratio"]
+    )
+    absolute_passed = candidate_p95 <= float(effective["max_p95_latency_ms"])
+    add_check(
+        "max_p95_latency_ratio",
+        relative_passed or absolute_passed,
+        latency_ratio,
+        float(effective["max_p95_latency_ratio"]),
+        "P95 latency must meet either the relative or absolute configured limit.",
+    )
+    checks[-1].update(
+        {
+            "actual_ms": round(candidate_p95, 3),
+            "absolute_threshold_ms": round(
+                float(effective["max_p95_latency_ms"]), 3
+            ),
+            "relative_baseline_available": has_relative_baseline,
+            "pass_mode": (
+                "relative"
+                if relative_passed
+                else "absolute"
+                if absolute_passed
+                else "none"
+            ),
+        }
+    )
+
+    if evidence_qualification is not None:
+        qualified = bool(evidence_qualification.get("qualified"))
+        checks.append(
+            {
+                "id": "qualified_promotion_evidence",
+                "passed": qualified,
+                "actual": 1.0 if qualified else 0.0,
+                "threshold": 1.0,
+                "status": str(
+                    evidence_qualification.get("status") or "diagnostic_only"
+                ),
+                "counts": _copy(evidence_qualification.get("counts") or {}),
+                "message": (
+                    "Promotion evidence must include 30 stable-Gold positives and "
+                    "12 approved corpus-near hard negatives."
+                ),
+            }
         )
 
     return {
         "passed": all(item["passed"] for item in checks),
         "mode": str(effective["mode"]),
+        "checks": checks,
+    }
+
+
+def qualify_promotion_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Classify a fixed evaluation snapshot as promotion evidence or smoke-only."""
+
+    readiness = build_tuning_readiness(snapshot)
+    counts = dict(readiness.get("counts") or {})
+    positive_count = int(counts.get("positive") or 0)
+    stable_positive_count = int(counts.get("stable_source_block_positive") or 0)
+    reviewed_hard_negative_count = int(counts.get("reviewed_hard_negative") or 0)
+    checks = [
+        {
+            "id": "minimum_positive_cases",
+            "passed": positive_count >= MIN_POSITIVE_CASES,
+            "actual": positive_count,
+            "required": MIN_POSITIVE_CASES,
+        },
+        {
+            "id": "stable_source_block_gold",
+            "passed": positive_count > 0 and stable_positive_count == positive_count,
+            "actual": stable_positive_count,
+            "required": positive_count,
+        },
+        {
+            "id": "reviewed_hard_negatives",
+            "passed": reviewed_hard_negative_count >= MIN_HARD_NEGATIVES,
+            "actual": reviewed_hard_negative_count,
+            "required": MIN_HARD_NEGATIVES,
+        },
+    ]
+    qualified = all(bool(item["passed"]) for item in checks)
+    return {
+        "version": "rag-promotion-evidence-v1",
+        "status": "qualified" if qualified else "diagnostic_only",
+        "qualified": qualified,
+        "positive_case_count": positive_count,
+        "stable_source_block_positive_count": stable_positive_count,
+        "reviewed_hard_negative_count": reviewed_hard_negative_count,
+        "counts": {
+            "total": int(counts.get("total") or 0),
+            "positive": positive_count,
+            "stable_source_block_positive": stable_positive_count,
+            "reviewed_hard_negative": reviewed_hard_negative_count,
+        },
         "checks": checks,
     }
 
@@ -725,6 +837,7 @@ class KnowledgeEvaluationStore:
                 else None
             ),
             "eval_set_snapshot": snapshot,
+            "evidence_qualification": qualify_promotion_evidence(snapshot),
             "case_ids": [
                 str(case.get("case_id") or "") for case in snapshot.get("cases", [])
             ],
@@ -870,10 +983,10 @@ class KnowledgeEvaluationStore:
 
     def get_gate_policy(self, kb_id: str) -> dict[str, Any]:
         stored = self._read()["gate_policies"].get(kb_id)
-        return {**DEFAULT_GATE_POLICY, **dict(stored or {}), "kb_id": kb_id}
+        return {**_compatible_gate_policy(stored), "kb_id": kb_id}
 
     def set_gate_policy(self, kb_id: str, values: dict[str, Any]) -> dict[str, Any]:
-        policy = _validate_gate_policy({**DEFAULT_GATE_POLICY, **values})
+        policy = _validate_gate_policy(_compatible_gate_policy(values))
         with self._lock:
             data = self._read_unlocked()
             data["gate_policies"][kb_id] = policy
@@ -1100,6 +1213,7 @@ def _safe_targeting(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
     evidence_ids = value.get("evidence_ids")
+    context_refs = value.get("context_refs")
     return {
         "blueprint_id": _optional_string(value.get("blueprint_id"), 160),
         "query_type": _optional_string(value.get("query_type"), 80),
@@ -1110,6 +1224,21 @@ def _safe_targeting(value: Any) -> dict[str, Any]:
             for item in evidence_ids
             if str(item).strip()
         ][:3] if isinstance(evidence_ids, list) else [],
+        "context_refs": [
+            {
+                "document_id": _optional_string(item.get("document_id"), 200),
+                "chunk_id": _optional_string(item.get("chunk_id"), 240),
+                "source_block_id": _optional_string(
+                    item.get("source_block_id"), 240
+                ),
+                "page_number": _optional_int(item.get("page_number")),
+            }
+            for item in context_refs
+            if isinstance(item, dict)
+            and item.get("document_id")
+            and item.get("chunk_id")
+            and item.get("source_block_id")
+        ][:3] if isinstance(context_refs, list) else [],
     }
 
 
@@ -1142,6 +1271,7 @@ def _validate_gate_policy(policy: dict[str, Any]) -> dict[str, Any]:
         "min_recall_at_5",
         "max_mrr_regression",
         "max_citation_hit_regression",
+        "max_citation_precision_at_5_regression",
         "max_no_result_increase",
         "min_no_result_accuracy",
         "min_citation_coverage",
@@ -1155,8 +1285,25 @@ def _validate_gate_policy(policy: dict[str, Any]) -> dict[str, Any]:
     if latency < 1 or latency > 10:
         raise ValueError("max_p95_latency_ratio must be between 1 and 10.")
     policy["max_p95_latency_ratio"] = latency
+    absolute_latency = float(policy["max_p95_latency_ms"])
+    if absolute_latency < 1 or absolute_latency > 120_000:
+        raise ValueError("max_p95_latency_ms must be between 1 and 120000.")
+    policy["max_p95_latency_ms"] = absolute_latency
     policy["require_zero_errors"] = bool(policy.get("require_zero_errors", True))
     return policy
+
+
+def _compatible_gate_policy(values: dict[str, Any] | None) -> dict[str, Any]:
+    supplied = dict(values or {})
+    effective = {**DEFAULT_GATE_POLICY, **supplied}
+    if (
+        "max_citation_precision_at_5_regression" not in supplied
+        and "max_citation_hit_regression" in supplied
+    ):
+        effective["max_citation_precision_at_5_regression"] = supplied[
+            "max_citation_hit_regression"
+        ]
+    return effective
 
 
 def _optional_string(value: Any, limit: int) -> str | None:
@@ -1196,6 +1343,19 @@ def _safe_retrieval_receipt(value: dict[str, Any] | None) -> dict[str, Any]:
         "rerank_provider_used",
         "rerank_model_used",
         "rerank_applied",
+        "rerank_input_count",
+        "rerank_output_count",
+        "rerank_tail_dropped",
+        "rerank_requested_input_count",
+        "rerank_input_char_count",
+        "rerank_candidate_limit",
+        "rerank_input_char_limit",
+        "rerank_timeout_budget_ms",
+        "rerank_elapsed_ms",
+        "rerank_attempted_provider",
+        "rerank_attempted_model",
+        "rerank_fallback_reason",
+        "threshold_score_domain",
         "embedding_provider",
         "embedding_model",
         "embedding_dimension",

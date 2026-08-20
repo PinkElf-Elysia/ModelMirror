@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "scope": "RAG P0 round 2 batches 2.0 through 2D",
+  "base": {
+    "branch": "origin/main",
+    "commit": "17bc80cad89f5eb52eeb4d19061e88642ae22f02",
+    "source_pr": 217
+  },
+  "constraints": {
+    "candidate_activation": false,
+    "index_migration": false,
+    "shared_data_modified": false,
+    "deployment_performed": false,
+    "answer_generation": false
+  },
+  "batches": {
+    "2.0": {
+      "status": "passed",
+      "red_test_result": "6 failed, 52 deselected",
+      "real_api_calls": 0
+    },
+    "2A": {
+      "status": "passed",
+      "acceptance": [
+        "score_threshold is calibrated and replayed only in the fused_score domain",
+        "successful rerank keeps only provider-returned top-N results",
+        "failed rerank restores the complete fused ordering with a warning"
+      ],
+      "focused_tests": "5 passed",
+      "retrieval_and_tuner_tests": "45 passed"
+    },
+    "2B": {
+      "status": "passed",
+      "acceptance": [
+        "citation_precision_at_5 uses a fixed denominator",
+        "promotion evidence requires 30 stable source-block positives and 12 approved corpus-near hard negatives",
+        "six-case smoke evidence is diagnostic_only",
+        "latency passes only when the relative or 1500 ms absolute gate passes",
+        "historical citation_hit_rate policies and records remain readable"
+      ],
+      "evaluation_tests": "16 passed"
+    },
+    "2C": {
+      "status": "passed",
+      "limits": {
+        "max_candidates": 20,
+        "max_input_chars": 24000,
+        "total_timeout_ms": 5000
+      },
+      "focused_rerank_tests": "11 passed",
+      "retrieval_v2_tests": "23 passed"
+    },
+    "2D": {
+      "status": "blocked_real_embedding_and_awaiting_human_negative_review",
+      "automated_generation_tests": "13 passed",
+      "combined_rag_tests": "51 passed",
+      "rag_knowledge_regression": "214 passed",
+      "gold": {
+        "dataset_id": "evalset_b9f4b2e4b4cd4e6995b6eb182e605c95",
+        "revision": 1,
+        "positive_cases": 30,
+        "hard_negative_cases": 12,
+        "pending_human_review": 12,
+        "evidence_qualification": "diagnostic_only",
+        "published_version": null
+      },
+      "real_generation": {
+        "job_id": "benchmark_job_8c8fc10adaf7459c8b2e65a298218114",
+        "model": "openai/gpt-5.6-sol",
+        "attempts": 1,
+        "repair_used": false,
+        "prompt_tokens": 9012,
+        "completion_tokens": 4682,
+        "total_tokens": 13694,
+        "status": "completed"
+      },
+      "real_evaluation": {
+        "run_count": 0,
+        "status": "blocked_before_final_run",
+        "reason": "The final run is blocked by the missing real embedding provider path and by the 12 pending corpus-near hard-negative reviews."
+      },
+      "real_embedding_setup": {
+        "requested_model": "text-embedding-3-small",
+        "candidate_attempt": "v3",
+        "status": "failed_before_version_creation",
+        "error": "HTTP 503 from the configured gateway /v1/embeddings endpoint",
+        "additional_quota_retry": false,
+        "resulting_version": null
+      }
+    }
+  },
+  "preview": {
+    "url": "http://127.0.0.1:15118/rag/kb_19b8ef57a76f4e55b8f90c414825ff03/evaluation",
+    "knowledge_base_id": "kb_19b8ef57a76f4e55b8f90c414825ff03",
+    "baseline_version": "v1",
+    "diagnostic_candidate_version": "v2",
+    "failed_real_embedding_candidate_attempt": "v3",
+    "all_created_versions_unactivated": true,
+    "isolated_data_root": "C:\\tmp\\modelmirror-rag-p0-r2-preview-data"
+  },
+  "regression": {
+    "frontend_full_tests": "393 passed",
+    "rag_page_tests": "14 passed",
+    "frontend_production_build": "passed with pre-existing large-chunk warning",
+    "backend_effective_result": "3276 passed, 29 skipped, 2 pre-existing unrelated audio catalog failures",
+    "backend_baseline_failures": [
+      "test_audio_catalog_only_marks_verified_interactions_ready",
+      "test_audio_catalog_endpoint_does_not_expose_credentials"
+    ],
+    "backend_baseline_reason": "Tests expect audio contract 2026-08-13-c1 while unchanged main code returns 2026-08-14-c2."
+  },
+  "next_gate": "Provide a working OpenAI-compatible embedding endpoint, rebuild the unactivated real-embedding candidate, regenerate its fixed 42-case Gold set, approve all 12 hard negatives, then run exactly one real full evaluation. Do not activate any index version."
+}

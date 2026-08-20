@@ -192,6 +192,9 @@ class KnowledgeEvaluationExecutor:
                     item["metrics"],
                     baseline=baseline if item["version_id"] != completed.get("baseline_version_id") else item["metrics"],
                     policy=dict(completed["gate_policy"]),
+                    evidence_qualification=dict(
+                        completed.get("evidence_qualification") or {}
+                    ),
                 )
             final = self.store.complete_run(run_id, aggregates)
             await self._checkpoint(

@@ -15,7 +15,11 @@ from server.benchmarks.models import BenchmarkGenerationRequest
 from server.benchmarks.service import BenchmarkGenerationError
 from server.benchmarks.store import BenchmarkJobStore
 from server.main import app
-from server.rag.evaluation import EvaluationStateError, KnowledgeEvaluationStore
+from server.rag.evaluation import (
+    EvaluationStateError,
+    KnowledgeEvaluationStore,
+    qualify_promotion_evidence,
+)
 from server.rag.vector_store import StoredVectorChunk
 
 
@@ -179,6 +183,45 @@ def _service(tmp_path: Path) -> tuple[KnowledgeBenchmarkGenerationService, Knowl
     return KnowledgeBenchmarkGenerationService(rag_service=_RagService(), evaluation_store=store), store
 
 
+def _generated_knowledge_payload(user: str) -> str:
+    blueprint_text = user.split("Server blueprints:\n", 1)[1].split(
+        "\n\nSampled evidence:\n", 1
+    )[0]
+    evidence_text = user.split("\n\nSampled evidence:\n", 1)[1].split(
+        "\n\nJSON contract:\n", 1
+    )[0]
+    blueprints = json.loads(blueprint_text)
+    evidence = {item["evidence_id"]: item for item in json.loads(evidence_text)}
+    cases = []
+    for index, blueprint in enumerate(blueprints):
+        evidence_ids = list(blueprint.get("required_evidence_ids") or [])
+        markers = [
+            group[0]
+            for group in blueprint.get("required_query_marker_groups") or []
+            if group
+        ]
+        cases.append(
+            {
+                "blueprint_id": blueprint["blueprint_id"],
+                "query": (
+                    f"How does {' and '.join(markers)} apply in fixed case {index + 1}?"
+                    if evidence_ids
+                    else f"Which absent corpus-near exception applies in fixed case {index + 1}?"
+                ),
+                "evidence_ids": evidence_ids,
+                "anchor_quotes": [
+                    {
+                        "evidence_id": evidence_id,
+                        "quote": evidence[evidence_id]["text"][:20],
+                    }
+                    for evidence_id in evidence_ids
+                ],
+                "rationale": "Fixed evidence coverage.",
+            }
+        )
+    return json.dumps({"dataset": {"name": "Generated", "cases": cases}})
+
+
 def test_knowledge_snapshot_is_fixed_and_exposes_only_bounded_evidence(tmp_path: Path) -> None:
     service, _ = _service(tmp_path)
     snapshot, warnings = service.snapshot_target(
@@ -253,6 +296,96 @@ def test_generation_contract_fixes_source_block_gold_and_reviews_no_result(tmp_p
         for reference in item["expected_refs"]
     )
     assert negative[0]["review_status"] == "pending"
+    assert {"corpus_near", "hard_negative"}.issubset(negative[0]["tags"])
+    assert negative[0]["targeting"]["context_refs"][0]["source_block_id"]
+
+
+@pytest.mark.asyncio
+async def test_strategy_tuning_generation_waits_for_hard_negative_review(
+    tmp_path: Path,
+) -> None:
+    knowledge_service, evaluation_store = _service(tmp_path)
+
+    async def generator_runner(
+        model_id: str,
+        system: str,
+        user: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
+        return _generated_knowledge_payload(user)
+
+    class _RagExecutor:
+        def __init__(self) -> None:
+            self.notifications = 0
+
+        def notify(self) -> None:
+            self.notifications += 1
+
+    job_store = BenchmarkJobStore(tmp_path / "benchmark-jobs")
+    rag_executor = _RagExecutor()
+    executor = BenchmarkJobExecutor(
+        job_store,
+        service=SimpleNamespace(),
+        generator_runner=generator_runner,
+        evaluation_store=SimpleNamespace(),
+        evaluation_service=SimpleNamespace(),
+        evaluation_executor=SimpleNamespace(),
+        knowledge_service=knowledge_service,
+        rag_evaluation_store=evaluation_store,
+        rag_evaluation_executor=rag_executor,
+    )
+    created = job_store.create_job(
+        kind="generation",
+        request={
+            "target": {
+                "kind": "knowledge_version",
+                "kb_id": "kb_target",
+                "pipeline_version_id": "pipeline_v2",
+            },
+            "generator_model_id": "test/model",
+            "generation_purpose": "strategy_tuning",
+            "case_count": 42,
+            "locales": ["en-US"],
+            "coverage": ["factual_lookup"],
+            "no_result_count": 12,
+            "seed": 4,
+        },
+    )
+    claimed = job_store.claim_next_job()
+    assert claimed is not None
+
+    await executor._run_knowledge_generation(claimed)
+
+    completed = job_store.require_job(created["job_id"])
+    dataset = evaluation_store.get_set(str(completed["dataset_id"]))
+    positives = [item for item in dataset["cases"] if not item["expected_no_result"]]
+    negatives = [item for item in dataset["cases"] if item["expected_no_result"]]
+    assert completed["status"] == "completed"
+    assert completed["calibration"]["status"] == "awaiting_review"
+    assert completed["evaluation_run_id"] is None
+    assert rag_executor.notifications == 0
+    assert dataset["benchmark_role"] == "promotion_evidence"
+    assert len(positives) == 30
+    assert len(negatives) == 12
+    assert all(
+        reference["match_mode"] == "source_block"
+        and reference["source_block_id"]
+        for case in positives
+        for reference in case["expected_refs"]
+    )
+    assert all(
+        case["review_status"] == "pending"
+        and {"corpus_near", "hard_negative"}.issubset(case["tags"])
+        and case["targeting"]["context_refs"]
+        for case in negatives
+    )
+    assert qualify_promotion_evidence(dataset)["status"] == "diagnostic_only"
+    reviewed = json.loads(json.dumps(dataset))
+    for case in reviewed["cases"]:
+        if case["expected_no_result"]:
+            case["review_status"] = "approved"
+    assert qualify_promotion_evidence(reviewed)["status"] == "qualified"
 
 
 def test_generation_rejects_unknown_evidence_and_quote_drift(tmp_path: Path) -> None:
@@ -488,6 +621,62 @@ async def test_knowledge_preflight_and_evidence_api_are_bounded(
         assert evidence_payload["evidence_count"] == 1
         assert len(evidence_payload["evidence"][0]["text"]) <= 2000
         assert "stored_path" not in json.dumps(evidence_payload)
+
+        pending = store.create_generated_set(
+            "kb_target",
+            "Pending hard-negative review",
+            "",
+            cases=[
+                {
+                    "query": "Does the Aurora policy require biometric escrow?",
+                    "expected_refs": [],
+                    "expected_no_result": True,
+                    "review_status": "pending",
+                    "tags": ["corpus_near", "hard_negative"],
+                    "targeting": {
+                        "blueprint_id": "negative-1",
+                        "query_type": "no_result",
+                        "context_refs": [
+                            {
+                                "document_id": "doc_alpha",
+                                "chunk_id": "alpha_1",
+                                "source_block_id": "block_alpha_1",
+                            }
+                        ],
+                    },
+                }
+            ],
+            provenance={
+                "pipeline_version_id": "pipeline_v2",
+                "target_reference": {
+                    "kind": "knowledge_version",
+                    "kb_id": "kb_target",
+                    "pipeline_version_id": "pipeline_v2",
+                    "document_ids": [],
+                },
+            },
+            coverage={},
+            calibration={"status": "awaiting_review", "dataset_revision": 1},
+            benchmark_role="promotion_evidence",
+        )
+        blocked_calibration = await client.post(
+            "/api/benchmarks/calibrations",
+            json={"dataset_id": pending["eval_set_id"], "dataset_revision": 1},
+        )
+        assert blocked_calibration.status_code == 400
+        assert "approve every corpus-near" in blocked_calibration.text.lower()
+        assert len(benchmark_jobs.list_jobs()) == 1
+
+        negative_case_id = pending["cases"][0]["case_id"]
+        negative_evidence = await client.get(
+            f"/api/rag/evaluation-sets/{pending['eval_set_id']}/cases/"
+            f"{negative_case_id}/evidence"
+        )
+        assert negative_evidence.status_code == 200
+        negative_payload = negative_evidence.json()
+        assert negative_payload["evidence_role"] == "corpus_near_context"
+        assert negative_payload["evidence_count"] == 1
+        assert negative_payload["evidence"][0]["source_block_id"] == "block_alpha_1"
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,29 @@
+{
+  "schema_version": "modelmirror-rag-p0-round2-baseline-v1",
+  "base_commit": "17bc80cad89f5eb52eeb4d19061e88642ae22f02",
+  "branch": "codex/rag-p0-r2",
+  "isolated_worktree": true,
+  "source_pr": "https://github.com/PinkElf-Elysia/ModelMirror/pull/217",
+  "existing_real_run": {
+    "run_id": "evalrun_daa24c0f67ec44a4ad621ce26be980ec",
+    "case_count": 6,
+    "positive_case_count": 5,
+    "no_result_case_count": 1,
+    "baseline_no_result_accuracy": 0.0,
+    "candidate_no_result_accuracy": 0.0,
+    "candidate_citation_hit_rate": 0.125,
+    "candidate_p95_latency_ms": 6275.771,
+    "candidate_gate_passed": false
+  },
+  "systematic_bias_hypotheses": [
+    "threshold calibration reads final rerank score while online filtering uses fused score",
+    "successful rerank restores candidates omitted by rerank_top_n",
+    "citation hit rate changes with returned tail length instead of a fixed evaluation cutoff",
+    "a six-case smoke set has insufficient promotion evidence",
+    "remote retrieval is compared only as a ratio against a near-zero local baseline"
+  ],
+  "real_api_calls_performed": 0,
+  "shared_storage_mutations": 0,
+  "candidate_activations": 0,
+  "deployment_performed": false
+}

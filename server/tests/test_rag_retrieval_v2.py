@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from server.rag.lexical_store import LexicalChunk, SqliteLexicalStore, tokenize_
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import RagService
 from server.rag.rag_service import PipelineDraftValidationError
-from server.rag.reranker import RerankDocument, RerankService
+from server.rag.reranker import RerankDocument, RerankItem, RerankOutcome, RerankService
 from server.rag.retrieval import RetrievalCandidate, RetrievalConfig, fuse_rankings
 from server.rag.splitter import ParentChildTextSplitter, TextSplitter
 from server.rag.vector_store import ChromaVectorStore, LocalJsonVectorStore, VectorChunk
@@ -500,6 +501,110 @@ def test_candidate_selection_uses_fused_threshold_then_parent_and_doc_diversity(
 
 
 @pytest.mark.asyncio
+async def test_successful_rerank_top_n_does_not_restore_unranked_tail(
+    tmp_path: Path,
+) -> None:
+    class TwoItemReranker:
+        async def rerank(self, _query, documents, **_kwargs):
+            return RerankOutcome(
+                items=[
+                    RerankItem(documents[1].chunk_id, 0.99),
+                    RerankItem(documents[0].chunk_id, 0.98),
+                ],
+                provider="api",
+                model="bounded-reranker",
+                requested_input_count=len(documents),
+                input_count=len(documents),
+                input_char_count=sum(len(item.text) for item in documents),
+                output_count=2,
+                timeout_budget_ms=5_000,
+                elapsed_ms=12.5,
+                attempted_provider="api",
+                attempted_model="bounded-reranker",
+            )
+
+    service = build_service(tmp_path, reranker=TwoItemReranker())
+    kb = service.create_knowledge_base("rerank top-n")
+    documents = [
+        await service.upload_document(
+            kb["id"],
+            f"candidate-{index}.txt",
+            f"ORBIT-RERANK candidate evidence number {index}.".encode("utf-8"),
+        )
+        for index in range(8)
+    ]
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "fulltext", "top_k": 8},
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[item["id"] for item in documents],
+    )
+    executor = KnowledgePipelineExecutor(service)
+    assert await executor.run_once() is True
+    version_id = service.get_pipeline_job(job["job_id"])["candidate_version_id"]
+
+    result = await service.query_pipeline_version(
+        version_id,
+        "ORBIT-RERANK",
+        retrieval={
+            "mode": "fulltext",
+            "top_k": 8,
+            "candidate_multiplier": 1,
+            "rerank_enabled": True,
+            "rerank_provider": "api",
+            "rerank_top_n": 2,
+        },
+        generate_answer=False,
+    )
+
+    assert len(result["sources"]) == 2
+    assert result["retrieval"]["rerank_input_count"] == 8
+    assert result["retrieval"]["rerank_output_count"] == 2
+    assert result["retrieval"]["rerank_tail_dropped"] == 6
+    assert result["retrieval"]["threshold_score_domain"] == "fused_score"
+    assert result["retrieval"]["rerank_requested_input_count"] == 8
+    assert result["retrieval"]["rerank_timeout_budget_ms"] == 5_000
+    assert result["retrieval"]["rerank_elapsed_ms"] == 12.5
+
+    class FailedReranker:
+        async def rerank(self, _query, documents, **_kwargs):
+            return RerankOutcome(
+                items=[],
+                provider="none",
+                warning="Rerank unavailable; fused ranking was used.",
+                requested_input_count=len(documents),
+                input_count=len(documents),
+                input_char_count=sum(len(item.text) for item in documents),
+                attempted_provider="api",
+                attempted_model="bounded-reranker",
+                fallback_reason="api:http_status_503",
+            )
+
+    service.reranker = FailedReranker()
+    fallback = await service.query_pipeline_version(
+        version_id,
+        "ORBIT-RERANK",
+        retrieval={
+            "mode": "fulltext",
+            "top_k": 8,
+            "candidate_multiplier": 1,
+            "rerank_enabled": True,
+            "rerank_provider": "api",
+            "rerank_top_n": 2,
+        },
+        generate_answer=False,
+    )
+
+    assert len(fallback["sources"]) == 8
+    assert fallback["retrieval"]["rerank_provider_used"] == "none"
+    assert fallback["retrieval"]["rerank_fallback_reason"] == "api:http_status_503"
+
+
+@pytest.mark.asyncio
 async def test_dedicated_rerank_api_and_llm_json_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -544,6 +649,121 @@ async def test_dedicated_rerank_api_and_llm_json_fallback(
     llm_outcome = await service.rerank("alpha", documents, provider="auto", top_n=1)
     assert llm_outcome.provider == "llm"
     assert llm_outcome.items[0].chunk_id == "a"
+
+
+@pytest.mark.asyncio
+async def test_rerank_input_is_deterministically_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RerankService()
+    documents = [
+        RerankDocument(f"chunk-{index}", str(index) * 2_000)
+        for index in range(25)
+    ]
+    captured: dict = {}
+    monkeypatch.setenv("RERANK_API_URL", "https://rerank.test/v1/rerank")
+    monkeypatch.setenv("RERANK_API_KEY", "secret-test-key")
+    monkeypatch.setenv("RERANK_MODEL", "test-reranker")
+
+    async def post(self, url, **kwargs):
+        captured.update(kwargs["json"])
+        return httpx.Response(
+            200,
+            json={"results": [{"index": 0, "relevance_score": 0.9}]},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank("bounded query", documents, provider="api", top_n=5)
+
+    assert outcome.provider == "api"
+    assert outcome.requested_input_count == 25
+    assert outcome.input_count == 20
+    assert len(captured["documents"]) == 20
+    assert len(captured["query"]) + sum(map(len, captured["documents"])) <= 24_000
+    assert outcome.input_char_count <= 24_000
+    assert outcome.candidate_limit == 20
+    assert outcome.input_char_limit == 24_000
+    assert outcome.timeout_budget_ms == 5_000
+
+
+@pytest.mark.asyncio
+async def test_auto_rerank_timeout_does_not_start_llm_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RerankService()
+    calls: list[str] = []
+    monkeypatch.setenv("RERANK_API_URL", "https://rerank.test/v1/rerank")
+    monkeypatch.setenv("RERANK_API_KEY", "secret-test-key")
+    monkeypatch.setenv("RERANK_MODEL", "test-reranker")
+    monkeypatch.setenv("LLM_GATEWAY_URL", "https://gateway.test/v1")
+    monkeypatch.setenv("LLM_GATEWAY_KEY", "secret-gateway-key")
+    monkeypatch.setenv("RAG_RERANK_LLM_MODEL", "test-llm")
+    monkeypatch.setenv("RAG_RERANK_TIMEOUT_SECONDS", "0.02")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    async def post(self, url, **kwargs):
+        calls.append(url)
+        await asyncio.sleep(0.1)
+        raise AssertionError("shared timeout failed")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank(
+        "timeout query",
+        [RerankDocument("a", "alpha")],
+        provider="auto",
+        top_n=1,
+    )
+
+    assert outcome.provider == "none"
+    assert outcome.attempted_provider == "api"
+    assert outcome.fallback_reason == "timeout_budget_exhausted"
+    assert outcome.timeout_budget_ms == 20
+    assert calls == ["https://rerank.test/v1/rerank"]
+    assert "secret" not in str(outcome.warning).lower()
+    assert "https://" not in str(outcome.warning).lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response_kind", ["invalid_json", "empty_results"])
+async def test_invalid_or_empty_rerank_response_falls_back_safely(
+    monkeypatch: pytest.MonkeyPatch,
+    response_kind: str,
+) -> None:
+    service = RerankService()
+    monkeypatch.setenv("RERANK_API_URL", "https://rerank.test/private/rerank")
+    monkeypatch.setenv("RERANK_API_KEY", "secret-test-key")
+    monkeypatch.setenv("RERANK_MODEL", "test-reranker")
+
+    async def post(self, url, **kwargs):
+        if response_kind == "invalid_json":
+            return httpx.Response(
+                200,
+                content=b"{not-json",
+                request=httpx.Request("POST", url),
+            )
+        return httpx.Response(
+            200,
+            json={"results": []},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank(
+        "safe fallback",
+        [RerankDocument("a", "alpha")],
+        provider="api",
+        top_n=1,
+    )
+
+    assert outcome.provider == "none"
+    assert outcome.fallback_reason in {
+        "api:invalid_json_response",
+        "api:invalid_provider_response",
+    }
+    serialized = f"{outcome.warning} {outcome.fallback_reason}".lower()
+    assert "secret-test-key" not in serialized
+    assert "rerank.test" not in serialized
 
 
 @pytest.mark.asyncio
@@ -725,5 +945,5 @@ async def test_explicit_llm_rerank_rejects_reranker_only_model(
 
     assert outcome.provider == "none"
     assert outcome.model == ""
-    assert "reranker-only model" in str(outcome.warning)
+    assert "reranker_model_not_chat_compatible" in str(outcome.warning)
     assert calls == []

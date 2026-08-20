@@ -562,18 +562,31 @@ class KnowledgeBenchmarkGenerationService:
                     )
                 review_status = "not_required"
             rationale = str(raw_case.get("rationale") or "").strip()[:500]
+            context_refs = [
+                {
+                    "document_id": evidence_by_id[evidence_id]["document_id"],
+                    "chunk_id": evidence_by_id[evidence_id]["chunk_id"],
+                    "source_block_id": evidence_by_id[evidence_id]["source_block_id"],
+                    "page_number": evidence_by_id[evidence_id].get("page_number"),
+                }
+                for evidence_id in blueprint.get("context_evidence_ids") or []
+                if evidence_id in evidence_by_id
+            ]
+            tags = [
+                "generated",
+                str(blueprint["query_type"]),
+                str(blueprint["locale"]),
+                str(blueprint["difficulty"]),
+            ]
+            if expected_no_result:
+                tags.extend(["corpus_near", "hard_negative"])
             cases.append(
                 {
                     "query": query,
                     "expected_refs": references,
                     "expected_no_result": expected_no_result,
                     "review_status": review_status,
-                    "tags": [
-                        "generated",
-                        str(blueprint["query_type"]),
-                        str(blueprint["locale"]),
-                        str(blueprint["difficulty"]),
-                    ],
+                    "tags": tags,
                     "notes": rationale,
                     "targeting": {
                         "blueprint_id": blueprint["blueprint_id"],
@@ -581,6 +594,7 @@ class KnowledgeBenchmarkGenerationService:
                         "locale": blueprint["locale"],
                         "difficulty": blueprint["difficulty"],
                         "evidence_ids": required_ids,
+                        "context_refs": context_refs,
                     },
                 }
             )
