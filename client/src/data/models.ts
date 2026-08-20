@@ -1,6 +1,6 @@
-﻿// Merged with OpenRouter model catalog on 2026-08-17T01:38:03.086Z.
-// Current OpenRouter refresh verified on 2026-08-16 against the live all-modalities catalog.
-// Refreshed with entries published through 2026-08-14T15:55:10.000Z.
+﻿// Merged with OpenRouter model catalog on 2026-08-20T10:16:33.909Z.
+// Current OpenRouter refresh verified on 2026-08-20 against the live all-modalities catalog.
+// Refreshed with entries published through 2026-08-19T14:50:53.000Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
 // Full OpenRouter catalog audit refresh: 2026-08-16. Batch catalog entries are
 // attached to their canonical models as serving variants and excluded from
@@ -208,6 +208,107 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "~z-ai/glm-latest",
+    "canonical_slug": "~z-ai/glm-latest",
+    "name": "Z.ai: GLM Latest",
+    "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 1.4,
+      "output": 4.4
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1787151053,
+    "expiration_date": 4070822400,
+    "model_author": "Z.ai",
+    "reasoning_declared": true
+  },
+  {
+    "id": "z-ai/glm-5.3",
+    "canonical_slug": "z-ai/glm-5.3-20260816",
+    "name": "Z.ai: GLM 5.3",
+    "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window.",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 1.4,
+      "output": 4.4
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1787086655,
+    "expiration_date": 4070822400,
+    "model_author": "Z.ai",
+    "reasoning_declared": true
+  },
+  {
+    "id": "liquid/lfm-2.5-embedding-350m:free",
+    "canonical_slug": "liquid/lfm-2.5-embedding-350m-20260818",
+    "name": "LiquidAI: LFM2.5-Embedding-350M (free)",
+    "raw_description": "LFM2.5-Embedding-350M is a text embedding model from Liquid AI. It produces 1,024-dimensional embeddings for retrieval and semantic search. Successful OpenRouter requests and embeddings may be retained and used to train models.",
+    "context_length": 512,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "repetition_penalty",
+      "seed",
+      "stop",
+      "temperature",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1787077908,
+    "expiration_date": null,
+    "model_author": "LiquidAI"
+  },
   {
     "id": "qwen/qwen3.8-27b",
     "canonical_slug": "qwen/qwen3.8-27b-20260814",
@@ -22265,7 +22366,7 @@ function marketSnapshotFor(raw: RawCatalogModel): OpenRouterMarketSnapshot {
   return {
     ...EMPTY_OPENROUTER_MARKET_SNAPSHOT,
     series: inferOpenRouterMarketSeries(raw),
-    author: raw.id.split("/", 1)[0] ?? "",
+    author: raw.id.replace(/^~/, "").split("/", 1)[0] ?? "",
     created_at: raw.created > 0 ? raw.created : null,
     artificial_analysis: {},
     design_arena: {},
@@ -22876,6 +22977,9 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "~z-ai/glm-latest",
+  "z-ai/glm-5.3",
+  "liquid/lfm-2.5-embedding-350m:free",
   "qwen/qwen3.8-27b",
   "dots-studio/dots-3-note-preview:free",
   "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
