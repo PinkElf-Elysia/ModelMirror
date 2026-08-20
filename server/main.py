@@ -2593,6 +2593,21 @@ def is_gateway_auth_or_user_error(
     )
 
 
+def is_gateway_model_or_channel_unavailable(
+    status_code: int,
+    message: str,
+    data: dict[str, Any] | None,
+) -> bool:
+    lowered = json.dumps(data or {}, ensure_ascii=False).lower()
+    lowered += f" {message.lower()}"
+    markers = (
+        '"code": "model_not_found"',
+        '"code":"model_not_found"',
+        "no available channel for model",
+    )
+    return status_code in {404, 503} and any(marker in lowered for marker in markers)
+
+
 def should_fallback_gateway_to_openrouter(
     status_code: int,
     message: str,
@@ -2605,7 +2620,9 @@ def should_fallback_gateway_to_openrouter(
         return False
     if not is_local_gateway_url(primary_url):
         return False
-    return is_gateway_auth_or_user_error(status_code, message, data)
+    return is_gateway_auth_or_user_error(
+        status_code, message, data
+    ) or is_gateway_model_or_channel_unavailable(status_code, message, data)
 
 
 def should_fallback_model(
@@ -20474,6 +20491,7 @@ async def chat(payload: ChatRequest, request: Request):
         or (
             payload.gateway == "default"
             and omniroute_settings.default_router == "omniroute"
+            and is_omniroute_auto_model(payload.model_id)
         )
     )
     if use_native_router:

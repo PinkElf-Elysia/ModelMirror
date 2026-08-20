@@ -72,6 +72,16 @@ OmniRoute 或供应商密钥写入前端环境变量。
 内部完成。路由回执只暴露允许名单内的模型、供应商、成本、延迟和请求
 标识，不透传内部决策体。
 
+`MODEL_ROUTER_DEFAULT=omniroute` 只为仍以 `gateway=default` 调用的
+`auto/*` 兼容请求选择侧车。用户显式选择的模型 ID 始终走统一
+newAPI/OpenRouter 网关；否则 `poolside/...`、`xiaomi/...` 等 OpenRouter
+发布者前缀会被侧车误解为需要独立凭据的本地供应商。
+
+若本地 newAPI 明确返回 `model_not_found` 或 `No available channel for model`，
+且后端已配置 `OPENROUTER_API_KEY`，显式模型请求会在正文输出前使用同一个
+模型 ID 有限回退到 OpenRouter。普通 `503`、Batch 契约错误和已经开始输出的
+响应不会触发该回退；成功回退后的计费与数据处理遵循 OpenRouter 连接配置。
+
 运行时 `3.8.48` 不提供 `release/v3.8.49` 文档中的 API Key 范围
 `/v1/auto-combo/{channel}/candidates` 接口。适配器因此以同一次
 `/v1/models?configuredOnly=true` 返回的 `auto/*` 模型作为可调用性依据：

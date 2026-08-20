@@ -40,6 +40,12 @@ const august16ModelIds = [
   "qwen/qwen3.8-27b",
 ];
 
+const august20ModelIds = [
+  "liquid/lfm-2.5-embedding-350m:free",
+  "z-ai/glm-5.3",
+  "~z-ai/glm-latest",
+];
+
 describe("OpenRouter model refresh", () => {
   it("restores V4 Flash ahead of V4 Pro and keeps Seedream in row four", () => {
     expect(models[2]?.id).toBe("deepseek/deepseek-v4-flash-0731");
@@ -148,6 +154,52 @@ describe("OpenRouter model refresh", () => {
         providers: ["Chutes"],
       },
     });
+  });
+
+  it("adds the three August 20 snapshots below the first six rows", () => {
+    for (const modelId of august20ModelIds) {
+      const matches = models.filter((model) => model.id === modelId);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]).toMatchObject({
+        catalog_status: "live",
+        catalog_counted: true,
+        active: true,
+      });
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
+        2 + 6 * 3,
+      );
+    }
+  });
+
+  it("keeps the August 20 endpoint contracts and current prices", () => {
+    const byId = new Map(models.map((model) => [model.id, model]));
+
+    expect(byId.get("liquid/lfm-2.5-embedding-350m:free")).toMatchObject({
+      input_modalities: ["text"],
+      output_modalities: ["embeddings"],
+      primary_operation: "embed",
+      interaction_status: "ready",
+      ui_entrypoint: "rag",
+      context_length: 512,
+      pricing: { input: 0, output: 0 },
+      pricing_status: "free",
+      pricing_basis: "free",
+    });
+    for (const modelId of ["z-ai/glm-5.3", "~z-ai/glm-latest"]) {
+      expect(byId.get(modelId)).toMatchObject({
+        input_modalities: ["text"],
+        output_modalities: ["text"],
+        primary_operation: "chat",
+        interaction_status: "ready",
+        ui_entrypoint: "chat",
+        context_length: 1_048_576,
+        pricing: { input: 1.4, output: 4.4 },
+        reasoning_declared: true,
+        openrouter_market: {
+          author: "z-ai",
+        },
+      });
+    }
   });
 
   it("routes the August 14 specialized models by their dedicated contracts", () => {

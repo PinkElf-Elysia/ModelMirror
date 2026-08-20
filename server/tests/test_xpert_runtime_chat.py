@@ -403,6 +403,29 @@ def test_newapi_user_error_can_fallback_to_openrouter(
         )
         is False
     )
+    assert (
+        main_module.should_fallback_gateway_to_openrouter(
+            503,
+            "No available channel for model ~z-ai/glm-latest under group default",
+            {
+                "error": {
+                    "code": "model_not_found",
+                    "type": "new_api_error",
+                }
+            },
+            "http://new-api:3000/v1/chat/completions",
+        )
+        is True
+    )
+    assert (
+        main_module.should_fallback_gateway_to_openrouter(
+            503,
+            "upstream temporarily unavailable",
+            {"error": {"code": "upstream_error"}},
+            "http://new-api:3000/v1/chat/completions",
+        )
+        is False
+    )
 
 
 @pytest.mark.asyncio
