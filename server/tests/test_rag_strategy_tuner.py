@@ -532,7 +532,7 @@ async def test_evaluation_executor_can_respect_fixed_profile_top_k(tmp_path: Pat
     executor = KnowledgeEvaluationExecutor(service, store, poll_interval=0.01)
 
     assert await executor.run_once() is True
-    assert service.top_ks == [5, 10]
+    assert sorted(service.top_ks) == [5, 10]
 
 
 def test_split_and_hash_retrieval_candidates_are_deterministic() -> None:
@@ -1235,7 +1235,8 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
     assert await tuner.run_once() is True
 
     completed = tuner.store.get_run(created["run_id"])
-    assert completed["status"] == "completed", completed
+    assert completed["status"] == "no_improvement", completed
+    assert completed["no_improvement_reason"] == "full_evaluation_gate"
     final_version = service.get_pipeline_version(completed["final_version_id"])
     assert final_version["status"] == "ready"
     assert final_version["promotion_required"] is True
@@ -1248,7 +1249,13 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
         for item in evaluation["target_results"]
         if item["version_id"] == final_version["version_id"]
     )
-    assert candidate_result["promotion_gate"]["passed"] is True
+    assert candidate_result["promotion_gate"]["passed"] is False
+    evidence_check = next(
+        check
+        for check in candidate_result["promotion_gate"]["checks"]
+        if check["id"] == "qualified_promotion_evidence"
+    )
+    assert evidence_check["passed"] is False
 
     registry_run = await tuner.run_registry.get_run(completed["run_registry_id"])
     assert registry_run is not None and registry_run.status == "completed"
@@ -1317,7 +1324,8 @@ async def test_known_winner_threshold_recovery_runs_real_search_and_materializes
     assert await tuner.run_once() is True
 
     completed = tuner.store.get_run(created["run_id"])
-    assert completed["status"] == scenario["expected_outcome"], completed
+    assert completed["status"] == "no_improvement", completed
+    assert completed["no_improvement_reason"] == "full_evaluation_gate"
     winner = completed["winner"]
     assert winner["retrieval"]["mode"] == "fulltext"
     assert float(winner["retrieval"]["score_threshold"]) > negative_ceiling
@@ -1341,7 +1349,11 @@ async def test_known_winner_threshold_recovery_runs_real_search_and_materializes
         for item in evaluation["target_results"]
         if item["version_id"] == final_version["version_id"]
     )
-    assert candidate_result["promotion_gate"]["passed"] is True
+    assert candidate_result["promotion_gate"]["passed"] is False
+    assert any(
+        check["id"] == "qualified_promotion_evidence" and not check["passed"]
+        for check in candidate_result["promotion_gate"]["checks"]
+    )
 
 
 @pytest.mark.asyncio

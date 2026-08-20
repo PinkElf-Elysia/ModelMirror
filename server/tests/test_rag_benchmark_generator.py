@@ -10,7 +10,10 @@ import pytest
 import server.benchmarks.api as benchmark_api
 import server.rag.api as rag_api
 from server.benchmarks.executor import BenchmarkJobExecutor
-from server.benchmarks.knowledge_generation import KnowledgeBenchmarkGenerationService
+from server.benchmarks.knowledge_generation import (
+    KNOWLEDGE_COVERAGE,
+    KnowledgeBenchmarkGenerationService,
+)
 from server.benchmarks.models import BenchmarkGenerationRequest
 from server.benchmarks.service import BenchmarkGenerationError
 from server.benchmarks.store import BenchmarkJobStore
@@ -35,6 +38,8 @@ def test_strategy_tuning_generation_supports_qualified_positive_and_negative_cou
             "generation_purpose": "strategy_tuning",
             "case_count": 42,
             "no_result_count": 12,
+            "locales": ["zh-CN", "en-US"],
+            "coverage": list(KNOWLEDGE_COVERAGE),
         }
     )
 
@@ -43,18 +48,48 @@ def test_strategy_tuning_generation_supports_qualified_positive_and_negative_cou
 
 
 @pytest.mark.parametrize(
-    ("case_count", "no_result_count", "message"),
+    "override",
     [
-        (41, 12, "at least 30 answerable cases"),
-        (35, 5, "either 0 or at least 12 hard-negative cases"),
+        {"case_count": 43},
+        {"no_result_count": 0},
+        {"locales": ["en-US"]},
+        {"coverage": ["factual_lookup"]},
+    ],
+)
+def test_strategy_tuning_generation_requires_exact_gold_v2_matrix(
+    override: dict,
+) -> None:
+    values = {
+        "target": {
+            "kind": "knowledge_version",
+            "kb_id": "kb_target",
+            "pipeline_version_id": "pipeline_v2",
+        },
+        "generator_model_id": "test-model",
+        "generation_purpose": "strategy_tuning",
+        "case_count": 42,
+        "no_result_count": 12,
+        "locales": ["zh-CN", "en-US"],
+        "coverage": list(KNOWLEDGE_COVERAGE),
+    }
+    values.update(override)
+
+    with pytest.raises(ValueError, match="rag-gold-v2"):
+        BenchmarkGenerationRequest.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    ("case_count", "no_result_count"),
+    [
+        (41, 12),
+        (35, 5),
     ],
 )
 def test_strategy_tuning_generation_rejects_unqualified_counts(
     case_count: int,
     no_result_count: int,
-    message: str,
 ) -> None:
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError, match="rag-gold-v2"):
         BenchmarkGenerationRequest.model_validate(
             {
                 "target": {
@@ -66,6 +101,8 @@ def test_strategy_tuning_generation_rejects_unqualified_counts(
                 "generation_purpose": "strategy_tuning",
                 "case_count": case_count,
                 "no_result_count": no_result_count,
+                "locales": ["zh-CN", "en-US"],
+                "coverage": list(KNOWLEDGE_COVERAGE),
             }
         )
 
@@ -94,7 +131,7 @@ class _VectorStore:
 
 
 class _RagService:
-    def __init__(self) -> None:
+    def __init__(self, *, formal: bool = False) -> None:
         version_id = "pipeline_v2"
         self.version = {
             "version_id": version_id,
@@ -137,6 +174,37 @@ class _RagService:
                 ],
             }
         )
+        if formal:
+            self.version["document_results"] = [
+                {
+                    "source_id": document_id,
+                    "filename": f"{document_id}.md",
+                    "status": "completed",
+                    "content_hash": marker * 64,
+                    "chunk_count": 6,
+                    "block_count": 6,
+                }
+                for document_id, marker in (
+                    ("doc_alpha", "a"),
+                    ("doc_beta", "b"),
+                    ("doc_gamma", "c"),
+                )
+            ]
+            for document_id in ("doc_alpha", "doc_beta", "doc_gamma"):
+                existing = list(
+                    self.vector_store.chunks.get(f"{version_id}_{document_id}", [])
+                )
+                for index in range(len(existing) + 1, 7):
+                    existing.append(
+                        _chunk(
+                            f"{document_id.removeprefix('doc_')}_{index}",
+                            document_id,
+                            f"{document_id}.md",
+                            f"block_{document_id.removeprefix('doc_')}_{index}",
+                            f"Stable {document_id} evidence block {index} contains a distinct policy fact for formal benchmark allocation.",
+                        )
+                    )
+                self.vector_store.chunks[f"{version_id}_{document_id}"] = existing
 
     def get_pipeline_version(self, version_id: str) -> dict:
         if version_id != self.version["version_id"]:
@@ -178,9 +246,79 @@ def _chunk(chunk_id: str, source_id: str, name: str, block_id: str, text: str) -
     )
 
 
-def _service(tmp_path: Path) -> tuple[KnowledgeBenchmarkGenerationService, KnowledgeEvaluationStore]:
+def _service(
+    tmp_path: Path, *, formal: bool = False
+) -> tuple[KnowledgeBenchmarkGenerationService, KnowledgeEvaluationStore]:
     store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
-    return KnowledgeBenchmarkGenerationService(rag_service=_RagService(), evaluation_store=store), store
+    return KnowledgeBenchmarkGenerationService(
+        rag_service=_RagService(formal=formal), evaluation_store=store
+    ), store
+
+
+def test_formal_preflight_blocks_insufficient_source_distribution(tmp_path: Path) -> None:
+    service, _ = _service(tmp_path)
+
+    preflight = service.preflight(
+        target_reference={
+            "kind": "knowledge_version",
+            "kb_id": "kb_target",
+            "pipeline_version_id": "pipeline_v2",
+        },
+        requested_coverage=list(KNOWLEDGE_COVERAGE),
+        locales=["zh-CN", "en-US"],
+        generation_purpose="strategy_tuning",
+        case_count=42,
+        no_result_count=12,
+    )
+
+    assert preflight["valid"] is False
+    assert {item["code"] for item in preflight["issues"]} >= {
+        "formal_document_count",
+        "formal_evidence_capacity",
+    }
+
+
+def test_formal_blueprints_are_publishable_by_construction(tmp_path: Path) -> None:
+    service, _ = _service(tmp_path, formal=True)
+    snapshot, _ = service.snapshot_target(
+        {
+            "kind": "knowledge_version",
+            "kb_id": "kb_target",
+            "pipeline_version_id": "pipeline_v2",
+        }
+    )
+
+    context = service.prepare_generation(
+        snapshot=snapshot,
+        case_count=42,
+        locales=["zh-CN", "en-US"],
+        requested_coverage=list(KNOWLEDGE_COVERAGE),
+        no_result_count=12,
+        seed=31,
+        generation_purpose="strategy_tuning",
+    )
+
+    positive = [
+        item for item in context["blueprints"] if not item["expected_no_result"]
+    ]
+    negative = [
+        item for item in context["blueprints"] if item["expected_no_result"]
+    ]
+    reference_counts: dict[str, int] = {}
+    document_case_counts: dict[str, int] = {}
+    evidence_by_id = context["evidence_by_id"]
+    for blueprint in positive:
+        documents = set()
+        for evidence_id in blueprint["required_evidence_ids"]:
+            reference_counts[evidence_id] = reference_counts.get(evidence_id, 0) + 1
+            documents.add(evidence_by_id[evidence_id]["document_id"])
+        for document_id in documents:
+            document_case_counts[document_id] = document_case_counts.get(document_id, 0) + 1
+
+    assert max(reference_counts.values()) <= 2
+    assert set(document_case_counts) == {"doc_alpha", "doc_beta", "doc_gamma"}
+    assert max(document_case_counts.values()) <= 12
+    assert len({item["context_evidence_ids"][0] for item in negative}) == 12
 
 
 def _generated_knowledge_payload(user: str) -> str:
@@ -243,6 +381,71 @@ def test_knowledge_snapshot_is_fixed_and_exposes_only_bounded_evidence(tmp_path:
     assert "text" not in json.dumps(public)
 
 
+def test_corpus_snapshot_hash_ignores_pipeline_retrieval_implementation(tmp_path: Path) -> None:
+    rag_service = _RagService()
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    service = KnowledgeBenchmarkGenerationService(
+        rag_service=rag_service,
+        evaluation_store=store,
+    )
+    reference = {
+        "kind": "knowledge_version",
+        "kb_id": "kb_target",
+        "pipeline_version_id": "pipeline_v2",
+    }
+
+    before, _ = service.snapshot_target(reference)
+    rag_service.version["retrieval_profile"] = {"mode": "semantic", "top_k": 5}
+    rag_service.version["embedding_profile"] = {
+        "provider": "remote",
+        "model": "different-model",
+        "dimension": 1536,
+    }
+    after, _ = service.snapshot_target(reference)
+
+    assert before["checksum"] != after["checksum"]
+    assert before["corpus_snapshot_hash"] == after["corpus_snapshot_hash"]
+    assert before["corpus_snapshot"] == after["corpus_snapshot"]
+
+
+def test_gold_v2_generation_does_not_force_query_markers_and_requires_all_reviews(
+    tmp_path: Path,
+) -> None:
+    service, _ = _service(tmp_path)
+    snapshot, _ = service.snapshot_target(
+        {"kind": "knowledge_version", "kb_id": "kb_target", "pipeline_version_id": "pipeline_v2"}
+    )
+    context = service.prepare_generation(
+        snapshot=snapshot,
+        case_count=6,
+        locales=["zh-CN", "en-US"],
+        requested_coverage=["paraphrase", "cross_language"],
+        no_result_count=1,
+        seed=11,
+    )
+    _, prompt = service.generation_prompt(
+        snapshot=snapshot,
+        context=context,
+        case_count=6,
+        locales=["zh-CN", "en-US"],
+        seed=11,
+    )
+
+    assert all(
+        "required_query_marker_groups" not in blueprint
+        for blueprint in context["blueprints"]
+    )
+    assert "exact token" not in prompt
+
+    generated = service.parse_generated_cases(
+        _generated_knowledge_payload(prompt),
+        snapshot=snapshot,
+        context=context,
+        expected_count=6,
+    )
+    assert all(case["review_status"] == "pending" for case in generated["cases"])
+
+
 def test_generation_contract_fixes_source_block_gold_and_reviews_no_result(tmp_path: Path) -> None:
     service, _ = _service(tmp_path)
     snapshot, _ = service.snapshot_target(
@@ -295,6 +498,7 @@ def test_generation_contract_fixes_source_block_gold_and_reviews_no_result(tmp_p
         for item in positive
         for reference in item["expected_refs"]
     )
+    assert all(item["review_status"] == "pending" for item in positive)
     assert negative[0]["review_status"] == "pending"
     assert {"corpus_near", "hard_negative"}.issubset(negative[0]["tags"])
     assert negative[0]["targeting"]["context_refs"][0]["source_block_id"]
@@ -304,7 +508,7 @@ def test_generation_contract_fixes_source_block_gold_and_reviews_no_result(tmp_p
 async def test_strategy_tuning_generation_waits_for_hard_negative_review(
     tmp_path: Path,
 ) -> None:
-    knowledge_service, evaluation_store = _service(tmp_path)
+    knowledge_service, evaluation_store = _service(tmp_path, formal=True)
 
     async def generator_runner(
         model_id: str,
@@ -346,8 +550,8 @@ async def test_strategy_tuning_generation_waits_for_hard_negative_review(
             "generator_model_id": "test/model",
             "generation_purpose": "strategy_tuning",
             "case_count": 42,
-            "locales": ["en-US"],
-            "coverage": ["factual_lookup"],
+            "locales": ["zh-CN", "en-US"],
+            "coverage": list(KNOWLEDGE_COVERAGE),
             "no_result_count": 12,
             "seed": 4,
         },
@@ -362,10 +566,11 @@ async def test_strategy_tuning_generation_waits_for_hard_negative_review(
     positives = [item for item in dataset["cases"] if not item["expected_no_result"]]
     negatives = [item for item in dataset["cases"] if item["expected_no_result"]]
     assert completed["status"] == "completed"
-    assert completed["calibration"]["status"] == "awaiting_review"
+    assert completed["calibration"]["status"] == "review_required"
     assert completed["evaluation_run_id"] is None
     assert rag_executor.notifications == 0
     assert dataset["benchmark_role"] == "promotion_evidence"
+    assert dataset["calibration"]["status"] == "not_required"
     assert len(positives) == 30
     assert len(negatives) == 12
     assert all(
@@ -374,6 +579,7 @@ async def test_strategy_tuning_generation_waits_for_hard_negative_review(
         for case in positives
         for reference in case["expected_refs"]
     )
+    assert all(case["review_status"] == "pending" for case in positives)
     assert all(
         case["review_status"] == "pending"
         and {"corpus_near", "hard_negative"}.issubset(case["tags"])
@@ -404,11 +610,10 @@ def test_generation_rejects_unknown_evidence_and_quote_drift(tmp_path: Path) -> 
     payload = []
     for index, blueprint in enumerate(context["blueprints"]):
         evidence_id = blueprint["required_evidence_ids"][0]
-        marker = blueprint["required_query_marker_groups"][0][0]
         payload.append(
             {
                 "blueprint_id": blueprint["blueprint_id"],
-                "query": f"What does {marker} require for {blueprint['blueprint_id']}?",
+                "query": f"Grounded quote validation case {index + 1}?",
                 "evidence_ids": [evidence_id],
                 "anchor_quotes": [{"evidence_id": evidence_id, "quote": "not in evidence"}],
             }
@@ -422,7 +627,7 @@ def test_generation_rejects_unknown_evidence_and_quote_drift(tmp_path: Path) -> 
         )
 
 
-def test_generation_rejects_generic_query_and_preflight_respects_locale(tmp_path: Path) -> None:
+def test_generation_blocks_long_source_copy_and_preflight_respects_locale(tmp_path: Path) -> None:
     service, _ = _service(tmp_path)
     snapshot, _ = service.snapshot_target(
         {"kind": "knowledge_version", "kb_id": "kb_target", "pipeline_version_id": "pipeline_v2"}
@@ -449,10 +654,11 @@ def test_generation_rejects_generic_query_and_preflight_respects_locale(tmp_path
     payload = []
     for index, blueprint in enumerate(context["blueprints"]):
         evidence_id = blueprint["required_evidence_ids"][0]
+        evidence_text = context["evidence_by_id"][evidence_id]["text"]
         payload.append(
             {
                 "blueprint_id": blueprint["blueprint_id"],
-                "query": f"What does the document say about this topic in case {index + 1}?",
+                "query": f"{evidence_text[:45]} case {index + 1}?",
                 "evidence_ids": [evidence_id],
                 "anchor_quotes": [
                     {
@@ -462,7 +668,7 @@ def test_generation_rejects_generic_query_and_preflight_respects_locale(tmp_path
                 ],
             }
         )
-    with pytest.raises(BenchmarkGenerationError, match="not specific"):
+    with pytest.raises(BenchmarkGenerationError, match="copies at least 32"):
         service.parse_generated_cases(
             json.dumps({"dataset": {"cases": payload}}),
             snapshot=snapshot,
@@ -565,6 +771,41 @@ async def test_knowledge_preflight_and_evidence_api_are_bounded(
         assert "Aurora policy requires" not in serialized
         assert "stored_path" not in serialized
 
+        pending_positive = store.create_generated_set(
+            "kb_target",
+            "Pending Gold v2 positive review",
+            "",
+            cases=[
+                {
+                    "query": "What does Aurora require?",
+                    "expected_refs": [
+                        {
+                            "document_id": "doc_alpha",
+                            "chunk_id": "alpha_1",
+                            "source_block_id": "block_alpha_1",
+                            "match_mode": "source_block",
+                            "relevance": 3,
+                        }
+                    ],
+                    "expected_no_result": False,
+                    "review_status": "pending",
+                }
+            ],
+            provenance={
+                "benchmark_contract_version": "rag-gold-v2",
+                "pipeline_version_id": "pipeline_v2",
+                "target_reference": {
+                    "kind": "knowledge_version",
+                    "kb_id": "kb_target",
+                    "pipeline_version_id": "pipeline_v2",
+                    "document_ids": [],
+                },
+            },
+            coverage={},
+            calibration={"status": "awaiting_review", "dataset_revision": 1},
+            benchmark_role="promotion_evidence",
+        )
+
         generated = store.create_generated_set(
             "kb_target",
             "Generated API set",
@@ -601,6 +842,15 @@ async def test_knowledge_preflight_and_evidence_api_are_bounded(
         monkeypatch.setattr(
             benchmark_api, "_executor", SimpleNamespace(wake=lambda: None)
         )
+        blocked_positive_calibration = await client.post(
+            "/api/benchmarks/calibrations",
+            json={
+                "dataset_id": pending_positive["eval_set_id"],
+                "dataset_revision": 1,
+            },
+        )
+        assert blocked_positive_calibration.status_code == 400
+        assert "single formal run" in blocked_positive_calibration.text.lower()
         calibration = await client.post(
             "/api/benchmarks/calibrations",
             json={"dataset_id": generated["eval_set_id"], "dataset_revision": 1},
@@ -677,6 +927,149 @@ async def test_knowledge_preflight_and_evidence_api_are_bounded(
         assert negative_payload["evidence_role"] == "corpus_near_context"
         assert negative_payload["evidence_count"] == 1
         assert negative_payload["evidence"][0]["source_block_id"] == "block_alpha_1"
+
+
+@pytest.mark.asyncio
+async def test_gold_v2_review_api_records_server_evidence_for_positive_cases(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, store = _service(tmp_path)
+    dataset = store.create_generated_set(
+        "kb_target",
+        "Gold v2 review API",
+        "",
+        cases=[
+            {
+                "query": "Which review window does Aurora require?",
+                "expected_refs": [
+                    {
+                        "document_id": "doc_alpha",
+                        "chunk_id": "alpha_1",
+                        "source_block_id": "block_alpha_1",
+                        "match_mode": "source_block",
+                        "relevance": 3,
+                    }
+                ],
+                "expected_no_result": False,
+                "review_status": "pending",
+                "targeting": {
+                    "query_type": "paraphrase",
+                    "locale": "en-US",
+                    "leakage": {
+                        "max_normalized_copy": 12,
+                        "warning_threshold": 12,
+                        "warning": True,
+                        "blocked": False,
+                    },
+                },
+            }
+        ],
+        provenance={
+            "benchmark_contract_version": "rag-gold-v2",
+            "pipeline_version_id": "pipeline_v2",
+        },
+        coverage={},
+        calibration={"status": "awaiting_review", "dataset_revision": 1},
+    )
+    monkeypatch.setattr(rag_api, "_evaluation_store", store)
+    monkeypatch.setattr(rag_api, "_rag_service", service.rag_service)
+    case_id = dataset["cases"][0]["case_id"]
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        missing_reason = await client.post(
+            f"/api/rag/evaluation-sets/{dataset['eval_set_id']}/cases/{case_id}/review",
+            json={"expected_revision": 1, "decision": "approved", "reason": ""},
+        )
+        assert missing_reason.status_code == 400
+
+        approved = await client.post(
+            f"/api/rag/evaluation-sets/{dataset['eval_set_id']}/cases/{case_id}/review",
+            json={
+                "expected_revision": 1,
+                "decision": "approved",
+                "reason": "The overlap is a necessary policy term, not an answer leak.",
+            },
+        )
+
+    assert approved.status_code == 200, approved.text
+    reviewed = approved.json()["cases"][0]
+    assert reviewed["review_status"] == "approved"
+    assert reviewed["review_evidence"]["source"] == "manual_ui"
+    assert reviewed["review_evidence"]["decision"] == "approved"
+    assert reviewed["review_evidence"]["dataset_revision"] == 1
+    assert reviewed["review_evidence"]["reviewed_at"] > 0
+    assert "reviewer" not in reviewed["review_evidence"]
+
+
+@pytest.mark.asyncio
+async def test_gold_v2_blocking_leakage_can_be_rejected_but_not_approved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, store = _service(tmp_path)
+    dataset = store.create_generated_set(
+        "kb_target",
+        "Blocked leakage review",
+        "",
+        cases=[
+            {
+                "query": "Copied source wording",
+                "expected_refs": [
+                    {
+                        "document_id": "doc_alpha",
+                        "chunk_id": "alpha_1",
+                        "source_block_id": "block_alpha_1",
+                        "match_mode": "source_block",
+                        "relevance": 3,
+                    }
+                ],
+                "expected_no_result": False,
+                "review_status": "pending",
+                "targeting": {
+                    "query_type": "factual_lookup",
+                    "locale": "en-US",
+                    "leakage": {
+                        "max_normalized_copy": 32,
+                        "warning_threshold": 24,
+                        "warning": True,
+                        "blocked": True,
+                    },
+                },
+            }
+        ],
+        provenance={
+            "benchmark_contract_version": "rag-gold-v2",
+            "pipeline_version_id": "pipeline_v2",
+        },
+        coverage={},
+        calibration={"status": "awaiting_review", "dataset_revision": 1},
+    )
+    monkeypatch.setattr(rag_api, "_evaluation_store", store)
+    monkeypatch.setattr(rag_api, "_rag_service", service.rag_service)
+    case_id = dataset["cases"][0]["case_id"]
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        approved = await client.post(
+            f"/api/rag/evaluation-sets/{dataset['eval_set_id']}/cases/{case_id}/review",
+            json={"expected_revision": 1, "decision": "approved", "reason": ""},
+        )
+        rejected = await client.post(
+            f"/api/rag/evaluation-sets/{dataset['eval_set_id']}/cases/{case_id}/review",
+            json={
+                "expected_revision": 1,
+                "decision": "rejected",
+                "reason": "Source wording is copied verbatim.",
+            },
+        )
+
+    assert approved.status_code == 400
+    assert rejected.status_code == 200, rejected.text
+    reviewed = rejected.json()["cases"][0]
+    assert reviewed["review_status"] == "rejected"
+    assert reviewed["review_evidence"]["decision"] == "rejected"
 
 
 @pytest.mark.asyncio
@@ -764,7 +1157,7 @@ async def test_generation_restart_reuses_dataset_without_second_model_call(
             "case_count": 6,
             "locales": ["en-US"],
             "coverage": ["factual_lookup"],
-            "no_result_count": 0,
+            "no_result_count": 1,
             "seed": 4,
         },
     )
@@ -772,13 +1165,74 @@ async def test_generation_restart_reuses_dataset_without_second_model_call(
     assert claimed is not None
     await executor._run_knowledge_generation(claimed)
     first = job_store.require_job(created["job_id"])
-    assert first["status"] == "calibrating"
+    assert first["status"] == "completed"
+    assert first["calibration"]["status"] == "awaiting_review"
     assert first["dataset_id"]
     assert calls == 1
+    generated_set = evaluation_store.get_set(str(first["dataset_id"]))
+    assert generated_set["provenance"]["benchmark_contract_version"] == "rag-gold-v1"
+    assert all(
+        case["review_status"] == "not_required"
+        for case in generated_set["cases"]
+        if not case["expected_no_result"]
+    )
 
     await executor._run_knowledge_generation(first)
     second = job_store.require_job(created["job_id"])
-    assert second["status"] == "calibrating"
+    assert second["status"] == "completed"
+    assert second["calibration"]["status"] == "awaiting_review"
     assert second["dataset_id"] == first["dataset_id"]
     assert calls == 1
-    assert rag_executor.notifications == 2
+    assert rag_executor.notifications == 0
+
+
+@pytest.mark.asyncio
+async def test_strategy_tuning_gold_generation_does_not_auto_repair_invalid_output(
+    tmp_path: Path,
+) -> None:
+    knowledge_service, evaluation_store = _service(tmp_path, formal=True)
+    calls = 0
+
+    async def invalid_generator(*_args, **_kwargs) -> str:
+        nonlocal calls
+        calls += 1
+        return "{}"
+
+    job_store = BenchmarkJobStore(tmp_path / "benchmark-jobs")
+    executor = BenchmarkJobExecutor(
+        job_store,
+        service=SimpleNamespace(),
+        generator_runner=invalid_generator,
+        evaluation_store=SimpleNamespace(),
+        evaluation_service=SimpleNamespace(),
+        evaluation_executor=SimpleNamespace(),
+        knowledge_service=knowledge_service,
+        rag_evaluation_store=evaluation_store,
+        rag_evaluation_executor=SimpleNamespace(notify=lambda: None),
+    )
+    created = job_store.create_job(
+        kind="generation",
+        request={
+            "target": {
+                "kind": "knowledge_version",
+                "kb_id": "kb_target",
+                "pipeline_version_id": "pipeline_v2",
+            },
+            "generator_model_id": "test/model",
+            "generation_purpose": "strategy_tuning",
+            "case_count": 42,
+            "locales": ["zh-CN", "en-US"],
+            "coverage": list(KNOWLEDGE_COVERAGE),
+            "no_result_count": 12,
+            "seed": 23,
+        },
+    )
+    claimed = job_store.claim_next_job()
+    assert claimed is not None
+
+    with pytest.raises(BenchmarkGenerationError, match="missing dataset"):
+        await executor._run_knowledge_generation(claimed)
+
+    assert calls == 1
+    attempts = job_store.require_job(created["job_id"])["generation_attempts"]
+    assert [item["attempt"] for item in attempts] == ["initial"]

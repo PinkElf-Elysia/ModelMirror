@@ -3557,10 +3557,93 @@ class RagService:
             "document_count": int(version.get("document_count") or 0),
             "chunk_count": int(version.get("chunk_count") or 0),
             "embedding": safe_embedding,
+            "processor": json.loads(
+                json.dumps(version.get("processor_profile") or {})
+            ),
             "retrieval": retrieval,
             "source_manifest_fingerprint": source_manifest_fingerprint,
             "configuration_fingerprint": configuration_fingerprint,
             "version_fingerprint": version_fingerprint,
+        }
+
+    def pipeline_corpus_snapshot(
+        self,
+        version_id: str,
+        *,
+        document_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Return a retrieval-independent document/source-block corpus identity."""
+
+        version = self.get_pipeline_version(version_id)
+        selected = {str(item) for item in (document_ids or []) if str(item)}
+        documents = [
+            dict(item)
+            for item in version.get("document_results") or []
+            if isinstance(item, dict)
+            and str(item.get("status") or "") == "completed"
+            and (
+                not selected or str(item.get("source_id") or "") in selected
+            )
+        ]
+        available = {str(item.get("source_id") or "") for item in documents}
+        if selected - available:
+            raise PipelineVersionNotFoundError(
+                "Knowledge version does not contain every Gold corpus document."
+            )
+        document_manifest = sorted(
+            [
+                {
+                    "document_id": str(item.get("source_id") or ""),
+                    "content_hash": str(item.get("content_hash") or "")[:64],
+                }
+                for item in documents
+            ],
+            key=lambda item: item["document_id"],
+        )
+        source_blocks: list[dict[str, str]] = []
+        for document in document_manifest:
+            document_id = document["document_id"]
+            chunks = self.vector_store.list_document_chunks(
+                f"{version_id}_{document_id}"
+            )
+            chunks_by_block: dict[str, list[Any]] = {}
+            for chunk in chunks:
+                source_block_id = str(chunk.source_block_id or "")
+                if source_block_id:
+                    chunks_by_block.setdefault(source_block_id, []).append(chunk)
+            for source_block_id, block_chunks in sorted(chunks_by_block.items()):
+                representative = min(
+                    block_chunks,
+                    key=lambda item: (
+                        0
+                        if str(item.chunk_type or "") in {"parent", "standard"}
+                        else 1,
+                        -len(str(item.text or "")),
+                        int(item.chunk_index),
+                        str(item.chunk_id),
+                    ),
+                )
+                text = str(representative.text or "").strip()
+                if not text:
+                    continue
+                source_blocks.append(
+                    {
+                        "document_id": document_id,
+                        "source_block_id": source_block_id,
+                        "content_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    }
+                )
+        corpus_snapshot = {
+            "knowledge_base_id": str(version.get("kb_id") or ""),
+            "documents": document_manifest,
+            "source_blocks": sorted(
+                source_blocks,
+                key=lambda item: (item["document_id"], item["source_block_id"]),
+            ),
+        }
+        return {
+            "corpus_snapshot": corpus_snapshot,
+            "corpus_snapshot_hash": self._mapping_sha256(corpus_snapshot),
         }
 
     def pipeline_version_payload(

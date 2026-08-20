@@ -5,7 +5,7 @@ import hashlib
 import json
 import random
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Any
 
 from .service import BenchmarkGenerationError
@@ -22,6 +22,11 @@ KNOWLEDGE_COVERAGE = (
 MAX_EVIDENCE_UNITS = 40
 MAX_EVIDENCE_CHARS = 48_000
 MAX_EVIDENCE_UNIT_CHARS = 1_200
+FORMAL_GOLD_CASE_COUNT = 42
+FORMAL_GOLD_POSITIVE_COUNT = 30
+FORMAL_GOLD_NEGATIVE_COUNT = 12
+FORMAL_GOLD_MIN_EVIDENCE = 18
+FORMAL_GOLD_MAX_DOCUMENT_CASES = 12
 
 
 class KnowledgeBenchmarkGenerationService:
@@ -101,7 +106,9 @@ class KnowledgeBenchmarkGenerationService:
             ordered = sorted(
                 chunks,
                 key=lambda item: (
-                    0 if str(item.chunk_type) == "child" else 1,
+                    0
+                    if str(item.chunk_type) in {"parent", "standard"}
+                    else 1,
                     int(item.chunk_index),
                     str(item.chunk_id),
                 ),
@@ -130,6 +137,7 @@ class KnowledgeBenchmarkGenerationService:
                         "heading_path": [str(item)[:160] for item in chunk.heading_path[:12]],
                         "visual_kind": str(chunk.visual_kind or "")[:80] or None,
                         "text": text[:MAX_EVIDENCE_UNIT_CHARS],
+                        "content_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
                         "text_length": len(text),
                         "truncated": len(text) > MAX_EVIDENCE_UNIT_CHARS,
                     }
@@ -149,6 +157,41 @@ class KnowledgeBenchmarkGenerationService:
             }
             for item in document_results
         ]
+        corpus_snapshot = {
+            "knowledge_base_id": kb_id,
+            "documents": sorted(
+                [
+                    {
+                        "document_id": item["document_id"],
+                        "content_hash": item["content_hash"],
+                    }
+                    for item in safe_documents
+                ],
+                key=lambda item: item["document_id"],
+            ),
+            "source_blocks": sorted(
+                [
+                    {
+                        "document_id": item["document_id"],
+                        "source_block_id": item["source_block_id"],
+                        "content_hash": item["content_hash"],
+                    }
+                    for item in evidence
+                ],
+                key=lambda item: (item["document_id"], item["source_block_id"]),
+            ),
+        }
+        corpus_snapshot_hash = self._checksum(corpus_snapshot)
+        corpus_snapshot_builder = getattr(
+            self.rag_service, "pipeline_corpus_snapshot", None
+        )
+        if callable(corpus_snapshot_builder):
+            corpus_identity = corpus_snapshot_builder(
+                version_id,
+                document_ids=[item["document_id"] for item in safe_documents],
+            )
+            corpus_snapshot = copy.deepcopy(corpus_identity["corpus_snapshot"])
+            corpus_snapshot_hash = str(corpus_identity["corpus_snapshot_hash"])
         checksum_payload = {
             "kb_id": kb_id,
             "version_id": version_id,
@@ -186,6 +229,8 @@ class KnowledgeBenchmarkGenerationService:
             "version": int(version.get("version") or 0),
             "status": str(version.get("status") or ""),
             "checksum": checksum,
+            "corpus_snapshot": corpus_snapshot,
+            "corpus_snapshot_hash": corpus_snapshot_hash,
             "documents": safe_documents,
             "document_count": len(safe_documents),
             "evidence_count": len(evidence),
@@ -210,6 +255,9 @@ class KnowledgeBenchmarkGenerationService:
         target_reference: dict[str, Any],
         requested_coverage: list[str],
         locales: list[str] | None = None,
+        generation_purpose: str = "general",
+        case_count: int = 12,
+        no_result_count: int = 0,
     ) -> dict[str, Any]:
         snapshot, warnings = self.snapshot_target(target_reference)
         available = self.available_coverage(
@@ -228,6 +276,17 @@ class KnowledgeBenchmarkGenerationService:
             if unavailable
             else []
         )
+        if generation_purpose == "strategy_tuning":
+            issues.extend(
+                self._formal_generation_issues(
+                    snapshot=snapshot,
+                    available=available,
+                    selected=selected,
+                    locales=list(locales or ["zh-CN", "en-US"]),
+                    case_count=case_count,
+                    no_result_count=no_result_count,
+                )
+            )
         sampled = self._sample_evidence(snapshot, seed=0)
         return {
             "valid": not issues,
@@ -264,6 +323,71 @@ class KnowledgeBenchmarkGenerationService:
             available.extend(["multi_evidence", "confusable_content"])
         return available
 
+    @staticmethod
+    def _formal_generation_issues(
+        *,
+        snapshot: dict[str, Any],
+        available: list[str],
+        selected: list[str],
+        locales: list[str],
+        case_count: int,
+        no_result_count: int,
+    ) -> list[dict[str, str]]:
+        issues: list[dict[str, str]] = []
+
+        def add(code: str, message: str) -> None:
+            issues.append({"code": code, "message": message})
+
+        if case_count != FORMAL_GOLD_CASE_COUNT or no_result_count != FORMAL_GOLD_NEGATIVE_COUNT:
+            add(
+                "formal_case_matrix",
+                "rag-gold-v2 requires exactly 30 positive and 12 hard-negative cases.",
+            )
+        if set(locales) != {"zh-CN", "en-US"} or len(locales) != 2:
+            add(
+                "formal_locale_matrix",
+                "rag-gold-v2 requires both zh-CN and en-US locales.",
+            )
+        if set(selected) != set(KNOWLEDGE_COVERAGE) or len(selected) != len(
+            KNOWLEDGE_COVERAGE
+        ):
+            add(
+                "formal_coverage_matrix",
+                "rag-gold-v2 requires all six positive coverage types exactly once.",
+            )
+        if set(KNOWLEDGE_COVERAGE) - set(available):
+            add(
+                "formal_coverage_unavailable",
+                "The selected corpus cannot support every rag-gold-v2 coverage type.",
+            )
+        document_count = int(snapshot.get("document_count") or 0)
+        if document_count < 3 or document_count > 35:
+            add(
+                "formal_document_count",
+                "rag-gold-v2 requires 3-35 selected documents so every document can be covered without exceeding the 40% share limit.",
+            )
+        evidence = list(snapshot.get("_evidence") or [])
+        if len(evidence) < FORMAL_GOLD_MIN_EVIDENCE:
+            add(
+                "formal_evidence_count",
+                "rag-gold-v2 requires at least 18 stable source blocks for the two-use cap.",
+            )
+        blocks_by_document = Counter(
+            str(item.get("document_id") or "")
+            for item in evidence
+            if item.get("document_id")
+        )
+        usable_reference_capacity = sum(
+            min(count * 2, FORMAL_GOLD_MAX_DOCUMENT_CASES)
+            for count in blocks_by_document.values()
+        )
+        if usable_reference_capacity < FORMAL_GOLD_POSITIVE_COUNT + 5:
+            add(
+                "formal_evidence_capacity",
+                "Stable source blocks are too concentrated by document to allocate 30 positives and five cross-document evidence pairs within publication limits.",
+            )
+        return issues
+
     def prepare_generation(
         self,
         *,
@@ -273,6 +397,7 @@ class KnowledgeBenchmarkGenerationService:
         requested_coverage: list[str],
         no_result_count: int,
         seed: int,
+        generation_purpose: str = "general",
     ) -> dict[str, Any]:
         available = self.available_coverage(snapshot, locales=locales)
         selected = requested_coverage or list(available)
@@ -281,6 +406,20 @@ class KnowledgeBenchmarkGenerationService:
             raise BenchmarkGenerationError(
                 "Requested knowledge coverage is unavailable: " + ", ".join(unavailable)
             )
+        if generation_purpose == "strategy_tuning":
+            formal_issues = self._formal_generation_issues(
+                snapshot=snapshot,
+                available=available,
+                selected=selected,
+                locales=locales,
+                case_count=case_count,
+                no_result_count=no_result_count,
+            )
+            if formal_issues:
+                raise BenchmarkGenerationError(
+                    "Formal rag-gold-v2 generation is not qualified: "
+                    + "; ".join(item["message"] for item in formal_issues)
+                )
         sampled = self._sample_evidence(snapshot, seed=seed)
         if not sampled:
             raise BenchmarkGenerationError("Knowledge snapshot exposes no sampleable evidence.")
@@ -290,30 +429,91 @@ class KnowledgeBenchmarkGenerationService:
         rng = random.Random(seed)
         evidence_wheel = list(sampled)
         rng.shuffle(evidence_wheel)
+        formal_allocation = generation_purpose == "strategy_tuning"
+        evidence_position = {
+            str(item["evidence_id"]): position
+            for position, item in enumerate(evidence_wheel)
+        }
+        block_use: Counter[str] = Counter()
+        document_case_use: Counter[str] = Counter()
+        blocks_by_document: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for item in evidence_wheel:
+            blocks_by_document[str(item["document_id"])].append(item)
+
+        def remaining_blocks(document_id: str) -> list[dict[str, Any]]:
+            limit = 2 if formal_allocation else positives
+            return [
+                item
+                for item in blocks_by_document[document_id]
+                if block_use[str(item["evidence_id"])] < limit
+            ]
+
+        def choose_block(document_id: str) -> dict[str, Any]:
+            candidates = remaining_blocks(document_id)
+            if not candidates:
+                raise BenchmarkGenerationError(
+                    "Formal rag-gold-v2 evidence allocation exhausted a source document."
+                )
+            chosen = min(
+                candidates,
+                key=lambda item: (
+                    block_use[str(item["evidence_id"])],
+                    evidence_position[str(item["evidence_id"])],
+                ),
+            )
+            block_use[str(chosen["evidence_id"])] += 1
+            return chosen
+
+        def candidate_documents(*, excluding: str | None = None) -> list[str]:
+            limit = FORMAL_GOLD_MAX_DOCUMENT_CASES if formal_allocation else positives
+            return [
+                document_id
+                for document_id in blocks_by_document
+                if document_id != excluding
+                and document_case_use[document_id] < limit
+                and remaining_blocks(document_id)
+            ]
+
         for index in range(positives):
             coverage = selected[index % len(selected)]
-            primary = evidence_wheel[index % len(evidence_wheel)]
-            required = [primary]
-            if coverage == "multi_evidence" and len(evidence_wheel) > 1:
-                secondary = next(
-                    (
-                        item
-                        for item in evidence_wheel
-                        if item["document_id"] != primary["document_id"]
-                    ),
-                    evidence_wheel[(index + 1) % len(evidence_wheel)],
+            documents = candidate_documents()
+            if not documents:
+                raise BenchmarkGenerationError(
+                    "Formal rag-gold-v2 evidence allocation cannot satisfy document share limits."
                 )
-                if secondary["evidence_id"] != primary["evidence_id"]:
-                    required.append(secondary)
+            primary_document = min(
+                documents,
+                key=lambda document_id: (
+                    document_case_use[document_id],
+                    -len(remaining_blocks(document_id)),
+                    document_id,
+                ),
+            )
+            primary = choose_block(primary_document)
+            required = [primary]
+            document_case_use[primary_document] += 1
+            if coverage == "multi_evidence" and len(evidence_wheel) > 1:
+                secondary_documents = candidate_documents(excluding=primary_document)
+                if not secondary_documents:
+                    raise BenchmarkGenerationError(
+                        "Formal rag-gold-v2 multi-evidence allocation requires capacity in a second document."
+                    )
+                secondary_document = min(
+                    secondary_documents,
+                    key=lambda document_id: (
+                        document_case_use[document_id],
+                        -len(remaining_blocks(document_id)),
+                        document_id,
+                    ),
+                )
+                required.append(choose_block(secondary_document))
+                document_case_use[secondary_document] += 1
             blueprint = {
                 "blueprint_id": f"knowledge-case-{index + 1:02d}",
                 "query_type": coverage,
                 "locale": locales[index % len(locales)],
                 "difficulty": self._difficulty(index, positives),
                 "required_evidence_ids": [item["evidence_id"] for item in required],
-                "required_query_marker_groups": [
-                    self._query_markers(item) for item in required
-                ],
                 "expected_no_result": False,
             }
             if coverage == "confusable_content" and len(evidence_wheel) > 1:
@@ -406,17 +606,16 @@ class KnowledgeBenchmarkGenerationService:
             "document content. Copy a short exact anchor quote for every required evidence "
             "ID so the server can verify grounding. Do not invent IDs, facts, references, "
             "paths, credentials, or hidden reasoning. Questions must not reveal the answer "
-            "or copy a long anchor verbatim. Paraphrase and cross-language cases must remain "
-            "semantically grounded. no_result blueprints must ask a plausible nearby question "
+            "or copy source wording merely to satisfy a lexical marker. Paraphrase and "
+            "cross-language cases must remain semantically grounded. no_result blueprints "
+            "must ask a plausible nearby question "
             "whose answer is absent from all provided evidence; return no evidence IDs or quotes."
         )
         user = (
             f"Create exactly {case_count} cases in blueprint order. Seed={seed}. "
             f"Locales={locales}. Keep each query between 3 and 4000 characters. "
             "For positive cases evidence_ids must exactly equal required_evidence_ids. "
-            "The query must contain at least one exact token from every corresponding "
-            "required_query_marker_groups entry. Preserve these target markers even for "
-            "paraphrase and cross-language cases. "
+            "Do not force exact source markers into semantic, paraphrase, or cross-language queries. "
             "For no-result cases evidence_ids and anchor_quotes must be empty.\n\n"
             f"Fixed target summary:\n{json.dumps(self.public_target(snapshot), ensure_ascii=False)}\n\n"
             f"Server blueprints:\n{json.dumps(context['blueprints'], ensure_ascii=False)}\n\n"
@@ -500,16 +699,6 @@ class KnowledgeBenchmarkGenerationService:
                 raise BenchmarkGenerationError(
                     f"Case {index + 1} evidence IDs do not match the server blueprint."
                 )
-            if not expected_no_result:
-                marker_groups = list(blueprint.get("required_query_marker_groups") or [])
-                for marker_group in marker_groups:
-                    markers = [str(item) for item in list(marker_group or []) if str(item)]
-                    if not markers or not any(
-                        self._normalize_text(marker) in query_key for marker in markers
-                    ):
-                        raise BenchmarkGenerationError(
-                            f"Case {index + 1} query is not specific to every assigned evidence block."
-                        )
             quotes = list(raw_case.get("anchor_quotes") or [])
             if expected_no_result:
                 if evidence_ids or quotes:
@@ -518,6 +707,12 @@ class KnowledgeBenchmarkGenerationService:
                     )
                 references: list[dict[str, Any]] = []
                 review_status = "pending"
+                leakage = {
+                    "max_normalized_copy": 0,
+                    "warning_threshold": None,
+                    "warning": False,
+                    "blocked": False,
+                }
             else:
                 quote_by_id: dict[str, str] = {}
                 for quote_item in quotes:
@@ -545,10 +740,6 @@ class KnowledgeBenchmarkGenerationService:
                         raise BenchmarkGenerationError(
                             f"Case {index + 1} anchor quote is not present in its fixed evidence."
                         )
-                    if len(normalized_quote) >= 32 and normalized_quote in query_key:
-                        raise BenchmarkGenerationError(
-                            f"Case {index + 1} leaks a long evidence quote into the query."
-                        )
                     references.append(
                         {
                             "reference_id": f"ref_{blueprint['blueprint_id']}_{ref_index + 1}",
@@ -560,7 +751,34 @@ class KnowledgeBenchmarkGenerationService:
                             "relevance": 3 if ref_index == 0 else 2,
                         }
                     )
-                review_status = "not_required"
+                max_copy = max(
+                    (
+                        self._max_normalized_copy_length(
+                            query_key,
+                            self._normalize_text(
+                                str(evidence_by_id[evidence_id]["text"])
+                            ),
+                        )
+                        for evidence_id in required_ids
+                    ),
+                    default=0,
+                )
+                warning_threshold = (
+                    12
+                    if str(blueprint["query_type"]) in {"paraphrase", "cross_language"}
+                    else 24
+                )
+                if max_copy >= 32:
+                    raise BenchmarkGenerationError(
+                        f"Case {index + 1} copies at least 32 normalized source characters."
+                    )
+                leakage = {
+                    "max_normalized_copy": max_copy,
+                    "warning_threshold": warning_threshold,
+                    "warning": max_copy >= warning_threshold,
+                    "blocked": False,
+                }
+                review_status = "pending"
             rationale = str(raw_case.get("rationale") or "").strip()[:500]
             context_refs = [
                 {
@@ -595,6 +813,7 @@ class KnowledgeBenchmarkGenerationService:
                         "difficulty": blueprint["difficulty"],
                         "evidence_ids": required_ids,
                         "context_refs": context_refs,
+                        "leakage": leakage,
                     },
                 }
             )
@@ -630,6 +849,7 @@ class KnowledgeBenchmarkGenerationService:
                 "version",
                 "status",
                 "checksum",
+                "corpus_snapshot_hash",
                 "documents",
                 "document_count",
                 "evidence_count",
@@ -719,6 +939,31 @@ class KnowledgeBenchmarkGenerationService:
             if len(cls._normalize_text(marker)) >= 2:
                 markers.append(marker)
         return markers
+
+    @staticmethod
+    def _max_normalized_copy_length(left: str, right: str) -> int:
+        """Return the longest shared substring length, capped at the blocker boundary."""
+
+        if not left or not right:
+            return 0
+        shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
+        low = 0
+        high = min(32, len(shorter))
+        while low < high:
+            probe = (low + high + 1) // 2
+            windows = {
+                shorter[index : index + probe]
+                for index in range(len(shorter) - probe + 1)
+            }
+            matched = any(
+                longer[index : index + probe] in windows
+                for index in range(len(longer) - probe + 1)
+            )
+            if matched:
+                low = probe
+            else:
+                high = probe - 1
+        return low
 
     @staticmethod
     def _checksum(value: Any) -> str:

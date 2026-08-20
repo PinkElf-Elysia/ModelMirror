@@ -167,10 +167,12 @@ async def get_capabilities() -> dict[str, Any]:
             "case_count": {"default": 12, "min": 6, "max": 30},
             "no_result_count": {"default": 0, "max": 5, "max_ratio": 0.2},
             "strategy_tuning": {
-                "case_count": {"default": 42, "min": 30, "max": 60},
-                "minimum_positive_cases": 30,
-                "no_result_count": {"default": 12, "disabled": 0, "min": 12, "max": 20},
-                "negative_review_required": True,
+                "case_count": {"default": 42, "min": 42, "max": 42},
+                "positive_cases": 30,
+                "no_result_count": {"default": 12, "min": 12, "max": 12},
+                "required_locales": ["zh-CN", "en-US"],
+                "required_coverage_count": 6,
+                "all_case_review_required": True,
             },
             "max_evidence_units": 40,
             "max_evidence_chars": 48_000,
@@ -264,6 +266,9 @@ async def preflight_generation(
                 target_reference=payload.target.model_dump(mode="json"),
                 requested_coverage=payload.coverage,
                 locales=payload.locales,
+                generation_purpose=payload.generation_purpose,
+                case_count=payload.case_count,
+                no_result_count=payload.no_result_count,
             )
         return await _to_thread(
             get_benchmark_generation_service().preflight,
@@ -304,6 +309,9 @@ async def create_generation(payload: BenchmarkGenerationRequest) -> dict[str, An
     preflight = await preflight_generation(
         BenchmarkGenerationPreflightRequest(
             target=payload.target,
+            generation_purpose=payload.generation_purpose,
+            case_count=payload.case_count,
+            no_result_count=payload.no_result_count,
             coverage=payload.coverage,
             locales=payload.locales,
             conversation_selections=payload.conversation_selections,
@@ -373,6 +381,17 @@ async def create_calibration(payload: BenchmarkCalibrationRequest) -> dict[str, 
                 raise EvaluationStateError("Generated knowledge dataset has no fixed target.")
             if int(dataset.get("revision") or 0) != payload.dataset_revision:
                 raise EvaluationStateError("Dataset changed. Reload before calibration.")
+            provenance = dict(dataset.get("provenance") or {})
+            gold_v2 = str(
+                dataset.get("benchmark_contract_version")
+                or provenance.get("benchmark_contract_version")
+                or ""
+            ) == "rag-gold-v2"
+            if gold_v2:
+                raise EvaluationStateError(
+                    "rag-gold-v2 does not run pre-publication retrieval calibration; "
+                    "retrieval is measured once by the paired single Formal run."
+                )
             pending_reviews = [
                 case
                 for case in dataset.get("cases") or []

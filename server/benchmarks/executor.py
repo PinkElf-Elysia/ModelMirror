@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import copy
+import hashlib
 import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -652,6 +653,9 @@ class BenchmarkJobExecutor:
         ):
             raise BenchmarkGenerationError("Knowledge Benchmark generation is not configured.")
         request = dict(job.get("request") or {})
+        formal_gold = str(
+            request.get("generation_purpose") or "general"
+        ) == "strategy_tuning"
         reference = dict(request.get("target") or {})
         snapshot, target_warnings = await asyncio.to_thread(
             self.knowledge_service.snapshot_target, reference
@@ -671,6 +675,52 @@ class BenchmarkJobExecutor:
                 dataset_revision=existing["revision"],
                 warnings=target_warnings,
             )
+            pending_reviews = [
+                case
+                for case in existing.get("cases") or []
+                if (
+                    formal_gold
+                    or case.get("expected_no_result")
+                )
+                and str(case.get("review_status") or "pending") != "approved"
+            ]
+            if pending_reviews:
+                calibration = {
+                    **dict(existing.get("calibration") or {}),
+                    "status": (
+                        "review_required" if formal_gold else "awaiting_review"
+                    ),
+                    "dataset_revision": int(existing["revision"]),
+                    "pending_review_count": len(pending_reviews),
+                    "reason": (
+                        (
+                            "Approve all 42 cases before publishing rag-gold-v2; "
+                            "retrieval is measured only by the single Formal run."
+                            if formal_gold
+                            else "Approve every corpus-near no-result case before starting calibration."
+                        )
+                    ),
+                }
+                await asyncio.to_thread(
+                    self.store.update_job,
+                    job["job_id"],
+                    status="completed",
+                    calibration=calibration,
+                )
+                return
+            if formal_gold:
+                await asyncio.to_thread(
+                    self.store.update_job,
+                    job["job_id"],
+                    status="completed",
+                    calibration={
+                        **dict(existing.get("calibration") or {}),
+                        "status": "not_required",
+                        "dataset_revision": int(existing["revision"]),
+                        "reason": "Retrieval is measured once by the paired Formal run.",
+                    },
+                )
+                return
             await self._start_knowledge_evaluation(
                 job_id=job["job_id"],
                 dataset=existing,
@@ -687,6 +737,7 @@ class BenchmarkJobExecutor:
             requested_coverage=list(request.get("coverage") or []),
             no_result_count=int(request.get("no_result_count") or 0),
             seed=int(request.get("seed") or 0),
+            generation_purpose=str(request.get("generation_purpose") or "general"),
         )
         system, user = await asyncio.to_thread(
             self.knowledge_service.generation_prompt,
@@ -740,6 +791,8 @@ class BenchmarkJobExecutor:
                 expected_count=int(request.get("case_count") or 12),
             )
         except BenchmarkGenerationError as exc:
+            if str(request.get("generation_purpose") or "general") == "strategy_tuning":
+                raise
             repair_used = True
             repair_system, repair_user = self.knowledge_service.repair_prompt(
                 initial.text,
@@ -777,6 +830,11 @@ class BenchmarkJobExecutor:
                 context=context,
                 expected_count=int(request.get("case_count") or 12),
             )
+        if not formal_gold:
+            for case in generated["cases"]:
+                if not case.get("expected_no_result"):
+                    case["review_status"] = "not_required"
+                    case["review_evidence"] = {}
         current = await asyncio.to_thread(self.store.require_job, job["job_id"])
         if current.get("cancel_requested"):
             await asyncio.to_thread(self.store.update_job, job["job_id"], status="cancelled")
@@ -788,15 +846,24 @@ class BenchmarkJobExecutor:
             generated["description"],
             cases=generated["cases"],
             provenance={
-                "generator": "modelmirror-targeted-rag-benchmark-v1",
+                "benchmark_contract_version": (
+                    "rag-gold-v2" if formal_gold else "rag-gold-v1"
+                ),
+                "generator": "modelmirror-targeted-rag-benchmark-v2",
                 "generation_purpose": str(
                     request.get("generation_purpose") or "general"
                 ),
                 "generation_job_id": job["job_id"],
                 "generator_model_id": str(request.get("generator_model_id") or "")[:300],
+                "generation_prompt_hash": hashlib.sha256(
+                    (system + "\n" + user).encode("utf-8")
+                ).hexdigest(),
                 "target_reference": copy.deepcopy(reference),
                 "target_checksum": snapshot["checksum"],
                 "pipeline_version_id": snapshot["pipeline_version_id"],
+                "source_pipeline_version_id": snapshot["pipeline_version_id"],
+                "corpus_snapshot": copy.deepcopy(snapshot["corpus_snapshot"]),
+                "corpus_snapshot_hash": snapshot["corpus_snapshot_hash"],
                 "document_ids": [item["document_id"] for item in snapshot["documents"]],
                 "source_summary_hash": snapshot["source_summary_hash"],
                 "evidence_hash": context["evidence_hash"],
@@ -815,17 +882,12 @@ class BenchmarkJobExecutor:
                 ),
             },
             calibration={
-                "status": "pending",
+                "status": "not_required" if formal_gold else "pending",
                 "dataset_revision": 1,
                 "target_reference": copy.deepcopy(reference),
                 "target_checksum": snapshot["checksum"],
             },
-            benchmark_role=(
-                "promotion_evidence"
-                if str(request.get("generation_purpose") or "general")
-                == "strategy_tuning"
-                else "strategy_tuning"
-            ),
+            benchmark_role=("promotion_evidence" if formal_gold else "strategy_tuning"),
         )
         await asyncio.to_thread(
             self.store.update_job,
@@ -847,32 +909,53 @@ class BenchmarkJobExecutor:
         pending_reviews = [
             case
             for case in dataset.get("cases") or []
-            if case.get("expected_no_result")
+            if (formal_gold or case.get("expected_no_result"))
             and str(case.get("review_status") or "pending") != "approved"
         ]
         if pending_reviews:
-            calibration = {
-                "status": "awaiting_review",
+            dataset_calibration = {
+                "status": "not_required" if formal_gold else "awaiting_review",
                 "dataset_revision": int(dataset["revision"]),
                 "target_reference": copy.deepcopy(reference),
                 "target_checksum": snapshot["checksum"],
                 "pending_review_count": len(pending_reviews),
                 "reason": (
-                    "Approve every corpus-near no-result case before starting "
-                    "real retrieval calibration."
+                    (
+                        "Approve all 42 cases before publishing rag-gold-v2; retrieval "
+                        "is measured only by the single Formal run."
+                        if formal_gold
+                        else "Approve every corpus-near no-result case before starting calibration."
+                    )
                 ),
             }
             await asyncio.to_thread(
                 self.rag_evaluation_store.set_calibration,
                 dataset["eval_set_id"],
                 expected_revision=int(dataset["revision"]),
-                calibration=calibration,
+                calibration=dataset_calibration,
             )
             await asyncio.to_thread(
                 self.store.update_job,
                 job["job_id"],
                 status="completed",
-                calibration=calibration,
+                calibration={
+                    **dataset_calibration,
+                    "status": (
+                        "review_required" if formal_gold else "awaiting_review"
+                    ),
+                },
+            )
+            return
+        if formal_gold:
+            await asyncio.to_thread(
+                self.store.update_job,
+                job["job_id"],
+                status="completed",
+                calibration={
+                    "status": "not_required",
+                    "dataset_revision": int(dataset["revision"]),
+                    "reason": "Retrieval is measured once by the paired Formal run.",
+                },
             )
             return
         await self._start_knowledge_evaluation(

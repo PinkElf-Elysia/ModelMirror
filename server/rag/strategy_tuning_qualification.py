@@ -69,6 +69,11 @@ def build_tuning_readiness(
     calibration_status = str(calibration.get("status") or "pending")
     origin = str(evaluation_version.get("origin") or "manual")
     provenance = dict(evaluation_version.get("provenance") or {})
+    gold_v2 = str(
+        evaluation_version.get("benchmark_contract_version")
+        or provenance.get("benchmark_contract_version")
+        or ""
+    ) == "rag-gold-v2"
     target_reference = dict(provenance.get("target_reference") or {})
     calibration_reference = dict(calibration.get("target_reference") or {})
     declared_target_version = str(
@@ -169,11 +174,22 @@ def build_tuning_readiness(
         )
     add_check(
         "calibration_status",
-        passed=calibration_status in {"calibrated", "warning"},
+        passed=(
+            calibration_status in {"calibrated", "warning"}
+            or (gold_v2 and calibration_status == "not_required")
+        ),
         severity="blocker" if origin == "generated" else "warning",
         actual=calibration_status,
-        required=["calibrated", "warning"],
-        message="A calibrated targeted set provides stronger evidence than an uncalibrated draft.",
+        required=(
+            ["not_required", "calibrated", "warning"]
+            if gold_v2
+            else ["calibrated", "warning"]
+        ),
+        message=(
+            "rag-gold-v2 defers retrieval measurement to the single paired Formal run."
+            if gold_v2
+            else "A calibrated targeted set provides stronger evidence than an uncalibrated draft."
+        ),
     )
 
     blockers = [item["message"] for item in checks if item["severity"] == "blocker" and not item["passed"]]

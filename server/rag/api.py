@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
+import time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -45,6 +47,8 @@ from .evaluation import (
     EvaluationSetNotFoundError,
     EvaluationStateError,
     KnowledgeEvaluationStore,
+    build_paired_execution_schedule,
+    qualify_promotion_evidence,
 )
 from .evaluation_executor import KnowledgeEvaluationExecutor
 from .strategy_router import (
@@ -696,7 +700,7 @@ class EvaluationCaseInput(BaseModel):
     expected_refs: list[EvaluationReferenceInput] = Field(default_factory=list, max_length=50)
     expected_no_result: bool = False
     review_status: str = Field(
-        default="not_required", pattern="^(not_required|pending|approved)$"
+        default="not_required", pattern="^(not_required|pending|approved|rejected)$"
     )
     tags: list[str] = Field(default_factory=list, max_length=20)
     notes: str = Field(default="", max_length=1000)
@@ -707,8 +711,6 @@ class EvaluationCaseInput(BaseModel):
             raise ValueError("No-result cases cannot define expected references.")
         if not self.expected_no_result and not self.expected_refs:
             raise ValueError("Answerable cases require expected references.")
-        if not self.expected_no_result and self.review_status != "not_required":
-            raise ValueError("Only no-result cases can require manual review.")
         return self
 
 
@@ -747,6 +749,12 @@ class EvaluationCaseUpdateRequest(BaseModel):
     case: EvaluationCaseInput
 
 
+class EvaluationCaseReviewRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
+    decision: Literal["approved", "rejected"]
+    reason: str = Field(default="", max_length=1000)
+
+
 class EvaluationTargetInput(BaseModel):
     version_id: str = Field(min_length=1, max_length=200)
     label: str | None = Field(default=None, max_length=120)
@@ -759,6 +767,9 @@ class EvaluationRunCreateRequest(BaseModel):
     targets: list[EvaluationTargetInput] = Field(min_length=1, max_length=5)
     baseline_version_id: str | None = Field(default=None, max_length=200)
     ks: list[int] = Field(default_factory=lambda: [1, 3, 5, 10], min_length=1, max_length=8)
+    run_mode: Literal["diagnostic", "formal"] = "diagnostic"
+    case_ids: list[str] | None = Field(default=None, min_length=1, max_length=500)
+    execution_seed: int = Field(default=0, ge=0, le=2_147_483_647)
 
 
 class EvaluationGateUpdateRequest(BaseModel):
@@ -774,6 +785,9 @@ class EvaluationGateUpdateRequest(BaseModel):
     min_citation_coverage: float = Field(default=0, ge=0, le=1)
     max_p95_latency_ratio: float = Field(ge=1, le=10)
     max_p95_latency_ms: float = Field(default=1500, ge=1, le=120_000)
+    max_paired_primary_regression: float = Field(default=0.03, ge=0, le=1)
+    paired_confidence_level: float = Field(default=0.95, ge=0.5, lt=1)
+    require_comparable_corpus: bool = True
     require_zero_errors: bool = True
 
 
@@ -1918,6 +1932,64 @@ async def update_evaluation_case(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/evaluation-sets/{eval_set_id}/cases/{case_id}/review")
+async def review_evaluation_case(
+    eval_set_id: str,
+    case_id: str,
+    payload: EvaluationCaseReviewRequest,
+) -> dict[str, Any]:
+    try:
+        evaluation_set = get_evaluation_store().get_set(eval_set_id)
+        if str(evaluation_set.get("origin") or "manual") != "generated":
+            raise ValueError("Manual review is available for generated sets only.")
+        case = next(
+            (
+                item
+                for item in evaluation_set.get("cases", [])
+                if str(item.get("case_id") or "") == case_id
+            ),
+            None,
+        )
+        if not isinstance(case, dict):
+            raise EvaluationSetNotFoundError("Knowledge evaluation case not found.")
+        provenance = dict(evaluation_set.get("provenance") or {})
+        is_gold_v2 = (
+            str(provenance.get("benchmark_contract_version") or "") == "rag-gold-v2"
+        )
+        if not is_gold_v2 and not case.get("expected_no_result"):
+            raise ValueError("Legacy positive cases do not require manual review.")
+        leakage = dict((case.get("targeting") or {}).get("leakage") or {})
+        reason = payload.reason.strip()
+        if payload.decision == "approved" and leakage.get("blocked"):
+            raise ValueError("A query with blocking source leakage cannot be approved.")
+        if payload.decision == "approved" and leakage.get("warning") and not reason:
+            raise ValueError("Leakage warnings require an approval reason.")
+
+        # Re-resolve every fixed source before accepting either review decision.
+        await get_evaluation_case_evidence(eval_set_id, case_id)
+        return get_evaluation_store().update_case(
+            eval_set_id,
+            case_id,
+            expected_revision=payload.expected_revision,
+            values={
+                "review_status": payload.decision,
+                "review_evidence": {
+                    "source": "manual_ui",
+                    "decision": payload.decision,
+                    "reviewed_at": time.time(),
+                    "dataset_revision": payload.expected_revision,
+                    "reason": reason,
+                },
+            },
+        )
+    except EvaluationSetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except EvaluationRevisionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/evaluation-sets/{eval_set_id}/cases/{case_id}/evidence")
 async def get_evaluation_case_evidence(
     eval_set_id: str,
@@ -2106,6 +2178,26 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
         evaluation_ks = sorted({*payload.ks, 5, 10})
         if payload.baseline_version_id and payload.baseline_version_id not in version_ids:
             raise ValueError("baseline_version_id must be included in targets.")
+        if payload.run_mode == "formal":
+            if evaluation_version is None:
+                raise ValueError("Formal evaluation requires a published Gold version.")
+            if not qualify_promotion_evidence(evaluation_version).get("qualified"):
+                raise ValueError("Formal evaluation requires qualified rag-gold-v2 evidence.")
+            if payload.case_ids is not None:
+                raise ValueError("Formal evaluation does not allow case subsets.")
+            if len(payload.targets) != 2 or not payload.baseline_version_id:
+                raise ValueError(
+                    "Formal evaluation requires exactly one baseline and one candidate."
+                )
+        gold_corpus = dict(evaluation_snapshot.get("corpus_snapshot") or {})
+        gold_document_ids = [
+            str(item.get("document_id") or "")
+            for item in gold_corpus.get("documents") or []
+            if isinstance(item, dict) and item.get("document_id")
+        ]
+        gold_corpus_hash = str(
+            evaluation_snapshot.get("corpus_snapshot_hash") or ""
+        )
         targets: list[dict[str, Any]] = []
         for target in payload.targets:
             version = get_rag_service().get_pipeline_version(target.version_id)
@@ -2113,6 +2205,13 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
                 raise ValueError("All evaluation versions must belong to the evaluation knowledge base.")
             if version.get("status") not in {"ready", "active"}:
                 raise ValueError("Only ready or active knowledge versions can be evaluated.")
+            version_evidence = get_rag_service().pipeline_version_evidence(
+                target.version_id
+            )
+            corpus_identity = get_rag_service().pipeline_corpus_snapshot(
+                target.version_id,
+                document_ids=gold_document_ids or None,
+            )
             targets.append(
                 {
                     "target_id": target.version_id,
@@ -2120,11 +2219,75 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
                     "version": int(version["version"]),
                     "label": target.label or f"v{version['version']}",
                     "retrieval": target.retrieval.model_dump(exclude_none=True) if target.retrieval else {},
-                    "version_evidence": get_rag_service().pipeline_version_evidence(
-                        target.version_id
-                    ),
+                    "version_evidence": version_evidence,
+                    "corpus_snapshot_hash": corpus_identity[
+                        "corpus_snapshot_hash"
+                    ],
                 }
             )
+        target_corpus_hashes = {
+            str(item.get("corpus_snapshot_hash") or "") for item in targets
+        }
+        comparable = bool(
+            gold_corpus_hash
+            and len(target_corpus_hashes) == 1
+            and target_corpus_hashes == {gold_corpus_hash}
+        )
+        comparability = {
+            "version": "rag-corpus-comparability-v1",
+            "comparable": comparable,
+            "corpus_snapshot_hash": gold_corpus_hash or None,
+            "target_corpus_snapshot_hashes": {
+                str(item["version_id"]): str(item["corpus_snapshot_hash"])
+                for item in targets
+            },
+            "reasons": [] if comparable else ["Gold and target corpus snapshot hashes differ."],
+        }
+        if payload.run_mode == "formal" and not comparable:
+            raise ValueError(
+                "Formal evaluation requires baseline, candidate, and Gold to use the same corpus snapshot."
+            )
+        schedule = build_paired_execution_schedule(
+            list(evaluation_snapshot.get("cases") or []),
+            targets,
+            seed=payload.execution_seed,
+        )
+        schedule_checksum = hashlib.sha256(
+            json.dumps(
+                schedule,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        execution_manifest = {
+            "version": "rag-eval-v2",
+            "evaluation_set_version_id": evaluation_snapshot.get("version_id"),
+            "evaluation_set_checksum": evaluation_snapshot.get("checksum"),
+            "corpus_snapshot_hash": gold_corpus_hash or None,
+            "target_fingerprints": [
+                {
+                    "version_id": item["version_id"],
+                    "version_fingerprint": item["version_evidence"].get(
+                        "version_fingerprint"
+                    ),
+                    "configuration_fingerprint": item["version_evidence"].get(
+                        "configuration_fingerprint"
+                    ),
+                    "processor": item["version_evidence"].get("processor") or {},
+                    "retrieval": item["version_evidence"].get("retrieval") or {},
+                    "embedding": item["version_evidence"].get("embedding") or {},
+                    "corpus_snapshot_hash": item["corpus_snapshot_hash"],
+                }
+                for item in targets
+            ],
+            "execution_seed": payload.execution_seed,
+            "order_algorithm": "sha256-paired-interleave-v1",
+            "schedule_checksum": schedule_checksum,
+            "threshold_score_domain": "fused_score",
+            "retry_policy": "none",
+            "warmup_policy": "none",
+        }
         run = get_evaluation_store().create_run(
             evaluation_set=evaluation_set,
             evaluation_set_version=evaluation_version,
@@ -2132,6 +2295,14 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
             baseline_version_id=payload.baseline_version_id,
             ks=evaluation_ks,
             gate_policy=get_evaluation_store().get_gate_policy(str(evaluation_set["kb_id"])),
+            case_ids=payload.case_ids,
+            execution_seed=payload.execution_seed,
+            run_mode=payload.run_mode,
+            metric_contract_version=(
+                "rag-eval-v2" if payload.run_mode == "formal" else "legacy"
+            ),
+            execution_manifest=execution_manifest,
+            comparability=comparability,
         )
         get_evaluation_executor().notify()
         return run
@@ -2139,7 +2310,7 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PipelineVersionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
+    except (EvaluationStateError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

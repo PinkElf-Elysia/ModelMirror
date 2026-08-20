@@ -11,6 +11,14 @@ except ModuleNotFoundError:
 
 
 BenchmarkKind = Literal["agent_response", "knowledge_retrieval"]
+RAG_GOLD_V2_COVERAGE = (
+    "factual_lookup",
+    "paraphrase",
+    "section_context",
+    "cross_language",
+    "multi_evidence",
+    "confusable_content",
+)
 
 
 class BenchmarkManifest(BaseModel):
@@ -125,15 +133,20 @@ class BenchmarkGenerationRequest(BaseModel):
                 raise ValueError(
                     "strategy_tuning generation is only supported for knowledge targets."
                 )
-            positive_count = self.case_count - self.no_result_count
-            if positive_count < 30:
+            if self.case_count != 42 or self.no_result_count != 12:
                 raise ValueError(
-                    "strategy_tuning generation requires at least 30 answerable cases."
-                )
-            if self.no_result_count and self.no_result_count < 12:
-                raise ValueError(
-                    "strategy_tuning threshold evidence requires either 0 or at least 12 "
+                    "rag-gold-v2 strategy_tuning requires exactly 30 positive and 12 "
                     "hard-negative cases."
+                )
+            if set(self.locales) != {"zh-CN", "en-US"} or len(self.locales) != 2:
+                raise ValueError(
+                    "rag-gold-v2 strategy_tuning requires both zh-CN and en-US locales."
+                )
+            if set(self.coverage) != set(RAG_GOLD_V2_COVERAGE) or len(
+                self.coverage
+            ) != len(RAG_GOLD_V2_COVERAGE):
+                raise ValueError(
+                    "rag-gold-v2 strategy_tuning requires all six coverage types exactly once."
                 )
         else:
             if self.case_count > 30:
@@ -148,6 +161,9 @@ class BenchmarkGenerationRequest(BaseModel):
 
 class BenchmarkGenerationPreflightRequest(BaseModel):
     target: BenchmarkTargetRequest
+    generation_purpose: Literal["general", "strategy_tuning"] = "general"
+    case_count: int = Field(default=12, ge=6, le=60)
+    no_result_count: int = Field(default=0, ge=0, le=20)
     coverage: list[str] = Field(default_factory=list, max_length=10)
     locales: list[Literal["zh-CN", "en-US"]] = Field(
         default_factory=lambda: ["zh-CN", "en-US"],
