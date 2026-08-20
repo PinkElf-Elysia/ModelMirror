@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -12,6 +13,12 @@ from server.workflow_deployments import (
     WorkflowDeploymentStore,
     WorkflowDeploymentValidationError,
 )
+
+
+def test_server_image_includes_workflow_deployment_module() -> None:
+    dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
+
+    assert "COPY workflow_deployments.py ." in dockerfile.read_text(encoding="utf-8")
 
 
 def manual_workflow() -> dict:

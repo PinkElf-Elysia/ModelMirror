@@ -16,12 +16,14 @@ import httpx
 from pydantic import BaseModel
 
 try:
+    from server.model_router.egress import ProviderEgressPolicy, request_provider_url
     from server.model_router.repository import (
         RouterConnectionNotFound,
         utc_now,
     )
     from server.model_router.service import ModelRouterService
 except ModuleNotFoundError:
+    from model_router.egress import ProviderEgressPolicy, request_provider_url
     from model_router.repository import RouterConnectionNotFound, utc_now
     from model_router.service import ModelRouterService
 
@@ -95,8 +97,10 @@ class OpenAIRealtimeAdapter:
         self,
         *,
         client_factory: Callable[[], httpx.AsyncClient] | None = None,
+        egress_policy: ProviderEgressPolicy | None = None,
     ) -> None:
         self.client_factory = client_factory or self._default_client
+        self.egress_policy = egress_policy
 
     async def create_call(
         self,
@@ -119,7 +123,11 @@ class OpenAIRealtimeAdapter:
         }
         try:
             async with self.client_factory() as client:
-                response = await client.post(
+                response = await request_provider_url(
+                    client,
+                    self.egress_policy or ProviderEgressPolicy(),
+                    target.connection_id if self.egress_policy else None,
+                    "POST",
                     self._calls_url(target.base_url),
                     headers=self._headers(target),
                     files=files,
@@ -172,7 +180,11 @@ class OpenAIRealtimeAdapter:
             )
         try:
             async with self.client_factory() as client:
-                response = await client.post(
+                response = await request_provider_url(
+                    client,
+                    self.egress_policy or ProviderEgressPolicy(),
+                    target.connection_id if self.egress_policy else None,
+                    "POST",
                     (
                         f"{self._calls_url(target.base_url)}/"
                         f"{call_id}/hangup"
@@ -274,6 +286,7 @@ class OpenAIRealtimeAdapter:
                 pool=10.0,
             ),
             follow_redirects=False,
+            trust_env=False,
         )
 
 
@@ -288,7 +301,9 @@ class RealtimeVoiceService:
         self.router_service = router_service
         self.repository = router_service.repository
         self.tenant_id = router_service.tenant_id
-        self.adapter = adapter or OpenAIRealtimeAdapter()
+        self.adapter = adapter or OpenAIRealtimeAdapter(
+            egress_policy=router_service.egress_policy
+        )
         self.session_seconds = max(
             1,
             min(int(session_seconds), MAX_REALTIME_SESSION_SECONDS),

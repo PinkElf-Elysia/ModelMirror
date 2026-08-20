@@ -385,7 +385,12 @@ async def test_worker_client_marks_writeback_only_restore(
     ]
 
 
-def test_runtime_keeps_project_config_disabled_and_uses_generic_agent_description() -> None:
+def test_runtime_keeps_project_config_disabled_and_uses_generic_agent_description(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "CODING_AGENT_MODEL_BASE_URL", "https://coding-provider.example/v1"
+    )
     root = Path(__file__).resolve().parents[2]
     worker = (root / "server/coding_runtime/worker.py").read_text(encoding="utf-8")
     dockerfile = (root / "server/coding_worker/Dockerfile").read_text(encoding="utf-8")

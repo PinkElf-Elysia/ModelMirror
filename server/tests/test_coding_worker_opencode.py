@@ -78,6 +78,8 @@ def test_config_disables_direct_tools_plugins_sharing_and_supplier_surface(tmp_p
         tool_broker_command=("python", "-m", "coding_worker.tool_mcp"),
     )
     config = provider.build_config(_route())
+
+    assert config["provider"]["modelmirror"]["name"] == "Independent Coding Provider"
     permission = config["permission"]
     assert permission["*"] == "deny"
     assert "modelmirror-tool-broker_*" not in permission

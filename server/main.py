@@ -989,7 +989,7 @@ def env_int(name: str, default: int, minimum: int) -> int:
 
 LLM_GATEWAY_URL = os.getenv(
     "LLM_GATEWAY_URL",
-    "http://localhost:3000/v1/chat/completions",
+    "",
 ).strip()
 LLM_GATEWAY_KEY = os.getenv("LLM_GATEWAY_KEY", "").strip()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
@@ -3601,7 +3601,11 @@ def build_chat_payload_from_messages(
 
 def llm_client_kwargs() -> dict[str, Any]:
     timeout = httpx.Timeout(connect=15, read=None, write=30, pool=10)
-    client_kwargs: dict[str, Any] = {"timeout": timeout}
+    client_kwargs: dict[str, Any] = {
+        "timeout": timeout,
+        "follow_redirects": False,
+        "trust_env": False,
+    }
     proxy = proxy_url()
     if proxy:
         client_kwargs["proxy"] = proxy
@@ -3633,7 +3637,9 @@ async def get_shared_llm_client() -> httpx.AsyncClient:
         if _shared_llm_client is None or bool(
             getattr(_shared_llm_client, "is_closed", False)
         ):
-            _shared_llm_client = httpx.AsyncClient(**llm_client_kwargs())
+            client_kwargs = llm_client_kwargs()
+            client_kwargs.pop("proxy", None)
+            _shared_llm_client = httpx.AsyncClient(**client_kwargs)
             _shared_llm_client_factory = httpx.AsyncClient
         return _shared_llm_client
 
@@ -22085,6 +22091,23 @@ async def chat(payload: ChatRequest, request: Request):
         request_headers = llm_gateway_headers(gateway_key)
         if use_omniroute and gateway_url == url:
             request_headers.update(omniroute_routing_headers(payload.routing))
+        managed_native_url = bool(
+            use_native_router
+            and native_plan is not None
+            and any(
+                target.chat_completions_url == gateway_url
+                for target in native_plan.targets
+            )
+        )
+        if managed_native_url:
+            return await native_router_engine.service.egress_policy.request(
+                client,
+                "POST",
+                gateway_url,
+                headers=request_headers,
+                json=request_payload,
+                stream=True,
+            )
         return await client.send(
             client.build_request(
                 "POST",

@@ -1,6 +1,11 @@
 # 原生智能调度与上下文优化
 
-最后更新日期：2026-08-17
+最后更新日期：2026-08-20
+
+> **2026-08-13 决策更新：** 项目维护人已解除“禁止继续建设”的功能冻结，并批准
+> 建设 [Model Provider Control Plane](./MODEL_PROVIDER_CONTROL_PLANE.md)。解除冻结
+> 不等于批准提高灰度或切换 `native` 默认；500 次请求、14 天、无 P0/P1、故障演练
+> 与人工验收门禁全部保留。下方 2026-07-28 内容作为历史基线继续保留。
 
 ## 当前状态
 
@@ -146,7 +151,10 @@ PostgreSQL 时替换 repository 实现，不改变 service 或 API 契约。
 ## 配置
 
 ```dotenv
-MODEL_ROUTER_TENANT_ID=local
+MODELMIRROR_DEFAULT_TENANT_ID=local
+MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET=<至少 32 字符的外部 Secret>
+MODEL_MIRROR_PROVIDER_INTERNAL_ALLOWLIST=new-api:3000
+MODEL_MIRROR_CREDENTIAL_MASTER_KEY=<外部 Secret>
 MODEL_ROUTER_CANARY_PERCENT=0
 MODEL_ROUTER_ALLOW_NATIVE_OVERRIDE=false
 MODEL_ROUTER_NATIVE_ALGORITHM=omniroute-parity-v2

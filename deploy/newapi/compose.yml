@@ -1,0 +1,28 @@
+services:
+  new-api:
+    image: calciumion/new-api:v1.0.0-rc.22@sha256:d600f20c2781e1a173c2a02f8c33b0c4b1b4e8e5a8b107bafaf2442ae2c9386c
+    restart: unless-stopped
+    ports:
+      - "${NEWAPI_BIND_HOST:-127.0.0.1}:${NEWAPI_PORT:-3000}:3000"
+    volumes:
+      - ${MODELMIRROR_DATA_ROOT:-../..}/new-api-data:/data
+    environment:
+      TZ: ${NEWAPI_TIMEZONE:-Asia/Shanghai}
+    networks:
+      provider:
+        aliases:
+          - new-api
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://localhost:3000/api/status >/dev/null 2>&1 || curl -fsS http://localhost:3000/api/status >/dev/null 2>&1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  provider:
+    name: ${MODEL_PROVIDER_NETWORK_NAME:-modelmirror-provider}

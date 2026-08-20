@@ -22,7 +22,7 @@
 | Data X | 文件快照、DuckDB、语义模型、指标、受限查询与提案审批 | `server/datax/`、`client/src/pages/DataX*.tsx` |
 | Prompt / Plugin | Prompt Profile 支持不可变版本和斜杠命令；Plugin 是声明式本地资源包，不加载动态后端代码 | `server/prompts/`、`server/plugins/`、`client/src/pages/PromptsPage.tsx`、`client/src/pages/PluginsPage.tsx` |
 | 持久化 | 多数 Runtime/Xpert 元数据使用文件型 Store；RAG 使用 Chroma/FTS，Data X 使用 DuckDB | `server/xpert_runtime/`、`server/xperts/`、`server/rag/`、`server/datax/` |
-| 隔离服务 | Compose 包含 Browser 和 Sandbox sidecar；另有 new-api、server、client，可选 office-host | `docker-compose.yml` |
+| 隔离服务 | 核心 Compose 包含 Browser、Sandbox、server 和 client；newAPI 位于独立可选 Compose 栈，另有可选 office-host | `docker-compose.yml`、`deploy/newapi/compose.yml` |
 | Dify | 只保留 `/api/dify/*` 兼容代理和旧 iframe 组件；主前端路由与 Compose 不依赖 Dify | `client/src/App.tsx`、`server/api/dify_proxy.py`、`docker-compose.yml` |
 | 多模态 | 图片识别与图片生成已按输入/输出方向拆分；图片生成使用专用完整响应工作区；另有 STT/TTS、Chat 音频附件、原生音频流、独立音乐任务、直接 OpenAI WebRTC 实时语音、视频理解和独立视频任务。入口均受实时能力与功能开关控制 | `server/multimodal/`、`client/src/components/*Workspace.tsx` |
 | 模型快照 | 当前合并 517 个 OpenRouter 快照模型（462 个实时目录模型与 55 个保留历史模型）；`/models` 额外展示 2 个直接 OpenAI Realtime 档案 | `client/src/data/models.ts`、`client/src/pages/ModelListPage.tsx` |

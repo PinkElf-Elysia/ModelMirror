@@ -8,11 +8,14 @@ from pathlib import Path
 
 import httpx
 import pytest
+from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, MockTransport, Request, Response
 
 from server.model_router.api import configure_model_router, router
+from server.model_router.admin_auth import reset_provider_admin_auth
 from server.model_router.catalog import NativeCatalogService
+from server.model_router.egress import ProviderEgressPolicy
 from server.model_router.repository import (
     RouterConnectionNotFound,
     SCHEMA_VERSION,
@@ -27,6 +30,10 @@ from server.model_router.schemas import (
 from server.model_router.service import ModelRouterService
 from server.model_router.service import RouterServiceError
 from server.omniroute.schemas import ModelCatalogResponse
+
+
+def public_egress_policy() -> ProviderEgressPolicy:
+    return ProviderEgressPolicy(resolver=lambda _host, _port: ["8.8.8.8"])
 
 
 def connection_payload(**updates: object) -> RouterConnectionCreate:
@@ -72,6 +79,10 @@ def test_schema_and_credentials_are_tenant_scoped_and_persistent(
 def test_connection_scopes_default_by_provider_and_migrate_v7(
     tmp_path: Path,
 ) -> None:
+    migration_key = b"migration-test-key"
+    legacy_ciphertext = Fernet(
+        SQLiteRouterRepository._normalize_key(migration_key)
+    ).encrypt(b"legacy-secret").decode("ascii")
     legacy_dir = tmp_path / "legacy"
     legacy_dir.mkdir()
     legacy_database = legacy_dir / "router.sqlite3"
@@ -113,7 +124,7 @@ def test_connection_scopes_default_by_provider_and_migrate_v7(
                 "openrouter",
                 "https://openrouter.ai/api/v1",
                 "sk******cy",
-                "not-used-by-this-test",
+                legacy_ciphertext,
                 1,
                 "online",
                 "2026-07-29T00:00:00+00:00",
@@ -123,7 +134,7 @@ def test_connection_scopes_default_by_provider_and_migrate_v7(
 
     migrated = SQLiteRouterRepository(
         legacy_dir,
-        master_key=b"migration-test-key",
+        master_key=migration_key,
     )
     assert migrated.get_connection(
         "local", "legacy-openrouter"
@@ -396,11 +407,13 @@ async def test_connection_probe_returns_safe_actionable_results(
     service = ModelRouterService(
         SQLiteRouterRepository(tmp_path),
         client_factory=lambda: httpx.AsyncClient(transport=MockTransport(success)),
+        egress_policy=public_egress_policy(),
     )
     result = await service.test_unsaved_connection(connection_payload())
     assert result.ok is True
     assert result.model_count == 2
-    assert requests[0].url == "https://openrouter.ai/api/v1/models"
+    assert requests[0].url == "https://8.8.8.8/api/v1/models"
+    assert requests[0].headers["host"] == "openrouter.ai"
     assert requests[0].headers["authorization"] == "Bearer sk-test-secret-value"
 
     def unauthorized(_: Request) -> Response:
@@ -411,6 +424,7 @@ async def test_connection_probe_returns_safe_actionable_results(
         client_factory=lambda: httpx.AsyncClient(
             transport=MockTransport(unauthorized)
         ),
+        egress_policy=public_egress_policy(),
     )
     failed = await service.test_unsaved_connection(connection_payload())
     assert failed.ok is False
@@ -419,7 +433,10 @@ async def test_connection_probe_returns_safe_actionable_results(
 
 
 @pytest.mark.asyncio
-async def test_connection_api_is_redacted_and_records_health(tmp_path: Path) -> None:
+async def test_connection_api_is_redacted_and_records_health(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def success(_: Request) -> Response:
         return Response(200, json={"data": [{"id": "model-a"}]})
 
@@ -427,17 +444,27 @@ async def test_connection_api_is_redacted_and_records_health(tmp_path: Path) -> 
     service = ModelRouterService(
         repository,
         client_factory=lambda: httpx.AsyncClient(transport=MockTransport(success)),
+        egress_policy=public_egress_policy(),
     )
     configure_model_router(service)
+    pairing_secret = "provider-admin-foundation-secret-32-chars"
+    monkeypatch.setenv("MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET", pairing_secret)
+    reset_provider_admin_auth()
     app = FastAPI()
     app.include_router(router)
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
-        base_url="http://test",
+        base_url="http://localhost",
     ) as client:
+        paired_response = await client.post(
+            "/api/router/admin/session",
+            json={"pairing_secret": pairing_secret},
+        )
+        csrf = paired_response.json()["csrf_token"]
         created_response = await client.post(
             "/api/router/connections",
+            headers={"X-ModelMirror-CSRF": csrf},
             json=connection_payload().model_dump(mode="json"),
         )
         assert created_response.status_code == 201
@@ -448,7 +475,8 @@ async def test_connection_api_is_redacted_and_records_health(tmp_path: Path) -> 
         assert created["scopes"] == ["chat", "audio"]
 
         tested_response = await client.post(
-            f"/api/router/connections/{created['id']}/test"
+            f"/api/router/connections/{created['id']}/test",
+            headers={"X-ModelMirror-CSRF": csrf},
         )
         assert tested_response.status_code == 200
         assert tested_response.json()["model_count"] == 1
@@ -458,6 +486,7 @@ async def test_connection_api_is_redacted_and_records_health(tmp_path: Path) -> 
         assert status["tenant_id"] == "local"
         assert status["online_connection_count"] == 1
         assert status["ready"] is True
+    reset_provider_admin_auth()
 
 
 def test_behavior_baselines_and_direct_port_provenance_are_pinned() -> None:
@@ -562,6 +591,7 @@ async def test_native_catalog_uses_30_second_cache_and_stale_if_error(
     service = ModelRouterService(
         repository,
         client_factory=lambda: httpx.AsyncClient(transport=MockTransport(handler)),
+        egress_policy=public_egress_policy(),
     )
 
     class FallbackCatalog:

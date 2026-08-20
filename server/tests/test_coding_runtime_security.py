@@ -20,7 +20,6 @@ from server.coding_runtime.models import (
     CodingSessionState,
 )
 from server.coding_runtime.worker import (
-    INTERNAL_GATEWAY_BASE_URL,
     MAX_AGENT_STEPS,
     MODEL_CONTEXT_TOKENS,
     MODEL_OUTPUT_TOKENS,
@@ -111,6 +110,9 @@ def test_agent_configuration_fails_closed_for_write_shell_and_extensions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("CODING_AGENT_MODEL", "deepseek/deepseek-v4-flash")
+    monkeypatch.setenv(
+        "CODING_AGENT_MODEL_BASE_URL", "https://coding-provider.example/v1"
+    )
     monkeypatch.setenv("CODING_AGENT_GATEWAY_KEY", "test-only-key")
     monkeypatch.setenv("UNRELATED_SECRET", "must-not-cross")
 
@@ -162,7 +164,7 @@ def test_agent_configuration_fails_closed_for_write_shell_and_extensions(
         "output": MODEL_OUTPUT_TOKENS,
     }
     assert config["provider"]["modelmirror"]["options"]["baseURL"] == (
-        INTERNAL_GATEWAY_BASE_URL
+        "https://coding-provider.example/v1"
     )
     assert "UNRELATED_SECRET" not in client._config.environment
 
@@ -171,6 +173,9 @@ def test_draft_mode_only_changes_edit_to_ask(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("CODING_AGENT_MODEL", "test-model")
+    monkeypatch.setenv(
+        "CODING_AGENT_MODEL_BASE_URL", "https://coding-provider.example/v1"
+    )
     monkeypatch.setenv("CODING_AGENT_GATEWAY_KEY", "test-only-key")
 
     client = create_acp_client("draft")

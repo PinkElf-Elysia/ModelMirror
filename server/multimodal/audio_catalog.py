@@ -12,9 +12,11 @@ import httpx
 from pydantic import BaseModel, Field
 
 try:
+    from server.model_router.egress import request_provider_url
     from server.model_router.schemas import RouterConnection
     from server.model_router.service import ModelRouterService
 except ModuleNotFoundError:
+    from model_router.egress import request_provider_url
     from model_router.schemas import RouterConnection
     from model_router.service import ModelRouterService
 
@@ -341,6 +343,7 @@ class AudioCatalogService:
     ) -> None:
         self.router_service = router_service
         self.client_factory = client_factory or self._default_client
+        self.managed_client_factory = client_factory or self._direct_client
         self._cache: _CachedAudioCatalog | None = None
         self._lock = asyncio.Lock()
 
@@ -530,8 +533,17 @@ class AudioCatalogService:
             if provider == "openrouter"
             else None
         )
-        async with self.client_factory() as client:
-            response = await client.get(
+        client_factory = (
+            self.managed_client_factory
+            if target.connection_id
+            else self.client_factory
+        )
+        async with client_factory() as client:
+            response = await request_provider_url(
+                client,
+                self.router_service.egress_policy,
+                target.connection_id,
+                "GET",
                 self._api_url(target.base_url, "models"),
                 headers=self._provider_headers(provider, target.api_key),
                 params=params,
@@ -1218,11 +1230,20 @@ class AudioCatalogService:
         ]
 
     @staticmethod
+    def _direct_client() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=15, read=30, write=15, pool=10),
+            follow_redirects=False,
+            trust_env=False,
+        )
+
+    @staticmethod
     def _default_client() -> httpx.AsyncClient:
         timeout = httpx.Timeout(connect=15, read=30, write=15, pool=10)
         kwargs: dict[str, Any] = {
             "timeout": timeout,
             "follow_redirects": False,
+            "trust_env": False,
         }
         proxy = (
             os.getenv("OPENROUTER_PROXY")

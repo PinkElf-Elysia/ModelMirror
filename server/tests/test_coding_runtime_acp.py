@@ -64,6 +64,9 @@ def test_worker_config_is_read_only_and_child_env_is_allowlisted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("CODING_AGENT_MODEL", "test-model")
+    monkeypatch.setenv(
+        "CODING_AGENT_MODEL_BASE_URL", "https://coding-provider.example/v1"
+    )
     monkeypatch.setenv("CODING_AGENT_GATEWAY_KEY", "test-only-key")
     monkeypatch.setenv("UNRELATED_SECRET", "must-not-be-inherited")
 
@@ -92,7 +95,7 @@ def test_worker_config_is_read_only_and_child_env_is_allowlisted(
     assert config["share"] == "disabled"
     assert config["autoupdate"] is False
     assert config["provider"]["modelmirror"]["options"] == {
-        "baseURL": "http://new-api:3000/v1",
+        "baseURL": "https://coding-provider.example/v1",
         "apiKey": "{env:CODING_AGENT_GATEWAY_KEY}",
     }
     assert "UNRELATED_SECRET" not in client._config.environment
@@ -121,6 +124,10 @@ def test_worker_config_is_read_only_and_child_env_is_allowlisted(
         "NO_PROXY",
         "no_proxy",
     }
+    assert client._config.environment["NO_PROXY"] == (
+        "localhost,127.0.0.1,coding-provider.example"
+    )
+    assert "new-api" not in client._config.environment["no_proxy"]
 
 
 @pytest.mark.asyncio

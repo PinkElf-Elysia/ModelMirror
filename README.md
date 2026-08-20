@@ -43,7 +43,7 @@ AI 供给正在从少数通用模型，扩展为由模型、工具、知识库�
 - Data X：`/datax` 支持 CSV/XLSX/Parquet 快照、语义模型、版本化指标、受限分析和指标提案审批。
 - Agent Studio：创建智能体草稿、发布不可变版本，并通过 Goal、Handoff、文件、记忆与 Knowledge Pipeline 组合执行。
 - Agent App/API：把已发布版本固定部署为未列出分享 App，并提供带密钥、配额和回滚的 OpenAI 兼容接口。
-- newAPI：`/settings` 以内嵌 iframe 接入 newAPI 控制台，后端可优先走 OpenAI 兼容网关。
+- newAPI：作为独立可选数据面运行；`/settings` 只显示显式配置的外部管理链接，不嵌入或代理其管理界面。
 
 ## 目标架构
 
@@ -66,8 +66,8 @@ AI 供给正在从少数通用模型，扩展为由模型、工具、知识库�
 
 - 前端：React + TypeScript + Tailwind CSS + Vite + React Router + ReactMarkdown + @xyflow/react。
 - 后端：FastAPI + Pydantic + httpx + ChromaDB + DuckDB + MCP Python SDK。
-- 本地部署：Docker Compose 默认包含 `client`、`server`、`new-api`、
-  `browser` 和 `sandbox`；OmniRoute 与 Office host 使用可选 profile。
+- 本地部署：核心 Docker Compose 默认包含 `client`、`server`、`browser` 和
+  `sandbox`；newAPI 使用独立可选栈，OmniRoute 与 Office host 使用可选 profile。
 
 ## 快速启动
 
@@ -77,18 +77,21 @@ AI 供给正在从少数通用模型，扩展为由模型、工具、知识库�
 copy server\.env.example server\.env
 ```
 
-推荐通过 newAPI 管理模型渠道：
+至少显式配置一种模型访问方式。直接网关示例：
 
 ```bash
-LLM_GATEWAY_URL=http://localhost:3000/v1/chat/completions
-LLM_GATEWAY_KEY=your-new-api-key
+LLM_GATEWAY_URL=https://your-gateway.example/v1/chat/completions
+LLM_GATEWAY_KEY=your-gateway-key
 ```
 
-也可以回退到 OpenRouter：
+也可以只配置 OpenRouter：
 
 ```bash
 OPENROUTER_API_KEY=your-openrouter-key
 ```
+
+若使用 newAPI，请按[部署文档](docs/DEPLOYMENT.md)单独启动其 Compose 栈，
+并通过 Overlay 显式提供容器内 `LLM_GATEWAY_URL`；核心栈不管理 newAPI 生命周期。
 
 启动 Docker Compose：
 

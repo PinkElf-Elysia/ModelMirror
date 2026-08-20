@@ -2,7 +2,7 @@
 
 > **文档范围：Current State。** 本文只描述当前主分支中能够由代码、配置和测试定位的已合并实现。AI Capability Compiler、Router Federation、统一 Capability Graph / Evaluation 与自演进闭环属于[目标架构](./architecture/ai-capability-compiler.md)，不能由本文件中的局部 Router、Runtime 或 Evaluation 入口外推为已经完成的平台能力。
 
-最后更新日期：2026-08-09
+最后更新日期：2026-08-13
 维护人：模镜团队
 
 ## 当前定位
@@ -31,7 +31,8 @@ Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 | React 19 + TypeScript + Vite | SPA、资源市场、工作区与任务界面。 |
 | Tailwind CSS + React Flow | 主题样式与 classic 工作流画布。 |
 | FastAPI + Pydantic + httpx | API 装配、校验、SSE 与外部服务适配。 |
-| newAPI / OpenAI-compatible | 默认模型服务连接与渠道管理。 |
+| Model Provider Control Plane | 单租户 Provider 连接、加密凭据、策略、诊断和受控出口。 |
+| newAPI / OpenAI-compatible | 独立可选数据面；只通过 URL/Key 契约接入，不嵌入其管理 UI。 |
 | OpenRouter | 默认网关不可用时的兼容回退，以及首期多模态能力来源。 |
 | 原生 Model Router | 目录、策略、熔断、预算、回执和上下文优化。 |
 | SQLite | 原生路由、连接、决策、视频任务元数据及单槽加密 Coding 恢复索引。 |
@@ -83,7 +84,7 @@ flowchart LR
   API <-->|"配对 / WebSocket 操作元数据"| HOST["Windows Project Host v2"]
   HOST -->|"拉取 90 秒单次负载 / no-store"| API
   HOST -->|"原子文件事务 / 固定 Git plumbing"| HOSTREPO["用户明确选择的 Windows Git 项目"]
-  CODER -->|"internal network"| GW
+  CODER -->|"独立外部网络 / 独立凭据"| CODEGW["Coding Provider"]
   CODER -->|"Patch + revision / Unix socket"| VERIFY["coding-verifier"]
   VERIFY -. "network_mode: none" .-> OFFLINE["无网络"]
   API -->|"独立 Unix socket"| APPLY["coding-applier"]
@@ -169,7 +170,8 @@ flowchart LR
   构建时排除私有环境文件、密钥和运行产物，仅保留仓库追踪的安全占位模板，再将
   净化源码快照复制到镜像内只读目录。
   Readonly 模式在会话副本上只读运行；Draft 模式把副本复制到 256 MiB 的
-  `nosuid,noexec` tmpfs。宿主仓库从不挂载给 Worker，网络仅可到内部 newAPI。
+  `nosuid,noexec` tmpfs。宿主仓库从不挂载给 Worker；模型出口只经独立的外部
+  `coding_provider` 网络到显式配置的 Coding Provider，不复用控制面 Provider 网络。
 - Coding Project Source 只在显式加载项目 overlay 后存在。它是唯一只读挂载
   `CODING_PROJECTS_ROOT` 的服务；Server 和 Runtime 既看不到整个项目根目录，也不接收
   物理路径。服务按固定清单校验干净独立 Git 克隆，通过 `git ls-tree` 与
