@@ -41,6 +41,23 @@ const coverageLabels: Record<string, string> = {
   multi_evidence: "多证据",
   confusable_content: "易混淆内容",
 };
+const formalGoldCoverage = Object.keys(coverageLabels);
+
+export function isFormalGoldGenerationConfigurationValid(values: {
+  caseCount: number;
+  noResultCount: number;
+  locales: string[];
+  coverage: string[];
+}) {
+  return values.caseCount === 42
+    && values.noResultCount === 12
+    && values.locales.length === 2
+    && new Set(values.locales).size === 2
+    && values.locales.includes("zh-CN")
+    && values.locales.includes("en-US")
+    && values.coverage.length === formalGoldCoverage.length
+    && formalGoldCoverage.every((item) => values.coverage.includes(item));
+}
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -123,7 +140,15 @@ export default function KnowledgeBenchmarkGenerator({
     try {
       const result = await requestJson<Preflight>(
         "/api/benchmarks/generations/preflight",
-        postJson({ target: target(), coverage, locales, conversation_selections: [] }),
+        postJson({
+          target: target(),
+          generation_purpose: generationPurpose,
+          case_count: caseCount,
+          no_result_count: noResultCount,
+          coverage,
+          locales,
+          conversation_selections: [],
+        }),
       );
       setPreflight(result);
       if (!result.valid) throw new Error(result.issues.map((item) => item.message).join("；"));
@@ -180,7 +205,7 @@ export default function KnowledgeBenchmarkGenerator({
   const tuningMode = generationPurpose === "strategy_tuning";
   const maxNoResult = tuningMode ? Math.max(0, Math.min(20, caseCount - 30)) : Math.min(5, Math.floor(caseCount / 5));
   const generationCountsValid = tuningMode
-    ? caseCount - noResultCount >= 30 && (noResultCount === 0 || noResultCount >= 12)
+    ? isFormalGoldGenerationConfigurationValid({ caseCount, noResultCount, locales, coverage })
     : caseCount <= 30 && noResultCount <= maxNoResult;
   const canGenerate = Boolean(
     versionId && generatorModelId && coverage.length && preflight?.valid && generationCountsValid && !busy,
@@ -192,7 +217,7 @@ export default function KnowledgeBenchmarkGenerator({
         <div>
           <h2 className="text-sm font-semibold text-white">针对当前知识库生成 Gold 评测集</h2>
           <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">
-            固定索引版本并抽取真实证据，模型只负责生成问题；document、chunk 与 source block 由服务端映射和校验。含困难负例时，必须逐条人工审核后才会运行真实检索校准。
+            固定索引版本并抽取真实证据，模型只负责生成问题；document、chunk 与 source block 由服务端映射和校验。正式 Gold 逐条审核并发布后，检索只在一次配对 Formal 评测中执行。
           </p>
         </div>
         {preflight?.valid ? <span className="inline-flex items-center gap-1 text-xs text-emerald-200"><CheckCircle2 className="h-4 w-4" />证据可用</span> : null}
@@ -216,32 +241,32 @@ export default function KnowledgeBenchmarkGenerator({
       <div className="mt-4">
         <span className="text-xs font-semibold text-slate-300">生成用途</span>
         <div className="mt-2 inline-flex rounded-md border border-white/10 bg-surface-950 p-1">
-          <button className={`rounded px-3 py-2 text-xs ${!tuningMode ? "bg-white/10 text-white" : "text-slate-400"}`} onClick={() => { setGenerationPurpose("general"); setCaseCount(12); setNoResultCount(0); }} type="button">常规评测</button>
-          <button className={`rounded px-3 py-2 text-xs ${tuningMode ? "bg-cyan-300 text-surface-950" : "text-slate-400"}`} onClick={() => { setGenerationPurpose("strategy_tuning"); setCaseCount(42); setNoResultCount(12); }} type="button">策略调优证据</button>
+          <button className={`rounded px-3 py-2 text-xs ${!tuningMode ? "bg-white/10 text-white" : "text-slate-400"}`} onClick={() => { setGenerationPurpose("general"); setCaseCount(12); setNoResultCount(0); setPreflight(null); }} type="button">常规评测</button>
+          <button className={`rounded px-3 py-2 text-xs ${tuningMode ? "bg-cyan-300 text-surface-950" : "text-slate-400"}`} onClick={() => { setGenerationPurpose("strategy_tuning"); setCaseCount(42); setNoResultCount(12); setLocales(["zh-CN", "en-US"]); setCoverage(formalGoldCoverage); setPreflight(null); }} type="button">策略调优证据</button>
         </div>
         <p className="mt-2 text-[11px] leading-5 text-slate-500">
-          {tuningMode ? "生成至少 30 个正样例和 12 个语料近邻负样例；负样例逐题确认并重新校准后，阈值调优才会解锁。" : "适合日常检索回归；保持 6–30 条和最多 5 条无答案题的兼容限制。"}
+          {tuningMode ? "固定生成 30 个正样例和 12 个语料近邻负样例，覆盖六类与中英文；生成失败即停止，不自动修复或补调用。" : "适合日常检索回归；保持 6–30 条和最多 5 条无答案题的兼容限制。"}
         </p>
       </div>
 
       <div className="mt-4">
-        <div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold text-slate-300">文档范围</span><button className="text-xs text-cyan-100" onClick={() => setDocumentIds([])} type="button">全部文档</button></div>
+        <div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold text-slate-300">文档范围</span><button className="text-xs text-cyan-100" onClick={() => { setDocumentIds([]); setPreflight(null); }} type="button">全部文档</button></div>
         <div className="mt-2 grid max-h-36 gap-2 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
-          {documents.map((document) => <label className="flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-xs text-slate-300" key={document.id}><input checked={documentIds.includes(document.id)} onChange={(event) => setDocumentIds((current) => event.target.checked ? [...current, document.id] : current.filter((item) => item !== document.id))} type="checkbox" /><span className="truncate">{document.filename}</span></label>)}
+          {documents.map((document) => <label className="flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-xs text-slate-300" key={document.id}><input checked={documentIds.includes(document.id)} onChange={(event) => { setDocumentIds((current) => event.target.checked ? [...current, document.id] : current.filter((item) => item !== document.id)); setPreflight(null); }} type="checkbox" /><span className="truncate">{document.filename}</span></label>)}
         </div>
         <p className="mt-2 text-[11px] text-slate-500">未勾选时覆盖固定版本中的全部文档。</p>
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <label className="text-xs text-slate-400">用例数<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-surface-950 px-3 text-sm text-white" max={tuningMode ? 60 : 30} min={tuningMode ? 30 : 6} onChange={(event) => { const value = Number(event.target.value); setCaseCount(value); setNoResultCount((current) => Math.min(current, tuningMode ? Math.min(20, Math.max(0, value - 30)) : Math.min(5, Math.floor(value / 5)))); }} type="number" value={caseCount} /></label>
-        <label className="text-xs text-slate-400">无答案题<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-surface-950 px-3 text-sm text-white" max={maxNoResult} min={0} onChange={(event) => setNoResultCount(Number(event.target.value))} type="number" value={noResultCount} /></label>
+        <label className="text-xs text-slate-400">用例数<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-surface-950 px-3 text-sm text-white" disabled={tuningMode} max={tuningMode ? 42 : 30} min={tuningMode ? 42 : 6} onChange={(event) => { const value = Number(event.target.value); setCaseCount(value); setNoResultCount((current) => Math.min(current, Math.min(5, Math.floor(value / 5)))); setPreflight(null); }} type="number" value={caseCount} /></label>
+        <label className="text-xs text-slate-400">无答案题<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-surface-950 px-3 text-sm text-white" disabled={tuningMode} max={tuningMode ? 12 : maxNoResult} min={tuningMode ? 12 : 0} onChange={(event) => { setNoResultCount(Number(event.target.value)); setPreflight(null); }} type="number" value={noResultCount} /></label>
         <label className="text-xs text-slate-400">Seed<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-surface-950 px-3 text-sm text-white" min={0} onChange={(event) => setSeed(Number(event.target.value))} type="number" value={seed} /></label>
-        <div className="text-xs text-slate-400">语言<div className="mt-1 flex h-9 items-center gap-3 rounded-md border border-white/10 bg-surface-950 px-3">{["zh-CN", "en-US"].map((locale) => <label className="flex items-center gap-1" key={locale}><input checked={locales.includes(locale)} onChange={(event) => setLocales((current) => event.target.checked ? [...current, locale] : current.filter((item) => item !== locale))} type="checkbox" />{locale}</label>)}</div></div>
+        <div className="text-xs text-slate-400">语言<div className="mt-1 flex h-9 items-center gap-3 rounded-md border border-white/10 bg-surface-950 px-3">{["zh-CN", "en-US"].map((locale) => <label className="flex items-center gap-1" key={locale}><input checked={locales.includes(locale)} disabled={tuningMode} onChange={(event) => { setLocales((current) => event.target.checked ? [...current, locale] : current.filter((item) => item !== locale)); setPreflight(null); }} type="checkbox" />{locale}</label>)}</div></div>
       </div>
 
       <div className="mt-4">
         <div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold text-slate-300">覆盖矩阵</span><button className="inline-flex items-center gap-1 rounded-md border border-white/10 px-3 py-2 text-xs text-slate-200 disabled:opacity-40" disabled={!versionId || busy === "preflight"} onClick={() => void analyze()} type="button">{busy === "preflight" ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}分析证据</button></div>
-        <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{(preflight?.coverage.available ?? Object.keys(coverageLabels)).map((item) => <label className="flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.025] px-3 py-2 text-xs text-slate-200" key={item}><input checked={coverage.includes(item)} onChange={(event) => setCoverage((current) => event.target.checked ? [...current, item] : current.filter((value) => value !== item))} type="checkbox" />{coverageLabels[item] ?? item}</label>)}</div>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{(preflight?.coverage.available ?? Object.keys(coverageLabels)).map((item) => <label className="flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.025] px-3 py-2 text-xs text-slate-200" key={item}><input checked={coverage.includes(item)} disabled={tuningMode} onChange={(event) => { setCoverage((current) => event.target.checked ? [...current, item] : current.filter((value) => value !== item)); setPreflight(null); }} type="checkbox" />{coverageLabels[item] ?? item}</label>)}</div>
       </div>
 
       {preflight?.sampling ? <div className="mt-4 grid gap-2 sm:grid-cols-4">{[
@@ -253,11 +278,11 @@ export default function KnowledgeBenchmarkGenerator({
 
       {preflight?.warnings?.length ? <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-300/25 bg-amber-300/10 p-3 text-xs text-amber-100"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{preflight.warnings.join("；")}</span></div> : null}
 
-      <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-cyan-300 px-4 py-3 text-sm font-semibold text-surface-950 disabled:cursor-not-allowed disabled:opacity-45" disabled={!canGenerate} onClick={() => void createGeneration()} type="button">{busy === "generate" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}生成并自动校准</button>
+      <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-cyan-300 px-4 py-3 text-sm font-semibold text-surface-950 disabled:cursor-not-allowed disabled:opacity-45" disabled={!canGenerate} onClick={() => void createGeneration()} type="button">{busy === "generate" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}{tuningMode ? "生成正式 Gold 草案" : "生成并自动校准"}</button>
 
       {job ? <div className="mt-4 border-t border-white/10 pt-4">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-white">{job.target?.label || "定向生成任务"}</p><p className="mt-1 font-mono text-[10px] text-slate-500">{job.job_id}</p></div><div className="flex items-center gap-2"><span className="rounded border border-white/10 px-2 py-1 text-xs text-slate-300">{job.status}</span>{!["completed", "failed", "cancelled"].includes(job.status) ? <button className="inline-flex items-center gap-1 rounded border border-rose-300/25 px-2 py-1 text-xs text-rose-100" onClick={() => void cancelJob()} type="button"><Square className="h-3 w-3" />取消</button> : null}</div></div>
-        {job.calibration?.status ? <div className="mt-3 grid gap-2 sm:grid-cols-4"><div className="rounded border border-white/10 p-3 text-xs text-slate-500">校准状态<strong className="mt-1 block text-white">{job.calibration.status}</strong></div>{Object.entries(job.calibration.counts ?? {}).slice(0, 3).map(([key, value]) => <div className="rounded border border-white/10 p-3 text-xs text-slate-500" key={key}>{key}<strong className="mt-1 block text-white">{value}</strong></div>)}</div> : null}
+        {job.calibration?.status ? <div className="mt-3 grid gap-2 sm:grid-cols-4"><div className="rounded border border-white/10 p-3 text-xs text-slate-500">{tuningMode ? "Gold 门禁" : "校准状态"}<strong className="mt-1 block text-white">{job.calibration.status}</strong></div>{Object.entries(job.calibration.counts ?? {}).slice(0, 3).map(([key, value]) => <div className="rounded border border-white/10 p-3 text-xs text-slate-500" key={key}>{key}<strong className="mt-1 block text-white">{value}</strong></div>)}</div> : null}
         {job.calibration?.reason ? <p className="mt-3 text-xs text-amber-100">{job.calibration.reason}</p> : null}
         {job.error ? <p className="mt-3 text-xs text-rose-200">{job.error}</p> : null}
       </div> : null}

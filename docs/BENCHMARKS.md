@@ -230,29 +230,31 @@ Citation 只聚合有答案样例；无答案样例单独报告 `no_result_accur
 `false_positive_rate`。标准 Pack 建议 Gate 为 Recall@5 0.70、Citation Coverage 0.70、
 No-result Accuracy 0.80，但不会自动推广候选索引。
 
-### 8.1 知识库定向 Gold 生成
+### 8.1 知识库定向 Gold 与 Formal 评测
 
-`XPERT-RAG-BENCHMARK-GENERATOR-04` 为一个明确的 `ready / active` 知识版本生成业务相关
-评测草稿。它与标准 Pack 的分工不同：标准 Pack 回归检索引擎，定向 Gold 才用于判断某个
-具体知识库及其候选索引是否满足真实内容范围。
+`rag-gold-v2` 把 Gold 身份与生成来源版本拆开。语料身份只固定知识库、文档 ID/content
+hash、source-block ID/content hash；Processor、分块、Embedding、Retrieval 与 Rerank
+配置只进入目标执行指纹，不进入 `corpus_snapshot_hash`。因此不同检索实现只能在完全相同
+语料快照上进入 Formal 比较。
 
-- Target 固定 `kb_id + pipeline_version_id`、文档 hash、Processor/Chunk/Retrieval Profile
-  和 source block checksum；活动指针变化不会改写运行目标。
-- 服务端按文档和块分层抽样，最多向用户选择的生成模型发送 40 个、每个 1,200 字符且总计
-  48,000 字符的证据单元。Job 只保存证据 ID、hash 和引用映射。
-- Blueprint 固定题型、语言、难度、Gold evidence 和逐块 query marker。模型只生成问题、
-  精确 anchor quote 和公开理由；问题必须包含每个 Gold block 的至少一个固定 marker，
-  否则按“无针对性的通用问题”拒绝。
-- Gold 由服务端映射为 `match_mode=source_block`，生成时 chunk ID 只作诊断。模型不能生成、
-  替换或扩展 document/chunk/source-block ID。
-- 自动校准只运行固定索引的真实检索并标记 Rank 1、Rank 2–5、Rank 6–10 和 Top-10 miss；
-  它不会按当前 Top-K 改写 Gold。过易、漏召回或无答案误召回达到阈值时产生 warning。
-- `calibrated` 可发布；`warning` 需要显式确认；`pending / failed / stale` 阻断发布。生成的
-  无答案题必须逐题人工确认，编辑后立即 stale 并需要重新校准。
+- 正式生成固定为 42 条：30 条正例、12 条 corpus-near 困难负例；六类正例各 5 条，正负例
+  均按中英文平衡。预检要求 3–35 份文档、至少 18 个稳定 source block，并在调用生成模型前
+  证明文档占比、每块最多两次引用和五组跨文档多证据分配存在可行解。
+- 服务端按文档分层抽样，最多发送 40 个、每个 1,200 字符且总计 48,000 字符的证据单元。
+  Blueprint 固定题型、语言、难度和 evidence ID；模型只生成问题、逐证据 anchor quote 与公开
+  理由。语义改写和跨语言题不再被强迫复制词面 marker。
+- 连续规范化复制达到 32 字符直接拒绝；语义/跨语言题达到 12 字符、其他题达到 24 字符时
+  产生泄漏警告，人工批准必须填写理由。修改 query、Gold、标签或 targeting 会清除该题旧审核。
+- 42 条全部由人工在 UI 中逐题批准。拒绝项不得发布；发布 checksum 覆盖 cases、审核记录、
+  coverage、provenance、calibration、corpus snapshot 与 qualification manifest。
+- `rag-gold-v2` 不运行发布前真实检索校准，避免在正式门禁前重复消耗额度。发布后只允许一次
+  `rag-eval-v2` Formal：一个 baseline、一个 candidate、同一语料、SHA-256 Seed 配对交错、
+  每题每目标一次、无 warm-up、无自动重试。普通 6–30 条生成继续作为 legacy/diagnostic smoke。
+- Formal 固定分母包含失败用例；失败质量记 0，失败耗时进入延迟。晋级同时要求绝对指标、
+  Citation Precision@5、零错误、完整 30/12 分母、配对 bootstrap 95% CI 下界和 P95 延迟门禁。
 
-入口位于 `/rag/:kbId/evaluation`。预检和任务 API 复用 `/api/benchmarks/generations/*` 与
-`/api/benchmarks/calibrations/*`；可信管理侧可按需读取每条 Gold 的最多 2,000 字符受限证据。
-生成仍只创建 `KnowledgeEvaluationStore` 草稿，不会重建、激活或推广知识索引。
+入口位于 `/rag/:kbId/evaluation`。生成只创建草稿；发布、候选构建、Formal 运行、激活、部署
+均为独立动作。候选即使通过也保持 `ready/promotion_required`，不会自动推广或激活。
 
 ## 9. 安全与后续边界
 
@@ -276,4 +278,3 @@ npm.cmd run build
 ```
 
 新增后端包必须同步复制到 `server/Dockerfile`，并在共享栈空闲后通过真实镜像重建验证。
-
