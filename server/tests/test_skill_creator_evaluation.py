@@ -206,6 +206,131 @@ def test_store_freezes_three_case_paired_matrix_and_round_trips(tmp_path: Path) 
     assert restored.baseline_overlay_id == run.baseline_overlay_id
 
 
+def test_v2_suite_freezes_up_to_twelve_cases_and_application_receipts(tmp_path: Path) -> None:
+    store = SkillEvaluationStore(tmp_path)
+    candidate = _overlay(store)
+    cases = [
+        {
+            **_case(index),
+            "required_resource_paths": (
+                ["references/guide.md"] if index == 1 else []
+            ),
+        }
+        for index in range(1, 13)
+    ]
+    run = store.create_run(
+        session_id="session-one",
+        draft_id="draft-one",
+        draft_revision=2,
+        frozen_digest=DIGEST,
+        candidate_overlay_id=candidate.overlay_id,
+        cases=cases,
+        model_id="provider/model-one",
+        repetitions=3,
+        evaluation_suite_id="skill_eval_suite_one",
+        evaluation_suite_revision=2,
+        evaluation_suite_digest="c" * 64,
+        evaluation_suite_version="skill-evaluation-suite-v2",
+    )
+    assert len(run.cases) == 12
+    assert len(run.items) == 72
+    assert run.cases[0].required_resource_paths == ["references/guide.md"]
+
+    restored = SkillEvaluationStore(tmp_path).require_run(run.run_id)
+    assert restored.evaluation_suite_id == "skill_eval_suite_one"
+    assert len(restored.items) == 72
+
+    with pytest.raises(SkillEvaluationValidationError) as captured:
+        store.create_run(
+            session_id="session-one",
+            draft_id="draft-one",
+            draft_revision=2,
+            frozen_digest=DIGEST,
+            candidate_overlay_id=candidate.overlay_id,
+            cases=cases,
+            model_id="provider/model-one",
+            evaluation_suite_id="skill_eval_suite_incomplete",
+        )
+    assert captured.value.code == "skill_evaluation_suite_binding_invalid"
+
+
+@pytest.mark.asyncio
+async def test_v2_candidate_requires_verified_application_receipt(tmp_path: Path) -> None:
+    async def runner(run, item, case, overlay):
+        return {
+            "output": "done",
+            "actual_model": "provider/model-one",
+            "skill_read": True,
+            "work_manifest": [],
+            **(
+                {
+                    "application_receipt_id": f"skillappreceipt_{item.item_id}",
+                    "application_receipt_revision": 2,
+                    "application_compliance": "verified",
+                }
+                if item.target == "candidate"
+                else {}
+            ),
+        }
+
+    store = SkillEvaluationStore(tmp_path)
+    candidate = _overlay(store)
+    run = store.create_run(
+        session_id="session-one",
+        draft_id="draft-one",
+        draft_revision=2,
+        frozen_digest=DIGEST,
+        candidate_overlay_id=candidate.overlay_id,
+        cases=[_case(index) for index in range(1, 4)],
+        model_id="provider/model-one",
+        evaluation_suite_id="skill_eval_suite_one",
+        evaluation_suite_revision=1,
+        evaluation_suite_digest="c" * 64,
+        evaluation_suite_version="skill-evaluation-suite-v2",
+    )
+    executor = SkillEvaluationExecutor(store, runner=runner)
+    assert await executor.execute_next() is True
+    completed = store.require_run(run.run_id)
+    assert completed.report["eligible_for_accept"] is True
+    assert completed.report["application_receipt_verified_count"] == 3
+    assert all(
+        item.application_compliance == "verified"
+        for item in completed.items
+        if item.target == "candidate"
+    )
+
+    async def missing_receipt_runner(run, item, case, overlay):
+        return {
+            "output": "done",
+            "actual_model": "provider/model-one",
+            "skill_read": True,
+            "work_manifest": [],
+        }
+
+    second = store.create_run(
+        session_id="session-one",
+        draft_id="draft-one",
+        draft_revision=2,
+        frozen_digest=DIGEST,
+        candidate_overlay_id=candidate.overlay_id,
+        cases=[_case(index) for index in range(1, 4)],
+        model_id="provider/model-one",
+        evaluation_suite_id="skill_eval_suite_two",
+        evaluation_suite_revision=1,
+        evaluation_suite_digest="d" * 64,
+        evaluation_suite_version="skill-evaluation-suite-v2",
+    )
+    missing_executor = SkillEvaluationExecutor(store, runner=missing_receipt_runner)
+    assert await missing_executor.execute_next() is True
+    rejected = store.require_run(second.run_id)
+    assert rejected.report["eligible_for_accept"] is False
+    assert all(
+        item.error_code == "skill_application_receipt_missing"
+        for item in rejected.items
+        if item.target == "candidate"
+    )
+
+
 def test_case_sets_are_private_immutable_revisions_and_bind_runs(tmp_path: Path) -> None:
     store = SkillEvaluationStore(tmp_path)
     candidate = _overlay(store)
