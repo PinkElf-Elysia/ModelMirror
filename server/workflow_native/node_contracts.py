@@ -551,6 +551,36 @@ def _complete_contracts() -> dict[str, NodeContract]:
         availability=deployment_only_availability,
         planner=_planner(),
     )
+    contracts["failure_event_entry"] = NodeContract(
+        kind="failure_event_entry",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "sourceProjectIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "pattern": r"^wf_[a-f0-9]{32}$",
+                    },
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "uniqueItems": True,
+                },
+                "eventVariable": {"type": "string"},
+            },
+            required=["sourceProjectIds", "eventVariable"],
+        ),
+        ports=(NodePortContract(name="event", direction="output", value_schema=event_value),),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=False,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="private_trigger",
+        ),
+        availability=deployment_only_availability,
+        planner=_planner(),
+    )
     contracts["suspend_wait"] = NodeContract(
         kind="suspend_wait",
         contract_status="complete",

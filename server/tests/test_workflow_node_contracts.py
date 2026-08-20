@@ -115,6 +115,21 @@ def test_llm_contract_is_complete_without_enabling_planner() -> None:
     assert contract.planner.enabled is False
 
 
+def test_failure_entry_contract_is_complete_private_and_not_plannable() -> None:
+    contract = workflow_node_contract_registry.require("failure_event_entry")
+
+    assert contract.contract_status == "complete"
+    assert set(contract.config_schema["required"]) == {
+        "sourceProjectIds",
+        "eventVariable",
+    }
+    assert contract.config_schema["properties"]["sourceProjectIds"]["maxItems"] == 50
+    assert contract.execution.security_category == "private_trigger"
+    assert contract.planner.enabled is False
+    assert node_policy_service.decision("failure_event_entry", "workflow").allowed
+    assert not node_policy_service.decision("failure_event_entry", "xpert").allowed
+
+
 def test_only_current_seven_nodes_have_valid_planner_contracts() -> None:
     available = {
         kind
@@ -186,6 +201,7 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
     independent_deployment_kinds = {
         "scheduled_start",
         "http_event_entry",
+        "failure_event_entry",
         "suspend_wait",
         "http_event_reply",
     }
@@ -200,6 +216,7 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "data_table_delete",
         "scheduled_start",
         "http_event_entry",
+        "failure_event_entry",
         "suspend_wait",
         "http_event_reply",
     }
@@ -214,6 +231,7 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "data_table_delete",
         "scheduled_start",
         "http_event_entry",
+        "failure_event_entry",
         "suspend_wait",
         "http_event_reply",
     }

@@ -78,6 +78,7 @@ try:
         WorkflowTriggerCoordinator,
         configure_workflow_deployment_runtime,
         router as workflow_deployments_router,
+        workflow_failure_triggers_enabled,
     )
     from server.workflow_deployments import (
         WorkflowDeploymentStore,
@@ -89,6 +90,7 @@ except ModuleNotFoundError:
         WorkflowTriggerCoordinator,
         configure_workflow_deployment_runtime,
         router as workflow_deployments_router,
+        workflow_failure_triggers_enabled,
     )
     from workflow_deployments import (
         WorkflowDeploymentStore,
@@ -2264,6 +2266,7 @@ class WorkflowPayload(BaseModel):
             "input": ("variableName",),
             "scheduled_start": ("eventVariable",),
             "http_event_entry": ("eventVariable",),
+            "failure_event_entry": ("eventVariable",),
             "llm": ("outputVariable",),
             "code": ("codeOutputVariable",),
             "variable_assign": ("variableName",),
@@ -4770,6 +4773,7 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
         "input",
         "scheduled_start",
         "http_event_entry",
+        "failure_event_entry",
         "llm",
         "condition",
         "code",
@@ -7581,7 +7585,8 @@ async def _run_workflow_response(
     start_node_ids = [
         node.id
         for node in payload.workflow.nodes
-        if workflow_node_kind(node) in {"input", "scheduled_start", "http_event_entry"}
+        if workflow_node_kind(node)
+        in {"input", "scheduled_start", "http_event_entry", "failure_event_entry"}
     ]
     if not start_node_ids and order:
         start_node_ids = [order[0]]
@@ -11500,17 +11505,33 @@ async def _run_workflow_response(
                     )
                     output = workflow_value_to_text(variables[variable_name])
 
-                elif kind in {"scheduled_start", "http_event_entry"}:
+                elif kind in {
+                    "scheduled_start",
+                    "http_event_entry",
+                    "failure_event_entry",
+                }:
                     variable_name = str(node.data.get("eventVariable") or "trigger_event")
                     event_value: dict[str, Any] = dict(
                         task_state.get("runtime_trigger_event") or {}
                     )
                     if not event_value:
-                        event_value = {
-                            "type": "manual_test_event",
-                            "test": True,
-                            "started_at": time.time(),
-                        }
+                        if kind == "failure_event_entry":
+                            event_value = {
+                                "type": "workflow_failure_test",
+                                "test_mode": True,
+                                "source_project_id": "wf_test_source",
+                                "source_version": 1,
+                                "source_execution_id": "wfx_test_execution",
+                                "source_trigger_kind": "manual",
+                                "failed_at": time.time(),
+                                "error_summary": "测试失败事件，不包含真实运行数据。",
+                            }
+                        else:
+                            event_value = {
+                                "type": "manual_test_event",
+                                "test": True,
+                                "started_at": time.time(),
+                            }
                     variables[variable_name] = normalize_workflow_value(
                         event_value,
                         path=f"$.variables.{variable_name}",
@@ -16718,6 +16739,11 @@ async def _run_workflow_response(
             )
         except Exception as exc:
             logger.exception("Workflow run failed workflow=%s", payload.workflow.id)
+            failed_node_id = str(locals().get("node_id") or "").strip() or None
+            failed_node = nodes_by_id.get(failed_node_id) if failed_node_id else None
+            failed_node_title = (
+                workflow_node_title(failed_node) if failed_node is not None else None
+            )
             try:
                 await run_registry.update_run(
                     workflow_run.run_id,
@@ -16734,12 +16760,23 @@ async def _run_workflow_response(
                         "event": "error",
                         "task_id": task_id,
                         "run_id": workflow_run.run_id,
+                        "node_id": failed_node_id,
+                        "node_title": failed_node_title,
                         "message": str(exc),
                     },
                 )
             except Exception:
                 logger.warning("Failed to persist workflow failure", exc_info=True)
-            yield sse_payload({"event": "error", "message": str(exc)})
+            yield sse_payload(
+                {
+                    "event": "error",
+                    "task_id": task_id,
+                    "run_id": workflow_run.run_id,
+                    "node_id": failed_node_id,
+                    "node_title": failed_node_title,
+                    "message": str(exc),
+                }
+            )
         finally:
             durable_execution = workflow_execution_store.get(task_id)
             if durable_execution is None or durable_execution.status != "waiting":
@@ -16818,6 +16855,23 @@ async def cancel_workflow_task(task_id: str, request: Request):
     )
 
 
+class WorkflowStreamFailure(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        task_id: str | None = None,
+        run_id: str | None = None,
+        failed_node_id: str | None = None,
+        failed_node_title: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.task_id = task_id
+        self.run_id = run_id
+        self.failed_node_id = failed_node_id
+        self.failed_node_title = failed_node_title
+
+
 async def consume_workflow_stream(response: Any) -> dict[str, Any]:
     if isinstance(response, JSONResponse):
         try:
@@ -16832,6 +16886,10 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
     final_event: dict[str, Any] | None = None
     pending_wait_event: dict[str, Any] | None = None
     error_message = ""
+    error_task_id: str | None = None
+    error_run_id: str | None = None
+    failed_node_id: str | None = None
+    failed_node_title: str | None = None
     buffer = ""
     async for chunk in response.body_iterator:
         if isinstance(chunk, bytes):
@@ -16849,6 +16907,12 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                     continue
                 if event.get("event") == "error":
                     error_message = str(event.get("message") or "Xpert run failed.")
+                    error_task_id = str(event.get("task_id") or "").strip() or None
+                    error_run_id = str(event.get("run_id") or "").strip() or None
+                    failed_node_id = str(event.get("node_id") or "").strip() or None
+                    failed_node_title = (
+                        str(event.get("node_title") or "").strip() or None
+                    )
                 elif event.get("event") == "workflow_end":
                     final_event = event
                 elif event.get("event") == "runtime_approval_pending":
@@ -16858,7 +16922,13 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                 elif event.get("event") == "timer_waiting":
                     pending_wait_event = event
     if error_message:
-        raise RuntimeError(error_message)
+        raise WorkflowStreamFailure(
+            error_message,
+            task_id=error_task_id,
+            run_id=error_run_id,
+            failed_node_id=failed_node_id,
+            failed_node_title=failed_node_title,
+        )
     if pending_wait_event is not None:
         return pending_wait_event
     if final_event is None:
@@ -16891,6 +16961,9 @@ async def run_deployed_workflow_trigger(
         "workflow_version": execution.version,
         "workflow_trigger_kind": execution.trigger_kind,
         "workflow_trigger_summary": dict(execution.trigger_summary),
+        "suppress_failure_dispatch": bool(
+            execution.trigger_summary.get("suppress_failure_dispatch", False)
+        ),
     }
     response = await _run_workflow_response(
         payload,
@@ -16901,7 +16974,21 @@ async def run_deployed_workflow_trigger(
         runtime_execution_source_kind="workflow_deployment",
         runtime_trigger_event=event,
     )
-    final_event = await consume_workflow_stream(response)
+    try:
+        final_event = await consume_workflow_stream(response)
+    except WorkflowStreamFailure as exc:
+        if exc.failed_node_id and not exc.failed_node_title:
+            failed_node = next(
+                (
+                    node
+                    for node in payload.workflow.nodes
+                    if node.id == exc.failed_node_id
+                ),
+                None,
+            )
+            if failed_node is not None:
+                exc.failed_node_title = workflow_node_title(failed_node)
+        raise
     if final_event.get("event") in {
         "runtime_approval_pending",
         "client_tool_waiting",
@@ -16962,21 +17049,52 @@ async def resume_runtime_timer_execution(task_id: str) -> dict[str, Any]:
         workflow=workflow,
         inputs=dict(claimed.inputs),
     )
-    response = await _run_workflow_response(
-        payload,
-        None,
-        runtime_run_type=claimed.run_type,
-        runtime_source_id=str(
-            claimed.runtime_metadata.get("workflow_project_id") or workflow.id
-        ),
-        runtime_metadata=dict(claimed.runtime_metadata),
-        resume_execution=claimed,
-        runtime_execution_source_kind=claimed.source_kind,
-    )
-    final_event = await consume_workflow_stream(response)
     deployment_execution_id = str(
         claimed.runtime_metadata.get("workflow_deployment_execution_id") or ""
     )
+    try:
+        response = await _run_workflow_response(
+            payload,
+            None,
+            runtime_run_type=claimed.run_type,
+            runtime_source_id=str(
+                claimed.runtime_metadata.get("workflow_project_id") or workflow.id
+            ),
+            runtime_metadata=dict(claimed.runtime_metadata),
+            resume_execution=claimed,
+            runtime_execution_source_kind=claimed.source_kind,
+        )
+        final_event = await consume_workflow_stream(response)
+    except Exception as exc:
+        workflow_execution_store.fail(task_id, error=str(exc))
+        failed_node_id = str(getattr(exc, "failed_node_id", "") or "") or None
+        failed_node_title = (
+            str(getattr(exc, "failed_node_title", "") or "") or None
+        )
+        if failed_node_id and not failed_node_title:
+            failed_node = next(
+                (node for node in payload.workflow.nodes if node.id == failed_node_id),
+                None,
+            )
+            if failed_node is not None:
+                failed_node_title = workflow_node_title(failed_node)
+        if deployment_execution_id:
+            workflow_deployment_store.fail_execution(
+                deployment_execution_id,
+                error=str(exc),
+                task_id=str(getattr(exc, "task_id", "") or task_id),
+                run_id=str(getattr(exc, "run_id", "") or claimed.run_id),
+                dispatch_failures=workflow_failure_triggers_enabled(),
+                failed_node_id=failed_node_id,
+                failed_node_title=failed_node_title,
+            )
+        return {
+            "event": "error",
+            "status": "failed",
+            "task_id": task_id,
+            "run_id": claimed.run_id,
+            "message": "Workflow timer resume failed.",
+        }
     if deployment_execution_id:
         pending_event = str(final_event.get("event") or "")
         if pending_event in {

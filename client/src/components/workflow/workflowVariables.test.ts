@@ -80,11 +80,15 @@ describe("analyzeWorkflowVariables", () => {
         eventVariable: "http_event",
         bodyVariable: "request_body",
       }),
+      node("failure", "failure_event_entry", {
+        eventVariable: "failure_event",
+      }),
       node("wait", "suspend_wait", { outputVariable: "resume_event" }),
     ];
 
     const variables = analyzeWorkflowVariables(nodes, [], null);
     expect(variables.map((variable) => variable.name)).toEqual([
+      "failure_event",
       "http_event",
       "request_body",
       "resume_event",
@@ -92,6 +96,9 @@ describe("analyzeWorkflowVariables", () => {
     ]);
     expect(
       getWorkflowVariableFieldDescriptor("http_event_entry", "bodyVariable")?.mode,
+    ).toBe("declaration");
+    expect(
+      getWorkflowVariableFieldDescriptor("failure_event_entry", "eventVariable")?.mode,
     ).toBe("declaration");
   });
 

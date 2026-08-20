@@ -29,6 +29,8 @@ NODE_KIND_ALIASES = {
     "scheduled-start": "scheduled_start",
     "http_event_entry": "http_event_entry",
     "http-event-entry": "http_event_entry",
+    "failure_event_entry": "failure_event_entry",
+    "failure-event-entry": "failure_event_entry",
     "llm": "llm",
     "if-else": "condition",
     "condition": "condition",
@@ -388,7 +390,7 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
             )
 
     if not any(
-        kind in {"input", "scheduled_start", "http_event_entry"}
+        kind in {"input", "scheduled_start", "http_event_entry", "failure_event_entry"}
         for kind in kinds_by_id.values()
     ):
         issues.append(
@@ -596,7 +598,7 @@ def validate_node_configuration(
                 )
             )
 
-    if kind in {"scheduled_start", "http_event_entry"}:
+    if kind in {"scheduled_start", "http_event_entry", "failure_event_entry"}:
         event_variable = str(data.get("eventVariable") or "").strip()
         if not is_variable_name(event_variable):
             issues.append(
@@ -663,6 +665,26 @@ def validate_node_configuration(
                         node_id=node.id,
                     )
                 )
+
+    if kind == "failure_event_entry":
+        source_project_ids = data.get("sourceProjectIds")
+        if (
+            not isinstance(source_project_ids, list)
+            or not 1 <= len(source_project_ids) <= 50
+            or len(source_project_ids) != len(set(source_project_ids))
+            or any(
+                not isinstance(item, str)
+                or not re.fullmatch(r"wf_[a-f0-9]{32}", item)
+                for item in source_project_ids
+            )
+        ):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_failure_source_projects",
+                    message="Failure entry needs 1 to 50 unique workflow project IDs.",
+                    node_id=node.id,
+                )
+            )
 
     if kind == "http_event_entry":
         body_variable = str(data.get("bodyVariable") or "").strip()
@@ -3016,7 +3038,7 @@ def collect_declared_variables(
     for node in nodes:
         data = node.data
         kind = kinds_by_id[node.id]
-        if kind in {"input", "scheduled_start", "http_event_entry"}:
+        if kind in {"input", "scheduled_start", "http_event_entry", "failure_event_entry"}:
             field_name = "variableName" if kind == "input" else "eventVariable"
             variable = str(data.get(field_name) or "").strip()
             if is_variable_name(variable):
@@ -3087,6 +3109,7 @@ def collect_node_variable_producers(
         "input": ("variableName",),
         "scheduled_start": ("eventVariable",),
         "http_event_entry": ("eventVariable", "bodyVariable"),
+        "failure_event_entry": ("eventVariable",),
         "llm": ("outputVariable",),
         "code": ("codeOutputVariable",),
         "variable_assign": ("variableName",),

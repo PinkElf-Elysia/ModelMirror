@@ -129,6 +129,13 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["webhook", "http", "deployment"],
       },
       {
+        kind: "failure_event_entry",
+        icon: "FAIL",
+        title: "失败处置入口",
+        description: "监听所选已发布工作流的失败并接收脱敏事件。",
+        tags: ["failure", "error", "deployment"],
+      },
+      {
         kind: "suspend_wait",
         icon: "WAIT",
         title: "挂起等待",

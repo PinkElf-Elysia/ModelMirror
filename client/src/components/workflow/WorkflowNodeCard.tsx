@@ -24,6 +24,13 @@ const nodeMeta = {
     bg: "bg-cyan-300/10",
     text: "text-cyan-100",
   },
+  failure_event_entry: {
+    icon: "!",
+    label: "失败处置入口",
+    border: "border-rose-300/40",
+    bg: "bg-rose-300/10",
+    text: "text-rose-100",
+  },
   suspend_wait: {
     icon: "WAIT",
     label: "挂起等待",
@@ -390,6 +397,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           "input",
           "scheduled_start",
           "http_event_entry",
+          "failure_event_entry",
           "external_xpert",
           "knowledge_base",
           "toolset_resource",

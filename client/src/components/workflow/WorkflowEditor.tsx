@@ -404,6 +404,16 @@ export function createNodeData(
     };
   }
 
+  if (kind === "failure_event_entry") {
+    return {
+      kind,
+      title: "失败处置入口",
+      description: "监听所选已发布工作流的失败并接收脱敏事件。",
+      sourceProjectIds: [],
+      eventVariable: "failure_event",
+    };
+  }
+
   if (kind === "suspend_wait") {
     return {
       kind,
@@ -897,10 +907,39 @@ function initialDefinition(workflowId: string): WorkflowDefinition {
   };
 }
 
+export function normalizeWorkflowNodePositions(
+  nodes: WorkflowNode[],
+): WorkflowNode[] {
+  return nodes.map((node, index) => {
+    const position = node.position as
+      | { x?: unknown; y?: unknown }
+      | null
+      | undefined;
+    const validPosition =
+      typeof position?.x === "number" &&
+      Number.isFinite(position.x) &&
+      typeof position.y === "number" &&
+      Number.isFinite(position.y);
+    if (validPosition && node.type === "workflowNode") {
+      return node;
+    }
+    return {
+      ...node,
+      type: "workflowNode",
+      position: validPosition
+        ? { x: position.x as number, y: position.y as number }
+        : {
+            x: (index % 4) * 320,
+            y: Math.floor(index / 4) * 180 + 80,
+          },
+    };
+  });
+}
+
 function cloneDefinition(definition: WorkflowDefinition): WorkflowDefinition {
   return {
     ...definition,
-    nodes: definition.nodes.map((node) => ({
+    nodes: normalizeWorkflowNodePositions(definition.nodes).map((node) => ({
       ...node,
       position: { ...node.position },
       data: normalizeRecentlyEnabledNodeData({ ...node.data }),
@@ -2483,6 +2522,7 @@ function LegacyKnowledgeCitationConfig({
 }
 
 interface NodeConfigProps {
+  workflowId: string;
   node: WorkflowNode | null;
   onChange: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
   onRuntimeMiddlewareConfigChange: (
@@ -2497,6 +2537,7 @@ interface NodeConfigProps {
 }
 
 function NodeConfig({
+  workflowId,
   node,
   onChange,
   onRuntimeMiddlewareConfigChange,
@@ -2796,8 +2837,9 @@ function NodeConfig({
         </Field>
       ) : null}
 
-      {["scheduled_start", "http_event_entry", "suspend_wait", "http_event_reply"].includes(data.kind) ? (
+      {["scheduled_start", "http_event_entry", "failure_event_entry", "suspend_wait", "http_event_reply"].includes(data.kind) ? (
         <WorkflowDeploymentNodeConfig
+          currentProjectId={workflowId.startsWith("wf_") ? workflowId : undefined}
           contract={variableContract}
           data={data}
           edges={edges}
@@ -4274,6 +4316,7 @@ type WorkflowWorkspaceTab = "config" | "run";
 const INDEPENDENT_DEPLOYMENT_NODE_KINDS = new Set<WorkflowNodeKind>([
   "scheduled_start",
   "http_event_entry",
+  "failure_event_entry",
   "http_event_reply",
   "suspend_wait",
 ]);
@@ -4359,10 +4402,11 @@ function WorkflowCanvas({
     fetchWorkflowProject(workflowId)
       .then((project) => {
         if (cancelled) return;
-        setTitle(project.draft.title);
-        setNodes(project.draft.nodes);
-        setEdges(project.draft.edges);
-        setVariables(project.draft.variables ?? []);
+        const draft = cloneDefinition(project.draft);
+        setTitle(draft.title);
+        setNodes(draft.nodes);
+        setEdges(draft.edges);
+        setVariables(draft.variables ?? []);
         setProjectRevision(project.draft_revision);
         setActiveDeployment(project.active_deployment ?? null);
       })
@@ -5659,6 +5703,7 @@ function WorkflowCanvas({
               onRuntimeMiddlewareConfigChange={updateRuntimeMiddlewareConfig}
               onOpenRunFileInput={openRunFileInput}
               onSelectNode={setSelectedNodeId}
+              workflowId={workflowId}
             />
           </div>
         </section>
@@ -5676,6 +5721,16 @@ function WorkflowCanvas({
                 <span>触发：{deploymentExecutions[0].trigger_kind}</span>
                 <span>固定版本：v{deploymentExecutions[0].version}</span>
                 <span>状态：{deploymentExecutions[0].status}</span>
+                {deploymentExecutions[0].trigger_kind === "failure" ? (
+                  <span>
+                    失败来源：
+                    {String(
+                      deploymentExecutions[0].trigger_summary?.source_project_id ??
+                        deploymentExecutions[0].source_execution_id ??
+                        "未知",
+                    )}
+                  </span>
+                ) : null}
                 {deploymentExecutions[0].wait_kind ? (
                   <span>等待：{deploymentExecutions[0].wait_kind}</span>
                 ) : null}

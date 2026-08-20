@@ -5,7 +5,7 @@ export interface WorkflowVersionSummary {
   version: number;
   node_contract_checksum: string;
   definition_checksum: string;
-  trigger_kind: "manual" | "schedule" | "http";
+  trigger_kind: "manual" | "schedule" | "http" | "failure";
   entry_node_id: string;
   published_at: number;
 }
@@ -14,7 +14,7 @@ export interface WorkflowDeploymentSummary {
   deployment_id: string;
   project_id: string;
   version: number;
-  trigger_kind: "manual" | "schedule" | "http";
+  trigger_kind: "manual" | "schedule" | "http" | "failure";
   active: boolean;
   hook_id?: string | null;
   webhook_key_prefix?: string | null;
@@ -41,13 +41,34 @@ export interface WorkflowExecutionSummary {
   execution_id: string;
   project_id: string;
   version: number;
-  trigger_kind: "manual" | "schedule" | "http";
+  trigger_kind: "manual" | "schedule" | "http" | "failure";
   occurrence_key: string;
   status: "pending" | "running" | "waiting" | "completed" | "failed" | "skipped" | "cancelled";
   wait_kind?: string | null;
   resume_at?: number | null;
+  parent_execution_id?: string | null;
+  root_execution_id?: string | null;
+  source_execution_id?: string | null;
+  call_node_id?: string | null;
+  test_mode?: boolean;
+  trigger_summary?: Record<string, unknown>;
   created_at: number;
   updated_at: number;
+}
+
+export interface WorkflowProjectSummary {
+  project_id: string;
+  title: string;
+  active_version?: number | null;
+  active_trigger_kind?: "manual" | "schedule" | "http" | "failure" | null;
+  updated_at: number;
+}
+
+export interface WorkflowProjectListResponse {
+  items: WorkflowProjectSummary[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -78,6 +99,26 @@ export function createWorkflowProject(workflow: WorkflowDefinition) {
 
 export function fetchWorkflowProject(projectId: string) {
   return requestJson<WorkflowProjectResponse>(`/api/workflows/${projectId}`);
+}
+
+export function fetchWorkflowProjects({
+  limit = 100,
+  offset = 0,
+  activeOnly = false,
+  triggerKind,
+}: {
+  limit?: number;
+  offset?: number;
+  activeOnly?: boolean;
+  triggerKind?: "manual" | "schedule" | "http" | "failure";
+} = {}) {
+  const query = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+    active_only: String(activeOnly),
+  });
+  if (triggerKind) query.set("trigger_kind", triggerKind);
+  return requestJson<WorkflowProjectListResponse>(`/api/workflows?${query}`);
 }
 
 export function saveWorkflowProjectDraft(

@@ -251,6 +251,15 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     metadata={"classic_only": True, "planner_enabled": False},
                 ),
                 WorkflowPaletteItem(
+                    kind="failure_event_entry",
+                    icon="FAIL",
+                    title="失败处置入口",
+                    description="监听所选已发布工作流的失败并接收脱敏事件。",
+                    category="logic",
+                    tags=["failure", "error", "deployment"],
+                    metadata={"classic_only": True, "planner_enabled": False},
+                ),
+                WorkflowPaletteItem(
                     kind="suspend_wait",
                     icon="WAIT",
                     title="挂起等待",
