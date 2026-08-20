@@ -14,6 +14,7 @@ from .repository import (
     utc_now,
 )
 from .egress import ProviderEgressError, ProviderEgressPolicy
+from .provider_chat import ProviderChatEndpointResolver
 from .schemas import (
     ConnectionScope,
     ConnectionTestResult,
@@ -461,12 +462,7 @@ class ModelRouterService:
 
     @staticmethod
     def _models_url(base_url: str) -> str:
-        lowered = base_url.lower()
-        if lowered.endswith("/models"):
-            return base_url
-        if lowered.endswith("/v1"):
-            return f"{base_url}/models"
-        return f"{base_url}/v1/models"
+        return ProviderChatEndpointResolver.resolve(base_url).models_url
 
     @staticmethod
     def _result_error_code(result: ConnectionTestResult) -> str:

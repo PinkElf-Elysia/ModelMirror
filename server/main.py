@@ -937,6 +937,8 @@ except ModuleNotFoundError:
 try:
     from server.model_router import (
         NoEligibleCandidateError,
+        ProviderChatTarget,
+        ProviderChatTransport,
         classify_task,
         get_model_router_service,
         get_native_router_engine,
@@ -947,6 +949,8 @@ try:
 except ModuleNotFoundError:
     from model_router import (
         NoEligibleCandidateError,
+        ProviderChatTarget,
+        ProviderChatTransport,
         classify_task,
         get_model_router_service,
         get_native_router_engine,
@@ -21167,6 +21171,9 @@ async def chat(payload: ChatRequest, request: Request):
     chat_skill_application_recorded = False
     omniroute_settings = get_omniroute_settings()
     native_router_engine = get_native_router_engine()
+    provider_chat_transport = ProviderChatTransport(
+        native_router_engine.service.egress_policy
+    )
     native_router_policy = get_model_router_service().get_policy()
     direct_audio_requested = any(
         message_has_audio(message.content) for message in payload.messages
@@ -22441,6 +22448,40 @@ async def chat(payload: ChatRequest, request: Request):
                 for target in native_plan.targets
             )
         )
+        use_provider_chat_contract = bool(
+            not native_audio_requested
+            and not direct_video_requested
+            and not direct_file_requested
+            and payload.tool_mode == "none"
+        )
+        if use_provider_chat_contract:
+            if managed_native_url and native_plan is not None:
+                chat_target = next(
+                    target.provider_chat_target
+                    for target in native_plan.targets
+                    if target.chat_completions_url == gateway_url
+                )
+            else:
+                chat_target = ProviderChatTarget.create(
+                    source=(
+                        "sidecar"
+                        if use_omniroute and gateway_url == url
+                        else "static"
+                    ),
+                    provider_kind=(
+                        "omniroute"
+                        if use_omniroute and gateway_url == url
+                        else "openai_compatible"
+                    ),
+                    base_url=gateway_url,
+                    api_key=gateway_key,
+                )
+            return await provider_chat_transport.send_stream(
+                client,
+                chat_target,
+                request_payload,
+                headers=request_headers,
+            )
         if managed_native_url:
             return await native_router_engine.service.egress_policy.request(
                 client,

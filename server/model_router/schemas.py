@@ -17,6 +17,14 @@ ConnectionKind = Literal[
 ]
 ConnectionScope = Literal["chat", "audio", "realtime"]
 ConnectionHealth = Literal["untested", "online", "offline", "disabled"]
+ProviderChatCertificationStatus = Literal[
+    "not_run",
+    "running",
+    "passed",
+    "failed",
+    "uncertain",
+    "stale",
+]
 CONNECTION_SCOPE_ORDER: tuple[ConnectionScope, ...] = (
     "chat",
     "audio",
@@ -153,6 +161,66 @@ class ConnectionTestResult(BaseModel):
     models_preview: list[str] = Field(default_factory=list)
     message: str
     checked_at: str
+
+
+class ProviderModelsRefreshResponse(BaseModel):
+    connection_id: str
+    ok: bool
+    model_ids: list[str] = Field(default_factory=list, max_length=500)
+    model_count: int = 0
+    checked_at: str
+    truncated: bool = False
+    message: str
+
+
+class ProviderChatCertificationRequest(BaseModel):
+    model_id: str = Field(min_length=1, max_length=512)
+    acknowledge_billed_call: bool
+
+    @field_validator("model_id")
+    @classmethod
+    def validate_model_id(cls, value: str) -> str:
+        return _required_text(value, field_name="model_id", limit=512)
+
+
+class ProviderChatCertificationChecks(BaseModel):
+    catalog_ok: bool = False
+    model_present: bool = False
+    chat_http_ok: bool = False
+    text_delta_observed: bool = False
+    stream_completed: bool = False
+    terminal_observed: bool = False
+
+
+class ProviderChatCertificationSummary(BaseModel):
+    certification_id: str | None = None
+    connection_id: str
+    connection_name: str
+    status: ProviderChatCertificationStatus = "not_run"
+    can_run: bool
+    blocked_reason: str | None = None
+    checks: ProviderChatCertificationChecks = Field(
+        default_factory=ProviderChatCertificationChecks
+    )
+    warning_codes: list[str] = Field(default_factory=list)
+    error_code: str | None = None
+    requested_model: str | None = None
+    actual_model: str | None = None
+    ttft_ms: float | None = None
+    e2e_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    created_at: str | None = None
+    completed_at: str | None = None
+
+
+class ProviderChatCertificationListResponse(BaseModel):
+    enabled: bool
+    contract_version: str
+    certifications: list[ProviderChatCertificationSummary] = Field(
+        default_factory=list
+    )
 
 
 class RouterPolicy(BaseModel):

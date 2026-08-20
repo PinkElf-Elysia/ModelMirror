@@ -36,6 +36,12 @@ from .engine import (
 )
 from .routing import NoEligibleCandidateError
 from .omniroute_parity import classify_task
+from .provider_chat import (
+    PROVIDER_CHAT_CONTRACT_VERSION,
+    ProviderChatEndpointResolver,
+    ProviderChatTarget,
+    ProviderChatTransport,
+)
 
 __all__ = [
     "CompressionMode",
@@ -48,6 +54,10 @@ __all__ = [
     "NativeRoutePlan",
     "NativeRouterEngine",
     "NoEligibleCandidateError",
+    "PROVIDER_CHAT_CONTRACT_VERSION",
+    "ProviderChatEndpointResolver",
+    "ProviderChatTarget",
+    "ProviderChatTransport",
     "RouterConnection",
     "RouterConnectionCreate",
     "RouterConnectionNotFound",
