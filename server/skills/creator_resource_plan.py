@@ -401,9 +401,106 @@ class SkillResourcePlanStore:
             )
             return self._append_unlocked(item)
 
+    def save_evolution_revision(
+        self,
+        *,
+        source_plan_id: str,
+        source_revision: int,
+        source_digest: str,
+        session_revision: int,
+        draft_id: str,
+        draft_revision: int,
+        draft_digest: str,
+        payload: dict[str, Any],
+        allowed_source_ids: set[str],
+    ) -> SkillResourcePlan:
+        """Create one server-owned revision rebound to the reviewed session facts.
+
+        Public plan editing deliberately retains the original bindings. Evolution is
+        the only flow allowed to rebind an immutable plan after an evaluation review
+        advances the Creator session revision. The operation is idempotent across a
+        crash between this Store and the Evolution Store.
+        """
+
+        clean_plan_id = self._required_text(source_plan_id, "source_plan_id", 200)
+        clean_source_digest = self._optional_digest(source_digest, "source_digest")
+        normalized = self._normalize_payload(
+            {**dict(payload), "clarifications": []},
+            allowed_source_ids=allowed_source_ids,
+        )
+        clean_bindings = {
+            "session_revision": self._positive_int(session_revision, "session_revision"),
+            "draft_id": self._optional_text(draft_id, 200),
+            "draft_revision": self._positive_int(draft_revision, "draft_revision"),
+            "draft_digest": self._optional_digest(draft_digest, "draft_digest"),
+        }
+        with self._lock:
+            self._ensure_writable_unlocked()
+            revisions = self._plans.get(clean_plan_id)
+            if not revisions or int(source_revision) < 1 or int(source_revision) > len(revisions):
+                raise SkillCreatorNotFoundError(
+                    f"Resource plan revision not found: {clean_plan_id}@{source_revision}"
+                )
+            source = revisions[int(source_revision) - 1]
+            if source.digest != clean_source_digest or source.state != "confirmed":
+                raise SkillCreatorConflictError(
+                    "The source resource plan changed before evolution was confirmed."
+                )
+            current = revisions[-1]
+            if current.revision > source.revision:
+                if self._matches_evolution_revision(
+                    current,
+                    source=source,
+                    normalized=normalized,
+                    bindings=clean_bindings,
+                ):
+                    return self._copy(current)
+                raise SkillCreatorConflictError(
+                    "A different resource plan revision already superseded this evolution source."
+                )
+            if current.revision != source.revision:
+                raise SkillCreatorConflictError("Resource plan revision is no longer current.")
+            item = self._build_plan(
+                plan_id=source.plan_id,
+                session_id=source.session_id,
+                revision=source.revision + 1,
+                state="ready",
+                clarification_answers={},
+                created_at=source.created_at,
+                updated_at=time.time(),
+                **clean_bindings,
+                **normalized,
+            )
+            return self._append_unlocked(item)
+
     @staticmethod
     def serialize(item: SkillResourcePlan) -> dict[str, Any]:
         return asdict(item)
+
+    @staticmethod
+    def _matches_evolution_revision(
+        current: SkillResourcePlan,
+        *,
+        source: SkillResourcePlan,
+        normalized: dict[str, Any],
+        bindings: dict[str, Any],
+    ) -> bool:
+        if current.revision not in {source.revision + 1, source.revision + 2}:
+            return False
+        if current.state not in {"ready", "confirmed"}:
+            return False
+        return bool(
+            current.session_revision == bindings["session_revision"]
+            and current.draft_id == bindings["draft_id"]
+            and current.draft_revision == bindings["draft_revision"]
+            and current.draft_digest == bindings["draft_digest"]
+            and current.skill_name == normalized["skill_name"]
+            and current.skill_description == normalized["skill_description"]
+            and current.workflow_steps == normalized["workflow_steps"]
+            and current.output_contract == normalized["output_contract"]
+            and current.failure_modes == normalized["failure_modes"]
+            and current.resources == normalized["resources"]
+        )
 
     def _normalize_payload(
         self, payload: dict[str, Any], *, allowed_source_ids: set[str]

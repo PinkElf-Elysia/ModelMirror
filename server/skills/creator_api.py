@@ -16,6 +16,7 @@ from .creator_evaluation import (
 )
 from .creator_evaluation_service import SkillCreatorEvaluationService
 from .creator_evaluation_suite_service import SkillCreatorEvaluationSuiteService
+from .creator_evolution_service import SkillCreatorEvolutionService
 from .creator_resource_build_service import SkillCreatorResourceBuildService
 from .creator_resource_service import SkillCreatorResourcePlanningService
 from .creator_service import SkillCreatorService
@@ -48,6 +49,7 @@ _evaluation_service: SkillCreatorEvaluationService | None = None
 _evaluation_suite_service: SkillCreatorEvaluationSuiteService | None = None
 _resource_planning_service: SkillCreatorResourcePlanningService | None = None
 _resource_build_service: SkillCreatorResourceBuildService | None = None
+_evolution_service: SkillCreatorEvolutionService | None = None
 
 
 class CreatorSessionCreateRequest(BaseModel):
@@ -312,12 +314,49 @@ class CreatorEvaluationIterateRequest(CreatorEvaluationWriteRequest):
     expected_review_revision: int = Field(ge=0)
 
 
+class CreatorEvolutionGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    evaluation_run_id: str = Field(min_length=1, max_length=200)
+    expected_session_revision: int = Field(ge=1)
+    expected_draft_state_revision: int = Field(ge=1)
+    expected_draft_revision: int = Field(ge=1)
+    expected_draft_digest: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
+    expected_review_revision: int = Field(ge=1)
+    expected_run_revision: int = Field(ge=1)
+    expected_resource_plan_revision: int = Field(ge=1)
+    expected_resource_plan_digest: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
+    expected_evolution_revision: int | None = Field(default=None, ge=1)
+    expected_evolution_digest: str | None = Field(default=None, min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
+
+
+class CreatorEvolutionWriteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan_id: str = Field(min_length=1, max_length=200)
+    expected_session_revision: int = Field(ge=1)
+    expected_draft_state_revision: int = Field(ge=1)
+    expected_draft_revision: int = Field(ge=1)
+    expected_draft_digest: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
+    expected_plan_revision: int = Field(ge=1)
+    expected_plan_digest: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
+
+
+class CreatorEvolutionAnswersRequest(CreatorEvolutionWriteRequest):
+    answers: dict[str, str] = Field(max_length=5)
+
+
+class CreatorEvolutionPatchRequest(CreatorEvolutionWriteRequest):
+    changes: dict[str, Any]
+
+
 def configure_skill_creator(service: SkillCreatorService | None) -> None:
     global _service
     global _evaluation_service
     global _evaluation_suite_service
     global _resource_planning_service
     global _resource_build_service
+    global _evolution_service
     if service is not _service:
         if (
             _evaluation_service is not None
@@ -339,6 +378,11 @@ def configure_skill_creator(service: SkillCreatorService | None) -> None:
             and getattr(_resource_build_service, "creator_service", None) is not service
         ):
             _resource_build_service = None
+        if (
+            _evolution_service is not None
+            and getattr(_evolution_service, "creator_service", None) is not service
+        ):
+            _evolution_service = None
     _service = service
 
 
@@ -354,6 +398,11 @@ def configure_skill_creator_evaluation_suite(
 ) -> None:
     global _evaluation_suite_service
     _evaluation_suite_service = service
+
+
+def configure_skill_creator_evolution(service: SkillCreatorEvolutionService | None) -> None:
+    global _evolution_service
+    _evolution_service = service
 
 
 def configure_skill_creator_resource_planning(
@@ -420,6 +469,17 @@ def get_skill_creator_resource_build_service() -> SkillCreatorResourceBuildServi
         )
     _resource_build_service.require_enabled()
     return _resource_build_service
+
+
+def get_skill_creator_evolution_service() -> SkillCreatorEvolutionService:
+    get_skill_creator_service()
+    if _evolution_service is None:
+        raise SkillCreatorValidationError(
+            "Skill Creator evolution planning is unavailable.",
+            code="skill_creator_evolution_v2_disabled",
+        )
+    _evolution_service.require_enabled()
+    return _evolution_service
 
 
 def _api_error(exc: Exception) -> HTTPException:
@@ -498,8 +558,12 @@ def _api_error(exc: Exception) -> HTTPException:
             "skill_creator_resource_builder_invalid",
             "skill_evaluation_suite_generator_failed",
             "skill_evaluation_suite_generator_invalid",
+            "skill_creator_evolution_planner_failed",
+            "skill_creator_evolution_planner_invalid",
         }:
             status = 502
+        elif code == "skill_creator_evolution_plan_required":
+            status = 409
         elif code == "skill_creator_proposal_binding_invalid":
             status = 409
     elif isinstance(exc, SkillDraftValidationError):
@@ -571,8 +635,21 @@ def _session_response(
             and draft is not None
             else None
         ),
+        "evolution_plan": _evolution_projection(session.session_id),
     }
     return response
+
+
+def _evolution_projection(session_id: str) -> dict[str, Any] | None:
+    if _evolution_service is None or not _evolution_service.enabled:
+        return None
+    try:
+        return _evolution_service.current_projection(session_id)
+    except SkillCreatorStorageError:
+        return {
+            "available": False,
+            "code": "skill_creator_storage_unavailable",
+        }
 
 
 @router.get("/status")
@@ -598,6 +675,10 @@ async def get_creator_status():
             "evaluation_suite_version": None,
             "evaluation_suite_generator_available": False,
             "evaluation_suite_store_available": False,
+            "evolution_enabled": False,
+            "evolution_version": None,
+            "evolution_planner_available": False,
+            "evolution_store_available": False,
         }
     status = _service.status()
     status["evaluation_available"] = _evaluation_service is not None
@@ -614,6 +695,16 @@ async def get_creator_status():
             "resource_authoring_enabled": False,
             "resource_authoring_version": None,
             "resource_planner_available": False,
+        }
+    )
+    status.update(
+        _evolution_service.status()
+        if _evolution_service is not None
+        else {
+            "evolution_enabled": False,
+            "evolution_version": None,
+            "evolution_planner_available": False,
+            "evolution_store_available": False,
         }
     )
     status.update(
@@ -1372,11 +1463,133 @@ async def waive_creator_evaluation(
         raise _api_error(exc) from exc
 
 
+@router.post("/sessions/{session_id}/evolution-plan/generate")
+async def generate_creator_evolution_plan(
+    session_id: str, payload: CreatorEvolutionGenerateRequest
+):
+    try:
+        if (payload.expected_evolution_revision is None) != (
+            payload.expected_evolution_digest is None
+        ):
+            raise SkillCreatorValidationError(
+                "Expected evolution revision and digest must be provided together.",
+                code="skill_creator_evolution_plan_invalid",
+            )
+        evolution = get_skill_creator_evolution_service()
+        plan = await evolution.generate(
+            session_id,
+            evaluation_run_id=payload.evaluation_run_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_draft_state_revision=payload.expected_draft_state_revision,
+            expected_draft_revision=payload.expected_draft_revision,
+            expected_draft_digest=payload.expected_draft_digest.lower(),
+            expected_review_revision=payload.expected_review_revision,
+            expected_run_revision=payload.expected_run_revision,
+            expected_resource_plan_revision=payload.expected_resource_plan_revision,
+            expected_resource_plan_digest=payload.expected_resource_plan_digest.lower(),
+            expected_evolution_revision=payload.expected_evolution_revision,
+            expected_evolution_digest=(
+                payload.expected_evolution_digest.lower()
+                if payload.expected_evolution_digest
+                else None
+            ),
+        )
+        return {
+            "version": evolution.VERSION,
+            "evolution_plan": evolution.evolution_store.serialize(plan),
+        }
+    except (SkillCreatorError, SkillDraftError, SkillEvaluationError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.put("/sessions/{session_id}/evolution-plan/answers")
+async def answer_creator_evolution_plan(
+    session_id: str, payload: CreatorEvolutionAnswersRequest
+):
+    try:
+        evolution = get_skill_creator_evolution_service()
+        plan = await asyncio.to_thread(
+            evolution.save_answers,
+            session_id,
+            plan_id=payload.plan_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_draft_state_revision=payload.expected_draft_state_revision,
+            expected_draft_revision=payload.expected_draft_revision,
+            expected_draft_digest=payload.expected_draft_digest.lower(),
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+            answers=payload.answers,
+        )
+        return {
+            "version": evolution.VERSION,
+            "evolution_plan": evolution.evolution_store.serialize(plan),
+        }
+    except (SkillCreatorError, SkillDraftError, SkillEvaluationError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.patch("/sessions/{session_id}/evolution-plan")
+async def patch_creator_evolution_plan(
+    session_id: str, payload: CreatorEvolutionPatchRequest
+):
+    try:
+        evolution = get_skill_creator_evolution_service()
+        plan = await asyncio.to_thread(
+            evolution.patch,
+            session_id,
+            plan_id=payload.plan_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_draft_state_revision=payload.expected_draft_state_revision,
+            expected_draft_revision=payload.expected_draft_revision,
+            expected_draft_digest=payload.expected_draft_digest.lower(),
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+            changes=payload.changes,
+        )
+        return {
+            "version": evolution.VERSION,
+            "evolution_plan": evolution.evolution_store.serialize(plan),
+        }
+    except (SkillCreatorError, SkillDraftError, SkillEvaluationError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/evolution-plan/confirm")
+async def confirm_creator_evolution_plan(
+    session_id: str, payload: CreatorEvolutionWriteRequest
+):
+    try:
+        evolution = get_skill_creator_evolution_service()
+        plan, resource_plan = await asyncio.to_thread(
+            evolution.confirm,
+            session_id,
+            plan_id=payload.plan_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_draft_state_revision=payload.expected_draft_state_revision,
+            expected_draft_revision=payload.expected_draft_revision,
+            expected_draft_digest=payload.expected_draft_digest.lower(),
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+        )
+        return {
+            "version": evolution.VERSION,
+            "evolution_plan": evolution.evolution_store.serialize(plan),
+            "resource_plan": evolution.resource_plan_store.serialize(resource_plan),
+        }
+    except (SkillCreatorError, SkillDraftError, SkillEvaluationError) as exc:
+        raise _api_error(exc) from exc
+
+
 @router.post("/sessions/{session_id}/iterate")
 async def iterate_creator_skill(
     session_id: str, payload: CreatorEvaluationIterateRequest
 ):
     try:
+        if _evolution_service is not None and _evolution_service.enabled:
+            raise SkillCreatorValidationError(
+                "Confirm a Skill evolution plan before rebuilding resources.",
+                code="skill_creator_evolution_plan_required",
+            )
         evaluation = get_skill_creator_evaluation_service()
         proposal = await evaluation.iterate(
             session_id,
