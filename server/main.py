@@ -78,6 +78,7 @@ try:
         WorkflowTriggerCoordinator,
         configure_workflow_deployment_runtime,
         router as workflow_deployments_router,
+        workflow_failure_triggers_enabled,
     )
     from server.workflow_deployments import (
         WorkflowDeploymentStore,
@@ -89,6 +90,7 @@ except ModuleNotFoundError:
         WorkflowTriggerCoordinator,
         configure_workflow_deployment_runtime,
         router as workflow_deployments_router,
+        workflow_failure_triggers_enabled,
     )
     from workflow_deployments import (
         WorkflowDeploymentStore,
@@ -200,6 +202,12 @@ except ModuleNotFoundError:
     )
 
 try:
+    from server.skills.application_receipts import (
+        SkillApplicationObserver,
+        SkillApplicationReceiptError,
+        SkillApplicationReceiptStore,
+        application_receipt_mode,
+    )
     from server.skills.api import (
         get_builtin_skill_library,
         get_skill_draft_store,
@@ -208,9 +216,11 @@ try:
         router as skills_router,
     )
     from server.skills.local_import_api import router as skill_local_import_router
+    from server.skills.trust_service import SkillRuntimeEnvironment
     from server.skills.creator_api import (
         configure_skill_creator,
         configure_skill_creator_evaluation,
+        configure_skill_creator_evaluation_suite,
         configure_skill_creator_resource_build,
         configure_skill_creator_resource_planning,
         router as skill_creator_router,
@@ -260,6 +270,14 @@ try:
     from server.skills.creator_evaluation_service import (
         SkillCreatorEvaluationService,
     )
+    from server.skills.creator_evaluation_suite import SkillEvaluationSuiteStore
+    from server.skills.creator_evaluation_suite_runtime import (
+        EvaluationSuiteWorkflowInvocation,
+        WorkflowCreatorEvaluationSuiteGenerator,
+    )
+    from server.skills.creator_evaluation_suite_service import (
+        SkillCreatorEvaluationSuiteService,
+    )
     from server.skills.creator_service import (
         SkillCreatorService,
         configure_creator_generation_executor,
@@ -269,6 +287,12 @@ try:
         SkillCreatorSessionStore,
     )
 except ModuleNotFoundError:
+    from skills.application_receipts import (
+        SkillApplicationObserver,
+        SkillApplicationReceiptError,
+        SkillApplicationReceiptStore,
+        application_receipt_mode,
+    )
     from skills.api import (
         get_builtin_skill_library,
         get_skill_draft_store,
@@ -277,9 +301,11 @@ except ModuleNotFoundError:
         router as skills_router,
     )
     from skills.local_import_api import router as skill_local_import_router
+    from skills.trust_service import SkillRuntimeEnvironment
     from skills.creator_api import (
         configure_skill_creator,
         configure_skill_creator_evaluation,
+        configure_skill_creator_evaluation_suite,
         configure_skill_creator_resource_build,
         configure_skill_creator_resource_planning,
         router as skill_creator_router,
@@ -323,6 +349,14 @@ except ModuleNotFoundError:
         skill_evaluation_model_temperature,
     )
     from skills.creator_evaluation_service import SkillCreatorEvaluationService
+    from skills.creator_evaluation_suite import SkillEvaluationSuiteStore
+    from skills.creator_evaluation_suite_runtime import (
+        EvaluationSuiteWorkflowInvocation,
+        WorkflowCreatorEvaluationSuiteGenerator,
+    )
+    from skills.creator_evaluation_suite_service import (
+        SkillCreatorEvaluationSuiteService,
+    )
     from skills.creator_service import (
         SkillCreatorService,
         configure_creator_generation_executor,
@@ -975,7 +1009,7 @@ def env_int(name: str, default: int, minimum: int) -> int:
 
 LLM_GATEWAY_URL = os.getenv(
     "LLM_GATEWAY_URL",
-    "http://localhost:3000/v1/chat/completions",
+    "",
 ).strip()
 LLM_GATEWAY_KEY = os.getenv("LLM_GATEWAY_KEY", "").strip()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
@@ -1021,8 +1055,10 @@ WORKFLOW_AGENT_MAX_TOKENS = 1024
 SKILL_CREATOR_AGENT_MAX_TOKENS = 12_288
 SKILL_CREATOR_RESOURCE_PLANNER_MAX_TOKENS = 8_192
 SKILL_CREATOR_RESOURCE_BUILDER_MAX_TOKENS = 8_192
+SKILL_CREATOR_EVALUATION_SUITE_MAX_TOKENS = 8_192
 SKILL_CREATOR_RESOURCE_PLANNER_TEMPERATURE = 0.1
 SKILL_CREATOR_RESOURCE_BUILDER_TEMPERATURE = 0.1
+SKILL_CREATOR_EVALUATION_SUITE_TEMPERATURE = 0.1
 SKILL_EVALUATION_AGENT_MAX_TOKENS = 4_096
 AGENT_TASK_STORAGE_DIR = os.getenv("AGENT_TASK_STORAGE_DIR", "").strip()
 
@@ -1049,11 +1085,26 @@ def workflow_agent_token_budget(runtime_metadata: dict[str, Any] | None) -> int:
             return SKILL_CREATOR_RESOURCE_PLANNER_MAX_TOKENS
         if metadata.get("creator_phase") == "resource_build":
             return SKILL_CREATOR_RESOURCE_BUILDER_MAX_TOKENS
+        if metadata.get("creator_phase") == "evaluation_suite":
+            return SKILL_CREATOR_EVALUATION_SUITE_MAX_TOKENS
         return SKILL_CREATOR_AGENT_MAX_TOKENS
     metadata = dict(runtime_metadata or {})
     if is_trusted_skill_evaluation_metadata(metadata):
         return SKILL_EVALUATION_AGENT_MAX_TOKENS
     return WORKFLOW_AGENT_MAX_TOKENS
+
+
+def workflow_agent_temperature(runtime_metadata: dict[str, Any] | None) -> float:
+    metadata = dict(runtime_metadata or {})
+    if is_trusted_skill_creator_runtime(metadata):
+        phase = metadata.get("creator_phase")
+        if phase == "resource_plan":
+            return SKILL_CREATOR_RESOURCE_PLANNER_TEMPERATURE
+        if phase == "resource_build":
+            return SKILL_CREATOR_RESOURCE_BUILDER_TEMPERATURE
+        if phase == "evaluation_suite":
+            return SKILL_CREATOR_EVALUATION_SUITE_TEMPERATURE
+    return skill_evaluation_model_temperature(metadata, default=0.7)
 
 
 HANDOFF_EXECUTOR_ENABLED = os.getenv(
@@ -1292,9 +1343,150 @@ run_registry = RunRegistry()
 workflow_execution_store = WorkflowExecutionStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
 )
+skill_application_receipt_store = SkillApplicationReceiptStore(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None
+)
+skill_application_observer = SkillApplicationObserver(
+    skill_application_receipt_store,
+    lambda: get_skill_manager(),
+)
 workflow_deployment_store = WorkflowDeploymentStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
 )
+
+
+def record_skill_application(
+    *,
+    skill_id: str,
+    run_id: str | None,
+    task_id: str | None,
+    node_id: str | None,
+    runtime_kind: str,
+    version_id: str | None = None,
+    source_kind: str | None = None,
+    content_digest: str | None = None,
+    trust_fingerprint: str | None = None,
+    policy: Literal["advisory", "require_read", "require_stage"] = "require_read",
+    required_resource_paths: Iterable[str] = (),
+    method: Literal["prompt_injected", "skill_read", "skill_stage"] | None = None,
+    resource_paths: Iterable[str] = (),
+    resource_digests: dict[str, str] | None = None,
+    expected_resource_digests: dict[str, str] | None = None,
+    tool_name: str | None = None,
+    error_code: str | None = None,
+) -> str | None:
+    """Record audit evidence; only explicit enforce mode fails runtime closed."""
+
+    if application_receipt_mode() == "off":
+        return None
+    try:
+        receipt = skill_application_observer.record(
+            skill_id=skill_id,
+            run_id=run_id,
+            task_id=task_id,
+            node_id=node_id,
+            runtime_kind=runtime_kind,
+            version_id=version_id,
+            source_kind=source_kind,
+            content_digest=content_digest,
+            trust_fingerprint=trust_fingerprint,
+            policy=policy,
+            required_resource_paths=required_resource_paths,
+            method=method,
+            resource_paths=resource_paths,
+            resource_digests=resource_digests,
+            expected_resource_digests=expected_resource_digests,
+            tool_name=tool_name,
+            error_code=error_code,
+        )
+        return receipt.receipt_id if receipt is not None else None
+    except Exception as exc:
+        logger.warning(
+            "Skill application receipt unavailable: code=%s",
+            str(getattr(exc, "code", "skill_application_receipt_unavailable")),
+        )
+        if application_receipt_mode() == "enforce":
+            if isinstance(exc, SkillApplicationReceiptError):
+                raise
+            raise SkillApplicationReceiptError(
+                "Skill application receipt could not be persisted.",
+                code="skill_application_receipt_unavailable",
+            ) from exc
+        return None
+
+
+def record_expert_team_method_skill_applications(
+    result: dict[str, Any],
+    skills: Iterable[AgencySkillDefinition],
+) -> None:
+    for skill in skills:
+        record_skill_application(
+            skill_id=skill.skill_id,
+            run_id=str(result.get("run_id") or "").strip() or None,
+            task_id=str(result.get("task_id") or "").strip() or None,
+            node_id="agency-orchestrator",
+            runtime_kind="expert_team",
+            version_id=f"builtin:{skill.digest}",
+            source_kind="builtin",
+            content_digest=skill.digest,
+            policy="advisory",
+            method="prompt_injected",
+        )
+
+
+def resolve_chat_skill_application(
+    application: "ChatSkillApplication",
+    messages: Iterable["ChatMessage"],
+) -> dict[str, str]:
+    """Resolve one client selection to the exact server-owned injected package."""
+
+    manager = get_skill_manager()
+    skill_id = application.skill_id
+    expected_digest = application.expected_content_digest.lower()
+    installed = manager.require_activation(
+        skill_id,
+        runtime_environment=SkillRuntimeEnvironment(),
+    )
+    if str(installed.content_digest or "").lower() != expected_digest:
+        raise SkillApplicationReceiptError(
+            "The selected Skill changed before the chat request was sent.",
+            code="skill_application_contract_stale",
+        )
+    bindings = manager.bind_skill_versions({skill_id})
+    version_id = str(bindings.get(skill_id) or "").strip()
+    if not version_id:
+        raise SkillApplicationReceiptError(
+            "The selected Skill has no immutable runtime version.",
+            code="skill_application_version_missing",
+        )
+    version = manager.lifecycle_store.require_version(version_id)
+    if (
+        version.skill_id != skill_id
+        or str(version.package_digest or "").lower() != expected_digest
+    ):
+        raise SkillApplicationReceiptError(
+            "The selected Skill version no longer matches the chat request.",
+            code="skill_application_contract_stale",
+        )
+    skill_markdown = manager.get_skill_content(skill_id, version_id=version_id)
+    if not any(
+        message.role == "system"
+        and skill_markdown in message_text(message.content)
+        for message in messages
+    ):
+        raise SkillApplicationReceiptError(
+            "The selected Skill was not present in the server-bound chat prompt.",
+            code="skill_application_prompt_missing",
+        )
+    return {
+        "skill_id": skill_id,
+        "version_id": version_id,
+        "source_kind": str(version.source_kind),
+        "content_digest": expected_digest,
+        "trust_fingerprint": str(version.trust_fingerprint or ""),
+    }
+
+
 workflow_trigger_coordinator = WorkflowTriggerCoordinator(
     poll_seconds=env_float("WORKFLOW_TRIGGER_POLL_SECONDS", 1.0, 0.1)
 )
@@ -1357,6 +1549,15 @@ skill_creator_resource_build_service = SkillCreatorResourceBuildService(
     skill_creator_resource_build_store,
     script_runner=SandboxCreatorScriptRunner(sandbox_sidecar_client),
 )
+skill_creator_evaluation_suite_store = SkillEvaluationSuiteStore(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None
+)
+skill_creator_evaluation_suite_service = SkillCreatorEvaluationSuiteService(
+    skill_creator_service,
+    skill_creator_evaluation_suite_store,
+    skill_evaluation_store,
+    resource_plan_store=skill_creator_resource_plan_store,
+)
 workflow_xpert_authoring_provider = AuthoringToolsetProvider(
     authoring_service, "xpert"
 )
@@ -1367,6 +1568,7 @@ configure_runtime_authoring(authoring_service)
 configure_skill_creator(skill_creator_service)
 configure_skill_creator_resource_planning(skill_creator_resource_planning_service)
 configure_skill_creator_resource_build(skill_creator_resource_build_service)
+configure_skill_creator_evaluation_suite(skill_creator_evaluation_suite_service)
 runtime_capabilities.register(
     "mcp_tools",
     workflow_mcp_provider,
@@ -1810,6 +2012,19 @@ class ChatResponseAudioOptions(BaseModel):
     format: Literal["mp3"] = "mp3"
 
 
+class ChatSkillApplication(BaseModel):
+    skill_id: str = Field(
+        min_length=1,
+        max_length=120,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+    )
+    expected_content_digest: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+    )
+
+
 class ChatRequest(BaseModel):
     model_id: str = Field(min_length=1, max_length=256)
     messages: list[ChatMessage] = Field(min_length=1, max_length=80)
@@ -1826,6 +2041,7 @@ class ChatRequest(BaseModel):
     routing: ChatRoutingOptions | None = None
     compression: ChatCompressionOptions | None = None
     response_audio: ChatResponseAudioOptions | None = None
+    skill_application: ChatSkillApplication | None = None
     file_scope_id: str | None = Field(
         default=None,
         min_length=1,
@@ -2050,6 +2266,7 @@ class WorkflowPayload(BaseModel):
             "input": ("variableName",),
             "scheduled_start": ("eventVariable",),
             "http_event_entry": ("eventVariable",),
+            "failure_event_entry": ("eventVariable",),
             "llm": ("outputVariable",),
             "code": ("codeOutputVariable",),
             "variable_assign": ("variableName",),
@@ -2593,6 +2810,21 @@ def is_gateway_auth_or_user_error(
     )
 
 
+def is_gateway_model_or_channel_unavailable(
+    status_code: int,
+    message: str,
+    data: dict[str, Any] | None,
+) -> bool:
+    lowered = json.dumps(data or {}, ensure_ascii=False).lower()
+    lowered += f" {message.lower()}"
+    markers = (
+        '"code": "model_not_found"',
+        '"code":"model_not_found"',
+        "no available channel for model",
+    )
+    return status_code in {404, 503} and any(marker in lowered for marker in markers)
+
+
 def should_fallback_gateway_to_openrouter(
     status_code: int,
     message: str,
@@ -2605,7 +2837,9 @@ def should_fallback_gateway_to_openrouter(
         return False
     if not is_local_gateway_url(primary_url):
         return False
-    return is_gateway_auth_or_user_error(status_code, message, data)
+    return is_gateway_auth_or_user_error(
+        status_code, message, data
+    ) or is_gateway_model_or_channel_unavailable(status_code, message, data)
 
 
 def should_fallback_model(
@@ -3415,7 +3649,11 @@ def build_chat_payload_from_messages(
 
 def llm_client_kwargs() -> dict[str, Any]:
     timeout = httpx.Timeout(connect=15, read=None, write=30, pool=10)
-    client_kwargs: dict[str, Any] = {"timeout": timeout}
+    client_kwargs: dict[str, Any] = {
+        "timeout": timeout,
+        "follow_redirects": False,
+        "trust_env": False,
+    }
     proxy = proxy_url()
     if proxy:
         client_kwargs["proxy"] = proxy
@@ -3447,7 +3685,9 @@ async def get_shared_llm_client() -> httpx.AsyncClient:
         if _shared_llm_client is None or bool(
             getattr(_shared_llm_client, "is_closed", False)
         ):
-            _shared_llm_client = httpx.AsyncClient(**llm_client_kwargs())
+            client_kwargs = llm_client_kwargs()
+            client_kwargs.pop("proxy", None)
+            _shared_llm_client = httpx.AsyncClient(**client_kwargs)
             _shared_llm_client_factory = httpx.AsyncClient
         return _shared_llm_client
 
@@ -4533,6 +4773,7 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
         "input",
         "scheduled_start",
         "http_event_entry",
+        "failure_event_entry",
         "llm",
         "condition",
         "code",
@@ -6115,6 +6356,11 @@ async def start_expert_team_dag_run(
             capability_snapshot_hash=payload.capability_snapshot_hash,
             upstream_revision=payload.upstream_revision,
         )
+        await asyncio.to_thread(
+            record_expert_team_method_skill_applications,
+            result,
+            method_skills.values(),
+        )
     except AgencyExecutionCapacityError as exc:
         return agency_execution_error(
             429, "agency_execution_capacity_reached", str(exc)
@@ -6438,6 +6684,11 @@ async def retry_expert_team_dag_run(task_id: str, request: Request):
             source_task_id=task_id,
             prepared=prepared,
         )
+        await asyncio.to_thread(
+            record_expert_team_method_skill_applications,
+            result,
+            prepared.skills,
+        )
     except AgencyExecutionCapacityError as exc:
         return agency_execution_error(
             429, "agency_execution_capacity_reached", str(exc)
@@ -6513,6 +6764,11 @@ async def revise_expert_team_dag_run(
             target_task_id=revision_request.target_task_id,
             feedback=revision_request.feedback,
             prepared=prepared,
+        )
+        await asyncio.to_thread(
+            record_expert_team_method_skill_applications,
+            result,
+            prepared.skills,
         )
     except AgencyExecutionCapacityError as exc:
         return agency_execution_error(
@@ -7329,7 +7585,8 @@ async def _run_workflow_response(
     start_node_ids = [
         node.id
         for node in payload.workflow.nodes
-        if workflow_node_kind(node) in {"input", "scheduled_start", "http_event_entry"}
+        if workflow_node_kind(node)
+        in {"input", "scheduled_start", "http_event_entry", "failure_event_entry"}
     ]
     if not start_node_ids and order:
         start_node_ids = [order[0]]
@@ -9906,6 +10163,27 @@ async def _run_workflow_response(
                 ).items()
                 if str(skill_id).strip() and str(version_id).strip()
             }
+            skill_application_policy = str(
+                runtime_metadata.get("skill_application_policy") or "require_read"
+            ).strip()
+            if skill_application_policy not in {
+                "advisory",
+                "require_read",
+                "require_stage",
+            }:
+                skill_application_policy = "require_read"
+            raw_application_paths = runtime_metadata.get(
+                "skill_application_required_resource_paths"
+            )
+            skill_application_required_paths = (
+                [
+                    str(path)
+                    for path in raw_application_paths
+                    if isinstance(path, str) and path.strip()
+                ]
+                if isinstance(raw_application_paths, list)
+                else []
+            )
             if include_skills:
                 skills_config_for_bindings = dict(
                     skills_spec.config if skills_spec is not None else {}
@@ -9945,6 +10223,20 @@ async def _run_workflow_response(
                     runtime_metadata["skill_version_bindings"] = dict(
                         sorted(skill_version_bindings.items())
                     )
+                    for selected_skill_id, selected_version_id in sorted(
+                        skill_version_bindings.items()
+                    ):
+                        await asyncio.to_thread(
+                            record_skill_application,
+                            skill_id=selected_skill_id,
+                            run_id=workflow_run.run_id,
+                            task_id=task_id,
+                            node_id=node.id,
+                            runtime_kind=runtime_run_type,
+                            version_id=selected_version_id,
+                            policy=skill_application_policy,
+                            required_resource_paths=skill_application_required_paths,
+                        )
             if middleware_context is not None:
                 middleware_context.metadata["skill_version_bindings"] = (
                     skill_version_bindings
@@ -9966,6 +10258,35 @@ async def _run_workflow_response(
                 int(pending_state.get("catalog_install_count") or 0),
             )
             run_tool_memory: list[str] = []
+
+            async def record_skill_runtime_failure(
+                tool_name: str,
+                arguments: dict[str, Any],
+                *,
+                error_code: str,
+            ) -> None:
+                if tool_name not in {"skill_read", "skill_stage"}:
+                    return
+                application_skill_id = str(
+                    arguments.get("skill_id") or ""
+                ).strip()
+                if not application_skill_id:
+                    return
+                await asyncio.to_thread(
+                    record_skill_application,
+                    skill_id=application_skill_id,
+                    run_id=workflow_run.run_id,
+                    task_id=task_id,
+                    node_id=node.id,
+                    runtime_kind=runtime_run_type,
+                    version_id=(
+                        skill_version_bindings.get(application_skill_id) or None
+                    ),
+                    policy=skill_application_policy,
+                    required_resource_paths=skill_application_required_paths,
+                    tool_name=tool_name,
+                    error_code=error_code,
+                )
 
             async def apply_skill_runtime_result(
                 tool_name: str,
@@ -10006,6 +10327,109 @@ async def _run_workflow_response(
                             runtime_metadata["skill_version_bindings"] = dict(
                                 sorted(skill_version_bindings.items())
                             )
+                    activated_version_id = skill_version_bindings.get(
+                        activated_skill_id
+                    )
+                    if activated_version_id:
+                        await asyncio.to_thread(
+                            record_skill_application,
+                            skill_id=activated_skill_id,
+                            run_id=workflow_run.run_id,
+                            task_id=task_id,
+                            node_id=node.id,
+                            runtime_kind=runtime_run_type,
+                            version_id=activated_version_id,
+                            policy=skill_application_policy,
+                            required_resource_paths=skill_application_required_paths,
+                        )
+                application_method = str(
+                    metadata.get("application_method") or ""
+                ).strip()
+                if not application_method and tool_name in {
+                    "skill_read",
+                    "skill_stage",
+                }:
+                    application_method = tool_name
+                if application_method in {"skill_read", "skill_stage"}:
+                    application_skill_id = str(
+                        metadata.get("skill_id")
+                        or arguments.get("skill_id")
+                        or ""
+                    ).strip()
+                    application_paths = metadata.get(
+                        "application_resource_paths"
+                    )
+                    application_digests = metadata.get(
+                        "application_resource_digests"
+                    )
+                    expected_application_digests = metadata.get(
+                        "application_expected_resource_digests"
+                    )
+                    if application_skill_id:
+                        application_failed = bool(result.is_error)
+                        await asyncio.to_thread(
+                            record_skill_application,
+                            skill_id=application_skill_id,
+                            run_id=workflow_run.run_id,
+                            task_id=task_id,
+                            node_id=node.id,
+                            runtime_kind=runtime_run_type,
+                            version_id=(
+                                str(
+                                    metadata.get("application_version_id")
+                                    or metadata.get("skill_version_id")
+                                    or skill_version_bindings.get(
+                                        application_skill_id
+                                    )
+                                    or ""
+                                ).strip()
+                                or None
+                            ),
+                            source_kind=(
+                                str(
+                                    metadata.get("application_source_kind")
+                                    or ""
+                                ).strip()
+                                or None
+                            ),
+                            content_digest=(
+                                str(
+                                    metadata.get("application_content_digest")
+                                    or ""
+                                ).strip()
+                                or None
+                            ),
+                            policy=skill_application_policy,
+                            required_resource_paths=skill_application_required_paths,
+                            method=(None if application_failed else application_method),
+                            resource_paths=(
+                                application_paths
+                                if not application_failed
+                                and isinstance(application_paths, list)
+                                else ()
+                            ),
+                            resource_digests=(
+                                dict(application_digests)
+                                if not application_failed
+                                and isinstance(application_digests, dict)
+                                else None
+                            ),
+                            expected_resource_digests=(
+                                dict(expected_application_digests)
+                                if not application_failed
+                                and isinstance(expected_application_digests, dict)
+                                else None
+                            ),
+                            tool_name=tool_name,
+                            error_code=(
+                                str(
+                                    metadata.get("error_code")
+                                    or "skill_application_tool_failed"
+                                )
+                                if application_failed
+                                else None
+                            ),
+                        )
                 trust_authorization = metadata.get("trust_authorization")
                 if isinstance(trust_authorization, dict):
                     authorized_skill_id = str(
@@ -10075,6 +10499,34 @@ async def _run_workflow_response(
                         "run_id": run_id,
                     }
                 )
+
+            async def call_workflow_runtime_tool_observed(
+                *,
+                tool_name: str,
+                arguments: dict[str, Any],
+                metadata: dict[str, Any],
+            ) -> RuntimeToolResult:
+                try:
+                    return await call_workflow_runtime_tool(
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        node=node,
+                        title=title,
+                        metadata=metadata,
+                        pipeline=pipeline,
+                        middleware_context=middleware_context,
+                        middleware_specs=middleware_specs,
+                    )
+                except RuntimeToolError as exc:
+                    await record_skill_runtime_failure(
+                        tool_name,
+                        arguments,
+                        error_code=str(
+                            getattr(exc, "code", "skill_application_tool_failed")
+                            or "skill_application_tool_failed"
+                        ),
+                    )
+                    raise
 
             async def remember_tool_result(
                 tool: Any,
@@ -10227,15 +10679,10 @@ async def _run_workflow_response(
                 if isinstance(client_payload, dict):
                     resume_metadata["resolved_client_tool"] = client_payload
                 try:
-                    call_result = await call_workflow_runtime_tool(
+                    call_result = await call_workflow_runtime_tool_observed(
                         tool_name=pending_tool_name,
                         arguments=pending_arguments,
-                        node=node,
-                        title=title,
                         metadata=resume_metadata,
-                        pipeline=pipeline,
-                        middleware_context=middleware_context,
-                        middleware_specs=middleware_specs,
                     )
                 except RuntimeInterrupt as interrupt:
                     pending_state["resolved_approval"] = (
@@ -10529,19 +10976,14 @@ async def _run_workflow_response(
                         batch_tool_name, batch_arguments, batch_tool = batch_item
                         started_at = time.perf_counter()
                         try:
-                            batch_result = await call_workflow_runtime_tool(
+                            batch_result = await call_workflow_runtime_tool_observed(
                                 tool_name=batch_tool_name,
                                 arguments=batch_arguments,
-                                node=node,
-                                title=title,
                                 metadata=tool_call_metadata(
                                     iteration=iteration_index + 1,
                                     batch_id=batch_id,
                                     batch_index=batch_index,
                                 ),
-                                pipeline=pipeline,
-                                middleware_context=middleware_context,
-                                middleware_specs=middleware_specs,
                             )
                             await append_skill_runtime_event(
                                 batch_tool_name,
@@ -10716,17 +11158,12 @@ async def _run_workflow_response(
                 else:
                     ensure_tool_call_budget(1)
                     try:
-                        call_result = await call_workflow_runtime_tool(
+                        call_result = await call_workflow_runtime_tool_observed(
                             tool_name=tool_name,
                             arguments=arguments,
-                            node=node,
-                            title=title,
                             metadata=tool_call_metadata(
                                 iteration=iteration_index + 1
                             ),
-                            pipeline=pipeline,
-                            middleware_context=middleware_context,
-                            middleware_specs=middleware_specs,
                         )
                     except RuntimeInterrupt as interrupt:
                         interrupt.continuation["agent_state"] = {
@@ -11068,17 +11505,33 @@ async def _run_workflow_response(
                     )
                     output = workflow_value_to_text(variables[variable_name])
 
-                elif kind in {"scheduled_start", "http_event_entry"}:
+                elif kind in {
+                    "scheduled_start",
+                    "http_event_entry",
+                    "failure_event_entry",
+                }:
                     variable_name = str(node.data.get("eventVariable") or "trigger_event")
                     event_value: dict[str, Any] = dict(
                         task_state.get("runtime_trigger_event") or {}
                     )
                     if not event_value:
-                        event_value = {
-                            "type": "manual_test_event",
-                            "test": True,
-                            "started_at": time.time(),
-                        }
+                        if kind == "failure_event_entry":
+                            event_value = {
+                                "type": "workflow_failure_test",
+                                "test_mode": True,
+                                "source_project_id": "wf_test_source",
+                                "source_version": 1,
+                                "source_execution_id": "wfx_test_execution",
+                                "source_trigger_kind": "manual",
+                                "failed_at": time.time(),
+                                "error_summary": "测试失败事件，不包含真实运行数据。",
+                            }
+                        else:
+                            event_value = {
+                                "type": "manual_test_event",
+                                "test": True,
+                                "started_at": time.time(),
+                            }
                     variables[variable_name] = normalize_workflow_value(
                         event_value,
                         path=f"$.variables.{variable_name}",
@@ -13542,22 +13995,7 @@ async def _run_workflow_response(
                         actual_model_successful_responses = 0
                         actual_model_missing_count = 0
                         evaluation_token_usage: dict[str, int] = {}
-                        agent_temperature = (
-                            (
-                                SKILL_CREATOR_RESOURCE_PLANNER_TEMPERATURE
-                                if run_context.get("creator_phase") == "resource_plan"
-                                else SKILL_CREATOR_RESOURCE_BUILDER_TEMPERATURE
-                            )
-                            if (
-                                is_trusted_skill_creator_runtime(run_context)
-                                and run_context.get("creator_phase")
-                                in {"resource_plan", "resource_build"}
-                            )
-                            else skill_evaluation_model_temperature(
-                                run_context,
-                                default=0.7,
-                            )
-                        )
+                        agent_temperature = workflow_agent_temperature(run_context)
 
                         def observe_actual_model(reported_model_id: str) -> None:
                             nonlocal actual_model_missing_count
@@ -16301,6 +16739,11 @@ async def _run_workflow_response(
             )
         except Exception as exc:
             logger.exception("Workflow run failed workflow=%s", payload.workflow.id)
+            failed_node_id = str(locals().get("node_id") or "").strip() or None
+            failed_node = nodes_by_id.get(failed_node_id) if failed_node_id else None
+            failed_node_title = (
+                workflow_node_title(failed_node) if failed_node is not None else None
+            )
             try:
                 await run_registry.update_run(
                     workflow_run.run_id,
@@ -16317,12 +16760,23 @@ async def _run_workflow_response(
                         "event": "error",
                         "task_id": task_id,
                         "run_id": workflow_run.run_id,
+                        "node_id": failed_node_id,
+                        "node_title": failed_node_title,
                         "message": str(exc),
                     },
                 )
             except Exception:
                 logger.warning("Failed to persist workflow failure", exc_info=True)
-            yield sse_payload({"event": "error", "message": str(exc)})
+            yield sse_payload(
+                {
+                    "event": "error",
+                    "task_id": task_id,
+                    "run_id": workflow_run.run_id,
+                    "node_id": failed_node_id,
+                    "node_title": failed_node_title,
+                    "message": str(exc),
+                }
+            )
         finally:
             durable_execution = workflow_execution_store.get(task_id)
             if durable_execution is None or durable_execution.status != "waiting":
@@ -16401,6 +16855,23 @@ async def cancel_workflow_task(task_id: str, request: Request):
     )
 
 
+class WorkflowStreamFailure(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        task_id: str | None = None,
+        run_id: str | None = None,
+        failed_node_id: str | None = None,
+        failed_node_title: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.task_id = task_id
+        self.run_id = run_id
+        self.failed_node_id = failed_node_id
+        self.failed_node_title = failed_node_title
+
+
 async def consume_workflow_stream(response: Any) -> dict[str, Any]:
     if isinstance(response, JSONResponse):
         try:
@@ -16415,6 +16886,10 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
     final_event: dict[str, Any] | None = None
     pending_wait_event: dict[str, Any] | None = None
     error_message = ""
+    error_task_id: str | None = None
+    error_run_id: str | None = None
+    failed_node_id: str | None = None
+    failed_node_title: str | None = None
     buffer = ""
     async for chunk in response.body_iterator:
         if isinstance(chunk, bytes):
@@ -16432,6 +16907,12 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                     continue
                 if event.get("event") == "error":
                     error_message = str(event.get("message") or "Xpert run failed.")
+                    error_task_id = str(event.get("task_id") or "").strip() or None
+                    error_run_id = str(event.get("run_id") or "").strip() or None
+                    failed_node_id = str(event.get("node_id") or "").strip() or None
+                    failed_node_title = (
+                        str(event.get("node_title") or "").strip() or None
+                    )
                 elif event.get("event") == "workflow_end":
                     final_event = event
                 elif event.get("event") == "runtime_approval_pending":
@@ -16441,7 +16922,13 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                 elif event.get("event") == "timer_waiting":
                     pending_wait_event = event
     if error_message:
-        raise RuntimeError(error_message)
+        raise WorkflowStreamFailure(
+            error_message,
+            task_id=error_task_id,
+            run_id=error_run_id,
+            failed_node_id=failed_node_id,
+            failed_node_title=failed_node_title,
+        )
     if pending_wait_event is not None:
         return pending_wait_event
     if final_event is None:
@@ -16474,6 +16961,9 @@ async def run_deployed_workflow_trigger(
         "workflow_version": execution.version,
         "workflow_trigger_kind": execution.trigger_kind,
         "workflow_trigger_summary": dict(execution.trigger_summary),
+        "suppress_failure_dispatch": bool(
+            execution.trigger_summary.get("suppress_failure_dispatch", False)
+        ),
     }
     response = await _run_workflow_response(
         payload,
@@ -16484,7 +16974,21 @@ async def run_deployed_workflow_trigger(
         runtime_execution_source_kind="workflow_deployment",
         runtime_trigger_event=event,
     )
-    final_event = await consume_workflow_stream(response)
+    try:
+        final_event = await consume_workflow_stream(response)
+    except WorkflowStreamFailure as exc:
+        if exc.failed_node_id and not exc.failed_node_title:
+            failed_node = next(
+                (
+                    node
+                    for node in payload.workflow.nodes
+                    if node.id == exc.failed_node_id
+                ),
+                None,
+            )
+            if failed_node is not None:
+                exc.failed_node_title = workflow_node_title(failed_node)
+        raise
     if final_event.get("event") in {
         "runtime_approval_pending",
         "client_tool_waiting",
@@ -16545,21 +17049,52 @@ async def resume_runtime_timer_execution(task_id: str) -> dict[str, Any]:
         workflow=workflow,
         inputs=dict(claimed.inputs),
     )
-    response = await _run_workflow_response(
-        payload,
-        None,
-        runtime_run_type=claimed.run_type,
-        runtime_source_id=str(
-            claimed.runtime_metadata.get("workflow_project_id") or workflow.id
-        ),
-        runtime_metadata=dict(claimed.runtime_metadata),
-        resume_execution=claimed,
-        runtime_execution_source_kind=claimed.source_kind,
-    )
-    final_event = await consume_workflow_stream(response)
     deployment_execution_id = str(
         claimed.runtime_metadata.get("workflow_deployment_execution_id") or ""
     )
+    try:
+        response = await _run_workflow_response(
+            payload,
+            None,
+            runtime_run_type=claimed.run_type,
+            runtime_source_id=str(
+                claimed.runtime_metadata.get("workflow_project_id") or workflow.id
+            ),
+            runtime_metadata=dict(claimed.runtime_metadata),
+            resume_execution=claimed,
+            runtime_execution_source_kind=claimed.source_kind,
+        )
+        final_event = await consume_workflow_stream(response)
+    except Exception as exc:
+        workflow_execution_store.fail(task_id, error=str(exc))
+        failed_node_id = str(getattr(exc, "failed_node_id", "") or "") or None
+        failed_node_title = (
+            str(getattr(exc, "failed_node_title", "") or "") or None
+        )
+        if failed_node_id and not failed_node_title:
+            failed_node = next(
+                (node for node in payload.workflow.nodes if node.id == failed_node_id),
+                None,
+            )
+            if failed_node is not None:
+                failed_node_title = workflow_node_title(failed_node)
+        if deployment_execution_id:
+            workflow_deployment_store.fail_execution(
+                deployment_execution_id,
+                error=str(exc),
+                task_id=str(getattr(exc, "task_id", "") or task_id),
+                run_id=str(getattr(exc, "run_id", "") or claimed.run_id),
+                dispatch_failures=workflow_failure_triggers_enabled(),
+                failed_node_id=failed_node_id,
+                failed_node_title=failed_node_title,
+            )
+        return {
+            "event": "error",
+            "status": "failed",
+            "task_id": task_id,
+            "run_id": claimed.run_id,
+            "message": "Workflow timer resume failed.",
+        }
     if deployment_execution_id:
         pending_event = str(final_event.get("event") or "")
         if pending_event in {
@@ -16714,6 +17249,48 @@ skill_creator_resource_builder = WorkflowCreatorResourceBuilder(
     runner=run_skill_creator_resource_build,
 )
 skill_creator_resource_build_service.builder = skill_creator_resource_builder
+
+
+async def run_skill_creator_evaluation_suite_generation(
+    invocation: EvaluationSuiteWorkflowInvocation,
+) -> str:
+    payload = WorkflowRunRequest.model_validate(
+        {"workflow": invocation.workflow, "inputs": invocation.inputs}
+    )
+    session_id = str(
+        invocation.runtime_metadata.get("creator_session_id") or ""
+    ).strip()
+    response = await _run_workflow_response(
+        payload,
+        None,
+        runtime_run_type="workflow",
+        runtime_source_id=session_id,
+        runtime_metadata=dict(invocation.runtime_metadata),
+    )
+    final_event = await consume_workflow_stream(response)
+    if final_event.get("event") in {
+        "runtime_approval_pending",
+        "client_tool_waiting",
+    }:
+        raise RuntimeError(
+            "The dedicated Skill Creator evaluation designer cannot pause for tools."
+        )
+    output = str(final_event.get("final_output") or "").strip()
+    if not output:
+        raise RuntimeError(
+            "The Skill Creator evaluation designer returned no suite."
+        )
+    return output
+
+
+skill_creator_evaluation_suite_generator = WorkflowCreatorEvaluationSuiteGenerator(
+    model_id=TEXT_FALLBACK_MODEL,
+    model_available=lambda: bool(get_llm_gateway_config()[0]),
+    runner=run_skill_creator_evaluation_suite_generation,
+)
+skill_creator_evaluation_suite_service.generator = (
+    skill_creator_evaluation_suite_generator
+)
 
 
 async def execute_external_xpert_resource(
@@ -18981,6 +19558,37 @@ async def run_skill_evaluation_item(
             )
         child = completed[0]
         actual_model = require_skill_evaluation_actual_model(child.metadata)
+        application_receipt = None
+        if item.target == "candidate" and run.evaluation_suite_id is not None:
+            expected_policy = (
+                "require_stage" if case.required_resource_paths else "require_read"
+            )
+            candidates = await asyncio.to_thread(
+                skill_application_receipt_store.list_receipts,
+                run_id=runtime_run_id,
+                skill_id="evaluation-skill",
+            )
+            verified = [
+                receipt
+                for receipt in candidates
+                if receipt.compliance_status == "verified"
+                and receipt.source_kind == "evaluation_overlay"
+                and receipt.version_id == getattr(overlay, "overlay_id", None)
+                and receipt.content_digest == getattr(overlay, "content_digest", None)
+                and receipt.policy == expected_policy
+                and tuple(receipt.required_resource_paths)
+                == tuple(case.required_resource_paths)
+            ]
+            if len(verified) != 1:
+                raise SkillEvaluationValidationError(
+                    "Skill evaluation could not prove one verified application receipt.",
+                    code="skill_application_receipt_missing",
+                )
+            application_receipt = await asyncio.to_thread(
+                skill_application_receipt_store.protect,
+                verified[0].receipt_id,
+                reference_id=f"evaluation-item:{item.item_id}",
+            )
         raw_usage = child.metadata.get("token_usage")
         raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
         usage = {
@@ -18996,6 +19604,17 @@ async def run_skill_evaluation_item(
             work_manifest=manifest,
             usage=usage,
             runtime_run_id=runtime_run_id or None,
+            application_receipt_id=(
+                application_receipt.receipt_id if application_receipt else None
+            ),
+            application_receipt_revision=(
+                application_receipt.revision if application_receipt else None
+            ),
+            application_compliance=(
+                application_receipt.compliance_status
+                if application_receipt
+                else None
+            ),
         )
     finally:
         # Do not let model-visible traces retain case inputs, tool outputs, or
@@ -19069,6 +19688,44 @@ async def iterate_skill_creator_from_evaluation(
     )
 
 
+def verify_skill_evaluation_application_receipts(run: Any) -> None:
+    if run.evaluation_suite_id is None:
+        return
+    cases = {case.case_id: case for case in run.cases}
+    for item in run.items:
+        if item.target != "candidate":
+            continue
+        try:
+            receipt = skill_application_receipt_store.require_verified(
+                item.application_receipt_id or ""
+            )
+        except SkillApplicationReceiptError as exc:
+            raise SkillEvaluationValidationError(
+                "A verified Skill application receipt is unavailable.",
+                code=exc.code,
+            ) from exc
+        case = cases[item.case_id]
+        expected_policy = (
+            "require_stage" if case.required_resource_paths else "require_read"
+        )
+        if (
+            receipt.revision != item.application_receipt_revision
+            or receipt.run_id != item.runtime_run_id
+            or receipt.skill_id != "evaluation-skill"
+            or receipt.source_kind != "evaluation_overlay"
+            or receipt.version_id != item.overlay_id
+            or receipt.content_digest != run.frozen_digest
+            or receipt.policy != expected_policy
+            or tuple(receipt.required_resource_paths)
+            != tuple(case.required_resource_paths)
+            or f"evaluation-item:{item.item_id}" not in receipt.references
+        ):
+            raise SkillEvaluationValidationError(
+                "A Skill application receipt no longer matches the frozen evaluation item.",
+                code="skill_application_receipt_mismatch",
+            )
+
+
 skill_creator_evaluation_service = SkillCreatorEvaluationService(
     skill_creator_session_store,
     get_skill_draft_store(),
@@ -19077,6 +19734,8 @@ skill_creator_evaluation_service = SkillCreatorEvaluationService(
     preflight=preflight_skill_evaluation,
     actor_id=authoring_service.local_console_actor_id,
     iteration=iterate_skill_creator_from_evaluation,
+    suite_service=skill_creator_evaluation_suite_service,
+    application_receipt_verifier=verify_skill_evaluation_application_receipts,
 )
 configure_skill_creator_evaluation(skill_creator_evaluation_service)
 
@@ -20433,6 +21092,9 @@ async def get_openrouter_batch(batch_id: str):
 
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request):
+    runtime_task_id = uuid.uuid4().hex
+    chat_skill_application: dict[str, str] | None = None
+    chat_skill_application_recorded = False
     omniroute_settings = get_omniroute_settings()
     native_router_engine = get_native_router_engine()
     native_router_policy = get_model_router_service().get_policy()
@@ -20474,6 +21136,7 @@ async def chat(payload: ChatRequest, request: Request):
         or (
             payload.gateway == "default"
             and omniroute_settings.default_router == "omniroute"
+            and is_omniroute_auto_model(payload.model_id)
         )
     )
     if use_native_router:
@@ -20626,6 +21289,17 @@ async def chat(payload: ChatRequest, request: Request):
             trust_gateway_catalog=use_omniroute or use_native_router,
         )
         validate_content(payload.messages)
+        if payload.skill_application is not None:
+            if direct_audio_requested or direct_video_requested:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Direct audio or video analysis cannot apply a Skill prompt.",
+                )
+            chat_skill_application = await asyncio.to_thread(
+                resolve_chat_skill_application,
+                payload.skill_application,
+                payload.messages,
+            )
         if direct_file_requested:
             selections = tuple(
                 ChatFileSelection(
@@ -20687,12 +21361,39 @@ async def chat(payload: ChatRequest, request: Request):
             status_code=exc.status_code,
             content={"error": exc.message, "code": exc.error_code},
         )
+    except SkillApplicationReceiptError as exc:
+        return JSONResponse(
+            status_code=409,
+            content={"error": str(exc), "code": exc.code},
+        )
     except Exception:
         logger.exception("Chat request validation failed")
         return JSONResponse(
             status_code=500,
             content={"error": "后端校验请求时出错，请查看服务日志。"},
         )
+
+    async def record_chat_skill_application_once() -> None:
+        nonlocal chat_skill_application_recorded
+        if chat_skill_application is None or chat_skill_application_recorded:
+            return
+        receipt_id = await asyncio.to_thread(
+            record_skill_application,
+            skill_id=chat_skill_application["skill_id"],
+            run_id=None,
+            task_id=runtime_task_id,
+            node_id="chat",
+            runtime_kind="chat",
+            version_id=chat_skill_application["version_id"],
+            source_kind=chat_skill_application["source_kind"],
+            content_digest=chat_skill_application["content_digest"],
+            trust_fingerprint=(
+                chat_skill_application["trust_fingerprint"] or None
+            ),
+            policy="advisory",
+            method="prompt_injected",
+        )
+        chat_skill_application_recorded = receipt_id is not None
 
     if payload.output_mode == "allowlisted":
         try:
@@ -20723,6 +21424,7 @@ async def chat(payload: ChatRequest, request: Request):
                 output_context_id=payload.output_context_id or "",
                 provider_tag=provider_tag,
             )
+            await record_chat_skill_application_once()
         except ChatOutputError as exc:
             return JSONResponse(
                 status_code=exc.status_code,
@@ -21282,7 +21984,6 @@ async def chat(payload: ChatRequest, request: Request):
 
     runtime_pipeline = None
     runtime_context = None
-    runtime_task_id = uuid.uuid4().hex
     if not native_audio_requested and not direct_file_requested:
         try:
             runtime_pipeline, runtime_context = create_default_runtime()
@@ -21615,6 +22316,7 @@ async def chat(payload: ChatRequest, request: Request):
                 yield chat_sse_error(str(exc))
             finally:
                 if runtime_status == "completed":
+                    await record_chat_skill_application_once()
                     try:
                         await run_registry.update_run(
                             chat_run.run_id,
@@ -21661,6 +22363,23 @@ async def chat(payload: ChatRequest, request: Request):
         request_headers = llm_gateway_headers(gateway_key)
         if use_omniroute and gateway_url == url:
             request_headers.update(omniroute_routing_headers(payload.routing))
+        managed_native_url = bool(
+            use_native_router
+            and native_plan is not None
+            and any(
+                target.chat_completions_url == gateway_url
+                for target in native_plan.targets
+            )
+        )
+        if managed_native_url:
+            return await native_router_engine.service.egress_policy.request(
+                client,
+                "POST",
+                gateway_url,
+                headers=request_headers,
+                json=request_payload,
+                stream=True,
+            )
         return await client.send(
             client.build_request(
                 "POST",
@@ -22581,6 +23300,8 @@ async def chat(payload: ChatRequest, request: Request):
         else:
             yield route_receipt_sse(receipt)
             yield b"data: [DONE]\n\n"
+        if runtime_status in {"completed", "output_limit"}:
+            await record_chat_skill_application_once()
         await close_request_client()
         await finalize_runtime(
             runtime_status,
@@ -23203,6 +23924,8 @@ async def chat(payload: ChatRequest, request: Request):
                 deferred_done or native_audio_succeeded or captured_outputs
             ):
                 yield b"data: [DONE]\n\n"
+            if runtime_status in {"completed", "output_limit"}:
+                await record_chat_skill_application_once()
             await response.aclose()
             await close_request_client()
             await finalize_runtime(

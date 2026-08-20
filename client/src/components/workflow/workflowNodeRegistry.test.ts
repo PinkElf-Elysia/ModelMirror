@@ -29,6 +29,7 @@ describe("workflowNodeRegistry NodeContract V3 guard", () => {
       "vision_understanding",
       "scheduled_start",
       "http_event_entry",
+      "failure_event_entry",
       "suspend_wait",
       "http_event_reply",
     ]));

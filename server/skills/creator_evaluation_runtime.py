@@ -164,10 +164,12 @@ def build_skill_evaluation_workflow_invocation(
     if item.target == "candidate" and overlay is None:
         raise ValueError("Candidate evaluation requires an immutable Skill Overlay.")
     fixture_paths = [f"inputs/{entry['path']}" for entry in case.fixtures]
+    required_resource_paths = list(case.required_resource_paths)
     task_contract = {
         "case_id": case.case_id,
         "prompt": case.prompt,
         "fixture_paths": fixture_paths,
+        "required_skill_resource_paths": required_resource_paths,
         "workspace_contract": {
             "inputs_and_skills_are_read_only": True,
             "write_outputs_under": "work/",
@@ -177,7 +179,8 @@ def build_skill_evaluation_workflow_invocation(
     role_prompt = (
         "You are executing one frozen Skill evaluation case in an offline sandbox. "
         "Always call skill_read with skill_id='evaluation-skill' before solving the "
-        "case. Use skill_stage only when package resources are needed. Read fixtures "
+        "case. Use skill_stage before solving when required_skill_resource_paths is "
+        "non-empty; otherwise stage only when package resources are needed. Read fixtures "
         "only from inputs/. Write generated files only under work/. Do not request "
         "network access, external tools, approval, installation, or additional Skills. "
         "Return only the user-facing result for the case; do not discuss evaluation, "
@@ -315,5 +318,9 @@ def build_skill_evaluation_workflow_invocation(
             "skill_evaluation_overlay_id": overlay.overlay_id if overlay else None,
             "skill_evaluation_workspace_id": workspace_id,
             "skill_evaluation_frozen_digest": run.frozen_digest,
+            "skill_application_policy": (
+                "require_stage" if required_resource_paths else "require_read"
+            ),
+            "skill_application_required_resource_paths": required_resource_paths,
         },
     )

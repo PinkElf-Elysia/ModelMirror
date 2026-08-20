@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { WorkflowNode, WorkflowNodeData } from "../../types/workflow";
@@ -9,7 +9,7 @@ import WorkflowDeploymentNodeConfig, {
   parseCronExpressionForUi,
 } from "./WorkflowDeploymentNodeConfig";
 
-function renderConfig(data: WorkflowNodeData) {
+function renderConfig(data: WorkflowNodeData, currentProjectId?: string) {
   const node = {
     id: "node",
     type: "workflowNode",
@@ -20,6 +20,7 @@ function renderConfig(data: WorkflowNodeData) {
   render(
     <WorkflowDeploymentNodeConfig
       contract={null}
+      currentProjectId={currentProjectId}
       data={data}
       edges={[]}
       node={node}
@@ -88,5 +89,50 @@ describe("WorkflowDeploymentNodeConfig", () => {
     expect(screen.getByLabelText("时长数值")).toHaveValue(1);
     expect(screen.getByLabelText("时长单位")).toHaveValue("minutes");
     expect(waitChange).not.toHaveBeenCalled();
+  });
+
+  it("offers searchable failure sources and excludes the current project", async () => {
+    const sourceId = `wf_${"a".repeat(32)}`;
+    const currentId = `wf_${"b".repeat(32)}`;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [
+          {
+            project_id: sourceId,
+            title: "订单同步",
+            active_version: 3,
+            active_trigger_kind: "schedule",
+            updated_at: 2,
+          },
+          {
+            project_id: currentId,
+            title: "当前处理器",
+            active_version: null,
+            active_trigger_kind: null,
+            updated_at: 1,
+          },
+        ],
+        total: 2,
+        limit: 100,
+        offset: 0,
+      }),
+    }));
+
+    const onChange = renderConfig({
+      kind: "failure_event_entry",
+      title: "失败处置入口",
+      description: "",
+      sourceProjectIds: [sourceId],
+      eventVariable: "failure_event",
+    }, currentId);
+
+    await waitFor(() => expect(screen.getByText("订单同步")).toBeInTheDocument());
+    expect(screen.queryByText("当前处理器")).not.toBeInTheDocument();
+    expect(screen.getByText("已启用 v3")).toBeInTheDocument();
+    expect(screen.getByLabelText("失败事件变量")).toHaveValue("failure_event");
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(onChange).toHaveBeenCalledWith({ sourceProjectIds: [] });
+    vi.unstubAllGlobals();
   });
 });

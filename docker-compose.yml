@@ -502,30 +502,6 @@ services:
       retries: 8
       start_period: 60s
 
-  new-api:
-    image: calciumion/new-api:latest
-    container_name: modelmirror-new-api
-    restart: always
-    ports:
-      - "3000:3000"
-    volumes:
-      - ${MODELMIRROR_DATA_ROOT:-.}/new-api-data:/data
-    environment:
-      TZ: Asia/Shanghai
-    networks:
-      - default
-      - coding_internal
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget -qO- http://localhost:3000/api/status >/dev/null 2>&1 || curl -fsS http://localhost:3000/api/status >/dev/null 2>&1",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
   server:
     build:
       context: ./server
@@ -551,13 +527,10 @@ services:
         condition: service_healthy
       mcp-database-local:
         condition: service_healthy
-      new-api:
-        condition: service_healthy
     env_file:
       - path: ${MODELMIRROR_DATA_ROOT:-.}/server/.env
         required: false
     environment:
-      LLM_GATEWAY_URL: http://new-api:3000/v1/chat/completions
       OMNIROUTE_BASE_URL: http://omniroute:20128
       OMNIROUTE_ENABLED: ${OMNIROUTE_ENABLED:-false}
       OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-}
@@ -565,7 +538,6 @@ services:
       OMNIROUTE_BUDGET_HEADERS_ENABLED: ${OMNIROUTE_BUDGET_HEADERS_ENABLED:-false}
       MODEL_ROUTER_ENGINE: ${MODEL_ROUTER_ENGINE:-}
       MODEL_ROUTER_CANARY_PERCENT: ${MODEL_ROUTER_CANARY_PERCENT:-0}
-      MODEL_ROUTER_TENANT_ID: ${MODEL_ROUTER_TENANT_ID:-local}
       MODEL_ROUTER_ALLOW_NATIVE_OVERRIDE: ${MODEL_ROUTER_ALLOW_NATIVE_OVERRIDE:-false}
       MODEL_ROUTER_STORAGE_DIR: /app/model_router/storage
       FILE_ASSET_STORE_MODE: ${FILE_ASSET_STORE_MODE:-legacy}
@@ -588,6 +560,8 @@ services:
       MODELMIRROR_DEFAULT_OWNER_ID: ${MODELMIRROR_DEFAULT_OWNER_ID:-local}
       MODEL_MIRROR_REQUIRE_EXTERNAL_CREDENTIAL_MASTER_KEY: ${MODEL_MIRROR_REQUIRE_EXTERNAL_CREDENTIAL_MASTER_KEY:-false}
       MODEL_MIRROR_CREDENTIAL_MASTER_KEY: ${MODEL_MIRROR_CREDENTIAL_MASTER_KEY:-}
+      MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET: ${MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET:-}
+      MODEL_MIRROR_PROVIDER_INTERNAL_ALLOWLIST: ${MODEL_MIRROR_PROVIDER_INTERNAL_ALLOWLIST:-}
       RAG_STORAGE_DIR: /app/rag/storage
       RAG_UPLOAD_DIR: /app/rag/uploads
       RERANK_API_URL: ${RERANK_API_URL:-}
@@ -613,6 +587,7 @@ services:
       AGENT_WORKSPACE_ROOT: /data/agent-workspace
       XPERT_STORAGE_DIR: /app/xperts/storage
       AGENT_TASK_STORAGE_DIR: /app/xpert_runtime/storage
+      WORKFLOW_FAILURE_TRIGGERS_ENABLED: ${WORKFLOW_FAILURE_TRIGGERS_ENABLED:-false}
       AGENT_TABLE_STORAGE_DIR: /app/xpert_runtime/storage
       DATAX_STORAGE_DIR: /app/datax/storage
       TOOLSET_STORAGE_DIR: /app/toolsets/storage
@@ -702,6 +677,8 @@ services:
     build:
       context: ./client
     container_name: modelmirror-client
+    environment:
+      NEWAPI_WEB_URL: ${NEWAPI_WEB_URL:-}
     depends_on:
       server:
         condition: service_healthy
@@ -716,14 +693,12 @@ services:
       context: .
       dockerfile: server/coding_worker/Dockerfile
     container_name: modelmirror-coding-runtime
-    depends_on:
-      new-api:
-        condition: service_healthy
     env_file:
       - path: ${MODELMIRROR_DATA_ROOT:-.}/server/.env
         required: false
     networks:
       - coding_internal
+      - coding_provider
     user: "65532:65532"
     read_only: true
     cap_drop:
@@ -742,6 +717,7 @@ services:
       CODING_VERIFIER_SOCKET_PATH: /run/modelmirror-coding/verifier.sock
       CODING_AGENT_MODE: ${CODING_AGENT_MODE:-readonly}
       CODING_AGENT_MODEL: ${CODING_AGENT_MODEL:-}
+      CODING_AGENT_MODEL_BASE_URL: ${CODING_AGENT_MODEL_BASE_URL:-}
       CODING_FILE_OPERATIONS_ENABLED: ${CODING_FILE_OPERATIONS_ENABLED:-true}
     volumes:
       - coding_socket:/run/modelmirror-coding
@@ -863,6 +839,9 @@ networks:
   coding_internal:
     driver: bridge
     internal: true
+  coding_provider:
+    external: true
+    name: ${CODING_PROVIDER_NETWORK_NAME:-modelmirror-coding-provider}
   mcp_public_egress:
     driver: bridge
   mcp_database_egress:

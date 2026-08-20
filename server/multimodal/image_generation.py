@@ -9,6 +9,11 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, Field
 
+try:
+    from server.model_router.egress import request_provider_url
+except ModuleNotFoundError:
+    from model_router.egress import request_provider_url
+
 from .image_catalog import ImageCatalogService, ImageModelProfile
 from .stt import MultimodalServiceError, OpenRouterTarget
 
@@ -65,6 +70,7 @@ class ImageGenerationService:
             lambda: httpx.AsyncClient(
                 timeout=httpx.Timeout(180.0, connect=10.0),
                 follow_redirects=False,
+                trust_env=False,
             )
         )
 
@@ -169,7 +175,11 @@ class ImageGenerationService:
     ) -> httpx.Response:
         try:
             async with self.client_factory() as client:
-                response = await client.post(
+                response = await request_provider_url(
+                    client,
+                    self.catalog_service.router_service.egress_policy,
+                    target.connection_id,
+                    "POST",
                     self.catalog_service._api_url(target.base_url, "images"),
                     headers={"Authorization": f"Bearer {target.api_key}"},
                     json=payload,

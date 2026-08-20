@@ -164,6 +164,7 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("scheduled_start", "eventVariable", "declaration", JSON_TYPES),
   field("http_event_entry", "eventVariable", "declaration", JSON_TYPES),
   field("http_event_entry", "bodyVariable", "declaration", ANY_RENDERABLE_TYPES),
+  field("failure_event_entry", "eventVariable", "declaration", JSON_TYPES),
   field("suspend_wait", "untilTemplate", "template", TEMPLATE_TYPES),
   field("suspend_wait", "outputVariable", "declaration", JSON_TYPES),
   field("http_event_reply", "bodyTemplate", "template", TEMPLATE_TYPES),
@@ -332,6 +333,9 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
       valueType: "unknown",
       enabled: (node) => Boolean(String(node.data.bodyVariable ?? "").trim()),
     },
+  ],
+  failure_event_entry: [
+    { field: "eventVariable", fallback: "failure_event", valueType: "json" },
   ],
   suspend_wait: [
     { field: "outputVariable", fallback: "resume_event", valueType: "json" },

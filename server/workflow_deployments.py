@@ -42,11 +42,16 @@ except ModuleNotFoundError:
     )
 
 
-WorkflowTriggerKind = Literal["manual", "schedule", "http"]
+WorkflowTriggerKind = Literal["manual", "schedule", "http", "failure"]
 WorkflowTriggerExecutionStatus = Literal[
     "pending", "running", "waiting", "completed", "failed", "skipped", "cancelled"
 ]
-ENTRY_NODE_KINDS = {"input", "scheduled_start", "http_event_entry"}
+ENTRY_NODE_KINDS = {
+    "input",
+    "scheduled_start",
+    "http_event_entry",
+    "failure_event_entry",
+}
 TERMINAL_EXECUTION_STATUSES = {"completed", "failed", "skipped", "cancelled"}
 _SENSITIVE_KEY = re.compile(
     r"(?:^|[_-])(?:authorization|cookie|credential|password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key)(?:$|[_-])",
@@ -144,6 +149,15 @@ class WorkflowTriggerExecution:
     completed_at: float | None = None
 
 
+@dataclass(slots=True)
+class WorkflowFailureSubscription:
+    source_project_id: str
+    handler_project_id: str
+    handler_version: int
+    handler_deployment_id: str
+    activated_at: float = field(default_factory=time.time)
+
+
 class WorkflowDeploymentStore:
     """Atomic single-instance store for workflow drafts, releases and safe summaries."""
 
@@ -160,6 +174,7 @@ class WorkflowDeploymentStore:
         self._versions: dict[tuple[str, int], WorkflowVersion] = {}
         self._deployments: dict[str, WorkflowDeployment] = {}
         self._executions: dict[str, WorkflowTriggerExecution] = {}
+        self._failure_subscriptions: dict[str, WorkflowFailureSubscription] = {}
         self._load()
 
     def create_project(self, workflow: dict[str, Any]) -> WorkflowProject:
@@ -182,6 +197,48 @@ class WorkflowDeploymentStore:
     def get_project(self, project_id: str) -> WorkflowProject | None:
         with self._lock:
             return self._projects.get(project_id)
+
+    def list_projects(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        active_only: bool = False,
+        trigger_kind: WorkflowTriggerKind | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        clean_limit = max(1, min(int(limit), 100))
+        clean_offset = max(0, int(offset))
+        with self._lock:
+            summaries: list[dict[str, Any]] = []
+            for project in self._projects.values():
+                active = next(
+                    (
+                        item
+                        for item in self._deployments.values()
+                        if item.project_id == project.project_id and item.active
+                    ),
+                    None,
+                )
+                if active_only and active is None:
+                    continue
+                if trigger_kind is not None and (
+                    active is None or active.trigger_kind != trigger_kind
+                ):
+                    continue
+                summaries.append(
+                    {
+                        "project_id": project.project_id,
+                        "title": project.title,
+                        "active_version": active.version if active else None,
+                        "active_trigger_kind": active.trigger_kind if active else None,
+                        "updated_at": project.updated_at,
+                    }
+                )
+        summaries.sort(
+            key=lambda item: (float(item["updated_at"]), str(item["project_id"])),
+            reverse=True,
+        )
+        return summaries[clean_offset : clean_offset + clean_limit], len(summaries)
 
     def require_project(self, project_id: str) -> WorkflowProject:
         item = self.get_project(project_id)
@@ -215,6 +272,11 @@ class WorkflowDeploymentStore:
         with self._lock:
             project = self._require_project_unlocked(project_id)
             trigger_kind, entry_node_id = validate_publishable_workflow(project.draft)
+            if trigger_kind == "failure":
+                self._validate_failure_sources_unlocked(
+                    project_id,
+                    self._failure_source_project_ids(project.draft, entry_node_id),
+                )
             versions = [number for key, number in self._versions if key == project_id]
             next_version = max(versions or [0]) + 1
             snapshot = json.loads(json.dumps(project.draft, ensure_ascii=False))
@@ -251,6 +313,7 @@ class WorkflowDeploymentStore:
         version: int,
         *,
         webhooks_enabled: bool,
+        failure_triggers_enabled: bool = False,
         now: float | None = None,
     ) -> tuple[WorkflowDeployment, str | None]:
         current = time.time() if now is None else float(now)
@@ -263,6 +326,23 @@ class WorkflowDeploymentStore:
                 )
             if release.trigger_kind == "http" and not webhooks_enabled:
                 raise WorkflowDeploymentConflictError("Workflow webhooks are disabled.")
+            if release.trigger_kind == "failure" and not failure_triggers_enabled:
+                raise WorkflowDeploymentConflictError(
+                    "Workflow failure triggers are disabled."
+                )
+            failure_sources: list[str] = []
+            if release.trigger_kind == "failure":
+                failure_sources = self._failure_source_project_ids(
+                    release.workflow,
+                    release.entry_node_id,
+                )
+                self._validate_failure_sources_unlocked(project_id, failure_sources)
+                for source_project_id in failure_sources:
+                    existing = self._failure_subscriptions.get(source_project_id)
+                    if existing is not None and existing.handler_project_id != project_id:
+                        raise WorkflowDeploymentConflictError(
+                            "A selected workflow already has an active failure handler."
+                        )
             for deployment in self._deployments.values():
                 if deployment.project_id == project_id and deployment.active:
                     deployment.active = False
@@ -294,6 +374,18 @@ class WorkflowDeploymentStore:
             )
             project.active_version = version
             project.updated_at = current
+            self._remove_failure_subscriptions_for_handler_unlocked(project_id)
+            if release.trigger_kind == "failure":
+                for source_project_id in failure_sources:
+                    self._failure_subscriptions[source_project_id] = (
+                        WorkflowFailureSubscription(
+                            source_project_id=source_project_id,
+                            handler_project_id=project_id,
+                            handler_version=version,
+                            handler_deployment_id=deployment.deployment_id,
+                            activated_at=current,
+                        )
+                    )
             self._persist_unlocked()
             return deployment, plaintext_key
 
@@ -305,6 +397,9 @@ class WorkflowDeploymentStore:
             deployment.next_run_at = None
             deployment.deactivated_at = time.time()
             deployment.updated_at = deployment.deactivated_at
+            self._remove_failure_subscriptions_for_deployment_unlocked(
+                deployment.deployment_id
+            )
             if project.active_version == version:
                 project.active_version = None
                 project.updated_at = deployment.updated_at
@@ -511,6 +606,23 @@ class WorkflowDeploymentStore:
             self._persist_unlocked()
             return item
 
+    def renew_execution_lease(
+        self,
+        execution_id: str,
+        *,
+        lease_token: str,
+        lease_seconds: float = 60.0,
+        now: float | None = None,
+    ) -> WorkflowTriggerExecution:
+        current = time.time() if now is None else float(now)
+        with self._lock:
+            item = self._require_execution_unlocked(execution_id)
+            self._require_execution_lease_unlocked(item, lease_token)
+            item.lease_expires_at = current + max(5.0, float(lease_seconds))
+            item.updated_at = current
+            self._persist_unlocked()
+            return item
+
     def mark_execution_waiting(
         self,
         execution_id: str,
@@ -520,9 +632,12 @@ class WorkflowDeploymentStore:
         wait_kind: str,
         wait_id: str,
         resume_at: float | None = None,
+        expected_lease_token: str | None = None,
     ) -> WorkflowTriggerExecution:
         with self._lock:
             item = self._require_execution_unlocked(execution_id)
+            if expected_lease_token is not None:
+                self._require_execution_lease_unlocked(item, expected_lease_token)
             item.status = "waiting"
             item.task_id = str(task_id)
             item.run_id = str(run_id)
@@ -542,9 +657,12 @@ class WorkflowDeploymentStore:
         run_id: str | None = None,
         result: str = "",
         webhook_reply: dict[str, Any] | None = None,
+        expected_lease_token: str | None = None,
     ) -> WorkflowTriggerExecution:
         with self._lock:
             item = self._require_execution_unlocked(execution_id)
+            if expected_lease_token is not None:
+                self._require_execution_lease_unlocked(item, expected_lease_token)
             item.status = "completed"
             item.task_id = str(task_id or item.task_id or "") or None
             item.run_id = str(run_id or item.run_id or "") or None
@@ -560,10 +678,27 @@ class WorkflowDeploymentStore:
             self._persist_unlocked()
             return item
 
-    def fail_execution(self, execution_id: str, *, error: str) -> WorkflowTriggerExecution:
+    def fail_execution(
+        self,
+        execution_id: str,
+        *,
+        error: str,
+        task_id: str | None = None,
+        run_id: str | None = None,
+        dispatch_failures: bool = True,
+        failed_node_id: str | None = None,
+        failed_node_title: str | None = None,
+        expected_lease_token: str | None = None,
+    ) -> WorkflowTriggerExecution:
         with self._lock:
             item = self._require_execution_unlocked(execution_id)
+            if item.status in TERMINAL_EXECUTION_STATUSES:
+                return item
+            if expected_lease_token is not None:
+                self._require_execution_lease_unlocked(item, expected_lease_token)
             item.status = "failed"
+            item.task_id = str(task_id or item.task_id or "") or None
+            item.run_id = str(run_id or item.run_id or "") or None
             item.error_summary = (
                 "Workflow hook execution failed."
                 if item.trigger_kind == "http"
@@ -572,6 +707,12 @@ class WorkflowDeploymentStore:
             item.completed_at = time.time()
             item.updated_at = item.completed_at
             self._clear_lease(item)
+            if dispatch_failures:
+                self._materialize_failure_execution_unlocked(
+                    item,
+                    failed_node_id=failed_node_id,
+                    failed_node_title=failed_node_title,
+                )
             self._persist_unlocked()
             return item
 
@@ -598,6 +739,13 @@ class WorkflowDeploymentStore:
                 None,
             )
 
+    def failure_subscription(
+        self,
+        source_project_id: str,
+    ) -> WorkflowFailureSubscription | None:
+        with self._lock:
+            return self._failure_subscriptions.get(source_project_id)
+
     @staticmethod
     def serialize_project(item: WorkflowProject) -> dict[str, Any]:
         return asdict(item)
@@ -622,6 +770,12 @@ class WorkflowDeploymentStore:
         payload.pop("lease_owner", None)
         payload.pop("lease_token", None)
         payload.pop("lease_expires_at", None)
+        source_execution_id = item.trigger_summary.get("source_execution_id")
+        payload["parent_execution_id"] = None
+        payload["root_execution_id"] = source_execution_id or item.execution_id
+        payload["source_execution_id"] = source_execution_id
+        payload["call_node_id"] = None
+        payload["test_mode"] = bool(item.trigger_summary.get("test_mode", False))
         return payload
 
     def _normalize_workflow(self, workflow: dict[str, Any]) -> dict[str, Any]:
@@ -732,19 +886,178 @@ class WorkflowDeploymentStore:
         return item
 
     @staticmethod
+    def _failure_source_project_ids(
+        workflow: dict[str, Any],
+        entry_node_id: str,
+    ) -> list[str]:
+        entry = next(
+            (
+                node
+                for node in workflow.get("nodes", [])
+                if str(node.get("id") or "") == entry_node_id
+            ),
+            None,
+        )
+        if not isinstance(entry, dict):
+            raise WorkflowDeploymentValidationError(
+                "Failure entry node was not found in the published workflow."
+            )
+        values = entry.get("data", {}).get("sourceProjectIds")
+        if not isinstance(values, list):
+            raise WorkflowDeploymentValidationError(
+                "Failure entry needs source workflow projects."
+            )
+        return [str(value) for value in values]
+
+    def _validate_failure_sources_unlocked(
+        self,
+        handler_project_id: str,
+        source_project_ids: list[str],
+    ) -> None:
+        if not 1 <= len(source_project_ids) <= 50:
+            raise WorkflowDeploymentValidationError(
+                "Failure entry needs 1 to 50 source workflow projects."
+            )
+        if len(source_project_ids) != len(set(source_project_ids)):
+            raise WorkflowDeploymentValidationError(
+                "Failure entry source workflow projects must be unique."
+            )
+        if handler_project_id in source_project_ids:
+            raise WorkflowDeploymentConflictError(
+                "A failure handler cannot subscribe to itself."
+            )
+        missing = [
+            project_id
+            for project_id in source_project_ids
+            if project_id not in self._projects
+        ]
+        if missing:
+            raise WorkflowDeploymentConflictError(
+                "A selected failure source workflow does not exist."
+            )
+
+    def _remove_failure_subscriptions_for_handler_unlocked(
+        self,
+        handler_project_id: str,
+    ) -> None:
+        for source_project_id in [
+            source_id
+            for source_id, subscription in self._failure_subscriptions.items()
+            if subscription.handler_project_id == handler_project_id
+        ]:
+            self._failure_subscriptions.pop(source_project_id, None)
+
+    def _remove_failure_subscriptions_for_deployment_unlocked(
+        self,
+        deployment_id: str,
+    ) -> None:
+        for source_project_id in [
+            source_id
+            for source_id, subscription in self._failure_subscriptions.items()
+            if subscription.handler_deployment_id == deployment_id
+        ]:
+            self._failure_subscriptions.pop(source_project_id, None)
+
+    def _materialize_failure_execution_unlocked(
+        self,
+        source: WorkflowTriggerExecution,
+        *,
+        failed_node_id: str | None,
+        failed_node_title: str | None,
+    ) -> WorkflowTriggerExecution | None:
+        if (
+            source.trigger_kind == "failure"
+            or bool(source.trigger_summary.get("suppress_failure_dispatch"))
+            or bool(source.trigger_summary.get("test_mode"))
+        ):
+            return None
+        subscription = self._failure_subscriptions.get(source.project_id)
+        if subscription is None:
+            return None
+        deployment = self._deployments.get(subscription.handler_deployment_id)
+        if deployment is None or not deployment.active or deployment.trigger_kind != "failure":
+            return None
+        occurrence_key = (
+            f"failure:{source.execution_id}:{subscription.handler_deployment_id}"
+        )
+        existing = next(
+            (
+                item
+                for item in self._executions.values()
+                if item.occurrence_key == occurrence_key
+            ),
+            None,
+        )
+        if existing is not None:
+            return existing
+        failed_at = float(source.completed_at or time.time())
+        summary: dict[str, Any] = {
+            "source_project_id": source.project_id,
+            "source_version": source.version,
+            "source_deployment_id": source.deployment_id,
+            "source_execution_id": source.execution_id,
+            "source_task_id": source.task_id,
+            "source_run_id": source.run_id,
+            "source_trigger_kind": source.trigger_kind,
+            "failed_at": failed_at,
+            "error_summary": source.error_summary,
+            "occurrence_key": occurrence_key,
+            "suppress_failure_dispatch": True,
+            "test_mode": False,
+        }
+        if failed_node_id:
+            summary["failed_node_id"] = _safe_error_summary(
+                str(failed_node_id)
+            )[:128]
+        if failed_node_title:
+            summary["failed_node_title"] = _safe_error_summary(
+                str(failed_node_title)
+            )[:120]
+        item = WorkflowTriggerExecution(
+            execution_id=f"wfx_{uuid.uuid4().hex}",
+            project_id=subscription.handler_project_id,
+            version=subscription.handler_version,
+            deployment_id=subscription.handler_deployment_id,
+            trigger_kind="failure",
+            occurrence_key=occurrence_key,
+            scheduled_at=failed_at,
+            trigger_summary=summary,
+            created_at=failed_at,
+            updated_at=failed_at,
+        )
+        self._executions[item.execution_id] = item
+        return item
+
+    @staticmethod
     def _clear_lease(item: WorkflowTriggerExecution) -> None:
         item.lease_owner = None
         item.lease_token = None
         item.lease_expires_at = 0.0
 
+    @staticmethod
+    def _require_execution_lease_unlocked(
+        item: WorkflowTriggerExecution,
+        lease_token: str,
+    ) -> None:
+        if item.status != "running" or not secrets.compare_digest(
+            str(item.lease_token or ""),
+            str(lease_token or ""),
+        ):
+            raise WorkflowDeploymentConflictError(
+                "Trigger execution lease is no longer owned by this worker."
+            )
+
     def _persist_unlocked(self) -> None:
         self.snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "version": "workflow-deployments-v1",
+            "version": "workflow-deployments-v2",
             "projects": [asdict(item) for item in self._projects.values()],
             "versions": [asdict(item) for item in self._versions.values()],
             "deployments": [asdict(item) for item in self._deployments.values()],
             "executions": [asdict(item) for item in self._executions.values()],
+            "failure_subscriptions": [
+                asdict(item) for item in self._failure_subscriptions.values()
+            ],
         }
         temporary = self.snapshot_path.with_suffix(".tmp")
         temporary.write_text(
@@ -778,10 +1091,42 @@ class WorkflowDeploymentStore:
                         item.status = "pending"
                     self._clear_lease(item)
                 self._executions[item.execution_id] = item
+            seen_failure_sources: set[str] = set()
+            for raw in payload.get("failure_subscriptions", []):
+                item = WorkflowFailureSubscription(**raw)
+                if item.source_project_id in seen_failure_sources:
+                    raise ValueError("Duplicate workflow failure subscription source.")
+                seen_failure_sources.add(item.source_project_id)
+                self._failure_subscriptions[item.source_project_id] = item
+            self._validate_loaded_failure_subscriptions_unlocked()
         except Exception as exc:
             raise WorkflowDeploymentValidationError(
                 "Workflow deployment snapshot is invalid; refusing to start with empty state."
             ) from exc
+
+    def _validate_loaded_failure_subscriptions_unlocked(self) -> None:
+        for source_project_id, subscription in self._failure_subscriptions.items():
+            if source_project_id == subscription.handler_project_id:
+                raise ValueError("A workflow cannot subscribe to its own failures.")
+            if source_project_id not in self._projects:
+                raise ValueError("Workflow failure subscription source is missing.")
+            handler = self._projects.get(subscription.handler_project_id)
+            release = self._versions.get(
+                (subscription.handler_project_id, subscription.handler_version)
+            )
+            deployment = self._deployments.get(subscription.handler_deployment_id)
+            if (
+                handler is None
+                or handler.active_version != subscription.handler_version
+                or release is None
+                or release.trigger_kind != "failure"
+                or deployment is None
+                or not deployment.active
+                or deployment.project_id != subscription.handler_project_id
+                or deployment.version != subscription.handler_version
+                or deployment.trigger_kind != "failure"
+            ):
+                raise ValueError("Workflow failure subscription handler is invalid.")
 
 
 def validate_publishable_workflow(workflow: dict[str, Any]) -> tuple[WorkflowTriggerKind, str]:
@@ -813,6 +1158,7 @@ def validate_publishable_workflow(workflow: dict[str, Any]) -> tuple[WorkflowTri
     trigger_kind: WorkflowTriggerKind = (
         "schedule" if entry_kind == "scheduled_start"
         else "http" if entry_kind == "http_event_entry"
+        else "failure" if entry_kind == "failure_event_entry"
         else "manual"
     )
     if entry.id in {edge.target for edge in definition.edges}:
@@ -934,15 +1280,48 @@ def _safe_result_summary(value: str) -> str:
 
 
 def _safe_error_summary(value: str) -> str:
-    text = str(value or "Workflow trigger execution failed.")
+    raw = str(value or "Workflow trigger execution failed.")
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    text = lines[-1] if lines else "Workflow trigger execution failed."
     text = re.sub(
-        r"(?i)\b(authorization|cookie|password|secret|api[_-]?key|access[_-]?token)"
-        r"\s*[:=]\s*[^\s,;]+",
-        r"\1=[redacted]",
+        r"(?i)\b(?:Bearer|Basic|Token|ApiKey)\s+\S+",
+        "[redacted]",
         text,
     )
     text = re.sub(
-        r"(?i)\b(?:Bearer\s+\S+|sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,})",
+        r"(?i)\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|AKIA[A-Z0-9]{16})\b",
+        "[redacted]",
+        text,
+    )
+    text = re.sub(
+        r"(?i)(https?://)[^/\s:@]+:[^@\s/]+@",
+        r"\1[redacted]@",
+        text,
+    )
+    text = re.sub(
+        r"(?i)(?<![A-Za-z0-9])"
+        r"([\"']?(?:proxy[-_]?authorization|authorization|set[-_]?cookie|cookie)"
+        r"[\"']?\s*[:=]\s*).*$",
+        r"\1[redacted]",
+        text,
+    )
+    text = re.sub(
+        r"(?i)(?<![A-Za-z0-9])"
+        r"([\"']?(?:credential|password|passwd|client[-_]?secret|secret|"
+        r"webhook[-_]?key|api[-_]?key|access[-_]?token|refresh[-_]?token|"
+        r"private[-_]?key|token)[\"']?\s*[:=]\s*)"
+        r"(?:\"[^\"]*\"|'[^']*'|[^\s,;&}\]]+)",
+        r"\1[redacted]",
+        text,
+    )
+    text = re.sub(
+        r"(?i)\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b",
+        "[redacted]",
+        text,
+    )
+    text = re.sub(r"(?i)\b[0-9a-f]{64}\b", "[redacted]", text)
+    text = re.sub(
+        r"(?i)-----BEGIN\s+(?:RSA\s+|EC\s+|OPENSSH\s+)?PRIVATE\s+KEY-----.*$",
         "[redacted]",
         text,
     )

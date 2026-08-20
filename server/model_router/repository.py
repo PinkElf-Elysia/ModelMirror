@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -28,6 +30,14 @@ from .schemas import (
 
 SCHEMA_VERSION = 11
 DEFAULT_TENANT_ID = "local"
+CANONICAL_MASTER_KEY_ENV = "MODEL_MIRROR_CREDENTIAL_MASTER_KEY"
+LEGACY_MASTER_KEY_ENV = "MODEL_ROUTER_CREDENTIAL_MASTER_KEY"
+REQUIRE_EXTERNAL_MASTER_KEY_ENV = (
+    "MODEL_MIRROR_REQUIRE_EXTERNAL_CREDENTIAL_MASTER_KEY"
+)
+MASTER_KEY_FINGERPRINT_METADATA_KEY = "credential_master_key_fingerprint"
+MASTER_KEY_VERSION_METADATA_KEY = "credential_master_key_version"
+logger = logging.getLogger("modelmirror.model_router")
 
 
 class RouterRepositoryError(Exception):
@@ -87,8 +97,10 @@ class SQLiteRouterRepository:
         self.master_key_path = self.storage_dir / "credential-master.key"
         self._lock = threading.RLock()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self._fernet = Fernet(self._resolve_master_key(master_key))
+        self._master_key = self._resolve_master_key(master_key)
+        self._fernet = Fernet(self._master_key)
         self._initialize()
+        self._verify_or_record_master_key()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=15)
@@ -99,6 +111,11 @@ class SQLiteRouterRepository:
 
     def _initialize(self) -> None:
         schema = """
+        CREATE TABLE IF NOT EXISTS router_metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS router_connections (
             id TEXT NOT NULL,
             tenant_id TEXT NOT NULL,
@@ -2011,11 +2028,24 @@ class SQLiteRouterRepository:
     def _resolve_master_key(self, supplied: str | bytes | None) -> bytes:
         if supplied:
             return self._normalize_key(supplied)
-        environment_key = os.getenv(
-            "MODEL_ROUTER_CREDENTIAL_MASTER_KEY", ""
-        ).strip()
-        if environment_key:
-            return self._normalize_key(environment_key)
+        canonical_key = os.getenv(CANONICAL_MASTER_KEY_ENV, "").strip()
+        if canonical_key:
+            return self._normalize_key(canonical_key)
+        require_external = os.getenv(
+            REQUIRE_EXTERNAL_MASTER_KEY_ENV, "false"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        if require_external:
+            raise RouterCredentialUnavailable(
+                f"{CANONICAL_MASTER_KEY_ENV} is required for provider management."
+            )
+        legacy_key = os.getenv(LEGACY_MASTER_KEY_ENV, "").strip()
+        if legacy_key:
+            logger.warning(
+                "%s is deprecated; configure %s and run the credential migration command.",
+                LEGACY_MASTER_KEY_ENV,
+                CANONICAL_MASTER_KEY_ENV,
+            )
+            return self._normalize_key(legacy_key)
         if self.master_key_path.exists():
             return self._normalize_key(self.master_key_path.read_bytes().strip())
         key = Fernet.generate_key()
@@ -2027,6 +2057,52 @@ class SQLiteRouterRepository:
         except OSError:
             pass
         return key
+
+    def _verify_or_record_master_key(self) -> None:
+        fingerprint = self._key_fingerprint(self._master_key)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM router_metadata WHERE key = ?",
+                (MASTER_KEY_FINGERPRINT_METADATA_KEY,),
+            ).fetchone()
+            if row is not None:
+                if not hmac.compare_digest(str(row["value"]), fingerprint):
+                    raise RouterCredentialUnavailable(
+                        "The configured credential master key does not match the router database. "
+                        "Run the explicit credential migration command or restore the previous key."
+                    )
+                return
+            encrypted_rows = connection.execute(
+                "SELECT api_key_ciphertext FROM router_connections"
+            ).fetchall()
+            try:
+                for encrypted in encrypted_rows:
+                    self._fernet.decrypt(
+                        str(encrypted["api_key_ciphertext"]).encode("ascii")
+                    )
+            except (InvalidToken, ValueError) as exc:
+                raise RouterCredentialUnavailable(
+                    "Existing provider credentials cannot be read with the configured master key. "
+                    "Run the explicit credential migration command."
+                ) from exc
+            now = utc_now()
+            connection.executemany(
+                """
+                INSERT INTO router_metadata (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    (MASTER_KEY_FINGERPRINT_METADATA_KEY, fingerprint, now),
+                    (MASTER_KEY_VERSION_METADATA_KEY, "1", now),
+                ),
+            )
+
+    @staticmethod
+    def _key_fingerprint(key: bytes) -> str:
+        return hashlib.sha256(key).hexdigest()
 
     @staticmethod
     def _normalize_key(value: str | bytes) -> bytes:

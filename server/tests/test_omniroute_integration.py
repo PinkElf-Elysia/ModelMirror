@@ -481,6 +481,170 @@ async def test_omniroute_chat_forwards_headers_and_emits_one_receipt(
 
 
 @pytest.mark.asyncio
+async def test_explicit_model_bypasses_default_omniroute_sidecar(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent_requests: list[dict[str, Any]] = []
+
+    class FakeResponse:
+        status_code = 200
+        headers: dict[str, str] = {}
+        content = b""
+
+        async def aiter_text(self):
+            yield 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
+            yield "data: [DONE]\n\n"
+
+        async def aread(self):
+            return self.content
+
+        async def aclose(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def build_request(self, method, url, headers, json):
+            request = {
+                "method": method,
+                "url": url,
+                "headers": headers,
+                "json": json,
+            }
+            sent_requests.append(request)
+            return request
+
+        async def send(self, request, stream):
+            assert stream is True
+            return FakeResponse()
+
+        async def aclose(self):
+            return None
+
+    settings = enabled_settings()
+    settings = OmniRouteSettings(
+        **{
+            **settings.__dict__,
+            "default_router": "omniroute",
+        }
+    )
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module, "get_omniroute_settings", lambda: settings)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://new-api:3000/v1/chat/completions", "gateway-key"),
+    )
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", FakeClient)
+
+    response = await client.post(
+        "/api/chat",
+        json={
+            "model_id": "xiaomi/mimo-v2.5-pro",
+            "gateway": "default",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert sent_requests[0]["url"] == "http://new-api:3000/v1/chat/completions"
+    assert sent_requests[0]["json"]["model"] == "xiaomi/mimo-v2.5-pro"
+    assert "X-OmniRoute-Mode" not in sent_requests[0]["headers"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_model_missing_from_newapi_falls_back_to_openrouter(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent_requests: list[dict[str, Any]] = []
+
+    class FakeResponse:
+        def __init__(self, status_code: int, content: bytes = b"") -> None:
+            self.status_code = status_code
+            self.content = content
+            self.headers: dict[str, str] = {}
+
+        async def aiter_text(self):
+            yield 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
+            yield "data: [DONE]\n\n"
+
+        async def aread(self):
+            return self.content
+
+        async def aclose(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def build_request(self, method, url, headers, json):
+            request = {
+                "method": method,
+                "url": url,
+                "headers": headers,
+                "json": json,
+            }
+            sent_requests.append(request)
+            return request
+
+        async def send(self, request, stream):
+            assert stream is True
+            if request["url"] == "http://new-api:3000/v1/chat/completions":
+                return FakeResponse(
+                    503,
+                    b'{"error":{"code":"model_not_found","message":"No available channel for model ~z-ai/glm-latest under group default","type":"new_api_error"}}',
+                )
+            return FakeResponse(200)
+
+        async def aclose(self):
+            return None
+
+    settings = enabled_settings()
+    settings = OmniRouteSettings(
+        **{
+            **settings.__dict__,
+            "default_router": "omniroute",
+        }
+    )
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module, "get_omniroute_settings", lambda: settings)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://new-api:3000/v1/chat/completions", "gateway-key"),
+    )
+    monkeypatch.setattr(main_module, "OPENROUTER_API_KEY", "openrouter-key")
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", FakeClient)
+
+    response = await client.post(
+        "/api/chat",
+        json={
+            "model_id": "~z-ai/glm-latest",
+            "gateway": "default",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    request_urls = [request["url"] for request in sent_requests]
+    assert request_urls[0] == "http://new-api:3000/v1/chat/completions"
+    assert main_module.CHAT_COMPLETIONS_URL in request_urls
+    assert request_urls.index(main_module.CHAT_COMPLETIONS_URL) > request_urls.index(
+        "http://new-api:3000/v1/chat/completions"
+    )
+    assert all(
+        request["json"]["model"] == "~z-ai/glm-latest"
+        for request in sent_requests
+    )
+    assert "已自动切换到 OpenRouter" in response.text
+    assert "ok" in response.text
+
+
+@pytest.mark.asyncio
 async def test_omniroute_empty_success_stream_becomes_explicit_error(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

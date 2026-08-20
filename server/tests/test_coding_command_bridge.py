@@ -292,7 +292,12 @@ async def test_runner_mcp_exposes_only_structured_command_tool(monkeypatch) -> N
     assert json.loads(called["result"]["content"][0]["text"])["state"] == "rejected"
 
 
-def test_opencode_config_enables_only_internal_mcp_in_draft_mode() -> None:
+def test_opencode_config_enables_only_internal_mcp_in_draft_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "CODING_AGENT_MODEL_BASE_URL", "https://coding-provider.example/v1"
+    )
     config = build_opencode_config(
         "provider/model",
         "draft",

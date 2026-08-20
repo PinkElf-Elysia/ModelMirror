@@ -66,9 +66,9 @@ const PROVIDERS: Record<
   },
   newapi: {
     label: "newAPI",
-    name: "本地 newAPI",
-    baseUrl: "http://localhost:3000/v1",
-    hint: "适合已经在模镜中配置好的本地模型渠道。",
+    name: "独立 newAPI",
+    baseUrl: "",
+    hint: "请输入独立数据面的显式地址；内网地址还需由服务端精确加入 host:port 白名单。",
     scopes: ["chat"],
   },
   openai_compatible: {
@@ -125,6 +125,8 @@ function healthClass(health: ConnectionHealth) {
 }
 
 async function readError(response: Response) {
+  if (response.status === 401) return "管理会话已失效，请重新配对。";
+  if (response.status === 503) return "Provider 管理面尚未配置或暂时不可用。";
   try {
     const payload = await response.json();
     const detail = payload?.detail;
@@ -136,7 +138,11 @@ async function readError(response: Response) {
   return "操作未完成，请检查服务状态后重试。";
 }
 
-export default function ModelServiceConnections() {
+export default function ModelServiceConnections({
+  csrfToken,
+}: {
+  csrfToken: string;
+}) {
   const [connections, setConnections] = useState<RouterConnection[]>([]);
   const [form, setForm] = useState<ConnectionForm>(INITIAL_FORM);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
@@ -211,7 +217,10 @@ export default function ModelServiceConnections() {
     try {
       const response = await fetch("/api/router/connections/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-ModelMirror-CSRF": csrfToken,
+        },
         body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error(await readError(response));
@@ -221,7 +230,7 @@ export default function ModelServiceConnections() {
     } finally {
       setTesting(false);
     }
-  }, [canTest, payload]);
+  }, [canTest, csrfToken, payload]);
 
   const saveConnection = useCallback(async () => {
     if (!testResult?.ok) return;
@@ -230,14 +239,17 @@ export default function ModelServiceConnections() {
     try {
       const response = await fetch("/api/router/connections", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-ModelMirror-CSRF": csrfToken,
+        },
         body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error(await readError(response));
       const created = (await response.json()) as RouterConnection;
       const tested = await fetch(
         `/api/router/connections/${encodeURIComponent(created.id)}/test`,
-        { method: "POST" },
+        { method: "POST", headers: { "X-ModelMirror-CSRF": csrfToken } },
       );
       if (!tested.ok) throw new Error(await readError(tested));
       setForm(INITIAL_FORM);
@@ -248,7 +260,7 @@ export default function ModelServiceConnections() {
     } finally {
       setSaving(false);
     }
-  }, [loadConnections, payload, testResult]);
+  }, [csrfToken, loadConnections, payload, testResult]);
 
   const testSavedConnection = useCallback(
     async (connectionId: string) => {
@@ -257,7 +269,7 @@ export default function ModelServiceConnections() {
       try {
         const response = await fetch(
           `/api/router/connections/${encodeURIComponent(connectionId)}/test`,
-          { method: "POST" },
+          { method: "POST", headers: { "X-ModelMirror-CSRF": csrfToken } },
         );
         if (!response.ok) throw new Error(await readError(response));
         await loadConnections();
@@ -268,7 +280,7 @@ export default function ModelServiceConnections() {
         setBusyId(null);
       }
     },
-    [loadConnections],
+    [csrfToken, loadConnections],
   );
 
   const toggleConnection = useCallback(
@@ -280,7 +292,10 @@ export default function ModelServiceConnections() {
           `/api/router/connections/${encodeURIComponent(connection.id)}`,
           {
             method: "PATCH",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "X-ModelMirror-CSRF": csrfToken,
+            },
             body: JSON.stringify({ enabled: !connection.enabled }),
           },
         );
@@ -292,7 +307,7 @@ export default function ModelServiceConnections() {
         setBusyId(null);
       }
     },
-    [loadConnections],
+    [csrfToken, loadConnections],
   );
 
   return (

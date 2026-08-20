@@ -174,7 +174,12 @@ async def test_file_tools_reject_binary_and_symlink_sources(tmp_path: Path) -> N
     assert target.read_text(encoding="utf-8") == "target\n"
 
 
-def test_opencode_config_exposes_file_tools_only_in_draft_mode() -> None:
+def test_opencode_config_exposes_file_tools_only_in_draft_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "CODING_AGENT_MODEL_BASE_URL", "https://coding-provider.example/v1"
+    )
     config = build_opencode_config(
         "provider/model",
         "draft",

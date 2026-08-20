@@ -70,9 +70,7 @@ class OpenAICompatibleGateway:
             url = self._gateway_url.strip()
             key = (self._gateway_key or "").strip()
         else:
-            local_url = os.getenv(
-                "LLM_GATEWAY_URL", "http://localhost:3000/v1/chat/completions"
-            ).strip()
+            local_url = os.getenv("LLM_GATEWAY_URL", "").strip()
             local_key = os.getenv("LLM_GATEWAY_KEY", "").strip()
             openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
             if local_url and local_key:

@@ -577,10 +577,18 @@ class SandboxToolsetProvider:
                         "skill_id": "evaluation-skill",
                         "skill_evaluation_read": True,
                         "overlay_available": False,
+                        "application_method": "skill_read",
+                        "application_source_kind": "evaluation_baseline_empty",
+                        "application_resource_paths": [],
+                        "application_resource_digests": {},
+                        "application_expected_resource_digests": {},
                     },
                 )
             package = dict(getattr(overlay, "package", {}) or {})
             content = str(package.get("skill_markdown") or "")
+            skill_markdown_digest = hashlib.sha256(
+                content.encode("utf-8")
+            ).hexdigest()
             return RuntimeToolResult(
                 output=content[:50_000],
                 metadata={
@@ -590,6 +598,21 @@ class SandboxToolsetProvider:
                     "overlay_available": True,
                     "overlay_id": getattr(overlay, "overlay_id", None),
                     "content_digest": getattr(overlay, "content_digest", None),
+                    "application_method": "skill_read",
+                    "application_source_kind": "evaluation_overlay",
+                    "application_version_id": getattr(
+                        overlay, "overlay_id", None
+                    ),
+                    "application_content_digest": getattr(
+                        overlay, "content_digest", None
+                    ),
+                    "application_resource_paths": ["SKILL.md"],
+                    "application_resource_digests": {
+                        "SKILL.md": skill_markdown_digest
+                    },
+                    "application_expected_resource_digests": {
+                        "SKILL.md": skill_markdown_digest
+                    },
                     "truncated": len(content) > 50_000,
                 },
             )
@@ -600,7 +623,35 @@ class SandboxToolsetProvider:
             if version_id
             else self.skill_manager.get_skill_content(skill_id)
         )
-        return RuntimeToolResult(output=content[:50_000], metadata={"content_types": ["text"], "skill_id": skill_id, "skill_version_id": version_id, "truncated": len(content) > 50_000})
+        try:
+            package_root = (
+                self.skill_manager.get_skill_directory(
+                    skill_id, version_id=version_id
+                )
+                if version_id
+                else self.skill_manager.get_skill_directory(skill_id)
+            )
+            skill_markdown_bytes = (package_root / "SKILL.md").read_bytes()
+        except Exception:
+            skill_markdown_bytes = content.encode("utf-8")
+        return RuntimeToolResult(
+            output=content[:50_000],
+            metadata={
+                "content_types": ["text"],
+                "skill_id": skill_id,
+                "skill_version_id": version_id,
+                "application_method": "skill_read",
+                "application_version_id": version_id,
+                "application_resource_paths": ["SKILL.md"],
+                "application_resource_digests": {
+                    "SKILL.md": hashlib.sha256(skill_markdown_bytes).hexdigest()
+                },
+                "application_expected_resource_digests": {
+                    "SKILL.md": hashlib.sha256(skill_markdown_bytes).hexdigest()
+                },
+                "truncated": len(content) > 50_000,
+            },
+        )
 
     def _skill_find(
         self, call: RuntimeToolCall, *, recall: bool = False
@@ -862,9 +913,26 @@ class SandboxToolsetProvider:
                         "skill_id": "evaluation-skill",
                         "file_count": 0,
                         "workspace_id": workspace.workspace_id,
+                        "application_method": "skill_stage",
+                        "application_source_kind": "evaluation_baseline_empty",
+                        "application_resource_paths": [],
+                        "application_resource_digests": {},
+                        "application_expected_resource_digests": {},
                     },
                 )
             package = dict(getattr(overlay, "package", {}) or {})
+            package_resources = {
+                "SKILL.md": str(package.get("skill_markdown") or ""),
+                **{
+                    str(path): str(content)
+                    for path, content in dict(package.get("files") or {}).items()
+                },
+            }
+            application_resource_paths = sorted(package_resources)
+            application_resource_digests = {
+                path: hashlib.sha256(content.encode("utf-8")).hexdigest()
+                for path, content in sorted(package_resources.items())
+            }
             files = [
                 "skills/evaluation-skill/SKILL.md",
                 *[
@@ -887,6 +955,19 @@ class SandboxToolsetProvider:
                     "skill_id": "evaluation-skill",
                     "file_count": len(files),
                     "workspace_id": workspace.workspace_id,
+                    "application_method": "skill_stage",
+                    "application_source_kind": "evaluation_overlay",
+                    "application_version_id": getattr(
+                        overlay, "overlay_id", None
+                    ),
+                    "application_content_digest": getattr(
+                        overlay, "content_digest", None
+                    ),
+                    "application_resource_paths": application_resource_paths,
+                    "application_resource_digests": application_resource_digests,
+                    "application_expected_resource_digests": (
+                        application_resource_digests
+                    ),
                 },
             )
         self._require_enabled_skill(call, skill_id)
@@ -959,6 +1040,8 @@ class SandboxToolsetProvider:
                 code="skill_runtime_incompatible",
             )
         files: list[str] = []
+        application_resource_paths: list[str] = []
+        application_resource_digests: dict[str, str] = {}
         for _source, relative, content in package_files:
             destination = f"skills/{skill_id}/{relative.as_posix()}"
             await self.client.request(
@@ -972,9 +1055,27 @@ class SandboxToolsetProvider:
                 }
             )
             files.append(destination)
+            relative_path = relative.as_posix()
+            application_resource_paths.append(relative_path)
+            application_resource_digests[relative_path] = hashlib.sha256(
+                content
+            ).hexdigest()
         return RuntimeToolResult(
             output=json.dumps({"skill_id": skill_id, "workspace_id": workspace.workspace_id, "files": files}, ensure_ascii=False),
-            metadata={"content_types": ["text"], "skill_id": skill_id, "file_count": len(files), "workspace_id": workspace.workspace_id},
+            metadata={
+                "content_types": ["text"],
+                "skill_id": skill_id,
+                "skill_version_id": version_id,
+                "file_count": len(files),
+                "workspace_id": workspace.workspace_id,
+                "application_method": "skill_stage",
+                "application_version_id": version_id,
+                "application_resource_paths": application_resource_paths,
+                "application_resource_digests": application_resource_digests,
+                "application_expected_resource_digests": (
+                    application_resource_digests
+                ),
+            },
         )
 
     async def _stage_context_attachments(self, workspace: SandboxWorkspace, call: RuntimeToolCall) -> None:

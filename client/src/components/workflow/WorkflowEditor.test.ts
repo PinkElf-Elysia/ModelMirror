@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createNodeData } from "./WorkflowEditor";
+import {
+  createNodeData,
+  normalizeWorkflowNodePositions,
+} from "./WorkflowEditor";
 import {
   knowledgePipelineItems,
   workflowPaletteSections,
@@ -45,5 +48,38 @@ describe("WorkflowEditor palette defaults", () => {
       statusCode: 200,
       responseBodyType: "json",
     });
+    expect(createNodeData("failure_event_entry")).toMatchObject({
+      sourceProjectIds: [],
+      eventVariable: "failure_event",
+    });
+  });
+
+  it("repairs missing or non-finite positions from server and legacy drafts", () => {
+    const nodes = [
+      {
+        id: "missing-position",
+        type: "workflowNode",
+        position: undefined,
+        data: createNodeData("failure_event_entry"),
+      },
+      {
+        id: "invalid-position",
+        type: "workflowNode",
+        position: { x: Number.NaN, y: 10 },
+        data: createNodeData("output"),
+      },
+      {
+        id: "valid-position",
+        type: "workflowNode",
+        position: { x: 90, y: 120 },
+        data: createNodeData("output"),
+      },
+    ] as Parameters<typeof normalizeWorkflowNodePositions>[0];
+
+    const normalized = normalizeWorkflowNodePositions(nodes);
+    expect(normalized[0].position).toEqual({ x: 0, y: 80 });
+    expect(normalized[0].type).toBe("workflowNode");
+    expect(normalized[1].position).toEqual({ x: 320, y: 80 });
+    expect(normalized[2]).toBe(nodes[2]);
   });
 });

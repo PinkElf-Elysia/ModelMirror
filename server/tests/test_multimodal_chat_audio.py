@@ -18,6 +18,7 @@ from server.model_router import (
     configure_model_router,
     get_model_router_service,
 )
+from server.model_router.egress import ProviderEgressPolicy
 from server.multimodal.api import (
     configure_audio_catalog_service,
     configure_chat_attachment_store,
@@ -102,7 +103,12 @@ def configure_audio_test_services(
         error_code=None,
         error_hint=None,
     )
-    service = ModelRouterService(repository)
+    service = ModelRouterService(
+        repository,
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
+    )
     catalog_service = AudioCatalogService(
         service,
         client_factory=lambda: RealAsyncClient(
@@ -160,6 +166,7 @@ def fake_chat_client(
             url: str,
             headers: dict[str, str],
             json: dict[str, Any],
+            **_kwargs: object,
         ) -> dict[str, Any]:
             return {
                 "method": method,

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, MockTransport, Request, Response
 
 from server.model_router.repository import SQLiteRouterRepository
+from server.model_router.egress import ProviderEgressPolicy
 from server.model_router.schemas import RouterConnectionCreate
 from server.model_router.service import ModelRouterService
 from server.multimodal.api import (
@@ -43,7 +44,12 @@ def openrouter_service(tmp_path: Path) -> ModelRouterService:
         error_code=None,
         error_hint=None,
     )
-    return ModelRouterService(repository)
+    return ModelRouterService(
+        repository,
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
+    )
 
 
 def audio_catalog_payload() -> dict[str, object]:
@@ -499,7 +505,7 @@ async def test_audio_catalog_marks_enabled_direct_openai_realtime_ready(
 
     def handler(request: Request) -> Response:
         requests.append(request)
-        if request.url.host == "api.openai.com":
+        if request.headers.get("host") == "api.openai.com":
             if not openai_available[0]:
                 return Response(503, text="private direct provider error")
             return Response(
@@ -515,7 +521,12 @@ async def test_audio_catalog_marks_enabled_direct_openai_realtime_ready(
         return Response(200, json=audio_catalog_payload())
 
     service = AudioCatalogService(
-        ModelRouterService(repository),
+        ModelRouterService(
+            repository,
+            egress_policy=ProviderEgressPolicy(
+                resolver=lambda _host, _port: ["8.8.8.8"]
+            ),
+        ),
         client_factory=lambda: httpx.AsyncClient(
             transport=MockTransport(handler)
         ),

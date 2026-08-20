@@ -20,8 +20,10 @@ import httpx
 from pydantic import BaseModel, Field
 
 try:
+    from server.model_router.egress import ProviderEgressPolicy, stream_provider_url
     from server.model_router.service import ModelRouterService
 except ModuleNotFoundError:
+    from model_router.egress import ProviderEgressPolicy, stream_provider_url
     from model_router.service import ModelRouterService
 
 from .audio_catalog import AudioCatalogService, AudioChatProfile
@@ -159,8 +161,10 @@ class OpenRouterAudioJobAdapter:
         self,
         *,
         client_factory: Callable[[], httpx.AsyncClient] | None = None,
+        egress_policy: ProviderEgressPolicy | None = None,
     ) -> None:
         self._client_factory = client_factory or self._default_client
+        self._egress_policy = egress_policy
 
     async def generate(
         self,
@@ -195,7 +199,10 @@ class OpenRouterAudioJobAdapter:
 
         async with self._client_factory() as client:
             try:
-                async with client.stream(
+                async with stream_provider_url(
+                    client,
+                    self._egress_policy or ProviderEgressPolicy(),
+                    target.connection_id if self._egress_policy else None,
                     "POST",
                     self._api_url(target.base_url),
                     headers=self._headers(target.api_key),
@@ -301,6 +308,7 @@ class OpenRouterAudioJobAdapter:
         return httpx.AsyncClient(
             timeout=httpx.Timeout(180.0, connect=15.0),
             follow_redirects=False,
+            trust_env=False,
         )
 
     @staticmethod
@@ -391,7 +399,9 @@ class AudioJobService:
     ) -> None:
         self.router_service = router_service
         self.catalog_service = catalog_service
-        self.adapter = adapter or OpenRouterAudioJobAdapter()
+        self.adapter = adapter or OpenRouterAudioJobAdapter(
+            egress_policy=router_service.egress_policy
+        )
         self.output_dir = Path(
             output_dir
             or Path(tempfile.gettempdir()) / "modelmirror-audio-jobs"

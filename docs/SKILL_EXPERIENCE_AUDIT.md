@@ -141,6 +141,8 @@ node scripts/audit-skill-experience.mjs
 
 评测合同：客观 Skill 必须完成与当前 digest 绑定的恰好 3 个用例；主观创作类 Skill 可运行同一三例，或由本地控制台填写原因并二次确认豁免。新 Skill 的 baseline 不加载 Skill；升级 Skill 的 baseline 固定为会话开始时已安装的 digest；Candidate 使用当前不可变 Overlay。两侧使用同一实际模型与参数，只开放 `skill_read`、`skill_stage` 和固定离线 Sandbox；不开放网络、MCP、浏览器、安装或 HITL。接受或豁免均不会自动安装，当前 digest 仍需单独确认全局安装。
 
+`SKILL_CREATOR_EVOLUTION_V2_ENABLED=true` 时，可显式把旧三例无模型迁移为不可变评测套件，或由固定 Creator Agent 生成“正常、歧义/信息不足、边界/失败”三个核心案例。用户确认的失败案例最多追加 9 条回归案例；模型不得自行写入回归集。V2 run 冻结套件 revision/digest，Candidate 每项必须持有与 Overlay、资源路径和实际 `skill_read`/`skill_stage` 一致的 verified 应用凭据；人工接受和崩溃恢复时都会重新核对权威凭据 Store。该开关在跨版本回归治理完成前默认关闭，旧会话不会被静默迁移。
+
 资源化创作在行为质量门之前增加了“澄清 → 资源计划 → 用户确认 → 逐资源生成与验证 → 最终 `SKILL.md` → 提案确认”的阶段：
 
 - 根据任务重复性与确定性，主动判断是否应生成 `scripts/`，并要求脚本具有清晰入口、失败行为、语法检查和实际测试证据；不为凑目录生成脆弱脚本。

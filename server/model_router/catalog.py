@@ -27,8 +27,9 @@ except ModuleNotFoundError:
 
 from .api import get_model_router_service
 from .model_ids import is_realtime_chat_model_id
+from .repository import RouterRepositoryError
 from .schemas import RouterConnection
-from .service import ModelRouterService
+from .service import ModelRouterService, RouterServiceError
 
 
 CATALOG_TTL_SECONDS = 30.0
@@ -212,15 +213,21 @@ class CatalogCoordinator:
         self.native = native or NativeCatalogService()
 
     async def get_catalog(self) -> ModelCatalogResponse:
-        service = get_model_router_service()
-        policy = service.get_policy()
+        try:
+            service = get_model_router_service()
+            policy = service.get_policy()
+        except (RouterRepositoryError, RouterServiceError):
+            return await self.sidecar.get_catalog()
         if policy.engine in {"native", "native_canary"}:
             return await self.native.get_catalog(service, self.sidecar)
         return await self.sidecar.get_catalog()
 
     async def get_status(self) -> RouterStatusResponse:
-        service = get_model_router_service()
-        policy = service.get_policy()
+        try:
+            service = get_model_router_service()
+            policy = service.get_policy()
+        except (RouterRepositoryError, RouterServiceError):
+            return await self.sidecar.get_status()
         if policy.engine in {"native", "native_canary"}:
             return await self.native.get_status(service, self.sidecar)
         return await self.sidecar.get_status()

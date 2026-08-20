@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -78,6 +79,56 @@ def http_wait_workflow() -> dict:
             {"id": "e1", "source": "entry", "target": "wait"},
             {"id": "e2", "source": "wait", "target": "output"},
         ],
+    }
+
+
+def schedule_workflow() -> dict:
+    return {
+        "id": "draft",
+        "title": "scheduled source",
+        "nodes": [
+            {
+                "id": "entry",
+                "type": "scheduled_start",
+                "data": {
+                    "kind": "scheduled_start",
+                    "scheduleType": "interval",
+                    "intervalSeconds": 30,
+                    "timezone": "UTC",
+                    "eventVariable": "schedule_event",
+                },
+            },
+            {
+                "id": "output",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "schedule_event"},
+            },
+        ],
+        "edges": [{"id": "e1", "source": "entry", "target": "output"}],
+    }
+
+
+def failure_workflow(source_project_id: str) -> dict:
+    return {
+        "id": "draft",
+        "title": "failure handler",
+        "nodes": [
+            {
+                "id": "entry",
+                "type": "failure_event_entry",
+                "data": {
+                    "kind": "failure_event_entry",
+                    "sourceProjectIds": [source_project_id],
+                    "eventVariable": "failure_event",
+                },
+            },
+            {
+                "id": "output",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "failure_event"},
+            },
+        ],
+        "edges": [{"id": "e1", "source": "entry", "target": "output"}],
     }
 
 
@@ -229,6 +280,268 @@ async def test_webhook_disabled_and_body_limit_return_safe_status(
 
 
 @pytest.mark.asyncio
+async def test_failure_activation_list_api_and_safe_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    deployment_store = WorkflowDeploymentStore(tmp_path / "deployments")
+    monkeypatch.setattr(deployment_api, "_store", deployment_store)
+    monkeypatch.setenv("WORKFLOW_FAILURE_TRIGGERS_ENABLED", "false")
+
+    source = deployment_store.create_project(schedule_workflow())
+    source_release = deployment_store.publish(source.project_id)
+    deployment_store.activate(
+        source.project_id,
+        source_release.version,
+        webhooks_enabled=False,
+        now=100,
+    )
+    handler = deployment_store.create_project(failure_workflow(source.project_id))
+    handler_release = deployment_store.publish(handler.project_id)
+
+    transport = httpx.ASGITransport(app=main_module.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        projects = await client.get("/api/workflows?limit=1&offset=0")
+        assert projects.status_code == 200, projects.text
+        assert projects.json()["total"] == 2
+        assert len(projects.json()["items"]) == 1
+        assert set(projects.json()["items"][0]) == {
+            "project_id",
+            "title",
+            "active_version",
+            "active_trigger_kind",
+            "updated_at",
+        }
+
+        active_schedules = await client.get(
+            "/api/workflows?active_only=true&trigger_kind=schedule"
+        )
+        assert active_schedules.status_code == 200
+        assert [item["project_id"] for item in active_schedules.json()["items"]] == [
+            source.project_id
+        ]
+
+        disabled = await client.post(
+            f"/api/workflows/{handler.project_id}/versions/{handler_release.version}/activate"
+        )
+        assert disabled.status_code == 409
+        monkeypatch.setenv("WORKFLOW_FAILURE_TRIGGERS_ENABLED", "true")
+        activated = await client.post(
+            f"/api/workflows/{handler.project_id}/versions/{handler_release.version}/activate"
+        )
+        assert activated.status_code == 200, activated.text
+        assert activated.json()["trigger_kind"] == "failure"
+
+    source_execution = deployment_store.materialize_due_schedules(now=130)[0]
+    deployment_store.fail_execution(
+        source_execution.execution_id,
+        error="Authorization: bearer-secret\nRuntimeError: safe failure",
+    )
+    pending = deployment_store.list_executions(handler.project_id)[0]
+    captured_events: list[dict] = []
+
+    async def execute_failure(execution, release, event):
+        captured_events.append(event)
+        return {
+            "status": "completed",
+            "task_id": "task-handler",
+            "run_id": "run-handler",
+            "result": "handled",
+        }
+
+    monkeypatch.setattr(deployment_api, "_trigger_executor", execute_failure)
+    monkeypatch.setenv("WORKFLOW_FAILURE_TRIGGERS_ENABLED", "false")
+    await deployment_api.WorkflowTriggerCoordinator().run_once()
+    await asyncio.sleep(0)
+    assert deployment_store.get_execution(pending.execution_id).status == "pending"
+    assert all(event.get("type") != "workflow_failure" for event in captured_events)
+    captured_events.clear()
+
+    monkeypatch.setenv("WORKFLOW_FAILURE_TRIGGERS_ENABLED", "true")
+    completed = await deployment_api._execute_trigger(
+        pending,
+        {"type": "workflow_failure", **pending.trigger_summary},
+    )
+    assert completed.status == "completed"
+    assert captured_events == [
+        {"type": "workflow_failure", **pending.trigger_summary}
+    ]
+    assert "Authorization" not in json.dumps(captured_events)
+    serialized = deployment_store.serialize_execution(pending)
+    assert serialized["source_execution_id"] == source_execution.execution_id
+    assert serialized["test_mode"] is False
+
+
+@pytest.mark.asyncio
+async def test_trigger_executor_renews_lease_while_running(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    deployment_store = WorkflowDeploymentStore(tmp_path / "deployments")
+    monkeypatch.setattr(deployment_api, "_store", deployment_store)
+    monkeypatch.setattr(deployment_api, "WORKFLOW_TRIGGER_LEASE_SECONDS", 5.0)
+    monkeypatch.setattr(deployment_api, "WORKFLOW_TRIGGER_HEARTBEAT_SECONDS", 0.01)
+    source = deployment_store.create_project(schedule_workflow())
+    release = deployment_store.publish(source.project_id)
+    deployment_store.activate(
+        source.project_id,
+        release.version,
+        webhooks_enabled=False,
+        now=100,
+    )
+    pending = deployment_store.materialize_due_schedules(now=130)[0]
+    renewed = asyncio.Event()
+    original_renew = deployment_store.renew_execution_lease
+
+    def observe_renewal(*args, **kwargs):
+        result = original_renew(*args, **kwargs)
+        renewed.set()
+        return result
+
+    monkeypatch.setattr(deployment_store, "renew_execution_lease", observe_renewal)
+
+    async def execute_after_renewal(execution, published, event):
+        await asyncio.wait_for(renewed.wait(), timeout=1)
+        return {"status": "completed", "result": "renewed"}
+
+    monkeypatch.setattr(deployment_api, "_trigger_executor", execute_after_renewal)
+    completed = await deployment_api._execute_trigger(
+        pending,
+        {"type": "schedule_event"},
+    )
+    assert renewed.is_set()
+    assert completed.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_failure_dispatch_preserves_determinable_failed_node(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    deployment_store = WorkflowDeploymentStore(tmp_path / "deployments")
+    monkeypatch.setattr(deployment_api, "_store", deployment_store)
+    monkeypatch.setenv("WORKFLOW_FAILURE_TRIGGERS_ENABLED", "true")
+    source = deployment_store.create_project(schedule_workflow())
+    source_release = deployment_store.publish(source.project_id)
+    deployment_store.activate(
+        source.project_id,
+        source_release.version,
+        webhooks_enabled=False,
+        now=100,
+    )
+    handler = deployment_store.create_project(failure_workflow(source.project_id))
+    handler_release = deployment_store.publish(handler.project_id)
+    deployment_store.activate(
+        handler.project_id,
+        handler_release.version,
+        webhooks_enabled=False,
+        failure_triggers_enabled=True,
+        now=101,
+    )
+    pending = deployment_store.materialize_due_schedules(now=130)[0]
+
+    async def fail_at_known_node(execution, published, event):
+        raise main_module.WorkflowStreamFailure(
+            "provider rejected the request",
+            task_id="task-source",
+            run_id="run-source",
+            failed_node_id="llm-node",
+            failed_node_title="生成回复",
+        )
+
+    monkeypatch.setattr(deployment_api, "_trigger_executor", fail_at_known_node)
+    failed = await deployment_api._execute_trigger(
+        pending,
+        {"type": "schedule_event"},
+    )
+    assert failed.status == "failed"
+    assert failed.task_id == "task-source"
+    assert failed.run_id == "run-source"
+    dispatched = deployment_store.list_executions(handler.project_id)[0]
+    assert dispatched.trigger_summary["source_task_id"] == "task-source"
+    assert dispatched.trigger_summary["source_run_id"] == "run-source"
+    assert dispatched.trigger_summary["failed_node_id"] == "llm-node"
+    assert dispatched.trigger_summary["failed_node_title"] == "生成回复"
+
+
+@pytest.mark.asyncio
+async def test_workflow_stream_failure_retains_safe_node_identity() -> None:
+    async def error_stream():
+        yield (
+            'data: {"event":"error","task_id":"task-source",'
+            '"run_id":"run-source","node_id":"llm-node",'
+            '"node_title":"生成回复","message":"provider rejected"}\n\n'
+        )
+
+    response = main_module.StreamingResponse(error_stream())
+    with pytest.raises(main_module.WorkflowStreamFailure) as failure:
+        await main_module.consume_workflow_stream(response)
+    assert str(failure.value) == "provider rejected"
+    assert failure.value.task_id == "task-source"
+    assert failure.value.run_id == "run-source"
+    assert failure.value.failed_node_id == "llm-node"
+    assert failure.value.failed_node_title == "生成回复"
+
+
+@pytest.mark.asyncio
+async def test_runtime_exception_reports_current_failed_node(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        main_module,
+        "workflow_execution_store",
+        WorkflowExecutionStore(tmp_path / "executions"),
+    )
+    payload = main_module.WorkflowRunRequest.model_validate(
+        {
+            "workflow": {
+                "id": "known-node-failure",
+                "title": "known node failure",
+                "nodes": [
+                    {
+                        "id": "http-entry",
+                        "type": "http_event_entry",
+                        "data": {
+                            "kind": "http_event_entry",
+                            "title": "接收请求",
+                            "eventVariable": "http_event",
+                        },
+                    },
+                    {
+                        "id": "invalid-reply",
+                        "type": "http_event_reply",
+                        "data": {
+                            "kind": "http_event_reply",
+                            "title": "故意失败的 JSON 回执",
+                            "statusCode": 200,
+                            "responseBodyType": "json",
+                            "bodyTemplate": '{"ok":true',
+                        },
+                    },
+                ],
+                "edges": [
+                    {"id": "e1", "source": "http-entry", "target": "invalid-reply"}
+                ],
+            },
+            "inputs": {},
+        }
+    )
+    response = await main_module._run_workflow_response(
+        payload,
+        None,
+        runtime_execution_source_kind="workflow_deployment",
+        runtime_trigger_event={"type": "http_event", "body": {}},
+    )
+    with pytest.raises(main_module.WorkflowStreamFailure) as failure:
+        await main_module.consume_workflow_stream(response)
+    assert failure.value.task_id
+    assert failure.value.run_id
+    assert failure.value.failed_node_id == "invalid-reply"
+    assert failure.value.failed_node_title == "故意失败的 JSON 回执"
+
+
+@pytest.mark.asyncio
 async def test_http_entry_enforces_configured_content_type_and_body_limit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -344,6 +657,76 @@ async def test_private_http_timer_returns_202_and_completes_after_resume(
     assert completed_trigger.status == "completed"
     assert completed_trigger.wait_kind is None
     assert completed_trigger.result_summary.startswith("completed output_bytes=")
+
+
+@pytest.mark.asyncio
+async def test_failed_timer_resume_dispatches_failure_handler_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    deployment_store = WorkflowDeploymentStore(tmp_path / "deployments")
+    execution_store = WorkflowExecutionStore(tmp_path / "executions")
+    monkeypatch.setattr(deployment_api, "_store", deployment_store)
+    monkeypatch.setattr(
+        deployment_api,
+        "_trigger_executor",
+        main_module.run_deployed_workflow_trigger,
+    )
+    monkeypatch.setattr(main_module, "workflow_deployment_store", deployment_store)
+    monkeypatch.setattr(main_module, "workflow_execution_store", execution_store)
+    monkeypatch.setenv("WORKFLOW_WEBHOOKS_ENABLED", "true")
+    monkeypatch.setenv("WORKFLOW_FAILURE_TRIGGERS_ENABLED", "true")
+    deployment_api._rate_windows.clear()
+    current_time = [100.0]
+    monkeypatch.setattr(main_module.time, "time", lambda: current_time[0])
+
+    source = deployment_store.create_project(http_wait_workflow())
+    source_release = deployment_store.publish(source.project_id)
+    source_deployment, plaintext_key = deployment_store.activate(
+        source.project_id,
+        source_release.version,
+        webhooks_enabled=True,
+        now=current_time[0],
+    )
+    handler = deployment_store.create_project(failure_workflow(source.project_id))
+    handler_release = deployment_store.publish(handler.project_id)
+    deployment_store.activate(
+        handler.project_id,
+        handler_release.version,
+        webhooks_enabled=False,
+        failure_triggers_enabled=True,
+        now=current_time[0],
+    )
+    assert source_deployment.hook_id and plaintext_key
+
+    transport = httpx.ASGITransport(app=main_module.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            f"/api/workflow-hooks/{source_deployment.hook_id}",
+            content=b"{}",
+            headers={
+                "Content-Type": "application/json",
+                "X-ModelMirror-Webhook-Key": plaintext_key,
+                "Idempotency-Key": "timer-failure",
+            },
+        )
+    assert response.status_code == 202
+    source_execution = deployment_store.list_executions(source.project_id)[0]
+    assert source_execution.task_id
+
+    async def fail_on_resume(*args, **kwargs):
+        raise RuntimeError("Traceback private\nRuntimeError: resume failed")
+
+    monkeypatch.setattr(main_module, "_run_workflow_response", fail_on_resume)
+    current_time[0] = 102.0
+    outcome = await main_module.resume_runtime_timer_execution(source_execution.task_id)
+
+    assert outcome["status"] == "failed"
+    assert deployment_store.get_execution(source_execution.execution_id).status == "failed"
+    dispatched = deployment_store.list_executions(handler.project_id)
+    assert len(dispatched) == 1
+    assert dispatched[0].trigger_summary["source_execution_id"] == source_execution.execution_id
+    assert dispatched[0].trigger_summary["suppress_failure_dispatch"] is True
 
 
 def test_hook_rate_limit_is_60_per_minute() -> None:

@@ -1,0 +1,75 @@
+# Model Provider Control Plane
+
+状态：Round 0–1C 建设批准，默认数据面切换未批准
+基线：`origin/main@6cc223505c4dc394f65902d3cb6e61f34ae11ea1`
+决策日期：2026-08-13
+
+## 决策
+
+ModelMirror 建设单租户 Model Provider Control Plane，统一管理动态 Provider
+连接、凭据、策略、诊断和安全出口。首期主体固定为 `tenant_id=local`，但认证、
+Service 与 Repository 接口继续保留租户边界。
+
+newAPI 是独立、未修改的 OpenAI-compatible 数据面，不是 ModelMirror 前端模块。
+ModelMirror 不嵌入、代理、复制或修改 newAPI 管理界面，只允许配置一个外部管理
+链接。newAPI 使用独立 Compose 项目、数据目录和生命周期；核心栈只通过显式
+URL/Key 契约连接。上游采用 AGPLv3 并包含附加条款，实际部署者仍需独立完成
+许可证与使用场景审查。
+
+Coding Runtime 继续使用自己的 Provider URL、Key、网络和审批边界，不读取
+Provider Control Plane 的会话、SQLite 或主密钥。它只加入独立外部
+`coding_provider` 网络，不加入控制面/newAPI 的 `provider` 网络。
+
+## 授权与门禁
+
+- 本决策解除 2026-07-28 对原生路由继续建设的功能冻结，仅批准控制面、安全与
+  兼容建设。
+- `native` 默认仍需至少 500 次真实请求、连续 14 天、无 P0/P1、故障演练和人工
+  验收；数据不能被修改来伪造门槛。
+- Round 0–1C 不改变 `/api/chat`、SSE、公开模型目录或默认路由协议。
+- newAPI 是否成为强制默认数据面由后续独立决策决定。
+- 任一门禁失败时保留现有静态数据面和 SQLite，不自动迁移或删除数据。
+
+## 部署边界
+
+- 核心栈：`docker-compose.yml`，能够在 newAPI 未运行时达到基础健康状态。
+- newAPI 栈：`deploy/newapi/compose.yml`，使用固定镜像 digest 并复用现有
+  `new-api-data`。
+- 互联：`deploy/newapi/modelmirror-overlay.yml`，只让 Server 加入显式共享网络并注入
+  URL；Coding Runtime 不加入该网络。
+- newAPI 栈必须先启动；核心 Compose 不使用跨项目 `depends_on`，也不接管其升级、
+  停止或数据恢复。
+
+## 管理会话与动态出口
+
+- `POST/GET/DELETE /api/router/admin/session` 使用外部注入、至少 32 字符的配对密钥；
+  服务端只保存 32-byte 随机会话令牌的哈希，会话绝对有效期 8 小时并随重启失效。
+- Cookie 限定 `HttpOnly; SameSite=Strict; Path=/api/router`；非 HTTPS 仅允许 loopback，
+  写操作还必须提供内存中的 `X-ModelMirror-CSRF`。
+- 动态 Provider 的公网目标仅允许 HTTPS；内网 HTTP(S) 必须精确加入
+  `MODEL_MIRROR_PROVIDER_INTERNAL_ALLOWLIST=host:port`。
+- 每次请求重新解析全部 A/AAAA 结果；混合公共/私有解析整体拒绝。实际连接固定到已批准
+  IP，同时保留原始 Host 与 TLS SNI，不跟随重定向且不读取代理环境变量。
+- Metadata、link-local、multicast、unspecified 与保留地址永久禁止，白名单不能覆盖。
+
+## 主密钥与显式迁移
+
+密钥优先级固定为：测试构造参数、`MODEL_MIRROR_CREDENTIAL_MASTER_KEY`、弃用的
+`MODEL_ROUTER_CREDENTIAL_MASTER_KEY`、开发模式本地 `credential-master.key`。启用
+`MODEL_MIRROR_REQUIRE_EXTERNAL_CREDENTIAL_MASTER_KEY=true` 后只接受规范变量；缺失时
+锁定动态控制面，不回退旧变量或本地文件。
+
+变更密钥必须显式运行：
+
+```powershell
+python -m server.model_router.migrate_credentials --storage-dir <path>
+```
+
+命令先全量解密预检，再使用 SQLite Backup API 创建时间戳备份，在
+`BEGIN IMMEDIATE` 中重加密并逐条回读验证，最后写入密钥指纹。失败会 Rollback；旧
+数据库备份和本地旧密钥文件不会被删除。回退时恢复备份并重新启用旧密钥来源。
+
+## 回退
+
+关闭管理面或回退路由不得删除 Provider SQLite、newAPI 数据目录、旧主密钥或迁移
+备份。部署回退通过恢复上一版本 Compose 与对应显式环境配置完成。

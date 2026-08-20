@@ -20,19 +20,25 @@ Dify 不是当前启动依赖。`/workflow` 和 `/rag` 均由 ModelMirror 原生
 Copy-Item server/.env.example server/.env
 ```
 
-至少配置一种模型访问方式。推荐先启动 newAPI，在
-`http://localhost:3000` 创建本地渠道和 ModelMirror 专用 Key，然后写入：
-
-```bash
-LLM_GATEWAY_KEY=your-new-api-key
-```
-
-Docker Compose 会把 `LLM_GATEWAY_URL` 指向容器内
-`http://new-api:3000/v1/chat/completions`。也可配置 OpenRouter 回退：
+至少配置一种模型访问方式。最简单的核心栈启动方式是在 `server/.env` 配置
+OpenRouter：
 
 ```bash
 OPENROUTER_API_KEY=your-openrouter-key
 ```
+
+若使用 newAPI，请先在 `http://localhost:3000` 创建本地渠道和 ModelMirror
+专用 Key，再显式启动独立栈和互联 Overlay：
+
+```powershell
+$env:LLM_GATEWAY_URL="http://new-api:3000/v1/chat/completions"
+docker compose -f deploy/newapi/compose.yml -p modelmirror-newapi up -d
+docker compose -f docker-compose.yml -f deploy/newapi/modelmirror-overlay.yml -p modelmirror up -d --build
+```
+
+同时在 `server/.env` 配置 `LLM_GATEWAY_KEY`。核心 Compose 不会启动 newAPI，
+Overlay 也不会替 ModelMirror 推断网关 URL；详细隔离和回滚方式见
+[`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
 STT、TTS 和视频能力依赖 OpenRouter。视频入口默认关闭，完成人工费用验收后
 在 `server/.env` 启用：
@@ -64,8 +70,8 @@ curl http://localhost:8000/api/health
 curl http://localhost:5173/models
 ```
 
-核心服务为 `client`、`server`、`new-api`、`browser` 和 `sandbox`。
-`omniroute` 与 `office-host` 使用可选 profile，不属于默认启动前提。
+核心服务为 `client`、`server`、`browser` 和 `sandbox`。newAPI 使用独立可选
+Compose 栈；`omniroute` 与 `office-host` 使用可选 profile，不属于默认启动前提。
 
 ## 可选：本地热更新
 
@@ -104,7 +110,7 @@ npm.cmd run dev -- --host 0.0.0.0 --port 5173
 | 工作流 | `http://localhost:5173/workflow` | classic React Flow 画布可用。 |
 | RAG | `http://localhost:5173/rag` | 本地知识库与流水线状态可用。 |
 | Data X | `http://localhost:5173/datax` | 项目入口可用。 |
-| 设置 | `http://localhost:5173/settings` | newAPI 控制台与脱敏状态卡可见。 |
+| 设置 | `http://localhost:5173/settings` | Provider 管理面可配对；newAPI 仅显示显式配置的外部管理链接，不嵌入其界面。 |
 
 多模态验收需从模型招聘会选择对应 `operation`，不要把 STT、TTS 或视频生成
 模型当作普通文本模型调用。

@@ -1,6 +1,6 @@
 # 部署与运维指南
 
-最后更新日期：2026-08-01
+最后更新日期：2026-08-13
 维护人：模镜团队
 
 ## 支持边界
@@ -17,7 +17,6 @@ Dify 不是部署依赖。`/workflow` 和 `/rag` 分别由 classic 工作流和�
 | --- | --- | --- |
 | `client` | 是 | 前端静态站点，宿主端口 `5173`。 |
 | `server` | 是 | FastAPI，宿主端口 `8000`。 |
-| `new-api` | 是 | OpenAI-compatible 网关，宿主端口 `3000`。 |
 | `browser` | 是 | 受控浏览器 sidecar，不映射宿主端口。 |
 | `sandbox` | 是 | 无网络沙箱 sidecar。 |
 | `omniroute` | 否 | `omniroute` profile；只绑定 `127.0.0.1:20128`。 |
@@ -63,18 +62,40 @@ MODELMIRROR_DATA_ROOT=C:\absolute\path\to\stable\data\workspace
 
 固定使用 `-p modelmirror` 时，各 worktree 会共享容器名、镜像标签、端口和网络，因此同一时间
 只能由一个 worktree 重建活动栈。其他 worktree 应等待共享栈空闲，或仅运行不会重建活动容器的
-只读/临时测试。切换重建所有权后，应重新检查当前分支的 Server 路由，并确认 `new-api` 已加入
-`modelmirror_coding_internal`；不要把手工连接网络作为长期配置。
+只读/临时测试。newAPI 使用独立 Compose 项目，不得通过手工连接网络代替版本化 Overlay。
 
 ## 配置与密钥
 
-后端默认读取 `${MODELMIRROR_DATA_ROOT}/server/.env`。最低配置为 newAPI Key
-或 OpenRouter Key：
+后端默认读取 `${MODELMIRROR_DATA_ROOT}/server/.env`。使用外部 OpenAI-compatible
+数据面时必须同时显式配置 URL 与 Key，也可只配置 OpenRouter Key：
 
 ```bash
-LLM_GATEWAY_KEY=your-new-api-key
+LLM_GATEWAY_URL=https://gateway.example/v1/chat/completions
+LLM_GATEWAY_KEY=your-gateway-key
 OPENROUTER_API_KEY=your-openrouter-key
+NEWAPI_WEB_URL=http://localhost:3000
 ```
+
+`NEWAPI_WEB_URL` 只公开 newAPI 管理界面的外部 HTTP(S) 链接。它由 client
+容器在运行时提供给设置页，修改后只需重新创建 client，无需重新构建前端镜像。
+该变量不得包含 userinfo、query 或 fragment，也不能代替数据面健康检查。
+
+### 独立 newAPI 数据面
+
+newAPI 不属于核心 Compose。先启动独立栈，再按需加载互联 Overlay：
+
+```powershell
+$env:LLM_GATEWAY_URL = "http://new-api:3000/v1/chat/completions"
+docker compose -f deploy/newapi/compose.yml -p modelmirror-newapi up -d
+docker compose -f docker-compose.yml `
+  -f deploy/newapi/modelmirror-overlay.yml `
+  -p modelmirror up -d --build
+```
+
+独立栈固定官方未修改镜像 `v1.0.0-rc.22` 及多架构 digest，默认只把 UI 绑定到
+`127.0.0.1:3000`，并复用 `${MODELMIRROR_DATA_ROOT}/new-api-data`。停止或回退
+ModelMirror 不得删除该目录。newAPI 上游为带附加条款的 AGPLv3 项目；本仓库不
+嵌入或修改其管理 UI，部署者仍需自行完成许可证与业务使用合规审查。
 
 规则：
 
@@ -133,8 +154,10 @@ Compose 不会自动创建空证书目录；缺少 `localhost.crt` 或 `localhos
 ```bash
 CODING_AGENT_ENABLED=true
 CODING_AGENT_MODE=readonly
-CODING_AGENT_MODEL=your-new-api-model-id
+CODING_AGENT_MODEL=your-coding-model-id
+CODING_AGENT_MODEL_BASE_URL=https://your-coding-provider.example/v1
 CODING_AGENT_GATEWAY_KEY=your-dedicated-gateway-key
+CODING_PROVIDER_NETWORK_NAME=modelmirror-coding-provider
 ```
 
 `CODING_AGENT_MODE` 默认为 `readonly`。只有显式设置为 `draft`，代码助手才会在
@@ -150,7 +173,11 @@ docker compose -p modelmirror --profile coding --profile coding-verify ps
 curl http://localhost:8000/api/coding/capabilities
 ```
 
-`coding-runtime` 仅加入 `internal: true` 网络并通过 Unix socket 连接 FastAPI。
+`coding-runtime` 通过 `internal: true` 网络和 Unix socket 连接 FastAPI，并另外加入只供
+Coding 使用的外部 `coding_provider` 网络以访问显式 Provider URL。该网络必须由独立
+Provider 栈或运维预先创建；它不复用 `modelmirror-provider`，ModelMirror 也不管理其
+Provider、凭据或生命周期。缺少 URL 或外部网络时，Coding profile 应失败关闭，而不是
+回退到 newAPI 或 localhost。
 构建时会排除私有环境文件、密钥和运行产物，只保留仓库追踪的安全占位模板，再把
 净化源码快照复制进只读镜像目录；会话副本位于 256 MiB 的 `nosuid,noexec`
 tmpfs，容器根文件系统仍只读，且不映射宿主端口或宿主仓库。它是实验性本地
@@ -467,10 +494,18 @@ Publisher 无宿主端口、Docker socket 或工作区写权限，只能连接�
 location /api/ {
   proxy_pass http://modelmirror-server:8000;
   proxy_http_version 1.1;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   proxy_buffering off;
   proxy_read_timeout 3600s;
 }
 ```
+
+Provider 管理会话根据 ASGI `request.url.scheme` 决定是否设置 Secure Cookie。
+TLS 终止代理必须覆盖（而不是追加或透传客户端提供的）`X-Forwarded-Proto`，并在
+`server/.env` 通过 `FORWARDED_ALLOW_IPS` 只信任该代理的精确 IP 或最小 CIDR；
+不要使用 `*`。未被 Uvicorn 信任的转发头不会改变请求 scheme，管理配对会安全拒绝，
+核心数据面仍保持可用。
 
 视频内容代理可能返回较大响应，应设置合理的超时和响应体限制，但不得缓存含
 授权语义的上游临时地址。
@@ -571,7 +606,11 @@ CODING_WORKER_ROUTE_KEY=<dedicated-route-key>
 CODING_WORKER_BUILTIN_REVISION=<full-source-commit>
 ```
 
-`CODING_WORKER_MODEL_BASE_URL` 默认使用 `http://new-api:3000/v1`。若启用 `develop_networked`，还必须显式设置 `CODING_WORKER_NETWORK_ENABLED=true`、随机 `CODING_WORKER_EGRESS_GRANT_KEY` 和最小 `CODING_WORKER_NETWORK_DOMAINS`，并加载 `coding-worker-network` profile。不要把模型网关密钥复用为 slot、executor 或 egress token。
+`CODING_WORKER_MODEL_BASE_URL` 必须显式设置，且不得从 Provider Control Plane、Router
+SQLite 或 newAPI 互联 Overlay 继承。若启用 `develop_networked`，还必须显式设置
+`CODING_WORKER_NETWORK_ENABLED=true`、随机 `CODING_WORKER_EGRESS_GRANT_KEY` 和最小
+`CODING_WORKER_NETWORK_DOMAINS`，并加载 `coding-worker-network` profile。不要把模型
+网关密钥复用为 slot、executor 或 egress token。
 
 只做配置展开检查、不启动服务：
 

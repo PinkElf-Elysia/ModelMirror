@@ -12,6 +12,7 @@ NativeNodeKind = Literal[
     "input",
     "scheduled_start",
     "http_event_entry",
+    "failure_event_entry",
     "llm",
     "condition",
     "code",

@@ -15,6 +15,7 @@ from .creator_evaluation import (
     SkillEvaluationValidationError,
 )
 from .creator_evaluation_service import SkillCreatorEvaluationService
+from .creator_evaluation_suite_service import SkillCreatorEvaluationSuiteService
 from .creator_resource_build_service import SkillCreatorResourceBuildService
 from .creator_resource_service import SkillCreatorResourcePlanningService
 from .creator_service import SkillCreatorService
@@ -44,6 +45,7 @@ except ModuleNotFoundError:
 router = APIRouter(prefix="/api/skills/creator", tags=["skill-creator"])
 _service: SkillCreatorService | None = None
 _evaluation_service: SkillCreatorEvaluationService | None = None
+_evaluation_suite_service: SkillCreatorEvaluationSuiteService | None = None
 _resource_planning_service: SkillCreatorResourcePlanningService | None = None
 _resource_build_service: SkillCreatorResourceBuildService | None = None
 
@@ -210,6 +212,74 @@ class CreatorEvaluationCasesRequest(CreatorEvaluationWriteRequest):
 
 class CreatorEvaluationStartRequest(CreatorEvaluationWriteRequest):
     repetitions: int = Field(default=1, ge=1, le=3)
+    evaluation_suite_revision: int | None = Field(default=None, ge=1)
+    evaluation_suite_digest: str | None = Field(
+        default=None, min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+
+
+class CreatorEvaluationSuiteCaseInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str = Field(min_length=1, max_length=200)
+    role: Literal["normal", "ambiguous", "boundary", "regression"]
+    name: str = Field(min_length=1, max_length=160)
+    prompt: str = Field(min_length=1, max_length=20_000)
+    expected_behavior: str = Field(min_length=1, max_length=4_000)
+    fixtures: list[dict[str, str]] = Field(default_factory=list, max_length=10)
+    assertions: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    requirement_ids: list[str] = Field(default_factory=list, max_length=64)
+    required_resource_paths: list[str] = Field(default_factory=list, max_length=20)
+    workflow_step_ids: list[str] = Field(default_factory=list, max_length=64)
+
+
+class CreatorEvaluationSuiteGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_session_revision: int = Field(ge=1)
+    expected_draft_state_revision: int = Field(ge=1)
+    expected_draft_revision: int = Field(ge=1)
+    expected_draft_digest: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+    expected_suite_revision: int | None = Field(default=None, ge=1)
+    expected_suite_digest: str | None = Field(
+        default=None, min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+
+
+class CreatorEvaluationSuitePatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    suite_id: str = Field(min_length=1, max_length=240)
+    expected_session_revision: int = Field(ge=1)
+    expected_draft_state_revision: int = Field(ge=1)
+    expected_draft_revision: int = Field(ge=1)
+    expected_draft_digest: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+    expected_suite_revision: int = Field(ge=1)
+    expected_suite_digest: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+    cases: list[CreatorEvaluationSuiteCaseInput] = Field(min_length=3, max_length=12)
+    change_reason: str = Field(default="", max_length=4_000)
+
+
+class CreatorEvaluationSuiteConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    suite_id: str = Field(min_length=1, max_length=240)
+    expected_session_revision: int = Field(ge=1)
+    expected_draft_state_revision: int = Field(ge=1)
+    expected_draft_revision: int = Field(ge=1)
+    expected_draft_digest: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+    expected_suite_revision: int = Field(ge=1)
+    expected_suite_digest: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
 
 
 class CreatorEvaluationRunMutationRequest(CreatorEvaluationWriteRequest):
@@ -245,6 +315,7 @@ class CreatorEvaluationIterateRequest(CreatorEvaluationWriteRequest):
 def configure_skill_creator(service: SkillCreatorService | None) -> None:
     global _service
     global _evaluation_service
+    global _evaluation_suite_service
     global _resource_planning_service
     global _resource_build_service
     if service is not _service:
@@ -253,6 +324,11 @@ def configure_skill_creator(service: SkillCreatorService | None) -> None:
             and getattr(_evaluation_service, "creator_service", None) is not service
         ):
             _evaluation_service = None
+        if (
+            _evaluation_suite_service is not None
+            and getattr(_evaluation_suite_service, "creator_service", None) is not service
+        ):
+            _evaluation_suite_service = None
         if (
             _resource_planning_service is not None
             and getattr(_resource_planning_service, "creator_service", None) is not service
@@ -271,6 +347,13 @@ def configure_skill_creator_evaluation(
 ) -> None:
     global _evaluation_service
     _evaluation_service = service
+
+
+def configure_skill_creator_evaluation_suite(
+    service: SkillCreatorEvaluationSuiteService | None,
+) -> None:
+    global _evaluation_suite_service
+    _evaluation_suite_service = service
 
 
 def configure_skill_creator_resource_planning(
@@ -304,6 +387,17 @@ def get_skill_creator_evaluation_service() -> SkillCreatorEvaluationService:
             code="skill_creator_evaluation_unavailable",
         )
     return _evaluation_service
+
+
+def get_skill_creator_evaluation_suite_service() -> SkillCreatorEvaluationSuiteService:
+    get_skill_creator_service()
+    if _evaluation_suite_service is None:
+        raise SkillCreatorValidationError(
+            "Skill Creator evaluation suite is unavailable.",
+            code="skill_creator_evolution_v2_disabled",
+        )
+    _evaluation_suite_service.require_enabled()
+    return _evaluation_suite_service
 
 
 def get_skill_creator_resource_planning_service() -> SkillCreatorResourcePlanningService:
@@ -366,15 +460,24 @@ def _api_error(exc: Exception) -> HTTPException:
                 "model_gateway_unconfigured",
                 "skill_evaluation_sidecar_unavailable",
                 "skill_evaluation_preflight_failed",
+                "skill_application_receipt_unavailable",
+                "skill_application_receipt_store_corrupt",
             }
             else 400
         )
         code = exc.code
+        if code in {
+            "skill_application_receipt_missing",
+            "skill_application_receipt_incomplete",
+            "skill_application_receipt_mismatch",
+        }:
+            status = 409
     elif isinstance(exc, SkillCreatorValidationError):
         code = exc.code
         status = 404 if code in {
             "skill_creator_disabled",
             "skill_creator_resource_authoring_disabled",
+            "skill_creator_evolution_v2_disabled",
         } else 400
         if code == "model_gateway_unconfigured":
             status = 503
@@ -393,6 +496,8 @@ def _api_error(exc: Exception) -> HTTPException:
             "skill_creator_resource_planner_invalid",
             "skill_creator_resource_builder_failed",
             "skill_creator_resource_builder_invalid",
+            "skill_evaluation_suite_generator_failed",
+            "skill_evaluation_suite_generator_invalid",
         }:
             status = 502
         elif code == "skill_creator_proposal_binding_invalid":
@@ -459,6 +564,13 @@ def _session_response(
             and _resource_build_service.enabled
             else None
         ),
+        "evaluation_suite": (
+            _evaluation_suite_service.current_projection(session.session_id)
+            if _evaluation_suite_service is not None
+            and _evaluation_suite_service.enabled
+            and draft is not None
+            else None
+        ),
     }
     return response
 
@@ -482,6 +594,10 @@ async def get_creator_status():
             "resource_build_version": None,
             "resource_builder_available": False,
             "script_sandbox_configured": False,
+            "evaluation_suite_enabled": False,
+            "evaluation_suite_version": None,
+            "evaluation_suite_generator_available": False,
+            "evaluation_suite_store_available": False,
         }
     status = _service.status()
     status["evaluation_available"] = _evaluation_service is not None
@@ -508,6 +624,16 @@ async def get_creator_status():
             "resource_build_version": None,
             "resource_builder_available": False,
             "script_sandbox_configured": False,
+        }
+    )
+    status.update(
+        _evaluation_suite_service.status()
+        if _evaluation_suite_service is not None
+        else {
+            "evaluation_suite_enabled": False,
+            "evaluation_suite_version": None,
+            "evaluation_suite_generator_available": False,
+            "evaluation_suite_store_available": False,
         }
     )
     return status
@@ -1006,6 +1132,88 @@ async def put_creator_evaluation_cases(
         raise _api_error(exc) from exc
 
 
+@router.post("/sessions/{session_id}/evaluation-suite/generate")
+async def generate_creator_evaluation_suite(
+    session_id: str, payload: CreatorEvaluationSuiteGenerateRequest
+):
+    try:
+        creator = get_skill_creator_service()
+        suites = get_skill_creator_evaluation_suite_service()
+        await suites.generate(
+            session_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_draft_state_revision=payload.expected_draft_state_revision,
+            expected_draft_revision=payload.expected_draft_revision,
+            expected_draft_digest=payload.expected_draft_digest.lower(),
+            expected_suite_revision=payload.expected_suite_revision,
+            expected_suite_digest=(
+                payload.expected_suite_digest.lower()
+                if payload.expected_suite_digest is not None
+                else None
+            ),
+        )
+        session, draft = creator.get_session(session_id)
+        response = _session_response(creator, session, draft)
+        response["evaluation_suite"] = suites.current_projection(session_id)
+        return response
+    except (SkillCreatorError, SkillDraftError, SkillEvaluationError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.patch("/sessions/{session_id}/evaluation-suite")
+async def patch_creator_evaluation_suite(
+    session_id: str, payload: CreatorEvaluationSuitePatchRequest
+):
+    try:
+        creator = get_skill_creator_service()
+        suites = get_skill_creator_evaluation_suite_service()
+        await asyncio.to_thread(
+            suites.patch,
+            session_id,
+            suite_id=payload.suite_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_draft_state_revision=payload.expected_draft_state_revision,
+            expected_draft_revision=payload.expected_draft_revision,
+            expected_draft_digest=payload.expected_draft_digest.lower(),
+            expected_suite_revision=payload.expected_suite_revision,
+            expected_suite_digest=payload.expected_suite_digest.lower(),
+            cases=[item.model_dump(mode="python") for item in payload.cases],
+            change_reason=payload.change_reason,
+        )
+        session, draft = creator.get_session(session_id)
+        response = _session_response(creator, session, draft)
+        response["evaluation_suite"] = suites.current_projection(session_id)
+        return response
+    except (SkillCreatorError, SkillDraftError, SkillEvaluationError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/evaluation-suite/confirm")
+async def confirm_creator_evaluation_suite(
+    session_id: str, payload: CreatorEvaluationSuiteConfirmRequest
+):
+    try:
+        creator = get_skill_creator_service()
+        suites = get_skill_creator_evaluation_suite_service()
+        await asyncio.to_thread(
+            suites.confirm,
+            session_id,
+            suite_id=payload.suite_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_draft_state_revision=payload.expected_draft_state_revision,
+            expected_draft_revision=payload.expected_draft_revision,
+            expected_draft_digest=payload.expected_draft_digest.lower(),
+            expected_suite_revision=payload.expected_suite_revision,
+            expected_suite_digest=payload.expected_suite_digest.lower(),
+        )
+        session, draft = creator.get_session(session_id)
+        response = _session_response(creator, session, draft)
+        response["evaluation_suite"] = suites.current_projection(session_id)
+        return response
+    except (SkillCreatorError, SkillDraftError, SkillEvaluationError) as exc:
+        raise _api_error(exc) from exc
+
+
 @router.post("/sessions/{session_id}/evaluations", status_code=202)
 async def start_creator_evaluation(
     session_id: str, payload: CreatorEvaluationStartRequest
@@ -1019,12 +1227,20 @@ async def start_creator_evaluation(
             expected_revision=payload.expected_revision,
             expected_digest=payload.expected_digest.lower(),
             repetitions=payload.repetitions,
+            evaluation_suite_revision=payload.evaluation_suite_revision,
+            evaluation_suite_digest=(
+                payload.evaluation_suite_digest.lower()
+                if payload.evaluation_suite_digest is not None
+                else None
+            ),
         )
-        case_set = evaluation.evaluation_store.serialize(
-            evaluation.evaluation_store.require_cases(
-                session.session_id, revision=session.cases_revision
+        case_set = None
+        if run.evaluation_suite_id is None:
+            case_set = evaluation.evaluation_store.serialize(
+                evaluation.evaluation_store.require_cases(
+                    session.session_id, revision=session.cases_revision
+                )
             )
-        )
         return _session_response(
             creator, session, draft, case_set=case_set, evaluation_run=run
         )
