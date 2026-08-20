@@ -790,6 +790,7 @@ def test_threshold_calibration_preserves_recall_before_improving_abstention() ->
                     "document_id": f"doc-{index}",
                     "document_name": f"doc-{index}.md",
                     "score": score,
+                    "fused_score": score,
                 }
             ]
             + (
@@ -799,6 +800,7 @@ def test_threshold_calibration_preserves_recall_before_improving_abstention() ->
                         "document_id": "noise-doc",
                         "document_name": "noise.md",
                         "score": 0.1,
+                        "fused_score": 0.1,
                     }
                 ]
                 if index == 0
@@ -816,6 +818,7 @@ def test_threshold_calibration_preserves_recall_before_improving_abstention() ->
                     "document_id": f"noise-doc-{index}",
                     "document_name": f"noise-{index}.md",
                     "score": score,
+                    "fused_score": score,
                 }
             ],
             "latency_ms": 1,
@@ -852,12 +855,16 @@ def test_threshold_calibration_keeps_baseline_when_abstention_costs_recall() -> 
     case_results = [
         {
             "case_id": "positive",
-            "ranking": [{"document_id": "doc-positive", "score": 0.1}],
+            "ranking": [
+                {"document_id": "doc-positive", "score": 0.1, "fused_score": 0.1}
+            ],
             "latency_ms": 1,
         },
         {
             "case_id": "negative",
-            "ranking": [{"document_id": "noise", "score": 0.2}],
+            "ranking": [
+                {"document_id": "noise", "score": 0.2, "fused_score": 0.2}
+            ],
             "latency_ms": 1,
         },
     ]
@@ -871,6 +878,119 @@ def test_threshold_calibration_keeps_baseline_when_abstention_costs_recall() -> 
     assert calibrated["threshold_selection_reason"] == (
         "baseline_preserved_no_safe_negative_improvement"
     )
+
+
+def test_threshold_calibration_uses_fused_score_when_rerank_score_disagrees() -> None:
+    cases = [
+        {
+            "case_id": "positive",
+            "expected_refs": [{"document_id": "doc-positive"}],
+            "expected_no_result": False,
+        },
+        {
+            "case_id": "negative",
+            "expected_refs": [],
+            "expected_no_result": True,
+        },
+    ]
+    case_results = [
+        {
+            "case_id": "positive",
+            "ranking": [
+                {
+                    "document_id": "doc-positive",
+                    "score": 0.1,
+                    "rerank_score": 0.1,
+                    "fused_score": 0.9,
+                }
+            ],
+            "latency_ms": 1,
+        },
+        {
+            "case_id": "negative",
+            "ranking": [
+                {
+                    "document_id": "noise",
+                    "score": 0.9,
+                    "rerank_score": 0.9,
+                    "fused_score": 0.1,
+                }
+            ],
+            "latency_ms": 1,
+        },
+    ]
+
+    calibrated = calibrate_threshold(
+        {"cases": cases, "case_results": case_results},
+        {
+            "mode": "hybrid",
+            "top_k": 5,
+            "score_threshold": 0,
+            "rerank_enabled": True,
+        },
+    )
+
+    assert calibrated["threshold_calibration_eligible"] is True
+    assert calibrated["threshold_score_domain"] == "fused_score"
+    assert calibrated["retrieval"]["score_threshold"] > 0.1
+    assert calibrated["metrics"]["recall_at_5"] == 1.0
+    assert calibrated["metrics"]["no_result_accuracy"] == 1.0
+
+
+def test_threshold_calibration_fails_closed_without_fused_score_evidence() -> None:
+    calibrated = calibrate_threshold(
+        {
+            "cases": [
+                {
+                    "case_id": "positive",
+                    "expected_refs": [{"document_id": "doc-positive"}],
+                    "expected_no_result": False,
+                }
+            ],
+            "case_results": [
+                {
+                    "case_id": "positive",
+                    "ranking": [{"document_id": "doc-positive", "score": 0.9}],
+                    "latency_ms": 1,
+                }
+            ],
+        },
+        {"mode": "fulltext", "top_k": 5, "score_threshold": 0},
+    )
+
+    assert calibrated["threshold_calibration_eligible"] is False
+    assert calibrated["threshold_score_domain"] == "fused_score"
+    assert calibrated["threshold_selection_reason"] == "missing_fused_score_evidence"
+    assert calibrated["retrieval"]["score_threshold"] == 0
+
+
+@pytest.mark.parametrize(
+    "case_results",
+    [
+        [{"case_id": "positive", "ranking": [], "latency_ms": 1}],
+        [],
+    ],
+)
+def test_threshold_calibration_fails_closed_without_any_ranking_evidence(
+    case_results: list[dict],
+) -> None:
+    calibrated = calibrate_threshold(
+        {
+            "cases": [
+                {
+                    "case_id": "positive",
+                    "expected_refs": [{"document_id": "doc-positive"}],
+                    "expected_no_result": False,
+                }
+            ],
+            "case_results": case_results,
+        },
+        {"mode": "fulltext", "top_k": 5, "score_threshold": 0},
+    )
+
+    assert calibrated["threshold_calibration_eligible"] is False
+    assert calibrated["threshold_selection_reason"] == "missing_fused_score_evidence"
+    assert calibrated["missing_fused_score_count"] == 1
 
 
 @pytest.mark.asyncio

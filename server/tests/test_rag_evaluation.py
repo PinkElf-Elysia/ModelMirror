@@ -20,6 +20,7 @@ from server.rag.evaluation import (
     aggregate_target_metrics,
     evaluate_promotion_gate,
     evaluate_retrieval_case,
+    qualify_promotion_evidence,
 )
 from server.rag.evaluation_executor import KnowledgeEvaluationExecutor
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
@@ -138,6 +139,199 @@ def test_evaluation_metrics_match_stable_references_and_rankings() -> None:
     assert gate["passed"] is True
 
 
+def test_citation_precision_at_5_uses_a_fixed_denominator() -> None:
+    references = [{"document_id": "doc-answer"}]
+    top_five = [
+        {"chunk_id": "answer", "doc_id": "doc-answer", "score": 0.9},
+        *[
+            {"chunk_id": f"noise-{index}", "doc_id": f"doc-noise-{index}", "score": 0.8 - index / 10}
+            for index in range(4)
+        ],
+    ]
+    baseline = evaluate_retrieval_case(top_five, references, ks=[1, 5, 10])
+    candidate = evaluate_retrieval_case(
+        [
+            *top_five,
+            {"chunk_id": "tail-1", "doc_id": "tail-doc-1", "score": 0.2},
+            {"chunk_id": "tail-2", "doc_id": "tail-doc-2", "score": 0.1},
+        ],
+        references,
+        ks=[1, 5, 10],
+    )
+
+    assert baseline["metrics"]["citation_hit_rate"] != candidate["metrics"]["citation_hit_rate"]
+    assert baseline["metrics"]["citation_precision_at_5"] == 0.2
+    assert candidate["metrics"]["citation_precision_at_5"] == 0.2
+
+
+def test_promotion_gate_rejects_diagnostic_only_evidence() -> None:
+    metrics = {
+        "recall_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "citation_hit_rate": 1.0,
+        "citation_precision_at_5": 0.2,
+        "citation_coverage": 1.0,
+        "no_result_accuracy": 1.0,
+        "positive_no_result_rate": 0.0,
+        "p95_latency_ms": 5.0,
+        "error_count": 0,
+    }
+
+    gate = evaluate_promotion_gate(
+        metrics,
+        baseline=metrics,
+        evidence_qualification={
+            "status": "diagnostic_only",
+            "qualified": False,
+            "positive_case_count": 5,
+            "stable_source_block_positive_count": 5,
+            "reviewed_hard_negative_count": 1,
+        },
+    )
+
+    evidence_check = next(
+        item for item in gate["checks"] if item["id"] == "qualified_promotion_evidence"
+    )
+    assert evidence_check["passed"] is False
+    assert gate["passed"] is False
+
+
+def test_promotion_evidence_requires_30_stable_positives_and_12_hard_negatives() -> None:
+    positives = [
+        {
+            "case_id": f"positive-{index}",
+            "query": f"positive query {index}",
+            "expected_refs": [
+                {
+                    "document_id": "doc-a",
+                    "source_block_id": f"block-{index}",
+                    "match_mode": "source_block",
+                    "relevance": 3,
+                }
+            ],
+        }
+        for index in range(30)
+    ]
+    negatives = [
+        {
+            "case_id": f"negative-{index}",
+            "query": f"confusable query {index}",
+            "expected_no_result": True,
+            "expected_refs": [],
+            "review_status": "approved",
+            "tags": ["corpus_near", "hard_negative"],
+        }
+        for index in range(12)
+    ]
+    snapshot = {
+        "origin": "manual",
+        "benchmark_role": "promotion_evidence",
+        "version_id": "evalsetver-fixed",
+        "published_at": 1.0,
+        "cases": [*positives, *negatives],
+    }
+
+    diagnostic = qualify_promotion_evidence({**snapshot, "cases": positives[:6]})
+    qualified = qualify_promotion_evidence(snapshot)
+
+    assert diagnostic["status"] == "diagnostic_only"
+    assert diagnostic["qualified"] is False
+    assert qualified["status"] == "qualified"
+    assert qualified["qualified"] is True
+    assert qualified["counts"] == {
+        "total": 42,
+        "positive": 30,
+        "stable_source_block_positive": 30,
+        "reviewed_hard_negative": 12,
+    }
+
+    mutable_unclassified = qualify_promotion_evidence(
+        {
+            **snapshot,
+            "version_id": None,
+            "published_at": None,
+            "benchmark_role": "unclassified",
+        }
+    )
+    assert mutable_unclassified["status"] == "diagnostic_only"
+    assert mutable_unclassified["qualified"] is False
+    assert mutable_unclassified["immutable_snapshot"] is False
+    assert mutable_unclassified["selection_eligible"] is False
+
+
+def test_legacy_citation_gate_policy_maps_to_precision_at_5(tmp_path: Path) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+
+    policy = store.set_gate_policy(
+        "kb-legacy", {"max_citation_hit_regression": 0.07}
+    )
+    reloaded = KnowledgeEvaluationStore(tmp_path / "evaluations.json").get_gate_policy(
+        "kb-legacy"
+    )
+
+    assert policy["max_citation_hit_regression"] == 0.07
+    assert policy["max_citation_precision_at_5_regression"] == 0.07
+    assert reloaded["max_citation_precision_at_5_regression"] == 0.07
+    assert reloaded["max_p95_latency_ms"] == 1500.0
+
+
+def test_latency_gate_accepts_absolute_budget_when_local_baseline_is_tiny() -> None:
+    baseline = {
+        "recall_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "citation_hit_rate": 1.0,
+        "citation_precision_at_5": 0.2,
+        "citation_coverage": 1.0,
+        "no_result_accuracy": 1.0,
+        "positive_no_result_rate": 0.0,
+        "p95_latency_ms": 5.0,
+        "error_count": 0,
+    }
+    candidate = {**baseline, "p95_latency_ms": 1200.0}
+    qualification = {"status": "qualified", "qualified": True}
+
+    accepted = evaluate_promotion_gate(
+        candidate,
+        baseline=baseline,
+        evidence_qualification=qualification,
+    )
+    rejected = evaluate_promotion_gate(
+        {**candidate, "p95_latency_ms": 6200.0},
+        baseline=baseline,
+        evidence_qualification=qualification,
+    )
+
+    accepted_latency = next(
+        item for item in accepted["checks"] if item["id"] == "max_p95_latency_ratio"
+    )
+    rejected_latency = next(
+        item for item in rejected["checks"] if item["id"] == "max_p95_latency_ratio"
+    )
+    assert accepted_latency["passed"] is True
+    assert accepted_latency["pass_mode"] == "absolute"
+    assert rejected_latency["passed"] is False
+
+
+def test_latency_gate_enforces_absolute_budget_without_baseline() -> None:
+    metrics = {
+        "recall_at_5": 1.0,
+        "citation_coverage": 1.0,
+        "no_result_accuracy": 1.0,
+        "p95_latency_ms": 1_501.0,
+        "error_count": 0,
+    }
+
+    gate = evaluate_promotion_gate(metrics, baseline=None)
+    latency = next(
+        item for item in gate["checks"] if item["id"] == "max_p95_latency_ratio"
+    )
+
+    assert latency["relative_baseline_available"] is False
+    assert latency["pass_mode"] == "none"
+    assert latency["passed"] is False
+    assert gate["passed"] is False
+
+
 def test_source_block_and_no_result_metrics_are_aggregated_separately() -> None:
     positive = evaluate_retrieval_case(
         [
@@ -229,6 +423,8 @@ async def test_evaluation_gate_api_defaults_no_result_floor_and_allows_explicit_
     default_response = await client.get(f"/api/rag/evaluation-gate/{kb_id}")
     assert default_response.status_code == 200, default_response.text
     assert default_response.json()["min_no_result_accuracy"] == 0.8
+    assert default_response.json()["max_citation_precision_at_5_regression"] == 0.02
+    assert default_response.json()["max_p95_latency_ms"] == 1500.0
 
     payload = {
         "mode": "advisory",
@@ -246,6 +442,7 @@ async def test_evaluation_gate_api_defaults_no_result_floor_and_allows_explicit_
     )
     assert omitted_response.status_code == 200, omitted_response.text
     assert omitted_response.json()["min_no_result_accuracy"] == 0.8
+    assert omitted_response.json()["max_citation_precision_at_5_regression"] == 0.02
 
     override_response = await client.patch(
         f"/api/rag/evaluation-gate/{kb_id}",
@@ -509,7 +706,8 @@ async def test_evaluation_api_runs_versions_and_enforces_required_gate(
         item for item in completed["target_results"] if item["version_id"] == candidate_version
     )
     assert candidate["metrics"]["recall_at_5"] == 1.0, candidate
-    assert candidate["promotion_gate"]["passed"] is True
+    assert completed["evidence_qualification"]["status"] == "diagnostic_only"
+    assert candidate["promotion_gate"]["passed"] is False
     evidence = candidate["version_evidence"]
     assert evidence["version_id"] == candidate_version
     assert evidence["version_fingerprint"]
@@ -547,8 +745,7 @@ async def test_evaluation_api_runs_versions_and_enforces_required_gate(
         f"/api/rag/pipeline/versions/{candidate_version}/promote",
         json={"evaluation_run_id": completed["run_id"]},
     )
-    assert promoted.status_code == 200, promoted.text
-    assert promoted.json()["active"] is True
+    assert promoted.status_code == 409, promoted.text
 
     runs = await registry.list_runs(run_type="knowledge_evaluation")
     assert len(runs) == 1

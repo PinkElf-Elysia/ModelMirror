@@ -1,0 +1,74 @@
+{
+  "schema_version": "modelmirror-rag-p0-round3-readiness-v1",
+  "status": "prepared_for_planning_not_execution",
+  "created_at": "2026-08-20T14:37:44.231Z",
+  "predecessor": {
+    "round": 2,
+    "branch": "codex/rag-p0-r2",
+    "commit": "e9ca3b88736ca6da5bbac6b391a0095d2be43915",
+    "pull_request": 220,
+    "round2_2d_disposition": "closed_failed_gate_transferred_to_round3",
+    "formal_promotion_evidence": false
+  },
+  "inherited_blockers": [
+    {
+      "id": "real_embedding_provider_unavailable",
+      "priority": "P0",
+      "evidence": "The configured OpenAI-compatible /v1/embeddings path returned HTTP 503 for text-embedding-3-small.",
+      "exit_condition": "A bounded preflight proves that the configured endpoint accepts the selected embedding model and returns a valid, stable vector dimension."
+    },
+    {
+      "id": "hard_negative_human_review_incomplete",
+      "priority": "P0",
+      "evidence": "Twelve corpus-near/confusable hard negatives remain pending human approval.",
+      "exit_condition": "All 12 hard negatives receive explicit approve or reject decisions; replacements must be reviewed before publication."
+    },
+    {
+      "id": "gold_dataset_unpublished",
+      "priority": "P0",
+      "evidence": "The 30-positive and 12-negative dataset remains mutable revision 1 with no published version.",
+      "exit_condition": "Exactly 30 stable source-block positives and 12 approved hard negatives are published as one immutable 42-case version bound to the real-embedding candidate."
+    },
+    {
+      "id": "formal_real_evaluation_missing",
+      "priority": "P0",
+      "evidence": "Formal real evaluation run count is zero.",
+      "exit_condition": "After all earlier blockers close, one authorized full retrieval-only evaluation completes with zero execution errors."
+    }
+  ],
+  "round3_entry_sequence": [
+    "Resolve PR 220 disposition. Default to a new isolated codex/rag-p0-r3 worktree from the latest main after merge; require an explicit stacking decision if PR 220 remains unmerged.",
+    "Run read-only provider capability and route diagnostics before any billed embedding request.",
+    "After explicit quota authorization, run one minimal sanitized embedding preflight and stop on the first failure.",
+    "Build one unactivated real-embedding candidate only after the preflight succeeds.",
+    "Review all 12 hard negatives manually, replace rejected cases, and publish one immutable 42-case Gold version.",
+    "Run exactly one formal retrieval-only evaluation; do not generate answers and do not retry by lowering gates.",
+    "Keep a passing candidate ready/promotion_required; activation, migration, deployment, and shared-data writes remain separately authorized actions."
+  ],
+  "formal_gate": {
+    "minimum_positive_cases": 30,
+    "minimum_approved_hard_negative_cases": 12,
+    "immutable_published_dataset_required": true,
+    "real_evaluation_run_count": 1,
+    "recall_at_5_minimum": 0.8,
+    "no_result_accuracy_minimum": 0.8,
+    "citation_precision_at_5_max_regression": 0.02,
+    "p95_latency_rule": "candidate <= baseline * 2 or candidate <= 1500 ms",
+    "execution_error_count": 0
+  },
+  "quota_boundary": {
+    "round2_real_generation_attempts": 1,
+    "round2_formal_real_evaluation_runs": 0,
+    "round3_quota_authorized": false,
+    "automatic_retry_allowed": false
+  },
+  "prohibited_until_explicitly_authorized": [
+    "calling a billed embedding or rerank provider",
+    "approving human-review cases on the user's behalf",
+    "publishing the Gold dataset",
+    "activating or promoting a candidate version",
+    "migrating indexes or modifying shared data",
+    "deploying, merging, or marking a pull request ready"
+  ],
+  "first_round3_decision": "Choose whether round 3 waits for PR 220 to merge into main or starts as an explicitly stacked branch; do not infer this choice."
+}

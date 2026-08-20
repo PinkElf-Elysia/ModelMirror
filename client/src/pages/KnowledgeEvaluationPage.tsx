@@ -80,10 +80,12 @@ interface GatePolicy {
   min_recall_at_5: number;
   max_mrr_regression: number;
   max_citation_hit_regression: number;
+  max_citation_precision_at_5_regression: number;
   max_no_result_increase: number;
   min_no_result_accuracy: number;
   min_citation_coverage: number;
   max_p95_latency_ratio: number;
+  max_p95_latency_ms: number;
   require_zero_errors: boolean;
 }
 
@@ -129,6 +131,16 @@ interface EvaluationRun {
   eval_set_version?: number | null;
   baseline_version_id?: string | null;
   target_results: TargetResult[];
+  evidence_qualification?: {
+    status: "qualified" | "diagnostic_only";
+    qualified: boolean;
+    counts?: {
+      total?: number;
+      positive?: number;
+      stable_source_block_positive?: number;
+      reviewed_hard_negative?: number;
+    };
+  };
   created_at: number;
   error?: string | null;
 }
@@ -190,6 +202,10 @@ export default function KnowledgeEvaluationPage() {
   const selectedSet = useMemo(
     () => evaluationSets.find((item) => item.eval_set_id === selectedSetId) ?? null,
     [evaluationSets, selectedSetId],
+  );
+  const pendingNoResultReviewCount = useMemo(
+    () => selectedSet?.cases.filter((item) => item.expected_no_result && item.review_status !== "approved").length ?? 0,
+    [selectedSet],
   );
 
   useEffect(() => {
@@ -580,7 +596,7 @@ export default function KnowledgeEvaluationPage() {
           onDatasetReady={async (evalSetId) => {
             await reloadSets(evalSetId);
             setSelectedSetId(evalSetId);
-            setNotice("定向评测集已生成并完成校准，请逐题审核 Gold 后再发布。" );
+            setNotice("定向评测集已生成；请逐题审核困难负例，全部批准后再启动一次真实校准。" );
           }}
         />
 
@@ -598,8 +614,8 @@ export default function KnowledgeEvaluationPage() {
                 </select>
                 <button className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 disabled:opacity-40" disabled={!selectedSet} onClick={() => importRef.current?.click()} type="button">导入</button>
                 {selectedSet?.origin === "generated" && selectedSet.calibration?.status === "warning" ? <label className="flex items-center gap-2 text-xs text-amber-100"><input checked={acknowledgeCalibrationWarnings} onChange={(event) => setAcknowledgeCalibrationWarnings(event.target.checked)} type="checkbox" />确认校准警告</label> : null}
-                {selectedSet?.origin === "generated" ? <button className="rounded-lg border border-cyan-300/25 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-40" disabled={busy === "calibration" || Boolean(calibrationJob && !["completed", "failed", "cancelled"].includes(calibrationJob.status))} onClick={() => void recalibrateGeneratedSet()} type="button">重新校准</button> : null}
-                <button className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-40" disabled={!selectedSet?.cases.length || busy === "publish-set" || (selectedSet?.origin === "generated" && selectedSet.calibration?.status === "warning" && !acknowledgeCalibrationWarnings)} onClick={() => void publishEvaluationSet()} type="button">发布版本</button>
+                {selectedSet?.origin === "generated" ? <button className="rounded-lg border border-cyan-300/25 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-40" disabled={pendingNoResultReviewCount > 0 || busy === "calibration" || Boolean(calibrationJob && !["completed", "failed", "cancelled"].includes(calibrationJob.status))} onClick={() => void recalibrateGeneratedSet()} type="button">{selectedSet.calibration?.status === "awaiting_review" ? "开始真实校准" : "重新校准"}</button> : null}
+                <button className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-40" disabled={!selectedSet?.cases.length || busy === "publish-set" || (selectedSet?.origin === "generated" && (!["calibrated", "warning"].includes(String(selectedSet.calibration?.status || "")) || pendingNoResultReviewCount > 0 || (selectedSet.calibration?.status === "warning" && !acknowledgeCalibrationWarnings)))} onClick={() => void publishEvaluationSet()} type="button">发布版本</button>
                 <input accept=".json,.csv,application/json,text/csv" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importCases(file); event.target.value = ""; }} ref={importRef} type="file" />
               </div>
             </div>
@@ -659,9 +675,9 @@ export default function KnowledgeEvaluationPage() {
             <div className="mt-5 max-h-[360px] divide-y divide-white/10 overflow-y-auto border-t border-white/10">
               {selectedSet?.cases.length ? selectedSet.cases.map((item, index) => (
                 <div className="py-3" key={item.case_id}>
-                  <div className="flex gap-3"><span className="text-xs font-semibold text-slate-500">{index + 1}</span><p className="min-w-0 flex-1 text-sm text-slate-100">{item.query}</p>{selectedSet.origin === "generated" && !item.expected_no_result ? <button className="text-xs text-cyan-100" onClick={() => void loadCaseEvidence(item.case_id)} type="button">{caseEvidence[item.case_id] ? "收起证据" : "查看 Gold"}</button> : null}{selectedSet.origin === "generated" && item.expected_no_result && item.review_status !== "approved" ? <button className="text-xs text-amber-100" onClick={() => void approveNoResultCase(item)} type="button">确认无答案</button> : null}<button className="text-xs text-rose-200" onClick={() => void deleteCase(item.case_id)} type="button">删除</button></div>
+                  <div className="flex gap-3"><span className="text-xs font-semibold text-slate-500">{index + 1}</span><p className="min-w-0 flex-1 text-sm text-slate-100">{item.query}</p>{selectedSet.origin === "generated" ? <button className="text-xs text-cyan-100" onClick={() => void loadCaseEvidence(item.case_id)} type="button">{caseEvidence[item.case_id] ? "收起证据" : item.expected_no_result ? "查看近邻语料" : "查看 Gold"}</button> : null}{selectedSet.origin === "generated" && item.expected_no_result && item.review_status !== "approved" ? <button className="text-xs text-amber-100 disabled:cursor-not-allowed disabled:opacity-35" disabled={!caseEvidence[item.case_id]?.length} onClick={() => void approveNoResultCase(item)} type="button">确认无答案</button> : null}<button className="text-xs text-rose-200" onClick={() => void deleteCase(item.case_id)} type="button">删除</button></div>
                   <p className="mt-2 pl-7 text-xs text-slate-500">{item.expected_no_result ? "期望无结果" : `${item.expected_refs.length} 个期望引用 · ${[...new Set(item.expected_refs.map((ref) => ref.match_mode || "legacy"))].join(" / ")}`} · {item.tags.join(" · ") || "未标记"}</p>
-                  {caseEvidence[item.case_id] ? <div className="mt-2 ml-7 space-y-2 border-l border-cyan-300/20 pl-3">{caseEvidence[item.case_id].map((evidence, evidenceIndex) => <div className="text-xs" key={`${item.case_id}:${evidenceIndex}`}><p className="font-semibold text-slate-200">{String(evidence.document_name || evidence.document_id || "Gold evidence")}{evidence.page_number ? ` · p${evidence.page_number}` : ""}</p><p className="mt-1 whitespace-pre-wrap text-slate-500">{String(evidence.text || "")}</p></div>)}</div> : null}
+                  {caseEvidence[item.case_id] ? <div className="mt-2 ml-7 space-y-2 border-l border-cyan-300/20 pl-3">{item.expected_no_result ? <p className="text-[11px] text-amber-100">近邻语料只用于确认问题与语料易混淆；请确认其中确实没有该问题的答案。</p> : null}{caseEvidence[item.case_id].map((evidence, evidenceIndex) => <div className="text-xs" key={`${item.case_id}:${evidenceIndex}`}><p className="font-semibold text-slate-200">{String(evidence.document_name || evidence.document_id || "Gold evidence")}{evidence.page_number ? ` · p${evidence.page_number}` : ""}</p><p className="mt-1 whitespace-pre-wrap text-slate-500">{String(evidence.text || "")}</p></div>)}</div> : null}
                 </div>
               )) : <p className="py-10 text-center text-sm text-slate-500">尚无评估问题</p>}
             </div>
@@ -701,7 +717,9 @@ export default function KnowledgeEvaluationPage() {
                   <label className="text-xs text-slate-400">最低引用覆盖<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={1} min={0} onChange={(event) => setGate({ ...gate, min_citation_coverage: Number(event.target.value) })} step={0.05} type="number" value={gate.min_citation_coverage} /></label>
                   <label className="text-xs text-slate-400">最低无答案准确率<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={1} min={0} onChange={(event) => setGate({ ...gate, min_no_result_accuracy: Number(event.target.value) })} step={0.05} type="number" value={gate.min_no_result_accuracy} /></label>
                   <label className="text-xs text-slate-400">MRR 最大回退<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={1} min={0} onChange={(event) => setGate({ ...gate, max_mrr_regression: Number(event.target.value) })} step={0.01} type="number" value={gate.max_mrr_regression} /></label>
+                  <label className="text-xs text-slate-400">Precision@5 最大回退<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={1} min={0} onChange={(event) => setGate({ ...gate, max_citation_precision_at_5_regression: Number(event.target.value) })} step={0.01} type="number" value={gate.max_citation_precision_at_5_regression} /></label>
                   <label className="text-xs text-slate-400">P95 延迟倍数<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={10} min={1} onChange={(event) => setGate({ ...gate, max_p95_latency_ratio: Number(event.target.value) })} step={0.1} type="number" value={gate.max_p95_latency_ratio} /></label>
+                  <label className="text-xs text-slate-400">P95 绝对上限（ms）<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={120000} min={1} onChange={(event) => setGate({ ...gate, max_p95_latency_ms: Number(event.target.value) })} step={50} type="number" value={gate.max_p95_latency_ms} /></label>
                 </div>
               ) : null}
             </div>
@@ -717,18 +735,18 @@ export default function KnowledgeEvaluationPage() {
 
         <section className="surface-panel overflow-hidden rounded-lg border border-white/10">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-            <div><h2 className="text-sm font-semibold text-white">评估结果</h2><p className="mt-1 text-xs text-slate-500">{selectedRun ? `${selectedRun.status} · ${selectedRun.progress}% · ${selectedRun.run_id}` : "选择或运行一次评估"}</p></div>
+            <div><div className="flex items-center gap-2"><h2 className="text-sm font-semibold text-white">评估结果</h2>{selectedRun?.evidence_qualification ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${selectedRun.evidence_qualification.qualified ? "border-emerald-300/30 text-emerald-200" : "border-amber-300/30 text-amber-100"}`}>{selectedRun.evidence_qualification.qualified ? "qualified" : "diagnostic_only"}</span> : null}</div><p className="mt-1 text-xs text-slate-500">{selectedRun ? `${selectedRun.status} · ${selectedRun.progress}% · ${selectedRun.run_id}` : "选择或运行一次评估"}</p>{selectedRun?.evidence_qualification && !selectedRun.evidence_qualification.qualified ? <p className="mt-1 text-xs text-amber-100">仅供诊断：正式门禁要求 30 条稳定 Gold 正例与 12 条已审核困难负例。</p> : null}</div>
             {selectedRun?.error ? <span className="text-xs text-rose-200">{selectedRun.error}</span> : null}
           </div>
           {selectedRun?.target_results.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-left text-xs">
-                <thead className="border-b border-white/10 bg-white/[0.025] text-slate-500"><tr><th className="px-4 py-3">版本</th><th>Recall@1</th><th>Recall@5</th><th>MRR@10</th><th>nDCG@10</th><th>引用覆盖</th><th>无答案准确</th><th>误召回</th><th>P95</th><th>Gate</th><th className="pr-4">操作</th></tr></thead>
+              <table className="w-full min-w-[1060px] text-left text-xs">
+                <thead className="border-b border-white/10 bg-white/[0.025] text-slate-500"><tr><th className="px-4 py-3">版本</th><th>Recall@1</th><th>Recall@5</th><th>MRR@10</th><th>nDCG@10</th><th>Citation P@5</th><th>引用覆盖</th><th>无答案准确</th><th>误召回</th><th>P95</th><th>Gate</th><th className="pr-4">操作</th></tr></thead>
                 <tbody className="divide-y divide-white/10">
                   {selectedRun.target_results.map((target) => (
                     <tr key={target.version_id}>
                       <td className="px-4 py-3 font-semibold text-white">v{target.version}</td>
-                      <td>{metric(target.metrics.recall_at_1)}</td><td>{metric(target.metrics.recall_at_5)}</td><td>{metric(target.metrics.mrr_at_10, false)}</td><td>{metric(target.metrics.ndcg_at_10, false)}</td><td>{metric(target.metrics.citation_coverage ?? target.metrics.citation_hit_rate)}</td><td>{metric(target.metrics.no_result_accuracy)}</td><td>{metric(target.metrics.false_positive_rate)}</td><td>{target.metrics.p95_latency_ms?.toFixed(0) ?? "-"} ms</td>
+                      <td>{metric(target.metrics.recall_at_1)}</td><td>{metric(target.metrics.recall_at_5)}</td><td>{metric(target.metrics.mrr_at_10, false)}</td><td>{metric(target.metrics.ndcg_at_10, false)}</td><td>{metric(target.metrics.citation_precision_at_5)}</td><td>{metric(target.metrics.citation_coverage ?? target.metrics.citation_hit_rate)}</td><td>{metric(target.metrics.no_result_accuracy)}</td><td>{metric(target.metrics.false_positive_rate)}</td><td>{target.metrics.p95_latency_ms?.toFixed(0) ?? "-"} ms</td>
                       <td><span className={target.promotion_gate.passed ? "text-emerald-200" : "text-rose-200"}>{target.promotion_gate.passed ? "通过" : "未通过"}</span></td>
                       <td className="pr-4"><button className="rounded-md border border-emerald-300/25 px-2.5 py-1.5 font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-35" disabled={!target.promotion_gate.passed || busy === `promote:${target.version_id}`} onClick={() => void promote(target.version_id)} type="button">推广</button></td>
                     </tr>

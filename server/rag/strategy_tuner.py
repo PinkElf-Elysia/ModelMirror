@@ -642,6 +642,42 @@ def chunker_candidates(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
 
 def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> dict[str, Any]:
     cases_by_id = {str(case["case_id"]): case for case in result["cases"]}
+    case_results = [
+        item for item in result.get("case_results") or [] if isinstance(item, dict)
+    ]
+    observed_case_ids = {
+        str(item.get("case_id") or "") for item in case_results if item.get("case_id")
+    }
+    rankings = [
+        item
+        for case_result in case_results
+        for item in case_result.get("ranking") or []
+        if isinstance(item, dict)
+    ]
+    empty_ranking_case_count = sum(
+        1
+        for case_result in case_results
+        if not any(isinstance(item, dict) for item in case_result.get("ranking") or [])
+    )
+    missing_case_result_count = len(set(cases_by_id) - observed_case_ids)
+    missing_fused_scores = [
+        item for item in rankings if item.get("fused_score") is None
+    ]
+    if missing_fused_scores or empty_ranking_case_count or missing_case_result_count:
+        current = round(float(retrieval.get("score_threshold") or 0), 6)
+        return {
+            "retrieval": {**_copy(retrieval), "score_threshold": current},
+            "metrics": _copy(result.get("metrics") or {}),
+            "threshold_candidates": [current],
+            "threshold_front": [],
+            "threshold_selection_reason": "missing_fused_score_evidence",
+            "threshold_calibration_eligible": False,
+            "threshold_score_domain": "fused_score",
+            "missing_fused_score_count": (
+                len(missing_fused_scores) + empty_ranking_case_count
+                + missing_case_result_count
+            ),
+        }
     thresholds = _threshold_candidates(result, retrieval, cases_by_id=cases_by_id)
     points: list[dict[str, Any]] = []
     for threshold in thresholds:
@@ -651,7 +687,7 @@ def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> di
             ranking = [
                 item
                 for item in case_result.get("ranking") or []
-                if float(item.get("score") or 0) >= threshold
+                if float(item.get("fused_score") or 0) >= threshold
             ]
             sources = [
                 {
@@ -661,7 +697,7 @@ def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> di
                     "document_name": item.get("document_name"),
                     "source_block_id": item.get("source_block_id"),
                     "page_number": item.get("page_number"),
-                    "score": item.get("score"),
+                    "score": item.get("fused_score"),
                 }
                 for item in ranking
             ]
@@ -732,6 +768,9 @@ def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> di
             for item in pareto
         ],
         "threshold_selection_reason": selection_reason,
+        "threshold_calibration_eligible": True,
+        "threshold_score_domain": "fused_score",
+        "missing_fused_score_count": 0,
     }
 
 
@@ -749,9 +788,9 @@ def _threshold_candidates(
         ranking = [
             item
             for item in case_result.get("ranking") or []
-            if item.get("score") is not None
+            if item.get("fused_score") is not None
         ]
-        scores = [round(float(item.get("score") or 0), 6) for item in ranking]
+        scores = [round(float(item.get("fused_score") or 0), 6) for item in ranking]
         all_scores.extend(scores)
         if case.get("expected_no_result"):
             if scores:

@@ -4796,7 +4796,12 @@ class RagService:
 
         rerank_provider = "none"
         rerank_model = ""
+        rerank_input_count = 0
+        rerank_output_count = 0
+        rerank_tail_dropped = 0
+        rerank_details: dict[str, Any] = {}
         if config.rerank_enabled and fused:
+            fused_before_rerank = list(fused)
             outcome = await self.reranker.rerank(
                 clean_question,
                 [RerankDocument(chunk_id=item.chunk_id, text=item.matched_text) for item in fused],
@@ -4806,19 +4811,45 @@ class RagService:
             )
             rerank_provider = outcome.provider
             rerank_model = outcome.model
+            rerank_input_count = int(outcome.input_count or len(fused_before_rerank))
+            rerank_details = {
+                "rerank_requested_input_count": int(outcome.requested_input_count),
+                "rerank_input_char_count": int(outcome.input_char_count),
+                "rerank_candidate_limit": int(outcome.candidate_limit),
+                "rerank_input_char_limit": int(outcome.input_char_limit),
+                "rerank_timeout_budget_ms": int(outcome.timeout_budget_ms),
+                "rerank_elapsed_ms": round(float(outcome.elapsed_ms), 3),
+                "rerank_attempted_provider": str(outcome.attempted_provider or "none"),
+                "rerank_attempted_model": str(outcome.attempted_model or ""),
+                "rerank_fallback_reason": str(outcome.fallback_reason or "") or None,
+                "rerank_provider_target_used": str(outcome.provider_target or "") or None,
+                "rerank_attempted_targets": ";".join(outcome.attempted_targets) or None,
+                "rerank_target_attempt_count": len(outcome.attempted_targets),
+            }
             if outcome.warning:
                 warnings.append(outcome.warning)
-            by_id = {item.chunk_id: item for item in fused}
+            by_id = {item.chunk_id: item for item in fused_before_rerank}
             reranked: list[RetrievalCandidate] = []
-            for ranked in outcome.items:
+            for ranked in outcome.items[: config.rerank_top_n]:
                 candidate = by_id.pop(ranked.chunk_id, None)
                 if candidate is None:
                     continue
                 candidate.rerank_score = ranked.score
                 reranked.append(candidate)
-            fused = reranked + sorted(
-                by_id.values(), key=lambda item: (-item.fused_score, item.chunk_id)
-            )
+            if outcome.provider != "none":
+                # A successful provider response is authoritative for Top-N.
+                # Restoring the unranked tail makes rerank_top_n ineffective and
+                # systematically lowers fixed-cutoff citation precision.
+                fused = reranked
+                rerank_output_count = len(reranked)
+                rerank_tail_dropped = max(
+                    0, len(fused_before_rerank) - rerank_output_count
+                )
+            else:
+                # Provider failure is explicitly fail-open: preserve the full
+                # fused ranking and surface the warning/receipt to the caller.
+                fused = fused_before_rerank
+                rerank_output_count = len(fused_before_rerank)
 
         deleted_document_ids = self._deleted_document_ids()
         results = select_candidates(
@@ -4843,6 +4874,10 @@ class RagService:
                     fulltext_count=len(lexical_results),
                     rerank_provider=rerank_provider,
                     rerank_model=rerank_model,
+                    rerank_input_count=rerank_input_count,
+                    rerank_output_count=rerank_output_count,
+                    rerank_tail_dropped=rerank_tail_dropped,
+                    rerank_details=rerank_details,
                     embedding_profile=resolved_embedding_profile,
                 ),
             }
@@ -4884,6 +4919,10 @@ class RagService:
                 fulltext_count=len(lexical_results),
                 rerank_provider=rerank_provider,
                 rerank_model=rerank_model,
+                rerank_input_count=rerank_input_count,
+                rerank_output_count=rerank_output_count,
+                rerank_tail_dropped=rerank_tail_dropped,
+                rerank_details=rerank_details,
                 embedding_profile=resolved_embedding_profile,
             ),
         }
@@ -5068,6 +5107,10 @@ class RagService:
         fulltext_count: int,
         rerank_provider: str,
         rerank_model: str,
+        rerank_input_count: int,
+        rerank_output_count: int,
+        rerank_tail_dropped: int,
+        rerank_details: dict[str, Any],
         embedding_profile: dict[str, Any],
     ) -> dict[str, Any]:
         effective = dict(embedding_profile.get("effective") or {})
@@ -5078,6 +5121,11 @@ class RagService:
             "rerank_provider_used": rerank_provider,
             "rerank_model_used": rerank_model,
             "rerank_applied": rerank_provider != "none",
+            "rerank_input_count": max(0, int(rerank_input_count)),
+            "rerank_output_count": max(0, int(rerank_output_count)),
+            "rerank_tail_dropped": max(0, int(rerank_tail_dropped)),
+            **rerank_details,
+            "threshold_score_domain": "fused_score",
             "embedding_provider": str(effective.get("provider") or ""),
             "embedding_model": str(effective.get("model") or ""),
             "embedding_dimension": int(effective.get("dimension") or 0),

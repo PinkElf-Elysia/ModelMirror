@@ -765,11 +765,15 @@ class EvaluationGateUpdateRequest(BaseModel):
     mode: str
     min_recall_at_5: float = Field(ge=0, le=1)
     max_mrr_regression: float = Field(ge=0, le=1)
-    max_citation_hit_regression: float = Field(ge=0, le=1)
+    max_citation_hit_regression: float | None = Field(default=None, ge=0, le=1)
+    max_citation_precision_at_5_regression: float | None = Field(
+        default=None, ge=0, le=1
+    )
     max_no_result_increase: float = Field(ge=0, le=1)
     min_no_result_accuracy: float = Field(default=0.8, ge=0, le=1)
     min_citation_coverage: float = Field(default=0, ge=0, le=1)
     max_p95_latency_ratio: float = Field(ge=1, le=10)
+    max_p95_latency_ms: float = Field(default=1500, ge=1, le=120_000)
     require_zero_errors: bool = True
 
 
@@ -1938,7 +1942,19 @@ async def get_evaluation_case_evidence(
         if not version_id:
             raise ValueError("Generated evaluation set has no fixed knowledge version.")
         evidence: list[dict[str, Any]] = []
-        for reference in case.get("expected_refs") or []:
+        expected_no_result = bool(case.get("expected_no_result"))
+        references = list(case.get("expected_refs") or [])
+        evidence_role = "gold"
+        if expected_no_result:
+            references = list(
+                (case.get("targeting") or {}).get("context_refs") or []
+            )
+            evidence_role = "corpus_near_context"
+            if not references:
+                raise ValueError(
+                    "Generated hard negative has no fixed corpus-near review context."
+                )
+        for reference in references:
             chunk = get_rag_service().get_knowledge_chunk(
                 str(evaluation_set["kb_id"]),
                 str(reference.get("chunk_id") or ""),
@@ -1954,6 +1970,7 @@ async def get_evaluation_case_evidence(
             evidence.append(
                 {
                     "reference_id": reference.get("reference_id"),
+                    "evidence_role": evidence_role,
                     "document_id": chunk.get("document_id"),
                     "document_name": chunk.get("document_name"),
                     "chunk_id": chunk.get("chunk_id"),
@@ -1970,6 +1987,7 @@ async def get_evaluation_case_evidence(
             "eval_set_id": eval_set_id,
             "case_id": case_id,
             "pipeline_version_id": version_id,
+            "evidence_role": evidence_role,
             "evidence": evidence,
             "evidence_count": len(evidence),
         }
@@ -2057,7 +2075,9 @@ async def update_evaluation_gate(
 ) -> dict[str, Any]:
     _require_knowledge_base(kb_id)
     try:
-        return get_evaluation_store().set_gate_policy(kb_id, payload.model_dump())
+        return get_evaluation_store().set_gate_policy(
+            kb_id, payload.model_dump(exclude_none=True)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

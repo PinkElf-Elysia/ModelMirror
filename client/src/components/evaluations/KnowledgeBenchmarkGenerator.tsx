@@ -192,7 +192,7 @@ export default function KnowledgeBenchmarkGenerator({
         <div>
           <h2 className="text-sm font-semibold text-white">针对当前知识库生成 Gold 评测集</h2>
           <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">
-            固定索引版本并抽取真实证据，模型只负责生成问题；document、chunk 与 source block 由服务端映射和校验。生成后会立即运行一次真实检索校准。
+            固定索引版本并抽取真实证据，模型只负责生成问题；document、chunk 与 source block 由服务端映射和校验。含困难负例时，必须逐条人工审核后才会运行真实检索校准。
           </p>
         </div>
         {preflight?.valid ? <span className="inline-flex items-center gap-1 text-xs text-emerald-200"><CheckCircle2 className="h-4 w-4" />证据可用</span> : null}
