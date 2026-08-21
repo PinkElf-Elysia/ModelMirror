@@ -28,7 +28,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 DEFAULT_TENANT_ID = "local"
 CANONICAL_MASTER_KEY_ENV = "MODEL_MIRROR_CREDENTIAL_MASTER_KEY"
 LEGACY_MASTER_KEY_ENV = "MODEL_ROUTER_CREDENTIAL_MASTER_KEY"
@@ -370,6 +370,53 @@ class SQLiteRouterRepository:
             completed_at TEXT,
             PRIMARY KEY (tenant_id, id)
         );
+        CREATE TABLE IF NOT EXISTS provider_catalog_refreshes (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            connection_id TEXT NOT NULL,
+            connection_fingerprint TEXT NOT NULL,
+            status TEXT NOT NULL,
+            model_count INTEGER NOT NULL DEFAULT 0,
+            truncated INTEGER NOT NULL DEFAULT 0,
+            catalog_fingerprint TEXT,
+            error_code TEXT,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id)
+        );
+        CREATE TABLE IF NOT EXISTS provider_catalog_models (
+            tenant_id TEXT NOT NULL,
+            connection_id TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            normalized_model_id TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            capability_state TEXT NOT NULL DEFAULT 'capabilities_unclassified',
+            status TEXT NOT NULL DEFAULT 'active',
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            retired_at TEXT,
+            last_refresh_id TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, connection_id, model_id)
+        );
+        CREATE TABLE IF NOT EXISTS provider_catalog_offerings (
+            tenant_id TEXT NOT NULL,
+            connection_id TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            access_mode TEXT NOT NULL,
+            capability_source TEXT NOT NULL,
+            pricing_json TEXT,
+            pricing_source TEXT,
+            pricing_status TEXT NOT NULL DEFAULT 'unknown',
+            pricing_observed_at TEXT,
+            billing_authoritative INTEGER NOT NULL DEFAULT 0,
+            stale INTEGER NOT NULL DEFAULT 0,
+            observed_at TEXT NOT NULL,
+            last_refresh_id TEXT NOT NULL,
+            PRIMARY KEY (
+                tenant_id, connection_id, model_id, operation, access_mode
+            )
+        );
         CREATE INDEX IF NOT EXISTS idx_router_connections_tenant_enabled
             ON router_connections (tenant_id, enabled);
         CREATE INDEX IF NOT EXISTS idx_router_decisions_tenant_created
@@ -409,6 +456,21 @@ class SQLiteRouterRepository:
             );
         CREATE INDEX IF NOT EXISTS idx_provider_chat_canary_runs_status
             ON provider_chat_canary_runs (tenant_id, status);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_catalog_refreshes_running
+            ON provider_catalog_refreshes (tenant_id, connection_id)
+            WHERE status = 'running';
+        CREATE INDEX IF NOT EXISTS idx_provider_catalog_refreshes_recent
+            ON provider_catalog_refreshes (
+                tenant_id, connection_id, started_at DESC
+            );
+        CREATE INDEX IF NOT EXISTS idx_provider_catalog_models_status
+            ON provider_catalog_models (
+                tenant_id, connection_id, status, model_id
+            );
+        CREATE INDEX IF NOT EXISTS idx_provider_catalog_offerings_lookup
+            ON provider_catalog_offerings (
+                tenant_id, operation, stale, model_id
+            );
         """
         with self._lock, self._connect() as connection:
             previous_schema_version = int(
@@ -610,6 +672,15 @@ class SQLiteRouterRepository:
                 """,
                 (now, now),
             )
+            connection.execute(
+                """
+                UPDATE provider_catalog_refreshes
+                SET status = 'uncertain', error_code = 'server_restarted',
+                    completed_at = ?
+                WHERE status = 'running'
+                """,
+                (now,),
+            )
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def create_connection(
@@ -702,14 +773,32 @@ class SQLiteRouterRepository:
                     self._mask(api_key),
                 ]
             )
-        if payload.enabled is not None:
-            updates.extend(["enabled = ?", "health = ?"])
-            values.extend(
+        configuration_changed = any(
+            value is not None
+            for value in (payload.base_url, payload.scopes, payload.api_key)
+        )
+        if configuration_changed:
+            updates.extend(
                 [
-                    int(payload.enabled),
-                    "untested" if payload.enabled else "disabled",
+                    "health = ?",
+                    "model_count = ?",
+                    "last_checked_at = ?",
+                    "last_error_code = ?",
+                    "last_error_hint = ?",
                 ]
             )
+            remains_enabled = (
+                current.enabled if payload.enabled is None else payload.enabled
+            )
+            values.extend(
+                ["untested" if remains_enabled else "disabled", 0, None, None, None]
+            )
+        if payload.enabled is not None:
+            updates.append("enabled = ?")
+            values.append(int(payload.enabled))
+            if not configuration_changed:
+                updates.append("health = ?")
+                values.append("untested" if payload.enabled else "disabled")
         if not updates:
             return current
         updates.append("updated_at = ?")
@@ -776,6 +865,407 @@ class SQLiteRouterRepository:
             separators=(",", ":"),
         )
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    def claim_catalog_refresh(
+        self,
+        tenant_id: str,
+        *,
+        refresh_id: str,
+        connection_id: str,
+        connection_fingerprint: str,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        self.get_connection(clean_tenant, connection_id)
+        now = utc_now()
+        try:
+            with self._lock, self._connect() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO provider_catalog_refreshes (
+                        id, tenant_id, connection_id, connection_fingerprint,
+                        status, started_at
+                    ) VALUES (?, ?, ?, ?, 'running', ?)
+                    """,
+                    (
+                        refresh_id,
+                        clean_tenant,
+                        connection_id,
+                        connection_fingerprint,
+                        now,
+                    ),
+                )
+                row = connection.execute(
+                    """
+                    SELECT * FROM provider_catalog_refreshes
+                    WHERE tenant_id = ? AND id = ?
+                    """,
+                    (clean_tenant, refresh_id),
+                ).fetchone()
+        except sqlite3.IntegrityError as exc:
+            raise RouterRepositoryError(
+                "provider_catalog_refresh_in_progress"
+            ) from exc
+        return dict(row)
+
+    def complete_catalog_refresh(
+        self,
+        tenant_id: str,
+        refresh_id: str,
+        *,
+        connection_id: str,
+        models: list[dict[str, object]],
+        offerings: list[dict[str, object]],
+        model_count: int,
+        truncated: bool,
+        catalog_fingerprint: str,
+        observed_at: str,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            running = connection.execute(
+                """
+                SELECT id FROM provider_catalog_refreshes
+                WHERE tenant_id = ? AND id = ? AND connection_id = ?
+                    AND status = 'running'
+                """,
+                (clean_tenant, refresh_id, connection_id),
+            ).fetchone()
+            if running is None:
+                raise RouterRepositoryError("provider_catalog_refresh_not_running")
+
+            if truncated:
+                connection.execute(
+                    """
+                    UPDATE provider_catalog_models
+                    SET status = 'stale'
+                    WHERE tenant_id = ? AND connection_id = ?
+                        AND status IN ('active', 'stale')
+                    """,
+                    (clean_tenant, connection_id),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE provider_catalog_models
+                    SET status = 'retired', retired_at = ?
+                    WHERE tenant_id = ? AND connection_id = ?
+                        AND status IN ('active', 'stale')
+                    """,
+                    (observed_at, clean_tenant, connection_id),
+                )
+            connection.execute(
+                """
+                UPDATE provider_catalog_offerings
+                SET stale = 1
+                WHERE tenant_id = ? AND connection_id = ?
+                """,
+                (clean_tenant, connection_id),
+            )
+
+            for model in models:
+                model_id = str(model["model_id"])
+                metadata = model.get("metadata")
+                connection.execute(
+                    """
+                    INSERT INTO provider_catalog_models (
+                        tenant_id, connection_id, model_id,
+                        normalized_model_id, metadata_json, capability_state,
+                        status, first_seen_at, last_seen_at, retired_at,
+                        last_refresh_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL, ?)
+                    ON CONFLICT(tenant_id, connection_id, model_id) DO UPDATE SET
+                        normalized_model_id = excluded.normalized_model_id,
+                        metadata_json = excluded.metadata_json,
+                        capability_state = excluded.capability_state,
+                        status = 'active',
+                        last_seen_at = excluded.last_seen_at,
+                        retired_at = NULL,
+                        last_refresh_id = excluded.last_refresh_id
+                    """,
+                    (
+                        clean_tenant,
+                        connection_id,
+                        model_id,
+                        str(model.get("normalized_model_id") or model_id),
+                        json.dumps(
+                            metadata if isinstance(metadata, dict) else {},
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        str(
+                            model.get("capability_state")
+                            or "capabilities_unclassified"
+                        ),
+                        observed_at,
+                        observed_at,
+                        refresh_id,
+                    ),
+                )
+
+            for offering in offerings:
+                pricing = offering.get("pricing")
+                connection.execute(
+                    """
+                    INSERT INTO provider_catalog_offerings (
+                        tenant_id, connection_id, model_id, operation,
+                        access_mode, capability_source, pricing_json,
+                        pricing_source, pricing_status, pricing_observed_at,
+                        billing_authoritative, stale, observed_at,
+                        last_refresh_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+                    ON CONFLICT(
+                        tenant_id, connection_id, model_id, operation,
+                        access_mode
+                    ) DO UPDATE SET
+                        capability_source = excluded.capability_source,
+                        pricing_json = excluded.pricing_json,
+                        pricing_source = excluded.pricing_source,
+                        pricing_status = excluded.pricing_status,
+                        pricing_observed_at = excluded.pricing_observed_at,
+                        billing_authoritative = 0,
+                        stale = 0,
+                        observed_at = excluded.observed_at,
+                        last_refresh_id = excluded.last_refresh_id
+                    """,
+                    (
+                        clean_tenant,
+                        connection_id,
+                        str(offering["model_id"]),
+                        str(offering["operation"]),
+                        str(offering["access_mode"]),
+                        str(offering["capability_source"]),
+                        (
+                            json.dumps(
+                                pricing,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            )
+                            if isinstance(pricing, dict)
+                            else None
+                        ),
+                        offering.get("pricing_source"),
+                        str(offering.get("pricing_status") or "unknown"),
+                        offering.get("pricing_observed_at"),
+                        observed_at,
+                        refresh_id,
+                    ),
+                )
+
+            connection.execute(
+                """
+                UPDATE router_connections
+                SET health = 'online', model_count = ?, last_checked_at = ?,
+                    last_error_code = NULL, last_error_hint = NULL,
+                    updated_at = ?
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (
+                    max(0, int(model_count)),
+                    observed_at,
+                    observed_at,
+                    clean_tenant,
+                    connection_id,
+                ),
+            )
+            cursor = connection.execute(
+                """
+                UPDATE provider_catalog_refreshes
+                SET status = 'succeeded', model_count = ?, truncated = ?,
+                    catalog_fingerprint = ?, error_code = NULL,
+                    completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    max(0, int(model_count)),
+                    int(truncated),
+                    catalog_fingerprint,
+                    now,
+                    clean_tenant,
+                    refresh_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_catalog_refresh_not_running")
+            row = connection.execute(
+                """
+                SELECT * FROM provider_catalog_refreshes
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, refresh_id),
+            ).fetchone()
+        return dict(row)
+
+    def fail_catalog_refresh(
+        self,
+        tenant_id: str,
+        refresh_id: str,
+        *,
+        connection_id: str,
+        error_code: str,
+        health: str | None = None,
+        model_count: int = 0,
+        checked_at: str | None = None,
+        error_hint: str | None = None,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_catalog_refreshes
+                SET status = 'failed', error_code = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND connection_id = ?
+                    AND status = 'running'
+                """,
+                (error_code, now, clean_tenant, refresh_id, connection_id),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_catalog_refresh_not_running")
+            connection.execute(
+                """
+                UPDATE provider_catalog_models
+                SET status = 'stale'
+                WHERE tenant_id = ? AND connection_id = ? AND status = 'active'
+                """,
+                (clean_tenant, connection_id),
+            )
+            connection.execute(
+                """
+                UPDATE provider_catalog_offerings
+                SET stale = 1
+                WHERE tenant_id = ? AND connection_id = ?
+                """,
+                (clean_tenant, connection_id),
+            )
+            if health is not None and checked_at is not None:
+                connection.execute(
+                    """
+                    UPDATE router_connections
+                    SET health = ?, model_count = ?, last_checked_at = ?,
+                        last_error_code = ?, last_error_hint = ?, updated_at = ?
+                    WHERE tenant_id = ? AND id = ?
+                    """,
+                    (
+                        health,
+                        max(0, int(model_count)),
+                        checked_at,
+                        error_code,
+                        error_hint,
+                        checked_at,
+                        clean_tenant,
+                        connection_id,
+                    ),
+                )
+            row = connection.execute(
+                """
+                SELECT * FROM provider_catalog_refreshes
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, refresh_id),
+            ).fetchone()
+        return dict(row)
+
+    def list_catalog_refreshes(
+        self,
+        tenant_id: str,
+        *,
+        connection_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        clauses = ["tenant_id = ?"]
+        values: list[object] = [clean_tenant]
+        if connection_id is not None:
+            clauses.append("connection_id = ?")
+            values.append(connection_id)
+        values.append(max(1, min(int(limit), 500)))
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM provider_catalog_refreshes
+                WHERE {" AND ".join(clauses)}
+                ORDER BY started_at DESC, id DESC
+                LIMIT ?
+                """,
+                tuple(values),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_catalog_models(
+        self,
+        tenant_id: str,
+        *,
+        connection_id: str | None = None,
+        model_id: str | None = None,
+        status: str | None = None,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        clauses = ["tenant_id = ?"]
+        values: list[object] = [clean_tenant]
+        for column, value in (
+            ("connection_id", connection_id),
+            ("model_id", model_id),
+            ("status", status),
+        ):
+            if value is not None:
+                clauses.append(f"{column} = ?")
+                values.append(value)
+        values.extend(
+            [max(1, min(int(limit), 5_000)), max(0, int(offset))]
+        )
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM provider_catalog_models
+                WHERE {" AND ".join(clauses)}
+                ORDER BY model_id ASC, connection_id ASC
+                LIMIT ? OFFSET ?
+                """,
+                tuple(values),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_catalog_offerings(
+        self,
+        tenant_id: str,
+        *,
+        connection_id: str | None = None,
+        model_id: str | None = None,
+        operation: str | None = None,
+        include_stale: bool = True,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        clauses = ["tenant_id = ?"]
+        values: list[object] = [clean_tenant]
+        for column, value in (
+            ("connection_id", connection_id),
+            ("model_id", model_id),
+            ("operation", operation),
+        ):
+            if value is not None:
+                clauses.append(f"{column} = ?")
+                values.append(value)
+        if not include_stale:
+            clauses.append("stale = 0")
+        values.extend(
+            [max(1, min(int(limit), 5_000)), max(0, int(offset))]
+        )
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM provider_catalog_offerings
+                WHERE {" AND ".join(clauses)}
+                ORDER BY model_id ASC, operation ASC, connection_id ASC
+                LIMIT ? OFFSET ?
+                """,
+                tuple(values),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def claim_chat_certification(
         self,

@@ -33,6 +33,44 @@ ProviderChatCanaryRunStatus = Literal[
     "preflight_fallback",
     "cancelled",
 ]
+ProviderCatalogRefreshStatus = Literal[
+    "running",
+    "succeeded",
+    "failed",
+    "uncertain",
+]
+ProviderCatalogModelStatus = Literal["active", "stale", "retired"]
+OperationName = Literal[
+    "chat",
+    "analyze_document",
+    "analyze_image",
+    "generate_image",
+    "transcribe",
+    "synthesize_speech",
+    "generate_audio",
+    "analyze_audio",
+    "realtime_voice",
+    "analyze_video",
+    "generate_video",
+    "generate_world",
+    "embed",
+    "rerank",
+]
+OperationAvailabilityStatus = Literal[
+    "available",
+    "needs_configuration",
+    "verification_required",
+    "upstream_unavailable",
+    "disabled",
+]
+OperationVerificationStatus = Literal[
+    "verified",
+    "contract_verified",
+    "manual_required",
+    "failed",
+    "not_applicable",
+]
+OperationInteractionStatus = Literal["ready", "planned", "disabled"]
 CONNECTION_SCOPE_ORDER: tuple[ConnectionScope, ...] = (
     "chat",
     "audio",
@@ -179,6 +217,108 @@ class ProviderModelsRefreshResponse(BaseModel):
     checked_at: str
     truncated: bool = False
     message: str
+
+
+class ProviderCatalogPrice(BaseModel):
+    currency: str | None = None
+    unit: str | None = None
+    input_price: str | None = None
+    output_price: str | None = None
+    source: str
+    observed_at: str
+    status: Literal["reported", "verified_source", "ambiguous", "unknown", "stale"]
+    billing_authoritative: Literal[False] = False
+
+
+class ProviderCatalogRefreshResponse(BaseModel):
+    contract_version: Literal["modelmirror-provider-catalog-v1"]
+    refresh_id: str
+    connection_id: str
+    status: ProviderCatalogRefreshStatus
+    model_ids: list[str] = Field(default_factory=list, max_length=500)
+    model_count: int = 0
+    checked_at: str
+    truncated: bool = False
+    catalog_fingerprint: str | None = None
+    error_code: str | None = None
+    message: str
+
+
+class ProviderCatalogOfferingSummary(BaseModel):
+    connection_id: str
+    connection_name: str
+    provider_kind: ConnectionKind
+    model_id: str
+    operation: OperationName
+    access_mode: str
+    capability_source: str
+    inventory_status: ProviderCatalogModelStatus
+    connection_health: ConnectionHealth
+    verification_status: OperationVerificationStatus
+    invocable: bool
+    reason_codes: list[str] = Field(default_factory=list)
+    refresh_id: str
+    observed_at: str
+    stale: bool = False
+    pricing: ProviderCatalogPrice | None = None
+
+
+class ProviderCatalogOfferingsResponse(BaseModel):
+    contract_version: Literal["modelmirror-provider-catalog-v1"]
+    next_cursor: str | None = None
+    offerings: list[ProviderCatalogOfferingSummary] = Field(default_factory=list)
+
+
+class OperationReadinessProjection(BaseModel):
+    operation: OperationName
+    interaction_status: OperationInteractionStatus
+    availability_status: OperationAvailabilityStatus
+    verification_status: OperationVerificationStatus
+    invocable: bool
+    access_modes: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    observed_at: str | None = None
+    stale: bool = False
+    pricing: list[ProviderCatalogPrice] = Field(default_factory=list)
+
+
+class ControlPlaneCatalogModel(BaseModel):
+    model_id: str
+    catalog_presence: Literal["present", "stale", "retired", "unknown"]
+    display_source: Literal["runtime_discovered", "runtime_and_curated"] = (
+        "runtime_discovered"
+    )
+    operations: list[OperationReadinessProjection] = Field(default_factory=list)
+
+
+class ControlPlaneCatalogResponse(BaseModel):
+    contract_version: Literal["modelmirror-provider-catalog-v1"]
+    catalog_revision: str
+    generated_at: str
+    stale: bool
+    next_cursor: str | None = None
+    models: list[ControlPlaneCatalogModel] = Field(default_factory=list)
+
+
+class ControlPlaneOperationCount(BaseModel):
+    operation: OperationName
+    total: int
+    invocable: int
+    stale: int
+    blocked: int
+
+
+class ProviderControlPlaneOverview(BaseModel):
+    contract_version: Literal["modelmirror-provider-catalog-v1"]
+    catalog_revision: str
+    generated_at: str
+    provider_count: int
+    online_provider_count: int
+    discovered_model_count: int
+    stale_model_count: int
+    operation_counts: list[ControlPlaneOperationCount] = Field(default_factory=list)
+    blocking_reason_codes: list[str] = Field(default_factory=list)
+    default_qualification: Literal["not_evaluated"] = "not_evaluated"
 
 
 class ProviderChatCertificationRequest(BaseModel):

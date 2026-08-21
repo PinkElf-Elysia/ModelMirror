@@ -151,11 +151,15 @@ export default function ModelServiceConnections({
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const provider = PROVIDERS[form.kind];
   const canTest = Boolean(
     form.name.trim() && form.base_url.trim() && form.api_key.trim(),
+  );
+  const canSaveEdit = Boolean(
+    editingId && form.name.trim() && form.base_url.trim() && form.scopes.length,
   );
 
   const loadConnections = useCallback(async () => {
@@ -263,6 +267,65 @@ export default function ModelServiceConnections({
     }
   }, [csrfToken, loadConnections, payload, testResult]);
 
+  const beginEdit = useCallback((connection: RouterConnection) => {
+    setEditingId(connection.id);
+    setForm({
+      kind: connection.kind,
+      name: connection.name,
+      base_url: connection.base_url,
+      api_key: "",
+      scopes: scopesForConnection(connection),
+    });
+    setTestResult(null);
+    setError("");
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingId(null);
+    setForm(INITIAL_FORM);
+    setTestResult(null);
+    setError("");
+  }, []);
+
+  const saveEditedConnection = useCallback(async () => {
+    if (!editingId || !canSaveEdit) return;
+    setSaving(true);
+    setError("");
+    try {
+      const updatePayload: Record<string, unknown> = {
+        name: form.name.trim(),
+        base_url: form.base_url.trim(),
+        scopes: form.scopes,
+      };
+      if (form.api_key.trim()) updatePayload.api_key = form.api_key;
+      const updated = await fetch(
+        `/api/router/connections/${encodeURIComponent(editingId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-ModelMirror-CSRF": csrfToken,
+          },
+          body: JSON.stringify(updatePayload),
+        },
+      );
+      if (!updated.ok) throw new Error(await readError(updated));
+      const tested = await fetch(
+        `/api/router/connections/${encodeURIComponent(editingId)}/test`,
+        { method: "POST", headers: { "X-ModelMirror-CSRF": csrfToken } },
+      );
+      if (!tested.ok) throw new Error(await readError(tested));
+      setEditingId(null);
+      setForm(INITIAL_FORM);
+      await loadConnections();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "连接修改未完成。");
+      await loadConnections();
+    } finally {
+      setSaving(false);
+    }
+  }, [canSaveEdit, csrfToken, editingId, form, loadConnections]);
+
   const testSavedConnection = useCallback(
     async (connectionId: string) => {
       setBusyId(connectionId);
@@ -357,7 +420,8 @@ export default function ModelServiceConnections({
           className="space-y-5 border-b border-white/10 p-5 lg:border-b-0 lg:border-r"
           onSubmit={(event) => {
             event.preventDefault();
-            void testNewConnection();
+            if (editingId) void saveEditedConnection();
+            else void testNewConnection();
           }}
         >
           <label className="block">
@@ -366,6 +430,7 @@ export default function ModelServiceConnections({
             </span>
             <select
               className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-300/60"
+              disabled={editingId !== null}
               onChange={(event) =>
                 selectProvider(event.target.value as ConnectionKind)
               }
@@ -413,7 +478,7 @@ export default function ModelServiceConnections({
                 autoComplete="new-password"
                 className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60"
                 onChange={(event) => updateForm({ api_key: event.target.value })}
-                placeholder="仅发送到本机后端"
+                placeholder={editingId ? "留空以保留现有密钥" : "仅发送到本机后端"}
                 type="password"
                 value={form.api_key}
               />
@@ -473,7 +538,7 @@ export default function ModelServiceConnections({
           <div className="flex flex-wrap gap-3">
             <button
               className="inline-flex items-center justify-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:opacity-45"
-              disabled={!canTest || testing || saving}
+              disabled={editingId ? !canSaveEdit || saving : !canTest || testing || saving}
               type="submit"
             >
               {testing ? (
@@ -481,16 +546,18 @@ export default function ModelServiceConnections({
               ) : (
                 <Plug className="h-4 w-4" />
               )}
-              测试连接
+              {editingId ? "保存修改并测试" : "测试连接"}
             </button>
-            <button
+            {editingId ? (
+              <button className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200" disabled={saving} onClick={cancelEdit} type="button">取消编辑</button>
+            ) : <button
               className="rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-45"
               disabled={!testResult?.ok || saving || testing}
               onClick={() => void saveConnection()}
               type="button"
             >
               {saving ? "正在保存" : "保存连接"}
-            </button>
+            </button>}
           </div>
         </form>
 
@@ -570,9 +637,21 @@ export default function ModelServiceConnections({
                           connectionId={connection.id}
                           csrfToken={csrfToken}
                         />
+                      ) : scopesForConnection(connection).includes("chat") ? (
+                        <p className="mt-3 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-100">
+                          Chat 契约认证首期仅支持 newAPI。此连接当前只提供连通性与目录证据，不会标记为已完成真实 Chat 认证。
+                        </p>
                       ) : null}
                     </div>
                     <div className="flex shrink-0 gap-2">
+                      <button
+                        className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/[0.07] disabled:opacity-45"
+                        disabled={busyId === connection.id || editingId === connection.id}
+                        onClick={() => beginEdit(connection)}
+                        type="button"
+                      >
+                        编辑
+                      </button>
                       <button
                         className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/[0.07] disabled:opacity-45"
                         disabled={!connection.enabled || busyId === connection.id}

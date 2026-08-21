@@ -1,8 +1,8 @@
 # Model Provider Control Plane
 
-状态：Round 0–3 建设批准，Round 3 真实额度验收及默认数据面切换未批准
-Round 3 基线：`origin/main@0e0202b313b2378d13d899cf53166665baac6bee`
-更新日期：2026-08-20
+状态：Round 0–3 已合并且 Round 3 真实 Canary 已人工验收；Round 4 候选处于 PR 提交前收尾；默认数据面切换未批准
+Round 4 收尾基线：`origin/main@4f942f73149ea33a81df795b4035c37f9b49fe64`
+更新日期：2026-08-21
 
 ## 决策
 
@@ -31,6 +31,8 @@ Provider Control Plane 的会话、SQLite 或主密钥。它只加入独立外�
   SSE 或路由回执，也不产生影子复制流量。
 - Round 3 只增加用户显式、页面会话级的 `newapi_canary`；默认关闭，不做百分比灰度、
   影子复制、自动切流或默认资格判定。
+- Round 4 统一模型发现、Readiness 投影和 Provider 设置入口，不统一各模态调用协议，
+  不触发自动刷新、自动认证、自动路由或付费请求。
 - newAPI 是否成为强制默认数据面由后续独立决策决定。
 - 任一门禁失败时保留现有静态数据面和 SQLite，不自动迁移或删除数据。
 
@@ -122,11 +124,39 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   过期认证下的运行保留为明确标记的历史证据，不计入当前成功率。该汇总只覆盖接口返回的
   最近记录，不能解释为全量历史或默认数据面资格。
 - 受管端点与当前静态默认端点相同时标记 `baseline_overlap`；该运行只证明受管路径，不能
-  作为未来默认资格证据。每次真实额度 Canary 仍需单独授权和人工验收。
+  作为未来默认资格证据。Round 3 已在明确额度授权后完成一次真实人工验收；后续每次
+  真实额度 Canary 仍需单独授权和人工验收。
+
+## 统一 Catalog、Readiness 与设置入口
+
+- 内部与公共契约版本为 `modelmirror-provider-catalog-v1`。`CatalogModel`、连接级
+  `ProviderInventoryRecord`、逐 operation 的 `ProviderOffering` 与只读
+  `OperationReadinessProjection` 分离；不得按模型名称推断 operation、价格或兼容性。
+- SQLite v14 加法新增刷新、Inventory 和 Offering 表，所有唯一键包含 `tenant_id`。
+  完整未截断刷新才会退休未再次出现的旧模型；失败或截断只将旧证据标为 stale，
+  不删除最后一次成功目录。遗留 `running` 在重启后变为 `uncertain`，不会重放。
+- `POST /api/router/connections/{id}/catalog/refresh` 只执行显式模型目录 GET。连接健康、
+  Inventory、Offering 与刷新证据在同一事务提交；旧 `/models/refresh` 委托同一服务并
+  保留原有最多 500 个 ID 的响应契约。
+- 公共 `GET /api/models/control-plane-catalog` 按模型、operation 和 access mode 返回
+  目录出现、连接状态、认证、Canary 与专用数据面的聚合证据。响应不包含 tenant、连接
+  ID、Base URL、凭据或内部错误，并设置 `Cache-Control: no-store`。
+- Readiness 是只读现状投影。Chat 认证只证明 Chat；Canary 只增加
+  `newapi_canary` access mode；任一可调用 Offering 可以令 operation 可调用，但冲突、
+  过期与失败证据仍通过稳定 reason code 保留。价格只是带来源的十进制字符串元数据，
+  `billing_authoritative=false`，冲突报价不求平均。
+- `/settings` 使用 `?section=overview|providers|routing` 组织总览、Provider/Catalog 与
+  路由实验。三页签共用管理员会话和 CSRF；Marble 位于控制面之外，即使未配对仍可用。
+  newAPI 管理界面仍只允许安全外链，不嵌入、代理或自动加载。
+- 公共 `/models` 与 Prompt 目标模型选择器继续使用原有静态快照口径，不显示或断言运行时
+  `invocable`，也不插入仅由 Provider 发现的模型。统一 Readiness 仅在设置页审计，避免
+  控制面建设改变既有用户模型浏览与选择体验。
+- R4 受管 Provider 不会自动配置或接管普通 `/api/chat`。当前 default Chat 仍读取
+  `LLM_GATEWAY_URL/KEY` 或 `OPENROUTER_API_KEY`；迁移和 newAPI 默认门禁属于 Round 5。
 
 ## 回退
 
 关闭管理面或回退路由不得删除 Provider SQLite、newAPI 数据目录、旧主密钥或迁移
 备份。将 `MODEL_MIRROR_PROVIDER_CHAT_CANARY_ENABLED=false` 可立即关闭 Round 3 入口；
-代码回退保留 v13 表和脱敏证据，旧版本可忽略新表继续运行。部署回退通过恢复上一版本
+代码回退保留 v14 表和脱敏证据，旧版本可忽略新表继续运行。部署回退通过恢复上一版本
 Compose 与对应显式环境配置完成。

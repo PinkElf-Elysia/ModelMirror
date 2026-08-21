@@ -253,21 +253,17 @@ interface GeneralCatalogPayload {
   }>;
 }
 
-interface RuntimeEnvironmentSummary {
-  model_gateway_ready: boolean;
-}
-
 interface ModelMarketHeroProps {
+  adaptedCount: number;
   onsiteCount: number;
   searchTerm: string;
-  usableCount: number | null;
   onSearchChange: (value: string) => void;
 }
 
 export function ModelMarketHero({
+  adaptedCount,
   onsiteCount,
   searchTerm,
-  usableCount,
   onSearchChange,
 }: ModelMarketHeroProps) {
   return (
@@ -296,13 +292,7 @@ export function ModelMarketHero({
         <p aria-label="模型市场状态" className="shrink-0 text-xs text-slate-400">
           <span className="font-semibold text-slate-100">{onsiteCount}</span> 个模型
           <span aria-hidden="true" className="mx-2 text-hire-300/70">/</span>
-          {usableCount === null ? (
-            <span className="font-medium text-cyan-100">可调用数待确认</span>
-          ) : (
-            <>
-              <span className="font-semibold text-cyan-100">{usableCount}</span> 可直接调用
-            </>
-          )}
+          <span className="font-semibold text-cyan-100">{adaptedCount}</span> 已适配
         </p>
       </div>
 
@@ -340,8 +330,6 @@ export default function ModelListPage() {
     useState<GeneralCatalogPayload | null>(null);
   const [fileCapabilities, setFileCapabilities] =
     useState<FileCapabilitiesResponse | null>(null);
-  const [runtimeEnvironment, setRuntimeEnvironment] =
-    useState<RuntimeEnvironmentSummary | null>(null);
 
   useEffect(() => {
     document.title = "模镜 - AI 牛马招聘会";
@@ -429,26 +417,6 @@ export default function ModelListPage() {
       .catch(() => {
         if (!controller.signal.aborted) {
           setGeneralCatalog(null);
-        }
-      });
-
-    void fetch("/api/runtime/environment-summary", {
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error("runtime environment unavailable");
-        }
-        return (await response.json()) as RuntimeEnvironmentSummary;
-      })
-      .then((payload) => {
-        if (!controller.signal.aborted) {
-          setRuntimeEnvironment(payload);
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setRuntimeEnvironment(null);
         }
       });
 
@@ -806,29 +774,11 @@ export default function ModelListPage() {
   const onsiteModels = models.filter(
     (model) => model.catalog_counted,
   );
-  const onsiteFilteredModels = filteredModels.filter(
-    (model) =>
-      model.catalog_counted && model.catalog_status !== "expired",
+  // Public "adapted" means the snapshot is integrated and not expired.
+  // Runtime invocability remains a Provider Control Plane concern.
+  const adaptedModels = onsiteModels.filter(
+    (model) => model.catalog_status !== "expired",
   );
-  const usableFilteredCount = onsiteFilteredModels.filter(
-    (model) =>
-      invocableModelIds.has(model.id) ||
-      (
-        model.active &&
-        runtimeEnvironment?.model_gateway_ready === true &&
-        model.interaction_status === "ready" &&
-        (model.ui_entrypoint === "chat" || model.ui_entrypoint === "rag")
-      ) ||
-      Boolean(confirmedAudioOperations.get(model.id)?.length) ||
-      Boolean(confirmedImageOperations.get(model.id)?.length) ||
-      Boolean(confirmedVideoOperations.get(model.id)?.length),
-  ).length;
-  const usableCountKnown =
-    generalCatalog !== null ||
-    runtimeEnvironment !== null ||
-    videoCatalog !== null ||
-    audioCatalog !== null ||
-    imageCatalog !== null;
   const showFeaturedRecommendations = shouldShowFeaturedRecommendations(
     filters,
     searchTerm,
@@ -872,10 +822,10 @@ export default function ModelListPage() {
       sidebarGridClassName="xl:grid-cols-[230px_minmax(0,1fr)] xl:gap-x-[54px]"
     >
         <ModelMarketHero
+          adaptedCount={adaptedModels.length}
           onsiteCount={onsiteModels.length}
           onSearchChange={setSearchTerm}
           searchTerm={searchTerm}
-          usableCount={usableCountKnown ? usableFilteredCount : null}
         />
 
         <section className="mt-4">

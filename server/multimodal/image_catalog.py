@@ -97,6 +97,19 @@ class ImageCatalogService:
         self._cache: _CachedImageCatalog | None = None
         self._lock = asyncio.Lock()
 
+    def peek_catalog(self) -> ImageModelCatalogResponse | None:
+        """Return the last bounded snapshot without performing provider I/O."""
+        cached = self._cache
+        if cached is None:
+            return None
+        age = time.monotonic() - cached.stored_at
+        if age > IMAGE_CATALOG_STALE_SECONDS:
+            return None
+        return self._response(
+            cached,
+            stale=age > IMAGE_CATALOG_TTL_SECONDS,
+        )
+
     async def get_catalog(
         self,
         *,

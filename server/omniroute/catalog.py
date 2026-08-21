@@ -283,6 +283,42 @@ class OmniRouteCatalogService:
         self._last_good = None
         self._last_good_monotonic = 0.0
 
+    def peek_catalog(self) -> ModelCatalogResponse | None:
+        """Return configured state or the last bounded snapshot without I/O."""
+        settings = self._settings_factory()
+        if not settings.enabled:
+            return ModelCatalogResponse(
+                source="bundled",
+                router_status="disabled",
+                stale=False,
+                synced_at=None,
+                catalog_version=CATALOG_VERSION,
+                routes=_disabled_routes(),
+            )
+        if not settings.configured:
+            return ModelCatalogResponse(
+                source="bundled",
+                router_status="offline",
+                stale=False,
+                synced_at=None,
+                catalog_version=CATALOG_VERSION,
+                routes=_disabled_routes(),
+            )
+        if self._last_good is None:
+            return None
+        age = time.monotonic() - self._last_good_monotonic
+        if age > settings.stale_ttl_seconds:
+            return None
+        catalog = self._last_good.model_copy(deep=True)
+        if age > settings.catalog_ttl_seconds:
+            catalog.router_status = "stale"
+            catalog.stale = True
+            for model in catalog.models:
+                model.availability = "degraded"
+            for route in catalog.routes:
+                route.availability = "degraded"
+        return catalog
+
     async def get_catalog(self, *, force: bool = False) -> ModelCatalogResponse:
         settings = self._settings_factory()
         if not settings.enabled:
