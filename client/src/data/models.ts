@@ -1,6 +1,6 @@
 ﻿// Merged with OpenRouter model catalog on 2026-08-20T10:16:33.909Z.
-// Current OpenRouter refresh verified on 2026-08-20 against the live all-modalities catalog.
-// Refreshed with entries published through 2026-08-19T14:50:53.000Z.
+// Current OpenRouter refresh verified on 2026-08-21 against the live all-modalities catalog.
+// Refreshed with entries published through 2026-08-20T20:04:55.000Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
 // Full OpenRouter catalog audit refresh: 2026-08-16. Batch catalog entries are
 // attached to their canonical models as serving variants and excluded from
@@ -208,6 +208,97 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "stealth/ox-alpha",
+    "canonical_slug": "stealth/ox-alpha",
+    "name": "Ox Alpha",
+    "raw_description": "Ox Alpha is an anonymous third-party model for coding, agentic work, and visual understanding. It accepts text, image, and video inputs, provides mandatory reasoning, and exposes a 1M-token context window.",
+    "context_length": 1048576,
+    "pricing": { "input": 0, "output": 0 },
+    "input_modalities": ["text", "image", "video"],
+    "output_modalities": ["text"],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1787256295,
+    "expiration_date": 4070822400,
+    "model_author": "Stealth",
+    "reasoning_declared": true,
+    "note": "匿名第三方零价预览模型；服务端声明会保留提示词与输出，且推理模式为强制开启。"
+  },
+  {
+    "id": "tencent/hy-mt2-1.8b",
+    "canonical_slug": "tencent/hy-mt2-1.8b-20260521",
+    "name": "Tencent: HY-MT2 1.8B",
+    "raw_description": "HY-MT2 1.8B is Tencent's compact translation model for 33 language pairs plus five Chinese dialect and minority-language pairs. It supports structured, contextual, glossary-aware, and style-controlled translation.",
+    "context_length": 8192,
+    "pricing": { "input": 0.044, "output": 0.177 },
+    "input_modalities": ["text"],
+    "output_modalities": ["text"],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "max_completion_tokens",
+      "max_tokens",
+      "stop",
+      "temperature"
+    ],
+    "created": 1787231581,
+    "expiration_date": null,
+    "model_author": "Tencent"
+  },
+  {
+    "id": "tencent/hy-mt2-30b-a3b",
+    "canonical_slug": "tencent/hy-mt2-30b-a3b-20260521",
+    "name": "Tencent: HY-MT2 30B-A3B",
+    "raw_description": "HY-MT2 30B-A3B is Tencent's flagship mixture-of-experts translation model with 3B active parameters out of 30B. It covers 33 language pairs plus five Chinese dialect and minority-language pairs and supports structured, contextual, glossary-aware, and style-controlled translation.",
+    "context_length": 8192,
+    "pricing": { "input": 0.074, "output": 0.295 },
+    "input_modalities": ["text"],
+    "output_modalities": ["text"],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "max_completion_tokens",
+      "max_tokens",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature"
+    ],
+    "created": 1787231561,
+    "expiration_date": null,
+    "model_author": "Tencent"
+  },
+  {
+    "id": "black-forest-labs/flux-video-upscale",
+    "canonical_slug": "black-forest-labs/flux-video-upscale-20260819",
+    "name": "Black Forest Labs: FLUX Video Upscale",
+    "raw_description": "FLUX Video Upscale enhances one source video by 1.5x to 3x while preserving its duration. It supports an optional text prompt and precise or creative enhancement modes.",
+    "context_length": 0,
+    "pricing": { "input": -1, "output": -1 },
+    "input_modalities": ["video", "text"],
+    "output_modalities": ["video"],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "input_references",
+      "upscale_factor",
+      "creativity",
+      "safety_tolerance"
+    ],
+    "created": 1787173919,
+    "expiration_date": null,
+    "model_author": "Black Forest Labs",
+    "note": "通过 OpenRouter 异步 Video API 提交并轮询；必须提供一个源视频，支持 1.5–3 倍放大与精确/创意增强。精确模式 $0.075/百万像素秒，创意模式 $0.105/百万像素秒。"
+  },
   {
     "id": "~z-ai/glm-latest",
     "canonical_slug": "~z-ai/glm-latest",
@@ -22460,6 +22551,7 @@ const VERIFIED_SPEECH_MODEL_IDS = new Set([
 ]);
 
 const VERIFIED_VIDEO_MODEL_IDS = new Set([
+  "black-forest-labs/flux-video-upscale",
   "bytedance/seedance-2.0",
   "bytedance/seedance-2.0-mini",
   "bytedance/seedance-2.5",
@@ -22977,6 +23069,10 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "stealth/ox-alpha",
+  "tencent/hy-mt2-1.8b",
+  "tencent/hy-mt2-30b-a3b",
+  "black-forest-labs/flux-video-upscale",
   "~z-ai/glm-latest",
   "z-ai/glm-5.3",
   "liquid/lfm-2.5-embedding-350m:free",

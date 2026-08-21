@@ -5,6 +5,14 @@ export interface VideoPricingProfile {
   pricing_skus: Record<string, string>;
 }
 
+export interface VideoUpscaleCostSelection {
+  durationSeconds: number;
+  width: number;
+  height: number;
+  upscaleFactor: number;
+  creativity: number;
+}
+
 export interface VideoCostSelection {
   duration: number | null;
   resolution: string;
@@ -18,6 +26,44 @@ function pricingNumber(profile: VideoPricingProfile, key: string) {
   if (raw === undefined) return null;
   const value = Number(raw);
   return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+export function videoUpscaleUnitRate(
+  profile: VideoPricingProfile,
+  creativity: number,
+) {
+  const cents = pricingNumber(
+    profile,
+    creativity === 1
+      ? "cents_per_megapixel_second_creative"
+      : "cents_per_megapixel_second_precise",
+  );
+  return cents === null ? null : cents / 100;
+}
+
+export function estimateVideoUpscaleCost(
+  profile: VideoPricingProfile,
+  {
+    durationSeconds,
+    width,
+    height,
+    upscaleFactor,
+    creativity,
+  }: VideoUpscaleCostSelection,
+) {
+  const rate = videoUpscaleUnitRate(profile, creativity);
+  if (
+    rate === null ||
+    durationSeconds <= 0 ||
+    width <= 0 ||
+    height <= 0 ||
+    upscaleFactor <= 0
+  ) {
+    return null;
+  }
+  const outputMegapixels =
+    (width * height * upscaleFactor * upscaleFactor) / 1_000_000;
+  return outputMegapixels * durationSeconds * rate;
 }
 
 function selectedDimensions(

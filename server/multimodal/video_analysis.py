@@ -41,6 +41,79 @@ VIDEO_FORMATS: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
+def video_magic_matches(extension: str, content: bytes) -> bool:
+    if extension in {"mp4", "mov"}:
+        return len(content) >= 12 and content[4:8] == b"ftyp"
+    if extension == "webm":
+        return content.startswith(b"\x1a\x45\xdf\xa3")
+    return content.startswith((b"\x00\x00\x01\xba", b"\x00\x00\x01\xb3"))
+
+
+def video_file_data_url(
+    filename: str,
+    content_type: str | None,
+    content: bytes,
+) -> str:
+    if not content:
+        raise MultimodalServiceError(
+            "empty_video",
+            "视频文件为空，请重新选择文件。",
+            status_code=422,
+        )
+    if len(content) > MAX_VIDEO_BYTES:
+        raise MultimodalServiceError(
+            "video_too_large",
+            "视频文件不能超过 20 MiB，请压缩或缩短后重试。",
+            status_code=413,
+        )
+    extension = Path(filename).suffix.lower().lstrip(".")
+    profile = VIDEO_FORMATS.get(extension)
+    if profile is None:
+        raise MultimodalServiceError(
+            "unsupported_video_format",
+            "仅支持 MP4、MPEG、MOV 和 WebM 视频。",
+            status_code=422,
+        )
+    mime, allowed_mimes = profile
+    normalized_type = str(
+        content_type or "application/octet-stream"
+    ).lower()
+    if normalized_type not in allowed_mimes or not video_magic_matches(
+        extension, content
+    ):
+        raise MultimodalServiceError(
+            "invalid_video_file",
+            "文件内容与视频格式不匹配，请选择有效的视频文件。",
+            status_code=422,
+        )
+    encoded = base64.b64encode(content).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def validated_video_url(value: str) -> str:
+    url = str(value or "").strip()
+    if len(url) > MAX_VIDEO_URL_CHARS:
+        raise MultimodalServiceError(
+            "invalid_video_url",
+            "视频网址过长，请使用有效的 HTTPS 直链或 YouTube 链接。",
+            status_code=422,
+        )
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+    ):
+        raise MultimodalServiceError(
+            "invalid_video_url",
+            "仅支持不含账号信息的 HTTPS 视频直链或 YouTube 链接。",
+            status_code=422,
+        )
+    return url
+
+
 @dataclass(frozen=True)
 class VideoAnalysisUsage:
     input_tokens: int | None = None
@@ -505,67 +578,12 @@ class VideoAnalysisService:
         content_type: str | None,
         content: bytes,
     ) -> str:
-        if not content:
-            raise MultimodalServiceError(
-                "empty_video",
-                "视频文件为空，请重新选择文件。",
-                status_code=422,
-            )
-        if len(content) > MAX_VIDEO_BYTES:
-            raise MultimodalServiceError(
-                "video_too_large",
-                "视频文件不能超过 20 MiB，请压缩或缩短后重试。",
-                status_code=413,
-            )
-        extension = Path(filename).suffix.lower().lstrip(".")
-        profile = VIDEO_FORMATS.get(extension)
-        if profile is None:
-            raise MultimodalServiceError(
-                "unsupported_video_format",
-                "仅支持 MP4、MPEG、MOV 和 WebM 视频。",
-                status_code=422,
-            )
-        mime, allowed_mimes = profile
-        normalized_type = str(content_type or "application/octet-stream").lower()
-        if normalized_type not in allowed_mimes or not VideoAnalysisService._magic_matches(
-            extension, content
-        ):
-            raise MultimodalServiceError(
-                "invalid_video_file",
-                "文件内容与视频格式不匹配，请选择有效的视频文件。",
-                status_code=422,
-            )
-        encoded = base64.b64encode(content).decode("ascii")
-        return f"data:{mime};base64,{encoded}"
+        return video_file_data_url(filename, content_type, content)
 
     @staticmethod
     def _magic_matches(extension: str, content: bytes) -> bool:
-        if extension in {"mp4", "mov"}:
-            return len(content) >= 12 and content[4:8] == b"ftyp"
-        if extension == "webm":
-            return content.startswith(b"\x1a\x45\xdf\xa3")
-        return content.startswith((b"\x00\x00\x01\xba", b"\x00\x00\x01\xb3"))
+        return video_magic_matches(extension, content)
 
     @staticmethod
     def _url_source(value: str) -> str:
-        url = str(value or "").strip()
-        if len(url) > MAX_VIDEO_URL_CHARS:
-            raise MultimodalServiceError(
-                "invalid_video_url",
-                "视频网址过长，请使用有效的 HTTPS 直链或 YouTube 链接。",
-                status_code=422,
-            )
-        parsed = urlsplit(url)
-        if (
-            parsed.scheme.lower() != "https"
-            or not parsed.hostname
-            or parsed.username
-            or parsed.password
-            or parsed.fragment
-        ):
-            raise MultimodalServiceError(
-                "invalid_video_url",
-                "仅支持不含账号信息的 HTTPS 视频直链或 YouTube 链接。",
-                status_code=422,
-            )
-        return url
+        return validated_video_url(value)

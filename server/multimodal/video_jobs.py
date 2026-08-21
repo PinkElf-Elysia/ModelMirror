@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import uuid
@@ -23,6 +24,7 @@ except ModuleNotFoundError:
     from model_router.service import ModelRouterService
 
 from .stt import MultimodalServiceError, OpenRouterTarget
+from .video_analysis import video_file_data_url, validated_video_url
 from .video_catalog import (
     PROVIDER_OPTION_AUDIT,
     VideoCatalogService,
@@ -68,6 +70,7 @@ SAFE_JOB_ERRORS: dict[str, str] = {
 
 
 class VideoJobParameters(BaseModel):
+    task_type: Literal["generate", "upscale"] = "generate"
     duration: int | None = None
     resolution: str | None = None
     aspect_ratio: str | None = None
@@ -75,6 +78,9 @@ class VideoJobParameters(BaseModel):
     has_first_frame: bool = False
     has_last_frame: bool = False
     reference_image_count: int = 0
+    has_source_video: bool = False
+    upscale_factor: float | None = None
+    creativity: int | None = None
     provider_option_keys: list[str] = Field(default_factory=list)
 
 
@@ -455,11 +461,17 @@ class VideoJobService:
         reference_image_filenames: list[str] | None = None,
         reference_image_content_types: list[str | None] | None = None,
         reference_image_contents: list[bytes] | None = None,
+        source_type: str | None = None,
+        source_video_filename: str | None = None,
+        source_video_content_type: str | None = None,
+        source_video_content: bytes | None = None,
+        source_video_url: str | None = None,
+        upscale_factor: float | None = None,
+        creativity: int | None = None,
         provider_options: dict[str, object] | None = None,
     ) -> VideoJob:
         self._ensure_enabled()
         clean_model = self._model_id(model_id)
-        clean_prompt = self._prompt(prompt)
         clean_key = self._idempotency_key(idempotency_key)
         tenant_id = self.router_service.tenant_id
         key_hash = hashlib.sha256(
@@ -471,6 +483,28 @@ class VideoJobService:
         )
         if existing is not None:
             return self._public(existing)
+        profile = await self._profile(
+            clean_model,
+            force=bool(
+                provider_options
+                or source_type
+                or source_video_filename
+                or source_video_url
+                or upscale_factor is not None
+                or creativity is not None
+            ),
+        )
+        clean_prompt = self._prompt(
+            prompt,
+            required=not profile.requires_source_video,
+        )
+        source_video = self._source_video(
+            source_type=source_type,
+            filename=source_video_filename,
+            content_type=source_video_content_type,
+            content=source_video_content,
+            video_url=source_video_url,
+        )
         frame_data_url = self._first_frame(
             first_frame_filename,
             first_frame_content_type,
@@ -485,10 +519,6 @@ class VideoJobService:
             reference_image_filenames,
             reference_image_content_types,
             reference_image_contents,
-        )
-        profile = await self._profile(
-            clean_model,
-            force=bool(provider_options),
         )
         if (
             profile.interaction_status != "ready"
@@ -514,6 +544,9 @@ class VideoJobService:
             has_first_frame=frame_data_url is not None,
             has_last_frame=last_frame_data_url is not None,
             reference_image_count=len(reference_data_urls),
+            has_source_video=source_video is not None,
+            upscale_factor=upscale_factor,
+            creativity=creativity,
         )
         if (
             profile.verification_requires_cost_estimate
@@ -535,6 +568,13 @@ class VideoJobService:
                 "实时目录暂时无法可靠估算该高费用模型，请勿提交任务；请刷新能力目录后重试。",
                 status_code=422,
             )
+        stored_option_keys = list(provider_option_keys)
+        if source_video is not None:
+            stored_option_keys.append("source_video")
+        if upscale_factor is not None:
+            stored_option_keys.append(f"upscale_factor:{upscale_factor:g}")
+        if creativity is not None:
+            stored_option_keys.append(f"creativity:{creativity}")
         target = self.catalog_service.resolve_target()
         job_id = f"local_{uuid.uuid4().hex}"
         row, created = (
@@ -553,7 +593,7 @@ class VideoJobService:
                 has_first_frame=frame_data_url is not None,
                 has_last_frame=last_frame_data_url is not None,
                 reference_image_count=len(reference_data_urls),
-                provider_option_keys=provider_option_keys,
+                provider_option_keys=stored_option_keys,
             )
         )
         if not created:
@@ -571,6 +611,7 @@ class VideoJobService:
                         len(content)
                         for content in (reference_image_contents or [])
                     )
+                    + len(source_video_content or b"")
                 ),
             )
         except MultimodalServiceError as exc:
@@ -581,10 +622,9 @@ class VideoJobService:
             )
             raise
         row = self._update(job_id, decision_id=decision_id)
-        payload: dict[str, object] = {
-            "model": clean_model,
-            "prompt": clean_prompt,
-        }
+        payload: dict[str, object] = {"model": clean_model}
+        if clean_prompt:
+            payload["prompt"] = clean_prompt
         if duration is not None:
             payload["duration"] = duration
         if resolution:
@@ -622,6 +662,17 @@ class VideoJobService:
                 }
                 for data_url in reference_data_urls
             ]
+        if source_video:
+            payload["input_references"] = [
+                {
+                    "type": "video_url",
+                    "video_url": {"url": source_video},
+                }
+            ]
+        if upscale_factor is not None:
+            payload["upscale_factor"] = upscale_factor
+        if creativity is not None:
+            payload["creativity"] = creativity
         if provider_payload is not None:
             payload["provider"] = provider_payload
         try:
@@ -718,7 +769,7 @@ class VideoJobService:
         if force and (catalog.status != "online" or catalog.stale):
             raise MultimodalServiceError(
                 "provider_options_not_verified",
-                "暂时无法重新确认高级参数，请关闭高级设置后提交，或稍后刷新能力。",
+                "暂时无法重新确认当前视频能力，请稍后刷新目录后重试。",
                 status_code=503,
             )
         if catalog.status == "offline":
@@ -751,7 +802,60 @@ class VideoJobService:
         has_first_frame: bool,
         has_last_frame: bool,
         reference_image_count: int,
+        has_source_video: bool,
+        upscale_factor: float | None,
+        creativity: int | None,
     ) -> None:
+        if profile.requires_source_video:
+            if not has_source_video:
+                raise MultimodalServiceError(
+                    "source_video_required",
+                    "该增强模型必须提供一个源视频。",
+                    status_code=422,
+                )
+            factor_range = profile.upscale_factor
+            if (
+                upscale_factor is None
+                or factor_range is None
+                or not math.isfinite(upscale_factor)
+                or upscale_factor < factor_range.min
+                or upscale_factor > factor_range.max
+            ):
+                raise MultimodalServiceError(
+                    "unsupported_upscale_factor",
+                    "视频放大倍数超出模型支持范围，请使用目录提供的范围。",
+                    status_code=422,
+                )
+            if creativity is None or creativity not in profile.creativity:
+                raise MultimodalServiceError(
+                    "unsupported_creativity",
+                    "请选择模型支持的精确或创意增强模式。",
+                    status_code=422,
+                )
+            if any(
+                (
+                    duration is not None,
+                    bool(resolution),
+                    bool(aspect_ratio),
+                    generate_audio,
+                    seed is not None,
+                    has_first_frame,
+                    has_last_frame,
+                    reference_image_count > 0,
+                )
+            ):
+                raise MultimodalServiceError(
+                    "upscale_generation_parameters_unsupported",
+                    "视频增强不接受时长、分辨率、画幅、帧图、音频或随机种子参数。",
+                    status_code=422,
+                )
+            return
+        if has_source_video or upscale_factor is not None or creativity is not None:
+            raise MultimodalServiceError(
+                "video_upscale_unsupported",
+                "所选模型不支持源视频增强，请移除增强参数或更换模型。",
+                status_code=422,
+            )
         if duration is not None and (
             duration <= 0
             or not profile.supported_durations
@@ -946,6 +1050,49 @@ class VideoJobService:
         return (
             per_second * duration
             + image_input_cents * image_input_count / 100
+        )
+
+    @staticmethod
+    def _source_video(
+        *,
+        source_type: str | None,
+        filename: str | None,
+        content_type: str | None,
+        content: bytes | None,
+        video_url: str | None,
+    ) -> str | None:
+        supplied = any(
+            value is not None
+            for value in (
+                source_type,
+                filename,
+                content_type,
+                content,
+                video_url,
+            )
+        )
+        if not supplied:
+            return None
+        if source_type == "file":
+            if video_url or not filename or content is None:
+                raise MultimodalServiceError(
+                    "invalid_video_source",
+                    "请只提交一种视频来源：本地文件或 HTTPS 视频网址。",
+                    status_code=422,
+                )
+            return video_file_data_url(filename, content_type, content)
+        if source_type == "url":
+            if filename or content_type or content is not None or not video_url:
+                raise MultimodalServiceError(
+                    "invalid_video_source",
+                    "请只提交一种视频来源：本地文件或 HTTPS 视频网址。",
+                    status_code=422,
+                )
+            return validated_video_url(video_url)
+        raise MultimodalServiceError(
+            "invalid_video_source",
+            "请选择上传本地视频或使用 HTTPS 视频网址。",
+            status_code=422,
         )
 
     @staticmethod
@@ -1220,12 +1367,12 @@ class VideoJobService:
         return model_id
 
     @staticmethod
-    def _prompt(value: str) -> str:
+    def _prompt(value: str, *, required: bool = True) -> str:
         prompt = str(value or "").strip()
-        if not prompt or len(prompt) > MAX_VIDEO_GENERATION_PROMPT_CHARS:
+        if (required and not prompt) or len(prompt) > MAX_VIDEO_GENERATION_PROMPT_CHARS:
             raise MultimodalServiceError(
                 "invalid_prompt",
-                "视频描述需为 1–4000 个字符。",
+                "视频描述需为 1–4000 个字符；视频增强可留空。",
                 status_code=422,
             )
         return prompt
@@ -1468,6 +1615,14 @@ class VideoJobService:
     @staticmethod
     def _public(row: dict[str, object]) -> VideoJob:
         error_code = str(row.get("error_code") or "").strip()
+        (
+            provider_option_keys,
+            has_source_video,
+            upscale_factor,
+            creativity,
+        ) = VideoJobService._stored_parameter_metadata(
+            row.get("provider_option_keys")
+        )
         return VideoJob(
             job_id=str(row["id"]),
             status=str(row["status"]),
@@ -1482,6 +1637,7 @@ class VideoJobService:
                 else None
             ),
             parameters=VideoJobParameters(
+                task_type=("upscale" if has_source_video else "generate"),
                 duration=(
                     int(row["duration"])
                     if row.get("duration") is not None
@@ -1503,9 +1659,10 @@ class VideoJobService:
                 reference_image_count=max(
                     0, int(row.get("reference_image_count") or 0)
                 ),
-                provider_option_keys=VideoJobService._stored_option_keys(
-                    row.get("provider_option_keys")
-                ),
+                has_source_video=has_source_video,
+                upscale_factor=upscale_factor,
+                creativity=creativity,
+                provider_option_keys=provider_option_keys,
             ),
             usage=VideoJobUsage(
                 cost_usd=(
@@ -1532,21 +1689,41 @@ class VideoJobService:
         )
 
     @staticmethod
-    def _stored_option_keys(raw: object) -> list[str]:
+    def _stored_parameter_metadata(
+        raw: object,
+    ) -> tuple[list[str], bool, float | None, int | None]:
         try:
             values = json.loads(str(raw or "[]"))
         except (TypeError, ValueError):
-            return []
+            return [], False, None, None
         if not isinstance(values, list):
-            return []
-        return sorted(
+            return [], False, None, None
+        has_source_video = "source_video" in values
+        upscale_factor: float | None = None
+        creativity: int | None = None
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            if value.startswith("upscale_factor:"):
+                try:
+                    upscale_factor = float(value.split(":", 1)[1])
+                except ValueError:
+                    pass
+            elif value.startswith("creativity:"):
+                try:
+                    creativity = int(value.split(":", 1)[1])
+                except ValueError:
+                    pass
+        option_keys = sorted(
             {
                 value
                 for value in values
                 if isinstance(value, str)
                 and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", value)
+                and value != "source_video"
             }
         )
+        return option_keys, has_source_video, upscale_factor, creativity
 
     @staticmethod
     def _not_found() -> MultimodalServiceError:

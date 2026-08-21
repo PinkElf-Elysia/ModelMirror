@@ -2,22 +2,22 @@
   "schema_version": 1,
   "reviewed_at": "2026-08-20",
   "catalog": {
-    "snapshot_total": 548,
+    "snapshot_total": 552,
     "serving_variant_total": 63,
     "serving_variants_by_type": {
       "batch": 63
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 487,
+    "live": 491,
     "uncertain": 55,
     "expired": 6,
-    "onsite_openrouter": 542,
-    "adaptation_denominator": 542,
+    "onsite_openrouter": 546,
+    "adaptation_denominator": 546,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
   "video_generation": {
-    "dedicated_profiles": 23,
+    "dedicated_profiles": 24,
     "verified": [
       { "model_id": "bytedance/seedance-2.0", "verified_at": "2026-07-28", "evidence": ["manual_submission", "polling", "playback", "download"] },
       { "model_id": "runway/aleph-2", "verified_at": "2026-07-28", "evidence": ["manual_submission", "polling", "playback", "download"] },
@@ -41,6 +41,7 @@
       { "model_id": "google/veo-3.1-fast", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] },
       { "model_id": "google/veo-3.1", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] },
       { "model_id": "black-forest-labs/flux-3-video", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] },
+      { "model_id": "black-forest-labs/flux-video-upscale", "verified_at": "2026-08-20", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "source_video", "upscale_factor", "creativity", "cost_estimate"] },
       { "model_id": "openai/sora-2-pro", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] }
     ],
     "verification_required": []

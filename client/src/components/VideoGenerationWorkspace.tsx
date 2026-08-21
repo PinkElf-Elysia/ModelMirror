@@ -10,7 +10,9 @@ import { Link } from "react-router-dom";
 import type { Model } from "../data/models";
 import {
   estimateVideoCost,
+  estimateVideoUpscaleCost,
   supportedAspectRatiosForResolution,
+  videoUpscaleUnitRate,
 } from "../utils/videoCostEstimate";
 import BrandLogo from "./BrandLogo";
 import ResourceNav from "./ResourceNav";
@@ -19,9 +21,11 @@ const MAX_PROMPT_CHARS = 4_000;
 const MAX_FIRST_FRAME_BYTES = 10 * 1024 * 1024;
 const MAX_REFERENCE_IMAGE_BYTES = 30 * 1024 * 1024;
 const MAX_REFERENCE_IMAGE_COUNT = 3;
+const MAX_SOURCE_VIDEO_BYTES = 20 * 1024 * 1024;
 const POLL_DELAYS = [30_000, 60_000, 120_000] as const;
 const ACTIVE_STATUSES = new Set<VideoJobStatus>(["queued", "running"]);
 const FIRST_FRAME_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
+const SOURCE_VIDEO_EXTENSIONS = new Set(["mp4", "mpeg", "mpg", "mov", "webm"]);
 
 type VideoJobStatus =
   | "queued"
@@ -46,6 +50,7 @@ interface VideoProviderOption {
 interface VideoModelProfile {
   model_id: string;
   operation: "analyze_video" | "generate_video";
+  supported_input_sources: ("file" | "url")[];
   supported_resolutions: string[];
   supported_aspect_ratios: string[];
   supported_sizes: string[];
@@ -56,6 +61,9 @@ interface VideoModelProfile {
   max_reference_images: number | null;
   supports_generated_audio: boolean;
   supports_seed: boolean;
+  requires_source_video: boolean;
+  upscale_factor: { min: number; max: number } | null;
+  creativity: number[];
   provider_options: VideoProviderOption[];
   pricing_skus: Record<string, string>;
   interaction_status: "ready" | "planned" | "unsupported";
@@ -78,6 +86,7 @@ interface VideoJob {
   provider: "openrouter";
   generation_id: string | null;
   parameters: {
+    task_type: "generate" | "upscale";
     duration: number | null;
     resolution: string | null;
     aspect_ratio: string | null;
@@ -85,6 +94,9 @@ interface VideoJob {
     has_first_frame: boolean;
     has_last_frame: boolean;
     reference_image_count: number;
+    has_source_video: boolean;
+    upscale_factor: number | null;
+    creativity: number | null;
     provider_option_keys: string[];
   };
   usage: {
@@ -112,6 +124,12 @@ interface SelectedReferenceImage {
   id: string;
   file: File;
   previewUrl: string;
+}
+
+interface SourceVideoMetadata {
+  durationSeconds: number;
+  width: number;
+  height: number;
 }
 
 const statusPresentation: Record<
@@ -268,6 +286,51 @@ function validateGenerationImage(file: File, label: string) {
   return "";
 }
 
+function validateSourceVideo(file: File) {
+  if (!SOURCE_VIDEO_EXTENSIONS.has(fileExtension(file))) {
+    return "源视频只支持 MP4、MPEG、MOV 和 WebM。";
+  }
+  if (file.size <= 0) return "源视频没有可读取的内容。";
+  if (file.size > MAX_SOURCE_VIDEO_BYTES) {
+    return "源视频超过 20 MiB，请压缩或缩短后重试。";
+  }
+  return "";
+}
+
+function readSourceVideoMetadata(file: File) {
+  return new Promise<SourceVideoMetadata | null>((resolve) => {
+    const video = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+      video.removeAttribute("src");
+      video.load();
+    };
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      const metadata = {
+        durationSeconds: video.duration,
+        width: video.videoWidth,
+        height: video.videoHeight,
+      };
+      cleanup();
+      resolve(
+        Number.isFinite(metadata.durationSeconds) &&
+          metadata.durationSeconds > 0 &&
+          metadata.width > 0 &&
+          metadata.height > 0
+          ? metadata
+          : null,
+      );
+    };
+    video.onerror = () => {
+      cleanup();
+      resolve(null);
+    };
+    video.src = url;
+  });
+}
+
 function generationModeLabel({
   hasFirstFrame,
   hasLastFrame,
@@ -308,6 +371,13 @@ export default function VideoGenerationWorkspace({
   const [referenceImages, setReferenceImages] = useState<
     SelectedReferenceImage[]
   >([]);
+  const [sourceType, setSourceType] = useState<"file" | "url">("file");
+  const [sourceVideo, setSourceVideo] = useState<File | null>(null);
+  const [sourceVideoUrl, setSourceVideoUrl] = useState("");
+  const [sourceVideoMetadata, setSourceVideoMetadata] =
+    useState<SourceVideoMetadata | null>(null);
+  const [upscaleFactor, setUpscaleFactor] = useState(2);
+  const [creativity, setCreativity] = useState(0);
   const [providerOptionValues, setProviderOptionValues] = useState<
     Record<string, ProviderOptionValue>
   >({});
@@ -331,6 +401,7 @@ export default function VideoGenerationWorkspace({
   const firstFrameInputRef = useRef<HTMLInputElement>(null);
   const lastFrameInputRef = useRef<HTMLInputElement>(null);
   const referenceInputRef = useRef<HTMLInputElement>(null);
+  const sourceVideoInputRef = useRef<HTMLInputElement>(null);
   const referenceReplaceIndexRef = useRef<number | null>(null);
   const referenceImagesRef = useRef<SelectedReferenceImage[]>([]);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -365,8 +436,8 @@ export default function VideoGenerationWorkspace({
   );
 
   useEffect(() => {
-    document.title = `生成视频 · ${model.name} · 模镜`;
-  }, [model.name]);
+    document.title = `${profile?.requires_source_video ? "增强视频" : "生成视频"} · ${model.name} · 模镜`;
+  }, [model.name, profile?.requires_source_video]);
 
   useEffect(() => {
     if (!firstFrame) {
@@ -418,6 +489,30 @@ export default function VideoGenerationWorkspace({
       setProfile(nextProfile);
       setManualVerificationConfirmed(false);
       if (!nextProfile) return payload;
+
+      if (nextProfile.requires_source_video) {
+        const factorRange = nextProfile.upscale_factor;
+        setUpscaleFactor((current) =>
+          factorRange &&
+          current >= factorRange.min &&
+          current <= factorRange.max
+            ? current
+            : (factorRange?.min ?? 2),
+        );
+        setCreativity((current) =>
+          nextProfile.creativity.includes(current)
+            ? current
+            : (nextProfile.creativity[0] ?? 0),
+        );
+        setFirstFrame(null);
+        setLastFrame(null);
+        setReferenceImages((current) => {
+          current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+          return [];
+        });
+        setGenerateAudio(false);
+        setSeed("");
+      }
 
       const sortedDurations = [...nextProfile.supported_durations].sort(
         (left, right) => left - right,
@@ -646,6 +741,25 @@ export default function VideoGenerationWorkspace({
     setError("");
   }
 
+  async function chooseSourceVideo(file: File | undefined) {
+    if (!file || submitting) return;
+    const validationError = validateSourceVideo(file);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setSourceVideo(file);
+    setSourceVideoMetadata(null);
+    markFormChanged();
+    setSourceVideoMetadata(await readSourceVideoMetadata(file));
+  }
+
+  function handleSourceVideoInput(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    void chooseSourceVideo(file);
+  }
+
   function chooseFirstFrame(file: File | undefined) {
     if (!file || submitting) return;
     const validationError = validateGenerationImage(file, "首帧图片");
@@ -771,6 +885,7 @@ export default function VideoGenerationWorkspace({
     profile?.supports_first_frame ||
       profile?.supported_frame_types.includes("first_frame"),
   );
+  const isUpscaler = Boolean(profile?.requires_source_video);
   const supportsLastFrame = Boolean(
     profile?.supported_frame_types.includes("last_frame"),
   );
@@ -798,29 +913,51 @@ export default function VideoGenerationWorkspace({
     referenceImages.length > 0 ||
     providerOptionCount > 0;
   const capabilityRefreshRequired =
-    catalogStale && enhancedInputsSelected;
+    catalogStale && (enhancedInputsSelected || isUpscaler);
   const selectableAspectRatios = profile
     ? supportedAspectRatiosForResolution(profile, resolution)
     : [];
 
-  const estimate = profile
-    ? estimateVideoCost(profile, {
-        duration,
-        resolution,
-        aspectRatio,
-        generateAudio,
-        imageInputCount,
-      })
-    : null;
+  const estimate =
+    profile && isUpscaler && sourceVideoMetadata
+      ? estimateVideoUpscaleCost(profile, {
+          ...sourceVideoMetadata,
+          upscaleFactor,
+          creativity,
+        })
+      : profile && !isUpscaler
+        ? estimateVideoCost(profile, {
+            duration,
+            resolution,
+            aspectRatio,
+            generateAudio,
+            imageInputCount,
+          })
+        : null;
+  const upscaleUnitRate =
+    profile && isUpscaler
+      ? videoUpscaleUnitRate(profile, creativity)
+      : null;
+  const sourceReady =
+    sourceType === "file"
+      ? Boolean(sourceVideo)
+      : /^https:\/\/[^\s]+$/i.test(sourceVideoUrl.trim());
+  const factorRange = profile?.upscale_factor ?? null;
+  const upscalerSelectionValid =
+    sourceReady &&
+    factorRange !== null &&
+    upscaleFactor >= factorRange.min &&
+    upscaleFactor <= factorRange.max &&
+    Boolean(profile?.creativity.includes(creativity));
 
   const canSubmit =
     Boolean(profile) &&
     catalogStatus !== "offline" &&
     catalogStatus !== "disabled" &&
-    prompt.trim().length > 0 &&
     prompt.trim().length <= MAX_PROMPT_CHARS &&
-    duration !== null &&
-    Boolean(resolution) &&
+    (isUpscaler
+      ? upscalerSelectionValid
+      : prompt.trim().length > 0 && duration !== null && Boolean(resolution)) &&
     (!profile?.verification_entry_enabled || manualVerificationConfirmed) &&
     (!profile?.verification_requires_cost_estimate || estimate !== null) &&
     !capabilityRefreshRequired &&
@@ -854,7 +991,7 @@ export default function VideoGenerationWorkspace({
   async function submitJob() {
     if (!profile || !canSubmit) return;
     const cleanPrompt = prompt.trim();
-    if (!cleanPrompt) {
+    if (!isUpscaler && !cleanPrompt) {
       setError("请先描述希望生成的视频内容。");
       promptRef.current?.focus();
       return;
@@ -866,18 +1003,29 @@ export default function VideoGenerationWorkspace({
     form.append("model_id", model.id);
     form.append("prompt", cleanPrompt);
     form.append("idempotency_key", key);
-    if (duration !== null) form.append("duration", String(duration));
-    if (resolution) form.append("resolution", resolution);
-    if (aspectRatio) form.append("aspect_ratio", aspectRatio);
-    form.append("generate_audio", String(generateAudio));
-    if (seed.trim()) form.append("seed", seed.trim());
-    if (firstFrame) form.append("first_frame", firstFrame, firstFrame.name);
-    if (lastFrame) form.append("last_frame", lastFrame, lastFrame.name);
-    referenceImages.forEach((item) => {
-      form.append("reference_images", item.file, item.file.name);
-    });
-    if (providerOptionCount > 0) {
-      form.append("provider_options", JSON.stringify(providerPayload));
+    if (isUpscaler) {
+      form.append("source_type", sourceType);
+      if (sourceType === "file" && sourceVideo) {
+        form.append("source_video", sourceVideo, sourceVideo.name);
+      } else if (sourceType === "url") {
+        form.append("source_video_url", sourceVideoUrl.trim());
+      }
+      form.append("upscale_factor", String(upscaleFactor));
+      form.append("creativity", String(creativity));
+    } else {
+      if (duration !== null) form.append("duration", String(duration));
+      if (resolution) form.append("resolution", resolution);
+      if (aspectRatio) form.append("aspect_ratio", aspectRatio);
+      form.append("generate_audio", String(generateAudio));
+      if (seed.trim()) form.append("seed", seed.trim());
+      if (firstFrame) form.append("first_frame", firstFrame, firstFrame.name);
+      if (lastFrame) form.append("last_frame", lastFrame, lastFrame.name);
+      referenceImages.forEach((item) => {
+        form.append("reference_images", item.file, item.file.name);
+      });
+      if (providerOptionCount > 0) {
+        form.append("provider_options", JSON.stringify(providerPayload));
+      }
     }
 
     setSubmitting(true);
@@ -973,7 +1121,7 @@ export default function VideoGenerationWorkspace({
           </Link>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-violet-300/30 bg-violet-300/10 px-3 py-1.5 text-xs font-semibold text-violet-100">
-              视频生成
+              {isUpscaler ? "视频增强" : "视频生成"}
             </span>
             <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-slate-300">
               异步任务，可离开页面后返回
@@ -985,19 +1133,25 @@ export default function VideoGenerationWorkspace({
             ) : null}
           </div>
           <h1 className="mt-4 text-2xl font-semibold text-white sm:text-4xl">
-            使用 {model.name} 生成视频
+            使用 {model.name} {isUpscaler ? "增强视频" : "生成视频"}
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-            描述画面并选择模型明确支持的参数。提交后通常需要数十秒到数分钟，任务状态会保存在本机。
+            {isUpscaler
+              ? "提供一个源视频并选择放大倍数与增强模式。提交后按异步任务处理，状态会保存在本机。"
+              : "描述画面并选择模型明确支持的参数。提交后通常需要数十秒到数分钟，任务状态会保存在本机。"}
           </p>
         </header>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
           <section className="surface-panel overflow-hidden rounded-lg">
             <div className="border-b border-white/10 px-5 py-4 sm:px-6">
-              <h2 className="text-lg font-semibold text-white">生成设置</h2>
+              <h2 className="text-lg font-semibold text-white">
+                {isUpscaler ? "增强设置" : "生成设置"}
+              </h2>
               <p className="mt-1 text-sm text-slate-400">
-                默认选择可用的最短时长和最低费用分辨率。
+                {isUpscaler
+                  ? "源视频不会保存在模镜；费用按输出百万像素秒估算。"
+                  : "默认选择可用的最短时长和最低费用分辨率。"}
               </p>
             </div>
 
@@ -1037,7 +1191,7 @@ export default function VideoGenerationWorkspace({
                       className="text-sm font-semibold text-slate-200"
                       htmlFor="video-generation-prompt"
                     >
-                      视频描述
+                      {isUpscaler ? "增强说明（可选）" : "视频描述"}
                     </label>
                     <span className="text-xs tabular-nums text-slate-400">
                       {prompt.length} / {MAX_PROMPT_CHARS}
@@ -1052,12 +1206,128 @@ export default function VideoGenerationWorkspace({
                       setPrompt(event.target.value);
                       markFormChanged();
                     }}
-                    placeholder="例如：清晨的海边车站，一列复古列车缓慢进站，固定广角镜头，柔和自然光。"
+                    placeholder={
+                      isUpscaler
+                        ? "可选：例如保留人物面部与字幕边缘，减少压缩噪点。"
+                        : "例如：清晨的海边车站，一列复古列车缓慢进站，固定广角镜头，柔和自然光。"
+                    }
                     ref={promptRef}
                     value={prompt}
                   />
                 </div>
 
+                {isUpscaler ? (
+                  <div className="space-y-5 rounded-lg bg-white/[0.04] p-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-white">源视频</h3>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">
+                        必须提供一个 MP4、MPEG、MOV 或 WebM 视频；本地文件最大 20 MiB。
+                      </p>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {profile.supported_input_sources.map((value) => (
+                        <button
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                            sourceType === value
+                              ? "border-hire-300/50 bg-hire-300/10 text-hire-100"
+                              : "border-white/10 bg-ink-950/60 text-slate-300 hover:border-white/20"
+                          }`}
+                          disabled={submitting}
+                          key={value}
+                          onClick={() => {
+                            setSourceType(value);
+                            markFormChanged();
+                          }}
+                          type="button"
+                        >
+                          {value === "file" ? "上传本地视频" : "使用 HTTPS 网址"}
+                        </button>
+                      ))}
+                    </div>
+                    {sourceType === "file" ? (
+                      <div className="flex flex-wrap items-center gap-3">
+                        <input
+                          accept=".mp4,.mpeg,.mpg,.mov,.webm,video/mp4,video/mpeg,video/quicktime,video/webm"
+                          className="hidden"
+                          disabled={submitting}
+                          onChange={handleSourceVideoInput}
+                          ref={sourceVideoInputRef}
+                          type="file"
+                        />
+                        <button
+                          className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100"
+                          disabled={submitting}
+                          onClick={() => sourceVideoInputRef.current?.click()}
+                          type="button"
+                        >
+                          {sourceVideo ? "替换源视频" : "选择源视频"}
+                        </button>
+                        {sourceVideo ? (
+                          <span className="min-w-0 truncate text-xs text-slate-300">
+                            {sourceVideo.name} · {formatBytes(sourceVideo.size)}
+                            {sourceVideoMetadata
+                              ? ` · ${sourceVideoMetadata.width}×${sourceVideoMetadata.height} · ${sourceVideoMetadata.durationSeconds.toFixed(1)} 秒`
+                              : " · 元数据不可用"}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <label className="block text-sm font-semibold text-slate-200">
+                        HTTPS 视频直链
+                        <input
+                          className="mt-2 w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-400 focus:border-brand-300/60"
+                          disabled={submitting}
+                          onChange={(event) => {
+                            setSourceVideoUrl(event.target.value);
+                            markFormChanged();
+                          }}
+                          placeholder="https://example.com/source.mp4"
+                          type="url"
+                          value={sourceVideoUrl}
+                        />
+                      </label>
+                    )}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="block text-sm font-semibold text-slate-200">
+                        放大倍数
+                        <input
+                          className="mt-2 w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none focus:border-brand-300/60"
+                          disabled={submitting}
+                          max={factorRange?.max}
+                          min={factorRange?.min}
+                          onChange={(event) => {
+                            setUpscaleFactor(Number(event.target.value));
+                            markFormChanged();
+                          }}
+                          step="0.1"
+                          type="number"
+                          value={upscaleFactor}
+                        />
+                        <span className="mt-1 block text-xs font-normal text-slate-400">
+                          支持 {factorRange?.min ?? "—"}–{factorRange?.max ?? "—"} 倍
+                        </span>
+                      </label>
+                      <label className="block text-sm font-semibold text-slate-200">
+                        增强模式
+                        <select
+                          className="mt-2 w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none focus:border-brand-300/60"
+                          disabled={submitting}
+                          onChange={(event) => {
+                            setCreativity(Number(event.target.value));
+                            markFormChanged();
+                          }}
+                          value={creativity}
+                        >
+                          {profile.creativity.map((value) => (
+                            <option key={value} value={value}>
+                              {value === 1 ? "创意增强" : "精确保真"}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                ) : (
                 <div className="grid gap-4 sm:grid-cols-3">
                   <label className="block text-sm font-semibold text-slate-200">
                     时长
@@ -1137,6 +1407,7 @@ export default function VideoGenerationWorkspace({
                     </select>
                   </label>
                 </div>
+                )}
 
                 {supportsFirstFrame ||
                 supportsLastFrame ||
@@ -1632,11 +1903,15 @@ export default function VideoGenerationWorkspace({
                   <div>
                     <p className="text-sm font-semibold text-white">
                       {estimate === null
-                        ? "费用以网关结算为准"
+                        ? isUpscaler && upscaleUnitRate !== null
+                          ? `单价 $${upscaleUnitRate.toFixed(3)}/百万像素秒`
+                          : "费用以网关结算为准"
                         : `目录估算 $${estimate.toFixed(4)}`}
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
-                      提交会产生费用，最终金额以网关回执为准。
+                      {isUpscaler
+                        ? "本地文件可按输出尺寸与时长预估；网址来源或无法读取元数据时仅显示单价。最终金额以网关回执为准。"
+                        : "提交会产生费用，最终金额以网关回执为准。"}
                     </p>
                     {profile.verification_entry_enabled ? (
                       <label className="mt-3 flex max-w-xl items-start gap-2 text-xs leading-5 text-amber-100">
@@ -1663,8 +1938,8 @@ export default function VideoGenerationWorkspace({
                     {submitting
                       ? "正在提交…"
                       : estimate === null
-                        ? "提交生成 · 费用以网关结算为准"
-                        : `提交生成 · 预计 $${estimate.toFixed(4)}`}
+                        ? `${isUpscaler ? "提交增强" : "提交生成"} · 费用以网关结算为准`
+                        : `${isUpscaler ? "提交增强" : "提交生成"} · 预计 $${estimate.toFixed(4)}`}
                   </button>
                 </div>
               </div>
@@ -1695,19 +1970,23 @@ export default function VideoGenerationWorkspace({
                 <div>
                   <dt className="text-slate-400">方式</dt>
                   <dd className="mt-1 font-medium text-slate-100">
-                    {generationModeLabel({
-                      hasFirstFrame: Boolean(firstFrame),
-                      hasLastFrame: Boolean(lastFrame),
-                      referenceImageCount: referenceImages.length,
-                    })}
+                    {isUpscaler
+                      ? "源视频增强"
+                      : generationModeLabel({
+                          hasFirstFrame: Boolean(firstFrame),
+                          hasLastFrame: Boolean(lastFrame),
+                          referenceImageCount: referenceImages.length,
+                        })}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-slate-400">当前设置</dt>
                   <dd className="mt-1 leading-6 text-slate-300">
-                    {[duration ? `${duration} 秒` : "", resolution, aspectRatio]
-                      .filter(Boolean)
-                      .join(" · ") || "等待模型能力"}
+                    {isUpscaler
+                      ? `${upscaleFactor} 倍 · ${creativity === 1 ? "创意增强" : "精确保真"}`
+                      : [duration ? `${duration} 秒` : "", resolution, aspectRatio]
+                          .filter(Boolean)
+                          .join(" · ") || "等待模型能力"}
                   </dd>
                 </div>
                 {lastFrame ||
@@ -1737,7 +2016,7 @@ export default function VideoGenerationWorkspace({
                 内容与隐私提示
               </h2>
               <p className="mt-3 text-sm leading-6 text-slate-300">
-                视频生成不支持零数据保留。提示词、引导帧、参考图和高级参数值会交给模型供应商处理，供应商可能按自身政策临时保留内容。模镜只保存任务元数据、图片数量和高级参数名称，不保存这些内容或视频正文。
+                视频任务不支持零数据保留。提示词、源视频、引导帧、参考图和高级参数值会交给模型供应商处理，供应商可能按自身政策临时保留内容。模镜只保存任务元数据、媒体数量和参数名称，不保存这些内容或视频正文。
               </p>
             </div>
           </aside>
@@ -1746,7 +2025,9 @@ export default function VideoGenerationWorkspace({
         <section className="surface-panel mt-6 overflow-hidden rounded-lg">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4 sm:px-6">
             <div>
-              <h2 className="text-lg font-semibold text-white">生成任务</h2>
+              <h2 className="text-lg font-semibold text-white">
+                {isUpscaler ? "增强任务" : "生成任务"}
+              </h2>
               <p className="mt-1 text-sm text-slate-400">
                 运行中的任务会自动刷新，隐藏页面时暂停检查。
               </p>
@@ -1779,9 +2060,13 @@ export default function VideoGenerationWorkspace({
             </div>
           ) : visibleJobs.length === 0 ? (
             <div className="px-5 py-12 text-center sm:px-6">
-              <p className="font-semibold text-white">还没有生成任务</p>
+              <p className="font-semibold text-white">
+                还没有{isUpscaler ? "增强" : "生成"}任务
+              </p>
               <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-400">
-                填写视频描述并提交后，排队、生成和完成状态都会显示在这里。
+                {isUpscaler
+                  ? "提供源视频并提交后，排队、增强和完成状态都会显示在这里。"
+                  : "填写视频描述并提交后，排队、生成和完成状态都会显示在这里。"}
               </p>
             </div>
           ) : (
@@ -1819,15 +2104,17 @@ export default function VideoGenerationWorkspace({
                         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
                           <span>{formatDate(job.created_at)}</span>
                           <span>
-                            {[
-                              job.parameters.duration
-                                ? `${job.parameters.duration} 秒`
-                                : "",
-                              job.parameters.resolution,
-                              job.parameters.aspect_ratio,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ") || "参数由模型决定"}
+                            {job.parameters.task_type === "upscale"
+                              ? `${job.parameters.upscale_factor ?? "—"} 倍 · ${job.parameters.creativity === 1 ? "创意增强" : "精确保真"}`
+                              : [
+                                  job.parameters.duration
+                                    ? `${job.parameters.duration} 秒`
+                                    : "",
+                                  job.parameters.resolution,
+                                  job.parameters.aspect_ratio,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ") || "参数由模型决定"}
                           </span>
                           <span>{formatCost(job)}</span>
                           {job.parameters.has_first_frame ? (
@@ -1840,6 +2127,9 @@ export default function VideoGenerationWorkspace({
                             <span>
                               {job.parameters.reference_image_count} 张参考图
                             </span>
+                          ) : null}
+                          {job.parameters.has_source_video ? (
+                            <span>使用源视频</span>
                           ) : null}
                           {job.parameters.provider_option_keys.length > 0 ? (
                             <span>

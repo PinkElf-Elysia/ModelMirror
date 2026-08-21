@@ -60,6 +60,9 @@ VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
         "google/veo-3.1-fast",
         "google/veo-3.1",
         "black-forest-labs/flux-3-video",
+        # 2026-08-20：专用视频目录确认源视频、1.5–3 倍放大、
+        # 精确/创意模式及按百万像素秒计价；未执行付费生成。
+        "black-forest-labs/flux-video-upscale",
         "openai/sora-2-pro",
     }
 )
@@ -85,6 +88,11 @@ class VideoProviderOption(BaseModel):
     default: str | int | float | bool | None = None
 
 
+class VideoUpscaleFactorRange(BaseModel):
+    min: float
+    max: float
+
+
 class VideoModelProfile(BaseModel):
     model_id: str
     operation: Literal["analyze_video", "generate_video"]
@@ -103,6 +111,9 @@ class VideoModelProfile(BaseModel):
     max_reference_images: int | None = None
     supports_generated_audio: bool = False
     supports_seed: bool = False
+    requires_source_video: bool = False
+    upscale_factor: VideoUpscaleFactorRange | None = None
+    creativity: list[int] = Field(default_factory=list)
     provider_options: list[VideoProviderOption] = Field(
         default_factory=list
     )
@@ -319,6 +330,9 @@ class VideoCatalogService:
                 if not model_id:
                     continue
                 frame_types = self._frame_types(item)
+                upscale_factor = self._upscale_factor(
+                    item.get("upscale_factor")
+                )
                 reference_limit = REFERENCE_IMAGE_AUDIT.get(model_id)
                 verified = model_id in VERIFIED_VIDEO_GENERATION_MODELS
                 status_reason = (
@@ -330,6 +344,9 @@ class VideoCatalogService:
                     VideoModelProfile(
                         model_id=model_id,
                         operation="generate_video",
+                        supported_input_sources=(
+                            ["file", "url"] if upscale_factor else []
+                        ),
                         supported_resolutions=self._strings(
                             item.get("supported_resolutions")
                         ),
@@ -352,10 +369,15 @@ class VideoCatalogService:
                         max_reference_images=reference_limit,
                         supports_generated_audio=self._supports_audio(item),
                         supports_seed=self._supports_seed(item),
+                        requires_source_video=upscale_factor is not None,
+                        upscale_factor=upscale_factor,
+                        creativity=self._creativity(item.get("creativity")),
                         provider_options=self._provider_options(
                             model_id, item
                         ),
-                        pricing_skus=self._pricing(item.get("pricing_skus")),
+                        pricing_skus=self._pricing(
+                            item.get("pricing_skus") or item.get("pricing")
+                        ),
                         interaction_status=(
                             "ready" if verified else "planned"
                         ),
@@ -506,6 +528,20 @@ class VideoCatalogService:
         ]
 
     @staticmethod
+    def _creativity(value: Any) -> list[int]:
+        if not isinstance(value, list):
+            return []
+        return sorted(
+            {
+                int(item)
+                for item in value
+                if isinstance(item, (int, float))
+                and not isinstance(item, bool)
+                and int(item) in {0, 1}
+            }
+        )
+
+    @staticmethod
     def _pricing(value: Any) -> dict[str, str]:
         if not isinstance(value, dict):
             return {}
@@ -515,6 +551,26 @@ class VideoCatalogService:
             if isinstance(key, str)
             and isinstance(price, (str, int, float))
         }
+
+    @staticmethod
+    def _upscale_factor(value: Any) -> VideoUpscaleFactorRange | None:
+        if not isinstance(value, dict):
+            return None
+        minimum = value.get("min")
+        maximum = value.get("max")
+        if (
+            not isinstance(minimum, (int, float))
+            or isinstance(minimum, bool)
+            or not isinstance(maximum, (int, float))
+            or isinstance(maximum, bool)
+            or float(minimum) <= 0
+            or float(maximum) < float(minimum)
+        ):
+            return None
+        return VideoUpscaleFactorRange(
+            min=float(minimum),
+            max=float(maximum),
+        )
 
     @staticmethod
     def _frame_types(

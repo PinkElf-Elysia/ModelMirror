@@ -46,7 +46,22 @@ const august20ModelIds = [
   "~z-ai/glm-latest",
 ];
 
+const august20SecondRefreshModelIds = [
+  "stealth/ox-alpha",
+  "tencent/hy-mt2-1.8b",
+  "tencent/hy-mt2-30b-a3b",
+  "black-forest-labs/flux-video-upscale",
+];
+
 describe("OpenRouter model refresh", () => {
+  it("reconciles the refreshed counted catalog totals", () => {
+    const counted = models.filter((model) => model.catalog_counted);
+    expect(counted).toHaveLength(552);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(491);
+    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(55);
+    expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(6);
+  });
+
   it("restores V4 Flash ahead of V4 Pro and keeps Seedream in row four", () => {
     expect(models[2]?.id).toBe("deepseek/deepseek-v4-flash-0731");
     expect(models[5]?.id).toBe("deepseek/deepseek-v4-pro-0813");
@@ -200,6 +215,77 @@ describe("OpenRouter model refresh", () => {
         },
       });
     }
+  });
+
+  it("adds the second August 20 refresh below the first six rows", () => {
+    for (const modelId of august20SecondRefreshModelIds) {
+      const matches = models.filter((model) => model.id === modelId);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]).toMatchObject({
+        catalog_status: "live",
+        catalog_counted: true,
+        active: true,
+      });
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
+        2 + 6 * 3,
+      );
+    }
+  });
+
+  it("preserves the second August 20 API contracts and market metadata", () => {
+    const byId = new Map(models.map((model) => [model.id, model]));
+
+    expect(byId.get("stealth/ox-alpha")).toMatchObject({
+      input_modalities: ["text", "image", "video"],
+      output_modalities: ["text"],
+      operations: expect.arrayContaining(["analyze_image", "analyze_video", "chat"]),
+      context_length: 1_048_576,
+      pricing_status: "dynamic",
+      reasoning_declared: true,
+      openrouter_market: {
+        author: "stealth",
+        providers: ["Stealth"],
+        zero_data_retention: false,
+      },
+    });
+    expect(byId.get("tencent/hy-mt2-1.8b")).toMatchObject({
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+      primary_operation: "chat",
+      context_length: 8_192,
+      pricing: { input: 0.044, output: 0.177 },
+      openrouter_market: {
+        author: "tencent",
+        providers: ["Tencent"],
+        zero_data_retention: true,
+      },
+    });
+    expect(byId.get("tencent/hy-mt2-30b-a3b")).toMatchObject({
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+      primary_operation: "chat",
+      context_length: 8_192,
+      pricing: { input: 0.074, output: 0.295 },
+      supported_parameters: expect.arrayContaining([
+        "response_format",
+        "structured_outputs",
+      ]),
+    });
+    expect(byId.get("black-forest-labs/flux-video-upscale")).toMatchObject({
+      input_modalities: ["video", "text"],
+      output_modalities: ["video"],
+      primary_operation: "generate_video",
+      interaction_status: "ready",
+      ui_entrypoint: "multimodal",
+      pricing_status: "dynamic",
+      pricing_basis: "media",
+      supported_parameters: [
+        "input_references",
+        "upscale_factor",
+        "creativity",
+        "safety_tolerance",
+      ],
+    });
   });
 
   it("routes the August 14 specialized models by their dedicated contracts", () => {
