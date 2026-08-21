@@ -57,6 +57,7 @@
 | [AGENT_TABLES.md](./AGENT_TABLES.md) | 当前 | 本地托管业务数据表、Schema 版本与人工 CRUD。 |
 | [MCP_INTEGRATION.md](./MCP_INTEGRATION.md) | 当前 | MCP stdio、安全边界和测试。 |
 | [MCP_CATALOG_ROADMAP.md](./MCP_CATALOG_ROADMAP.md) | 规划 | MCP 中文目录边界、安全适配、自定义连接与 Builder 远期路线。 |
+| [MCP_HUB_REMOTE_V1.md](./MCP_HUB_REMOTE_V1.md) | 运行边界 | 官方 Registry 发现、匿名远程候选、逐次审批与双 sidecar 隔离。 |
 | [SKILL_INTEGRATION.md](./SKILL_INTEGRATION.md) | 当前 | Skill 安装、注入和供应链边界。 |
 | [SKILL_EXPERIENCE_AUDIT.md](./SKILL_EXPERIENCE_AUDIT.md) | 当前 | Skill 目录治理、Creator V1 质量门与后续资源化增强边界。 |
 | [META_AGENT.md](./META_AGENT.md) | 当前 | Meta Planner 当前契约。 |

@@ -381,6 +381,86 @@ services:
       retries: 8
       start_period: 60s
 
+  mcp-hub-egress:
+    build:
+      context: ./server/sandbox_sidecar
+      dockerfile: Dockerfile.hub
+    image: modelmirror-mcp-hub:wave1-v1
+    container_name: modelmirror-mcp-hub-egress
+    command: ["python", "-m", "sandbox_sidecar.hub_server", "egress"]
+    networks:
+      - mcp_hub_egress
+    environment:
+      MCP_HUB_EGRESS_SOCKET_PATH: /run/modelmirror-hub-egress/hub-egress.sock
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_hub_egress_socket:/run/modelmirror-hub-egress
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-hub-egress/hub-egress.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
+  mcp-hub-remote:
+    build:
+      context: ./server/sandbox_sidecar
+      dockerfile: Dockerfile.hub
+    image: modelmirror-mcp-hub:wave1-v1
+    container_name: modelmirror-mcp-hub-remote
+    command: ["python", "-m", "sandbox_sidecar.hub_server", "remote"]
+    network_mode: none
+    depends_on:
+      mcp-hub-egress:
+        condition: service_healthy
+    environment:
+      MCP_HUB_REMOTE_SOCKET_PATH: /run/modelmirror-hub-mcp/hub-mcp.sock
+      MCP_HUB_EGRESS_SOCKET_PATH: /run/modelmirror-hub-egress/hub-egress.sock
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 96
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_hub_remote_socket:/run/modelmirror-hub-mcp
+      - mcp_hub_egress_socket:/run/modelmirror-hub-egress
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-hub-mcp/hub-mcp.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
   mcp-database:
     build:
       context: ./server/sandbox_sidecar
@@ -523,6 +603,10 @@ services:
         condition: service_healthy
       mcp-browser:
         condition: service_healthy
+      mcp-hub-egress:
+        condition: service_healthy
+      mcp-hub-remote:
+        condition: service_healthy
       mcp-database:
         condition: service_healthy
       mcp-database-local:
@@ -608,6 +692,11 @@ services:
       MCP_BROWSER_SOCKET_PATH: /run/modelmirror-browser-mcp/browser-mcp.sock
       MCP_BROWSER_ARTIFACT_STAGING_ROOT: /app/mcp-browser-staging
       MCP_BROWSER_TRUSTED_ARTIFACT_ROOT: /app/mcp/storage/browser-artifacts
+      MCP_HUB_ENABLED: ${MCP_HUB_ENABLED:-false}
+      MCP_HUB_REMOTE_ENABLED: ${MCP_HUB_REMOTE_ENABLED:-false}
+      MCP_HUB_REMOTE_SOCKET_PATH: /run/modelmirror-hub-mcp/hub-mcp.sock
+      MCP_HUB_EGRESS_SOCKET_PATH: /run/modelmirror-hub-egress/hub-egress.sock
+      MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED: ${MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED:-false}
       MCP_CATALOG_ENABLE_CHROME_DEVTOOLS_MCP: ${MCP_CATALOG_ENABLE_CHROME_DEVTOOLS_MCP:-false}
       MCP_CATALOG_ENABLE_PLAYWRIGHT_MCP: ${MCP_CATALOG_ENABLE_PLAYWRIGHT_MCP:-false}
       MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK: ${MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK:-false}
@@ -655,6 +744,8 @@ services:
       - mcp_saas_socket:/run/modelmirror-saas-mcp
       - mcp_browser_socket:/run/modelmirror-browser-mcp
       - mcp_browser_artifact_staging:/app/mcp-browser-staging
+      - mcp_hub_remote_socket:/run/modelmirror-hub-mcp
+      - mcp_hub_egress_socket:/run/modelmirror-hub-egress
       - mcp_database_socket:/run/modelmirror-database-mcp
       - mcp_database_local_socket:/run/modelmirror-database-local-mcp
       - mcp_file_inputs:/app/mcp-file-inputs
@@ -822,6 +913,8 @@ volumes:
   mcp_saas_socket:
   mcp_browser_socket:
   mcp_browser_egress_socket:
+  mcp_hub_remote_socket:
+  mcp_hub_egress_socket:
   mcp_browser_artifact_staging:
     driver: local
     driver_opts:
@@ -853,4 +946,6 @@ networks:
   mcp_saas_egress:
     driver: bridge
   mcp_browser_egress:
+    driver: bridge
+  mcp_hub_egress:
     driver: bridge

@@ -15,7 +15,8 @@ MOCK_SERVER = Path(__file__).resolve().parent / "mock_mcp_server.py"
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def cleanup_runtime_state():
+async def cleanup_runtime_state(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED", "true")
     old_ttl = mcp_manager.idle_timeout_seconds
     mcp_manager.idle_timeout_seconds = 15 * 60
     mcp_connect_windows.clear()

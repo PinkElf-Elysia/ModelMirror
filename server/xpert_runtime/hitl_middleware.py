@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any
 
@@ -49,7 +51,24 @@ def build_human_in_the_loop_middleware(
         )
         scope_type, scope_id = _approval_scope(context, task_id)
         skill_approval = request.metadata.get("skill_approval")
-        if request.tool_name == "skill_install" and isinstance(skill_approval, dict):
+        hub_approval = request.metadata.get("hub_approval")
+        if isinstance(hub_approval, dict):
+            allowed = ["approve"]
+            if allow_edit:
+                allowed.append("edit")
+            if allow_reject:
+                allowed.append("reject")
+            approval_description = (
+                "未受信的 MCP Hub 工具需要逐次人工审批\n\n"
+                f"Registry: {hub_approval.get('server_name') or '-'}\n"
+                f"版本: {hub_approval.get('version') or '-'}\n"
+                f"Origin: {hub_approval.get('origin') or '-'}\n"
+                f"Schema: {hub_approval.get('schema_digest') or '-'}\n"
+                f"工具 Schema: {hub_approval.get('tool_schema_digest') or '-'}\n"
+                f"工具: {request.tool_name}\n\n"
+                "Registry 收录不代表安全认证；请核对来源、工具和完整脱敏参数。"
+            )
+        elif request.tool_name == "skill_install" and isinstance(skill_approval, dict):
             allowed = ["approve", "reject"]
             approval_description = (
                 "安装已核验 Skill 需要人工审批\n\n"
@@ -93,6 +112,11 @@ def build_human_in_the_loop_middleware(
                     "skill_approval": (
                         dict(skill_approval)
                         if isinstance(skill_approval, dict)
+                        else None
+                    ),
+                    "hub_approval": (
+                        dict(hub_approval)
+                        if isinstance(hub_approval, dict)
                         else None
                     ),
                 },
@@ -172,7 +196,33 @@ async def _apply_resolution(
             raise RuntimeMiddlewareFatalError(
                 "Approved edit is missing edited_arguments."
             )
-        return await handler(request.with_updates(arguments=dict(edited)))
+        metadata = dict(request.metadata)
+        hub_approval = metadata.get("hub_approval")
+        if isinstance(hub_approval, dict):
+            updated_hub = dict(hub_approval)
+            updated_hub["arguments_digest"] = hashlib.sha256(
+                json.dumps(
+                    edited,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            metadata["hub_approval"] = updated_hub
+            resolved_approval = metadata.get("resolved_approval")
+            if isinstance(resolved_approval, dict):
+                updated_resolution = dict(resolved_approval)
+                resolution_metadata = dict(
+                    updated_resolution.get("metadata")
+                    if isinstance(updated_resolution.get("metadata"), dict)
+                    else {}
+                )
+                resolution_metadata["hub_approval"] = dict(updated_hub)
+                updated_resolution["metadata"] = resolution_metadata
+                metadata["resolved_approval"] = updated_resolution
+        return await handler(
+            request.with_updates(arguments=dict(edited), metadata=metadata)
+        )
     if decision == "reject":
         message = str(
             resolved.get("message")

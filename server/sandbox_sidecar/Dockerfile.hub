@@ -1,0 +1,23 @@
+FROM python:3.12-slim@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 65532 sandbox \
+    && useradd --uid 65532 --gid 65532 --home-dir /nonexistent --no-create-home sandbox \
+    && mkdir -p /opt/modelmirror/sandbox_sidecar /run/modelmirror-hub-mcp /run/modelmirror-hub-egress \
+    && chown -R sandbox:sandbox /run/modelmirror-hub-mcp /run/modelmirror-hub-egress
+
+WORKDIR /opt/modelmirror
+COPY requirements.hub.lock ./requirements.hub.lock
+RUN pip install --no-cache-dir --retries 5 --timeout 120 \
+    --require-hashes -r requirements.hub.lock
+COPY hub_init.py ./sandbox_sidecar/__init__.py
+COPY hub_server.py ./sandbox_sidecar/hub_server.py
+COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-mcp-hub/THIRD_PARTY_NOTICES.md
+
+USER 65532:65532
+CMD ["python", "-m", "sandbox_sidecar.hub_server", "remote"]

@@ -21,7 +21,8 @@ MOCK_SERVER = Path(__file__).resolve().parent / "mock_mcp_server.py"
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def cleanup_sessions():
+async def cleanup_sessions(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED", "true")
     mcp_connect_windows.clear()
     yield
     mcp_connect_windows.clear()
@@ -81,6 +82,38 @@ async def test_startup_failure_returns_400(client: httpx.AsyncClient) -> None:
     )
     assert response.status_code == 400
     assert "MCP Server 启动失败" in response.text
+
+
+@pytest.mark.asyncio
+async def test_legacy_unrestricted_connect_is_disabled_by_default(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED", "false")
+    response = await client.post(
+        "/api/mcp/connect",
+        json={"server_command": [sys.executable, str(MOCK_SERVER)]},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "legacy_mcp_connect_disabled"
+
+
+@pytest.mark.asyncio
+async def test_legacy_unrestricted_install_is_disabled_by_default(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED", "false")
+    response = await client.post(
+        "/api/mcp/install",
+        json={
+            "project_id": "legacy-example",
+            "install_command": "npx --yes legacy-example",
+            "server_command": ["npx", "--yes", "legacy-example"],
+        },
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "legacy_mcp_install_disabled"
 
 
 @pytest.mark.asyncio

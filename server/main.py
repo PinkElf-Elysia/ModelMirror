@@ -612,6 +612,13 @@ try:
         MCPSessionNotFoundError,
         validate_server_command,
     )
+    from server.mcp.hub import (
+        MCPHubService,
+        MCPHubStore,
+        arguments_digest as hub_arguments_digest,
+        configure_mcp_hub,
+        router as mcp_hub_router,
+    )
     from server.mcp.workspace import MCPCatalogWorkspaceStore
     from server.registry.tool_registry import ToolRegistry
 except ModuleNotFoundError:
@@ -627,6 +634,13 @@ except ModuleNotFoundError:
         MCPInstaller,
         MCPSessionNotFoundError,
         validate_server_command,
+    )
+    from mcp.hub import (
+        MCPHubService,
+        MCPHubStore,
+        arguments_digest as hub_arguments_digest,
+        configure_mcp_hub,
+        router as mcp_hub_router,
     )
     from mcp.workspace import MCPCatalogWorkspaceStore
     from registry.tool_registry import ToolRegistry
@@ -682,6 +696,8 @@ try:
         InMemoryToolAuditStore,
         ExternalXpertToolsetProvider,
         KnowledgeToolsetProvider,
+        CompositeMCPToolsetProvider,
+        HubMCPToolsetProvider,
         MCPToolsetProvider,
         MemoryToolsetProvider,
         MiddlewareContext,
@@ -798,6 +814,8 @@ except ModuleNotFoundError:
         InMemoryToolAuditStore,
         ExternalXpertToolsetProvider,
         KnowledgeToolsetProvider,
+        CompositeMCPToolsetProvider,
+        HubMCPToolsetProvider,
         MCPToolsetProvider,
         MemoryToolsetProvider,
         MiddlewareContext,
@@ -1253,13 +1271,26 @@ app.include_router(omniroute_router)
 app.include_router(multimodal_router)
 app.include_router(coding_router)
 app.include_router(mcp_catalog_router)
+app.include_router(mcp_hub_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_manager = MCPClientManager()
 mcp_installer = MCPInstaller()
 tool_registry = ToolRegistry()
-workflow_mcp_provider = MCPToolsetProvider(tool_registry, mcp_manager)
+mcp_hub_store = MCPHubStore()
+mcp_hub_service = MCPHubService(
+    mcp_hub_store,
+    tenant_id=os.getenv("MODELMIRROR_DEFAULT_TENANT_ID", "local"),
+    owner_id=os.getenv("MODELMIRROR_DEFAULT_OWNER_ID", "local"),
+)
+configure_mcp_hub(mcp_hub_service)
+workflow_curated_mcp_provider = MCPToolsetProvider(tool_registry, mcp_manager)
+workflow_hub_mcp_provider = HubMCPToolsetProvider(mcp_hub_service)
+workflow_mcp_provider = CompositeMCPToolsetProvider(
+    workflow_curated_mcp_provider,
+    workflow_hub_mcp_provider,
+)
 toolset_store = ToolsetStore()
 toolset_credential_store = CredentialStore(toolset_store.storage_dir)
 mcp_catalog_workspace_store = MCPCatalogWorkspaceStore()
@@ -9054,6 +9085,8 @@ async def _run_workflow_response(
                 "allow_tools"
             ):
                 raise PermissionError("Xpert App tool access is disabled.")
+            if matched_tool.provider == "mcp_hub" and runtime_run_type == "xpert_app":
+                raise PermissionError("Xpert App MCP Hub access is disabled.")
             if capability_name == "published_mcp_toolsets" and runtime_run_type == "xpert_app":
                 if not app_capability_allowed("allow_tools"):
                     raise PermissionError("Xpert App Toolset access is disabled.")
@@ -9322,6 +9355,33 @@ async def _run_workflow_response(
                         "todo_scope_type": todo_scope_type,
                         "todo_scope_id": todo_scope_id,
                         **dict(metadata or {}),
+                        "hub_approval": (
+                            {
+                                "candidate_id": matched_tool.metadata.get(
+                                    "hub_candidate_id"
+                                ),
+                                "tenant_id": mcp_hub_service.tenant_id,
+                                "owner_id": mcp_hub_service.owner_id,
+                                "server_name": matched_tool.metadata.get(
+                                    "hub_server_name"
+                                ),
+                                "version": matched_tool.metadata.get(
+                                    "hub_version"
+                                ),
+                                "origin": matched_tool.metadata.get(
+                                    "hub_origin"
+                                ),
+                                "schema_digest": matched_tool.metadata.get(
+                                    "hub_schema_digest"
+                                ),
+                                "tool_schema_digest": matched_tool.metadata.get(
+                                    "hub_tool_schema_digest"
+                                ),
+                                "arguments_digest": hub_arguments_digest(arguments),
+                            }
+                            if matched_tool.provider == "mcp_hub"
+                            else None
+                        ),
                     },
                 ),
                 runtime_capabilities,
@@ -9451,6 +9511,8 @@ async def _run_workflow_response(
                 if include_mcp and app_capability_allowed("allow_tools")
                 else []
             )
+            if runtime_run_type == "xpert_app":
+                tools = [tool for tool in tools if tool.provider != "mcp_hub"]
             requested_tool_names = {
                 item.strip()
                 for item in re.split(r"[,\n]+", str(tool_names_raw or ""))
@@ -20366,6 +20428,7 @@ async def start_mcp_ttl_cleanup() -> None:
             interrupted_agency_runs,
         )
     mcp_manager.start_ttl_cleanup(on_cleanup=cleanup_mcp_session_state)
+    await mcp_hub_service.start()
     builtin_warnings = await toolset_service.ensure_builtin_toolsets()
     for warning in builtin_warnings:
         logger.warning("Builtin Provider Toolset initialization failed: %s", warning)
@@ -20414,6 +20477,7 @@ async def shutdown_mcp_sessions() -> None:
     if automation_coordinator is not None:
         await automation_coordinator.stop()
     await workflow_trigger_coordinator.stop()
+    await mcp_hub_service.close()
     await mcp_catalog_service.clear_sessions()
     await toolset_service.close()
     await mcp_manager.stop_ttl_cleanup()
@@ -20424,6 +20488,16 @@ async def shutdown_mcp_sessions() -> None:
 @app.post("/api/mcp/connect", response_model=MCPConnectResponse)
 async def connect_mcp_server(payload: MCPConnectRequest, request: Request):
     try:
+        if os.getenv(
+            "MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED", "false"
+        ).strip().lower() not in {"1", "true", "yes", "on"}:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "legacy_mcp_connect_disabled",
+                    "error": "旧版任意 MCP 连接入口已禁用。",
+                },
+            )
         mcp_connect_rate_limit_or_raise(client_ip(request))
         validate_server_command(payload.server_command)
         await cleanup_mcp_idle_sessions_and_registry()
@@ -20447,6 +20521,16 @@ async def connect_mcp_server(payload: MCPConnectRequest, request: Request):
 @app.post("/api/mcp/install", response_model=MCPInstallResponse)
 async def install_mcp_project(payload: MCPInstallRequest):
     try:
+        if os.getenv(
+            "MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED", "false"
+        ).strip().lower() not in {"1", "true", "yes", "on"}:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "legacy_mcp_install_disabled",
+                    "error": "旧版任意 MCP 安装入口已禁用。",
+                },
+            )
         result = await asyncio.to_thread(
             mcp_installer.install,
             project_id=payload.project_id,
@@ -20454,6 +20538,8 @@ async def install_mcp_project(payload: MCPInstallRequest):
             server_command=payload.server_command,
         )
         return MCPInstallResponse.model_validate(result)
+    except HTTPException:
+        raise
     except (MCPInstallError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

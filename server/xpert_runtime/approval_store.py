@@ -113,6 +113,8 @@ class RuntimeApprovalStore:
         clean_decisions = self._decisions(allowed_decisions)
         clean_timeout = max(30, min(int(timeout_seconds), 86_400))
         now = time.time()
+        raw_metadata = dict(metadata or {})
+        is_hub_request = isinstance(raw_metadata.get("hub_approval"), dict)
         with self._lock:
             existing = next(
                 (
@@ -136,11 +138,15 @@ class RuntimeApprovalStore:
                 scope_type=str(scope_type or "workflow").strip()[:80] or "workflow",
                 scope_id=str(scope_id or task_id).strip()[:400],
                 tool_name=self._optional_text(tool_name, 300),
-                arguments=self.redact(arguments or {}),
+                arguments=(
+                    self.redact_complete(arguments or {})
+                    if is_hub_request
+                    else self.redact(arguments or {})
+                ),
                 description=str(description or "").strip()[:4_000],
                 content_preview=str(content_preview or "").strip()[:8_000],
                 allowed_decisions=clean_decisions,
-                metadata=self.redact(dict(metadata or {})),
+                metadata=self.redact(raw_metadata),
                 created_at=now,
                 updated_at=now,
                 expires_at=now + clean_timeout,
@@ -323,12 +329,58 @@ class RuntimeApprovalStore:
     @staticmethod
     def serialize(item: RuntimeApprovalRequest) -> dict[str, Any]:
         payload = asdict(item)
-        payload["arguments"] = RuntimeApprovalStore.redact(item.arguments)
+        is_hub_request = isinstance(item.metadata.get("hub_approval"), dict)
+        payload["arguments"] = (
+            RuntimeApprovalStore.redact_complete(item.arguments)
+            if is_hub_request
+            else RuntimeApprovalStore.redact(item.arguments)
+        )
         if item.edited_arguments is not None:
-            payload["edited_arguments"] = RuntimeApprovalStore.redact(
-                item.edited_arguments
+            payload["edited_arguments"] = (
+                RuntimeApprovalStore.redact_complete(item.edited_arguments)
+                if is_hub_request
+                else RuntimeApprovalStore.redact(item.edited_arguments)
             )
         return payload
+
+    @classmethod
+    def redact_complete(cls, value: Any) -> Any:
+        """Redact a complete, already bounded Hub argument tree without truncation."""
+        try:
+            encoded = json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise RuntimeApprovalValidationError(
+                "Hub approval arguments must be bounded JSON."
+            ) from exc
+        if len(encoded) > 32 * 1024:
+            raise RuntimeApprovalValidationError(
+                "Hub approval arguments exceed the 32 KiB limit."
+            )
+        return cls._redact_complete(value)
+
+    @classmethod
+    def _redact_complete(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                str(key): (
+                    "[REDACTED]"
+                    if cls._looks_sensitive(str(key))
+                    else cls._redact_complete(inner)
+                )
+                for key, inner in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [cls._redact_complete(item) for item in value]
+        if value is None or isinstance(value, (str, bool, int, float)):
+            return value
+        raise RuntimeApprovalValidationError(
+            "Hub approval arguments must contain JSON values only."
+        )
 
     @classmethod
     def redact(cls, value: Any) -> Any:

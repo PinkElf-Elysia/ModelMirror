@@ -84,6 +84,7 @@ describe("McpBrowserPage first-screen shell", () => {
     expect(screen.getByText("已连接")).toBeVisible();
     expect(screen.getByRole("tab", { name: "工具货架" })).toBeVisible();
     expect(screen.getByRole("tab", { name: "已连接注册表" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "MCP Hub" })).toBeVisible();
     expect(
       screen.getByRole("searchbox", { name: "搜索 MCP 工具" }),
     ).toHaveAttribute("placeholder", "搜索名称、用途或标签");

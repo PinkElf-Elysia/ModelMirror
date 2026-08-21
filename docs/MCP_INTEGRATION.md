@@ -267,11 +267,18 @@ npm view @example/mcp-server version
 
 `planned` 项目的准备、连接和调用返回 `409`。配置包含命令、URL、Header、环境变量或工作目录时返回 `400`。
 
-以下 `/api/mcp/*` session API 为现有调用方保留兼容；目录前端不再向它们提交命令或直接调用工具。
+官方 Registry 的受控发现和匿名远程候选见
+[MCP Hub 第一轮受控接入](./MCP_HUB_REMOTE_V1.md)。Hub 不复用以下通用
+session API，也不向客户端开放通用工具调用端点。
+
+以下 `/api/mcp/*` session API 仅为既有定向测试保留兼容，默认由
+`MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED=false` 关闭；目录与 Hub 前端均
+不向它们提交命令或直接调用工具。
 
 ### POST `/api/mcp/connect`
 
-启动一个 stdio MCP Server，创建 session。
+兼容开关显式开启时，启动一个 stdio MCP Server 并创建 session。生产默认
+返回 404；这不是用户自定义 MCP 的公开入口。
 
 请求：
 
@@ -566,4 +573,4 @@ python server/mcp/test_manager.py
 
 `/mcps` 同时展示已通过生产验收的 Server 和按批次排队的生态项目。待适配条目只能展示中文用途、接入条件、批次和安全门槛；只有后端返回 `ready + executable` 才能连接。
 
-来源同步、安全运行时及后续 OAuth / Secret 代理计划见 [MCP_CATALOG_ROADMAP.md](./MCP_CATALOG_ROADMAP.md)。用户自定义连接和 MCP Builder 仍为未排期远期能力，不进入当前批次。
+来源同步、安全运行时及后续 OAuth / Secret 代理计划见 [MCP_CATALOG_ROADMAP.md](./MCP_CATALOG_ROADMAP.md)。官方 Registry 的第一轮发现与匿名候选进入独立 Hub；用户自定义 JSON/stdio 连接和 MCP Builder 仍为未排期远期能力，不进入本批。
