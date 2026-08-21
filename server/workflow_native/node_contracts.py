@@ -701,6 +701,238 @@ def _complete_contracts() -> dict[str, NodeContract]:
         availability=deployment_only_availability,
         planner=_planner(),
     )
+    comparison_rule_properties = {
+        "operator": {
+            "type": "string",
+            "enum": [
+                "equals",
+                "not_equals",
+                "gt",
+                "gte",
+                "lt",
+                "lte",
+                "contains",
+                "in",
+                "is_null",
+            ],
+        },
+        "valueType": {
+            "type": "string",
+            "enum": ["text", "number", "boolean", "null", "json"],
+        },
+        "value": {},
+    }
+    route_rule_schema = _object_schema(
+        {
+            "id": {"type": "string", "pattern": r"^route_[1-8]$"},
+            "label": {"type": "string", "minLength": 1, "maxLength": 80},
+            **comparison_rule_properties,
+        },
+        required=["id", "label", "operator"],
+        additional_properties=False,
+    )
+    filter_rule_schema = _object_schema(
+        {
+            "field": {"type": "string", "maxLength": 64},
+            **comparison_rule_properties,
+        },
+        required=["operator"],
+        additional_properties=False,
+    )
+    contracts["terminate_error"] = NodeContract(
+        kind="terminate_error",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "errorCode": {
+                    "type": "string",
+                    "pattern": r"^[A-Z][A-Z0-9_]{0,63}$",
+                },
+                "message": {"type": "string", "minLength": 1, "maxLength": 2_000},
+            },
+            required=["errorCode", "message"],
+        ),
+        edge=NodeEdgeContract(modes=(), topology_modes=()),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=True,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="control",
+        ),
+        planner=_planner(),
+    )
+    contracts["multi_route"] = NodeContract(
+        kind="multi_route",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "inputVariable": {"type": "string"},
+                "routes": {
+                    "type": "array",
+                    "items": route_rule_schema,
+                    "minItems": 2,
+                    "maxItems": 8,
+                },
+            },
+            required=["inputVariable", "routes"],
+        ),
+        ports=(
+            NodePortContract(
+                name="value",
+                direction="input",
+                value_schema=any_value,
+                required=True,
+            ),
+        ),
+        edge=NodeEdgeContract(
+            allowed_source_handles=(
+                "route_1",
+                "route_2",
+                "route_3",
+                "route_4",
+                "route_5",
+                "route_6",
+                "route_7",
+                "route_8",
+                "default",
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=True,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="control",
+        ),
+        planner=_planner(),
+    )
+    contracts["list_operation"] = NodeContract(
+        kind="list_operation",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "inputVariable": {"type": "string"},
+                "outputVariable": {"type": "string"},
+                "operator": {
+                    "type": "string",
+                    "enum": [
+                        "length",
+                        "join",
+                        "first",
+                        "last",
+                        "filter",
+                        "sort",
+                        "deduplicate",
+                    ],
+                },
+                "joinSeparator": {"type": "string", "maxLength": 1_000},
+                "filterMode": {"type": "string", "enum": ["all", "any"]},
+                "filterRules": {
+                    "type": "array",
+                    "items": filter_rule_schema,
+                    "minItems": 1,
+                    "maxItems": 10,
+                },
+                "sortKeys": {
+                    "type": "array",
+                    "items": _object_schema(
+                        {
+                            "field": {"type": "string", "maxLength": 64},
+                            "direction": {"type": "string", "enum": ["asc", "desc"]},
+                            "nulls": {"type": "string", "enum": ["first", "last"]},
+                        },
+                        required=["field", "direction", "nulls"],
+                        additional_properties=False,
+                    ),
+                    "minItems": 1,
+                    "maxItems": 3,
+                },
+                "deduplicateFields": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "maxItems": 5,
+                    "uniqueItems": True,
+                },
+            },
+            required=["inputVariable", "operator", "outputVariable"],
+        ),
+        ports=(
+            NodePortContract(name="list", direction="input", value_schema=any_value),
+            NodePortContract(name="result", direction="output", value_schema=any_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=True,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="transform",
+        ),
+        planner=_planner(),
+    )
+    contracts["data_aggregate"] = NodeContract(
+        kind="data_aggregate",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "inputVariable": {"type": "string"},
+                "outputVariable": {"type": "string"},
+                "groupByFields": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "maxItems": 3,
+                    "uniqueItems": True,
+                },
+                "measures": {
+                    "type": "array",
+                    "items": _object_schema(
+                        {
+                            "outputField": {
+                                "type": "string",
+                                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+                            },
+                            "operation": {
+                                "type": "string",
+                                "enum": ["count", "sum", "avg", "min", "max"],
+                            },
+                            "sourceField": {"type": "string", "maxLength": 64},
+                        },
+                        required=["outputField", "operation"],
+                        additional_properties=False,
+                    ),
+                    "minItems": 1,
+                    "maxItems": 10,
+                },
+            },
+            required=[
+                "inputVariable",
+                "outputVariable",
+                "groupByFields",
+                "measures",
+            ],
+        ),
+        ports=(
+            NodePortContract(
+                name="rows",
+                direction="input",
+                value_schema=array_object_value,
+                required=True,
+            ),
+            NodePortContract(
+                name="result",
+                direction="output",
+                value_schema=array_object_value,
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=True,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="transform",
+        ),
+        planner=_planner(),
+    )
     contracts["llm"] = NodeContract(
         kind="llm",
         contract_status="complete",

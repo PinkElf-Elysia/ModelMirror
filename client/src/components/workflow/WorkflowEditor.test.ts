@@ -64,6 +64,32 @@ describe("WorkflowEditor palette defaults", () => {
     });
   });
 
+  it("provides safe structured defaults for R1.6 control and data nodes", () => {
+    expect(createNodeData("terminate_error")).toMatchObject({
+      errorCode: "WORKFLOW_STOPPED",
+      message: "工作流已按规则主动终止。",
+    });
+    expect(createNodeData("multi_route")).toMatchObject({
+      inputVariable: "user_input",
+      routes: [
+        { id: "route_1", operator: "equals", valueType: "text" },
+        { id: "route_2", operator: "equals", valueType: "text" },
+      ],
+    });
+    expect(createNodeData("list_operation")).toMatchObject({
+      operator: "length",
+      filterMode: "all",
+      sortKeys: [{ field: "", direction: "asc", nulls: "last" }],
+      deduplicateFields: [],
+    });
+    expect(createNodeData("data_aggregate")).toMatchObject({
+      inputVariable: "user_input",
+      outputVariable: "aggregate_result",
+      groupByFields: [],
+      measures: [{ outputField: "row_count", operation: "count" }],
+    });
+  });
+
   it("repairs missing or non-finite positions from server and legacy drafts", () => {
     const nodes = [
       {

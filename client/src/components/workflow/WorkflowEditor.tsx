@@ -25,7 +25,6 @@ import {
   type CodeOperation,
   type ConditionOperator,
   type HttpRequestMethod,
-  type ListOperationOperator,
   type NodeRunStatus,
   type WorkflowDefinition,
   type WorkflowEdge,
@@ -72,6 +71,7 @@ import {
   type WorkflowNodeRegistryResponse,
 } from "./workflowNodeRegistry";
 import WorkflowTypedDataNodeConfig from "./WorkflowTypedDataNodeConfig";
+import WorkflowControlDataNodeConfig from "./WorkflowControlDataNodeConfig";
 import WorkflowDeploymentNodeConfig from "./WorkflowDeploymentNodeConfig";
 import WorkflowNodeCard from "./WorkflowNodeCard";
 import WorkflowRun from "./WorkflowRun";
@@ -124,10 +124,10 @@ async function cachedFetchResource<T>(
 
 /** MiniMap 节点按 kind 大类着色，与 WorkflowNodeCard 的 nodeMeta 配色呼应。 */
 function minimapNodeColor(kind: string): string {
-  if (["llm", "code", "variable_assign", "template_transform", "variable_aggregator", "parameter_extractor", "json_serialize", "json_deserialize"].includes(kind)) {
+  if (["llm", "code", "variable_assign", "template_transform", "variable_aggregator", "parameter_extractor", "data_aggregate", "json_serialize", "json_deserialize"].includes(kind)) {
     return "#22d3ee"; // brand 青
   }
-  if (["condition", "iteration"].includes(kind)) return "#fbbf24"; // amber
+  if (["condition", "multi_route", "terminate_error", "iteration"].includes(kind)) return "#fbbf24"; // amber
   if (["knowledge_retrieval", "knowledge_citation", "document_extractor", "vision_understanding", "knowledge_base"].includes(kind)) {
     return "#2dd4bf"; // teal
   }
@@ -489,6 +489,41 @@ export function createNodeData(
     };
   }
 
+  if (kind === "multi_route") {
+    return {
+      kind,
+      title: "多路分派",
+      description: "按顺序匹配规则，只执行首个命中的出口。",
+      inputVariable: "user_input",
+      routes: [
+        {
+          id: "route_1",
+          label: "第一种情况",
+          operator: "equals",
+          valueType: "text",
+          value: "",
+        },
+        {
+          id: "route_2",
+          label: "第二种情况",
+          operator: "equals",
+          valueType: "text",
+          value: "",
+        },
+      ],
+    };
+  }
+
+  if (kind === "terminate_error") {
+    return {
+      kind,
+      title: "主动终止",
+      description: "使用固定安全错误结束当前执行。",
+      errorCode: "WORKFLOW_STOPPED",
+      message: "工作流已按规则主动终止。",
+    };
+  }
+
   if (kind === "code") {
     return {
       kind,
@@ -828,11 +863,34 @@ export function createNodeData(
     return {
       kind,
       title: "列表操作",
-      description: "把逗号分隔文本当作列表做轻量处理。",
+      description: "对类型化数组执行列表转换，并兼容旧文本列表。",
       inputVariable: "user_input",
       operator: "length",
       joinSeparator: " / ",
+      filterMode: "all",
+      filterRules: [
+        {
+          field: "",
+          operator: "equals",
+          valueType: "text",
+          value: "",
+        },
+      ],
+      sortKeys: [{ field: "", direction: "asc", nulls: "last" }],
+      deduplicateFields: [],
       outputVariable: "list_output",
+    };
+  }
+
+  if (kind === "data_aggregate") {
+    return {
+      kind,
+      title: "数据聚合",
+      description: "对对象数组分组并计算类型化度量。",
+      inputVariable: "user_input",
+      outputVariable: "aggregate_result",
+      groupByFields: [],
+      measures: [{ outputField: "row_count", operation: "count" }],
     };
   }
 
@@ -2552,6 +2610,7 @@ function LegacyKnowledgeCitationConfig({
 interface NodeConfigProps {
   workflowId: string;
   node: WorkflowNode | null;
+  declarations: WorkflowVariableDeclaration[];
   onChange: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
   onRuntimeMiddlewareConfigChange: (
     nodeId: string,
@@ -2562,17 +2621,20 @@ interface NodeConfigProps {
   edges: WorkflowEdge[];
   onSelectNode: (nodeId: string) => void;
   onOpenRunFileInput: (variableName: string) => void;
+  onOpenVariableCenter: () => void;
 }
 
 function NodeConfig({
   workflowId,
   node,
+  declarations,
   onChange,
   onRuntimeMiddlewareConfigChange,
   nodes,
   edges,
   onSelectNode,
   onOpenRunFileInput,
+  onOpenVariableCenter,
 }: NodeConfigProps) {
   const [registryTools, setRegistryTools] = useState<RegistryToolOption[]>([]);
   const [registryToolsError, setRegistryToolsError] = useState("");
@@ -2874,6 +2936,19 @@ function NodeConfig({
           node={node}
           nodes={nodes}
           onChange={update}
+        />
+      ) : null}
+
+      {["terminate_error", "multi_route", "list_operation", "data_aggregate"].includes(data.kind) ? (
+        <WorkflowControlDataNodeConfig
+          contract={variableContract}
+          data={data}
+          declarations={declarations}
+          edges={edges}
+          node={node}
+          nodes={nodes}
+          onChange={update}
+          onOpenVariableCenter={onOpenVariableCenter}
         />
       ) : null}
 
@@ -3920,64 +3995,6 @@ function NodeConfig({
         </>
       ) : null}
 
-      {data.kind === "list_operation" ? (
-        <>
-          <Field label="输入列表变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="inputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ inputVariable: value })}
-              value={data.inputVariable ?? ""}
-            />
-          </Field>
-          <Field label="列表操作">
-            <select
-              className={textInputClass()}
-              onChange={(event) =>
-                update({ operator: event.target.value as ListOperationOperator })
-              }
-              value={data.operator ?? "length"}
-            >
-              <option className="bg-slate-950" value="length">
-                计算长度
-              </option>
-              <option className="bg-slate-950" value="join">
-                拼接文本
-              </option>
-              <option className="bg-slate-950" value="first">
-                取第一项
-              </option>
-              <option className="bg-slate-950" value="last">
-                取最后一项
-              </option>
-            </select>
-          </Field>
-          {data.operator === "join" ? (
-            <Field label="拼接分隔符">
-              <input
-                className={textInputClass()}
-                onChange={(event) => update({ joinSeparator: event.target.value })}
-                value={data.joinSeparator ?? ""}
-              />
-            </Field>
-          ) : null}
-          <Field label="输出变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="outputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ outputVariable: value })}
-              value={data.outputVariable ?? ""}
-            />
-          </Field>
-        </>
-      ) : null}
-
       {data.kind === "iteration" ? (
         <>
           <Field label="输入列表变量">
@@ -4624,6 +4641,26 @@ function WorkflowCanvas({
     (connection: Connection) => {
       const sourceNode = nodes.find((node) => node.id === connection.source);
       const targetNode = nodes.find((node) => node.id === connection.target);
+      if (sourceNode?.data.kind === "multi_route") {
+        const configuredHandles = new Set([
+          ...(sourceNode.data.routes ?? []).map((route) => route.id),
+          "default",
+        ]);
+        const sourceHandle = connection.sourceHandle ?? "";
+        if (!configuredHandles.has(sourceHandle)) {
+          setErrorNotice("多路分派只能从已配置规则或默认出口连线。");
+          return;
+        }
+        if (
+          edges.some(
+            (edge) =>
+              edge.source === sourceNode.id && edge.sourceHandle === sourceHandle,
+          )
+        ) {
+          setErrorNotice("多路分派的每个出口只能连接一次。");
+          return;
+        }
+      }
       const middlewareBinding = connection.targetHandle === "middleware";
       const resourceBinding =
         connection.targetHandle === "expert" ||
@@ -5961,12 +5998,14 @@ function WorkflowCanvas({
           </p>
           <div className="mt-4">
             <NodeConfig
+              declarations={variables}
               edges={edges}
               node={selectedNode}
               nodes={nodes}
               onChange={updateNodeData}
               onRuntimeMiddlewareConfigChange={updateRuntimeMiddlewareConfig}
               onOpenRunFileInput={openRunFileInput}
+              onOpenVariableCenter={() => setIsVariableCenterOpen(true)}
               onSelectNode={setSelectedNodeId}
               workflowId={workflowId}
             />

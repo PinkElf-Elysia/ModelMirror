@@ -73,6 +73,20 @@ const nodeMeta = {
     bg: "bg-amber-300/10",
     text: "text-amber-100",
   },
+  multi_route: {
+    icon: "⇶",
+    label: "多路分派",
+    border: "border-amber-300/40",
+    bg: "bg-amber-300/10",
+    text: "text-amber-100",
+  },
+  terminate_error: {
+    icon: "!",
+    label: "主动终止",
+    border: "border-rose-300/40",
+    bg: "bg-rose-300/10",
+    text: "text-rose-100",
+  },
   code: {
     icon: "🔧",
     label: "加工工位",
@@ -241,6 +255,13 @@ const nodeMeta = {
     bg: "bg-sky-300/10",
     text: "text-sky-100",
   },
+  data_aggregate: {
+    icon: "Σ",
+    label: "数据聚合",
+    border: "border-brand-300/40",
+    bg: "bg-brand-300/10",
+    text: "text-brand-100",
+  },
   iteration: {
     icon: "🔁",
     label: "迭代工位",
@@ -318,6 +339,9 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
     nodeMeta[data.kind as keyof typeof nodeMeta] ?? nodeMeta.template_transform;
   const [showInfo, setShowInfo] = useState(false);
   const runStatus = data.runStatus;
+  const multiRoutes = data.kind === "multi_route" && Array.isArray(data.routes)
+    ? data.routes.filter((route) => route.id && route.label)
+    : [];
 
   const statusClassName =
     runStatus === "running"
@@ -330,7 +354,8 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
 
   return (
     <div
-      className={`relative min-w-24 rounded-lg border-2 bg-[#141c2e] p-2 text-slate-100 shadow-md transition duration-150 hover:bg-[#182238] active:scale-95 ${statusClassName}`}
+      className={`relative rounded-lg border-2 bg-[#141c2e] p-2 text-slate-100 shadow-md transition duration-150 hover:bg-[#182238] active:scale-95 ${data.kind === "multi_route" ? "min-w-36" : "min-w-24"} ${statusClassName}`}
+      style={data.kind === "multi_route" ? { minHeight: `${Math.max(132, (multiRoutes.length + 1) * 34)}px` } : undefined}
       onDoubleClick={() => setShowInfo((current) => !current)}
     >
       {runStatus === "running" ? (
@@ -446,7 +471,46 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
         </div>
       ) : null}
 
-      {data.kind === "condition" ? (
+      {data.kind === "multi_route" ? (
+        <>
+          {multiRoutes.map((route, index) => {
+            const top = `${((index + 1) / (multiRoutes.length + 2)) * 100}%`;
+            return (
+              <div key={route.id}>
+                <Handle
+                  className="!h-3 !w-3 !border-2 !border-surface-900 !bg-amber-300"
+                  id={route.id}
+                  position={Position.Right}
+                  style={{ top }}
+                  title={route.label}
+                  type="source"
+                />
+                <div
+                  className="pointer-events-none absolute left-full ml-2 max-w-24 truncate text-[10px] font-semibold text-amber-100"
+                  style={{ top: `calc(${top} - 7px)` }}
+                  title={route.label}
+                >
+                  {route.label}
+                </div>
+              </div>
+            );
+          })}
+          <Handle
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-slate-300"
+            id="default"
+            position={Position.Right}
+            style={{ top: `${((multiRoutes.length + 1) / (multiRoutes.length + 2)) * 100}%` }}
+            title="默认出口"
+            type="source"
+          />
+          <div
+            className="pointer-events-none absolute left-full ml-2 text-[10px] font-semibold text-slate-200"
+            style={{ top: `calc(${((multiRoutes.length + 1) / (multiRoutes.length + 2)) * 100}% - 7px)` }}
+          >
+            默认
+          </div>
+        </>
+      ) : data.kind === "condition" ? (
         <>
           <Handle
             className="!h-3 !w-3 !border-2 !border-surface-900 !bg-emerald-300"
@@ -519,7 +583,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           title="绑定到 workflow_agent 的 plugin 入口"
           type="source"
         />
-      ) : !["output", "http_event_reply", "annotation"].includes(data.kind) ? (
+      ) : !["output", "http_event_reply", "terminate_error", "annotation"].includes(data.kind) ? (
         <Handle
           className="!h-3 !w-3 !border-2 !border-surface-900 !bg-hire-300"
           position={Position.Right}

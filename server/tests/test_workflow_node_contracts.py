@@ -60,12 +60,13 @@ BASELINE_213_COMPATIBILITY_KINDS = {
     "variable_aggregator",
     "variable_assign",
 }
-PROMOTED_COMPLETE_KINDS = {"llm"}
+PROMOTED_COMPLETE_KINDS = {"llm", "list_operation"}
 
 
 def test_contract_registry_covers_every_native_kind_once() -> None:
     expected = set(get_args(NativeNodeKind))
 
+    assert len(expected) == 47
     assert workflow_node_contract_registry.kinds() == expected
     assert len(workflow_node_contract_registry.list()) == len(expected)
     assert workflow_node_contract_registry.get("not-a-node") is None
@@ -138,6 +139,40 @@ def test_subworkflow_call_contract_does_not_overclaim_idempotency() -> None:
     assert contract.execution.idempotent is False
     assert contract.execution.can_wait is False
     assert contract.planner.enabled is False
+
+
+def test_r16_control_data_contracts_are_complete_local_and_not_plannable() -> None:
+    kinds = {"terminate_error", "multi_route", "list_operation", "data_aggregate"}
+
+    for kind in kinds:
+        contract = workflow_node_contract_registry.require(kind)
+        assert contract.contract_status == "complete"
+        assert contract.execution.side_effect == "none"
+        assert contract.execution.deterministic is True
+        assert contract.execution.external_io is False
+        assert contract.execution.can_wait is False
+        assert contract.planner.enabled is False
+        assert node_policy_service.decision(kind, "workflow").allowed
+        assert node_policy_service.decision(kind, "xpert").allowed
+
+    assert workflow_node_contract_registry.require("terminate_error").edge.modes == ()
+    assert set(
+        workflow_node_contract_registry.require("multi_route").edge.allowed_source_handles
+    ) == {
+        "route_1",
+        "route_2",
+        "route_3",
+        "route_4",
+        "route_5",
+        "route_6",
+        "route_7",
+        "route_8",
+        "default",
+    }
+    assert sum(
+        contract.contract_status == "compatibility"
+        for contract in workflow_node_contract_registry.list()
+    ) == 18
 
 
 def test_only_current_seven_nodes_have_valid_planner_contracts() -> None:
@@ -313,6 +348,7 @@ def test_registry_ui_projection_is_v4_and_contains_no_runtime_payloads() -> None
         for item in section["items"]
     ] + list(payload["knowledge_pipeline"]["items"])
 
+    assert len({item["kind"] for item in items}) == 45
     assert payload["version"] == "xpert-workflow-node-registry-v4"
     assert payload["contract_version"] == 3
     assert payload["contract_checksum"] == workflow_node_contract_registry.checksum

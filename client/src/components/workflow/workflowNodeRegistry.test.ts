@@ -34,6 +34,9 @@ describe("workflowNodeRegistry NodeContract V3 guard", () => {
       "invoke_workflow",
       "suspend_wait",
       "http_event_reply",
+      "terminate_error",
+      "multi_route",
+      "data_aggregate",
     ]));
     expect(items.every((item) => item.contract === undefined)).toBe(true);
     expect(items.every((item) => item.planner === undefined)).toBe(true);

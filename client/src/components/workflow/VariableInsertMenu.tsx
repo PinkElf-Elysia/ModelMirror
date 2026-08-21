@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import type { WorkflowEdge, WorkflowNode } from "../../types/workflow";
+import type {
+  WorkflowEdge,
+  WorkflowNode,
+  WorkflowVariableDeclaration,
+} from "../../types/workflow";
 import type { WorkflowNodeContractProjection } from "./workflowNodeRegistry";
 import {
   analyzeWorkflowVariables,
@@ -43,11 +47,12 @@ export function collectWorkflowVariableOptions(
   edges: WorkflowEdge[],
   descriptor: WorkflowVariableFieldDescriptor,
   contract?: WorkflowNodeContractProjection | null,
+  declarations: WorkflowVariableDeclaration[] = [],
 ): InsertableVariable[] {
   if (!nodeId) return [];
   const nodeOrder = new Map(nodes.map((node, index) => [node.id, index]));
   const acceptedTypes = new Set(resolveWorkflowVariableFieldTypes(descriptor, contract));
-  const globals = analyzeWorkflowVariables(nodes, edges, nodeId)
+  const globals = analyzeWorkflowVariables(nodes, edges, nodeId, declarations)
     .sort(
       (left, right) =>
         availabilityOrder.indexOf(left.availability) -

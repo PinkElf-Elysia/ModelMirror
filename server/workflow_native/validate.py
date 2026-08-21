@@ -11,6 +11,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
+from .control_data import (
+    LIST_OPERATORS,
+    WorkflowControlDataError,
+    deduplicate_array,
+    filter_array,
+    sort_array,
+    validate_aggregate_config,
+    validate_comparison_rule,
+    validate_terminate_error_config,
+)
 from .node_contracts import workflow_node_contract_registry
 from .schemas import (
     NativeWorkflowDefinition,
@@ -86,9 +96,15 @@ NODE_KIND_ALIASES = {
     "time": "time_tool",
     "http_request": "http_request",
     "http-request": "http_request",
+    "terminate_error": "terminate_error",
+    "terminate-error": "terminate_error",
+    "multi_route": "multi_route",
+    "multi-route": "multi_route",
     "list_operation": "list_operation",
     "list-operation": "list_operation",
     "list-operator": "list_operation",
+    "data_aggregate": "data_aggregate",
+    "data-aggregate": "data_aggregate",
     "iteration": "iteration",
     "json_serialize": "json_serialize",
     "json-serialize": "json_serialize",
@@ -404,7 +420,10 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
             )
         )
 
-    if not any(kind in {"output", "http_event_reply"} for kind in kinds_by_id.values()):
+    if not any(
+        kind in {"output", "http_event_reply", "terminate_error"}
+        for kind in kinds_by_id.values()
+    ):
         issues.append(
             ValidationIssue(
                 code="missing_output_node",
@@ -479,6 +498,12 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
         producers=node_variable_producers,
     )
     validate_http_event_reply_structure(
+        workflow.nodes,
+        valid_edges,
+        issues,
+        kinds_by_id=kinds_by_id,
+    )
+    validate_control_data_structure(
         workflow.nodes,
         valid_edges,
         issues,
@@ -628,6 +653,69 @@ def validate_http_event_reply_structure(
                 )
                 break
             stack.extend(parents.get(current, set()))
+
+
+def validate_control_data_structure(
+    nodes: list[NativeWorkflowNode],
+    edges: list[NativeWorkflowEdge],
+    issues: list[ValidationIssue],
+    *,
+    kinds_by_id: dict[str, str],
+) -> None:
+    outgoing: dict[str, list[NativeWorkflowEdge]] = defaultdict(list)
+    for edge in edges:
+        outgoing[edge.source].append(edge)
+
+    for node in nodes:
+        kind = kinds_by_id.get(node.id)
+        node_edges = outgoing.get(node.id, [])
+        if kind == "terminate_error" and node_edges:
+            issues.append(
+                ValidationIssue(
+                    code="terminate_error_not_terminal",
+                    message="Terminate error must be a terminal node without outgoing edges.",
+                    node_id=node.id,
+                )
+            )
+        if kind != "multi_route":
+            continue
+        routes = node.data.get("routes")
+        route_ids = (
+            [str(route.get("id") or "").strip() for route in routes if isinstance(route, dict)]
+            if isinstance(routes, list)
+            else []
+        )
+        expected_handles = {*route_ids, "default"}
+        counts: dict[str, int] = defaultdict(int)
+        for edge in node_edges:
+            handle = str(edge.sourceHandle or "").strip()
+            counts[handle] += 1
+            if handle not in expected_handles:
+                issues.append(
+                    ValidationIssue(
+                        code="multi_route_unknown_edge_handle",
+                        message="Multi route edge uses an unconfigured route handle.",
+                        node_id=node.id,
+                        edge_id=edge.id,
+                    )
+                )
+        for handle in sorted(expected_handles):
+            if counts.get(handle, 0) == 0:
+                issues.append(
+                    ValidationIssue(
+                        code="multi_route_missing_edge",
+                        message=f"Multi route handle '{handle}' needs exactly one outgoing edge.",
+                        node_id=node.id,
+                    )
+                )
+            elif counts[handle] > 1:
+                issues.append(
+                    ValidationIssue(
+                        code="multi_route_duplicate_edge",
+                        message=f"Multi route handle '{handle}' has more than one outgoing edge.",
+                        node_id=node.id,
+                    )
+                )
 
 
 def validate_node_configuration(
@@ -2598,8 +2686,70 @@ def validate_node_configuration(
                 )
             )
 
+    if kind == "terminate_error":
+        try:
+            validate_terminate_error_config(
+                data.get("errorCode"),
+                data.get("message"),
+            )
+        except WorkflowControlDataError as exc:
+            issues.append(
+                ValidationIssue(
+                    code=exc.code.lower(),
+                    message=exc.safe_message,
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "multi_route":
+        input_variable = str(data.get("inputVariable") or "").strip()
+        if not is_variable_name(input_variable):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_multi_route_input_variable",
+                    message="Multi route inputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+        routes = data.get("routes")
+        if not isinstance(routes, list) or not 2 <= len(routes) <= 8:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_multi_route_count",
+                    message="Multi route requires between 2 and 8 routes.",
+                    node_id=node.id,
+                )
+            )
+        else:
+            route_ids: list[str] = []
+            for route in routes:
+                try:
+                    validated = validate_comparison_rule(
+                        route,
+                        allow_field=False,
+                        require_route=True,
+                    )
+                    route_ids.append(str(validated.get("id") or ""))
+                except WorkflowControlDataError as exc:
+                    issues.append(
+                        ValidationIssue(
+                            code=exc.code.lower(),
+                            message=exc.safe_message,
+                            node_id=node.id,
+                        )
+                    )
+            if len(route_ids) != len(set(route_ids)):
+                issues.append(
+                    ValidationIssue(
+                        code="duplicate_multi_route_id",
+                        message="Multi route ids must be unique.",
+                        node_id=node.id,
+                    )
+                )
+
     if kind == "list_operation":
-        if not str(data.get("inputVariable") or "").strip():
+        input_variable = str(data.get("inputVariable") or "").strip()
+        if not input_variable:
             issues.append(
                 ValidationIssue(
                     code="missing_list_operation_input_variable",
@@ -2607,12 +2757,42 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
+        elif not is_variable_name(input_variable):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_list_operation_input_variable",
+                    message="List operation inputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
         operator = str(data.get("operator") or "").strip()
-        if operator not in {"length", "join", "first", "last"}:
+        if operator not in LIST_OPERATORS:
             issues.append(
                 ValidationIssue(
                     code="invalid_list_operation_operator",
-                    message="List operation operator must be length, join, first, or last.",
+                    message="List operation uses an unsupported operator.",
+                    node_id=node.id,
+                )
+            )
+        try:
+            if operator == "filter":
+                filter_array(
+                    [],
+                    rules=data.get("filterRules"),
+                    mode=str(data.get("filterMode") or ""),
+                )
+            elif operator == "sort":
+                sort_array([], keys=data.get("sortKeys"))
+            elif operator == "deduplicate":
+                deduplicate_array(
+                    [],
+                    fields=data.get("deduplicateFields", []),
+                )
+        except WorkflowControlDataError as exc:
+            issues.append(
+                ValidationIssue(
+                    code=exc.code.lower(),
+                    message=exc.safe_message,
                     node_id=node.id,
                 )
             )
@@ -2638,6 +2818,39 @@ def validate_node_configuration(
                 ValidationIssue(
                     code="invalid_list_operation_output_variable",
                     message="List operation outputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "data_aggregate":
+        input_variable = str(data.get("inputVariable") or "").strip()
+        output_variable = str(data.get("outputVariable") or "").strip()
+        if not is_variable_name(input_variable):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_data_aggregate_input_variable",
+                    message="Data aggregate inputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+        if not is_variable_name(output_variable):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_data_aggregate_output_variable",
+                    message="Data aggregate outputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+        try:
+            validate_aggregate_config(
+                group_by_fields=data.get("groupByFields"),
+                measures=data.get("measures"),
+            )
+        except WorkflowControlDataError as exc:
+            issues.append(
+                ValidationIssue(
+                    code=exc.code.lower(),
+                    message=exc.safe_message,
                     node_id=node.id,
                 )
             )
@@ -3206,6 +3419,7 @@ def collect_declared_variables(
             "time_tool",
             "http_request",
             "list_operation",
+            "data_aggregate",
             "iteration",
             "json_serialize",
             "json_deserialize",
@@ -3265,6 +3479,7 @@ def collect_node_variable_producers(
         "time_tool": ("outputVariable",),
         "http_request": ("outputVariable",),
         "list_operation": ("outputVariable",),
+        "data_aggregate": ("outputVariable",),
         "iteration": ("outputVariable",),
         "json_serialize": ("outputVariable",),
         "json_deserialize": ("outputVariable",),
@@ -3676,6 +3891,17 @@ def validate_variable_references(
                     )
                 )
 
+    if kind == "multi_route":
+        input_variable = str(data.get("inputVariable") or "").strip()
+        if input_variable and input_variable not in available_variables:
+            issues.append(
+                ValidationIssue(
+                    code="missing_multi_route_input_variable_reference",
+                    message=f"Multi route references undefined variable '{input_variable}'.",
+                    node_id=node.id,
+                )
+            )
+
     if kind == "list_operation":
         input_variable = str(data.get("inputVariable") or "").strip()
         if input_variable and input_variable not in available_variables:
@@ -3683,6 +3909,17 @@ def validate_variable_references(
                 ValidationIssue(
                     code="missing_list_operation_input_variable_reference",
                     message=f"List operation references undefined variable '{input_variable}'.",
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "data_aggregate":
+        input_variable = str(data.get("inputVariable") or "").strip()
+        if input_variable and input_variable not in available_variables:
+            issues.append(
+                ValidationIssue(
+                    code="missing_data_aggregate_input_variable_reference",
+                    message=f"Data aggregate references undefined variable '{input_variable}'.",
                     node_id=node.id,
                 )
             )
