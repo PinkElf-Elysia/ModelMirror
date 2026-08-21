@@ -796,6 +796,29 @@ def _gold_v2_quality_manifest(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_GOLD_V2_REVIEW_STAGE_CHECKS = frozenset(
+    {
+        "manual_reviews",
+        "leakage_warning_reasons",
+        # A blocking leak must remain rejectable from the review workbench.
+        "no_blocking_leakage",
+    }
+)
+
+
+def gold_v2_review_admission_blockers(snapshot: dict[str, Any]) -> list[str]:
+    """Return structural failures that must be fixed before manual review starts."""
+
+    if _gold_contract_version(snapshot) != GOLD_CONTRACT_V2:
+        return []
+    return [
+        str(check["id"])
+        for check in _gold_v2_quality_manifest(snapshot)["checks"]
+        if not check["passed"]
+        and str(check["id"]) not in _GOLD_V2_REVIEW_STAGE_CHECKS
+    ]
+
+
 def _gold_v2_checksum_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
     return {
         "benchmark_contract_version": _gold_contract_version(snapshot),

@@ -48,6 +48,7 @@ from .evaluation import (
     EvaluationStateError,
     KnowledgeEvaluationStore,
     build_paired_execution_schedule,
+    gold_v2_review_admission_blockers,
     qualify_promotion_evidence,
 )
 from .evaluation_executor import KnowledgeEvaluationExecutor
@@ -1956,6 +1957,13 @@ async def review_evaluation_case(
         is_gold_v2 = (
             str(provenance.get("benchmark_contract_version") or "") == "rag-gold-v2"
         )
+        if is_gold_v2:
+            structural_blockers = gold_v2_review_admission_blockers(evaluation_set)
+            if structural_blockers:
+                raise ValueError(
+                    "rag-gold-v2 manual review is blocked by structural "
+                    "qualification failures: " + ", ".join(structural_blockers)
+                )
         if not is_gold_v2 and not case.get("expected_no_result"):
             raise ValueError("Legacy positive cases do not require manual review.")
         leakage = dict((case.get("targeting") or {}).get("leakage") or {})

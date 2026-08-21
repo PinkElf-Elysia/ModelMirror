@@ -219,11 +219,18 @@ export function summarizeGoldReview(
   if (pending > 0) blockers.push(`仍有 ${pending} 条待审核`);
   if (rejected > 0) blockers.push(`有 ${rejected} 条已拒绝，需替换或修改后重新审核`);
   if (missingLeakageReasons > 0) blockers.push(`${missingLeakageReasons} 条泄漏警告缺少批准理由`);
+  const qualityChecks = dataset.qualification_manifest?.checks ?? [];
   const failedQualityChecks = isGoldV2
-    ? (dataset.qualification_manifest?.checks ?? [])
-      .filter((item) => !item.passed && item.id !== "manual_reviews")
+    ? qualityChecks
+      .filter((item) => !item.passed && !["manual_reviews", "leakage_warning_reasons"].includes(item.id))
       .map((item) => item.id)
     : [];
+  const reviewBlockers = [...new Set([
+    ...(isGoldV2 && dataset.cases.length !== 42 ? ["case_count"] : []),
+    ...(isGoldV2 && (positive !== 30 || negative !== 12) ? ["positive_negative_count"] : []),
+    ...(isGoldV2 && qualityChecks.length === 0 ? ["qualification_manifest_missing"] : []),
+    ...failedQualityChecks.filter((item) => item !== "no_blocking_leakage"),
+  ])];
   if (failedQualityChecks.length) blockers.push(`质量检查未通过：${failedQualityChecks.join("、")}`);
   return {
     isGoldV2,
@@ -234,6 +241,8 @@ export function summarizeGoldReview(
     pending,
     rejected,
     blockers,
+    reviewBlockers,
+    reviewAllowed: reviewBlockers.length === 0,
     readyForCalibration: reviewCases.length > 0 && blockers.length === 0,
   };
 }
@@ -254,6 +263,21 @@ export function summarizeFormalReadiness(
   if (selectedVersions.length !== 2) blockers.push("正式评测需要恰好选择基线和候选两个版本");
   if (!baselineVersionId || !selectedVersions.includes(baselineVersionId)) blockers.push("请在所选版本中指定一个基线");
   return { ready: blockers.length === 0, blockers };
+}
+
+export function canApproveGoldReview(input: {
+  reviewAllowed: boolean;
+  evidenceLoaded: boolean;
+  reviewBusy: boolean;
+  leakageWarning: boolean;
+  leakageBlocked: boolean;
+  reason: string;
+}) {
+  return input.reviewAllowed
+    && input.evidenceLoaded
+    && !input.reviewBusy
+    && !input.leakageBlocked
+    && (!input.leakageWarning || Boolean(input.reason.trim()));
 }
 
 function errorMessage(value: unknown, fallback: string) {
@@ -756,6 +780,7 @@ export default function KnowledgeEvaluationPage() {
                   <div className="h-full rounded-full bg-cyan-300 transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${reviewSummary.required ? (reviewSummary.approved / reviewSummary.required) * 100 : 0}%` }} />
                 </div>
                 {reviewSummary.blockers.length ? <p className="mt-2 text-xs text-slate-400">{reviewSummary.blockers.join("；")}</p> : null}
+                {!reviewSummary.reviewAllowed ? <p className="mt-2 rounded-lg border border-rose-300/20 bg-rose-300/[0.06] px-3 py-2 text-xs text-rose-100">结构质量未通过，当前草案仅供诊断。请先修复并重新生成，不要开始人工审核。</p> : null}
               </div>
             ) : null}
 
@@ -817,8 +842,17 @@ export default function KnowledgeEvaluationPage() {
                 const requiresReview = selectedSet.origin === "generated" && (isGoldV2 || item.expected_no_result);
                 const evidenceLoaded = Boolean(caseEvidence[item.case_id]?.length);
                 const leakageWarning = Boolean(item.targeting?.leakage?.warning);
+                const leakageBlocked = Boolean(item.targeting?.leakage?.blocked);
                 const reviewBusy = busy === `review:${item.case_id}`;
-                const canApprove = evidenceLoaded && !reviewBusy && (!leakageWarning || Boolean(reviewReasons[item.case_id]?.trim()));
+                const reviewAllowed = reviewSummary?.reviewAllowed ?? true;
+                const canApprove = canApproveGoldReview({
+                  reviewAllowed,
+                  evidenceLoaded,
+                  reviewBusy,
+                  leakageWarning,
+                  leakageBlocked,
+                  reason: reviewReasons[item.case_id] || "",
+                });
                 return (
                   <div className="py-3" key={item.case_id}>
                     <div className="flex flex-wrap items-start gap-3">
@@ -841,11 +875,11 @@ export default function KnowledgeEvaluationPage() {
                         {caseEvidence[item.case_id].map((evidence, evidenceIndex) => <div className="text-xs" key={`${item.case_id}:${evidenceIndex}`}><p className="font-semibold text-slate-200">{String(evidence.document_name || evidence.document_id || "Gold evidence")}{evidence.page_number ? ` · p${evidence.page_number}` : ""}</p><p className="mt-1 whitespace-pre-wrap leading-5 text-slate-400">{String(evidence.text || "")}</p></div>)}
                         {requiresReview ? (
                           <div className="border-t border-white/10 pt-3">
-                            {leakageWarning ? <p className="mb-2 text-xs text-amber-100">连续原文重合 {item.targeting?.leakage?.max_normalized_copy ?? "-"} 字符，批准时必须说明为什么不是答案泄漏。</p> : null}
-                            <textarea className="min-h-16 w-full resize-y rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-xs leading-5 text-white outline-none focus:border-cyan-300/40" onChange={(event) => setReviewReasons((current) => ({ ...current, [item.case_id]: event.target.value }))} placeholder={leakageWarning ? "填写批准理由（必填）" : "审核理由（可选）"} value={reviewReasons[item.case_id] || ""} />
+                            {leakageBlocked ? <p className="mb-2 text-xs text-rose-100">连续原文重合 {item.targeting?.leakage?.max_normalized_copy ?? "-"} 字符，已达到阻断阈值；该样例只能拒绝并替换。</p> : leakageWarning ? <p className="mb-2 text-xs text-amber-100">连续原文重合 {item.targeting?.leakage?.max_normalized_copy ?? "-"} 字符，批准时必须说明为什么不是答案泄漏。</p> : null}
+                            <textarea className="min-h-16 w-full resize-y rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-xs leading-5 text-white outline-none focus:border-cyan-300/40 disabled:cursor-not-allowed disabled:opacity-40" disabled={!reviewAllowed} onChange={(event) => setReviewReasons((current) => ({ ...current, [item.case_id]: event.target.value }))} placeholder={leakageWarning ? "填写批准理由（必填）" : "审核理由（可选）"} value={reviewReasons[item.case_id] || ""} />
                             <div className="mt-2 flex flex-wrap gap-2">
                               <button className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-1.5 text-xs font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-35" disabled={!canApprove} onClick={() => void reviewGeneratedCase(item, "approved")} type="button">{item.expected_no_result ? "批准：答案不存在" : "批准 Gold"}</button>
-                              <button className="rounded-lg border border-rose-300/25 px-3 py-1.5 text-xs font-semibold text-rose-100 disabled:cursor-not-allowed disabled:opacity-35" disabled={!evidenceLoaded || reviewBusy} onClick={() => void reviewGeneratedCase(item, "rejected")} type="button">拒绝样例</button>
+                              <button className="rounded-lg border border-rose-300/25 px-3 py-1.5 text-xs font-semibold text-rose-100 disabled:cursor-not-allowed disabled:opacity-35" disabled={!reviewAllowed || !evidenceLoaded || reviewBusy} onClick={() => void reviewGeneratedCase(item, "rejected")} type="button">拒绝样例</button>
                             </div>
                           </div>
                         ) : null}

@@ -25,6 +25,7 @@ from server.rag.evaluation import (
     build_paired_execution_schedule,
     evaluate_promotion_gate,
     evaluate_retrieval_case,
+    gold_v2_review_admission_blockers,
     paired_primary_confidence_report,
     qualify_promotion_evidence,
 )
@@ -711,6 +712,37 @@ def test_gold_v2_semantic_edit_clears_prior_manual_review(tmp_path: Path) -> Non
 
     assert changed["cases"][0]["review_status"] == "pending"
     assert changed["cases"][0]["review_evidence"] == {}
+
+
+def test_gold_v2_review_admission_separates_structural_and_review_stage_failures(
+    tmp_path: Path,
+) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    cases = _gold_v2_cases(approved=False)
+    cases[0]["targeting"]["leakage"] = {
+        "max_normalized_copy": 32,
+        "warning": True,
+        "blocked": True,
+    }
+    draft = store.create_generated_set(
+        "kb-gold-v2",
+        "Review admission",
+        "",
+        cases=cases,
+        provenance=_gold_v2_provenance(),
+        coverage={},
+        calibration={"status": "not_required", "dataset_revision": 1},
+    )
+
+    # Pending reviews, their warning reasons, and an explicit rejection remain
+    # review-stage work rather than reasons to lock the workbench.
+    assert gold_v2_review_admission_blockers(draft) == []
+
+    corrupted = copy.deepcopy(draft)
+    corrupted["provenance"]["corpus_snapshot"]["documents"][0]["content_hash"] = ""
+    blockers = gold_v2_review_admission_blockers(corrupted)
+    assert "corpus_content_hashes" in blockers
+    assert "corpus_snapshot_hash" in blockers
 
 
 def test_formal_run_requires_published_gold_v2_full_pair_and_comparable_corpus(

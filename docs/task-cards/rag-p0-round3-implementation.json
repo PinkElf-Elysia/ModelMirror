@@ -1,8 +1,8 @@
 {
   "schema_version": "modelmirror-rag-p0-round3-implementation-v1",
-  "status": "real_gold_draft_generated_quality_gate_closed",
+  "status": "real_gold_draft_unqualified_review_admission_closed",
   "created_at": "2026-08-20T17:35:18.2764123Z",
-  "updated_at": "2026-08-21T02:31:11.2960350Z",
+  "updated_at": "2026-08-21T03:27:46.2827387Z",
   "base": {
     "branch": "origin/main",
     "commit": "0e0202b313b2378d13d899cf53166665baac6bee",
@@ -13,7 +13,10 @@
     "name": "codex/rag-p0-r3",
     "implementation_commits": [
       "8a4d96b3c5a66277aee7df2334c89970e09d315b",
-      "929c4304615daa7b5f727a45798da2e1c97be305"
+      "929c4304615daa7b5f727a45798da2e1c97be305",
+      "0623d6d36cb05bd885b5348dce7d34f8d6de2810",
+      "a8d7ad8041d35e67689fd9426efeb4f3c251d542",
+      "b6752329e133bbc680abc445acd94797aa466fde"
     ]
   },
   "constraints": {
@@ -56,9 +59,11 @@
       ]
     },
     "3C": {
-      "status": "workbench_implemented_real_gold_draft_unqualified_no_retry",
+      "status": "workbench_hardened_real_gold_draft_unqualified_no_retry",
       "implemented": [
         "42-case review workbench for positive grounding, negative answer absence, review reasons, rejection, blockers, and readiness",
+        "structurally invalid rag-gold-v2 drafts are rejected by the review API before any review write and the workbench disables approval and rejection controls",
+        "review-stage leakage reasons remain available, while blocking leakage can only be rejected and replaced",
         "formal-run readiness and paired confidence/comparability presentation",
         "bounded one-attempt Gold generation contract and explicit no-calibration-before-formal quota boundary"
       ],
@@ -126,13 +131,14 @@
           "detail": "Candidate publication intentionally strips content_hash from pipeline version document_results, while pipeline_corpus_snapshot read only that stripped field. The resulting Gold provenance contained four empty document hashes even though the immutable knowledge document records retained valid hashes.",
           "leakage_warning_reasons": "expected_manual_review_gate_for_two_warning_cases",
           "minimal_fix": "Recover missing document hashes from the immutable knowledge document record and reject corpus snapshots that still lack a 64-character hexadecimal document hash.",
+          "review_admission_fix": "Treat every failed Gold v2 qualification check except manual review completion, leakage warning reasons, and explicit rejection of blocking leakage as a structural pre-review blocker. Enforce the same distinction in the API and UI.",
           "existing_dataset_mutated": false,
           "additional_provider_call": false,
           "prospective_fixed_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263"
         }
       },
       "pending_external_sequence": [
-        "retain the current generated dataset as unqualified diagnostic evidence; do not review or publish it",
+        "retain the current generated dataset as unqualified diagnostic evidence; the API and UI now block review and publication",
         "after the snapshot hash fix is reviewed, obtain separate explicit authorization for one new Gold generation attempt; do not reuse or mutate the invalid revision",
         "complete manual review of all 42 cases and replace any rejected cases only with new authorization or manual edits",
         "publish one immutable rag-gold-v2 version",
@@ -169,15 +175,15 @@
     },
     "backend_affected_area": {
       "command": "python -m pytest server/tests -q -k 'rag or knowledge or benchmark' --tb=short",
-      "result": "312 passed, 3189 deselected, 6 warnings"
+      "result": "314 passed, 3189 deselected, 6 warnings"
     },
     "backend_full": {
       "command": "python -m pytest server/tests -q",
-      "result": "3450 passed, 29 skipped, 21 failed, 6 warnings",
+      "result": "3453 passed, 29 skipped, 21 failed, 6 warnings",
       "classification": "not_green_unrelated_baseline_or_environment_failures",
       "failure_clusters": [
         "17 agency tests: worker build output unavailable in the validation image",
-        "1 model-router P95 timing test: passed on immediate isolated rerun",
+        "1 model-router P95 timing test: failed at 12.634ms versus 10ms, then passed on immediate isolated rerun",
         "3 Skill Python/TypeScript parity tests: Node TypeScript subprocess exits before assertion; no Skill files are changed by this branch"
       ]
     },
@@ -187,9 +193,8 @@
     },
     "frontend_full": {
       "command": "npm.cmd run test:run",
-      "result": "408 passed, 2 timed out",
-      "classification": "not_green_load_sensitive_unrelated_timeouts",
-      "isolated_rerun": "AgentWorkbenchPage and SkillCreatorPages: 19 passed"
+      "result": "412 passed",
+      "classification": "green; the two prior load-sensitive unrelated timeouts did not recur"
     },
     "frontend_build": {
       "command": "npm.cmd run build",
@@ -214,6 +219,30 @@
     "post_real_gold_hash_fix_python_syntax": {
       "command": "python -m py_compile server/rag/rag_service.py server/tests/test_rag_evaluation.py",
       "result": "passed"
+    },
+    "post_real_gold_review_admission_targeted": {
+      "command": "python -m pytest server/tests/test_rag_evaluation.py server/tests/test_rag_benchmark_generator.py -q -k 'review_admission or gold_v2_review_api or blocking_leakage_can_be_rejected' --tb=short",
+      "result": "4 passed, 49 deselected, 4 warnings"
+    },
+    "post_real_gold_review_admission_backend_core": {
+      "command": "python -m pytest server/tests/test_rag_evaluation.py server/tests/test_rag_benchmark_generator.py server/tests/test_rag_strategy_tuner.py server/tests/test_rag_pipeline.py -q --tb=short",
+      "result": "105 passed, 4 warnings"
+    },
+    "post_real_gold_review_admission_frontend": {
+      "command": "npm.cmd run test:run -- src/pages/KnowledgeEvaluationPage.test.ts",
+      "result": "4 passed"
+    },
+    "post_real_gold_review_admission_build": {
+      "command": "npm.cmd run build",
+      "result": "passed, 3121 modules transformed, existing large-chunk warning retained"
+    },
+    "post_real_gold_review_admission_python_syntax": {
+      "command": "python -m py_compile server/rag/api.py server/rag/evaluation.py server/rag/rag_service.py",
+      "result": "passed"
+    },
+    "post_real_gold_review_admission_preview": {
+      "command": "read-only independent preview workbench inspection",
+      "result": "invalid revision 1 is labelled diagnostic-only; review reason, approve Gold, and reject case controls are disabled after evidence expansion; no write or provider call"
     }
   },
   "prohibited_claims": [

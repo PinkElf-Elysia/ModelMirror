@@ -930,6 +930,65 @@ async def test_knowledge_preflight_and_evidence_api_are_bounded(
 
 
 @pytest.mark.asyncio
+async def test_gold_v2_review_api_rejects_structurally_invalid_drafts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, store = _service(tmp_path)
+    dataset = store.create_generated_set(
+        "kb_target",
+        "Structurally invalid Gold v2",
+        "",
+        cases=[
+            {
+                "query": "Which review window does Aurora require?",
+                "expected_refs": [
+                    {
+                        "document_id": "doc_alpha",
+                        "chunk_id": "alpha_1",
+                        "source_block_id": "block_alpha_1",
+                        "match_mode": "source_block",
+                        "relevance": 3,
+                    }
+                ],
+                "expected_no_result": False,
+                "review_status": "pending",
+                "targeting": {
+                    "query_type": "factual_lookup",
+                    "locale": "en-US",
+                },
+            }
+        ],
+        provenance={
+            "benchmark_contract_version": "rag-gold-v2",
+            "pipeline_version_id": "pipeline_v2",
+        },
+        coverage={},
+        calibration={"status": "awaiting_review", "dataset_revision": 1},
+    )
+    monkeypatch.setattr(rag_api, "_evaluation_store", store)
+    monkeypatch.setattr(rag_api, "_rag_service", service.rag_service)
+    case_id = dataset["cases"][0]["case_id"]
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            f"/api/rag/evaluation-sets/{dataset['eval_set_id']}/cases/{case_id}/review",
+            json={
+                "expected_revision": 1,
+                "decision": "rejected",
+                "reason": "The draft itself is structurally invalid.",
+            },
+        )
+
+    assert response.status_code == 400
+    assert "manual review is blocked by structural qualification failures" in response.text
+    unchanged = store.get_set(dataset["eval_set_id"])["cases"][0]
+    assert unchanged["review_status"] == "pending"
+    assert unchanged["review_evidence"] == {}
+
+
+@pytest.mark.asyncio
 async def test_gold_v2_review_api_records_server_evidence_for_positive_cases(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -974,6 +1033,7 @@ async def test_gold_v2_review_api_records_server_evidence_for_positive_cases(
     )
     monkeypatch.setattr(rag_api, "_evaluation_store", store)
     monkeypatch.setattr(rag_api, "_rag_service", service.rag_service)
+    monkeypatch.setattr(rag_api, "gold_v2_review_admission_blockers", lambda _: [])
     case_id = dataset["cases"][0]["case_id"]
 
     transport = httpx.ASGITransport(app=app)
@@ -1048,6 +1108,7 @@ async def test_gold_v2_blocking_leakage_can_be_rejected_but_not_approved(
     )
     monkeypatch.setattr(rag_api, "_evaluation_store", store)
     monkeypatch.setattr(rag_api, "_rag_service", service.rag_service)
+    monkeypatch.setattr(rag_api, "gold_v2_review_admission_blockers", lambda _: [])
     case_id = dataset["cases"][0]["case_id"]
 
     transport = httpx.ASGITransport(app=app)
