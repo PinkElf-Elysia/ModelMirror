@@ -171,6 +171,20 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["condition", "branch", "route"],
       },
       {
+        kind: "multi_route",
+        icon: "ROUTE",
+        title: "多路分派",
+        description: "按顺序匹配 2 至 8 条类型化规则，并提供默认出口。",
+        tags: ["switch", "route", "typed-value"],
+      },
+      {
+        kind: "terminate_error",
+        icon: "STOP",
+        title: "主动终止",
+        description: "使用固定安全错误码和消息终止当前执行。",
+        tags: ["stop", "error", "terminal"],
+      },
+      {
         kind: "iteration",
         icon: "↻",
         title: "迭代",
@@ -181,8 +195,8 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         kind: "list_operation",
         icon: "▾",
         title: "列表操作",
-        description: "对逗号分隔的列表做长度、拼接、首尾提取。",
-        tags: ["list", "operator"],
+        description: "对数组做筛选、排序和去重，并保留旧列表操作。",
+        tags: ["list", "filter", "sort", "deduplicate", "typed-value"],
       },
       {
         kind: "variable_aggregator",
@@ -232,6 +246,13 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         title: "参数提取器",
         description: "调用模型从文本中提取字段，输出 JSON 字符串。",
         tags: ["json", "extract"],
+      },
+      {
+        kind: "data_aggregate",
+        icon: "AGG",
+        title: "数据聚合",
+        description: "按顶层字段分组，并计算计数、求和、均值和极值。",
+        tags: ["aggregate", "group", "measure", "typed-value"],
       },
       {
         kind: "json_serialize",

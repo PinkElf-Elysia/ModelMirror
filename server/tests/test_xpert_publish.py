@@ -264,6 +264,170 @@ async def test_xpert_publish_uses_file_registry_allowlist(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind",
+    ["terminate_error", "multi_route", "list_operation", "data_aggregate"],
+)
+async def test_r16_general_nodes_pass_real_xpert_publish_preflight(
+    client: httpx.AsyncClient,
+    kind: str,
+) -> None:
+    created_response = await client.post(
+        "/api/xperts",
+        json={"name": f"R1.6 {kind}"},
+    )
+    assert created_response.status_code == 200, created_response.text
+    xpert = created_response.json()
+    draft = xpert["draft"]
+    workflow = draft["workflow"]
+    base_nodes = {node["id"]: node for node in workflow["nodes"]}
+    input_node = base_nodes["input-1"]
+    agent_node = base_nodes["workflow-agent-1"]
+    output_node = base_nodes["output-1"]
+
+    if kind == "terminate_error":
+        workflow["nodes"] = [
+            input_node,
+            {
+                "id": "condition-1",
+                "type": "condition",
+                "position": {"x": 220, "y": 140},
+                "data": {
+                    "kind": "condition",
+                    "conditionVariable": "user_input",
+                    "conditionOperator": "equals",
+                    "conditionValue": "stop",
+                },
+            },
+            {
+                "id": "terminate-1",
+                "type": "terminate_error",
+                "position": {"x": 420, "y": 40},
+                "data": {
+                    "kind": "terminate_error",
+                    "errorCode": "REQUEST_REJECTED",
+                    "message": "This request cannot continue.",
+                },
+            },
+            agent_node,
+            output_node,
+        ]
+        workflow["edges"] = [
+            {"id": "input-condition", "source": "input-1", "target": "condition-1"},
+            {
+                "id": "condition-stop",
+                "source": "condition-1",
+                "sourceHandle": "true",
+                "target": "terminate-1",
+            },
+            {
+                "id": "condition-agent",
+                "source": "condition-1",
+                "sourceHandle": "false",
+                "target": "workflow-agent-1",
+            },
+            {"id": "agent-output", "source": "workflow-agent-1", "target": "output-1"},
+        ]
+    elif kind == "multi_route":
+        workflow["nodes"] = [
+            input_node,
+            {
+                "id": "route-1",
+                "type": "multi_route",
+                "position": {"x": 220, "y": 140},
+                "data": {
+                    "kind": "multi_route",
+                    "inputVariable": "user_input",
+                    "routes": [
+                        {
+                            "id": "route_1",
+                            "label": "Alpha",
+                            "operator": "equals",
+                            "valueType": "text",
+                            "value": "alpha",
+                        },
+                        {
+                            "id": "route_2",
+                            "label": "Beta",
+                            "operator": "equals",
+                            "valueType": "text",
+                            "value": "beta",
+                        },
+                    ],
+                },
+            },
+            agent_node,
+            output_node,
+        ]
+        workflow["edges"] = [
+            {"id": "input-route", "source": "input-1", "target": "route-1"},
+            *[
+                {
+                    "id": f"route-agent-{handle}",
+                    "source": "route-1",
+                    "sourceHandle": handle,
+                    "target": "workflow-agent-1",
+                }
+                for handle in ("route_1", "route_2", "default")
+            ],
+            {"id": "agent-output", "source": "workflow-agent-1", "target": "output-1"},
+        ]
+    else:
+        node_data = (
+            {
+                "kind": "list_operation",
+                "inputVariable": "user_input",
+                "operator": "filter",
+                "filterMode": "all",
+                "filterRules": [
+                    {
+                        "operator": "contains",
+                        "valueType": "text",
+                        "value": "ready",
+                    }
+                ],
+                "outputVariable": "prepared_rows",
+            }
+            if kind == "list_operation"
+            else {
+                "kind": "data_aggregate",
+                "inputVariable": "user_input",
+                "outputVariable": "prepared_rows",
+                "groupByFields": [],
+                "measures": [{"outputField": "row_count", "operation": "count"}],
+            }
+        )
+        workflow["nodes"] = [
+            input_node,
+            {
+                "id": "data-node-1",
+                "type": kind,
+                "position": {"x": 220, "y": 140},
+                "data": node_data,
+            },
+            agent_node,
+            output_node,
+        ]
+        workflow["edges"] = [
+            {"id": "input-data", "source": "input-1", "target": "data-node-1"},
+            {"id": "data-agent", "source": "data-node-1", "target": "workflow-agent-1"},
+            {"id": "agent-output", "source": "workflow-agent-1", "target": "output-1"},
+        ]
+
+    updated = await client.patch(
+        f"/api/xperts/{xpert['id']}",
+        json={"draft": draft},
+    )
+    assert updated.status_code == 200, updated.text
+    published = await client.post(
+        f"/api/xperts/{xpert['id']}/publish",
+        json={},
+    )
+    assert published.status_code == 200, published.text
+    assert published.json()["version"] == 1
+
+
+@pytest.mark.asyncio
 async def test_published_xpert_runs_immutable_snapshot_and_registers_trace(
     client: httpx.AsyncClient,
     xpert_store: XpertStore,

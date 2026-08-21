@@ -1,6 +1,10 @@
 import { useMemo, useRef } from "react";
 
-import type { WorkflowEdge, WorkflowNode } from "../../types/workflow";
+import type {
+  WorkflowEdge,
+  WorkflowNode,
+  WorkflowVariableDeclaration,
+} from "../../types/workflow";
 import type { WorkflowNodeContractProjection } from "./workflowNodeRegistry";
 import VariableInsertMenu, {
   collectWorkflowVariableOptions,
@@ -29,6 +33,7 @@ export function variableFieldWarning(
   descriptor: WorkflowVariableFieldDescriptor,
   value: string,
   contract?: WorkflowNodeContractProjection | null,
+  declarations: WorkflowVariableDeclaration[] = [],
 ) {
   const trimmed = value.trim();
   if (!trimmed) return "";
@@ -36,14 +41,19 @@ export function variableFieldWarning(
     if (!/^[A-Za-z_][\w.-]*$/.test(trimmed)) {
       return "变量名格式异常；旧值会保留，但建议使用字母或下划线开头。";
     }
-    const declared = analyzeWorkflowVariables(nodes, edges, node.id).find(
+    const declared = analyzeWorkflowVariables(
+      nodes,
+      edges,
+      node.id,
+      declarations,
+    ).find(
       (variable) => variable.name === trimmed,
     );
     if (declared?.availability === "conflict") return declared.availabilityReason;
     return "";
   }
 
-  const inventory = analyzeWorkflowVariables(nodes, edges, node.id);
+  const inventory = analyzeWorkflowVariables(nodes, edges, node.id, declarations);
   const acceptedTypes = new Set(
     resolveWorkflowVariableFieldTypes(descriptor, contract),
   );
@@ -86,6 +96,7 @@ export default function WorkflowVariableField({
   onChange,
   contract,
   descriptor: descriptorOverride,
+  declarations = [],
   multiline = false,
   className = "",
   inputClassName = defaultInputClass,
@@ -100,6 +111,7 @@ export default function WorkflowVariableField({
   onChange: (value: string) => void;
   contract?: WorkflowNodeContractProjection | null;
   descriptor?: WorkflowVariableFieldDescriptor;
+  declarations?: WorkflowVariableDeclaration[];
   multiline?: boolean;
   className?: string;
   inputClassName?: string;
@@ -114,16 +126,31 @@ export default function WorkflowVariableField({
   const variables = useMemo(
     () =>
       descriptor
-        ? collectWorkflowVariableOptions(node.id, nodes, edges, descriptor, contract)
+        ? collectWorkflowVariableOptions(
+            node.id,
+            nodes,
+            edges,
+            descriptor,
+            contract,
+            declarations,
+          )
         : [],
-    [contract, descriptor, edges, node.id, nodes],
+    [contract, declarations, descriptor, edges, node.id, nodes],
   );
   const warning = useMemo(
     () =>
       descriptor
-        ? variableFieldWarning(node, nodes, edges, descriptor, value, contract)
+        ? variableFieldWarning(
+            node,
+            nodes,
+            edges,
+            descriptor,
+            value,
+            contract,
+            declarations,
+          )
         : "",
-    [contract, descriptor, edges, node, nodes, value],
+    [contract, declarations, descriptor, edges, node, nodes, value],
   );
 
   const pickVariable = (name: string) => {

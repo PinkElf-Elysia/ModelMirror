@@ -223,8 +223,11 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("http_request", "headersJson", "template", TEMPLATE_TYPES),
   field("http_request", "bodyVariable", "binding", ANY_RENDERABLE_TYPES, "body"),
   field("http_request", "outputVariable", "declaration", TEXT_TYPES),
+  field("multi_route", "inputVariable", "binding", ANY_RENDERABLE_TYPES, "value"),
   field("list_operation", "inputVariable", "binding", ["json", "unknown"], "list"),
   field("list_operation", "outputVariable", "declaration", ["json", "unknown"]),
+  field("data_aggregate", "inputVariable", "binding", JSON_TYPES, "rows"),
+  field("data_aggregate", "outputVariable", "declaration", JSON_TYPES),
   field("iteration", "inputVariable", "binding", ["json", "unknown"], "items"),
   field(
     "iteration",
@@ -414,6 +417,9 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
   ],
   list_operation: [
     { field: "outputVariable", fallback: "list_output", valueType: "unknown" },
+  ],
+  data_aggregate: [
+    { field: "outputVariable", fallback: "aggregate_result", valueType: "json" },
   ],
   iteration: [
     { field: "outputVariable", fallback: "iteration_output", valueType: "text" },

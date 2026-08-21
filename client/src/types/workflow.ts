@@ -33,7 +33,10 @@ export type WorkflowNodeKind =
   | "mcp_tool"
   | "time_tool"
   | "http_request"
+  | "terminate_error"
+  | "multi_route"
   | "list_operation"
+  | "data_aggregate"
   | "iteration"
   | "json_serialize"
   | "json_deserialize"
@@ -78,7 +81,53 @@ export type CodeOperation = "upper" | "lower" | "replace" | "concat" | "python";
 
 export type HttpRequestMethod = "GET" | "POST";
 
-export type ListOperationOperator = "length" | "join" | "first" | "last";
+export type WorkflowComparisonOperator =
+  | "equals"
+  | "not_equals"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte"
+  | "contains"
+  | "in"
+  | "is_null";
+
+export type WorkflowComparisonValueType =
+  | "text"
+  | "number"
+  | "boolean"
+  | "null"
+  | "json";
+
+export interface WorkflowComparisonRule {
+  id?: `route_${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8}`;
+  label?: string;
+  field?: string;
+  operator: WorkflowComparisonOperator;
+  valueType?: WorkflowComparisonValueType;
+  value?: WorkflowValue;
+}
+
+export interface WorkflowSortKey {
+  field: string;
+  direction: "asc" | "desc";
+  nulls: "first" | "last";
+}
+
+export interface WorkflowAggregateMeasure {
+  outputField: string;
+  operation: "count" | "sum" | "avg" | "min" | "max";
+  sourceField?: string;
+}
+
+export type ListOperationOperator =
+  | "length"
+  | "join"
+  | "first"
+  | "last"
+  | "filter"
+  | "sort"
+  | "deduplicate";
 
 /** 画布节点运行态视觉状态（不持久化，运行时由 WorkflowRun 写回）。 */
 export type NodeRunStatus = "running" | "done" | "error";
@@ -209,12 +258,21 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   method?: HttpRequestMethod;
   headersJson?: string;
   bodyVariable?: string;
+  errorCode?: string;
+  message?: string;
   sourceProjectIds?: string[];
   inputVariable?: string;
   format?: "compact" | "pretty";
   content?: string;
   operator?: ListOperationOperator;
   joinSeparator?: string;
+  routes?: WorkflowComparisonRule[];
+  filterMode?: "all" | "any";
+  filterRules?: WorkflowComparisonRule[];
+  sortKeys?: WorkflowSortKey[];
+  deduplicateFields?: string[];
+  groupByFields?: string[];
+  measures?: WorkflowAggregateMeasure[];
   iterationVariable?: string;
   itemTemplate?: string;
   runtimeMiddlewareId?: string;
@@ -292,6 +350,7 @@ export interface WorkflowRunEvent {
   final_output?: string;
   variables?: Record<string, WorkflowValue>;
   message?: string;
+  code?: string;
   at?: number;
   strategy?: "function_calling" | "react";
   iteration?: number;

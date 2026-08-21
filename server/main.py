@@ -500,6 +500,13 @@ try:
         workflow_variable_value_matches_type,
     )
     from server.workflow_native.validate import validate_workflow_graph
+    from server.workflow_native.control_data import (
+        WorkflowTerminationError,
+        aggregate_rows,
+        execute_list_operation,
+        select_multi_route,
+        validate_terminate_error_config,
+    )
     from server.workflow_native.values import (
         WorkflowValue,
         deserialize_workflow_value,
@@ -532,6 +539,13 @@ except ModuleNotFoundError:
         workflow_variable_value_matches_type,
     )
     from workflow_native.validate import validate_workflow_graph
+    from workflow_native.control_data import (
+        WorkflowTerminationError,
+        aggregate_rows,
+        execute_list_operation,
+        select_multi_route,
+        validate_terminate_error_config,
+    )
     from workflow_native.values import (
         WorkflowValue,
         deserialize_workflow_value,
@@ -2367,6 +2381,7 @@ class WorkflowPayload(BaseModel):
             "time_tool": ("outputVariable",),
             "http_request": ("outputVariable",),
             "list_operation": ("outputVariable",),
+            "data_aggregate": ("outputVariable",),
             "iteration": ("outputVariable",),
             "json_serialize": ("outputVariable",),
             "json_deserialize": ("outputVariable",),
@@ -4876,7 +4891,10 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
         "mcp_tool",
         "time_tool",
         "http_request",
+        "terminate_error",
+        "multi_route",
         "list_operation",
+        "data_aggregate",
         "iteration",
         "json_serialize",
         "json_deserialize",
@@ -12046,6 +12064,29 @@ async def _run_workflow_response(
                     chosen_handle = "true" if matched else "false"
                     output = f"{variable_name} {operator} {expected} -> {'是' if matched else '否'}"
 
+                elif kind == "terminate_error":
+                    error_code, safe_message = validate_terminate_error_config(
+                        node.data.get("errorCode"),
+                        node.data.get("message"),
+                    )
+                    raise WorkflowTerminationError(
+                        error_code,
+                        safe_message,
+                        node_id=node.id,
+                    )
+
+                elif kind == "multi_route":
+                    input_variable = str(node.data.get("inputVariable") or "").strip()
+                    if input_variable not in variables:
+                        raise ValueError(
+                            "MULTI_ROUTE_INPUT_UNAVAILABLE: Multi route input variable is unavailable."
+                        )
+                    chosen_handle = select_multi_route(
+                        variables[input_variable],
+                        node.data.get("routes"),
+                    )
+                    output = f"selected_route={chosen_handle}"
+
                 elif kind == "code":
                     output_variable = str(node.data.get("codeOutputVariable") or "code_output")
                     try:
@@ -12181,51 +12222,68 @@ async def _run_workflow_response(
                         )
 
                 elif kind == "list_operation":
-                    try:
-                        input_variable = str(node.data.get("inputVariable") or "user_input")
-                        operator = str(node.data.get("operator") or "length")
-                        output_variable = str(
-                            node.data.get("outputVariable") or "list_output"
+                    input_variable = str(node.data.get("inputVariable") or "").strip()
+                    if input_variable not in variables:
+                        raise ValueError(
+                            "LIST_INPUT_UNAVAILABLE: List operation input variable is unavailable."
                         )
-                        items, typed_input = workflow_list_items(
-                            variables.get(input_variable, "")
+                    output_variable = str(
+                        node.data.get("outputVariable") or "list_output"
+                    )
+                    stored_output = execute_list_operation(
+                        variables[input_variable],
+                        operator=str(node.data.get("operator") or "length"),
+                        join_separator=str(node.data.get("joinSeparator") or ""),
+                        filter_rules=node.data.get("filterRules"),
+                        filter_mode=str(node.data.get("filterMode") or "all"),
+                        sort_keys=node.data.get("sortKeys"),
+                        deduplicate_fields=node.data.get("deduplicateFields", []),
+                    )
+                    variables[output_variable] = normalize_workflow_value(
+                        stored_output,
+                        path=f"$.variables.{output_variable}",
+                    )
+                    output = workflow_value_to_text(stored_output)
+                    yield sse_payload(
+                        {
+                            "event": "node_delta",
+                            "node_id": node.id,
+                            "node_title": title,
+                            "node_type": kind,
+                            "output": output,
+                            "variable": output_variable,
+                        }
+                    )
+
+                elif kind == "data_aggregate":
+                    input_variable = str(node.data.get("inputVariable") or "").strip()
+                    if input_variable not in variables:
+                        raise ValueError(
+                            "AGGREGATE_INPUT_UNAVAILABLE: Data aggregate input variable is unavailable."
                         )
-                        if operator == "length":
-                            stored_output: WorkflowValue = (
-                                len(items) if typed_input else str(len(items))
-                            )
-                        elif operator == "join":
-                            separator = str(node.data.get("joinSeparator") or "")
-                            stored_output = separator.join(
-                                workflow_value_to_text(item) for item in items
-                            )
-                        elif operator == "first":
-                            stored_output = items[0] if items else (None if typed_input else "")
-                        elif operator == "last":
-                            stored_output = items[-1] if items else (None if typed_input else "")
-                        else:
-                            raise ValueError(f"列表操作不支持：{operator}")
-                        variables[output_variable] = stored_output
-                        output = workflow_value_to_text(stored_output)
-                        yield sse_payload(
-                            {
-                                "event": "node_delta",
-                                "node_id": node.id,
-                                "node_title": title,
-                                "node_type": kind,
-                                "output": output,
-                                "variable": output_variable,
-                            }
-                        )
-                    except Exception as exc:
-                        logger.warning("Workflow list_operation node failed: %s", exc)
-                        yield sse_payload(
-                            {
-                                "event": "error",
-                                "node_id": node.id,
-                                "message": str(exc),
-                            }
-                        )
+                    output_variable = str(
+                        node.data.get("outputVariable") or "aggregate_result"
+                    )
+                    stored_output = aggregate_rows(
+                        variables[input_variable],
+                        group_by_fields=node.data.get("groupByFields"),
+                        measures=node.data.get("measures"),
+                    )
+                    variables[output_variable] = normalize_workflow_value(
+                        stored_output,
+                        path=f"$.variables.{output_variable}",
+                    )
+                    output = workflow_value_to_text(stored_output)
+                    yield sse_payload(
+                        {
+                            "event": "node_delta",
+                            "node_id": node.id,
+                            "node_title": title,
+                            "node_type": kind,
+                            "output": output,
+                            "variable": output_variable,
+                        }
+                    )
 
                 elif kind == "iteration":
                     try:
@@ -16587,11 +16645,13 @@ async def _run_workflow_response(
                 )
 
                 next_edges = outgoing[node_id]
-                if kind == "condition":
+                if kind in {"condition", "multi_route"}:
                     matching_edges = [
-                        edge for edge in next_edges if edge.sourceHandle == chosen_handle
+                        edge
+                        for edge in next_edges
+                        if str(edge.sourceHandle or "").strip() == chosen_handle
                     ]
-                    if not matching_edges:
+                    if kind == "condition" and not matching_edges:
                         matching_edges = [
                             edge for edge in next_edges if not edge.sourceHandle
                         ][:1]
@@ -17024,6 +17084,61 @@ async def _run_workflow_response(
                 )
             task_state["created_at"] = time.monotonic()
             yield sse_payload(pending_event)
+        except WorkflowTerminationError as exc:
+            failure_error = f"{exc.code}: {exc.safe_message}"
+            logger.warning(
+                "Workflow terminated workflow=%s node=%s code=%s",
+                payload.workflow.id,
+                exc.node_id,
+                exc.code,
+            )
+            try:
+                await run_registry.update_run(
+                    workflow_run.run_id,
+                    status="failed",
+                    error=failure_error,
+                )
+                await run_registry.record_checkpoint(
+                    workflow_run.run_id,
+                    event_type="workflow.terminated",
+                    title="Workflow terminated",
+                    summary=exc.code,
+                    severity="error",
+                    metadata={"node_id": exc.node_id, "error_code": exc.code},
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to update terminated workflow status",
+                    exc_info=True,
+                )
+            try:
+                workflow_execution_store.fail(task_id, error=failure_error)
+                workflow_execution_store.append_event(
+                    task_id,
+                    {
+                        "event": "error",
+                        "task_id": task_id,
+                        "run_id": workflow_run.run_id,
+                        "node_id": exc.node_id,
+                        "code": exc.code,
+                        "message": exc.safe_message,
+                    },
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to persist terminated workflow status",
+                    exc_info=True,
+                )
+            yield sse_payload(
+                {
+                    "event": "error",
+                    "task_id": task_id,
+                    "run_id": workflow_run.run_id,
+                    "node_id": exc.node_id,
+                    "code": exc.code,
+                    "message": exc.safe_message,
+                }
+            )
         except WorkflowKnowledgeFatalError as exc:
             failure_error = f"{exc.error_code}: {exc.safe_message}"
             logger.warning(
@@ -17351,6 +17466,7 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
     final_event: dict[str, Any] | None = None
     pending_wait_event: dict[str, Any] | None = None
     error_message = ""
+    error_code: str | None = None
     error_task_id: str | None = None
     error_run_id: str | None = None
     failed_node_id: str | None = None
@@ -17372,6 +17488,7 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                     continue
                 if event.get("event") == "error":
                     error_message = str(event.get("message") or "Xpert run failed.")
+                    error_code = str(event.get("code") or "").strip() or None
                     error_task_id = str(event.get("task_id") or "").strip() or None
                     error_run_id = str(event.get("run_id") or "").strip() or None
                     failed_node_id = str(event.get("node_id") or "").strip() or None
@@ -17387,6 +17504,8 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                 elif event.get("event") == "timer_waiting":
                     pending_wait_event = event
     if error_message:
+        if error_code:
+            error_message = f"{error_code}: {error_message}"
         raise WorkflowStreamFailure(
             error_message,
             task_id=error_task_id,

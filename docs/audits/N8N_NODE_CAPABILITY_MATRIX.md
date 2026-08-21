@@ -1,11 +1,12 @@
-# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5）
+# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6）
 
-- 审计日期：2026-08-20
+- 审计日期：2026-08-21
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
 - R0 基线事实：NodeContract V3、37 个 `NativeNodeKind`、35 个画布目录项、20 个冻结 compatibility 合同
 - R1 结果：新增 4 个完整合同，并将既有 `llm` 提升为完整合同；自研节点总数 41、画布目录项 39、当前 19 个冻结 compatibility 合同；四节点与 `llm` Planner 均关闭
 - R1.5 PR1 结果：新增完整合同 `failure_event_entry`；自研节点总数 42、画布目录项 40、compatibility 白名单不增长；Planner 关闭且 Xpert 内嵌入口禁止
 - R1.5 PR2 结果：新增完整合同 `workflow_call_entry` 与 `invoke_workflow`；自研节点总数 44、画布目录项 42、compatibility 白名单不增长；仅支持私有同步固定版本调用，Planner 关闭且 Xpert 内嵌入口禁止
+- R1.6 结果：新增完整合同 `terminate_error`、`multi_route`、`data_aggregate`，并将 `list_operation` 提升为完整合同；自研节点总数 47、画布目录项 45、当前 18 个冻结 compatibility 合同；四类均允许经典工作流和 Xpert 使用，Planner 关闭
 - 参考清单：563 条节点名称/类型，其中 `.ee` 2 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -16,17 +17,17 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 
 ## 状态汇总
 
-- 已实现：11
-- 部分实现：101
+- 已实现：18
+- 部分实现：95
 - 通用节点可覆盖：276（不等于已有专用连接器）
 - 目录声明：0
-- 未实现：175
+- 未实现：174
 
 | 能力域 | 总数 | 已实现 | 部分实现 | 通用覆盖 | 目录声明 | 未实现 |
 |---|---:|---:|---:|---:|---:|---:|
 | 触发与事件 | 112 | 6 | 1 | 0 | 0 | 105 |
-| 流程控制与编排 | 8 | 2 | 4 | 0 | 0 | 2 |
-| 数据变换与计算 | 17 | 1 | 15 | 0 | 0 | 1 |
+| 流程控制与编排 | 8 | 4 | 3 | 0 | 0 | 1 |
+| 数据变换与计算 | 17 | 6 | 10 | 0 | 0 | 1 |
 | 文件与内容处理 | 20 | 0 | 5 | 10 | 0 | 5 |
 | 网络与接口 | 3 | 1 | 1 | 1 | 0 | 0 |
 | 数据库与存储 | 63 | 0 | 1 | 61 | 0 | 1 |
@@ -53,7 +54,11 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 触发与事件 | HTTP 事件入口 | http_event_entry | (Webhook) | 已实现 |
 | 流程控制与编排 | 调用已发布工作流 | invoke_workflow | (Execute Sub-workflow) | 已实现 |
 | 流程控制与编排 | 挂起等待 | suspend_wait | (Wait) | 已实现 |
+| 流程控制与编排 | 多路分派 | multi_route | (Switch) | 已实现 |
+| 流程控制与编排 | 主动终止 | terminate_error | (Stop and Error) | 已实现 |
 | 网络与接口 | HTTP 事件回执 | http_event_reply | (Respond to Webhook) | 已实现 |
+| 数据变换与计算 | 列表操作 | list_operation | (Filter / Sort / Remove Duplicates) | 已实现 |
+| 数据变换与计算 | 数据聚合 | data_aggregate | (Aggregate / Summarize) | 已实现 |
 | 数据库与存储 | 内置数据表 | data_table_query / data_table_insert / data_table_update / data_table_delete | (Data table) | 部分实现 |
 | 画布、评测与内部元数据 | 画布注释 | annotation | (Sticky Note) | 已实现 |
 
@@ -65,4 +70,4 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1 四节点和 R1.5 三节点均禁止 Planner 自动生成。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1、R1.5 和 R1.6 新增节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。
