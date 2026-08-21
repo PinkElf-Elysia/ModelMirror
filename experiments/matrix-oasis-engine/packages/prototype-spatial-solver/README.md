@@ -14,9 +14,18 @@ reserves a shared spawn/terminal station per zone, then uses a bounded DFS for
 floor/wall placements and declared proximity constraints. It returns no partial
 layout and never falls back to the old AABB grid.
 
-Terminal capacity uses the frozen R6 grid's real aggregate footprint, including
-its `-2400 mm` local Z origin. Asset clearances in this Node stage are
+Terminal capacity uses the frozen R6 terminal dimensions and spacing while R14
+deterministically evaluates one-to-eight-column layouts per zone, including the
+`-2400 mm` local Z origin. The selected column count is recorded in the Spatial
+Solution and physically rechecked with correspondingly rearranged real terminal
+nodes. Player spawns remain at least the fixed interaction distance from every
+terminal center while the separate approach anchor remains interactable. Asset
+clearances in this Node stage are
 inter-placement reservations; R13 floor anchors only prove the player capsule.
+For every terminal, the solver samples the actual containing NavigationMesh
+polygon at the terminal center and records that quantized base height separately
+from the nearest same-domain floor-anchor witness. It does not treat sparse
+floor-anchor ownership as a geometric support triangle.
 Real environment penetration, path, line-of-sight, and terminal physics remain
 the independent R14.4 Godot verification gate.
 

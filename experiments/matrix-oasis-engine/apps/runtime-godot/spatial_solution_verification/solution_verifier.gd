@@ -8,14 +8,25 @@ const READY_MARKER := "MATRIX_OASIS_R14_SPATIAL_VERIFICATION_READY"
 const FAILURE_MARKER := "MATRIX_OASIS_R14_SPATIAL_VERIFICATION_FAILED"
 const PLAYER_RADIUS := 0.35
 const PLAYER_HEIGHT := 1.8
+const PLAYER_EYE_HEIGHT := 1.475
 const FLOOR_CONTACT_TOLERANCE := 0.02
 const PATH_ENDPOINT_TOLERANCE := 0.1
+const FLOOR_SNAP_TOLERANCE := 0.2
 const INTERACTION_DISTANCE := 3.0
+const TERMINAL_COLUMN_SPACING := 1.7
+const TERMINAL_ROW_SPACING := 2.25
+const TERMINAL_ORIGIN_Z := -2.4
+const TERMINAL_HALF_WIDTH := 0.625
+const TERMINAL_HALF_DEPTH := 0.25
+const MAX_TERMINAL_APPROACH_CANDIDATES := 256
+const MAX_VISUAL_SAFETY_BOXES := 512
+const MAX_WALKABLE_NORMAL_Y := 0.7071068
 const PATH_SEPARATOR := "\u002f"
 const StrictJson := preload("res://runtime/strict_json.gd")
 const TerminalGrid := preload("res://playable/action_terminal_grid.gd")
 
 var _environment_body: StaticBody3D
+var _visual_safety_body: StaticBody3D
 var _asset_bodies := {}
 var _floor_anchors := {}
 var _navigation_map := RID()
@@ -86,11 +97,15 @@ func _load_request(path: String) -> Dictionary:
 
 
 func _valid_request(value: Variant) -> bool:
-	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["analysisTransform", "environmentCollider", "floorAnchors", "format", "formatVersion", "navigationMesh", "nodeContexts", "placements", "solutionSha256"]):
+	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["analysisTransform", "environmentCollider", "floorAnchors", "format", "formatVersion", "navigationMesh", "nodeContexts", "placements", "runtimeSupportHeightMm", "selectedPolygonIndices", "solutionSha256", "visualSafety"]):
 		return false
 	if value["format"] != "matrix-oasis.godot-spatial-solution-verification-request" or value["formatVersion"] != "0.1.0" or not _hash(value["solutionSha256"]):
 		return false
+	if not _bounded_integer(value["runtimeSupportHeightMm"], -1000000, 1000000) or typeof(value["selectedPolygonIndices"]) != TYPE_ARRAY or value["selectedPolygonIndices"].is_empty():
+		return false
 	if not _valid_artifact(value["environmentCollider"]) or not _valid_analysis_transform(value["analysisTransform"]):
+		return false
+	if not _valid_visual_safety(value["visualSafety"]):
 		return false
 	if typeof(value["floorAnchors"]) != TYPE_ARRAY or typeof(value["placements"]) != TYPE_ARRAY or typeof(value["nodeContexts"]) != TYPE_ARRAY:
 		return false
@@ -107,7 +122,31 @@ func _valid_request(value: Variant) -> bool:
 	for context in value["nodeContexts"]:
 		if not _valid_context(context):
 			return false
-	return _valid_navigation(value["navigationMesh"])
+	if not _valid_navigation(value["navigationMesh"]):
+		return false
+	var captured_polygons := {}
+	for polygon_index in value["selectedPolygonIndices"]:
+		if not _bounded_integer(polygon_index, 0, value["navigationMesh"]["polygons"].size() - 1) or captured_polygons.has(polygon_index):
+			return false
+		captured_polygons[polygon_index] = true
+	return true
+
+
+func _valid_visual_safety(value: Variant) -> bool:
+	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["acceptedPointCount", "boxes", "cellPointThreshold", "cellSizeMm", "minimumCellPoints", "minimumComponentCells", "minimumVerticalBins", "occupiedCellCount", "peakThresholdPermille", "profile", "sampledPointCount", "sourceSplatSha256", "spatialAssemblySha256", "verticalBandMm", "verticalCellSizeMm", "visualRegistrationOffsetMm"]):
+		return false
+	if value["profile"] != "gaussian-vertical-occupancy-v1" or value["cellSizeMm"] != 250 or value["verticalCellSizeMm"] != 500 or value["verticalBandMm"] != [350, 3000] or value["minimumCellPoints"] != 16 or value["peakThresholdPermille"] != 25 or value["minimumVerticalBins"] != 3 or value["minimumComponentCells"] != 3:
+		return false
+	if not _hash(value["sourceSplatSha256"]) or not _hash(value["spatialAssemblySha256"]) or not _bounded_integer(value["visualRegistrationOffsetMm"], -3000, 3000) or not _bounded_integer(value["sampledPointCount"], 1, 640000) or not _bounded_integer(value["acceptedPointCount"], 0, 640000) or not _bounded_integer(value["cellPointThreshold"], 16, 640000) or not _bounded_integer(value["occupiedCellCount"], 0, 1000000):
+		return false
+	if typeof(value["boxes"]) != TYPE_ARRAY or value["boxes"].size() > MAX_VISUAL_SAFETY_BOXES:
+		return false
+	for box in value["boxes"]:
+		if typeof(box) != TYPE_DICTIONARY or not _exact(box, ["centerMm", "sizeMm"]) or not _vector(box["centerMm"]) or not _vector(box["sizeMm"]):
+			return false
+		if box["sizeMm"].any(func(item: Variant) -> bool: return not _bounded_integer(item, 1, 2000000)):
+			return false
+	return true
 
 
 func _valid_artifact(value: Variant) -> bool:
@@ -132,9 +171,30 @@ func _valid_context(value: Variant) -> bool:
 		return false
 	if typeof(spawn) != TYPE_DICTIONARY or not _exact(spawn, ["floorAnchorId", "positionMm", "yawMilliDegrees"]) or typeof(spawn["floorAnchorId"]) != TYPE_STRING or not _vector(spawn["positionMm"]):
 		return false
-	if typeof(terminal) != TYPE_DICTIONARY or not _exact(terminal, ["actionCount", "approachFloorAnchorId", "floorAnchorId", "footprint", "positionMm", "yawMilliDegrees"]):
+	if typeof(terminal) != TYPE_DICTIONARY or not _exact(terminal, ["actionCount", "approachFloorAnchorId", "floorAnchorId", "footprint", "positionMm", "terminalSupports", "yawMilliDegrees"]):
 		return false
-	return typeof(terminal["approachFloorAnchorId"]) == TYPE_STRING and _vector(terminal["positionMm"]) and _bounded_integer(terminal["actionCount"], 0, 64)
+	if typeof(terminal["approachFloorAnchorId"]) != TYPE_STRING or not _vector(terminal["positionMm"]) or not _bounded_integer(terminal["actionCount"], 0, 64) or not _valid_terminal_footprint(terminal["footprint"], terminal["actionCount"]):
+		return false
+	var supports: Variant = terminal["terminalSupports"]
+	if typeof(supports) != TYPE_ARRAY or supports.size() != terminal["actionCount"]:
+		return false
+	for support: Variant in supports:
+		if typeof(support) != TYPE_DICTIONARY or not _exact(support, ["baseHeightMm", "floorAnchorId"]) or typeof(support["floorAnchorId"]) != TYPE_STRING or not _bounded_integer(support["baseHeightMm"], -1000000, 1000000):
+			return false
+	return true
+
+
+func _valid_terminal_footprint(value: Variant, action_count: int) -> bool:
+	if typeof(value) != TYPE_DICTIONARY or not _exact(value, ["columns", "depthMm", "layoutCenterOffsetMm", "layoutDepthMm", "layoutWidthMm", "widthMm"]):
+		return false
+	var columns: Variant = value["columns"]
+	var maximum_columns := maxi(1, mini(8, action_count))
+	if not _bounded_integer(columns, 1, maximum_columns) or value["widthMm"] != 1250 or value["depthMm"] != 500:
+		return false
+	var rows := maxi(1, ceili(float(action_count) / float(columns)))
+	return value["layoutWidthMm"] == 1250 + ((columns - 1) * 1700) and \
+		value["layoutDepthMm"] == 500 + ((rows - 1) * 2250) and \
+		value["layoutCenterOffsetMm"] == [0, -2400 - (((rows - 1) * 2250) / 2)]
 
 
 func _valid_navigation(value: Variant) -> bool:
@@ -166,7 +226,9 @@ func _valid_analysis_transform(value: Variant) -> bool:
 
 func _verify(request: Dictionary) -> Dictionary:
 	for anchor in request["floorAnchors"]:
-		_floor_anchors[anchor["id"]] = anchor
+		var runtime_anchor: Dictionary = anchor.duplicate(true)
+		runtime_anchor["positionMm"][1] = request["runtimeSupportHeightMm"]
+		_floor_anchors[anchor["id"]] = runtime_anchor
 	var environment_root := _load_glb(request["environmentCollider"]["path"])
 	if environment_root == null:
 		return {}
@@ -174,11 +236,8 @@ func _verify(request: Dictionary) -> Dictionary:
 	environment_root.free()
 	if environment_faces.is_empty():
 		return {}
-	_environment_body = _body_from_faces(environment_faces, 1)
-	if _environment_body == null:
-		return {}
-	add_child(_environment_body)
-	if not _build_navigation(request["navigationMesh"]):
+	if not _build_navigation(request["navigationMesh"], request["selectedPolygonIndices"],
+		request["runtimeSupportHeightMm"], environment_faces, request["visualSafety"]):
 		return {}
 	for sync_frame in 8:
 		await get_tree().physics_frame
@@ -206,6 +265,7 @@ func _verify(request: Dictionary) -> Dictionary:
 		"nodeContextCount": request["nodeContexts"].size(),
 		"checkedPathCount": checked_paths,
 		"checkedTerminalCount": checked_terminals,
+		"checkedVisualSafetyBoxCount": request["visualSafety"]["boxes"].size(),
 		"allChecksPassed": true,
 	}
 
@@ -219,17 +279,61 @@ func _release_navigation() -> void:
 		_navigation_map = RID()
 
 
-func _build_navigation(value: Dictionary) -> bool:
+func _build_navigation(value: Dictionary, selected_polygon_indices: Array,
+	runtime_support_height_mm: int, environment_faces: PackedVector3Array,
+	visual_safety: Dictionary) -> bool:
 	var mesh := NavigationMesh.new()
 	var vertices := PackedVector3Array()
 	for item in value["verticesMm"]:
-		vertices.append(_to_vector(item))
+		vertices.append(Vector3(float(item[0]), float(runtime_support_height_mm), float(item[2])) / 1000.0)
 	mesh.set_vertices(vertices)
-	for item in value["polygons"]:
+	var floor_faces := PackedVector3Array()
+	var edges := {}
+	for polygon_index in selected_polygon_indices:
+		var item: Dictionary = value["polygons"][polygon_index]
 		var polygon := PackedInt32Array()
 		for vertex_index in item["vertexIndices"]:
 			polygon.append(vertex_index)
 		mesh.add_polygon(polygon)
+		for triangle_index in range(1, polygon.size() - 1):
+			floor_faces.append(vertices[polygon[0]])
+			floor_faces.append(vertices[polygon[triangle_index]])
+			floor_faces.append(vertices[polygon[triangle_index + 1]])
+		for edge_index in polygon.size():
+			var first: int = polygon[edge_index]
+			var second: int = polygon[(edge_index + 1) % polygon.size()]
+			var key := "%d:%d" % [mini(first, second), maxi(first, second)]
+			if edges.has(key):
+				edges[key]["count"] += 1
+			else:
+				edges[key] = {"count": 1, "first": first, "second": second}
+	var boundary_faces := PackedVector3Array()
+	for key in edges:
+		var edge: Dictionary = edges[key]
+		if edge["count"] != 1:
+			continue
+		var first: Vector3 = vertices[edge["first"]]
+		var second: Vector3 = vertices[edge["second"]]
+		var first_top := first + Vector3.UP * PLAYER_HEIGHT
+		var second_top := second + Vector3.UP * PLAYER_HEIGHT
+		boundary_faces.append_array(PackedVector3Array([first, second, second_top, first, second_top, first_top]))
+	if floor_faces.is_empty() or boundary_faces.is_empty():
+		return false
+	var collision_faces := floor_faces.duplicate()
+	collision_faces.append_array(boundary_faces)
+	collision_faces.append_array(_steep_environment_faces(environment_faces))
+	var visual_safety_faces := PackedVector3Array()
+	for box: Dictionary in visual_safety["boxes"]:
+		visual_safety_faces.append_array(_box_faces(box))
+	_environment_body = _body_from_faces(collision_faces, 1, true)
+	if _environment_body == null:
+		return false
+	add_child(_environment_body)
+	if not visual_safety_faces.is_empty():
+		_visual_safety_body = _body_from_faces(visual_safety_faces, 8, true)
+		if _visual_safety_body == null:
+			return false
+		add_child(_visual_safety_body)
 	_navigation_map = NavigationServer3D.map_create()
 	NavigationServer3D.map_set_up(_navigation_map, Vector3.UP)
 	NavigationServer3D.map_set_active(_navigation_map, true)
@@ -238,6 +342,30 @@ func _build_navigation(value: Dictionary) -> bool:
 	NavigationServer3D.region_set_navigation_mesh(_navigation_region, mesh)
 	NavigationServer3D.region_set_map(_navigation_region, _navigation_map)
 	return true
+
+
+func _box_faces(box: Dictionary) -> PackedVector3Array:
+	var center := _to_vector(box["centerMm"])
+	var half := _to_vector(box["sizeMm"]) * 0.5
+	var x0 := center.x - half.x
+	var x1 := center.x + half.x
+	var y0 := center.y - half.y
+	var y1 := center.y + half.y
+	var z0 := center.z - half.z
+	var z1 := center.z + half.z
+	var a := Vector3(x0, y0, z0)
+	var b := Vector3(x0, y0, z1)
+	var c := Vector3(x1, y0, z1)
+	var d := Vector3(x1, y0, z0)
+	var e := Vector3(x0, y1, z0)
+	var f := Vector3(x0, y1, z1)
+	var g := Vector3(x1, y1, z1)
+	var h := Vector3(x1, y1, z0)
+	return PackedVector3Array([
+		a, b, c, a, c, d, e, h, g, e, g, f,
+		a, d, h, a, h, e, d, c, g, d, g, h,
+		c, b, f, c, f, g, b, a, e, b, e, f,
+	])
 
 
 func _build_placements(values: Array) -> Dictionary:
@@ -254,14 +382,26 @@ func _build_placements(values: Array) -> Dictionary:
 			return {}
 		var placement_transform := _placement_transform(value)
 		var visual_faces := _collect_faces(visual_root, placement_transform)
+		if value["anchorKind"] == "floor":
+			if not _floor_anchors.has(value["anchorId"]) or visual_faces.is_empty():
+				visual_root.free()
+				collider_root.free()
+				return {}
+			var floor_position := _to_vector(_floor_anchors[value["anchorId"]]["positionMm"])
+			if Vector2(placement_transform.origin.x, placement_transform.origin.z).distance_to(
+				Vector2(floor_position.x, floor_position.z)) > PATH_ENDPOINT_TOLERANCE:
+				visual_root.free()
+				collider_root.free()
+				return _rejection("PROTOTYPE_SPATIAL_VERIFY_ASSET_GROUNDING_FAILED", "/placements/%d" % index)
+			var floor_y := floor_position.y
+			placement_transform.origin.y += floor_y - _minimum_y(visual_faces)
+			visual_faces = _collect_faces(visual_root, placement_transform)
 		var collider_faces := _collect_faces(collider_root, placement_transform)
 		visual_root.free()
 		collider_root.free()
 		if visual_faces.is_empty() or collider_faces.is_empty():
 			return {}
 		if value["anchorKind"] == "floor":
-			if not _floor_anchors.has(value["anchorId"]):
-				return {}
 			var floor_y := _to_vector(_floor_anchors[value["anchorId"]]["positionMm"]).y
 			var minimum_y := _minimum_y(visual_faces)
 			if abs(minimum_y - floor_y) > FLOOR_CONTACT_TOLERANCE:
@@ -270,7 +410,7 @@ func _build_placements(values: Array) -> Dictionary:
 		convex.points = collider_faces
 		var query := PhysicsShapeQueryParameters3D.new()
 		query.shape = convex
-		query.collision_mask = 1 | 2
+		query.collision_mask = 1 | 2 | 8
 		query.collide_with_areas = false
 		query.transform = Transform3D(Basis.IDENTITY, Vector3.UP * (FLOOR_CONTACT_TOLERANCE + 0.001 if value["anchorKind"] == "floor" else 0.0))
 		var collision := space.intersect_shape(query, 1)
@@ -296,10 +436,18 @@ func _verify_context(index: int, value: Dictionary) -> Dictionary:
 	var terminal_grid := TerminalGrid.new() as MatrixOasisActionTerminalGrid
 	add_child(terminal_grid)
 	terminal_grid.global_transform = _yaw_transform(value["actionTerminal"]["positionMm"], value["actionTerminal"]["yawMilliDegrees"])
+	for support: Dictionary in value["actionTerminal"]["terminalSupports"]:
+		if not _floor_anchors.has(support["floorAnchorId"]):
+			terminal_grid.queue_free()
+			return {}
 	var actions: Array = []
 	for action_index in value["actionTerminal"]["actionCount"]:
 		actions.append({"id": "action-%02d" % action_index, "label": "Action", "available": true})
 	if not terminal_grid.rebuild(actions):
+		terminal_grid.queue_free()
+		return {}
+	if not _apply_terminal_layout(terminal_grid, value["actionTerminal"]["footprint"],
+		value["actionTerminal"]["terminalSupports"], actions.size()):
 		terminal_grid.queue_free()
 		return {}
 	await get_tree().physics_frame
@@ -325,41 +473,151 @@ func _verify_context(index: int, value: Dictionary) -> Dictionary:
 	var capsule_query := PhysicsShapeQueryParameters3D.new()
 	capsule_query.shape = capsule
 	capsule_query.transform = Transform3D(Basis.IDENTITY, spawn_floor + Vector3.UP * (PLAYER_HEIGHT * 0.5 + 0.025))
-	capsule_query.collision_mask = 1 | 2 | 4
+	capsule_query.collision_mask = 1 | 2 | 4 | 8
 	capsule_query.collide_with_areas = true
 	if not space.intersect_shape(capsule_query, 1).is_empty():
 		terminal_grid.queue_free()
 		return _rejection("PROTOTYPE_SPATIAL_VERIFY_SPAWN_COLLISION", "/nodeContexts/%d/playerSpawn" % index)
-	if not _floor_anchors.has(value["actionTerminal"]["approachFloorAnchorId"]):
+	var navigation_spawn: Variant = _navigation_projection(spawn_floor)
+	if navigation_spawn == null:
 		terminal_grid.queue_free()
-		return {}
-	var approach := _to_vector(_floor_anchors[value["actionTerminal"]["approachFloorAnchorId"]]["positionMm"])
-	var path := _query_path(spawn_floor, approach)
-	if path.size() < 2 or path[0].distance_to(spawn_floor) > PATH_ENDPOINT_TOLERANCE or path[path.size() - 1].distance_to(approach) > PATH_ENDPOINT_TOLERANCE:
+		return _rejection("PROTOTYPE_SPATIAL_VERIFY_PATH_UNREACHABLE", "/nodeContexts/%d/playerSpawn" % index)
+	var approach_id: String = value["actionTerminal"]["approachFloorAnchorId"]
+	if not _floor_anchors.has(approach_id):
 		terminal_grid.queue_free()
 		return _rejection("PROTOTYPE_SPATIAL_VERIFY_PATH_UNREACHABLE", "/nodeContexts/%d" % index)
-	for path_index in range(path.size() - 1):
-		capsule_query.transform = Transform3D(Basis.IDENTITY, path[path_index] + Vector3.UP * (PLAYER_HEIGHT * 0.5 + 0.025))
-		capsule_query.motion = path[path_index + 1] - path[path_index]
-		var motion: PackedFloat32Array = space.cast_motion(capsule_query)
-		if motion.is_empty() or motion[0] < 0.999:
+	var approach: Vector3 = _to_vector(_floor_anchors[approach_id]["positionMm"])
+	var access: Dictionary = _verify_anchor_access(approach, navigation_spawn, capsule_query, space)
+	if not access["clear"]:
+		var access_code: String = "PROTOTYPE_SPATIAL_VERIFY_PATH_BLOCKED" if access["navigation"] else \
+			"PROTOTYPE_SPATIAL_VERIFY_PATH_UNREACHABLE"
+		terminal_grid.queue_free()
+		return _rejection(access_code, "/nodeContexts/%d" % index)
+	var navigation_approach: Vector3 = access["projection"]
+	var terminal_count: int = terminal_grid.get_terminal_count()
+	for terminal_index in terminal_count:
+		var terminal: MatrixOasisActionTerminal3D = terminal_grid.get_terminal(terminal_index)
+		var terminal_result: Dictionary = _verify_terminal_access(index, terminal, terminal_grid,
+			navigation_approach, capsule_query, space)
+		if not terminal_result["ok"]:
 			terminal_grid.queue_free()
-			return _rejection("PROTOTYPE_SPATIAL_VERIFY_PATH_BLOCKED", "/nodeContexts/%d" % index)
-	var sight_start := approach + Vector3.UP * 1.4
-	var sight_target: Vector3 = terminal_grid.global_position + Vector3.UP * 0.85
-	if sight_start.distance_to(sight_target) > INTERACTION_DISTANCE + PATH_ENDPOINT_TOLERANCE:
-		terminal_grid.queue_free()
-		return _rejection("PROTOTYPE_SPATIAL_VERIFY_TERMINAL_SIGHT_BLOCKED", "/nodeContexts/%d/actionTerminal" % index)
-	var ray := PhysicsRayQueryParameters3D.create(sight_start, sight_target, 1 | 2)
-	ray.collide_with_areas = false
-	if not space.intersect_ray(ray).is_empty():
-		terminal_grid.queue_free()
-		return _rejection("PROTOTYPE_SPATIAL_VERIFY_TERMINAL_SIGHT_BLOCKED", "/nodeContexts/%d/actionTerminal" % index)
-	var terminal_count := terminal_grid.get_terminal_count()
+			return terminal_result
 	remove_child(terminal_grid)
 	terminal_grid.free()
 	await get_tree().physics_frame
-	return {"ok": true, "pathCount": 1, "terminalCount": terminal_count}
+	return {"ok": true, "pathCount": terminal_count, "terminalCount": terminal_count}
+
+
+func _verify_terminal_access(index: int, terminal: MatrixOasisActionTerminal3D,
+	terminal_grid: MatrixOasisActionTerminalGrid, navigation_approach: Vector3,
+	capsule_query: PhysicsShapeQueryParameters3D, space: PhysicsDirectSpaceState3D) -> Dictionary:
+	if terminal == null:
+		return {}
+	var sight_target: Vector3 = terminal.global_position
+	var candidates: Array[Dictionary] = []
+	for anchor_id: String in _floor_anchors:
+		var candidate: Vector3 = _to_vector(_floor_anchors[anchor_id]["positionMm"])
+		if _candidate_overlaps_terminal_grid(candidate, terminal_grid):
+			continue
+		var eye_distance: float = (candidate + Vector3.UP * PLAYER_EYE_HEIGHT).distance_to(sight_target)
+		if eye_distance <= INTERACTION_DISTANCE + 0.001:
+			candidates.append({"id": anchor_id, "position": candidate, "distance": eye_distance})
+	candidates.sort_custom(func(left: Dictionary, right: Dictionary) -> bool:
+		var left_distance: float = left["distance"]
+		var right_distance: float = right["distance"]
+		return left_distance < right_distance or (is_equal_approx(left_distance, right_distance) and left["id"] < right["id"])
+	)
+	if candidates.size() > MAX_TERMINAL_APPROACH_CANDIDATES:
+		candidates.resize(MAX_TERMINAL_APPROACH_CANDIDATES)
+	var saw_navigation := false
+	var saw_clear_path := false
+	for candidate: Dictionary in candidates:
+		var access: Dictionary = _verify_anchor_access(candidate["position"], navigation_approach, capsule_query, space)
+		if not access["navigation"]:
+			continue
+		saw_navigation = true
+		if not access["clear"]:
+			continue
+		saw_clear_path = true
+		if _line_of_sight_clear(candidate["position"], sight_target, space):
+			return {"ok": true}
+	if saw_clear_path:
+		return _rejection("PROTOTYPE_SPATIAL_VERIFY_TERMINAL_SIGHT_BLOCKED",
+			"/nodeContexts/%d/actionTerminal" % index)
+	if saw_navigation:
+		return _rejection("PROTOTYPE_SPATIAL_VERIFY_PATH_BLOCKED", "/nodeContexts/%d" % index)
+	return _rejection("PROTOTYPE_SPATIAL_VERIFY_PATH_UNREACHABLE", "/nodeContexts/%d" % index)
+
+
+func _candidate_overlaps_terminal_grid(candidate: Vector3, terminal_grid: MatrixOasisActionTerminalGrid) -> bool:
+	for terminal_index in terminal_grid.get_terminal_count():
+		var terminal: MatrixOasisActionTerminal3D = terminal_grid.get_terminal(terminal_index)
+		if terminal == null:
+			return true
+		var local: Vector3 = terminal.to_local(candidate)
+		if absf(local.x) < TERMINAL_HALF_WIDTH + PLAYER_RADIUS and \
+			absf(local.z) < TERMINAL_HALF_DEPTH + PLAYER_RADIUS:
+			return true
+	return false
+
+
+func _line_of_sight_clear(approach: Vector3, sight_target: Vector3,
+	space: PhysicsDirectSpaceState3D) -> bool:
+	var ray: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(approach + Vector3.UP * PLAYER_EYE_HEIGHT,
+		sight_target, 1 | 2 | 8)
+	ray.collide_with_areas = false
+	return space.intersect_ray(ray).is_empty()
+
+
+func _verify_anchor_access(approach: Vector3, navigation_spawn: Vector3,
+	capsule_query: PhysicsShapeQueryParameters3D, space: PhysicsDirectSpaceState3D) -> Dictionary:
+	var navigation_approach: Variant = _navigation_projection(approach)
+	if navigation_approach == null:
+		return {"navigation": false, "clear": false, "projection": Vector3.ZERO}
+	capsule_query.transform = Transform3D(Basis.IDENTITY,
+		approach + Vector3.UP * (PLAYER_HEIGHT * 0.5 + 0.025))
+	capsule_query.motion = Vector3.ZERO
+	capsule_query.collision_mask = 1 | 2 | 8
+	capsule_query.collide_with_areas = false
+	if not space.intersect_shape(capsule_query, 1).is_empty():
+		return {"navigation": true, "clear": false, "projection": navigation_approach}
+	var path: PackedVector3Array = _query_path(navigation_spawn, navigation_approach)
+	if path.is_empty() or path[0].distance_to(navigation_spawn) > PATH_ENDPOINT_TOLERANCE or \
+		path[path.size() - 1].distance_to(navigation_approach) > PATH_ENDPOINT_TOLERANCE:
+		return {"navigation": false, "clear": false, "projection": navigation_approach}
+	var clear: bool = _capsule_path_clear(path, capsule_query, space)
+	return {"navigation": true, "clear": clear, "projection": navigation_approach}
+
+
+func _capsule_path_clear(path: PackedVector3Array, capsule_query: PhysicsShapeQueryParameters3D,
+	space: PhysicsDirectSpaceState3D) -> bool:
+	for path_index in range(path.size() - 1):
+		capsule_query.transform = Transform3D(Basis.IDENTITY,
+			path[path_index] + Vector3.UP * (PLAYER_HEIGHT * 0.5 + 0.025))
+		capsule_query.motion = path[path_index + 1] - path[path_index]
+		var motion: PackedFloat32Array = space.cast_motion(capsule_query)
+		if motion.is_empty() or motion[0] < 0.999:
+			return false
+	return true
+
+
+func _apply_terminal_layout(terminal_grid: MatrixOasisActionTerminalGrid, footprint: Dictionary,
+	terminal_supports: Array, action_count: int) -> bool:
+	if terminal_supports.size() != action_count:
+		return false
+	var columns: int = footprint["columns"]
+	for index in action_count:
+		var terminal := terminal_grid.get_terminal(index)
+		if terminal == null:
+			return false
+		var row := index / columns
+		var column := index % columns
+		var first_index := row * columns
+		var row_count := mini(columns, action_count - first_index)
+		var centered_column := float(column) - float(row_count - 1) * 0.5
+		terminal.position = Vector3(centered_column * TERMINAL_COLUMN_SPACING, 0.85,
+			TERMINAL_ORIGIN_Z - float(row) * TERMINAL_ROW_SPACING)
+	return true
 
 
 func _query_path(start: Vector3, target: Vector3) -> PackedVector3Array:
@@ -373,6 +631,14 @@ func _query_path(start: Vector3, target: Vector3) -> PackedVector3Array:
 	return result.get_path()
 
 
+func _navigation_projection(position: Vector3) -> Variant:
+	var projected := NavigationServer3D.map_get_closest_point(_navigation_map, position)
+	var horizontal := Vector2(projected.x, projected.z).distance_to(Vector2(position.x, position.z))
+	if horizontal > PATH_ENDPOINT_TOLERANCE or absf(projected.y - position.y) > FLOOR_SNAP_TOLERANCE:
+		return null
+	return projected
+
+
 func _load_glb(path: String) -> Node3D:
 	var bytes := _read_file(path, GLB_MAX_BYTES)
 	if bytes.is_empty():
@@ -384,10 +650,11 @@ func _load_glb(path: String) -> Node3D:
 	return document.generate_scene(state)
 
 
-func _body_from_faces(faces: PackedVector3Array, layer: int) -> StaticBody3D:
+func _body_from_faces(faces: PackedVector3Array, layer: int, backface_collision := false) -> StaticBody3D:
 	if faces.is_empty() or faces.size() % 3 != 0:
 		return null
 	var shape := ConcavePolygonShape3D.new()
+	shape.backface_collision = backface_collision
 	shape.set_faces(faces)
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
@@ -409,6 +676,22 @@ func _collect_faces(node: Node, parent_transform: Transform3D) -> PackedVector3A
 	for child in node.get_children():
 		faces.append_array(_collect_faces(child, local_transform))
 	return faces
+
+
+func _steep_environment_faces(faces: PackedVector3Array) -> PackedVector3Array:
+	var output := PackedVector3Array()
+	for index in range(0, faces.size(), 3):
+		if index + 2 >= faces.size():
+			return PackedVector3Array()
+		var first: Vector3 = faces[index]
+		var normal := (faces[index + 1] - first).cross(faces[index + 2] - first)
+		if normal.length_squared() <= 0.000000000001:
+			continue
+		if absf(normal.normalized().y) < MAX_WALKABLE_NORMAL_Y:
+			output.append(first)
+			output.append(faces[index + 1])
+			output.append(faces[index + 2])
+	return output
 
 
 func _analysis_transform(value: Dictionary) -> Transform3D:

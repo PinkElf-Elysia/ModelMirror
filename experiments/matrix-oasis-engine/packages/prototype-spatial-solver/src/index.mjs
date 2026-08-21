@@ -142,10 +142,18 @@ async function synthesize(request) {
   const graph = adjacency(blueprint, runtime);
   if (!graph) return reject("PROTOTYPE_SPATIAL_SYNTHESIS_NODE_BINDING_INVALID", "/nodeBindings");
   const placementIds = new Set(intentPlacements.map((item) => item.id));
+  const placementsByZone = new Map(blueprint.zones.map((zone) => [zone.id,
+    intentPlacements.filter((placement) => placement.zoneId === zone.id).map((placement) => placement.id)]));
   const bindingByNode = new Map(blueprint.nodeBindings.map((item) => [item.nodeId, item]));
   const nodeContexts = runtime.nodes.map((node) => {
     const binding = bindingByNode.get(node.id);
-    return binding && { nodeId: node.id, zoneId: binding.zoneId, visiblePlacementIds: binding.visiblePlacementIds.filter((id) => placementIds.has(id)), requiresPlayerSpawn: true, requiresActionTerminal: true };
+    if (!binding) return null;
+    const explicit = binding.visiblePlacementIds.filter((id) => placementIds.has(id));
+    // Older frozen blueprints may only name the environment placement. In that case the zone itself is
+    // the authoritative visibility scope for its non-environment placements; do not silently hide every
+    // generated asset from all runtime nodes.
+    const visiblePlacementIds = explicit.length > 0 ? explicit : placementsByZone.get(binding.zoneId);
+    return { nodeId: node.id, zoneId: binding.zoneId, visiblePlacementIds, requiresPlayerSpawn: true, requiresActionTerminal: true };
   });
   if (nodeContexts.some((item) => !item)) return reject("PROTOTYPE_SPATIAL_SYNTHESIS_NODE_BINDING_INVALID", "/nodeBindings");
   const intent = {

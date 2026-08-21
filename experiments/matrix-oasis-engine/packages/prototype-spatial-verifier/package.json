@@ -16,8 +16,10 @@
   "dependencies": {
     "@matrix-oasis/prototype-asset-contracts": "0.1.0-r9",
     "@matrix-oasis/prototype-spatial-planning-contracts": "0.1.0-r13",
+    "@matrix-oasis/prototype-spatial-assembler": "0.1.0-r11",
     "@matrix-oasis/prototype-spatial-solution-contracts": "0.1.0-r14",
     "@matrix-oasis/runtime-pack-contracts": "0.1.0-r3",
-    "@matrix-oasis/runtime-pack-validator": "0.1.0-r3"
+    "@matrix-oasis/runtime-pack-validator": "0.1.0-r3",
+    "@playcanvas/splat-transform": "3.3.0"
   }
 }

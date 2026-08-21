@@ -114,6 +114,11 @@ function semanticDiagnostics(value) {
   });
   value.navigation.zoneSeeds.forEach((seed, index) => { if (!domains.has(seed.zoneId)) output.push(diagnostic("semantic", "PROTOTYPE_SPATIAL_SOLUTION_ZONE_DOMAIN_MISSING", `/navigation/zoneSeeds/${index}/zoneId`)); });
   const placements = new Set(value.placements.map((item) => item.placementId));
+  const visiblePlacements = new Set(value.nodeContexts.flatMap((context) => context.visiblePlacementIds));
+  value.placements.forEach((placement, index) => {
+    if (!visiblePlacements.has(placement.placementId)) output.push(diagnostic("semantic",
+      "PROTOTYPE_SPATIAL_SOLUTION_PLACEMENT_NEVER_VISIBLE", `/placements/${index}/placementId`));
+  });
   value.nodeContexts.forEach((context, index) => {
     const root = `/nodeContexts/${index}`; const domain = domains.get(context.zoneId);
     if (!domain) output.push(diagnostic("semantic", "PROTOTYPE_SPATIAL_SOLUTION_ZONE_REFERENCE_NOT_FOUND", `${root}/zoneId`));
@@ -121,13 +126,22 @@ function semanticDiagnostics(value) {
     if (!context.approachPathFloorAnchorIds.includes(context.actionTerminal.approachFloorAnchorId)) output.push(diagnostic("semantic", "PROTOTYPE_SPATIAL_SOLUTION_APPROACH_EVIDENCE_MISSING", `${root}/approachPathFloorAnchorIds`));
     if (domain && !domain.floorAnchorIds.includes(context.playerSpawn.floorAnchorId)) output.push(diagnostic("semantic", "PROTOTYPE_SPATIAL_SOLUTION_SPAWN_OUTSIDE_DOMAIN", `${root}/playerSpawn/floorAnchorId`));
     if (domain && !domain.floorAnchorIds.includes(context.actionTerminal.floorAnchorId)) output.push(diagnostic("semantic", "PROTOTYPE_SPATIAL_SOLUTION_TERMINAL_OUTSIDE_DOMAIN", `${root}/actionTerminal/floorAnchorId`));
+    if (context.actionTerminal.terminalSupports.length !== context.actionTerminal.actionCount) {
+      output.push(diagnostic("semantic", "PROTOTYPE_SPATIAL_SOLUTION_TERMINAL_SUPPORT_COUNT_MISMATCH", `${root}/actionTerminal/terminalSupports`));
+    }
+    context.actionTerminal.terminalSupports.forEach((support, supportIndex) => {
+      if (domain && !domain.floorAnchorIds.includes(support.floorAnchorId)) output.push(diagnostic("semantic",
+        "PROTOTYPE_SPATIAL_SOLUTION_TERMINAL_SUPPORT_OUTSIDE_DOMAIN",
+        `${root}/actionTerminal/terminalSupports/${supportIndex}/floorAnchorId`));
+    });
     if (domain && context.approachPathFloorAnchorIds.some((id) => !domain.floorAnchorIds.includes(id))) output.push(diagnostic("semantic", "PROTOTYPE_SPATIAL_SOLUTION_APPROACH_OUTSIDE_DOMAIN", `${root}/approachPathFloorAnchorIds`));
-    const columns = Math.max(1, Math.min(8, context.actionTerminal.actionCount));
-    const rows = Math.max(1, Math.ceil(context.actionTerminal.actionCount / 8));
+    const columns = context.actionTerminal.footprint.columns;
+    const maximumColumns = Math.max(1, Math.min(8, context.actionTerminal.actionCount));
+    const rows = Math.max(1, Math.ceil(context.actionTerminal.actionCount / columns));
     const expectedWidth = 1250 + ((columns - 1) * 1700);
     const expectedDepth = 500 + ((rows - 1) * 2250);
     const expectedOffset = [0, -2400 - (((rows - 1) * 2250) / 2)];
-    if (context.actionTerminal.footprint.layoutWidthMm !== expectedWidth || context.actionTerminal.footprint.layoutDepthMm !== expectedDepth ||
+    if (columns > maximumColumns || context.actionTerminal.footprint.layoutWidthMm !== expectedWidth || context.actionTerminal.footprint.layoutDepthMm !== expectedDepth ||
       context.actionTerminal.footprint.layoutCenterOffsetMm[0] !== expectedOffset[0] || context.actionTerminal.footprint.layoutCenterOffsetMm[1] !== expectedOffset[1]) {
       output.push(diagnostic("semantic", "PROTOTYPE_SPATIAL_SOLUTION_TERMINAL_FOOTPRINT_MISMATCH", `${root}/actionTerminal/footprint`));
     }

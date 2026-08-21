@@ -11,7 +11,9 @@ export interface PrototypeSpatialSolutionVerificationRequest {
   readonly assetBundleJson: string;
   readonly runtimeGamePackJson: string;
   readonly runtimeReceiptJson: string;
+  readonly spatialAssemblyJson: string;
   readonly environmentColliderBytes: Uint8Array;
+  readonly environmentSplatBytes: Uint8Array;
   readonly assetFiles: ReadonlyMap<string, Uint8Array>;
 }
 
@@ -31,6 +33,7 @@ export interface PrototypeSpatialVerificationEvidence {
   readonly nodeContextCount: number;
   readonly checkedPathCount: number;
   readonly checkedTerminalCount: number;
+  readonly checkedVisualSafetyBoxCount: number;
   readonly allChecksPassed: true;
 }
 

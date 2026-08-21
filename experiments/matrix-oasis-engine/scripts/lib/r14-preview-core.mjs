@@ -7,10 +7,10 @@ import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import { recoverPrototypeRuns } from "./prototype-cache-core.mjs";
 import {
   findVerifiedSolvedSpatialPrototypeRun,
+  loadVerifiedR14SpatialPrototypeRun,
   loadVerifiedSolvedSpatialPrototypeRun,
   recoverSolvedSpatialPrototypeRuns,
 } from "./solved-spatial-cache-core.mjs";
-import { loadVerifiedSpatialPrototypeRun } from "./spatial-cache-core.mjs";
 import { assertGodotOutputClean, runGodotCommand } from "./godot-core.mjs";
 import { createRuntimePreviewProject, removeRuntimePreviewProject } from "../prepare-godot-runtime.mjs";
 import { configureGdgsProject } from "../verify-godot-splat.mjs";
@@ -18,6 +18,7 @@ import { copySpatialPreviewFiles } from "../preview-spatial-prototype.mjs";
 
 export const R14_PREVIEW_READY_MARKER = "MATRIX_OASIS_R14_SOLVED_SPATIAL_READY";
 export const R14_PREVIEW_TRACE_MARKER = "MATRIX_OASIS_R14_SPATIAL_TRACE_JSON:";
+export const R14_PREVIEW_STARTUP_TIMEOUT_MS = 120_000;
 const RUN_ID = /^[0-9a-f]{64}-[0-9a-f]{64}$/u;
 const defaultServices = Object.freeze({ lstat, mkdir, mkdtemp, openFile: open, readdir, realpath, rename, rm, rmdir });
 
@@ -34,6 +35,7 @@ export function r14GodotArguments({ projectRoot, runDirectory, smoke = false }) 
     `--matrix-oasis-runtime-receipt=${path.join(runDirectory, "runtime-receipt.json")}`,
     `--matrix-oasis-scene-pack=${path.join(runDirectory, "scene-pack.json")}`,
     `--matrix-oasis-spatial-assembly=${path.join(runDirectory, "spatial-assembly.json")}`,
+    `--matrix-oasis-environment-facts=${path.join(runDirectory, "environment-facts.json")}`,
     "--matrix-oasis-spatial-resource=res://spatial_run/assets/environment.compressed.ply",
     `--matrix-oasis-spatial-solution=${path.join(runDirectory, "spatial-solution.json")}`,
     `--matrix-oasis-spatial-verification=${path.join(runDirectory, "spatial-verification-report.json")}`,
@@ -70,7 +72,7 @@ export function createR14PreviewOperations({
   const runGodot = godotTools.runGodotCommand ?? runGodotCommand;
   const assertClean = godotTools.assertGodotOutputClean ?? assertGodotOutputClean;
   const sourceOptions = Object.freeze({
-    loadVerifiedSpatialPrototypeRun: cache.loadVerifiedSpatialPrototypeRun ?? loadVerifiedSpatialPrototypeRun,
+    loadVerifiedSpatialPrototypeRun: cache.loadVerifiedSpatialPrototypeRun ?? loadVerifiedR14SpatialPrototypeRun,
     cacheOptions: Object.freeze({
       runRoot: spatialRunRoot, prototypeRunRoot, temporaryRoot, services,
       recoverPrototypeRuns, assemblePrototypeScene, assemblePrototypeSpatialScene, canonicalizeJsonValue,
@@ -122,7 +124,7 @@ export function createR14PreviewOperations({
         };
         child.stdout.on("data", collect); child.stderr.on("data", collect);
         child.once("error", () => finish(false)); child.once("exit", () => finish(false));
-        const timer = setTimeout(() => { child.kill(); finish(false); }, 30_000);
+        const timer = setTimeout(() => { child.kill(); finish(false); }, R14_PREVIEW_STARTUP_TIMEOUT_MS);
       });
       child.once("exit", () => {
         if (activePreview === preview) { activePreview = null; void cleanup(preview); }
@@ -142,7 +144,14 @@ export function createR14PreviewOperations({
     async acquire() { return diagnostic("R14_PREVIEW_OFFLINE_CACHE_ONLY"); },
     async publish() { return diagnostic("R14_PREVIEW_OFFLINE_CACHE_ONLY"); },
     async launch({ runId }) { return launch(runId); },
-    async recover() { return recoverSolved(common); },
+    async recover() {
+      const recovered = await recoverSolved(common);
+      return Object.freeze({
+        currentRunId: recovered.currentRunId,
+        runs: Object.freeze(recovered.runs.map(({ runId, promptSha256, model }) =>
+          Object.freeze({ runId, promptSha256, model }))),
+      });
+    },
     stopLaunch,
   });
 }

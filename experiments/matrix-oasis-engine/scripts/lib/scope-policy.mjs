@@ -48,6 +48,7 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "tests/mvp-claim.test.mjs",
   "tests/spatial-solution.test.mjs",
   "tests/spatial-verifier.test.mjs",
+  "tests/spatial-visual-safety.test.mjs",
   "tests/r14-preview.test.mjs",
   "tests/r14-qualification.test.mjs",
   "tests/round-scope.test.mjs",

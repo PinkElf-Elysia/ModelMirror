@@ -6,8 +6,10 @@ import { assemblePrototypeSpatialScene } from "@matrix-oasis/prototype-spatial-a
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import { PROTOTYPE_HOST_MARKER, createPrototypeHost } from "./lib/prototype-host-core.mjs";
 import { recoverPrototypeRuns } from "./lib/prototype-cache-core.mjs";
-import { recoverSolvedSpatialPrototypeRuns } from "./lib/solved-spatial-cache-core.mjs";
-import { loadVerifiedSpatialPrototypeRun } from "./lib/spatial-cache-core.mjs";
+import {
+  loadVerifiedR14SpatialPrototypeRun,
+  recoverSolvedSpatialPrototypeRuns,
+} from "./lib/solved-spatial-cache-core.mjs";
 import { createR14PreviewOperations } from "./lib/r14-preview-core.mjs";
 import { resolveGodotBinary } from "./lib/godot-core.mjs";
 import { loadCreatorWebAssets } from "./preview-spatial-prototype.mjs";
@@ -35,7 +37,7 @@ async function main() {
   let parsed;
   try { parsed = parseR14PreviewArguments(process.argv.slice(2)); }
   catch { process.stderr.write("R14_PREVIEW_ARGUMENT_INVALID\n"); process.exitCode = 2; return; }
-  const sourceOptions = Object.freeze({ loadVerifiedSpatialPrototypeRun, cacheOptions: Object.freeze({
+  const sourceOptions = Object.freeze({ loadVerifiedSpatialPrototypeRun: loadVerifiedR14SpatialPrototypeRun, cacheOptions: Object.freeze({
     runRoot: parsed.spatialRunRoot, prototypeRunRoot: parsed.prototypeRunRoot, temporaryRoot, services,
     recoverPrototypeRuns, assemblePrototypeScene, assemblePrototypeSpatialScene, canonicalizeJsonValue,
   }) });

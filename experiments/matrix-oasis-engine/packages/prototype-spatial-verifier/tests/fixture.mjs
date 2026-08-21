@@ -8,6 +8,10 @@ import { solvePrototypeSpatialLayout, synthesizePrototypeSpatialIntent } from "@
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 
 const encoder = new TextEncoder();
+const SYNTHETIC_COMPRESSED_PLY = Buffer.from(
+  "cGx5CmZvcm1hdCBiaW5hcnlfbGl0dGxlX2VuZGlhbiAxLjAKY29tbWVudCBHZW5lcmF0ZWQgYnkgc3BsYXQtdHJhbnNmb3JtIDMuMy4wCmVsZW1lbnQgY2h1bmsgMQpwcm9wZXJ0eSBmbG9hdCBtaW5feApwcm9wZXJ0eSBmbG9hdCBtaW5feQpwcm9wZXJ0eSBmbG9hdCBtaW5fegpwcm9wZXJ0eSBmbG9hdCBtYXhfeApwcm9wZXJ0eSBmbG9hdCBtYXhfeQpwcm9wZXJ0eSBmbG9hdCBtYXhfegpwcm9wZXJ0eSBmbG9hdCBtaW5fc2NhbGVfeApwcm9wZXJ0eSBmbG9hdCBtaW5fc2NhbGVfeQpwcm9wZXJ0eSBmbG9hdCBtaW5fc2NhbGVfegpwcm9wZXJ0eSBmbG9hdCBtYXhfc2NhbGVfeApwcm9wZXJ0eSBmbG9hdCBtYXhfc2NhbGVfeQpwcm9wZXJ0eSBmbG9hdCBtYXhfc2NhbGVfegpwcm9wZXJ0eSBmbG9hdCBtaW5fcgpwcm9wZXJ0eSBmbG9hdCBtaW5fZwpwcm9wZXJ0eSBmbG9hdCBtaW5fYgpwcm9wZXJ0eSBmbG9hdCBtYXhfcgpwcm9wZXJ0eSBmbG9hdCBtYXhfZwpwcm9wZXJ0eSBmbG9hdCBtYXhfYgplbGVtZW50IHZlcnRleCAzCnByb3BlcnR5IHVpbnQgcGFja2VkX3Bvc2l0aW9uCnByb3BlcnR5IHVpbnQgcGFja2VkX3JvdGF0aW9uCnByb3BlcnR5IHVpbnQgcGFja2VkX3NjYWxlCnByb3BlcnR5IHVpbnQgcGFja2VkX2NvbG9yCmVuZF9oZWFkZXIKAACAvwAAAAAAAAA/AACAPwAAAEAAAMA/AAAAwAAAAMAAAADAAAAAwAAAAMAAAADAqvEAP6rxAD+q8QA/qvEAP6rxAD+q8QA/AAAAAAACCGAAAAAA/wAAAAAEEIAAAghgAAAAAP8AAAD/////AAIIYAAAAAD/AAAA",
+  "base64",
+);
 
 export function sha256(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -69,7 +73,7 @@ function boxGlb(width, height, depth) {
   return glbFromGeometry({ positions, indices });
 }
 
-function roomGlb() {
+function roomGlb(obstacle = null) {
   const positions = [];
   const indices = [];
   addQuad(positions, indices, [-12, 0, -12], [-12, 0, 12], [12, 0, 12], [12, 0, -12]);
@@ -77,7 +81,12 @@ function roomGlb() {
   addBox(positions, indices, [12, 0, -12.2], [12.2, 4, 12.2]);
   addBox(positions, indices, [-12, 0, -12.2], [12, 4, -12]);
   addBox(positions, indices, [-12, 0, 12], [12, 4, 12.2]);
+  if (obstacle !== null) addBox(positions, indices, obstacle.minimum, obstacle.maximum);
   return glbFromGeometry({ positions, indices });
+}
+
+export function roomGlbWithObstacle(minimum, maximum) {
+  return roomGlb({ minimum, maximum });
 }
 
 function metrics(width, height, depth) {
@@ -94,8 +103,17 @@ function assetRecord(id, assetPath, bytes, width, height, depth) {
   };
 }
 
-export async function buildSpatialVerificationFixture() {
-  const authoringText = await readFile(new URL("../../../examples/mechanics-conformance.authoring-game-pack.json", import.meta.url), "utf8");
+export async function buildSpatialVerificationFixture({ entryActionCount = null } = {}) {
+  let authoringText = await readFile(new URL("../../../examples/mechanics-conformance.authoring-game-pack.json", import.meta.url), "utf8");
+  if (entryActionCount !== null) {
+    const authoring = JSON.parse(authoringText);
+    const template = authoring.nodes[0].actions[0];
+    authoring.nodes[0].actions = Array.from({ length: entryActionCount }, (_, index) => ({
+      ...structuredClone(template), id: `action-entry-${String(index).padStart(2, "0")}`,
+      label: `Neutral action ${index + 1}`,
+    }));
+    authoringText = canonicalizeJsonValue(authoring);
+  }
   const compiled = await compileAuthoringGamePackJson(authoringText);
   assert.equal(compiled.ok, true);
   const runtimeGamePackJson = compiled.canonicalJson;
@@ -141,6 +159,55 @@ export async function buildSpatialVerificationFixture() {
   const synthesized = await synthesizePrototypeSpatialIntent({ sceneBlueprintJson, runtimeGamePackJson, runtimeReceiptJson, assetBundleJson });
   assert.equal(synthesized.ok, true, JSON.stringify(synthesized));
   const environmentColliderBytes = roomGlb();
+  const environmentSplatBytes = Uint8Array.from(SYNTHETIC_COMPRESSED_PLY);
+  const spatialAssembly = {
+    format: "matrix-oasis.prototype-spatial-assembly", formatVersion: "0.1.0",
+    canonicalization: "matrix-oasis.canonical-json/1",
+    scene: { id: blueprint.scene.id, contentVersion: blueprint.scene.contentVersion, title: blueprint.scene.title },
+    runtimeIdentity: {
+      runtimeFormat: compiled.runtimePack.format, runtimeFormatVersion: compiled.runtimePack.formatVersion,
+      packId: compiled.runtimePack.source.id, packContentVersion: compiled.runtimePack.source.contentVersion,
+      sourceCanonicalSha256: `sha256:${compiled.runtimePack.source.canonicalSha256}`,
+      artifactSha256: `sha256:${compiled.receipt.artifact.sha256}`,
+    },
+    sources: {
+      scenePackSha256: `sha256:${"2".repeat(64)}`,
+      prototypeAssemblyReportSha256: `sha256:${"3".repeat(64)}`,
+      spatialEnvironmentBundleSha256: `sha256:${"4".repeat(64)}`,
+      sceneBlueprintSha256: sha256(sceneBlueprintJson),
+    },
+    environment: {
+      panoramaVisible: false,
+      renderer: { profile: "opaque-depth-compose-v1", depthBiasMicros: 0, depthTestMinAlphaPermille: 50, depthCaptureAlphaPermille: 500 },
+      splat: {
+        path: "assets/environment.compressed.ply", sha256: sha256(environmentSplatBytes), numGaussians: 3,
+        derivation: { profile: "identity-v1", targetNumGaussians: 640_000, sourceNumGaussians: 3,
+          fullResolutionCompressedPly: { byteLength: environmentSplatBytes.byteLength,
+            sha256: sha256(environmentSplatBytes), numGaussians: 3 } },
+      },
+      collider: { assetId: "environment-collider", placementId: "environment-placement",
+        path: "assets/environment-collider.glb", sha256: sha256(environmentColliderBytes) },
+    },
+    transforms: {
+      coordinateTransform: "spz-raw-ply-to-godot-v1", eulerOrder: "YXZ",
+      alignment: {
+        profile: "collider-fit-30m-v1", targetFloorSpanMm: 30_000, maximumHorizontalSpanMm: 90_000,
+        colliderBoundsMm: { minimumMm: [-12_000, 0, -12_000], maximumMm: [12_000, 4_000, 12_000] },
+        centerFloorSampleSourceMm: [0, 0, 0], splatProfile: "splat-robust-fit-30m-v1",
+        splatBoundsProfile: "source-position-percentile-1-99-v1",
+        splatBoundsMm: { minimumMm: [-1_000, 0, 500], maximumMm: [1_000, 2_000, 1_500] },
+      },
+      root: { translationMm: [0, 0, 0], rotationMilliDegrees: [0, 0, 0] },
+      splat: { localTranslationMm: [0, 0, 0], localRotationMilliDegrees: [0, 0, 0], scaleMicros: 1_000_000 },
+      collider: { localTranslationMm: [0, 0, 0], scaleMicros: 1_000_000 },
+      walkableEnvelope: { profile: "source-density-first-surface-v1", minimumMm: [-12_000, 0, -12_000],
+        maximumMm: [12_000, 4_000, 12_000], wallThicknessMm: 700, floorThicknessMm: 200,
+        verticalBandMm: [350, 3_000], lateralBandMm: 4_000, binSizeMm: 250,
+        minimumBinCount: 64, peakThresholdPermille: 5, adjacentBins: 2 },
+      placementGroundTargetMm: 150,
+    },
+  };
+  const spatialAssemblyJson = canonicalizeJsonValue(spatialAssembly);
   const floorAnchors = [];
   for (let x = -9000; x <= 9000; x += 1000) for (let z = -9000; z <= 9000; z += 1000) {
     floorAnchors.push({ id: `floor-${String(floorAnchors.length).padStart(4, "0")}`, positionMm: [x, 0, z], normalMicros: [0, 1_000_000, 0], clearanceRadiusMm: 350, clearanceHeightMm: 1800, ceilingHeightMm: 4000, componentIndex: 0, polygonIndex: 0, capsuleClearanceVerified: true });
@@ -153,7 +220,7 @@ export async function buildSpatialVerificationFixture() {
       environmentBundleSha256: `sha256:${"e".repeat(64)}`,
       collider: { format: "glb", byteLength: environmentColliderBytes.byteLength, sha256: sha256(environmentColliderBytes) },
       calibration: { coordinateTransform: "spz-raw-ply-to-godot-v1", metricScaleMicros: 1_000_000, groundPlaneOffsetMm: 0, godotTranslationMm: [0, 0, 0], godotRotationMilliDegrees: [0, 0, 0] },
-      analysisTransform: { profile: "spatial-environment-calibration-v1", sourceCanonicalSha256: `sha256:${"1".repeat(64)}`, eulerOrder: "YXZ", root: { translationMm: [0, 0, 0], rotationMilliDegrees: [0, 0, 0] }, collider: { localTranslationMm: [0, 0, 0], scaleMicros: 1_000_000 } },
+      analysisTransform: { profile: "spatial-assembly-collider-v1", sourceCanonicalSha256: sha256(spatialAssemblyJson), eulerOrder: "YXZ", root: { translationMm: [0, 0, 0], rotationMilliDegrees: [0, 0, 0] }, collider: { localTranslationMm: [0, 0, 0], scaleMicros: 1_000_000 } },
     },
     coordinateSystem: { handedness: "right", upAxis: "Y", unit: "millimeter", eulerOrder: "YXZ" },
     analysisProfile: { playerRadiusMm: 350, playerHeightMm: 1800, floorSnapMm: 200, maxSlopeMilliDegrees: 45_000 },
@@ -170,6 +237,7 @@ export async function buildSpatialVerificationFixture() {
   assert.equal(solved.ok, true, JSON.stringify(solved));
   return {
     spatialIntentJson: synthesized.canonicalSpatialIntentJson, environmentFactsJson, spatialSolutionJson: solved.canonicalSpatialSolutionJson,
-    assetBundleJson, runtimeGamePackJson, runtimeReceiptJson, environmentColliderBytes, assetFiles,
+    assetBundleJson, runtimeGamePackJson, runtimeReceiptJson, spatialAssemblyJson,
+    environmentColliderBytes, environmentSplatBytes, assetFiles,
   };
 }

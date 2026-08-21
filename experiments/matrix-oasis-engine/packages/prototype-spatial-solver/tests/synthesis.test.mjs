@@ -76,6 +76,23 @@ test("synthesis derives symmetric adjacency, filters environment and classifies 
   assert.equal(Object.isFrozen(result), true); assert.equal(Object.isFrozen(result.spatialIntent.placements), true);
 });
 
+test("synthesis does not make every generated asset invisible when frozen bindings only name environment", async () => {
+  const input = await fixture();
+  const blueprint = JSON.parse(input.sceneBlueprintJson);
+  for (const binding of blueprint.nodeBindings) binding.visiblePlacementIds = ["placement-environment"];
+  input.sceneBlueprintJson = canonicalizeJsonValue(blueprint);
+  const bundle = JSON.parse(input.assetBundleJson);
+  bundle.blueprint.canonicalSha256 = await sha256(input.sceneBlueprintJson);
+  input.assetBundleJson = canonicalizeJsonValue(bundle);
+  const result = await api.synthesizePrototypeSpatialIntent(input);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const contextsByZone = Map.groupBy(result.spatialIntent.nodeContexts, (context) => context.zoneId);
+  assert.deepEqual(contextsByZone.get("zone-a").map((context) => context.visiblePlacementIds),
+    contextsByZone.get("zone-a").map(() => ["placement-prop"]));
+  assert.deepEqual(contextsByZone.get("zone-b").map((context) => context.visiblePlacementIds),
+    contextsByZone.get("zone-b").map(() => ["placement-character"]));
+});
+
 test("classification uses explicit real footprint threshold without prose", async () => {
   const input = await fixture(); const bundle = JSON.parse(input.assetBundleJson);
   bundle.materializations[1].assets[0].metrics.boundsMm = { min: [-601, 0, -601], max: [601, 1800, 601] };

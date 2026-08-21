@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { validatePrototypeAssetBundleJson } from "@matrix-oasis/prototype-asset-contracts";
+import { validatePrototypeSpatialAssemblyJson } from "@matrix-oasis/prototype-spatial-assembler";
 import {
   validatePrototypeEnvironmentFactsJson,
   validatePrototypeSpatialIntentJson,
@@ -12,11 +13,13 @@ import {
 import { validatePrototypeSpatialSolutionJson } from "@matrix-oasis/prototype-spatial-solution-contracts";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import { validateRuntimeGamePackJson } from "@matrix-oasis/runtime-pack-validator";
+import { deriveVisualSafetyEvidence } from "./visual-safety.mjs";
 
 const INTERNAL_CODE = "PROTOTYPE_SPATIAL_VERIFIER_INTERNAL_ERROR";
 const VERIFIER_KIND = "matrix-oasis.godot-spatial-solution-verifier/1";
 const READY_MARKER = "MATRIX_OASIS_R14_SPATIAL_VERIFICATION_READY";
 const MAX_COLLIDER_BYTES = 32 * 1024 * 1024;
+const MAX_SPLAT_BYTES = 96 * 1024 * 1024;
 const MAX_ASSET_BYTES = 32 * 1024 * 1024;
 const verifierState = new WeakMap();
 const moduleRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
@@ -160,12 +163,73 @@ function sourceIdentityMatches({ intentText, factsText, solution, assetText, run
     sha256(runtimeText) === solution.source.runtime.artifactSha256;
 }
 
-function nodeContexts(solution, runtimePack) {
+function triangleContainsXZ(position, first, second, third) {
+  const cross = (left, right, point) =>
+    ((right[0] - left[0]) * (point[2] - left[2])) - ((right[2] - left[2]) * (point[0] - left[0]));
+  const signs = [cross(first, second, position), cross(second, third, position), cross(third, first, position)];
+  return signs.every((value) => value >= -1) || signs.every((value) => value <= 1);
+}
+
+function navigationHeightAtPosition(facts, polygonIndex, position) {
+  const polygon = facts.navigationMesh.polygons[polygonIndex];
+  if (!polygon || polygon.vertexIndices.length < 3) return null;
+  const origin = facts.navigationMesh.verticesMm[polygon.vertexIndices[0]];
+  for (let index = 1; index < polygon.vertexIndices.length - 1; index += 1) {
+    const left = facts.navigationMesh.verticesMm[polygon.vertexIndices[index]];
+    const right = facts.navigationMesh.verticesMm[polygon.vertexIndices[index + 1]];
+    if (!triangleContainsXZ(position, origin, left, right)) continue;
+    const first = [left[0] - origin[0], left[1] - origin[1], left[2] - origin[2]];
+    const second = [right[0] - origin[0], right[1] - origin[1], right[2] - origin[2]];
+    const normalX = (first[1] * second[2]) - (first[2] * second[1]);
+    const normalY = (first[2] * second[0]) - (first[0] * second[2]);
+    const normalZ = (first[0] * second[1]) - (first[1] * second[0]);
+    if (normalY === 0) continue;
+    return Math.round(origin[1] - (((normalX * (position[0] - origin[0])) +
+      (normalZ * (position[2] - origin[2]))) / normalY));
+  }
+  return null;
+}
+
+function navigationHeightInPolygons(facts, polygonIndexes, position) {
+  for (const polygonIndex of polygonIndexes.slice().sort((left, right) => left - right)) {
+    const height = navigationHeightAtPosition(facts, polygonIndex, position);
+    if (height !== null) return height;
+  }
+  return null;
+}
+
+function terminalBasePosition(context, index) {
+  const terminal = context.actionTerminal;
+  const columns = terminal.footprint.columns;
+  const row = Math.floor(index / columns);
+  const column = index % columns;
+  const rowCount = Math.min(columns, terminal.actionCount - (row * columns));
+  const localX = (column - ((rowCount - 1) / 2)) * 1_700;
+  const localZ = -2_400 - (row * 2_250);
+  const radians = terminal.yawMilliDegrees * Math.PI / 180_000;
+  return [
+    Math.round(terminal.positionMm[0] + (Math.cos(radians) * localX) + (Math.sin(radians) * localZ)),
+    0,
+    Math.round(terminal.positionMm[2] - (Math.sin(radians) * localX) + (Math.cos(radians) * localZ)),
+  ];
+}
+
+function nodeContexts(solution, runtimePack, facts) {
   const nodes = new Map(runtimePack.nodes.map((node) => [node.id, node]));
+  const floorAnchors = new Map(facts.floorAnchors.map((anchor) => [anchor.id, anchor]));
+  const selectedComponent = facts.navigationMesh.components.find((component) =>
+    component.index === solution.navigation.componentIndex);
+  if (!selectedComponent) return null;
   const output = [];
   for (const context of solution.nodeContexts) {
     const node = nodes.get(context.nodeId);
     if (!node || node.actions.length !== context.actionTerminal.actionCount) return null;
+    if (context.actionTerminal.terminalSupports.some((support, supportIndex) => {
+      const anchor = floorAnchors.get(support.floorAnchorId);
+      const position = terminalBasePosition(context, supportIndex);
+      return !anchor || navigationHeightInPolygons(facts, selectedComponent.polygonIndices, position) !==
+        support.baseHeightMm;
+    })) return null;
     output.push({
       nodeId: context.nodeId,
       zoneId: context.zoneId,
@@ -175,6 +239,7 @@ function nodeContexts(solution, runtimePack) {
         ...context.actionTerminal,
         positionMm: [...context.actionTerminal.positionMm],
         footprint: { ...context.actionTerminal.footprint, layoutCenterOffsetMm: [...context.actionTerminal.footprint.layoutCenterOffsetMm] },
+        terminalSupports: context.actionTerminal.terminalSupports.map((support) => ({ ...support })),
       },
       approachPathFloorAnchorIds: [...context.approachPathFloorAnchorIds],
     });
@@ -182,14 +247,88 @@ function nodeContexts(solution, runtimePack) {
   return output;
 }
 
+function runtimeSupportHeightMm(solution, runtimePack) {
+  const entryNode = runtimePack.nodes[runtimePack.entryNodeIndex];
+  if (!entryNode) return null;
+  const matches = solution.nodeContexts.filter((context) => context.nodeId === entryNode.id);
+  const value = matches[0]?.playerSpawn?.positionMm?.[1];
+  return matches.length === 1 && Number.isSafeInteger(value) ? value : null;
+}
+
+function runtimeSelectedPolygonIndices(facts, solution) {
+  const component = facts.navigationMesh.components.find((item) =>
+    item.index === solution.navigation.componentIndex);
+  if (!component) return null;
+  const componentPolygons = new Set(component.polygonIndices);
+  const floorById = new Map(facts.floorAnchors.map((anchor) => [anchor.id, anchor]));
+  const wallById = new Map(facts.wallAnchors.map((anchor) => [anchor.id, anchor]));
+  const requiredFloorIds = new Set(solution.navigation.zoneSeeds.map((seed) => seed.floorAnchorId));
+  for (const placement of solution.placements) {
+    if (placement.anchorKind === "floor") requiredFloorIds.add(placement.anchorId);
+    else {
+      const wall = wallById.get(placement.anchorId);
+      if (!wall) return null;
+      requiredFloorIds.add(wall.nearestFloorAnchorId);
+    }
+  }
+  for (const context of solution.nodeContexts) {
+    requiredFloorIds.add(context.playerSpawn.floorAnchorId);
+    requiredFloorIds.add(context.actionTerminal.floorAnchorId);
+    requiredFloorIds.add(context.actionTerminal.approachFloorAnchorId);
+    for (const id of context.approachPathFloorAnchorIds) requiredFloorIds.add(id);
+    for (const support of context.actionTerminal.terminalSupports) requiredFloorIds.add(support.floorAnchorId);
+  }
+  const requiredPolygons = new Set();
+  for (const id of requiredFloorIds) {
+    const anchor = floorById.get(id);
+    if (!anchor || anchor.componentIndex !== component.index || !componentPolygons.has(anchor.polygonIndex)) return null;
+    requiredPolygons.add(anchor.polygonIndex);
+  }
+  if (requiredPolygons.size === 0) return null;
+  const polygonsByVertex = new Map();
+  const adjacency = new Map([...componentPolygons].map((index) => [index, new Set()]));
+  for (const polygonIndex of componentPolygons) {
+    const polygon = facts.navigationMesh.polygons[polygonIndex];
+    if (!polygon || polygon.componentIndex !== component.index) return null;
+    for (const vertexIndex of polygon.vertexIndices) {
+      if (!polygonsByVertex.has(vertexIndex)) polygonsByVertex.set(vertexIndex, []);
+      polygonsByVertex.get(vertexIndex).push(polygonIndex);
+    }
+  }
+  for (const linked of polygonsByVertex.values()) {
+    linked.sort((left, right) => left - right);
+    for (const left of linked) for (const right of linked) if (left !== right) adjacency.get(left).add(right);
+  }
+  const targets = [...requiredPolygons].sort((left, right) => left - right);
+  const selected = new Set([targets[0]]);
+  for (const target of targets) {
+    if (selected.has(target)) continue;
+    const pending = [target];
+    const parents = new Map([[target, -1]]);
+    let found = -1;
+    for (let offset = 0; offset < pending.length && found < 0; offset += 1) {
+      const current = pending[offset];
+      if (selected.has(current)) { found = current; break; }
+      for (const neighbor of [...adjacency.get(current)].sort((left, right) => left - right)) {
+        if (!parents.has(neighbor)) { parents.set(neighbor, current); pending.push(neighbor); }
+      }
+    }
+    if (found < 0) return null;
+    for (let cursor = found; cursor !== -1; cursor = parents.get(cursor)) selected.add(cursor);
+  }
+  const buffered = new Set(selected);
+  for (const polygonIndex of selected) for (const neighbor of adjacency.get(polygonIndex)) buffered.add(neighbor);
+  return [...buffered].sort((left, right) => left - right);
+}
+
 function exactGodotResult(value) {
   const failure = exactRecord(value, ["code", "ok", "path"]);
   if (failure && failure.ok === false && GODOT_FAILURE_CODES.has(failure.code) && typeof failure.path === "string" && /^\/(?:nodeContexts|placements)\/\d+(?:\/[A-Za-z]+)?$/u.test(failure.path)) {
     return { ok: false, code: failure.code, path: failure.path };
   }
-  const success = exactRecord(value, ["allChecksPassed", "checkedPathCount", "checkedTerminalCount", "format", "formatVersion", "nodeContextCount", "ok", "placementCount", "solutionSha256"]);
+  const success = exactRecord(value, ["allChecksPassed", "checkedPathCount", "checkedTerminalCount", "checkedVisualSafetyBoxCount", "format", "formatVersion", "nodeContextCount", "ok", "placementCount", "solutionSha256"]);
   if (!success || success.ok !== true || success.format !== "matrix-oasis.godot-spatial-solution-verification" || success.formatVersion !== "0.1.0" || success.allChecksPassed !== true || typeof success.solutionSha256 !== "string") return null;
-  for (const key of ["placementCount", "nodeContextCount", "checkedPathCount", "checkedTerminalCount"]) {
+  for (const key of ["placementCount", "nodeContextCount", "checkedPathCount", "checkedTerminalCount", "checkedVisualSafetyBoxCount"]) {
     if (!Number.isSafeInteger(success[key]) || success[key] < 0) return null;
   }
   delete success.ok;
@@ -220,24 +359,29 @@ export async function verifyPrototypeSpatialSolution(request, verifier) {
     const state = verifierState.get(verifier);
     const captured = exactRecord(request, [
       "assetBundleJson", "assetFiles", "environmentColliderBytes", "environmentFactsJson", "runtimeGamePackJson",
-      "runtimeReceiptJson", "spatialIntentJson", "spatialSolutionJson",
+      "runtimeReceiptJson", "spatialAssemblyJson", "spatialIntentJson", "spatialSolutionJson", "environmentSplatBytes",
     ]);
-    if (!state || !captured || [captured.assetBundleJson, captured.environmentFactsJson, captured.runtimeGamePackJson, captured.runtimeReceiptJson, captured.spatialIntentJson, captured.spatialSolutionJson].some((item) => typeof item !== "string")) {
+    if (!state || !captured || [captured.assetBundleJson, captured.environmentFactsJson, captured.runtimeGamePackJson,
+      captured.runtimeReceiptJson, captured.spatialAssemblyJson, captured.spatialIntentJson,
+      captured.spatialSolutionJson].some((item) => typeof item !== "string")) {
       return staticFailure("input", "PROTOTYPE_SPATIAL_VERIFIER_INPUT_INVALID", "");
     }
     const colliderBytes = copyBytes(captured.environmentColliderBytes, MAX_COLLIDER_BYTES);
+    const splatBytes = copyBytes(captured.environmentSplatBytes, MAX_SPLAT_BYTES);
     const files = copyAssetFiles(captured.assetFiles);
-    if (!colliderBytes || !files) return staticFailure("input", "PROTOTYPE_SPATIAL_VERIFIER_INPUT_INVALID", "");
+    if (!colliderBytes || !splatBytes || !files) return staticFailure("input", "PROTOTYPE_SPATIAL_VERIFIER_INPUT_INVALID", "");
 
     const intentReport = validatePrototypeSpatialIntentJson(captured.spatialIntentJson);
     const factsReport = validatePrototypeEnvironmentFactsJson(captured.environmentFactsJson);
     const solutionReport = validatePrototypeSpatialSolutionJson(captured.spatialSolutionJson);
+    const assemblyReport = validatePrototypeSpatialAssemblyJson(captured.spatialAssemblyJson);
     const assetReport = validatePrototypeAssetBundleJson(captured.assetBundleJson);
     const runtimeReport = await validateRuntimeGamePackJson(captured.runtimeGamePackJson, captured.runtimeReceiptJson);
     for (const [report, code, pathValue] of [
       [intentReport, "PROTOTYPE_SPATIAL_VERIFIER_INTENT_INVALID", "/spatialIntent"],
       [factsReport, "PROTOTYPE_SPATIAL_VERIFIER_FACTS_INVALID", "/environmentFacts"],
       [solutionReport, "PROTOTYPE_SPATIAL_VERIFIER_SOLUTION_INVALID", "/spatialSolution"],
+      [assemblyReport, "PROTOTYPE_SPATIAL_VERIFIER_SPATIAL_ASSEMBLY_INVALID", "/spatialAssembly"],
       [assetReport, "PROTOTYPE_SPATIAL_VERIFIER_ASSET_BUNDLE_INVALID", "/assetBundle"],
       [runtimeReport, "PROTOTYPE_SPATIAL_VERIFIER_RUNTIME_INVALID", "/runtimePack"],
     ]) {
@@ -251,6 +395,7 @@ export async function verifyPrototypeSpatialSolution(request, verifier) {
     const assetBundle = parseCanonical(captured.assetBundleJson);
     const runtimePack = parseCanonical(captured.runtimeGamePackJson);
     const receipt = parseCanonical(captured.runtimeReceiptJson);
+    const spatialAssembly = parseCanonical(captured.spatialAssemblyJson);
     if (!sourceIdentityMatches({
       intentText: captured.spatialIntentJson, factsText: captured.environmentFactsJson, solution,
       assetText: captured.assetBundleJson, runtimeText: captured.runtimeGamePackJson, receiptText: captured.runtimeReceiptJson,
@@ -259,9 +404,37 @@ export async function verifyPrototypeSpatialSolution(request, verifier) {
     if (colliderBytes.byteLength !== facts.source.collider.byteLength || sha256(colliderBytes) !== facts.source.collider.sha256) {
       return staticFailure("integrity", "PROTOTYPE_SPATIAL_VERIFIER_COLLIDER_INTEGRITY_MISMATCH", "/environmentColliderBytes");
     }
+    const assemblySha256 = sha256(captured.spatialAssemblyJson);
+    if (spatialAssembly?.format !== "matrix-oasis.prototype-spatial-assembly" ||
+        spatialAssembly?.formatVersion !== "0.1.0" ||
+        spatialAssembly?.canonicalization !== "matrix-oasis.canonical-json/1" ||
+        spatialAssembly?.environment?.splat?.sha256 !== sha256(splatBytes) ||
+        facts.source.analysisTransform.sourceCanonicalSha256 !== assemblySha256 ||
+        solution.source.analysisTransformSource.profile !== "spatial-assembly-collider-v1" ||
+        solution.source.analysisTransformSource.canonicalSha256 !== assemblySha256) {
+      return staticFailure("integrity", "PROTOTYPE_SPATIAL_VERIFIER_VISUAL_SAFETY_IDENTITY_MISMATCH",
+        "/spatialAssembly");
+    }
     const placements = collectPlacementAssets(intent, solution, assetBundle, files);
-    const contexts = nodeContexts(solution, runtimePack);
-    if (!placements || !contexts) return staticFailure("integrity", "PROTOTYPE_SPATIAL_VERIFIER_ASSET_INTEGRITY_MISMATCH", "/assetFiles");
+    const contexts = nodeContexts(solution, runtimePack, facts);
+    const supportHeightMm = runtimeSupportHeightMm(solution, runtimePack);
+    const selectedPolygonIndices = runtimeSelectedPolygonIndices(facts, solution);
+    if (!placements) return staticFailure("integrity", "PROTOTYPE_SPATIAL_VERIFIER_ASSET_INTEGRITY_MISMATCH", "/assetFiles");
+    if (!contexts) return staticFailure("integrity", "PROTOTYPE_SPATIAL_VERIFIER_TERMINAL_SUPPORT_MISMATCH",
+      "/spatialSolution/nodeContexts");
+    if (supportHeightMm === null || !selectedPolygonIndices) return staticFailure("integrity",
+      "PROTOTYPE_SPATIAL_VERIFIER_SOLUTION_INVALID", "/spatialSolution/navigation");
+    const derivedVisualSafety = await deriveVisualSafetyEvidence({
+      spatialResourceBytes: splatBytes, spatialAssembly, environmentFacts: facts,
+      selectedPolygonIndices, runtimeSupportHeightMm: supportHeightMm,
+    });
+    if (!derivedVisualSafety) return staticFailure("integrity",
+      "PROTOTYPE_SPATIAL_VERIFIER_VISUAL_SAFETY_INVALID", "/environmentSplatBytes");
+    const visualSafety = {
+      ...derivedVisualSafety,
+      sourceSplatSha256: sha256(splatBytes),
+      spatialAssemblySha256: assemblySha256,
+    };
 
     temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "matrix-oasis-r14-verifier-"));
     const analysisProjectRoot = path.join(temporaryRoot, "godot-project");
@@ -311,13 +484,27 @@ export async function verifyPrototypeSpatialSolution(request, verifier) {
       environmentCollider: { path: environmentPath, byteLength: colliderBytes.byteLength, sha256: sha256(colliderBytes) },
       analysisTransform: facts.source.analysisTransform,
       navigationMesh: facts.navigationMesh,
+      runtimeSupportHeightMm: supportHeightMm,
+      selectedPolygonIndices,
       floorAnchors: facts.floorAnchors,
+      visualSafety,
       placements: placements.map((item) => ({
         ...item,
+        positionMm: item.anchorKind === "floor"
+          ? [item.positionMm[0], supportHeightMm, item.positionMm[2]] : item.positionMm,
         visual: { ...item.visual, path: pathBySource.get(item.visual.path) },
         collider: { ...item.collider, path: pathBySource.get(item.collider.path) },
       })),
-      nodeContexts: contexts,
+      nodeContexts: contexts.map((context) => ({
+        ...context,
+        playerSpawn: { ...context.playerSpawn,
+          positionMm: [context.playerSpawn.positionMm[0], supportHeightMm, context.playerSpawn.positionMm[2]] },
+        actionTerminal: { ...context.actionTerminal,
+          positionMm: [context.actionTerminal.positionMm[0], supportHeightMm, context.actionTerminal.positionMm[2]],
+          terminalSupports: context.actionTerminal.terminalSupports.map((support) =>
+            ({ ...support, baseHeightMm: supportHeightMm })),
+        },
+      })),
     });
     await writeFile(requestPath, godotRequest, { encoding: "utf8", flag: "wx" });
     const result = spawnSync(state.godotBin, [
@@ -329,15 +516,24 @@ export async function verifyPrototypeSpatialSolution(request, verifier) {
     const parsed = exactGodotResult(JSON.parse(await readFile(outputPath, "utf8")));
     if (!parsed) throw new PrototypeSpatialVerifierOperationalError();
     if (!parsed.ok) return staticFailure("verification", parsed.code, parsed.path);
-    if (parsed.value.solutionSha256 !== sha256(captured.spatialSolutionJson) || parsed.value.placementCount !== solution.placements.length || parsed.value.nodeContextCount !== solution.nodeContexts.length) throw new PrototypeSpatialVerifierOperationalError();
+    const terminalCount = solution.nodeContexts.reduce((sum, context) => sum + context.actionTerminal.actionCount, 0);
+    if (parsed.value.solutionSha256 !== sha256(captured.spatialSolutionJson) ||
+        parsed.value.placementCount !== solution.placements.length ||
+        parsed.value.nodeContextCount !== solution.nodeContexts.length ||
+        parsed.value.checkedTerminalCount !== terminalCount || parsed.value.checkedPathCount !== terminalCount ||
+        parsed.value.checkedVisualSafetyBoxCount !== visualSafety.boxes.length) {
+      throw new PrototypeSpatialVerifierOperationalError();
+    }
     const canonicalVerificationReportJson = canonicalizeJsonValue({
       format: "matrix-oasis.prototype-spatial-verification-report", formatVersion: "0.1.0",
       solutionSha256: parsed.value.solutionSha256,
       evidenceSha256: sha256(canonicalizeJsonValue(parsed.value)),
+      visualSafety,
       verifier: { id: "godot-spatial-solution-verifier", version: "0.1.0-r14", godotVersion: "4.6.3" },
       checks: {
         placementCount: parsed.value.placementCount, nodeContextCount: parsed.value.nodeContextCount,
         pathCount: parsed.value.checkedPathCount, terminalCount: parsed.value.checkedTerminalCount,
+        visualSafetyBoxCount: parsed.value.checkedVisualSafetyBoxCount,
       },
     });
     return deepFreeze({ ok: true, spatialSolution: solution, verification: parsed.value, canonicalVerificationReportJson });
