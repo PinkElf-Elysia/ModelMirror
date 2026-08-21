@@ -1,8 +1,8 @@
 {
   "schema_version": "modelmirror-rag-p0-round3-implementation-v1",
-  "status": "real_candidate_ready_unactivated_awaiting_formal_evaluation_authorization",
+  "status": "formal_evaluation_completed_gate_failed",
   "created_at": "2026-08-20T17:35:18.2764123Z",
-  "updated_at": "2026-08-21T05:10:28.2712637Z",
+  "updated_at": "2026-08-21T05:32:36.5019707Z",
   "base": {
     "branch": "origin/main",
     "commit": "0e0202b313b2378d13d899cf53166665baac6bee",
@@ -23,7 +23,7 @@
     ]
   },
   "constraints": {
-    "real_provider_http_attempts": 6,
+    "real_provider_http_attempts": 48,
     "gold_generation_job_attempts": 4,
     "successful_gold_generations": 3,
     "reported_model_token_usage": {
@@ -33,7 +33,10 @@
     },
     "embedding_preflight_calls": 1,
     "real_candidate_builds": 1,
-    "formal_evaluation_runs": 0,
+    "formal_evaluation_runs": 1,
+    "formal_candidate_embedding_calls": 42,
+    "formal_rerank_calls": 0,
+    "formal_answer_generation_calls": 0,
     "human_reviews_recorded": 42,
     "gold_versions_published": 1,
     "candidate_activation": false,
@@ -62,7 +65,7 @@
       ]
     },
     "3C": {
-      "status": "real_candidate_ready_unactivated_awaiting_formal_evaluation_authorization",
+      "status": "formal_evaluation_completed_gate_failed",
       "implemented": [
         "42-case review workbench for positive grounding, negative answer absence, review reasons, rejection, blockers, and readiness",
         "structurally invalid rag-gold-v2 drafts are rejected by the review API before any review write and the workbench disables approval and rejection controls",
@@ -218,7 +221,8 @@
         "retain the first two structurally invalid generated datasets as unqualified diagnostic evidence; the API and UI block their review and publication",
         "retain immutable rag-gold-v2 version 1 of evalset_7e837e532a0544fb91d8d6e029fa74cc as the only formal Gold candidate; all 42 cases are approved and the 3 leakage warnings have review reasons",
         "retain candidate pipeline version 2 as ready and unactivated; it was built once with the preflight-validated OpenRouter embedding model and no retry",
-        "obtain separate authorization before running exactly one paired Formal evaluation without answer generation or automatic retry"
+        "retain Formal run evalrun_bc90cff9fb0b4b648d3c6edb4365ca14 as the single immutable real evaluation receipt; it failed the configured promotion gate",
+        "do not lower thresholds, retry the real evaluation, activate the candidate, or start follow-up repair without a new scoped decision"
       ]
     }
   },
@@ -274,6 +278,56 @@
       "warning_count": 0,
       "active": false,
       "automatic_retry": false
+    },
+    "formal_evaluation": {
+      "run_id": "evalrun_bc90cff9fb0b4b648d3c6edb4365ca14",
+      "status": "succeeded",
+      "run_mode": "formal",
+      "metric_contract_version": "rag-eval-v2",
+      "evaluation_set_id": "evalset_7e837e532a0544fb91d8d6e029fa74cc",
+      "evaluation_set_version": 1,
+      "evaluation_set_checksum": "d6eb6e4239e74fb07de5a2db93276faabc87cfb8a848b3a96dfe04d92b8f0479",
+      "corpus_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263",
+      "comparable": true,
+      "execution_seed": 42,
+      "schedule_count": 84,
+      "retry_policy": "none",
+      "warmup_policy": "none",
+      "expected_case_count_per_target": 42,
+      "completed_case_count_per_target": 42,
+      "failed_case_count_per_target": 0,
+      "positive_quality_denominator": 30,
+      "no_result_quality_denominator": 12,
+      "candidate_embedding_calls": 42,
+      "rerank_calls": 0,
+      "answer_generation_calls": 0,
+      "execution_error_count": 0,
+      "baseline": {
+        "version_id": "kpv_4e5dfbf3047f4a1ebe1598c1d89f9eea",
+        "recall_at_5": 0.266667,
+        "mrr_at_10": 0.316653,
+        "citation_precision_at_5": 0.06,
+        "no_result_accuracy": 0.0,
+        "p95_latency_ms": 613.17
+      },
+      "candidate": {
+        "version_id": "kpv_97da4ee3c5fa481f8e0805252887936f",
+        "recall_at_5": 0.783333,
+        "mrr_at_10": 0.636759,
+        "citation_precision_at_5": 0.173333,
+        "no_result_accuracy": 0.0,
+        "false_positive_rate": 1.0,
+        "p95_latency_ms": 1493.03,
+        "paired_primary_point_estimate": 0.369048,
+        "paired_primary_ci_lower": 0.25,
+        "paired_primary_ci_upper": 0.488095,
+        "promotion_gate_passed": false,
+        "blocking_checks": [
+          "min_recall_at_5",
+          "min_no_result_accuracy"
+        ],
+        "active": false
+      }
     },
     "prospective_fixed_corpus_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263",
     "prospective_fixed_document_hash_count": 4,
@@ -391,10 +445,14 @@
     "real_candidate_build_receipt": {
       "command": "single POST /api/rag/pipeline/draft/{kb_id}/execute after read-only state checks and a ready draft preflight, followed only by polling the created job and candidate version",
       "result": "job kpjob_75061cf38d7e4badbb20fb796ca64c66 attempt 1 succeeded with 4 documents, 53 chunks, one batched provider request by the EmbeddingClient execution contract, no warnings, and no retry; candidate kpv_97da4ee3c5fa481f8e0805252887936f is ready with OpenRouter openai/text-embedding-3-small dimension 1536, vector and lexical indexes ready, and active=false; pipeline version count is 2 and active_version_id remains null"
+    },
+    "formal_evaluation_receipt": {
+      "command": "one POST /api/rag/evaluation-runs in formal mode with published Gold v2 version 1, baseline pipeline version 1, candidate pipeline version 2, execution Seed 42, no case subset, no warm-up, and no retry",
+      "result": "run evalrun_bc90cff9fb0b4b648d3c6edb4365ca14 succeeded with comparable=true, 84 paired schedule items, fixed 30 positive and 12 negative denominators, 42 completed and 0 failed cases per target, 42 candidate OpenRouter embedding calls, 0 rerank calls, 0 answer-generation calls, and 0 execution errors; candidate promotion gate failed because Recall@5 was 0.783333 below 0.8 and No-result Accuracy was 0.0 below 0.8; Citation Precision@5 improved to 0.173333, paired primary 95% CI was [0.25, 0.488095], and P95 1493.03 ms passed only through the 1500 ms absolute gate; candidate remains ready and inactive"
     }
   },
   "prohibited_claims": [
-    "Third-round formal promotion evidence exists.",
+    "Passing third-round Formal promotion evidence exists.",
     "The qualified published rag-gold-v2 version alone constitutes Formal promotion evidence.",
     "The first failed Gold request reported model token usage or proved that provider billing occurred.",
     "The existing invalid dataset was repaired or upgraded after generation.",
@@ -407,6 +465,6 @@
   ],
   "rollback": {
     "data_rollback_required": false,
-    "procedure": "Revert the third-round branch commits; no shared data, index, activation, promotion, or deployment rollback is required."
+    "procedure": "Revert the third-round branch commits; the candidate index and failed Formal receipt exist only in the isolated preview data root and may be discarded separately only with explicit authorization. No shared data, activation, promotion, or deployment rollback is required."
   }
 }
