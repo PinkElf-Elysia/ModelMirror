@@ -1,8 +1,8 @@
 {
   "schema_version": "modelmirror-rag-p0-round3-implementation-v1",
-  "status": "third_real_gold_draft_structurally_reviewable_awaiting_manual_review",
+  "status": "qualified_gold_v2_published_awaiting_embedding_preflight_authorization",
   "created_at": "2026-08-20T17:35:18.2764123Z",
-  "updated_at": "2026-08-21T04:00:56.8897568Z",
+  "updated_at": "2026-08-21T04:27:51.8874874Z",
   "base": {
     "branch": "origin/main",
     "commit": "0e0202b313b2378d13d899cf53166665baac6bee",
@@ -18,7 +18,8 @@
       "a8d7ad8041d35e67689fd9426efeb4f3c251d542",
       "b6752329e133bbc680abc445acd94797aa466fde",
       "bc1478f5bf07507b0c815dd0666331bd90dd2f7f",
-      "d482e521df60a8e7da4a1327a85e4e11e0111ea2"
+      "d482e521df60a8e7da4a1327a85e4e11e0111ea2",
+      "22be729ef5c5a2e15e00843359ff39a03e87712a"
     ]
   },
   "constraints": {
@@ -33,8 +34,8 @@
     "embedding_preflight_calls": 0,
     "real_candidate_builds": 0,
     "formal_evaluation_runs": 0,
-    "human_reviews_recorded": 0,
-    "gold_versions_published": 0,
+    "human_reviews_recorded": 42,
+    "gold_versions_published": 1,
     "candidate_activation": false,
     "candidate_promotion": false,
     "index_migration": false,
@@ -61,7 +62,7 @@
       ]
     },
     "3C": {
-      "status": "third_real_gold_draft_structurally_reviewable_awaiting_manual_review",
+      "status": "qualified_gold_v2_published_awaiting_embedding_preflight_authorization",
       "implemented": [
         "42-case review workbench for positive grounding, negative answer absence, review reasons, rejection, blockers, and readiness",
         "structurally invalid rag-gold-v2 drafts are rejected by the review API before any review write and the workbench disables approval and rejection controls",
@@ -70,7 +71,7 @@
         "bounded one-attempt Gold generation contract and explicit no-calibration-before-formal quota boundary"
       ],
       "real_gold_generation": {
-        "status": "latest_draft_structurally_reviewable_awaiting_manual_review",
+        "status": "latest_gold_v2_published_and_qualified",
         "generator_model_id": "openai/gpt-5.6-sol",
         "seed": 0,
         "attempt_history": [
@@ -186,17 +187,17 @@
         },
         "third_generation_dataset": {
           "eval_set_id": "evalset_7e837e532a0544fb91d8d6e029fa74cc",
-          "revision": 1,
+          "revision": 45,
           "benchmark_contract_version": "rag-gold-v2",
-          "published_version": null,
-          "review_status": "pending_42_of_42",
-          "qualification_status": "awaiting_manual_review",
-          "failed_checks": [
-            "manual_reviews",
-            "leakage_warning_reasons"
-          ],
+          "published_version": 1,
+          "published_source_revision": 45,
+          "published_checksum": "d6eb6e4239e74fb07de5a2db93276faabc87cfb8a848b3a96dfe04d92b8f0479",
+          "review_status": "approved_42_of_42",
+          "qualification_status": "qualified",
+          "failed_checks": [],
           "structural_review_blockers": [],
           "leakage_warning_count": 3,
+          "leakage_warning_reason_count": 3,
           "blocking_leakage_count": 0,
           "corpus_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263"
         },
@@ -215,9 +216,7 @@
       },
       "pending_external_sequence": [
         "retain the first two structurally invalid generated datasets as unqualified diagnostic evidence; the API and UI block their review and publication",
-        "use evalset_7e837e532a0544fb91d8d6e029fa74cc as the only review candidate; it has no structural review blocker and must not be regenerated automatically",
-        "complete manual review of all 42 cases, including reasons for the 3 leakage warnings, and replace any rejected cases only with new authorization or manual edits",
-        "publish one immutable rag-gold-v2 version",
+        "retain immutable rag-gold-v2 version 1 of evalset_7e837e532a0544fb91d8d6e029fa74cc as the only formal Gold candidate; all 42 cases are approved and the 3 leakage warnings have review reasons",
         "obtain separate authorization and make one sanitized embedding preflight",
         "build one unactivated real embedding candidate only after a successful preflight",
         "run exactly one paired Formal evaluation without answer generation or automatic retry"
@@ -240,6 +239,9 @@
     "authorized_regeneration_corpus_snapshot_hash": "3efe18b42c41bbec51214e825a248648dbbb17dd268220c927aa58ad4537adef",
     "third_generation_dataset_id": "evalset_7e837e532a0544fb91d8d6e029fa74cc",
     "third_generation_corpus_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263",
+    "third_generation_reviewed_count": 42,
+    "third_generation_published_version": 1,
+    "third_generation_published_checksum": "d6eb6e4239e74fb07de5a2db93276faabc87cfb8a848b3a96dfe04d92b8f0479",
     "prospective_fixed_corpus_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263",
     "prospective_fixed_document_hash_count": 4,
     "prospective_fixed_source_block_hash_count": 36,
@@ -339,15 +341,23 @@
     "third_generation_review_admission": {
       "command": "read-only dataset contract and workbench inspection",
       "result": "42 cases = 30 positive + 12 hard negative; failed checks are manual_reviews and leakage_warning_reasons only; structural review blockers 0; 3 leakage warnings, 0 blocking leaks; first-case review controls enabled; no review write"
+    },
+    "third_generation_manual_review": {
+      "command": "visible review workbench approval of all 42 cases after explicit user confirmation",
+      "result": "42 approved, 0 pending, 0 rejected; every case has a review reason and cases 2, 4, and 8 include the required leakage-warning reason"
+    },
+    "third_generation_publication_receipt": {
+      "command": "single visible publication action followed by read-only version API verification",
+      "result": "immutable rag-gold-v2 version 1 published from source revision 45; checksum d6eb6e4239e74fb07de5a2db93276faabc87cfb8a848b3a96dfe04d92b8f0479; 42 approved, 0 rejected, qualification true, no failed checks; Formal control enabled; no embedding or evaluation call"
     }
   },
   "prohibited_claims": [
     "Third-round formal promotion evidence exists.",
-    "The generated rag-gold-v2 draft is qualified, reviewed, or published.",
+    "The qualified published rag-gold-v2 version alone constitutes Formal promotion evidence.",
     "The first failed Gold request reported model token usage or proved that provider billing occurred.",
     "The existing invalid dataset was repaired or upgraded after generation.",
     "The authorized regeneration produced a qualified, reviewed, or published Gold draft.",
-    "The third generated draft is already qualified, reviewed, or published before all 42 manual decisions are recorded.",
+    "The published Gold proves that the real embedding route, candidate, or Formal evaluation has passed.",
     "The real embedding route or candidate has passed preflight.",
     "A candidate passed or was authorized for promotion.",
     "The repository-wide backend or frontend test suite is fully green."
