@@ -41,7 +41,7 @@
       { "model_id": "google/veo-3.1-fast", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] },
       { "model_id": "google/veo-3.1", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] },
       { "model_id": "black-forest-labs/flux-3-video", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] },
-      { "model_id": "black-forest-labs/flux-video-upscale", "verified_at": "2026-08-20", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "source_video", "upscale_factor", "creativity", "cost_estimate"] },
+      { "model_id": "black-forest-labs/flux-video-upscale", "verified_at": "2026-08-20", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "source_video", "upscale_factor", "creativity", "cost_estimate"] },
       { "model_id": "openai/sora-2-pro", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] }
     ],
     "verification_required": []
