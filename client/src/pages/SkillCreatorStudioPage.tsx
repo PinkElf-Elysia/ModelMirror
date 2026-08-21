@@ -50,12 +50,12 @@ import {
 } from "../utils/skillCreatorApi";
 
 const LEGACY_STEPS = [
-  { title: "定义用途", detail: "触发条件与成功标准", icon: Lightbulb },
-  { title: "确认素材", detail: "选择证据并生成草稿", icon: ClipboardCheck },
-  { title: "编辑草稿", detail: "文件、规范与安全", icon: FileEdit },
-  { title: "设计测试", detail: "三个真实用例", icon: FlaskConical },
-  { title: "评审结果", detail: "Baseline 对照", icon: ShieldCheck },
-  { title: "迭代与安装", detail: "反馈、质量门与安装", icon: Sparkles },
+  { title: "说出需求", detail: "一句话也可以", icon: Lightbulb },
+  { title: "确认方案", detail: "让 AI 先规划", icon: ClipboardCheck },
+  { title: "生成内容", detail: "逐项检查结果", icon: FileEdit },
+  { title: "试一试", detail: "准备真实任务", icon: FlaskConical },
+  { title: "对比结果", detail: "判断是否更好", icon: ShieldCheck },
+  { title: "改进并安装", detail: "做最后决定", icon: Sparkles },
 ] as const;
 
 type CreatorStep = {
@@ -66,11 +66,15 @@ type CreatorStep = {
 
 const RESOURCE_STEPS: readonly CreatorStep[] = LEGACY_STEPS.map((step, index) => (
   index === 1
-    ? { ...step, title: "素材与资源计划", detail: "确认素材并规划可复用资源" }
+    ? { ...step, title: "确认方案", detail: "素材与资源计划" }
     : index === 2
-      ? { ...step, title: "构建资源", detail: "逐项生成、实测并确认完整文件" }
+      ? { ...step, title: "生成内容", detail: "资源与最终说明" }
     : step
 ));
+
+type HydrateOptions = {
+  preserveActiveStep?: boolean;
+};
 
 const EVIDENCE_LABELS: Record<SkillCreatorEvidenceCandidate["kind"], string> = {
   intent_summary: "目标摘要",
@@ -174,7 +178,7 @@ function StepRail({
           </ol>
         </details>
       </div>
-      <ol className="hidden grid-cols-6 gap-2 lg:grid">
+      <ol className="hidden grid-cols-6 overflow-hidden rounded-lg border border-white/10 bg-surface-900/70 lg:grid">
         {steps.map((step, index) => {
           const Icon = step.icon;
           const inaccessible = !availableSteps[index];
@@ -184,12 +188,12 @@ function StepRail({
               <button
                 aria-label={`第 ${index + 1} 步：${step.title}`}
                 aria-current={current ? "step" : undefined}
-                className={`flex min-h-20 w-full items-start gap-3 rounded-lg border px-3 py-3 text-left transition ${
+                className={`flex min-h-16 w-full items-center gap-2 border-r border-white/10 px-3 py-3 text-left transition last:border-r-0 ${
                   current
-                    ? "border-hire-300/50 bg-hire-300/10 text-white"
+                    ? "bg-hire-300/10 text-white"
                     : inaccessible
-                      ? "border-white/[0.06] bg-white/[0.025] text-slate-600"
-                      : "border-white/10 bg-surface-900/70 text-slate-300 hover:bg-white/[0.055]"
+                      ? "bg-white/[0.015] text-slate-600"
+                      : "text-slate-300 hover:bg-white/[0.055]"
                 }`}
                 disabled={inaccessible}
                 onClick={() => onSelect(index)}
@@ -198,10 +202,7 @@ function StepRail({
                 <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${current ? "bg-hire-300 text-ink-950" : "bg-white/[0.055]"}`}>
                   {inaccessible ? <LockKeyhole aria-hidden="true" size={13} /> : <Icon aria-hidden="true" size={14} />}
                 </span>
-                <span className="min-w-0">
-                  <span className="block text-xs font-semibold">{index + 1}. {step.title}</span>
-                  <span className="mt-1 block text-[11px] leading-4 opacity-75">{step.detail}</span>
-                </span>
+                <span className="min-w-0 text-xs font-semibold">{step.title}</span>
               </button>
             </li>
           );
@@ -227,6 +228,7 @@ export default function SkillCreatorStudioPage() {
   const [nearMissExamples, setNearMissExamples] = useState("");
   const [expectedOutput, setExpectedOutput] = useState("");
   const [successCriteria, setSuccessCriteria] = useState("");
+  const [definitionMode, setDefinitionMode] = useState<"simple" | "advanced">("simple");
   const [rootName, setRootName] = useState("");
   const [manualDescription, setManualDescription] = useState("");
   const [loading, setLoading] = useState(true);
@@ -246,7 +248,7 @@ export default function SkillCreatorStudioPage() {
     setSuccessCriteria(joinLines(value.success_criteria ?? []));
   }, []);
 
-  const hydrate = useCallback(async (value: SkillCreatorSession) => {
+  const hydrate = useCallback(async (value: SkillCreatorSession, options: HydrateOptions = {}) => {
     let hydratedDraft = value.draft ?? null;
     let hydratedProposal = value.proposal ?? null;
     if (!hydratedDraft && value.draft_id) {
@@ -290,15 +292,17 @@ export default function SkillCreatorStudioPage() {
       value.quality_status === "accepted" || value.quality_status === "eval_waived"
     ) restoredStep = 5;
     if (hydratedProposal?.status === "pending" && value.review_state !== "revise") restoredStep = resourceFlow ? 2 : 1;
-    setActiveStep((current) => Math.max(current, restoredStep));
+    if (!options.preserveActiveStep) {
+      setActiveStep((current) => Math.max(current, restoredStep));
+    }
   }, [syncSessionForm]);
 
-  const loadSession = useCallback(async () => {
+  const loadSession = useCallback(async (options: HydrateOptions = {}) => {
     if (!sessionId || !status?.enabled) return;
     setLoading(true);
     setError("");
     try {
-      await hydrate(await readSkillCreatorSession(sessionId));
+      await hydrate(await readSkillCreatorSession(sessionId), options);
     } catch (caught) {
       setError(caught instanceof SkillCreatorApiError ? caught.message : "Creator 会话加载失败。");
     } finally {
@@ -307,11 +311,25 @@ export default function SkillCreatorStudioPage() {
   }, [hydrate, sessionId, status?.enabled]);
 
   useEffect(() => {
-    if (status?.enabled) void loadSession();
-    else if (status && !status.enabled) setLoading(false);
+    if (!status?.enabled) {
+      if (status) setLoading(false);
+      return;
+    }
+    const refreshVisibleSession = () => {
+      if (document.visibilityState === "visible") void loadSession();
+    };
+    void loadSession();
+    window.addEventListener("focus", refreshVisibleSession);
+    document.addEventListener("visibilitychange", refreshVisibleSession);
+    return () => {
+      window.removeEventListener("focus", refreshVisibleSession);
+      document.removeEventListener("visibilitychange", refreshVisibleSession);
+    };
   }, [loadSession, status]);
 
-  const intentComplete = Boolean(intent.trim() && positiveExamples.trim() && expectedOutput.trim() && successCriteria.trim());
+  const intentComplete = definitionMode === "simple"
+    ? Boolean(intent.trim())
+    : Boolean(intent.trim() && positiveExamples.trim() && nearMissExamples.trim() && expectedOutput.trim() && successCriteria.trim());
   const generationReadiness = useMemo<GenerationReadinessItem[]>(() => [
     { id: "intent", label: "用途与触发条件", ready: Boolean(intent.trim()), missing: "用途" },
     { id: "positive", label: "正向示例", ready: Boolean(positiveExamples.trim()), missing: "正向示例" },
@@ -331,19 +349,36 @@ export default function SkillCreatorStudioPage() {
     setError("");
     setNotice("");
     try {
-      const updated = await updateSkillCreatorSession(session.session_id, {
+      const quickPositiveExamples = splitLines(positiveExamples).length
+        ? splitLines(positiveExamples)
+        : [intent.trim()];
+      const quickNearMissExamples = splitLines(nearMissExamples).length
+        ? splitLines(nearMissExamples)
+        : ["与上述目标无关的闲聊、通用改写或其他任务。"];
+      const quickExpectedOutput = expectedOutput.trim()
+        || "直接完成上述任务；缺少必要信息时明确列出待确认项，不编造事实。";
+      const quickSuccessCriteria = splitLines(successCriteria).length
+        ? splitLines(successCriteria)
+        : ["结果直接解决用户提出的任务。", "只使用已有信息，缺失内容明确标记为待确认。"];
+      let updated = await updateSkillCreatorSession(session.session_id, {
         expected_session_revision: session.session_revision,
         intent: intent.trim(),
-        positive_examples: splitLines(positiveExamples),
-        near_miss_examples: splitLines(nearMissExamples),
-        expected_output: expectedOutput.trim(),
-        success_criteria: splitLines(successCriteria),
+        positive_examples: definitionMode === "simple" ? quickPositiveExamples : splitLines(positiveExamples),
+        near_miss_examples: definitionMode === "simple" ? quickNearMissExamples : splitLines(nearMissExamples),
+        expected_output: definitionMode === "simple" ? quickExpectedOutput : expectedOutput.trim(),
+        success_criteria: definitionMode === "simple" ? quickSuccessCriteria : splitLines(successCriteria),
       });
-      await hydrate(updated);
+      if (updated.mode === "blank" && !updated.evidence_confirmed) {
+        const preview = await previewSkillCreatorSource(updated);
+        updated = await selectSkillCreatorEvidence(updated, preview, []);
+        setSourcePreview(preview);
+        setSelectedEvidence(new Set());
+      }
+      await hydrate(updated, { preserveActiveStep: true });
       setActiveStep(1);
       setNotice(status?.resource_authoring_enabled
-        ? "用途与示例已保存。下一步确认素材并生成资源计划。"
-        : "用途与示例已保存。下一步确认素材并生成草稿。");
+        ? "需求已保存。接下来让 AI 给出方案；需要补充信息时，它会明确提问。"
+        : "需求已保存。接下来确认 AI 的理解并生成草稿。");
     } catch (caught) {
       handleError(caught, "用途保存失败。");
     } finally {
@@ -602,8 +637,13 @@ export default function SkillCreatorStudioPage() {
   ], [draft, evaluationRun, evaluationTerminal, qualityStatus, resourceFlow, session?.resource_build, session?.resource_plan?.state, session?.review_state]);
 
   async function acceptHydratedSession(value: SkillCreatorSession) {
-    await hydrate(value);
+    await hydrate(value, { preserveActiveStep: true });
   }
+
+  const refreshSessionInPlace = useCallback(
+    () => loadSession({ preserveActiveStep: true }),
+    [loadSession],
+  );
 
   function evaluationError(caught: unknown, fallback: string) {
     setError("");
@@ -627,13 +667,9 @@ export default function SkillCreatorStudioPage() {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <Link className="inline-flex items-center gap-2 text-sm font-semibold text-slate-300 transition hover:text-white" to="/skills/create">
           <ArrowLeft aria-hidden="true" size={16} />
-          Creator 会话
+          返回我的 Skill
         </Link>
-        {session ? (
-          <span className="max-w-full truncate rounded-full border border-white/10 bg-white/[0.045] px-3 py-1.5 font-mono text-xs text-slate-400">
-            {session.session_id} · r{session.session_revision}
-          </span>
-        ) : null}
+        {session ? <span className="text-xs text-slate-500">自动保存到本机</span> : null}
       </div>
 
       {statusLoading || loading ? (
@@ -669,15 +705,13 @@ export default function SkillCreatorStudioPage() {
           <header className="mb-5 flex flex-col gap-4 border-y border-white/10 py-5 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-brand-100">Skill Creator 工作台</p>
-              <h1 className="mt-2 max-w-4xl text-2xl font-semibold text-white sm:text-3xl">
-                {session.intent || "未命名 Skill 会话"}
-              </h1>
-              <p className="mt-2 text-sm text-slate-400">当前阶段：{currentStep.title}。所有写入均绑定 revision 与内容摘要。</p>
+              <h1 className="mt-2 max-w-4xl text-2xl font-semibold text-white sm:text-3xl">把你的做法变成可复用的 Skill</h1>
+              <p className="mt-2 line-clamp-2 max-w-4xl text-sm leading-6 text-slate-400">{session.intent || "先用一句话说出你希望它完成的任务。"}</p>
             </div>
             <div className="flex shrink-0 items-center gap-2 text-xs">
               <span className="rounded-full bg-white/[0.055] px-3 py-1.5 text-slate-300">{session.mode === "run" ? "运行沉淀" : "从零创建"}</span>
               <span className={`rounded-full px-3 py-1.5 font-semibold ${installState === "current" ? "bg-emerald-300/10 text-emerald-100" : qualityStatus === "accepted" ? "bg-emerald-300/10 text-emerald-100" : qualityStatus === "eval_waived" ? "bg-amber-300/10 text-amber-100" : qualityStatus === "running" ? "bg-brand-300/10 text-brand-100" : "bg-white/[0.055] text-slate-400"}`}>
-                {installState === "current" ? "已安装当前版本" : qualityStatus === "accepted" ? "评测已接受" : qualityStatus === "eval_waived" ? "人工豁免" : qualityStatus === "running" ? "评测中" : "不可安装"}
+                {installState === "current" ? "已安装" : qualityStatus === "accepted" ? "可以安装" : qualityStatus === "eval_waived" ? "已人工确认" : qualityStatus === "running" ? "正在试用" : "制作中"}
               </span>
             </div>
           </header>
@@ -693,45 +727,46 @@ export default function SkillCreatorStudioPage() {
 
           {activeStep === 0 ? (
             <section className="mt-5 rounded-lg border border-white/10 bg-surface-900/80 p-5 sm:p-6" aria-labelledby="creator-intent-heading">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <h2 className="text-xl font-semibold text-white" id="creator-intent-heading">定义用途与边界</h2>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">用真实任务描述 Skill 应在何时触发、哪些相似请求不应触发，以及什么结果才算成功。</p>
-                </div>
-                <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-semibold ${intentComplete ? "bg-emerald-300/10 text-emerald-100" : "bg-amber-300/10 text-amber-100"}`}>
-                  {intentComplete ? "定义完整" : "需要补充"}
-                </span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-100">第 1 步 · 从一句话开始</p>
+                <h2 className="mt-2 text-xl font-semibold text-white sm:text-2xl" id="creator-intent-heading">你希望这个 Skill 帮你做什么？</h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">像向同事交代任务一样描述即可。AI 会补全使用场景、边界和验收方式；信息不足时再向你提问。</p>
               </div>
-              <div className="mt-6 grid gap-5 lg:grid-cols-2">
-                <label className="block lg:col-span-2" htmlFor="creator-studio-intent">
-                  <span className="text-sm font-semibold text-slate-200">用途与触发条件</span>
-                  <textarea className="mt-2 min-h-28 w-full resize-y rounded-lg border border-white/10 bg-ink-950/75 px-4 py-3 text-sm leading-6 text-white placeholder:text-slate-400 focus:border-brand-300/50 focus:outline-none" id="creator-studio-intent" maxLength={2000} onChange={(event) => setIntent(event.target.value)} placeholder="这个 Skill 解决什么任务？用户通常会怎样提出需求？" value={intent} />
-                </label>
+              <div className="mt-5 inline-flex rounded-lg border border-white/10 bg-ink-950/55 p-1" aria-label="需求填写方式" role="group">
+                <button aria-pressed={definitionMode === "simple"} className={`min-h-11 rounded-md px-4 text-sm font-semibold ${definitionMode === "simple" ? "bg-brand-200 text-ink-950" : "text-slate-300"}`} onClick={() => setDefinitionMode("simple")} type="button">一句话开始</button>
+                <button aria-pressed={definitionMode === "advanced"} className={`min-h-11 rounded-md px-4 text-sm font-semibold ${definitionMode === "advanced" ? "bg-brand-200 text-ink-950" : "text-slate-300"}`} onClick={() => setDefinitionMode("advanced")} type="button">我想详细设置</button>
+              </div>
+              <label className="mt-5 block" htmlFor="creator-studio-intent">
+                <span className="sr-only">一句话描述需求</span>
+                <textarea className="min-h-36 w-full resize-y rounded-lg border border-white/10 bg-ink-950/75 px-4 py-4 text-base leading-7 text-white placeholder:text-slate-400 focus:border-brand-300/50 focus:outline-none" id="creator-studio-intent" maxLength={2000} onChange={(event) => setIntent(event.target.value)} placeholder="例如：把零散的事故记录整理成清楚、可信的中文复盘，缺少的信息要标出来，不要猜。" value={intent} />
+              </label>
+
+              {definitionMode === "advanced" ? <div className="mt-6 grid gap-5 rounded-lg border border-white/10 bg-white/[0.02] p-4 lg:grid-cols-2">
                 <label className="block" htmlFor="creator-positive-examples">
-                  <span className="text-sm font-semibold text-slate-200">正向示例</span>
-                  <span className="mt-1 block text-xs text-slate-500">每行一个真实需求。</span>
+                  <span className="text-sm font-semibold text-slate-200">哪些请求应该使用它？</span>
+                  <span className="mt-1 block text-xs text-slate-500">每行一个例子。</span>
                   <textarea className="mt-2 min-h-36 w-full resize-y rounded-lg border border-white/10 bg-ink-950/75 px-4 py-3 text-sm leading-6 text-white placeholder:text-slate-400 focus:border-brand-300/50 focus:outline-none" id="creator-positive-examples" onChange={(event) => setPositiveExamples(event.target.value)} placeholder={"分析这份竞品 PDF 并列出证据页码\n把两个版本的定价差异整理成表格"} value={positiveExamples} />
                 </label>
                 <label className="block" htmlFor="creator-near-miss-examples">
-                  <span className="text-sm font-semibold text-slate-200">近似反例</span>
-                  <span className="mt-1 block text-xs text-slate-500">每行一个不应触发的相似请求，AI 生成前必须填写。</span>
+                  <span className="text-sm font-semibold text-slate-200">哪些相似请求不该使用它？</span>
+                  <span className="mt-1 block text-xs text-slate-500">帮助 AI 不要在错误场景出现。</span>
                   <textarea className="mt-2 min-h-36 w-full resize-y rounded-lg border border-white/10 bg-ink-950/75 px-4 py-3 text-sm leading-6 text-white placeholder:text-slate-400 focus:border-brand-300/50 focus:outline-none" id="creator-near-miss-examples" onChange={(event) => setNearMissExamples(event.target.value)} placeholder="只把 PDF 转成纯文本，不需要竞品分析" value={nearMissExamples} />
                 </label>
                 <label className="block" htmlFor="creator-expected-output">
-                  <span className="text-sm font-semibold text-slate-200">预期输出</span>
+                  <span className="text-sm font-semibold text-slate-200">你希望拿到什么结果？</span>
                   <textarea className="mt-2 min-h-28 w-full resize-y rounded-lg border border-white/10 bg-ink-950/75 px-4 py-3 text-sm leading-6 text-white placeholder:text-slate-400 focus:border-brand-300/50 focus:outline-none" id="creator-expected-output" maxLength={2000} onChange={(event) => setExpectedOutput(event.target.value)} placeholder="说明交付格式、语言、必要字段和证据要求。" value={expectedOutput} />
                 </label>
                 <label className="block" htmlFor="creator-success-criteria">
-                  <span className="text-sm font-semibold text-slate-200">成功标准</span>
-                  <span className="mt-1 block text-xs text-slate-500">每行一项可检查标准。</span>
+                  <span className="text-sm font-semibold text-slate-200">怎样算完成得好？</span>
+                  <span className="mt-1 block text-xs text-slate-500">每行写一项最重要的要求。</span>
                   <textarea className="mt-2 min-h-28 w-full resize-y rounded-lg border border-white/10 bg-ink-950/75 px-4 py-3 text-sm leading-6 text-white placeholder:text-slate-400 focus:border-brand-300/50 focus:outline-none" id="creator-success-criteria" onChange={(event) => setSuccessCriteria(event.target.value)} placeholder={"每项结论包含页码\n价格字段保留币种和计费周期"} value={successCriteria} />
                 </label>
-              </div>
+              </div> : null}
               <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5">
-                <p className="text-xs text-slate-500">可先保存四项基础定义；AI 生成还要求近似反例与素材确认齐备。</p>
+                <p className="max-w-xl text-xs leading-5 text-slate-500">一句话模式会补上通用边界与“不得编造”要求；你仍会在下一步确认 AI 的具体方案。</p>
                 <button className="inline-flex items-center gap-2 rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500" disabled={!intentComplete || Boolean(busy)} onClick={() => void saveIntent()} type="button">
-                  <Save aria-hidden="true" size={15} />
-                  {busy === "intent" ? "正在保存…" : "保存并确认素材"}
+                  <ArrowRight aria-hidden="true" size={15} />
+                  {busy === "intent" ? "正在准备…" : "继续，让 AI 完善"}
                 </button>
               </div>
             </section>
@@ -739,7 +774,7 @@ export default function SkillCreatorStudioPage() {
 
           {activeStep === 1 ? (
             <div className="mt-5 space-y-5">
-              <section className="rounded-lg border border-white/10 bg-surface-900/80 p-5 sm:p-6" aria-labelledby="creator-evidence-heading">
+              {session.mode !== "blank" && session.source_kind ? <section className="rounded-lg border border-white/10 bg-surface-900/80 p-5 sm:p-6" aria-labelledby="creator-evidence-heading">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h2 className="text-xl font-semibold text-white" id="creator-evidence-heading">确认用于草稿的素材</h2>
@@ -748,20 +783,7 @@ export default function SkillCreatorStudioPage() {
                   <span className="w-fit rounded-full bg-white/[0.055] px-3 py-1.5 text-xs font-semibold text-slate-300">已选 {session.selected_evidence.length} 项</span>
                 </div>
 
-                {session.mode === "blank" || !session.source_kind ? (
-                  <div className="mt-5 rounded-lg border border-dashed border-white/15 px-5 py-7 text-center">
-                    <p className="text-sm font-semibold text-white">本会话从零创建</p>
-                    <p className="mt-2 text-sm text-slate-400">没有运行记录需要导入，生成助手将只使用第一步的用途、示例和成功标准。</p>
-                    {session.evidence_confirmed ? (
-                      <p className="mt-4 text-sm font-semibold text-emerald-100">已确认无需运行素材</p>
-                    ) : (
-                      <button className="mt-5 inline-flex items-center gap-2 rounded-full border border-brand-300/30 bg-brand-300/10 px-4 py-2.5 text-sm font-semibold text-brand-100 transition hover:bg-brand-300/20 disabled:cursor-wait disabled:opacity-50" disabled={busy === "evidence"} onClick={() => void confirmBlankEvidence()} type="button">
-                        <ClipboardCheck aria-hidden="true" size={16} />
-                        {busy === "evidence" ? "正在确认…" : "确认无需运行素材"}
-                      </button>
-                    )}
-                  </div>
-                ) : sourcePreview ? (
+                {sourcePreview ? (
                   <div className="mt-5">
                     <div className="grid gap-3 lg:grid-cols-2">
                       {sourcePreview.candidates.map((candidate) => (
@@ -786,7 +808,13 @@ export default function SkillCreatorStudioPage() {
                     {busy === "preview" ? "正在生成脱敏预览…" : "读取脱敏素材候选"}
                   </button>
                 )}
-              </section>
+              </section> : (
+                <section className="rounded-lg border border-emerald-300/15 bg-emerald-300/[0.04] px-5 py-4" aria-label="素材状态">
+                  <p className="text-sm font-semibold text-emerald-100"><Check aria-hidden="true" className="mr-2 inline" size={15} />从零开始，无需导入历史运行记录</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">AI 只会使用你刚才填写的需求；如果需要权威资料，会在方案阶段明确询问。</p>
+                  {!session.evidence_confirmed ? <button className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-full border border-emerald-200/25 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-40" disabled={busy === "evidence"} onClick={() => void confirmBlankEvidence()} type="button"><ClipboardCheck aria-hidden="true" size={15} />{busy === "evidence" ? "正在确认…" : "确认并继续"}</button> : null}
+                </section>
+              )}
 
               {status.resource_authoring_enabled ? (
                 <SkillResourcePlanPanel onSession={acceptHydratedSession} session={session} status={status} />
@@ -861,7 +889,7 @@ export default function SkillCreatorStudioPage() {
                   setProposal(nextProposal);
                   setNotice("最终资源包已形成标准提案，请检查全包差异后批准写入草稿。");
                 }}
-                onSessionRefresh={loadSession}
+                onSessionRefresh={refreshSessionInPlace}
                 session={session}
                 status={status}
               />
@@ -930,6 +958,7 @@ export default function SkillCreatorStudioPage() {
               }}
               onSessionChange={acceptHydratedSession}
               session={session}
+              suiteEnabled={status.evaluation_suite_enabled === true}
             />
           ) : null}
 
@@ -939,7 +968,7 @@ export default function SkillCreatorStudioPage() {
               onError={evaluationError}
               onNotice={evaluationNotice}
               onRunChange={setEvaluationRun}
-              onSessionRefresh={loadSession}
+              onSessionRefresh={refreshSessionInPlace}
               run={evaluationRun}
               session={session}
             />
@@ -973,7 +1002,8 @@ export default function SkillCreatorStudioPage() {
                 onError={evaluationError}
                 onNotice={evaluationNotice}
                 onProposal={acceptIterationProposal}
-                onReload={loadSession}
+                onReload={refreshSessionInPlace}
+                onGoToBuild={() => setActiveStep(2)}
                 proposal={proposal}
                 run={evaluationRun}
                 session={session}

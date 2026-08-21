@@ -43,7 +43,6 @@ def _core_cases() -> list[dict]:
             "assertions": [],
             "requirement_ids": [
                 "intent",
-                "positive_example:0",
                 "near_miss:0",
                 "expected_output",
                 "success_criterion:0",
@@ -119,6 +118,23 @@ class _Generator:
         return {"cases": _core_cases()}
 
 
+class _IncompleteCoverageGenerator(_Generator):
+    async def generate(self, request: EvaluationSuiteGenerationRequest) -> dict:
+        self.calls.append(request)
+        cases = _core_cases()
+        for case in cases:
+            case["requirement_ids"] = ["intent"]
+        return {"cases": cases}
+
+
+class _RepairingCoverageGenerator(_IncompleteCoverageGenerator):
+    async def generate(self, request: EvaluationSuiteGenerationRequest) -> dict:
+        if request.coverage_repair is None:
+            return await super().generate(request)
+        self.calls.append(request)
+        return {"cases": _core_cases()}
+
+
 def _service(tmp_path: Path, *, generator=None, enabled: bool = True):
     creator = _CreatorService()
     suite_store = SkillEvaluationSuiteStore(tmp_path / "suite")
@@ -161,11 +177,14 @@ def test_fixed_generator_contract_is_no_tool_and_parses_one_versioned_object() -
     agent = invocation.workflow["nodes"][1]["data"]
     assert agent["toolMode"] == "none"
     assert agent["temperature"] == "0.1"
+    assert "every ID in allowed_requirement_ids" in agent["rolePrompt"]
     assert invocation.runtime_metadata["evaluation_suite_workflow_version"] == (
         EVALUATION_SUITE_WORKFLOW_VERSION
     )
     context = json.loads(invocation.inputs["creator_request"])
     assert context["case_contract"]["model_may_add_regressions"] is False
+    assert "exact_match" in context["case_contract"]["assertion_kinds"]
+    assert "exact" not in context["case_contract"]["assertion_kinds"]
 
     payload = {"evaluation_suite_version": EVALUATION_SUITE_VERSION, "cases": []}
     parsed = parse_evaluation_suite_output(
@@ -211,6 +230,11 @@ async def test_generate_freezes_model_cases_and_confirm_requires_current_facts(
     tmp_path: Path,
 ) -> None:
     creator = _CreatorService()
+    creator.session.positive_examples = [
+        "Turn a timeline into an incident review.",
+        "Summarize an incident with an unknown root cause.",
+        "Preserve owners while organizing corrective actions.",
+    ]
     generator = _Generator(creator)
     suite_store = SkillEvaluationSuiteStore(tmp_path / "suite")
     service = SkillCreatorEvaluationSuiteService(
@@ -225,7 +249,6 @@ async def test_generate_freezes_model_cases_and_confirm_requires_current_facts(
     assert len(generator.calls) == 1
     assert generator.calls[0].allowed_requirement_ids == (
         "intent",
-        "positive_example:0",
         "near_miss:0",
         "expected_output",
         "success_criterion:0",
@@ -255,6 +278,63 @@ async def test_generate_freezes_model_cases_and_confirm_requires_current_facts(
 
     creator.draft.content_digest = "b" * 64
     assert service.current_projection(creator.session.session_id)["stale"] is True
+
+
+@pytest.mark.asyncio
+async def test_generate_rejects_incomplete_requirement_coverage_before_persisting(
+    tmp_path: Path,
+) -> None:
+    creator = _CreatorService()
+    generator = _IncompleteCoverageGenerator(creator)
+    suite_store = SkillEvaluationSuiteStore(tmp_path / "suite")
+    service = SkillCreatorEvaluationSuiteService(
+        creator,  # type: ignore[arg-type]
+        suite_store,
+        SkillEvaluationStore(tmp_path / "evaluation"),
+        generator=generator,
+        enabled=True,
+    )
+
+    with pytest.raises(SkillCreatorValidationError) as captured:
+        await service.generate(creator.session.session_id, **_expected(creator))
+
+    assert captured.value.code == (
+        "skill_evaluation_suite_generator_coverage_incomplete"
+    )
+    assert len(generator.calls) == 2
+    repair = generator.calls[1].coverage_repair
+    assert repair is not None
+    assert repair["missing_requirement_ids"] == [
+        "near_miss:0",
+        "expected_output",
+        "success_criterion:0",
+    ]
+    assert len(repair["previous_cases"]) == 3
+    assert suite_store.current_for_session(creator.session.session_id) is None
+
+
+@pytest.mark.asyncio
+async def test_generate_repairs_incomplete_coverage_once_before_persisting(
+    tmp_path: Path,
+) -> None:
+    creator = _CreatorService()
+    generator = _RepairingCoverageGenerator(creator)
+    suite_store = SkillEvaluationSuiteStore(tmp_path / "suite")
+    service = SkillCreatorEvaluationSuiteService(
+        creator,  # type: ignore[arg-type]
+        suite_store,
+        SkillEvaluationStore(tmp_path / "evaluation"),
+        generator=generator,
+        enabled=True,
+    )
+
+    suite = await service.generate(creator.session.session_id, **_expected(creator))
+
+    assert suite.state == "draft"
+    assert suite.suite_revision == 1
+    assert len(generator.calls) == 2
+    assert generator.calls[1].coverage_repair is not None
+    assert suite_store.current_for_session(creator.session.session_id) == suite
 
 
 @pytest.mark.asyncio

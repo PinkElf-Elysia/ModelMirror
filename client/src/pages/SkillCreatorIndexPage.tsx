@@ -180,11 +180,11 @@ export default function SkillCreatorIndexPage() {
                   <span className="text-sm font-semibold">Skill Creator</span>
                 </div>
                 <h1 className="mt-4 text-3xl font-semibold text-white sm:text-4xl">
-                  把可复用的做法写成 Skill
+                  说一句需求，让 AI 帮你做成 Skill
                 </h1>
                 <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300 sm:text-base">
                   {status.resource_authoring_enabled
-                    ? "先明确用途和触发条件，再确认素材、冻结资源计划。规划阶段不会生成文件或提案。"
+                    ? "不需要先懂触发条件、测试夹具或文件结构。AI 会先理解并给出方案，只有在信息不足时才追问。"
                     : "先明确用途和触发条件，再确认素材、审阅文件。模型只能提交类型化提案，批准后仍只是待评测草稿。"}
                 </p>
               </div>
@@ -220,12 +220,12 @@ export default function SkillCreatorIndexPage() {
                 <div>
                   <h2 className="text-xl font-semibold text-white">创建新 Skill</h2>
                   <p className="mt-1 text-sm leading-6 text-slate-400">
-                    可以先写一句目标，进入工作台后再补充示例和成功标准。
+                    像向同事交代任务一样写一句话就够了。
                   </p>
                 </div>
               </div>
               <label className="mt-6 block" htmlFor="creator-intent">
-                <span className="text-sm font-semibold text-slate-200">想沉淀什么做法</span>
+                <span className="text-sm font-semibold text-slate-200">你希望它帮你完成什么？</span>
                 <textarea
                   className="mt-2 min-h-32 w-full resize-y rounded-lg border border-white/10 bg-ink-950/75 px-4 py-3 text-sm leading-6 text-white placeholder:text-slate-400 focus:border-brand-300/60 focus:outline-none"
                   id="creator-intent"
@@ -243,7 +243,7 @@ export default function SkillCreatorIndexPage() {
                   onClick={() => void createSession()}
                   type="button"
                 >
-                  {creating ? "正在创建…" : "进入工作台"}
+                  {creating ? "正在准备…" : "开始创建"}
                   <ArrowRight aria-hidden="true" size={16} />
                 </button>
               </div>
@@ -252,18 +252,13 @@ export default function SkillCreatorIndexPage() {
             <aside className="rounded-lg border border-white/10 bg-white/[0.035] p-5 sm:p-6">
               <div className="flex items-center gap-3">
                 <FileText aria-hidden="true" className="text-hire-200" size={20} />
-                <h2 className="text-base font-semibold text-white">完整 Creator V1 闭环</h2>
+                <h2 className="text-base font-semibold text-white">你只负责做决定</h2>
               </div>
               <ol className="mt-5 space-y-4 text-sm">
                 {[
-                  ["定义用途", "写清触发场景、正向示例和近似反例。"],
-                  status.resource_authoring_enabled
-                    ? ["素材与资源计划", "确认来源，必要时回答澄清问题，再冻结脚本、参考资料和模板计划。"]
-                    : ["确认素材", "逐项选择脱敏后的运行证据，也可从零开始。"],
-                  ["编辑草稿", "检查 SKILL.md 和 UTF-8 文本资源。"],
-                  ["设计测试", "为当前摘要准备恰好 3 个真实用例。"],
-                  ["对照评审", "隔离比较 Baseline 与使用 Skill 的结果。"],
-                  ["迭代与安装", "人工接受或豁免后，再单独确认全局安装。"],
+                  ["AI 先给方案", "复杂任务才拆资源，简单任务保持简单。"],
+                  ["用真实任务试用", "同一条件下比较使用前后的结果。"],
+                  ["你确认后才安装", "生成、改进和安装都不会偷偷发生。"],
                 ].map(([title, detail], index) => (
                   <li className="flex gap-3" key={title}>
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-hire-300 text-xs font-bold text-ink-950">

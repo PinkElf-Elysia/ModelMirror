@@ -124,13 +124,16 @@ describe("SkillResourceBuildPanel", () => {
     const started = { ...build, state: "planned" as const, phase: "resources" as const };
     const fetchMock = vi.fn<
       (_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>
-    >((_input, _init) => jsonResponse({ resource_build: started }, 201));
+    >((input, _init) => String(input).endsWith("/next")
+      ? jsonResponse({ resource_build: build })
+      : jsonResponse({ resource_build: started }, 201));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<SkillResourceBuildPanel onProposal={vi.fn()} onSessionRefresh={vi.fn()} session={baseSession} status={status} />);
-    await userEvent.click(screen.getByRole("button", { name: "创建资源构建" }));
+    await userEvent.click(screen.getByRole("button", { name: "开始生成内容" }));
 
-    expect(await screen.findByRole("heading", { name: "资源构建工作台" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "逐项生成内容" })).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url).endsWith("/resource-build")).toBe(true);
     expect(JSON.parse(String(init?.body))).toMatchObject({
@@ -139,6 +142,50 @@ describe("SkillResourceBuildPanel", () => {
       expected_plan_revision: plan.revision,
       expected_plan_digest: plan.digest,
     });
+  });
+
+  it("offers a replacement build when the retained build belongs to an older plan", async () => {
+    const currentPlan = { ...plan, revision: 4, digest: "4".repeat(64) };
+    const replacement = {
+      ...build,
+      build_id: "build_2",
+      revision: 1,
+      digest: "5".repeat(64),
+      state: "planned" as const,
+      plan_revision: currentPlan.revision,
+      plan_digest: currentPlan.digest,
+    };
+    const refresh = vi.fn();
+    const fetchMock = vi.fn<
+      (_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>
+    >((input, _init) => String(input).endsWith("/next")
+      ? jsonResponse({ resource_build: { ...replacement, state: "awaiting_review", resources: build.resources } })
+      : jsonResponse({ resource_build: replacement }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<SkillResourceBuildPanel
+      onProposal={vi.fn()}
+      onSessionRefresh={refresh}
+      session={{
+        ...baseSession,
+        resource_plan: currentPlan,
+        resource_build: { ...build, state: "stale", stale: true },
+      }}
+      status={status}
+    />);
+
+    expect(screen.getByText(/旧版本仍会只读保留/)).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "按新方案开始生成" }));
+
+    expect(await screen.findByRole("heading", { name: "逐项生成内容" })).toBeVisible();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url).endsWith("/resource-build")).toBe(true);
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      plan_id: currentPlan.plan_id,
+      expected_plan_revision: currentPlan.revision,
+      expected_plan_digest: currentPlan.digest,
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("saves a complete direct edit as a new server revision", async () => {

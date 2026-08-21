@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
-from .creator_evolution import EVOLUTION_PLAN_VERSION
+from .creator_evolution import EVOLUTION_FAILURE_TYPES, EVOLUTION_PLAN_VERSION
 from .creator_evolution_service import EvolutionGenerationRequest
 from .creator_runtime import CREATOR_WORKFLOW_VERSION
 from .creator_store import CREATOR_ASSISTANT_AGENT_ID, SkillCreatorValidationError
@@ -48,6 +49,18 @@ def build_evolution_invocation(request: EvolutionGenerationRequest, *, model_id:
     session_id = str(request.session.get("session_id") or "").strip()
     if not session_id:
         raise SkillCreatorValidationError("Evolution planning is missing session_id.", code="skill_creator_evolution_planner_invalid")
+    allowed_cases = set(request.allowed_case_ids)
+    allowed_items = set(request.allowed_item_ids)
+    evidence_items_by_case: dict[str, list[str]] = {}
+    evaluation_items = request.evaluation.get("items")
+    if isinstance(evaluation_items, list):
+        for item in evaluation_items:
+            if not isinstance(item, Mapping):
+                continue
+            case_id = str(item.get("case_id") or "").strip()
+            item_id = str(item.get("item_id") or "").strip()
+            if case_id in allowed_cases and item_id in allowed_items:
+                evidence_items_by_case.setdefault(case_id, []).append(item_id)
     context = {
         "evolution_plan_version": EVOLUTION_PLAN_VERSION,
         "session": request.session,
@@ -57,9 +70,13 @@ def build_evolution_invocation(request: EvolutionGenerationRequest, *, model_id:
         "suite": request.suite,
         "resource_plan": request.resource_plan,
         "previous_evolution_plan": request.current_plan,
+        "repair": request.repair,
+        "output_contract_spec": _output_contract_spec(),
         "allowed": {
             "case_ids": list(request.allowed_case_ids),
             "item_ids": list(request.allowed_item_ids),
+            "evidence_item_ids_by_case": evidence_items_by_case,
+            "failure_types": list(EVOLUTION_FAILURE_TYPES),
             "requirement_ids": list(request.allowed_requirement_ids),
             "resource_ids": list(request.allowed_resource_ids),
             "source_ids": list(request.allowed_source_ids),
@@ -172,8 +189,106 @@ def _evolution_prompt() -> str:
         "allowed resource_id values; their path and kind are server-controlled. Create actions omit "
         "resource_id and use a safe path under scripts/, references/, or assets/. Every action includes "
         "purpose, source_ids, used_by_steps, depends_on, acceptance_checks, related_case_ids, "
-        "expected_improvement, and non_regression_case_ids."
+        "expected_improvement, and non_regression_case_ids. If repair is non-null, return a full "
+        "replacement object that follows its fixed instruction; do not discuss the prior failure. "
+        "Treat output_contract_spec as authoritative: include every required field, respect every "
+        "minItems value, and never return an empty required string. "
+        "For every diagnosis, copy case_id exactly from allowed.case_ids and copy evidence_item_ids "
+        "only from allowed.evidence_item_ids_by_case[case_id]; never invent or abbreviate an ID. "
+        "Every failure_types value must be copied exactly from allowed.failure_types."
     )
+
+
+def _output_contract_spec() -> dict[str, Any]:
+    nonempty_text = {"type": "string", "minLength": 1}
+    string_array = {"type": "array", "items": nonempty_text}
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "evolution_plan_version", "diagnoses", "actions", "workflow_steps",
+            "output_contract", "failure_modes", "expected_improvements",
+            "acceptance_criteria", "non_goals", "overfitting_risks", "clarifications",
+        ],
+        "properties": {
+            "evolution_plan_version": {"const": EVOLUTION_PLAN_VERSION},
+            "diagnoses": {
+                "type": "array", "minItems": 1, "maxItems": 12,
+                "items": {
+                    "type": "object", "additionalProperties": False,
+                    "required": [
+                        "case_id", "evidence_item_ids", "failure_types", "requirement_ids",
+                        "resource_ids", "sections", "summary",
+                    ],
+                    "properties": {
+                        "case_id": nonempty_text,
+                        "evidence_item_ids": {"type": "array", "minItems": 1, "items": nonempty_text},
+                        "failure_types": {"type": "array", "minItems": 1, "items": nonempty_text},
+                        "requirement_ids": string_array,
+                        "resource_ids": string_array,
+                        "sections": string_array,
+                        "summary": nonempty_text,
+                    },
+                },
+            },
+            "actions": {
+                "type": "array", "maxItems": 20,
+                "x-rules": [
+                    "Account for every existing resource exactly once with keep, update, or delete.",
+                    "Create uses kind and path; existing actions use the exact resource_id and omit changed identity.",
+                ],
+                "items": {
+                    "type": "object", "additionalProperties": False,
+                    "required": [
+                        "action_id", "action", "purpose", "source_ids", "used_by_steps",
+                        "depends_on", "acceptance_checks", "related_case_ids",
+                        "expected_improvement", "non_regression_case_ids",
+                    ],
+                    "properties": {
+                        "action_id": nonempty_text,
+                        "action": {"enum": ["keep", "update", "create", "delete"]},
+                        "resource_id": nonempty_text,
+                        "kind": {"enum": ["script", "reference", "asset"]},
+                        "path": nonempty_text,
+                        "purpose": nonempty_text,
+                        "source_ids": string_array,
+                        "used_by_steps": string_array,
+                        "depends_on": string_array,
+                        "acceptance_checks": {"type": "array", "minItems": 1, "items": nonempty_text},
+                        "related_case_ids": {"type": "array", "minItems": 1, "items": nonempty_text},
+                        "expected_improvement": nonempty_text,
+                        "non_regression_case_ids": string_array,
+                    },
+                },
+            },
+            "workflow_steps": {
+                "type": "array", "minItems": 4, "maxItems": 10,
+                "items": {
+                    "type": "object", "additionalProperties": False,
+                    "required": ["step_id", "instruction"],
+                    "properties": {"step_id": nonempty_text, "instruction": nonempty_text},
+                },
+            },
+            "output_contract": {"type": "array", "minItems": 1, "items": nonempty_text},
+            "failure_modes": {"type": "array", "minItems": 1, "items": nonempty_text},
+            "expected_improvements": {"type": "array", "minItems": 1, "items": nonempty_text},
+            "acceptance_criteria": {"type": "array", "minItems": 1, "items": nonempty_text},
+            "non_goals": string_array,
+            "overfitting_risks": {"type": "array", "minItems": 1, "items": nonempty_text},
+            "clarifications": {
+                "type": "array", "maxItems": 5,
+                "items": {
+                    "type": "object", "additionalProperties": False,
+                    "required": ["question_id", "question", "reason"],
+                    "properties": {
+                        "question_id": nonempty_text,
+                        "question": nonempty_text,
+                        "reason": nonempty_text,
+                    },
+                },
+            },
+        },
+    }
 
 
 __all__ = [

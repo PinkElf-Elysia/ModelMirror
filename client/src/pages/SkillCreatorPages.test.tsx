@@ -142,8 +142,10 @@ describe("Skill Creator pages", () => {
     );
 
     expect(await screen.findByText("分析竞品 PDF 并保留页码")).toBeVisible();
-    fireEvent.change(screen.getByLabelText("想沉淀什么做法"), { target: { value: "新目标" } });
-    await userEvent.click(screen.getByRole("button", { name: /进入工作台/ }));
+    expect(screen.getByText(/AI 先给方案/)).toBeVisible();
+    expect(screen.getByText(/用真实任务试用/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("你希望它帮你完成什么？"), { target: { value: "新目标" } });
+    await userEvent.click(screen.getByRole("button", { name: /开始创建/ }));
 
     expect(await screen.findByText("studio destination")).toBeVisible();
     const createCall = fetchMock.mock.calls.find(([input, init]) =>
@@ -222,8 +224,8 @@ describe("Skill Creator pages", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("heading", { name: "分析竞品 PDF 并保留页码" })).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "第 2 步：确认素材" }));
+    expect(await screen.findByRole("heading", { name: "把你的做法变成可复用的 Skill" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "第 2 步：确认方案" }));
     expect(screen.getByText("模型网关未配置 Key。")).toBeVisible();
     expect(screen.getByRole("button", { name: "生成可评测初稿" })).toBeDisabled();
 
@@ -233,8 +235,8 @@ describe("Skill Creator pages", () => {
       "比较 PDF 并保留证据页码。用于竞品分析，不用于仅做文字转换。",
     );
     expect(screen.getByRole("button", { name: "创建结构化手工模板" })).toBeDisabled();
-    await userEvent.click(screen.getByRole("button", { name: "确认无需运行素材" }));
-    expect(await screen.findByText("已确认无需运行素材")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "确认并继续" }));
+    expect(await screen.findByText(/已确认不导入运行素材/)).toBeVisible();
     const evidenceCall = fetchMock.mock.calls.find(([input, init]) =>
       String(input).endsWith("/evidence") && (init as RequestInit | undefined)?.method === "PUT",
     );
@@ -291,8 +293,8 @@ describe("Skill Creator pages", () => {
       </MemoryRouter>,
     );
 
-    await screen.findByRole("heading", { name: "分析竞品 PDF 并保留页码" });
-    await userEvent.click(screen.getByRole("button", { name: "第 2 步：确认素材" }));
+    await screen.findByRole("heading", { name: "把你的做法变成可复用的 Skill" });
+    await userEvent.click(screen.getByRole("button", { name: "第 2 步：确认方案" }));
 
     expect(screen.getByRole("heading", { name: "AI 生成准备度" })).toBeVisible();
     expect(screen.getByText("5/6 项已完成")).toBeVisible();
@@ -353,8 +355,8 @@ describe("Skill Creator pages", () => {
       </MemoryRouter>,
     );
 
-    await screen.findByRole("heading", { name: "分析竞品 PDF 并保留页码" });
-    await userEvent.click(screen.getByRole("button", { name: "第 2 步：确认素材" }));
+    await screen.findByRole("heading", { name: "把你的做法变成可复用的 Skill" });
+    await userEvent.click(screen.getByRole("button", { name: "第 2 步：确认方案" }));
     await userEvent.click(screen.getByRole("button", { name: "读取脱敏素材候选" }));
 
     expect(await screen.findByRole("checkbox", { name: /默认目标/ })).not.toBeChecked();
@@ -406,7 +408,7 @@ describe("Skill Creator pages", () => {
 
     await screen.findByRole("button", { name: "保存草稿" });
     expect(screen.getByRole("button", { name: "生成可评测更新初稿" })).toBeEnabled();
-    await userEvent.click(screen.getByRole("button", { name: "第 2 步：确认素材" }));
+    await userEvent.click(screen.getByRole("button", { name: "第 2 步：确认方案" }));
     expect(screen.getByText("该提案没有写入草稿。你可以保留当前草稿并重新生成提案。")).toBeVisible();
 
     const generateButton = screen.getByRole("button", { name: "生成可评测更新初稿" });
@@ -536,16 +538,16 @@ describe("Skill Creator pages", () => {
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(historyGo).toHaveBeenCalledWith(1);
 
-    await userEvent.click(screen.getByRole("button", { name: "第 2 步：确认素材" }));
+    await userEvent.click(screen.getByRole("button", { name: "第 2 步：确认方案" }));
     expect(screen.getByRole("button", { name: "保存草稿" })).toBeVisible();
     expect(confirm).toHaveBeenCalledTimes(2);
 
-    await userEvent.click(screen.getByRole("link", { name: "Creator 会话" }));
+    await userEvent.click(screen.getByRole("link", { name: "返回我的 Skill" }));
     expect(screen.queryByText("Creator session list")).not.toBeInTheDocument();
     expect(confirm).toHaveBeenCalledTimes(3);
 
     confirm.mockReturnValue(true);
-    await userEvent.click(screen.getByRole("link", { name: "Creator 会话" }));
+    await userEvent.click(screen.getByRole("link", { name: "返回我的 Skill" }));
     expect(await screen.findByText("Creator session list")).toBeVisible();
   });
 
@@ -601,10 +603,225 @@ describe("Skill Creator pages", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("heading", { name: "Baseline 与 With Skill" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "看看 Skill 是否真的更好用" })).toBeVisible();
     expect(screen.getByText("当前步骤 5/6")).toBeVisible();
     expect(screen.getByText("展开全部步骤")).toBeVisible();
-    expect(screen.getByRole("button", { name: "第 4 步：设计测试" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "第 6 步：迭代与安装" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "第 4 步：试一试" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "第 6 步：改进并安装" })).toBeEnabled();
+  });
+
+  it("refreshes a stale Creator session when its browser tab regains focus", async () => {
+    const staleSession: SkillCreatorSession = {
+      ...baseSession,
+      draft_id: draft.draft_id,
+      draft,
+      current_revision: draft.revision,
+      current_digest: draft.content_digest,
+      state: "iterating",
+      review_state: "none",
+      review_revision: 0,
+    };
+    const revisedSession: SkillCreatorSession = {
+      ...staleSession,
+      session_revision: staleSession.session_revision + 1,
+      review_state: "revise",
+      review_revision: 1,
+      regression_governance: {
+        version: "skill-creator-regression-v1",
+        enabled: true,
+        max_items: 72,
+        case_count: 3,
+        target_count: 2,
+        estimated_model_calls: 6,
+        max_repetitions: 3,
+        previous_revision: null,
+        previous_digest: null,
+        evolution_history_available: true,
+        revisions: [],
+        runs: [],
+      },
+    };
+    let sessionReads = 0;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/skills/creator/status") return jsonResponse(status);
+      if (url === "/api/skills/creator/sessions/creator_1" && !init?.method) {
+        sessionReads += 1;
+        return jsonResponse({
+          session: sessionReads === 1 ? staleSession : revisedSession,
+          draft,
+          regression_governance: sessionReads === 1 ? null : revisedSession.regression_governance,
+        });
+      }
+      return jsonResponse({ detail: `not found: ${url}` }, 404);
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/skills/create/creator_1"]}>
+        <Routes><Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" /></Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(/选择“需要修改”后|选择“还要修改”后/)).toBeVisible();
+    window.dispatchEvent(new Event("focus"));
+
+    expect(await screen.findByRole("button", { name: "生成改进方案" })).toBeVisible();
+    expect(sessionReads).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps the resource step active while starting a replacement build", async () => {
+    const plan = {
+      plan_id: "plan-current",
+      session_id: baseSession.session_id,
+      revision: 2,
+      digest: "p".repeat(64),
+      state: "confirmed" as const,
+      session_revision: 7,
+      draft_id: draft.draft_id,
+      draft_revision: draft.content_revision,
+      draft_digest: draft.content_digest,
+      skill_name: draft.name,
+      skill_description: draft.description,
+      workflow_steps: [{ step_id: "step-1", instruction: "读取规则并生成报告" }],
+      output_contract: ["返回带页码的中文报告"],
+      failure_modes: ["资料不足时明确说明"],
+      resources: [{
+        resource_id: "resource-1",
+        spec_digest: "s".repeat(64),
+        kind: "reference" as const,
+        action: "update" as const,
+        generation_cost: "low" as const,
+        path: "references/rules.md",
+        purpose: "保存核对规则",
+        source_ids: [],
+        used_by_steps: ["step-1"],
+        depends_on: [],
+        acceptance_checks: ["包含页码规则"],
+      }],
+      clarifications: [],
+      clarification_answers: {},
+      created_at: 1,
+      updated_at: 2,
+    };
+    const staleBuild = {
+      build_id: "build-old",
+      session_id: baseSession.session_id,
+      revision: 1,
+      digest: "b".repeat(64),
+      state: "stale" as const,
+      phase: "resources" as const,
+      session_revision: 7,
+      plan_id: "plan-old",
+      plan_revision: 1,
+      plan_digest: "o".repeat(64),
+      draft_id: draft.draft_id,
+      draft_revision: draft.content_revision,
+      draft_digest: draft.content_digest,
+      skill_name: draft.name,
+      skill_description: draft.description,
+      workflow_steps: plan.workflow_steps,
+      output_contract: plan.output_contract,
+      failure_modes: plan.failure_modes,
+      resources: [],
+      current_resource_id: null,
+      skill_chunks: [],
+      skill_markdown: null,
+      skill_markdown_digest: null,
+      skill_attempt: 0,
+      skill_repair_count: 0,
+      skill_validation_issues: [],
+      skill_feedback: "",
+      requirement_coverage: [],
+      stale: true,
+      created_at: 1,
+      updated_at: 2,
+    };
+    const startedBuild = {
+      ...staleBuild,
+      build_id: "build-new",
+      revision: 1,
+      digest: "n".repeat(64),
+      state: "planned" as const,
+      plan_id: plan.plan_id,
+      plan_revision: plan.revision,
+      plan_digest: plan.digest,
+      stale: false,
+      resources: [{
+        ...plan.resources[0],
+        state: "planned" as const,
+        attempt: 0,
+        repair_count: 0,
+        chunks: [],
+        content: null,
+        content_digest: null,
+        base_content: null,
+        base_digest: null,
+        script_tests: [],
+        script_receipt: null,
+        validation_issues: [],
+        feedback: "",
+      }],
+      current_resource_id: "resource-1",
+    };
+    const generatedBuild = {
+      ...startedBuild,
+      revision: 2,
+      digest: "g".repeat(64),
+      state: "awaiting_review" as const,
+      resources: [{
+        ...startedBuild.resources[0],
+        state: "awaiting_review" as const,
+        attempt: 1,
+        content: "# 核对规则\n",
+        content_digest: "c".repeat(64),
+      }],
+    };
+    const resourceSession: SkillCreatorSession = {
+      ...baseSession,
+      session_revision: 7,
+      authoring_flow: "resource",
+      draft_id: draft.draft_id,
+      draft,
+      current_revision: draft.content_revision,
+      current_digest: draft.content_digest,
+      state: "iterating",
+      review_state: "revise",
+      review_revision: 1,
+      resource_plan: plan,
+      resource_build: staleBuild,
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/skills/creator/status") return jsonResponse({
+        ...status,
+        resource_authoring_enabled: true,
+        resource_builder_available: true,
+      });
+      if (url === "/api/skills/creator/sessions/creator_1" && !init?.method) {
+        return jsonResponse({ session: resourceSession, draft, resource_plan: plan, resource_build: staleBuild });
+      }
+      if (url.endsWith("/resource-build") && init?.method === "POST") return jsonResponse({ resource_build: startedBuild });
+      if (url.endsWith("/resource-builds/build-new/next") && init?.method === "POST") return jsonResponse({ resource_build: generatedBuild });
+      return jsonResponse({ detail: `not found: ${url}` }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <MemoryRouter initialEntries={["/skills/create/creator_1"]}>
+        <Routes><Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" /></Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("当前步骤 6/6")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "第 3 步：生成内容" }));
+    await userEvent.click(screen.getByRole("button", { name: "按新方案开始生成" }));
+
+    expect(await screen.findByRole("heading", { name: "逐项生成内容" })).toBeVisible();
+    expect(screen.getByText("当前步骤 3/6")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "按你的反馈继续改进" })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/skills/creator/resource-builds/build-new/next",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 });

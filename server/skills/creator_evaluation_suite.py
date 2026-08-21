@@ -547,6 +547,10 @@ class SkillEvaluationSuiteStore:
         # legacy normalizer: the two domains are deliberately incompatible.
         legacy_case = dict(raw)
         legacy_case.pop("case_fingerprint", None)
+        if isinstance(legacy_case.get("required_resource_paths"), tuple):
+            legacy_case["required_resource_paths"] = list(
+                legacy_case["required_resource_paths"]
+            )
         base = SkillEvaluationStore.normalize_case(legacy_case)
         requirement_ids = cls._identifier_list(
             raw.get("requirement_ids") or (),

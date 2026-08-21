@@ -167,7 +167,6 @@ def _suite_case(role: str, *, regression: bool = False) -> dict:
             "role": role,
             "requirement_ids": [
                 "intent",
-                "positive_example:0",
                 "near_miss:0",
                 "expected_output",
                 "success_criterion:0",

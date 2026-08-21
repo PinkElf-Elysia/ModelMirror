@@ -18,11 +18,13 @@ from .creator_evaluation import (
 )
 from .creator_evaluation_suite import SkillEvaluationSuite, SkillEvaluationSuiteStore
 from .creator_evaluation_suite_service import SkillCreatorEvaluationSuiteService
+from .creator_evolution import SkillEvolutionPlanStore
 from .creator_store import (
     CreatorQualityMode,
     SkillCreatorConflictError,
     SkillCreatorSession,
     SkillCreatorSessionStore,
+    SkillCreatorStorageError,
     SkillCreatorValidationError,
 )
 from .draft_store import WorkspaceSkillDraft, WorkspaceSkillDraftStore
@@ -78,6 +80,7 @@ class SkillCreatorEvaluationService:
         actor_id: str,
         iteration: SkillEvaluationIteration | None = None,
         suite_service: SkillCreatorEvaluationSuiteService | None = None,
+        evolution_store: SkillEvolutionPlanStore | None = None,
         application_receipt_verifier: SkillEvaluationReceiptVerifier | None = None,
     ) -> None:
         clean_actor_id = str(actor_id or "").strip()
@@ -91,6 +94,7 @@ class SkillCreatorEvaluationService:
         self.actor_id = clean_actor_id
         self.iteration = iteration
         self.suite_service = suite_service
+        self.evolution_store = evolution_store
         self.application_receipt_verifier = application_receipt_verifier
 
     def get_projection(
@@ -129,6 +133,114 @@ class SkillCreatorEvaluationService:
         draft = self._require_session_draft(session)
         session, draft, _ = self._reconcile(session, draft)
         return session, draft, self.evaluation_store.require_run(run_id)
+
+    def governance_projection(
+        self,
+        session: SkillCreatorSession,
+        draft: WorkspaceSkillDraft,
+    ) -> dict[str, Any]:
+        """Return bounded version history and the next-run budget projection."""
+
+        suite = None
+        if self.suite_service is not None and self.suite_service.enabled:
+            candidate_suite = self.suite_service.suite_store.current_for_session(
+                session.session_id
+            )
+            if (
+                candidate_suite is not None
+                and candidate_suite.state == "confirmed"
+                and candidate_suite.draft_id == draft.draft_id
+                and candidate_suite.draft_revision == draft.content_revision
+                and self._same_digest(
+                    candidate_suite.draft_digest, draft.content_digest
+                )
+            ):
+                suite = candidate_suite
+        previous_revision: int | None = None
+        previous_digest: str | None = None
+        evolution_history_available = True
+        if suite is not None and self.evolution_store is not None:
+            try:
+                evolution = self.evolution_store.current_for_session(
+                    session.session_id
+                )
+            except SkillCreatorStorageError:
+                evolution = None
+                evolution_history_available = False
+            if (
+                evolution is not None
+                and evolution.session_id == session.session_id
+                and evolution.draft_id == draft.draft_id
+                and evolution.draft_revision < draft.content_revision
+                and evolution.state in {"confirmed", "stale"}
+            ):
+                previous_revision = evolution.draft_revision
+                previous_digest = evolution.draft_digest
+        case_count = len(suite.cases) if suite is not None else 3
+        target_count = 3 if previous_revision is not None else 2
+        estimated_model_calls = case_count * target_count
+        max_repetitions = max(
+            1,
+            min(
+                3,
+                SkillEvaluationStore.MAX_RUN_ITEMS
+                // max(1, estimated_model_calls),
+            ),
+        )
+        revisions = []
+        for snapshot in self.draft_store.list_revision_snapshots(draft.draft_id):
+            revisions.append(
+                {
+                    "revision": snapshot.revision,
+                    "content_digest": snapshot.content_digest,
+                    "source_proposal_id": snapshot.source_proposal_id,
+                    "created_at": snapshot.created_at,
+                    "is_current": snapshot.revision == draft.content_revision,
+                    "is_installed": (
+                        snapshot.revision == draft.installed_content_revision
+                        and self._same_digest(
+                            snapshot.content_digest,
+                            draft.installed_content_digest,
+                        )
+                    ),
+                    "is_previous": snapshot.revision == previous_revision,
+                }
+            )
+        runs = []
+        for run in self.evaluation_store.list_runs(
+            session_id=session.session_id, limit=50
+        ):
+            runs.append(
+                {
+                    "run_id": run.run_id,
+                    "draft_revision": run.draft_revision,
+                    "frozen_digest": run.frozen_digest,
+                    "status": run.status,
+                    "review_state": run.review_state,
+                    "suite_revision": run.evaluation_suite_revision,
+                    "target_count": 3 if run.previous_overlay_id else 2,
+                    "item_count": len(run.items),
+                    "comparison_counts": dict(
+                        (run.report or {}).get("comparison_counts") or {}
+                    ),
+                    "created_at": run.created_at,
+                    "completed_at": run.completed_at,
+                }
+            )
+        return {
+            "version": "skill-creator-regression-v1",
+            "enabled": bool(suite is not None),
+            "max_items": SkillEvaluationStore.MAX_RUN_ITEMS,
+            "case_count": case_count,
+            "target_count": target_count,
+            "estimated_model_calls": estimated_model_calls,
+            "max_repetitions": max_repetitions,
+            "previous_revision": previous_revision,
+            "previous_digest": previous_digest,
+            "evolution_history_available": evolution_history_available,
+            "revisions": revisions,
+            "runs": runs,
+        }
 
     def save_cases(
         self,
@@ -328,6 +440,33 @@ class SkillCreatorEvaluationService:
             self.executor.wake()
             return session, draft, existing
 
+        previous_snapshot = None
+        if suite is not None and self.evolution_store is not None:
+            evolution = self.evolution_store.current_for_session(session.session_id)
+            if (
+                evolution is not None
+                and evolution.session_id == session.session_id
+                and evolution.draft_id == draft.draft_id
+                and evolution.draft_revision < draft.content_revision
+                and evolution.state in {"confirmed", "stale"}
+            ):
+                previous_snapshot = self.draft_store.require_revision_snapshot(
+                    draft.draft_id,
+                    revision=evolution.draft_revision,
+                    content_digest=evolution.draft_digest,
+                )
+        case_count = len(cases if cases is not None else case_set.cases)
+        target_count = 3 if previous_snapshot is not None else 2
+        estimated_model_calls = case_count * int(repetitions) * target_count
+        if estimated_model_calls > SkillEvaluationStore.MAX_RUN_ITEMS:
+            raise SkillEvaluationValidationError(
+                (
+                    f"Evaluation would require {estimated_model_calls} model calls; "
+                    f"the maximum is {SkillEvaluationStore.MAX_RUN_ITEMS}."
+                ),
+                code="skill_evaluation_item_budget_exceeded",
+            )
+
         candidate_snapshot = self.draft_store.require_revision_snapshot(
             draft.draft_id,
             revision=draft.content_revision,
@@ -353,6 +492,24 @@ class SkillCreatorEvaluationService:
                 package=baseline.package,
             )
             baseline_id = baseline_overlay.overlay_id
+        previous_id: str | None = None
+        if previous_snapshot is not None:
+            previous_overlay = self.evaluation_store.create_overlay(
+                draft_id=draft.draft_id,
+                draft_revision=previous_snapshot.revision,
+                content_digest=previous_snapshot.content_digest,
+                package=previous_snapshot.package,
+            )
+            previous_id = previous_overlay.overlay_id
+        run_config = dict(preflight.config or {})
+        if suite is not None:
+            run_config.update(
+                {
+                    "regression_governance_version": "skill-creator-regression-v1",
+                    "target_count": target_count,
+                    "estimated_model_calls": estimated_model_calls,
+                }
+            )
         run = self.evaluation_store.create_run(
             session_id=session.session_id,
             draft_id=draft.draft_id,
@@ -360,6 +517,7 @@ class SkillCreatorEvaluationService:
             frozen_digest=draft.content_digest,
             candidate_overlay_id=candidate.overlay_id,
             baseline_overlay_id=baseline_id,
+            previous_overlay_id=previous_id,
             cases=cases,
             case_set_revision=(case_set.cases_revision if case_set else None),
             evaluation_suite_id=(suite.suite_id if suite else None),
@@ -368,7 +526,7 @@ class SkillCreatorEvaluationService:
             evaluation_suite_version=(suite.version if suite else None),
             model_id=model_id,
             repetitions=repetitions,
-            config=dict(preflight.config or {}),
+            config=run_config,
         )
         try:
             draft = self._begin_or_reuse_draft_run(draft, run.run_id)
@@ -486,6 +644,7 @@ class SkillCreatorEvaluationService:
         decision: Literal["accept", "revise"],
         reason: str,
         acknowledge_failed_assertions: bool = False,
+        acknowledged_regression_item_ids: list[str] | tuple[str, ...] = (),
     ) -> tuple[SkillCreatorSession, WorkspaceSkillDraft, SkillEvaluationRun]:
         session, draft, run = self._require_run_context(
             run_id,
@@ -494,7 +653,9 @@ class SkillCreatorEvaluationService:
             expected_digest=expected_digest,
             expected_run_revision=expected_run_revision,
         )
-        failed_assertions = int((run.report or {}).get("assertion_failed_count") or 0)
+        failed_assertions = int(
+            (run.report or {}).get("candidate_assertion_failed_count") or 0
+        )
         if decision == "accept" and failed_assertions:
             if not acknowledge_failed_assertions:
                 raise SkillEvaluationValidationError(
@@ -524,6 +685,7 @@ class SkillCreatorEvaluationService:
             reason=reason,
             actor_kind="local_console",
             acknowledge_failed_assertions=acknowledge_failed_assertions,
+            acknowledged_regression_item_ids=acknowledged_regression_item_ids,
         )
         if decision == "accept":
             self._require_failed_assertion_acknowledgement(run)
@@ -984,7 +1146,10 @@ class SkillCreatorEvaluationService:
         run: SkillEvaluationRun,
     ) -> None:
         failed_assertions = int(
-            aggregate_skill_evaluation_report(run).get("assertion_failed_count") or 0
+            aggregate_skill_evaluation_report(run).get(
+                "candidate_assertion_failed_count"
+            )
+            or 0
         )
         if (
             failed_assertions
@@ -995,6 +1160,22 @@ class SkillCreatorEvaluationService:
         ):
             raise SkillEvaluationStateError(
                 "Accepted failed assertions are missing explicit acknowledgement."
+            )
+        report = aggregate_skill_evaluation_report(run)
+        required_regressions = (
+            set(report.get("regression_item_ids") or [])
+            if run.config.get("regression_governance_version")
+            == "skill-creator-regression-v1"
+            else set()
+        )
+        acknowledged = (
+            set(run.reviews[-1].acknowledged_regression_item_ids)
+            if run.reviews
+            else set()
+        )
+        if required_regressions != acknowledged:
+            raise SkillEvaluationStateError(
+                "Accepted regressions are missing item-level acknowledgement."
             )
 
     def _require_v2_application_receipts(self, run: SkillEvaluationRun) -> None:

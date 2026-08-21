@@ -137,13 +137,13 @@ node scripts/audit-skill-experience.mjs
 
 ### 4.3 通过 skill-creator 创建 Skill
 
-当前实现：Creator V1 已完成“意图定义 → 可信素材 → 不可变草稿 → 三个真实用例 → baseline/with-skill 隔离对照 → 人工反馈与迭代 → 质量门 → 单独安装确认”核心闭环。`SKILL_CREATOR_V2_ENABLED` 默认开启私有控制台；公共 Xpert App 不提供 Creator 入口、Creator 工具或可信素材来源。
+当前实现：Creator V2 已完成“意图定义 → 可信素材 → 不可变草稿 → 可复用评测套件 → baseline/previous/candidate 隔离对照 → 人工反馈 → 资源级进化 → 跨版本回归 → 质量门 → 单独安装确认”核心闭环。`SKILL_CREATOR_V2_ENABLED` 默认开启私有控制台；公共 Xpert App 不提供 Creator 入口、Creator 工具或可信素材来源。
 
-评测合同：客观 Skill 必须完成与当前 digest 绑定的恰好 3 个用例；主观创作类 Skill 可运行同一三例，或由本地控制台填写原因并二次确认豁免。新 Skill 的 baseline 不加载 Skill；升级 Skill 的 baseline 固定为会话开始时已安装的 digest；Candidate 使用当前不可变 Overlay。两侧使用同一实际模型与参数，只开放 `skill_read`、`skill_stage` 和固定离线 Sandbox；不开放网络、MCP、浏览器、安装或 HITL。接受或豁免均不会自动安装，当前 digest 仍需单独确认全局安装。
+评测合同：客观 Skill 必须完成与当前 digest 绑定的三个核心角色及全部用户确认回归案例；主观创作类 Skill 可运行同一套件，或由本地控制台填写原因并二次确认豁免。新 Skill 的 baseline 不加载 Skill；升级 Skill 的 baseline 固定为会话开始时已安装的 digest；进化后再加入 previous（进化前 revision）与当前 Candidate。所有目标使用同一套件、实际模型与参数，只开放 `skill_read`、`skill_stage` 和固定离线 Sandbox；不开放网络、MCP、浏览器、安装或 HITL。单次最多 72 个 item，新增退化必须逐项确认并填写原因。接受或豁免均不会自动安装，当前 digest 仍需单独确认全局安装。
 
-`SKILL_CREATOR_EVOLUTION_V2_ENABLED=true` 时，可显式把旧三例无模型迁移为不可变评测套件，或由固定 Creator Agent 生成“正常、歧义/信息不足、边界/失败”三个核心案例。用户确认的失败案例最多追加 9 条回归案例；模型不得自行写入回归集。V2 run 冻结套件 revision/digest，Candidate 每项必须持有与 Overlay、资源路径和实际 `skill_read`/`skill_stage` 一致的 verified 应用凭据；人工接受和崩溃恢复时都会重新核对权威凭据 Store。该开关在跨版本回归治理完成前默认关闭，旧会话不会被静默迁移。
+`SKILL_CREATOR_EVOLUTION_V2_ENABLED=true` 默认用于私有控制台：旧三例可由用户显式、无模型迁移为不可变评测套件，新 Session 则由固定 Creator Agent 生成“正常、歧义/信息不足、边界/失败”三个核心案例。用户确认的失败案例最多追加 9 条回归案例；模型不得自行写入回归集。V2 run 冻结套件 revision/digest，所有加载 Overlay 的目标都必须持有与版本、资源路径和实际 `skill_read`/`skill_stage` 一致的 verified 应用凭据；人工接受和崩溃恢复时都会重新核对权威凭据 Store。关闭开关立即回退旧流程，旧会话不会被静默迁移或删除。
 
-反馈驱动的资源级进化沿用同一开关并保持默认关闭。用户把 V2 评测结论设为 `revise` 后，固定 Creator Agent 只能读取冻结的 run/review、套件摘要、断言状态、应用凭据结论和当前资源计划，不接收旧模型输出或任意客户端反馈正文。Agent 先生成不可变 Evolution Plan，按案例绑定失败类型、需求、资源/章节和证据 item；最多提出 5 个澄清问题。只有本地用户修改并确认计划后，服务端才将其转换为新的 Resource Plan revision，并复用现有 Resource Build 选择性重建受影响的 `references/`、`scripts/` 或 `assets/`。未变化资源保持 `keep`，脚本测试凭据按内容 digest 复用；变化脚本必须重新离线实测。全部资源再次确认后才重新生成最终 `SKILL.md` 并形成普通 update proposal；新草稿 digest 会使旧评测过期，且不会自动接受或安装。开关开启时旧的一次性 `/iterate` 捷径返回 `skill_creator_evolution_plan_required`，关闭时保留既有流程作为回退。
+反馈驱动的资源级进化沿用同一默认开启的开关。用户把 V2 评测结论设为 `revise` 后，固定 Creator Agent 只能读取冻结的 run/review、套件摘要、断言状态、应用凭据结论和当前资源计划，不接收旧模型输出或任意客户端反馈正文。Agent 先生成不可变 Evolution Plan，按案例绑定失败类型、需求、资源/章节和证据 item；最多提出 5 个澄清问题。只有本地用户修改并确认计划后，服务端才将其转换为新的 Resource Plan revision，并复用现有 Resource Build 选择性重建受影响的 `references/`、`scripts/` 或 `assets/`。未变化资源保持 `keep`，脚本测试凭据按内容 digest 复用；变化脚本必须重新离线实测。全部资源再次确认后才重新生成最终 `SKILL.md` 并形成普通 update proposal；新草稿 digest 会使旧评测过期，下一轮以同一套件比较 previous 与 Candidate，且不会自动接受或安装。开关开启时旧的一次性 `/iterate` 捷径返回 `skill_creator_evolution_plan_required`，关闭时保留既有流程作为回退。
 
 资源化创作在行为质量门之前增加了“澄清 → 资源计划 → 用户确认 → 逐资源生成与验证 → 最终 `SKILL.md` → 提案确认”的阶段：
 

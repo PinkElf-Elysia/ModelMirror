@@ -82,6 +82,7 @@ def build_evaluation_suite_invocation(
         "allowed_requirement_ids": list(request.allowed_requirement_ids),
         "allowed_resource_paths": list(request.allowed_resource_paths),
         "allowed_workflow_step_ids": list(request.allowed_workflow_step_ids),
+        "coverage_repair": request.coverage_repair,
         "case_contract": {
             "core_roles": ["normal", "ambiguous", "boundary"],
             "model_may_add_regressions": False,
@@ -89,7 +90,7 @@ def build_evaluation_suite_invocation(
             "assertion_kinds": [
                 "contains",
                 "not_contains",
-                "exact",
+                "exact_match",
                 "json_schema",
                 "file_exists",
                 "file_sha256",
@@ -218,7 +219,13 @@ def _suite_prompt() -> str:
         "proves conservative handling of missing or conflicting information, and boundary "
         "proves the stated non-trigger or failure behavior. Never add regression cases; only "
         "a user may add or confirm them. Cases must be realistic, mutually distinct, and "
-        "traceable to supplied requirement IDs. Do not invent domain rules or sources. "
+        "traceable to supplied requirement IDs. The union of requirement_ids across the "
+        "three cases must contain every ID in allowed_requirement_ids exactly as supplied; "
+        "assign an ID only to a case whose prompt and expected behavior genuinely exercise "
+        "that requirement. Do not invent domain rules or sources. "
+        "If coverage_repair is present, return a complete replacement for all three cases. "
+        "Use its missing_requirement_ids and previous_cases to repair both the case content "
+        "and its truthful requirement mapping; do not merely attach unrelated IDs. "
         "Reference only allowed resource paths and workflow step IDs. If a case declares a "
         "resource, the runtime will require verified skill_stage evidence for that exact path. "
         "Fixtures are bounded UTF-8 text. Assertions are deterministic evidence for human "

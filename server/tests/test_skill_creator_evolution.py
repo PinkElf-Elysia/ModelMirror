@@ -143,6 +143,21 @@ def test_evolution_plan_is_append_only_and_answers_require_regeneration(tmp_path
     assert SkillEvolutionPlanStore(tmp_path).require(confirmed.plan_id).digest == confirmed.digest
 
 
+def test_evolution_plan_rejects_unversioned_free_text_failure_types(tmp_path) -> None:
+    store = SkillEvolutionPlanStore(tmp_path)
+    payload = _payload()
+    payload["diagnoses"][0]["failure_types"] = ["输出格式不稳定"]
+
+    with pytest.raises(SkillCreatorValidationError):
+        store.save_generated(
+            bindings=_bindings(),
+            payload=payload,
+            expected_plan_revision=None,
+            expected_plan_digest=None,
+            **_allowed(),
+        )
+
+
 def test_evolution_plan_rejects_unfrozen_evidence_paths_and_credentials(tmp_path) -> None:
     store = SkillEvolutionPlanStore(tmp_path)
     wrong_path = _payload()

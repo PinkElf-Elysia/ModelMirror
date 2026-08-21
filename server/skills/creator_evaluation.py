@@ -21,7 +21,7 @@ from jsonschema import Draft202012Validator
 from .package_validation import compute_package_digest, scan_skill_package_credentials
 
 
-SkillEvaluationTarget = Literal["baseline", "candidate"]
+SkillEvaluationTarget = Literal["baseline", "previous", "candidate"]
 SkillEvaluationRunStatus = Literal[
     "queued",
     "running",
@@ -155,6 +155,7 @@ class SkillEvaluationReview:
     feedback: str
     actor_kind: str
     acknowledge_failed_assertions: bool = False
+    acknowledged_regression_item_ids: tuple[str, ...] = ()
     created_at: float = field(default_factory=time.time)
 
 
@@ -172,6 +173,7 @@ class SkillEvaluationRun:
     cases: list[SkillEvaluationCase]
     items: list[SkillEvaluationItem]
     config: dict[str, Any]
+    previous_overlay_id: str | None = None
     case_set_revision: int | None = None
     evaluation_suite_id: str | None = None
     evaluation_suite_revision: int | None = None
@@ -234,6 +236,7 @@ class SkillEvaluationStore:
     MAX_PACKAGE_BYTES = 4 * 1024 * 1024
     MAX_FIXTURE_BYTES = 256 * 1024
     MAX_OUTPUT_CHARS = 50_000
+    MAX_RUN_ITEMS = 72
 
     def __init__(self, storage_dir: str | Path | None = None) -> None:
         package_dir = Path(__file__).resolve().parent
@@ -441,6 +444,7 @@ class SkillEvaluationStore:
         model_id: str,
         repetitions: int = 1,
         baseline_overlay_id: str | None = None,
+        previous_overlay_id: str | None = None,
         case_set_revision: int | None = None,
         evaluation_suite_id: str | None = None,
         evaluation_suite_revision: int | None = None,
@@ -543,6 +547,31 @@ class SkillEvaluationStore:
                     raise SkillEvaluationConflictError(
                         "Baseline and candidate overlays must belong to the same draft."
                     )
+            previous_overlay: SkillEvaluationOverlay | None = None
+            if previous_overlay_id is not None:
+                previous_overlay = self._overlay_unlocked(previous_overlay_id)
+                if previous_overlay.draft_id != clean_draft_id:
+                    raise SkillEvaluationConflictError(
+                        "Previous and candidate overlays must belong to the same draft."
+                    )
+                if previous_overlay.draft_revision >= candidate.draft_revision:
+                    raise SkillEvaluationConflictError(
+                        "Previous overlay must precede the candidate draft revision."
+                    )
+                if previous_overlay.content_digest == candidate.content_digest:
+                    raise SkillEvaluationConflictError(
+                        "Previous and candidate overlays must have different digests."
+                    )
+            target_count = 3 if previous_overlay is not None else 2
+            item_count = len(clean_cases) * clean_repetitions * target_count
+            if item_count > self.MAX_RUN_ITEMS:
+                raise SkillEvaluationValidationError(
+                    (
+                        f"Evaluation would create {item_count} items; "
+                        f"the maximum is {self.MAX_RUN_ITEMS}."
+                    ),
+                    code="skill_evaluation_item_budget_exceeded",
+                )
             run_id = f"skill_eval_run_{uuid.uuid4().hex}"
             now = time.time()
             items: list[SkillEvaluationItem] = []
@@ -552,10 +581,13 @@ class SkillEvaluationStore:
                     pair_id = "skill_eval_pair_" + hashlib.sha256(
                         pair_key.encode("utf-8")
                     ).hexdigest()[:24]
-                    for target, target_overlay_id in (
+                    targets: list[tuple[SkillEvaluationTarget, str | None]] = [
                         ("baseline", baseline.overlay_id if baseline else None),
-                        ("candidate", candidate.overlay_id),
-                    ):
+                    ]
+                    if previous_overlay is not None:
+                        targets.append(("previous", previous_overlay.overlay_id))
+                    targets.append(("candidate", candidate.overlay_id))
+                    for target, target_overlay_id in targets:
                         item_key = f"{pair_key}:{target}"
                         item_id = "skill_eval_item_" + hashlib.sha256(
                             item_key.encode("utf-8")
@@ -585,6 +617,9 @@ class SkillEvaluationStore:
                 cases=clean_cases,
                 items=items,
                 config=clean_config,
+                previous_overlay_id=(
+                    previous_overlay.overlay_id if previous_overlay else None
+                ),
                 case_set_revision=(
                     bound_case_set.cases_revision if bound_case_set else None
                 ),
@@ -674,13 +709,17 @@ class SkillEvaluationStore:
             claimed: list[list[SkillEvaluationItem]] = []
             previous = self._snapshot_unlocked()
             now = time.time()
+            expected_pair_size = 3 if run.previous_overlay_id is not None else 2
             for pair in grouped.values():
-                if len(pair) != 2 or any(item.status == "running" for item in pair):
+                if len(pair) != expected_pair_size or any(
+                    item.status == "running" for item in pair
+                ):
                     continue
                 pending = [item for item in pair if item.status == "pending"]
                 if not pending:
                     continue
-                pair.sort(key=lambda item: 0 if item.target == "baseline" else 1)
+                order = {"baseline": 0, "previous": 1, "candidate": 2}
+                pair.sort(key=lambda item: order[item.target])
                 for item in pending:
                     item.status = "running"
                     item.attempts += 1
@@ -880,6 +919,7 @@ class SkillEvaluationStore:
         reason: str,
         actor_kind: str = "local_console",
         acknowledge_failed_assertions: bool = False,
+        acknowledged_regression_item_ids: list[str] | tuple[str, ...] = (),
     ) -> SkillEvaluationRun:
         with self._lock:
             self._ensure_writable_unlocked()
@@ -915,12 +955,38 @@ class SkillEvaluationStore:
                     code="skill_evaluation_feedback_required",
                 )
             report = aggregate_skill_evaluation_report(run)
+            governance_enabled = (
+                run.config.get("regression_governance_version")
+                == "skill-creator-regression-v1"
+            )
+            required_regression_ids = (
+                {
+                    self._identifier(item, "regression_item_id")
+                    for item in report.get("regression_item_ids") or []
+                }
+                if governance_enabled
+                else set()
+            )
+            acknowledged_regression_ids = {
+                self._identifier(item, "acknowledged_regression_item_id")
+                for item in acknowledged_regression_item_ids
+            }
             if decision == "accept":
                 if not bool(report.get("eligible_for_accept")):
                     raise SkillEvaluationStateError(
                         "Evaluation is not eligible for acceptance."
                     )
-                if int(report.get("assertion_failed_count") or 0):
+                if required_regression_ids != acknowledged_regression_ids:
+                    raise SkillEvaluationValidationError(
+                        "Every regressed candidate item requires explicit acknowledgement.",
+                        code="skill_evaluation_regressions_unacknowledged",
+                    )
+                if required_regression_ids and not clean_reason:
+                    raise SkillEvaluationValidationError(
+                        "Accepting regressions requires a reason.",
+                        code="skill_evaluation_accept_reason_required",
+                    )
+                if int(report.get("candidate_assertion_failed_count") or 0):
                     if not bool(acknowledge_failed_assertions):
                         raise SkillEvaluationValidationError(
                             "Accepting failed assertions requires explicit acknowledgement.",
@@ -944,6 +1010,11 @@ class SkillEvaluationStore:
                 ),
                 acknowledge_failed_assertions=(
                     bool(acknowledge_failed_assertions) if decision == "accept" else False
+                ),
+                acknowledged_regression_item_ids=(
+                    tuple(sorted(acknowledged_regression_ids))
+                    if decision == "accept"
+                    else ()
                 ),
             )
             run.reviews.append(review)
@@ -1132,6 +1203,11 @@ class SkillEvaluationStore:
                     and run.baseline_overlay_id not in self._overlays
                 ):
                     raise ValueError("baseline overlay unavailable")
+                if (
+                    run.previous_overlay_id is not None
+                    and run.previous_overlay_id not in self._overlays
+                ):
+                    raise ValueError("previous overlay unavailable")
                 if run.case_set_revision is not None:
                     revisions = self._case_sets.get(run.session_id) or []
                     if run.case_set_revision > len(revisions):
@@ -1370,7 +1446,17 @@ class SkillEvaluationStore:
             raw.get("repetitions"), "repetitions", minimum=1, maximum=3
         )
         items = [cls._parse_item(item) for item in items_raw]
-        cls._validate_item_matrix(cases, items, repetitions)
+        previous_overlay_id = cls._optional_identifier(
+            raw.get("previous_overlay_id")
+        )
+        cls._validate_item_matrix(
+            cases,
+            items,
+            repetitions,
+            include_previous=previous_overlay_id is not None,
+        )
+        if len(items) > cls.MAX_RUN_ITEMS:
+            raise ValueError("evaluation item budget exceeded")
         reviews_raw = raw.get("reviews", [])
         if not isinstance(reviews_raw, list):
             raise ValueError("run reviews must be a list")
@@ -1400,6 +1486,7 @@ class SkillEvaluationStore:
             cases=cases,
             items=items,
             config=cls._normalize_config(raw.get("config") or {}),
+            previous_overlay_id=previous_overlay_id,
             case_set_revision=(
                 None
                 if raw.get("case_set_revision") is None
@@ -1452,15 +1539,23 @@ class SkillEvaluationStore:
             completed_at=cls._optional_timestamp(raw.get("completed_at")),
         )
         if run.review_state == "accepted" and run.reviews:
+            report = aggregate_skill_evaluation_report(run)
             failed_assertions = int(
-                aggregate_skill_evaluation_report(run).get(
-                    "assertion_failed_count"
-                )
-                or 0
+                report.get("candidate_assertion_failed_count") or 0
             )
             if failed_assertions and not run.reviews[-1].acknowledge_failed_assertions:
                 raise ValueError(
                     "accepted review is missing failed-assertion acknowledgement"
+                )
+            regression_ids = (
+                set(report.get("regression_item_ids") or [])
+                if run.config.get("regression_governance_version")
+                == "skill-creator-regression-v1"
+                else set()
+            )
+            if regression_ids != set(run.reviews[-1].acknowledged_regression_item_ids):
+                raise ValueError(
+                    "accepted review is missing regression acknowledgements"
                 )
         return run
 
@@ -1469,7 +1564,7 @@ class SkillEvaluationStore:
         if not isinstance(raw, dict):
             raise ValueError("item must be an object")
         target = str(raw.get("target") or "")
-        if target not in {"baseline", "candidate"}:
+        if target not in {"baseline", "previous", "candidate"}:
             raise ValueError("invalid item target")
         status = str(raw.get("status") or "")
         if status not in {
@@ -1544,6 +1639,15 @@ class SkillEvaluationStore:
         acknowledgement = raw.get("acknowledge_failed_assertions", False)
         if not isinstance(acknowledgement, bool):
             raise ValueError("invalid failed-assertion acknowledgement")
+        regression_ids_raw = raw.get("acknowledged_regression_item_ids", [])
+        if not isinstance(regression_ids_raw, list) or len(regression_ids_raw) > 36:
+            raise ValueError("invalid regression acknowledgement list")
+        regression_ids = tuple(
+            cls._identifier(item, "acknowledged_regression_item_id")
+            for item in regression_ids_raw
+        )
+        if len(set(regression_ids)) != len(regression_ids):
+            raise ValueError("duplicate regression acknowledgement")
         return SkillEvaluationReview(
             review_id=cls._identifier(raw.get("review_id"), "review_id"),
             review_revision=cls._positive_int(
@@ -1559,6 +1663,7 @@ class SkillEvaluationStore:
                 raw.get("actor_kind"), "actor_kind", maximum=80
             ),
             acknowledge_failed_assertions=acknowledgement,
+            acknowledged_regression_item_ids=regression_ids,
             created_at=cls._timestamp(raw.get("created_at")),
         )
 
@@ -1568,12 +1673,19 @@ class SkillEvaluationStore:
         cases: list[SkillEvaluationCase],
         items: list[SkillEvaluationItem],
         repetitions: int,
+        *,
+        include_previous: bool = False,
     ) -> None:
+        targets = (
+            ("baseline", "previous", "candidate")
+            if include_previous
+            else ("baseline", "candidate")
+        )
         expected = {
             (case.case_id, repetition, target)
             for case in cases
             for repetition in range(1, repetitions + 1)
-            for target in ("baseline", "candidate")
+            for target in targets
         }
         actual = {(item.case_id, item.repetition, item.target) for item in items}
         if actual != expected or len(actual) != len(items):
@@ -1584,7 +1696,7 @@ class SkillEvaluationStore:
             key = (item.case_id, item.repetition)
             pairs.setdefault(key, set()).add(item.target)
             pair_ids.setdefault(key, set()).add(item.pair_id)
-        if any(value != {"baseline", "candidate"} for value in pairs.values()):
+        if any(value != set(targets) for value in pairs.values()):
             raise ValueError("evaluation targets are not paired")
         if any(len(value) != 1 for value in pair_ids.values()):
             raise ValueError("evaluation pair ids do not match")
@@ -1698,7 +1810,7 @@ class SkillEvaluationStore:
                 "Skill evaluation isolation attestation is invalid.",
                 code="skill_evaluation_isolation_invalid",
             )
-        return {
+        result = {
             "timeout_seconds": cls._bounded_int(
                 raw.get("timeout_seconds", 120),
                 "timeout_seconds",
@@ -1729,6 +1841,33 @@ class SkillEvaluationStore:
             "network_policy": network_policy,
             "landlock_required": True,
         }
+        governance_version = str(raw.get("regression_governance_version") or "")
+        if governance_version:
+            if governance_version != "skill-creator-regression-v1":
+                raise SkillEvaluationValidationError(
+                    "Unsupported Skill regression governance version.",
+                    code="skill_evaluation_config_invalid",
+                )
+            target_count = cls._bounded_int(
+                raw.get("target_count"),
+                "target_count",
+                minimum=2,
+                maximum=3,
+            )
+            estimated_model_calls = cls._bounded_int(
+                raw.get("estimated_model_calls"),
+                "estimated_model_calls",
+                minimum=1,
+                maximum=cls.MAX_RUN_ITEMS,
+            )
+            result.update(
+                {
+                    "regression_governance_version": governance_version,
+                    "target_count": target_count,
+                    "estimated_model_calls": estimated_model_calls,
+                }
+            )
+        return result
 
     @classmethod
     def _apply_item_result(
@@ -2283,8 +2422,13 @@ def evaluate_skill_case(
 
 def aggregate_skill_evaluation_report(run: SkillEvaluationRun) -> dict[str, Any]:
     statuses = Counter(item.status for item in run.items)
+    targets_in_run: tuple[SkillEvaluationTarget, ...] = (
+        ("baseline", "previous", "candidate")
+        if run.previous_overlay_id is not None
+        else ("baseline", "candidate")
+    )
     target_summaries: list[dict[str, Any]] = []
-    for target in ("baseline", "candidate"):
+    for target in targets_in_run:
         items = [item for item in run.items if item.target == target]
         scores = [float(item.score) for item in items if item.score is not None]
         target_summaries.append(
@@ -2315,35 +2459,92 @@ def aggregate_skill_evaluation_report(run: SkillEvaluationRun) -> dict[str, Any]
         grouped.setdefault(item.pair_id, {})[item.target] = item
     pairs: list[dict[str, Any]] = []
     model_mismatch_count = 0
+    comparison_counts: Counter[str] = Counter()
+    regression_item_ids: list[str] = []
     for pair_id, targets in grouped.items():
         baseline = targets.get("baseline")
+        previous = targets.get("previous")
         candidate = targets.get("candidate")
+        required_items = [baseline, candidate]
+        if run.previous_overlay_id is not None:
+            required_items.insert(1, previous)
+        actual_models = {
+            item.actual_model for item in required_items if item and item.actual_model
+        }
         actual_model_match = bool(
-            baseline
-            and candidate
-            and baseline.actual_model
-            and baseline.actual_model == candidate.actual_model
+            all(item is not None and item.actual_model for item in required_items)
+            and len(actual_models) == 1
         )
-        if baseline and candidate and not actual_model_match:
+        if not actual_model_match:
             model_mismatch_count += 1
         comparable = bool(
-            baseline
-            and candidate
-            and baseline.status == "completed"
-            and candidate.status == "completed"
+            all(item is not None and item.status == "completed" for item in required_items)
             and actual_model_match
         )
-        score_delta = None
+        baseline_score_delta = None
+        previous_score_delta = None
         if comparable and baseline.score is not None and candidate.score is not None:
-            score_delta = round(float(candidate.score) - float(baseline.score), 6)
+            baseline_score_delta = round(
+                float(candidate.score) - float(baseline.score), 6
+            )
+        if (
+            comparable
+            and previous is not None
+            and previous.score is not None
+            and candidate.score is not None
+        ):
+            previous_score_delta = round(
+                float(candidate.score) - float(previous.score), 6
+            )
+        reference = previous or baseline
+        classification = "inconclusive"
+        new_failed_assertions: list[int] = []
+        fixed_assertions: list[int] = []
+        if candidate is not None and reference is not None:
+            reference_failed = {
+                index
+                for index, assertion in enumerate(reference.assertion_results)
+                if not bool(assertion.get("passed"))
+            }
+            candidate_failed = {
+                index
+                for index, assertion in enumerate(candidate.assertion_results)
+                if not bool(assertion.get("passed"))
+            }
+            new_failed_assertions = sorted(candidate_failed - reference_failed)
+            fixed_assertions = sorted(reference_failed - candidate_failed)
+            candidate_receipt_missing = bool(
+                run.evaluation_suite_id is not None
+                and candidate.overlay_id is not None
+                and (
+                    candidate.application_compliance != "verified"
+                    or not candidate.application_receipt_id
+                )
+            )
+            if (
+                not actual_model_match
+                or candidate.status != "completed"
+                or candidate_receipt_missing
+                or new_failed_assertions
+            ):
+                classification = "regressed"
+            elif reference.status != "completed" or fixed_assertions:
+                classification = "improved"
+            elif reference.assertion_results or candidate.assertion_results:
+                classification = "flat"
+        comparison_counts[classification] += 1
+        if classification == "regressed" and candidate is not None:
+            regression_item_ids.append(candidate.item_id)
         pairs.append(
             {
                 "pair_id": pair_id,
                 "case_id": baseline.case_id if baseline else candidate.case_id,
                 "repetition": baseline.repetition if baseline else candidate.repetition,
                 "baseline_item_id": baseline.item_id if baseline else None,
+                "previous_item_id": previous.item_id if previous else None,
                 "candidate_item_id": candidate.item_id if candidate else None,
                 "baseline_status": baseline.status if baseline else "missing",
+                "previous_status": previous.status if previous else "not_applicable",
                 "candidate_status": candidate.status if candidate else "missing",
                 "actual_model_match": actual_model_match,
                 "comparable": comparable,
@@ -2354,7 +2555,16 @@ def aggregate_skill_evaluation_report(run: SkillEvaluationRun) -> dict[str, Any]
                 "candidate_application_verified": bool(
                     candidate and candidate.application_compliance == "verified"
                 ),
-                "score_delta": score_delta,
+                "baseline_score_delta": baseline_score_delta,
+                "previous_score_delta": previous_score_delta,
+                "score_delta": (
+                    previous_score_delta
+                    if previous is not None
+                    else baseline_score_delta
+                ),
+                "classification": classification,
+                "new_failed_assertion_indexes": new_failed_assertions,
+                "fixed_assertion_indexes": fixed_assertions,
             }
         )
     pairs.sort(key=lambda item: (str(item["case_id"]), int(item["repetition"])))
@@ -2366,6 +2576,16 @@ def aggregate_skill_evaluation_report(run: SkillEvaluationRun) -> dict[str, Any]
     assertion_failed_count = sum(
         not bool(assertion.get("passed")) for assertion in assertion_results
     )
+    candidate_assertion_results = [
+        assertion
+        for item in run.items
+        if item.target == "candidate"
+        for assertion in item.assertion_results
+    ]
+    candidate_assertion_failed_count = sum(
+        not bool(assertion.get("passed"))
+        for assertion in candidate_assertion_results
+    )
     all_completed = bool(run.items) and all(
         item.status == "completed" for item in run.items
     )
@@ -2374,12 +2594,16 @@ def aggregate_skill_evaluation_report(run: SkillEvaluationRun) -> dict[str, Any]
         for item in run.items
         if item.target == "candidate"
     )
+    receipt_bound_items = [
+        item
+        for item in run.items
+        if item.overlay_id is not None
+    ]
     application_receipts_verified = bool(run.evaluation_suite_id is None) or all(
         item.application_compliance == "verified"
         and bool(item.application_receipt_id)
         and item.application_receipt_revision is not None
-        for item in run.items
-        if item.target == "candidate"
+        for item in receipt_bound_items
     )
     return {
         "run_id": run.run_id,
@@ -2389,15 +2613,20 @@ def aggregate_skill_evaluation_report(run: SkillEvaluationRun) -> dict[str, Any]
         "targets": target_summaries,
         "pairs": pairs,
         "model_mismatch_count": model_mismatch_count,
+        "comparison_counts": dict(sorted(comparison_counts.items())),
+        "regression_item_ids": sorted(set(regression_item_ids)),
+        "comparison_reference": (
+            "previous" if run.previous_overlay_id is not None else "baseline"
+        ),
         "skill_not_read_count": statuses.get("skill_not_read", 0),
         "application_receipt_verified_count": sum(
             item.application_compliance == "verified"
-            for item in run.items
-            if item.target == "candidate"
+            for item in receipt_bound_items
         ),
         "assertion_count": len(assertion_results),
         "assertion_passed_count": len(assertion_results) - assertion_failed_count,
         "assertion_failed_count": assertion_failed_count,
+        "candidate_assertion_failed_count": candidate_assertion_failed_count,
         "eligible_for_accept": (
             all_completed
             and candidate_read
@@ -2511,12 +2740,13 @@ class SkillEvaluationExecutor:
                 )
                 status: SkillEvaluationItemStatus = "completed"
                 error_code = error = None
-                if item.target == "candidate" and not result.skill_read:
+                requires_skill_application = item.overlay_id is not None
+                if requires_skill_application and not result.skill_read:
                     status = "skill_not_read"
                     error_code = "skill_not_read"
-                    error = "Candidate did not read the frozen Skill overlay."
+                    error = "Evaluation target did not read the frozen Skill overlay."
                 elif (
-                    item.target == "candidate"
+                    requires_skill_application
                     and claimed.evaluation_suite_id is not None
                     and (
                         not result.application_receipt_id
@@ -2527,7 +2757,7 @@ class SkillEvaluationExecutor:
                     status = "failed"
                     error_code = "skill_application_receipt_missing"
                     error = (
-                        "Candidate did not produce a verified Skill application receipt."
+                        "Evaluation target did not produce a verified Skill application receipt."
                     )
                 payload = {
                     "status": status,
@@ -2571,7 +2801,8 @@ class SkillEvaluationExecutor:
         async def execute_pair(pair: list[SkillEvaluationItem]) -> None:
             # Stable baseline-then-candidate order avoids cross-side state leakage in
             # adapters while each side still receives an isolated workspace.
-            for item in sorted(pair, key=lambda row: 0 if row.target == "baseline" else 1):
+            order = {"baseline": 0, "previous": 1, "candidate": 2}
+            for item in sorted(pair, key=lambda row: order[row.target]):
                 await execute_item(item)
 
         while True:

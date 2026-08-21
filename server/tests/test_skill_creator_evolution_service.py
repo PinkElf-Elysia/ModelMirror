@@ -198,6 +198,14 @@ class _CrossCasePlanner(_Planner):
         return payload
 
 
+class _RepairingPlanner(_Planner):
+    async def generate(self, request: EvolutionGenerationRequest) -> dict:
+        payload = await super().generate(request)
+        if len(self.calls) == 1:
+            payload["diagnoses"] = []
+        return payload
+
+
 def _suite() -> SkillEvaluationSuite:
     cases = (
         SkillEvaluationSuiteCase(
@@ -415,6 +423,34 @@ async def test_generate_revalidates_session_after_model_call_without_orphan_plan
 
 
 @pytest.mark.asyncio
+async def test_generate_repairs_one_invalid_plan_without_persisting_the_first_attempt(tmp_path: Path) -> None:
+    creator, resource_plan, _suite_value, _run_value, _planner, service = _service(tmp_path)
+    planner = _RepairingPlanner()
+    service.planner = planner
+
+    generated = await service.generate("session-one", **_expected(creator, resource_plan))
+
+    assert generated.state == "ready"
+    assert len(planner.calls) == 2
+    assert planner.calls[0].repair is None
+    assert planner.calls[1].repair == {
+        "attempt": 1,
+        "error_code": "skill_creator_evolution_plan_invalid",
+        "instruction": (
+            "Return the complete contract again. Include one to twelve diagnoses "
+            "bound only to allowed case, requirement, and resource IDs. For each "
+            "diagnosis, copy evidence_item_ids exactly from "
+            "allowed.evidence_item_ids_by_case[case_id]; never invent or abbreviate "
+            "an ID. Copy each failure_types value exactly from "
+            "allowed.failure_types. Validate the full replacement against "
+            "output_contract_spec: include every required field, satisfy minItems, "
+            "and never return an empty required string."
+        ),
+    }
+    assert service.evolution_store.current_for_session("session-one").revision == 1
+
+
+@pytest.mark.asyncio
 async def test_confirm_revalidates_frozen_run_revision(tmp_path: Path) -> None:
     creator, resource_plan, _suite_value, run, _planner, service = _service(tmp_path)
     generated = await service.generate("session-one", **_expected(creator, resource_plan))
@@ -530,8 +566,13 @@ async def test_missing_sessions_do_not_allocate_generation_locks(tmp_path: Path)
 def test_evolution_runtime_is_no_tool_and_parses_one_versioned_object() -> None:
     request = EvolutionGenerationRequest(
         session={"session_id": "session-one", "session_revision": 7},
-        draft={}, evaluation={}, review={}, suite={}, resource_plan={}, current_plan=None,
-        allowed_case_ids=(), allowed_item_ids=(), allowed_requirement_ids=(),
+        draft={},
+        evaluation={"items": [
+            {"item_id": "item-candidate", "case_id": "case-normal"},
+            {"item_id": "item-baseline", "case_id": "case-normal"},
+        ]},
+        review={}, suite={}, resource_plan={}, current_plan=None,
+        allowed_case_ids=("case-normal",), allowed_item_ids=("item-candidate",), allowed_requirement_ids=(),
         allowed_resource_ids=(), allowed_source_ids=(), allowed_step_ids=(),
     )
     invocation = build_evolution_invocation(request, model_id="provider/model")
@@ -539,6 +580,14 @@ def test_evolution_runtime_is_no_tool_and_parses_one_versioned_object() -> None:
     assert agent["toolMode"] == "none"
     assert agent["temperature"] == "0.1"
     assert invocation.runtime_metadata["evolution_workflow_version"] == EVOLUTION_WORKFLOW_VERSION
+    context = json.loads(invocation.inputs["creator_request"])
+    assert context["allowed"]["evidence_item_ids_by_case"] == {
+        "case-normal": ["item-candidate"],
+    }
+    assert "assertion_failure" in context["allowed"]["failure_types"]
+    diagnosis_spec = context["output_contract_spec"]["properties"]["diagnoses"]
+    assert diagnosis_spec["minItems"] == 1
+    assert diagnosis_spec["items"]["properties"]["summary"]["minLength"] == 1
     payload = {"evolution_plan_version": EVOLUTION_PLAN_VERSION, "diagnoses": []}
     assert parse_evolution_output("Result:\n```json\n" + json.dumps(payload) + "\n```") == payload
     with pytest.raises(SkillCreatorValidationError):
@@ -579,6 +628,10 @@ def test_post_build_draft_accepts_only_the_exact_proposal_and_recomputed_package
         ),  # type: ignore[arg-type]
         enabled=True,
     )
+    assert service._resource_plan_produced_draft(
+        resource_plan, session=creator.session, draft=creator.draft
+    )
+    build.state = "stale"
     assert service._resource_plan_produced_draft(
         resource_plan, session=creator.session, draft=creator.draft
     )

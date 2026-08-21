@@ -22,6 +22,17 @@ from .package_validation import scan_skill_package_credentials
 
 
 EVOLUTION_PLAN_VERSION = "skill-evolution-plan-v1"
+EVOLUTION_FAILURE_TYPES = (
+    "assertion_failure",
+    "runtime_failure",
+    "skill_application_missing",
+    "output_contract_gap",
+    "trigger_boundary_gap",
+    "workflow_gap",
+    "resource_gap",
+    "failure_handling_gap",
+    "overfitting_risk",
+)
 EvolutionPlanState = Literal["needs_input", "needs_regeneration", "ready", "confirmed", "stale"]
 EvolutionActionKind = Literal["keep", "update", "create", "delete"]
 EvolutionResourceKind = Literal["script", "reference", "asset"]
@@ -404,7 +415,13 @@ class SkillEvolutionPlanStore:
             result.append(SkillEvolutionDiagnosis(
                 case_id=case_id,
                 evidence_item_ids=item_ids,
-                failure_types=self._identifier_list(raw.get("failure_types"), "failure_types", 8, None, minimum=1),
+                failure_types=self._identifier_list(
+                    raw.get("failure_types"),
+                    "failure_types",
+                    8,
+                    set(EVOLUTION_FAILURE_TYPES),
+                    minimum=1,
+                ),
                 requirement_ids=self._identifier_list(raw.get("requirement_ids", []), "requirement_ids", 30, allowed_requirements),
                 resource_ids=self._identifier_list(raw.get("resource_ids", []), "resource_ids", 20, allowed_resources),
                 sections=self._text_list(raw.get("sections", []), "sections", 20, 300),
@@ -900,6 +917,7 @@ class SkillEvolutionPlanStore:
 
 __all__ = [
     "EVOLUTION_PLAN_VERSION",
+    "EVOLUTION_FAILURE_TYPES",
     "SkillEvolutionAction",
     "SkillEvolutionDiagnosis",
     "SkillEvolutionPlan",

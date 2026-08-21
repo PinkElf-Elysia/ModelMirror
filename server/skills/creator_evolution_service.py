@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import os
 import threading
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Mapping, Protocol
 
 from .creator_evaluation import SkillEvaluationRun, SkillEvaluationStore
@@ -42,6 +42,7 @@ class EvolutionGenerationRequest:
     allowed_resource_ids: tuple[str, ...]
     allowed_source_ids: tuple[str, ...]
     allowed_step_ids: tuple[str, ...]
+    repair: dict[str, Any] | None = None
 
 
 class EvolutionPlanner(Protocol):
@@ -76,7 +77,7 @@ class SkillCreatorEvolutionService:
         self.resource_build_store = resource_build_store
         self.planner = planner
         self.enabled = (
-            os.getenv("SKILL_CREATOR_EVOLUTION_V2_ENABLED", "false").strip().lower()
+            os.getenv("SKILL_CREATOR_EVOLUTION_V2_ENABLED", "true").strip().lower()
             in {"1", "true", "yes", "on"}
             if enabled is None
             else bool(enabled)
@@ -187,36 +188,56 @@ class SkillCreatorEvolutionService:
                     code="model_gateway_unconfigured",
                 )
             request = self._generation_request(*facts)
-            try:
-                payload = await planner.generate(request)
-            except SkillCreatorValidationError:
-                raise
-            except Exception as exc:
-                raise SkillCreatorValidationError(
-                    "The Skill evolution planner failed.",
-                    code="skill_creator_evolution_planner_failed",
-                ) from exc
-            facts = self._require_facts(
-                session_id,
-                evaluation_run_id=evaluation_run_id,
-                expected_session_revision=expected_session_revision,
-                expected_draft_state_revision=expected_draft_state_revision,
-                expected_draft_revision=expected_draft_revision,
-                expected_draft_digest=expected_draft_digest,
-                expected_review_revision=expected_review_revision,
-                expected_run_revision=expected_run_revision,
-                expected_resource_plan_revision=expected_resource_plan_revision,
-                expected_resource_plan_digest=expected_resource_plan_digest,
-            )
-            session, draft, run, suite, resource_plan = facts
-            self._require_payload_evidence_links(payload, run)
-            return self.evolution_store.save_generated(
-                bindings=self._bindings(session, draft, run, suite, resource_plan),
-                payload=payload,
-                **self._allowed(request, resource_plan),
-                expected_plan_revision=expected_evolution_revision,
-                expected_plan_digest=expected_evolution_digest,
-            )
+            for attempt in range(2):
+                try:
+                    payload = await planner.generate(request)
+                except SkillCreatorValidationError:
+                    raise
+                except Exception as exc:
+                    raise SkillCreatorValidationError(
+                        "The Skill evolution planner failed.",
+                        code="skill_creator_evolution_planner_failed",
+                    ) from exc
+                facts = self._require_facts(
+                    session_id,
+                    evaluation_run_id=evaluation_run_id,
+                    expected_session_revision=expected_session_revision,
+                    expected_draft_state_revision=expected_draft_state_revision,
+                    expected_draft_revision=expected_draft_revision,
+                    expected_draft_digest=expected_draft_digest,
+                    expected_review_revision=expected_review_revision,
+                    expected_run_revision=expected_run_revision,
+                    expected_resource_plan_revision=expected_resource_plan_revision,
+                    expected_resource_plan_digest=expected_resource_plan_digest,
+                )
+                session, draft, run, suite, resource_plan = facts
+                try:
+                    self._require_payload_evidence_links(payload, run)
+                    return self.evolution_store.save_generated(
+                        bindings=self._bindings(session, draft, run, suite, resource_plan),
+                        payload=payload,
+                        **self._allowed(request, resource_plan),
+                        expected_plan_revision=expected_evolution_revision,
+                        expected_plan_digest=expected_evolution_digest,
+                    )
+                except SkillCreatorValidationError as exc:
+                    if attempt or exc.code != "skill_creator_evolution_plan_invalid":
+                        raise
+                    request = replace(request, repair={
+                        "attempt": 1,
+                        "error_code": "skill_creator_evolution_plan_invalid",
+                        "instruction": (
+                            "Return the complete contract again. Include one to twelve diagnoses "
+                            "bound only to allowed case, requirement, and resource IDs. For each "
+                            "diagnosis, copy evidence_item_ids exactly from "
+                            "allowed.evidence_item_ids_by_case[case_id]; never invent or abbreviate "
+                            "an ID. Copy each failure_types value exactly from "
+                            "allowed.failure_types. Validate the full replacement against "
+                            "output_contract_spec: include every required field, satisfy minItems, "
+                            "and never return an empty required string."
+                        ),
+                    })
+            raise AssertionError("bounded evolution planning loop exhausted")
 
     def save_answers(
         self,
@@ -415,7 +436,7 @@ class SkillCreatorEvolutionService:
             or build.plan_revision != plan.revision
             or build.plan_digest != plan.digest
             or build.proposal_id != draft.source_proposal_id
-            or build.state != "accepted"
+            or build.state not in {"accepted", "stale"}
             or build.phase != "proposal"
             or not build.skill_markdown
         ):

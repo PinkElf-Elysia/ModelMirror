@@ -101,7 +101,7 @@ describe("SkillResourcePlanPanel", () => {
     const onSession = vi.fn();
 
     render(<SkillResourcePlanPanel onSession={onSession} session={emptySession} status={status} />);
-    await userEvent.click(screen.getByRole("button", { name: "生成资源计划" }));
+    await userEvent.click(screen.getByRole("button", { name: "让 AI 生成方案" }));
 
     await waitFor(() => expect(onSession).toHaveBeenCalledWith(plannedSession));
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -122,7 +122,7 @@ describe("SkillResourcePlanPanel", () => {
 
     render(<SkillResourcePlanPanel onSession={vi.fn()} session={session} status={status} />);
     await userEvent.click(screen.getByRole("button", { name: "移除资源" }));
-    await userEvent.click(screen.getByRole("button", { name: "保存计划修改" }));
+    await userEvent.click(screen.getByRole("button", { name: "保存我的调整" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
@@ -146,7 +146,7 @@ describe("SkillResourcePlanPanel", () => {
     render(<SkillResourcePlanPanel onSession={vi.fn()} session={zeroResourceSession} status={status} />);
     await userEvent.click(screen.getByRole("button", { name: "添加必要资源" }));
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "资源 1 类型" }), "asset");
-    await userEvent.click(screen.getByRole("button", { name: "保存计划修改" }));
+    await userEvent.click(screen.getByRole("button", { name: "保存我的调整" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
