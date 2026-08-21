@@ -25,6 +25,7 @@ from server.multimodal.video_catalog import (
     VideoModelCatalogResponse,
     VideoModelProfile,
     VideoProviderOption,
+    VideoUpscaleFactorRange,
 )
 from server.multimodal.video_jobs import (
     OpenRouterVideoJobAdapter,
@@ -78,6 +79,9 @@ class StubCatalog:
         verification_entry_enabled: bool = True,
         verification_requires_cost_estimate: bool = False,
         pricing_skus: dict[str, str] | None = None,
+        requires_source_video: bool = False,
+        upscale_factor: tuple[float, float] | None = None,
+        creativity: list[int] | None = None,
         catalog_status: Literal[
             "online", "stale", "offline", "disabled"
         ] = "online",
@@ -108,6 +112,18 @@ class StubCatalog:
             max_reference_images=max_reference_images,
             supports_generated_audio=supports_generated_audio,
             supports_seed=supports_seed,
+            supported_input_sources=(
+                ["file", "url"] if requires_source_video else []
+            ),
+            requires_source_video=requires_source_video,
+            upscale_factor=(
+                VideoUpscaleFactorRange(
+                    min=upscale_factor[0], max=upscale_factor[1]
+                )
+                if upscale_factor
+                else None
+            ),
+            creativity=creativity or [],
             provider_options=provider_options or [],
             pricing_skus=pricing_skus or {},
             interaction_status="planned",
@@ -352,6 +368,114 @@ async def test_submit_claims_idempotency_before_single_upstream_call(
     assert "data:image" not in dump
     assert "upstream_private_1" in dump
     assert operation == "generate_video"
+
+
+@pytest.mark.asyncio
+async def test_flux_upscale_maps_source_video_without_persisting_media(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    catalog = StubCatalog(
+        router_instance,
+        model_id="black-forest-labs/flux-video-upscale",
+        supports_first_frame=False,
+        supports_last_frame=False,
+        supports_generated_audio=False,
+        supports_seed=False,
+        requires_source_video=True,
+        upscale_factor=(1.5, 3),
+        creativity=[0, 1],
+        pricing_skus={
+            "cents_per_megapixel_second_precise": "7.5",
+            "cents_per_megapixel_second_creative": "10.5",
+        },
+    )
+    service = VideoJobService(
+        router_instance,
+        catalog,
+        adapter=adapter,
+    )
+
+    job = await service.create(
+        model_id="black-forest-labs/flux-video-upscale",
+        prompt="",
+        source_type="file",
+        source_video_filename="source.mp4",
+        source_video_content_type="video/mp4",
+        source_video_content=VIDEO,
+        upscale_factor=2,
+        creativity=0,
+        idempotency_key="flux-upscale-0001",
+    )
+
+    payload = adapter.submit_calls[0]
+    assert payload["model"] == "black-forest-labs/flux-video-upscale"
+    assert "prompt" not in payload
+    assert payload["upscale_factor"] == 2
+    assert payload["creativity"] == 0
+    references = payload["input_references"]
+    assert isinstance(references, list)
+    assert references[0]["type"] == "video_url"
+    assert references[0]["video_url"]["url"].startswith(
+        "data:video/mp4;base64,"
+    )
+    assert job.parameters.task_type == "upscale"
+    assert job.parameters.has_source_video is True
+    assert job.parameters.upscale_factor == 2
+    assert job.parameters.creativity == 0
+    assert job.parameters.provider_option_keys == []
+    assert catalog.force_requests == [True]
+
+    with sqlite3.connect(
+        service.router_service.repository.database_path
+    ) as connection:
+        dump = "\n".join(connection.iterdump())
+    assert "data:video" not in dump
+    assert "safe-video" not in dump
+
+
+@pytest.mark.asyncio
+async def test_flux_upscale_rejects_missing_source_and_generation_parameters(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    service = VideoJobService(
+        router_instance,
+        StubCatalog(
+            router_instance,
+            model_id="black-forest-labs/flux-video-upscale",
+            requires_source_video=True,
+            upscale_factor=(1.5, 3),
+            creativity=[0, 1],
+        ),
+        adapter=adapter,
+    )
+
+    with pytest.raises(MultimodalServiceError) as caught:
+        await service.create(
+            model_id="black-forest-labs/flux-video-upscale",
+            prompt="",
+            upscale_factor=2,
+            creativity=0,
+            idempotency_key="flux-upscale-no-source-0001",
+        )
+    assert caught.value.code == "source_video_required"
+
+    with pytest.raises(MultimodalServiceError) as caught:
+        await service.create(
+            model_id="black-forest-labs/flux-video-upscale",
+            prompt="",
+            source_type="url",
+            source_video_url="https://example.com/source.mp4",
+            upscale_factor=2,
+            creativity=1,
+            duration=5,
+            idempotency_key="flux-upscale-generation-param-0001",
+        )
+    assert caught.value.code == "upscale_generation_parameters_unsupported"
+    assert adapter.submit_calls == []
 
 
 @pytest.mark.asyncio
@@ -808,6 +932,69 @@ async def test_api_accepts_last_frame_and_repeated_reference_images(
         == "invalid_provider_options"
     )
     assert len(adapter.submit_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_api_accepts_flux_upscale_multipart_contract(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    service = VideoJobService(
+        router_instance,
+        StubCatalog(
+            router_instance,
+            model_id="black-forest-labs/flux-video-upscale",
+            requires_source_video=True,
+            upscale_factor=(1.5, 3),
+            creativity=[0, 1],
+        ),
+        adapter=adapter,
+    )
+    configure_video_job_service(service)
+    app = FastAPI()
+    app.include_router(router)
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/api/multimodal/video/jobs",
+                data={
+                    "model_id": "black-forest-labs/flux-video-upscale",
+                    "idempotency_key": "api-flux-upscale-0001",
+                    "source_type": "file",
+                    "upscale_factor": "2.5",
+                    "creativity": "1",
+                },
+                files={
+                    "source_video": (
+                        "source.mp4",
+                        VIDEO,
+                        "video/mp4",
+                    )
+                },
+            )
+    finally:
+        configure_video_job_service(None)
+
+    assert response.status_code == 200
+    assert response.json()["parameters"] == {
+        "task_type": "upscale",
+        "duration": None,
+        "resolution": None,
+        "aspect_ratio": None,
+        "generate_audio": False,
+        "has_first_frame": False,
+        "has_last_frame": False,
+        "reference_image_count": 0,
+        "has_source_video": True,
+        "upscale_factor": 2.5,
+        "creativity": 1,
+        "provider_option_keys": [],
+    }
+    assert adapter.submit_calls[0]["upscale_factor"] == 2.5
 
 
 @pytest.mark.asyncio

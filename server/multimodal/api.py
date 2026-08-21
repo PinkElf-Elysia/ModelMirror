@@ -639,7 +639,7 @@ async def analyze_video(
 @router.post("/video/jobs", response_model=VideoJob)
 async def create_video_job(
     model_id: str = Form(...),
-    prompt: str = Form(...),
+    prompt: str = Form(default=""),
     idempotency_key: str = Form(...),
     duration: int | None = Form(default=None),
     resolution: str | None = Form(default=None),
@@ -649,6 +649,11 @@ async def create_video_job(
     first_frame: UploadFile | None = File(default=None),
     last_frame: UploadFile | None = File(default=None),
     reference_images: list[UploadFile] | None = File(default=None),
+    source_type: str | None = Form(default=None),
+    source_video: UploadFile | None = File(default=None),
+    source_video_url: str | None = Form(default=None),
+    upscale_factor: float | None = Form(default=None),
+    creativity: int | None = Form(default=None),
     provider_options: str | None = Form(default=None),
 ) -> VideoJob:
     reference_files = reference_images or []
@@ -673,6 +678,11 @@ async def create_video_job(
             await image.read(MAX_FIRST_FRAME_BYTES + 1)
             for image in reference_files
         ]
+        source_content = (
+            await source_video.read(MAX_VIDEO_BYTES + 1)
+            if source_video is not None
+            else None
+        )
         return await get_video_job_service().create(
             model_id=model_id,
             prompt=prompt,
@@ -708,6 +718,19 @@ async def create_video_job(
                 image.content_type for image in reference_files
             ],
             reference_image_contents=reference_contents,
+            source_type=source_type,
+            source_video_filename=(
+                source_video.filename if source_video is not None else None
+            ),
+            source_video_content_type=(
+                source_video.content_type
+                if source_video is not None
+                else None
+            ),
+            source_video_content=source_content,
+            source_video_url=source_video_url,
+            upscale_factor=upscale_factor,
+            creativity=creativity,
             provider_options=_provider_options(provider_options),
         )
     except MultimodalServiceError as exc:
@@ -719,6 +742,8 @@ async def create_video_job(
             await last_frame.close()
         for image in reference_files:
             await image.close()
+        if source_video is not None:
+            await source_video.close()
 
 
 @router.get("/video/jobs", response_model=VideoJobList)

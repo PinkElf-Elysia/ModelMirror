@@ -58,6 +58,13 @@ def test_verified_video_registry_contains_seedance_25_refresh() -> None:
     assert "bytedance/seedance-2.5" in VERIFIED_VIDEO_GENERATION_MODELS
 
 
+def test_verified_video_registry_contains_flux_upscale_contract() -> None:
+    assert (
+        "black-forest-labs/flux-video-upscale"
+        in VERIFIED_VIDEO_GENERATION_MODELS
+    )
+
+
 def openrouter_service(tmp_path: Path) -> ModelRouterService:
     repository = SQLiteRouterRepository(tmp_path)
     connection = repository.create_connection(
@@ -232,6 +239,18 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
                                 "contentModeration"
                             ],
                         },
+                        {
+                            "id": "black-forest-labs/flux-video-upscale",
+                            "upscale_factor": {"min": 1.5, "max": 3},
+                            "creativity": [0, 1],
+                            "pricing": {
+                                "cents_per_megapixel_second_precise": "7.5",
+                                "cents_per_megapixel_second_creative": "10.5",
+                            },
+                            "allowed_passthrough_parameters": [
+                                "safety_tolerance"
+                            ],
+                        },
                     ]
                 },
             )
@@ -267,7 +286,7 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
 
     assert result.status == "online"
     assert result.stale is False
-    assert len(result.profiles) == 6
+    assert len(result.profiles) == 7
     analysis = next(
         item for item in result.profiles if item.operation == "analyze_video"
     )
@@ -291,6 +310,11 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
     )
     runway_gen = next(
         item for item in result.profiles if item.model_id == "runway/gen-4.5"
+    )
+    flux_upscale = next(
+        item
+        for item in result.profiles
+        if item.model_id == "black-forest-labs/flux-video-upscale"
     )
     assert analysis.model_id == "google/gemini-video-test"
     assert analysis.supported_input_sources == ["file", "url"]
@@ -370,6 +394,17 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
     assert runway_gen.supports_first_frame is True
     assert runway_gen.supports_generated_audio is False
     assert runway_gen.supports_seed is True
+    assert flux_upscale.interaction_status == "ready"
+    assert flux_upscale.supported_input_sources == ["file", "url"]
+    assert flux_upscale.requires_source_video is True
+    assert flux_upscale.upscale_factor is not None
+    assert flux_upscale.upscale_factor.min == 1.5
+    assert flux_upscale.upscale_factor.max == 3
+    assert flux_upscale.creativity == [0, 1]
+    assert flux_upscale.pricing_skus == {
+        "cents_per_megapixel_second_precise": "7.5",
+        "cents_per_megapixel_second_creative": "10.5",
+    }
     assert all(
         request.headers["authorization"]
         == "Bearer video-catalog-secret"

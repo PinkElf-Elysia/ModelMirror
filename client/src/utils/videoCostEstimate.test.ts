@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   estimateVideoCost,
+  estimateVideoUpscaleCost,
   supportedAspectRatiosForResolution,
+  videoUpscaleUnitRate,
 } from "./videoCostEstimate";
 
 const seedance25Profile = {
@@ -100,5 +102,42 @@ describe("estimateVideoCost", () => {
     expect(estimate).toBeCloseTo(0.3024, 6);
     expect(supportedAspectRatiosForResolution(miniProfile, "480p")).not.toContain("9:21");
     expect(supportedAspectRatiosForResolution(miniProfile, "720p")).toContain("9:21");
+  });
+});
+
+describe("estimateVideoUpscaleCost", () => {
+  const profile = {
+    supported_resolutions: [],
+    supported_aspect_ratios: [],
+    supported_sizes: [],
+    pricing_skus: {
+      cents_per_megapixel_second_precise: "7.5",
+      cents_per_megapixel_second_creative: "10.5",
+    },
+  };
+
+  it("uses output megapixel-seconds and the selected enhancement rate", () => {
+    expect(
+      estimateVideoUpscaleCost(profile, {
+        durationSeconds: 10,
+        width: 1280,
+        height: 720,
+        upscaleFactor: 2,
+        creativity: 0,
+      }),
+    ).toBeCloseTo(2.7648, 6);
+    expect(videoUpscaleUnitRate(profile, 1)).toBe(0.105);
+  });
+
+  it("returns no estimate when local video metadata is unavailable", () => {
+    expect(
+      estimateVideoUpscaleCost(profile, {
+        durationSeconds: 0,
+        width: 0,
+        height: 0,
+        upscaleFactor: 2,
+        creativity: 1,
+      }),
+    ).toBeNull();
   });
 });
