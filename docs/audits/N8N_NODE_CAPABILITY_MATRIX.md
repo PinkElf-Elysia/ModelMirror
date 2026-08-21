@@ -52,13 +52,16 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 触发与事件 | 异常事件入口 | failure_event_entry | (Error Trigger) | 已实现 |
 | 触发与事件 | 子流程入口 | workflow_call_entry | (Execute Workflow Trigger) | 已实现 |
 | 触发与事件 | HTTP 事件入口 | http_event_entry | (Webhook) | 已实现 |
-| 流程控制与编排 | 调用已发布工作流 | invoke_workflow | (Execute Sub-workflow) | 已实现 |
-| 流程控制与编排 | 挂起等待 | suspend_wait | (Wait) | 已实现 |
 | 流程控制与编排 | 多路分派 | multi_route | (Switch) | 已实现 |
+| 流程控制与编排 | 挂起等待 | suspend_wait | (Wait) | 已实现 |
 | 流程控制与编排 | 主动终止 | terminate_error | (Stop and Error) | 已实现 |
+| 流程控制与编排 | 子流程调用 | invoke_workflow | (Execute Sub-workflow) | 已实现 |
+| 数据变换与计算 | 数据汇总 | data_aggregate | (Summarize) | 已实现 |
+| 数据变换与计算 | 数据聚合 | data_aggregate | (Aggregate) | 已实现 |
+| 数据变换与计算 | 数据排序 | list_operation | (Sort) | 已实现 |
+| 数据变换与计算 | 数据去重 | list_operation | (Remove Duplicates) | 已实现 |
+| 数据变换与计算 | 数据筛选 | list_operation | (Filter) | 已实现 |
 | 网络与接口 | HTTP 事件回执 | http_event_reply | (Respond to Webhook) | 已实现 |
-| 数据变换与计算 | 列表操作 | list_operation | (Filter / Sort / Remove Duplicates) | 已实现 |
-| 数据变换与计算 | 数据聚合 | data_aggregate | (Aggregate / Summarize) | 已实现 |
 | 数据库与存储 | 内置数据表 | data_table_query / data_table_insert / data_table_update / data_table_delete | (Data table) | 部分实现 |
 | 画布、评测与内部元数据 | 画布注释 | annotation | (Sticky Note) | 已实现 |
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import csv
+import subprocess
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import get_args
@@ -13,6 +15,31 @@ from server.xpert_runtime.workflow_node_registry import (
 )
 
 
+def test_capability_audit_generator_is_idempotent(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[2]
+    audit_dir = root / "docs" / "audits"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts" / "generate_workflow_capability_audit.py"),
+            "--source-csv",
+            str(audit_dir / "n8n-node-capability-matrix.csv"),
+            "--output-dir",
+            str(tmp_path),
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    for filename in (
+        "n8n-node-capability-matrix.csv",
+        "N8N_NODE_CAPABILITY_MATRIX.md",
+    ):
+        assert (tmp_path / filename).read_bytes() == (audit_dir / filename).read_bytes()
+
+
 def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     root = Path(__file__).resolve().parents[2]
     csv_path = root / "docs" / "audits" / "n8n-node-capability-matrix.csv"
@@ -21,6 +48,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         rows = list(csv.DictReader(handle))
 
     assert len(rows) == 563
+    assert len({row["来源条目标识"] for row in rows}) == 563
     mapped = {row["n8n内部标识"]: row for row in rows}
     assert mapped["scheduleTrigger"]["模镜对应节点"] == "scheduled_start"
     assert mapped["webhook"]["模镜对应节点"] == "http_event_entry"
@@ -48,6 +76,12 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "通用节点可覆盖": 276,
         "未实现": 174,
     }
+    native_kinds = set(get_args(NativeNodeKind))
+    assert {
+        row["模镜对应节点"]
+        for row in rows
+        if row["模镜当前状态"] == "已实现"
+    } <= native_kinds
 
     markdown = markdown_path.read_text(encoding="utf-8")
     native_count = len(get_args(NativeNodeKind))
@@ -65,11 +99,18 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
     )
+    planner_count = sum(
+        contract.planner.enabled
+        for contract in workflow_node_contract_registry.list()
+    )
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
+    assert "R0/R1/R1.5/R1.6" in markdown
     assert "44、画布目录项 42" in markdown
     assert f"{compatibility_count} 个冻结 compatibility 合同" in markdown
     assert f"自研节点总数 {native_count}" in markdown
     assert f"画布目录项 {palette_count}" in markdown
+    assert f"Planner 可生成类型仍固定为 {planner_count} 类" in markdown
     assert native_count == 47
     assert palette_count == 45
     assert compatibility_count == 18
+    assert planner_count == 7
