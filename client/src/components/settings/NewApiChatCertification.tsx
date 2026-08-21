@@ -39,6 +39,76 @@ interface ModelsRefreshResponse {
   message: string;
 }
 
+interface CanaryModelStatus {
+  model_id: string;
+  certification_status: CertificationStatus;
+  available: boolean;
+  reason_code: string;
+  paused: boolean;
+  pause_reason?: string | null;
+  baseline_overlap: boolean;
+  completed_at?: string | null;
+  certification_expires_at?: string | null;
+}
+
+interface CanaryConnectionStatus {
+  connection_id: string;
+  connection_name: string;
+  eligible_connection: boolean;
+  reason_code: string;
+  models: CanaryModelStatus[];
+}
+
+interface CanaryRunSummary {
+  run_id: string;
+  connection_id: string;
+  model_id: string;
+  status: string;
+  dispatched: boolean;
+  result_class?: string | null;
+  error_code?: string | null;
+  ttft_ms?: number | null;
+  e2e_ms?: number | null;
+  total_tokens?: number | null;
+  baseline_overlap: boolean;
+  current_evidence: boolean;
+  stale_reason?: string | null;
+  created_at: string;
+}
+
+interface CanaryAggregate {
+  connection_id: string;
+  model_id: string;
+  certification_id: string;
+  total_runs: number;
+  dispatched_runs: number;
+  succeeded_runs: number;
+  hard_failure_runs: number;
+  transient_failure_runs: number;
+  request_failure_runs: number;
+  cancelled_runs: number;
+  uncertain_runs: number;
+  preflight_fallback_runs: number;
+  success_rate?: number | null;
+  average_ttft_ms?: number | null;
+  average_e2e_ms?: number | null;
+  total_tokens: number;
+  baseline_overlap: boolean;
+  last_completed_at?: string | null;
+}
+
+interface CanaryAdminResponse {
+  contract_version: string;
+  feature_enabled: boolean;
+  policy_enabled: boolean;
+  selected_connection_id?: string | null;
+  consent_revision: string;
+  certification_max_age_seconds?: number | null;
+  connections: CanaryConnectionStatus[];
+  runs: CanaryRunSummary[];
+  aggregates: CanaryAggregate[];
+}
+
 const STATUS_LABELS: Record<CertificationStatus, string> = {
   not_run: "尚未认证",
   running: "认证进行中",
@@ -87,6 +157,8 @@ export default function NewApiChatCertification({
   const [running, setRunning] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState("");
+  const [canary, setCanary] = useState<CanaryAdminResponse | null>(null);
+  const [updatingCanary, setUpdatingCanary] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -105,9 +177,22 @@ export default function NewApiChatCertification({
     }
   }, [connectionId]);
 
+  const loadCanary = useCallback(async () => {
+    try {
+      const response = await fetch("/api/router/canaries/chat?limit=50");
+      if (!response.ok) throw new Error(await readError(response));
+      setCanary((await response.json()) as CanaryAdminResponse);
+    } catch (reason) {
+      setMessage(
+        reason instanceof Error ? reason.message : "无法读取 Chat 试运行状态。",
+      );
+    }
+  }, []);
+
   useEffect(() => {
     void loadStatus();
-  }, [loadStatus]);
+    void loadCanary();
+  }, [loadCanary, loadStatus]);
 
   const refreshModels = useCallback(async () => {
     setRefreshing(true);
@@ -166,13 +251,44 @@ export default function NewApiChatCertification({
       const result = (await response.json()) as CertificationSummary;
       setSummary(result);
       setMessage(STATUS_LABELS[result.status]);
+      await loadCanary();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "Chat 认证未完成。");
       await loadStatus();
     } finally {
       setRunning(false);
     }
-  }, [connectionId, csrfToken, loadStatus, selectedModel]);
+  }, [connectionId, csrfToken, loadCanary, loadStatus, selectedModel]);
+
+  const updateCanary = useCallback(
+    async (enabled: boolean) => {
+      setUpdatingCanary(true);
+      setMessage("");
+      try {
+        const response = await fetch("/api/router/canaries/chat", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "X-ModelMirror-CSRF": csrfToken,
+          },
+          body: JSON.stringify({ connection_id: connectionId, enabled }),
+        });
+        if (!response.ok) throw new Error(await readError(response));
+        const payload = (await response.json()) as CanaryAdminResponse;
+        setCanary(payload);
+        setMessage(
+          enabled
+            ? "已设为唯一的 newAPI Chat 试运行连接。"
+            : "已关闭 newAPI Chat 试运行策略。",
+        );
+      } catch (reason) {
+        setMessage(reason instanceof Error ? reason.message : "试运行策略未更新。");
+      } finally {
+        setUpdatingCanary(false);
+      }
+    },
+    [connectionId, csrfToken],
+  );
 
   const blockedMessage = useMemo(() => {
     const reason = summary?.blocked_reason;
@@ -181,6 +297,15 @@ export default function NewApiChatCertification({
   const canRun = Boolean(
     featureEnabled && connectionEnabled && selectedModel && summary?.can_run !== false,
   );
+  const canaryConnection = canary?.connections.find(
+    (connection) => connection.connection_id === connectionId,
+  );
+  const canarySelected = canary?.selected_connection_id === connectionId;
+  const canaryEnabled = Boolean(canarySelected && canary?.policy_enabled);
+  const canaryAggregates =
+    canary?.aggregates?.filter(
+      (aggregate) => aggregate.connection_id === connectionId,
+    ) ?? [];
 
   return (
     <div className="mt-3 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.04] p-3">
@@ -243,6 +368,136 @@ export default function NewApiChatCertification({
       {contractVersion ? (
         <p className="mt-2 font-mono text-[10px] text-slate-500">{contractVersion}</p>
       ) : null}
+
+      <div className="mt-3 border-t border-white/10 pt-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-semibold text-cyan-100">手动会话 Canary</p>
+            <p className="mt-1 text-[11px] leading-5 text-slate-400">
+              试运行证据，不代表默认数据面已就绪；不提供比例灰度或默认切换。
+            </p>
+          </div>
+          <button
+            className="inline-flex min-h-9 items-center rounded-full border border-white/15 px-3 text-xs font-semibold text-slate-100 transition hover:bg-white/[0.07] disabled:opacity-45"
+            disabled={
+              updatingCanary ||
+              (!canaryEnabled &&
+                (!canary?.feature_enabled ||
+                  !canaryConnection?.eligible_connection ||
+                  !canaryConnection.models.some(
+                    (model) => model.certification_status === "passed",
+                  )))
+            }
+            onClick={() => void updateCanary(!canaryEnabled)}
+            type="button"
+          >
+            {updatingCanary ? (
+              <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            {canaryEnabled ? "关闭试运行" : "设为唯一试运行连接"}
+          </button>
+        </div>
+        {canary && !canary.feature_enabled ? (
+          <p className="mt-2 text-xs text-amber-200">部署开关当前关闭。</p>
+        ) : null}
+        {canarySelected ? (
+          <p className="mt-2 text-xs text-slate-300">
+            当前策略：{canaryEnabled ? "已启用" : "已选择但未启用"}
+          </p>
+        ) : null}
+        {canaryConnection?.models.length ? (
+          <div className="mt-2 space-y-2">
+            {canaryConnection.models.map((model) => (
+              <div
+                className="rounded-md border border-white/10 bg-black/10 px-2.5 py-2 text-[11px] text-slate-300"
+                key={`${model.model_id}-${model.completed_at ?? "none"}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="break-all font-mono text-slate-200">{model.model_id}</span>
+                  <span>{model.paused ? "已自动暂停" : model.certification_status}</span>
+                </div>
+                <p className="mt-1 text-slate-500">
+                  {model.pause_reason ?? model.reason_code}
+                  {model.baseline_overlap ? " · baseline_overlap" : ""}
+                </p>
+                {model.certification_expires_at ? (
+                  <p className="mt-1 text-slate-500">
+                    认证有效至 {new Date(model.certification_expires_at).toLocaleString()}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-slate-500">完成逐模型真实认证后才可启用。</p>
+        )}
+        {canaryAggregates.length ? (
+          <div className="mt-3">
+            <p className="text-[11px] font-semibold text-slate-300">
+              当前认证证据窗口
+            </p>
+            <p className="mt-1 text-[10px] leading-4 text-slate-500">
+              仅汇总当前连接配置与最新有效认证下的近期记录，不代表默认数据面资格。
+            </p>
+            <div className="mt-2 space-y-2">
+              {canaryAggregates.map((aggregate) => (
+                <div
+                  className="rounded-md border border-white/10 bg-black/10 px-2.5 py-2 text-[11px] text-slate-400"
+                  key={`${aggregate.connection_id}-${aggregate.model_id}-${aggregate.certification_id}`}
+                >
+                  <p className="break-all font-mono text-slate-200">
+                    {aggregate.model_id}
+                  </p>
+                  <p className="mt-1">
+                    {aggregate.total_runs} 次 · 成功率 {aggregate.success_rate == null
+                      ? "—"
+                      : `${Math.round(aggregate.success_rate * 100)}%`}
+                    {` · 硬失败 ${aggregate.hard_failure_runs}`}
+                    {` · 瞬时失败 ${aggregate.transient_failure_runs}`}
+                    {` · 不确定 ${aggregate.uncertain_runs}`}
+                  </p>
+                  <p className="mt-1 text-slate-500">
+                    TTFT {aggregate.average_ttft_ms == null
+                      ? "—"
+                      : `${Math.round(aggregate.average_ttft_ms)}ms`}
+                    {` · E2E ${aggregate.average_e2e_ms == null
+                      ? "—"
+                      : `${Math.round(aggregate.average_e2e_ms)}ms`}`}
+                    {` · ${aggregate.total_tokens} tokens`}
+                    {aggregate.baseline_overlap ? " · baseline_overlap" : ""}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {canary?.runs.some((run) => run.connection_id === connectionId) ? (
+          <div className="mt-3">
+            <p className="text-[11px] font-semibold text-slate-400">近期脱敏证据</p>
+            <ul className="mt-1 space-y-1 text-[11px] text-slate-500">
+              {canary.runs
+                .filter((run) => run.connection_id === connectionId)
+                .slice(0, 5)
+                .map((run) => (
+                  <li key={run.run_id}>
+                    {run.current_evidence
+                      ? "当前窗口"
+                      : `历史证据 · ${run.stale_reason ?? "认证窗口已变化"}`}
+                    {` · ${run.model_id} · ${run.status}`}
+                    {run.error_code ? ` · ${run.error_code}` : ""}
+                    {run.e2e_ms != null ? ` · ${Math.round(run.e2e_ms)}ms` : ""}
+                    {run.total_tokens != null ? ` · ${run.total_tokens} tokens` : ""}
+                  </li>
+                ))}
+            </ul>
+          </div>
+        ) : null}
+        {canary?.contract_version ? (
+          <p className="mt-2 font-mono text-[10px] text-slate-500">
+            {canary.contract_version}
+          </p>
+        ) : null}
+      </div>
 
       {confirming ? (
         <div

@@ -28,7 +28,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 DEFAULT_TENANT_ID = "local"
 CANONICAL_MASTER_KEY_ENV = "MODEL_MIRROR_CREDENTIAL_MASTER_KEY"
 LEGACY_MASTER_KEY_ENV = "MODEL_ROUTER_CREDENTIAL_MASTER_KEY"
@@ -336,6 +336,40 @@ class SQLiteRouterRepository:
             PRIMARY KEY (tenant_id, id),
             UNIQUE (tenant_id, connection_id, idempotency_key_hash)
         );
+        CREATE TABLE IF NOT EXISTS provider_chat_canary_policies (
+            tenant_id TEXT PRIMARY KEY,
+            connection_id TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS provider_chat_canary_runs (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            connection_id TEXT NOT NULL,
+            connection_fingerprint TEXT NOT NULL,
+            certification_id TEXT,
+            contract_version TEXT NOT NULL,
+            requested_model TEXT NOT NULL,
+            actual_model TEXT,
+            session_id_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            dispatched INTEGER NOT NULL DEFAULT 0,
+            result_class TEXT,
+            checks_json TEXT NOT NULL DEFAULT '{}',
+            warnings_json TEXT NOT NULL DEFAULT '[]',
+            error_code TEXT,
+            ttft_ms REAL,
+            e2e_ms REAL,
+            prompt_tokens INTEGER,
+            completion_tokens INTEGER,
+            total_tokens INTEGER,
+            baseline_overlap INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id)
+        );
         CREATE INDEX IF NOT EXISTS idx_router_connections_tenant_enabled
             ON router_connections (tenant_id, enabled);
         CREATE INDEX IF NOT EXISTS idx_router_decisions_tenant_created
@@ -369,6 +403,12 @@ class SQLiteRouterRepository:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_chat_certifications_running
             ON provider_chat_certifications (tenant_id, connection_id)
             WHERE status = 'running';
+        CREATE INDEX IF NOT EXISTS idx_provider_chat_canary_runs_recent
+            ON provider_chat_canary_runs (
+                tenant_id, connection_id, requested_model, created_at DESC
+            );
+        CREATE INDEX IF NOT EXISTS idx_provider_chat_canary_runs_status
+            ON provider_chat_canary_runs (tenant_id, status);
         """
         with self._lock, self._connect() as connection:
             previous_schema_version = int(
@@ -561,6 +601,15 @@ class SQLiteRouterRepository:
                 """,
                 (now, now),
             )
+            connection.execute(
+                """
+                UPDATE provider_chat_canary_runs
+                SET status = 'uncertain', result_class = 'uncertain',
+                    error_code = 'server_restarted', updated_at = ?, completed_at = ?
+                WHERE status = 'running'
+                """,
+                (now, now),
+            )
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def create_connection(
@@ -732,7 +781,7 @@ class SQLiteRouterRepository:
         self,
         tenant_id: str,
         *,
-        certification_id: str,
+        certification_id: str | None,
         connection_id: str,
         connection_fingerprint: str,
         contract_version: str,
@@ -864,6 +913,274 @@ class SQLiteRouterRepository:
                 ORDER BY certification.created_at DESC, certification.id DESC
                 """,
                 (clean_tenant, clean_tenant),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_latest_chat_certification(
+        self,
+        tenant_id: str,
+        connection_id: str,
+        requested_model: str,
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM provider_chat_certifications
+                WHERE tenant_id = ? AND connection_id = ?
+                    AND requested_model = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (clean_tenant, connection_id, requested_model),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def list_latest_chat_certifications_by_model(
+        self,
+        tenant_id: str,
+        *,
+        connection_id: str | None = None,
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        values: list[object] = [clean_tenant, clean_tenant]
+        connection_filter = ""
+        if connection_id is not None:
+            connection_filter = " AND certification.connection_id = ?"
+            values.append(connection_id)
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT certification.*
+                FROM provider_chat_certifications AS certification
+                JOIN (
+                    SELECT connection_id, requested_model,
+                        MAX(created_at) AS latest_created_at
+                    FROM provider_chat_certifications
+                    WHERE tenant_id = ?
+                    GROUP BY connection_id, requested_model
+                ) AS latest
+                ON latest.connection_id = certification.connection_id
+                    AND latest.requested_model = certification.requested_model
+                    AND latest.latest_created_at = certification.created_at
+                WHERE certification.tenant_id = ?{connection_filter}
+                ORDER BY certification.created_at DESC, certification.id DESC
+                """,
+                tuple(values),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_chat_canary_policy(
+        self, tenant_id: str
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM provider_chat_canary_policies
+                WHERE tenant_id = ?
+                """,
+                (clean_tenant,),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def save_chat_canary_policy(
+        self,
+        tenant_id: str,
+        *,
+        connection_id: str,
+        enabled: bool,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO provider_chat_canary_policies (
+                    tenant_id, connection_id, enabled, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id) DO UPDATE SET
+                    connection_id = excluded.connection_id,
+                    enabled = excluded.enabled,
+                    updated_at = excluded.updated_at
+                """,
+                (clean_tenant, connection_id, int(enabled), now, now),
+            )
+            row = connection.execute(
+                """
+                SELECT * FROM provider_chat_canary_policies
+                WHERE tenant_id = ?
+                """,
+                (clean_tenant,),
+            ).fetchone()
+        return dict(row)
+
+    def claim_chat_canary_run(
+        self,
+        tenant_id: str,
+        *,
+        run_id: str,
+        connection_id: str,
+        connection_fingerprint: str,
+        certification_id: str,
+        contract_version: str,
+        requested_model: str,
+        session_id_hash: str,
+        baseline_overlap: bool,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO provider_chat_canary_runs (
+                    id, tenant_id, connection_id, connection_fingerprint,
+                    certification_id, contract_version, requested_model,
+                    session_id_hash, status, baseline_overlap,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    clean_tenant,
+                    connection_id,
+                    connection_fingerprint,
+                    certification_id,
+                    contract_version,
+                    requested_model,
+                    session_id_hash,
+                    int(baseline_overlap),
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT * FROM provider_chat_canary_runs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, run_id),
+            ).fetchone()
+        return dict(row)
+
+    def mark_chat_canary_dispatched(
+        self, tenant_id: str, run_id: str
+    ) -> None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_chat_canary_runs
+                SET dispatched = 1, updated_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (utc_now(), clean_tenant, run_id),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_chat_canary_run_not_running")
+
+    def complete_chat_canary_run(
+        self,
+        tenant_id: str,
+        run_id: str,
+        *,
+        status: str,
+        result_class: str,
+        checks: dict[str, bool],
+        warning_codes: list[str],
+        error_code: str | None = None,
+        actual_model: str | None = None,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> dict[str, object]:
+        if status not in {
+            "succeeded",
+            "failed",
+            "uncertain",
+            "preflight_fallback",
+            "cancelled",
+        }:
+            raise RouterRepositoryError("invalid_provider_chat_canary_run_status")
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_chat_canary_runs
+                SET status = ?, result_class = ?, checks_json = ?,
+                    warnings_json = ?, error_code = ?, actual_model = ?,
+                    ttft_ms = ?, e2e_ms = ?, prompt_tokens = ?,
+                    completion_tokens = ?, total_tokens = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    status,
+                    result_class,
+                    json.dumps(checks, sort_keys=True, separators=(",", ":")),
+                    json.dumps(warning_codes, separators=(",", ":")),
+                    error_code,
+                    actual_model,
+                    ttft_ms,
+                    e2e_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    now,
+                    now,
+                    clean_tenant,
+                    run_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_chat_canary_run_not_running")
+            row = connection.execute(
+                """
+                SELECT * FROM provider_chat_canary_runs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, run_id),
+            ).fetchone()
+        return dict(row)
+
+    def list_chat_canary_runs(
+        self,
+        tenant_id: str,
+        *,
+        connection_id: str | None = None,
+        requested_model: str | None = None,
+        certification_id: str | None = None,
+        since: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        clauses = ["tenant_id = ?"]
+        values: list[object] = [clean_tenant]
+        if connection_id is not None:
+            clauses.append("connection_id = ?")
+            values.append(connection_id)
+        if requested_model is not None:
+            clauses.append("requested_model = ?")
+            values.append(requested_model)
+        if certification_id is not None:
+            clauses.append("certification_id = ?")
+            values.append(certification_id)
+        if since is not None:
+            clauses.append("created_at >= ?")
+            values.append(since)
+        values.append(max(1, min(int(limit), 100)))
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM provider_chat_canary_runs
+                WHERE {" AND ".join(clauses)}
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                tuple(values),
             ).fetchall()
         return [dict(row) for row in rows]
 

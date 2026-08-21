@@ -1,12 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createElement } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AUTO_ROUTING_GUIDANCE,
   CHAT_COMPOSER_COLUMN_CLASSES,
   CHAT_MESSAGE_COLUMN_CLASSES,
   CHAT_SHELL_HEADER_CLASSES,
+  ProviderChatCanaryControl,
   shouldShowBatchServingSettings,
   skillActivationContentUrl,
 } from "./ChatPage";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const BREAKPOINTS: Record<string, number> = {
   md: 768,
@@ -44,5 +51,84 @@ describe("ChatPage conversation-first shell", () => {
     expect(shouldShowBatchServingSettings(true, true)).toBe(false);
     expect(shouldShowBatchServingSettings(false, true)).toBe(true);
     expect(shouldShowBatchServingSettings(false, false)).toBe(false);
+  });
+
+  it("keeps manual newAPI canary in page memory and reconfirms after model changes", async () => {
+    let sequence = 0;
+    vi.stubGlobal("crypto", {
+      randomUUID: () => `page-session-${++sequence}`,
+    });
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            contract_version: "modelmirror-provider-chat-canary-v1",
+            feature_enabled: true,
+            available: true,
+            gateway: "newapi_canary",
+            model_id: "provider/model",
+            reason_code: "available",
+            consent_revision: "provider-chat-canary-consent-v1",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const onChange = vi.fn();
+    const { rerender } = render(
+      createElement(ProviderChatCanaryControl, {
+        blockedReason: "",
+        disabled: false,
+        modelId: "provider/model-a",
+        onChange,
+      }),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "开启试运行" }),
+    );
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "失败后不会自动重放到第二个 Provider",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "确认当前会话" }));
+    await waitFor(() =>
+      expect(onChange).toHaveBeenLastCalledWith({
+        enabled: true,
+        sessionId: expect.stringContaining("page-session-"),
+      }),
+    );
+    const firstSession = onChange.mock.calls.at(-1)?.[0].sessionId;
+
+    rerender(
+      createElement(ProviderChatCanaryControl, {
+        blockedReason: "",
+        disabled: false,
+        modelId: "provider/model-b",
+        onChange,
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "开启试运行" }),
+    );
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "确认当前会话" }));
+    const secondSession = onChange.mock.calls.at(-1)?.[0].sessionId;
+    expect(secondSession).not.toBe(firstSession);
+
+    rerender(
+      createElement(ProviderChatCanaryControl, {
+        blockedReason: "MCP 工具已启用",
+        disabled: false,
+        modelId: "provider/model-b",
+        onChange,
+      }),
+    );
+    await screen.findByText("已关闭 newAPI 试运行：MCP 工具已启用");
+    expect(onChange).toHaveBeenLastCalledWith({
+      enabled: false,
+      sessionId: secondSession,
+    });
   });
 });

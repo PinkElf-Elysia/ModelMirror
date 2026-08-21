@@ -65,7 +65,7 @@ export interface ChatRuntimeMeta {
   toolMode: string;
 }
 
-export type ChatGateway = "default" | "auto" | "omniroute";
+export type ChatGateway = "default" | "auto" | "omniroute" | "newapi_canary";
 
 export interface ChatRoutingOptions {
   session_id?: string;

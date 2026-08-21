@@ -25,6 +25,14 @@ ProviderChatCertificationStatus = Literal[
     "uncertain",
     "stale",
 ]
+ProviderChatCanaryRunStatus = Literal[
+    "running",
+    "succeeded",
+    "failed",
+    "uncertain",
+    "preflight_fallback",
+    "cancelled",
+]
 CONNECTION_SCOPE_ORDER: tuple[ConnectionScope, ...] = (
     "chat",
     "audio",
@@ -221,6 +229,104 @@ class ProviderChatCertificationListResponse(BaseModel):
     certifications: list[ProviderChatCertificationSummary] = Field(
         default_factory=list
     )
+
+
+class ProviderChatCanaryPolicyUpdate(BaseModel):
+    connection_id: str = Field(min_length=1, max_length=128)
+    enabled: bool
+
+    @field_validator("connection_id")
+    @classmethod
+    def validate_connection_id(cls, value: str) -> str:
+        return _required_text(value, field_name="connection_id", limit=128)
+
+
+class ProviderChatCanaryPublicStatus(BaseModel):
+    contract_version: Literal["modelmirror-provider-chat-canary-v1"]
+    feature_enabled: bool
+    available: bool
+    gateway: Literal["newapi_canary"] = "newapi_canary"
+    model_id: str
+    reason_code: str
+    consent_revision: str
+
+
+class ProviderChatCanaryModelStatus(BaseModel):
+    model_id: str
+    certification_id: str | None = None
+    certification_status: ProviderChatCertificationStatus = "not_run"
+    available: bool = False
+    reason_code: str
+    paused: bool = False
+    pause_reason: str | None = None
+    baseline_overlap: bool = False
+    completed_at: str | None = None
+    certification_expires_at: str | None = None
+
+
+class ProviderChatCanaryConnectionStatus(BaseModel):
+    connection_id: str
+    connection_name: str
+    eligible_connection: bool
+    reason_code: str
+    models: list[ProviderChatCanaryModelStatus] = Field(default_factory=list)
+
+
+class ProviderChatCanaryRunSummary(BaseModel):
+    run_id: str
+    connection_id: str
+    model_id: str
+    status: ProviderChatCanaryRunStatus
+    dispatched: bool
+    result_class: str | None = None
+    error_code: str | None = None
+    checks: dict[str, bool] = Field(default_factory=dict)
+    warning_codes: list[str] = Field(default_factory=list)
+    ttft_ms: float | None = None
+    e2e_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    baseline_overlap: bool = False
+    current_evidence: bool = False
+    stale_reason: str | None = None
+    created_at: str
+    completed_at: str | None = None
+
+
+class ProviderChatCanaryAggregate(BaseModel):
+    connection_id: str
+    model_id: str
+    certification_id: str
+    total_runs: int
+    dispatched_runs: int
+    succeeded_runs: int
+    hard_failure_runs: int
+    transient_failure_runs: int
+    request_failure_runs: int
+    cancelled_runs: int
+    uncertain_runs: int
+    preflight_fallback_runs: int
+    success_rate: float | None = None
+    average_ttft_ms: float | None = None
+    average_e2e_ms: float | None = None
+    total_tokens: int = 0
+    baseline_overlap: bool = False
+    last_completed_at: str | None = None
+
+
+class ProviderChatCanaryAdminResponse(BaseModel):
+    contract_version: Literal["modelmirror-provider-chat-canary-v1"]
+    feature_enabled: bool
+    policy_enabled: bool
+    selected_connection_id: str | None = None
+    consent_revision: str
+    certification_max_age_seconds: int | None = None
+    connections: list[ProviderChatCanaryConnectionStatus] = Field(
+        default_factory=list
+    )
+    runs: list[ProviderChatCanaryRunSummary] = Field(default_factory=list)
+    aggregates: list[ProviderChatCanaryAggregate] = Field(default_factory=list)
 
 
 class RouterPolicy(BaseModel):

@@ -42,6 +42,14 @@ from .provider_chat import (
     ProviderChatTarget,
     ProviderChatTransport,
 )
+from .chat_canary import (
+    PROVIDER_CHAT_CANARY_CONSENT_REVISION,
+    PROVIDER_CHAT_CANARY_CONTRACT_VERSION,
+    ProviderChatCanaryDispatch,
+    ProviderChatCanaryEligibility,
+    ProviderChatCanaryService,
+    ProviderChatCanaryStreamEvidence,
+)
 
 __all__ = [
     "CompressionMode",
@@ -55,6 +63,12 @@ __all__ = [
     "NativeRouterEngine",
     "NoEligibleCandidateError",
     "PROVIDER_CHAT_CONTRACT_VERSION",
+    "PROVIDER_CHAT_CANARY_CONSENT_REVISION",
+    "PROVIDER_CHAT_CANARY_CONTRACT_VERSION",
+    "ProviderChatCanaryEligibility",
+    "ProviderChatCanaryDispatch",
+    "ProviderChatCanaryService",
+    "ProviderChatCanaryStreamEvidence",
     "ProviderChatEndpointResolver",
     "ProviderChatTarget",
     "ProviderChatTransport",
