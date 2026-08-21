@@ -236,6 +236,12 @@ try:
         TrustedCreatorSourceProvider,
         WorkflowCreatorGenerationExecutor,
     )
+    from server.skills.creator_handoff import (
+        SKILL_CREATOR_HANDOFF_ROLE_INSTRUCTION,
+        SkillCreatorHandoffError,
+        SkillCreatorHandoffRequest,
+        SkillCreatorHandoffService,
+    )
     from server.skills.creator_resource_plan import SkillResourcePlanStore
     from server.skills.creator_resource_build import SkillResourceBuildStore
     from server.skills.creator_resource_build_runtime import (
@@ -327,6 +333,12 @@ except ModuleNotFoundError:
         CreatorWorkflowInvocation,
         TrustedCreatorSourceProvider,
         WorkflowCreatorGenerationExecutor,
+    )
+    from skills.creator_handoff import (
+        SKILL_CREATOR_HANDOFF_ROLE_INSTRUCTION,
+        SkillCreatorHandoffError,
+        SkillCreatorHandoffRequest,
+        SkillCreatorHandoffService,
     )
     from skills.creator_resource_plan import SkillResourcePlanStore
     from skills.creator_resource_build import SkillResourceBuildStore
@@ -772,6 +784,7 @@ try:
         middleware_config_schema,
         middleware_spec,
         middleware_spec_from_node,
+        skill_creator_authoring_mode,
         register_todo_toolset_capability,
         register_sandbox_toolset_capability,
         register_browser_toolset_capability,
@@ -890,6 +903,7 @@ except ModuleNotFoundError:
         middleware_config_schema,
         middleware_spec,
         middleware_spec_from_node,
+        skill_creator_authoring_mode,
         register_todo_toolset_capability,
         register_sandbox_toolset_capability,
         register_browser_toolset_capability,
@@ -1612,6 +1626,7 @@ skill_creator_service = SkillCreatorService(
     authoring_service,
     source_provider=skill_creator_source_provider,
 )
+skill_creator_handoff_service = SkillCreatorHandoffService(skill_creator_service)
 skill_creator_resource_plan_store = SkillResourcePlanStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
 )
@@ -7936,6 +7951,30 @@ def _trusted_workflow_execution_source_kind(
     return None
 
 
+def _skill_creator_handoff_node_ids(workflow: WorkflowPayload) -> list[str]:
+    nodes_by_id = {node.id: node for node in workflow.nodes}
+    result: list[str] = []
+    for edge in workflow.edges:
+        if str(edge.targetHandle or "").strip() != "middleware":
+            continue
+        middleware_node = nodes_by_id.get(edge.source)
+        target_node = nodes_by_id.get(edge.target)
+        if (
+            middleware_node is None
+            or target_node is None
+            or workflow_node_kind(middleware_node) != "runtime_middleware"
+            or workflow_node_kind(target_node) != "workflow_agent"
+            or str(middleware_node.data.get("runtimeMiddlewareId") or "").strip()
+            != "skill_creator"
+        ):
+            continue
+        config = middleware_node.data.get("runtimeMiddlewareConfig")
+        clean_config = config if isinstance(config, dict) else {}
+        if skill_creator_authoring_mode(clean_config) == "creator_handoff":
+            result.append(middleware_node.id)
+    return sorted(result)
+
+
 async def _run_workflow_response(
     payload: WorkflowRunRequest,
     request: Request | None,
@@ -7951,6 +7990,14 @@ async def _run_workflow_response(
     runtime_trigger_event: dict[str, Any] | None = None,
     runtime_task_id: str | None = None,
 ):
+    explicit_creator_handoff_node_ids = _skill_creator_handoff_node_ids(
+        payload.workflow
+    )
+    if len(explicit_creator_handoff_node_ids) > 1:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "skill_creator_multiple_handoffs"},
+        )
     trusted_source_kind = runtime_execution_source_kind or (
         _trusted_workflow_execution_source_kind(
             request,
@@ -8167,6 +8214,11 @@ async def _run_workflow_response(
             if str(edge.targetHandle or "").strip() == "middleware"
         ],
         "agent_resume_state": dict(resume_state.get("agent_state") or {}),
+        "skill_creator_handoff_request": (
+            dict(resume_state.get("skill_creator_handoff_request") or {})
+            if isinstance(resume_state.get("skill_creator_handoff_request"), dict)
+            else None
+        ),
         "resolved_approval": (
             asdict(resolved_approval) if resolved_approval is not None else None
         ),
@@ -13743,6 +13795,19 @@ async def _run_workflow_response(
                         skill_creator_spec = middleware_spec(
                             agent_specs, "skill_creator"
                         )
+                        skill_creator_mode = (
+                            skill_creator_authoring_mode(skill_creator_spec.config)
+                            if skill_creator_spec is not None
+                            else None
+                        )
+                        if skill_creator_mode not in {
+                            None,
+                            "legacy_proposal",
+                            "creator_handoff",
+                        }:
+                            raise ValueError(
+                                "Invalid Skill Creator middleware authoring mode."
+                            )
                         ralph_spec = middleware_spec(agent_specs, "ralph_loop")
                         knowledge_writer_spec = middleware_spec(
                             agent_specs, "knowledge_writer"
@@ -13767,7 +13832,22 @@ async def _run_workflow_response(
                         )
                         automation_enabled = scheduler_spec is not None
                         xpert_authoring_enabled = xpert_authoring_spec is not None
-                        skill_creator_enabled = skill_creator_spec is not None
+                        skill_creator_handoff_enabled = bool(
+                            skill_creator_spec is not None
+                            and skill_creator_mode == "creator_handoff"
+                        )
+                        if skill_creator_handoff_enabled and (
+                            skill_creator_spec.binding != "agent"
+                            or skill_creator_spec.node_id
+                            not in explicit_creator_handoff_node_ids
+                        ):
+                            raise RuntimeMiddlewareFatalError(
+                                "skill_creator_handoff_unavailable"
+                            )
+                        skill_creator_enabled = bool(
+                            skill_creator_spec is not None
+                            and skill_creator_mode == "legacy_proposal"
+                        )
                         selector_spec = middleware_spec(
                             agent_specs,
                             "llm_tool_selector",
@@ -13837,6 +13917,7 @@ async def _run_workflow_response(
                         ).strip()
                         if prompt_suffix:
                             task_input = f"{task_input}\n\n{prompt_suffix}".strip()
+                        handoff_task_input = task_input
                         system_prompt_spec = middleware_spec(
                             agent_specs,
                             "system_prompt_injector",
@@ -13881,6 +13962,11 @@ async def _run_workflow_response(
                                         for item in todo_items
                                     ]
                                 )
+                            ).strip()
+                        if skill_creator_handoff_enabled:
+                            role_prompt = (
+                                f"{role_prompt}\n\n"
+                                f"{SKILL_CREATOR_HANDOFF_ROLE_INSTRUCTION}"
                             ).strip()
                         tool_mode = str(node.data.get("toolMode") or "none").strip()
                         agent_strategy = str(
@@ -15455,6 +15541,11 @@ async def _run_workflow_response(
                             output = ""
                         else:
                             variables[output_variable] = output
+                        if success and skill_creator_handoff_enabled:
+                            task_state["skill_creator_handoff_request"] = {
+                                "node_id": skill_creator_spec.node_id,
+                                "intent": handoff_task_input,
+                            }
                         if (
                             success
                             and output.strip()
@@ -16838,6 +16929,64 @@ async def _run_workflow_response(
                 yield sse_payload(cancellation_event())
                 return
 
+            handoff_event: dict[str, Any] | None = None
+            raw_handoff = task_state.get("skill_creator_handoff_request")
+            if isinstance(raw_handoff, dict):
+                handoff_request = SkillCreatorHandoffRequest(
+                    node_id=str(raw_handoff.get("node_id") or ""),
+                    intent=str(raw_handoff.get("intent") or ""),
+                )
+                if completed_execution.source_kind != "workflow_classic":
+                    handoff_event = skill_creator_handoff_service.failed_event(
+                        task_id=task_id,
+                        run_id=workflow_run.run_id,
+                        node_id=handoff_request.node_id,
+                        error_code="skill_creator_handoff_unavailable",
+                    )
+                else:
+                    try:
+                        handoff_session = await asyncio.to_thread(
+                            skill_creator_handoff_service.create_or_get,
+                            task_id=task_id,
+                            run_id=workflow_run.run_id,
+                            request=handoff_request,
+                        )
+                        handoff_event = skill_creator_handoff_service.ready_event(
+                            task_id=task_id,
+                            run_id=workflow_run.run_id,
+                            node_id=handoff_request.node_id,
+                            session_id=handoff_session.session_id,
+                        )
+                    except SkillCreatorHandoffError as exc:
+                        handoff_event = skill_creator_handoff_service.failed_event(
+                            task_id=task_id,
+                            run_id=workflow_run.run_id,
+                            node_id=handoff_request.node_id,
+                            error_code=exc.code,
+                        )
+                        logger.warning(
+                            "Skill Creator handoff failed task_id=%s node_id=%s code=%s",
+                            task_id,
+                            handoff_request.node_id,
+                            exc.code,
+                        )
+                try:
+                    workflow_execution_store.append_event(task_id, handoff_event)
+                except Exception:
+                    logger.exception(
+                        "Failed to persist Skill Creator handoff event "
+                        "task_id=%s node_id=%s",
+                        task_id,
+                        handoff_request.node_id,
+                    )
+                    handoff_event = skill_creator_handoff_service.failed_event(
+                        task_id=task_id,
+                        run_id=workflow_run.run_id,
+                        node_id=handoff_request.node_id,
+                        error_code="skill_creator_handoff_failed",
+                    )
+                yield sse_payload(handoff_event)
+
             yield sse_payload(
                 {
                     "event": "workflow_end",
@@ -16895,6 +17044,13 @@ async def _run_workflow_response(
                 "executed": sorted(executed),
                 "final_output": final_output,
                 "agent_state": dict(interrupt.continuation.get("agent_state") or {}),
+                "skill_creator_handoff_request": (
+                    dict(task_state.get("skill_creator_handoff_request") or {})
+                    if isinstance(
+                        task_state.get("skill_creator_handoff_request"), dict
+                    )
+                    else None
+                ),
                 "runtime_context": {
                     "system_prompt": workflow_runtime_context.get("system_prompt"),
                     "override_system_prompt": workflow_runtime_context.get(

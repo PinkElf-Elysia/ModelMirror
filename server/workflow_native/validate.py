@@ -3342,6 +3342,33 @@ def validate_node_configuration(
                         node_id=node.id,
                     )
                 )
+        if middleware_id == "skill_creator":
+            authoring_mode = str(config.get("authoring_mode") or "").strip()
+            if authoring_mode and authoring_mode not in {
+                "legacy_proposal",
+                "creator_handoff",
+            }:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_skill_creator_authoring_mode",
+                        message=(
+                            "skill_creator authoring_mode must be "
+                            "legacy_proposal or creator_handoff."
+                        ),
+                        node_id=node.id,
+                    )
+                )
+            if authoring_mode != "creator_handoff":
+                issues.append(
+                    ValidationIssue(
+                        code="skill_creator_legacy_middleware",
+                        message=(
+                            "This Skill Creator middleware uses the legacy proposal path."
+                        ),
+                        severity="warning",
+                        node_id=node.id,
+                    )
+                )
         if middleware_id in {"xpert_authoring", "skill_creator"}:
             allowed_key = (
                 "allowed_xpert_ids"
@@ -4666,6 +4693,27 @@ def validate_automation_middleware_bindings(
         if source is not None and kinds_by_id.get(source.id) == "runtime_middleware":
             bound_by_agent[edge.target].append(source)
 
+    creator_handoffs: list[str] = []
+    for middleware_nodes in bound_by_agent.values():
+        for middleware_node in middleware_nodes:
+            if (
+                str(middleware_node.data.get("runtimeMiddlewareId") or "")
+                != "skill_creator"
+            ):
+                continue
+            raw_config = middleware_node.data.get("runtimeMiddlewareConfig")
+            config = raw_config if isinstance(raw_config, dict) else {}
+            if str(config.get("authoring_mode") or "").strip() == "creator_handoff":
+                creator_handoffs.append(middleware_node.id)
+    if len(creator_handoffs) > 1:
+        issues.append(
+            ValidationIssue(
+                code="skill_creator_multiple_handoffs",
+                message="A workflow can bind at most one Creator V2 handoff.",
+                node_id=sorted(creator_handoffs)[1],
+            )
+        )
+
     for agent_id, middleware_nodes in bound_by_agent.items():
         agent = nodes_by_id.get(agent_id)
         tool_mode = str((agent.data if agent else {}).get("toolMode") or "none")
@@ -4673,7 +4721,8 @@ def validate_automation_middleware_bindings(
             middleware_id = str(
                 middleware_node.data.get("runtimeMiddlewareId") or ""
             )
-            config = middleware_node.data.get("runtimeMiddlewareConfig") or {}
+            raw_config = middleware_node.data.get("runtimeMiddlewareConfig")
+            config = raw_config if isinstance(raw_config, dict) else {}
             if middleware_id == "scheduler" and tool_mode != "mcp_tools":
                 issues.append(
                     ValidationIssue(
@@ -4682,8 +4731,14 @@ def validate_automation_middleware_bindings(
                         node_id=middleware_node.id,
                     )
                 )
+            creator_handoff = bool(
+                middleware_id == "skill_creator"
+                and str(config.get("authoring_mode") or "").strip()
+                == "creator_handoff"
+            )
             if (
                 middleware_id in {"xpert_authoring", "skill_creator"}
+                and not creator_handoff
                 and tool_mode != "mcp_tools"
             ):
                 issues.append(

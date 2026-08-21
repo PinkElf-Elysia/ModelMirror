@@ -199,6 +199,20 @@ class SkillCreatorService:
                     source_message_id=source_message_id,
                 )
             )
+            return self.session_store.create_or_get_run_capture(
+                intent=intent,
+                positive_examples=positive_examples,
+                near_miss_examples=near_miss_examples,
+                expected_output=expected_output,
+                success_criteria=success_criteria,
+                source_kind=source_kind,
+                source_task_id=str(source_task_id or ""),
+                source_run_id=str(source_run_id or ""),
+                source_xpert_id=source_xpert_id,
+                source_conversation_id=source_conversation_id,
+                source_message_id=source_message_id,
+                authoring_flow=authoring_flow,
+            )
         return self.session_store.create(
             mode=mode,
             intent=intent,
@@ -213,6 +227,41 @@ class SkillCreatorService:
             source_conversation_id=source_conversation_id,
             source_message_id=source_message_id,
             authoring_flow=authoring_flow,
+        )
+
+    def create_or_get_workflow_handoff(
+        self,
+        *,
+        source_task_id: str,
+        source_run_id: str,
+        intent: str,
+        positive_examples: list[str],
+        near_miss_examples: list[str],
+        expected_output: str,
+        success_criteria: list[str],
+    ) -> SkillCreatorSession:
+        """Create the unique Creator session owned by a completed workflow run."""
+
+        self.require_enabled()
+        if self.source_provider is None:
+            raise SkillCreatorValidationError(
+                "Trusted runtime sources are not configured.",
+                code="skill_creator_source_unavailable",
+            )
+        source = CreatorSourceDescriptor(
+            source_kind="workflow_classic",
+            source_task_id=str(source_task_id or ""),
+            source_run_id=str(source_run_id or ""),
+        )
+        self.source_provider.validate_source(source)
+        return self.session_store.create_or_get_workflow_handoff(
+            intent=intent,
+            positive_examples=positive_examples,
+            near_miss_examples=near_miss_examples,
+            expected_output=expected_output,
+            success_criteria=success_criteria,
+            source_task_id=source.source_task_id,
+            source_run_id=source.source_run_id,
         )
 
     def list_sessions(self, *, limit: int) -> list[SkillCreatorSession]:

@@ -5,6 +5,14 @@ from typing import Any, Literal
 
 
 FieldType = Literal["text", "textarea", "select", "boolean", "number", "json"]
+SKILL_CREATOR_AUTHORING_MODES = {"legacy_proposal", "creator_handoff"}
+
+
+def skill_creator_authoring_mode(config: dict[str, Any] | None) -> str:
+    """Return the backward-compatible authoring mode for Skill Creator nodes."""
+
+    value = str((config or {}).get("authoring_mode") or "").strip()
+    return value or "legacy_proposal"
 
 
 @dataclass(slots=True)
@@ -197,6 +205,10 @@ def register_builtin_middleware_nodes(
                 "real_execution": True,
                 "app_forbidden": True,
                 "proposal_only": True,
+                "supported_authoring_modes": [
+                    "legacy_proposal",
+                    "creator_handoff",
+                ],
             },
             requires_tool_mode="mcp_tools",
             app_policy="forbidden",

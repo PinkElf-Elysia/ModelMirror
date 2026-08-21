@@ -517,6 +517,8 @@ class WorkflowExecutionStore:
             "request_id",
             "request_status",
             "host_id",
+            "session_id",
+            "error_code",
             "tool_name",
             "status",
             "candidate_id",
@@ -552,6 +554,9 @@ class WorkflowExecutionStore:
                 }
             )
         clean = {key: value for key, value in event.items() if key in allowed}
+        for key in ("session_id", "error_code"):
+            if key in clean:
+                clean[key] = str(clean[key] or "")[:200]
         for key in ("message", "final_output"):
             if key in clean:
                 clean[key] = str(clean[key] or "")[:200_000]
