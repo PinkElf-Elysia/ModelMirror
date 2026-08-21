@@ -1,8 +1,8 @@
 {
   "schema_version": "modelmirror-rag-p0-round3-implementation-v1",
-  "status": "embedding_preflight_passed_awaiting_real_candidate_build_authorization",
+  "status": "real_candidate_ready_unactivated_awaiting_formal_evaluation_authorization",
   "created_at": "2026-08-20T17:35:18.2764123Z",
-  "updated_at": "2026-08-21T04:47:08.3278075Z",
+  "updated_at": "2026-08-21T05:10:28.2712637Z",
   "base": {
     "branch": "origin/main",
     "commit": "0e0202b313b2378d13d899cf53166665baac6bee",
@@ -23,7 +23,7 @@
     ]
   },
   "constraints": {
-    "real_provider_http_attempts": 5,
+    "real_provider_http_attempts": 6,
     "gold_generation_job_attempts": 4,
     "successful_gold_generations": 3,
     "reported_model_token_usage": {
@@ -32,7 +32,7 @@
       "total_tokens": 38152
     },
     "embedding_preflight_calls": 1,
-    "real_candidate_builds": 0,
+    "real_candidate_builds": 1,
     "formal_evaluation_runs": 0,
     "human_reviews_recorded": 42,
     "gold_versions_published": 1,
@@ -62,7 +62,7 @@
       ]
     },
     "3C": {
-      "status": "embedding_preflight_passed_awaiting_real_candidate_build_authorization",
+      "status": "real_candidate_ready_unactivated_awaiting_formal_evaluation_authorization",
       "implemented": [
         "42-case review workbench for positive grounding, negative answer absence, review reasons, rejection, blockers, and readiness",
         "structurally invalid rag-gold-v2 drafts are rejected by the review API before any review write and the workbench disables approval and rejection controls",
@@ -217,8 +217,8 @@
       "pending_external_sequence": [
         "retain the first two structurally invalid generated datasets as unqualified diagnostic evidence; the API and UI block their review and publication",
         "retain immutable rag-gold-v2 version 1 of evalset_7e837e532a0544fb91d8d6e029fa74cc as the only formal Gold candidate; all 42 cases are approved and the 3 leakage warnings have review reasons",
-        "obtain separate authorization before building one unactivated real embedding candidate with the preflight-validated OpenRouter model",
-        "run exactly one paired Formal evaluation without answer generation or automatic retry"
+        "retain candidate pipeline version 2 as ready and unactivated; it was built once with the preflight-validated OpenRouter embedding model and no retry",
+        "obtain separate authorization before running exactly one paired Formal evaluation without answer generation or automatic retry"
       ]
     }
   },
@@ -241,6 +241,7 @@
     "third_generation_reviewed_count": 42,
     "third_generation_published_version": 1,
     "third_generation_published_checksum": "d6eb6e4239e74fb07de5a2db93276faabc87cfb8a848b3a96dfe04d92b8f0479",
+    "preview_backend_container": "modelmirror-rag-r3-preview-server-v3",
     "real_embedding_preflight": {
       "provider": "openrouter",
       "model": "openai/text-embedding-3-small",
@@ -254,11 +255,32 @@
       "passed": true,
       "automatic_retry": false
     },
+    "real_embedding_candidate": {
+      "job_id": "kpjob_75061cf38d7e4badbb20fb796ca64c66",
+      "job_attempt": 1,
+      "job_status": "succeeded",
+      "candidate_version_id": "kpv_97da4ee3c5fa481f8e0805252887936f",
+      "candidate_version": 2,
+      "candidate_status": "ready",
+      "document_count": 4,
+      "chunk_count": 53,
+      "block_count": 36,
+      "provider": "openai_compatible",
+      "provider_route": "OpenRouter",
+      "model": "openai/text-embedding-3-small",
+      "dimension": 1536,
+      "vector_index_ready": true,
+      "lexical_index_ready": true,
+      "warning_count": 0,
+      "active": false,
+      "automatic_retry": false
+    },
     "prospective_fixed_corpus_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263",
     "prospective_fixed_document_hash_count": 4,
     "prospective_fixed_source_block_hash_count": 36,
-    "embedding_provider": "hash",
-    "embedding_model": "deterministic-hash-v1",
+    "embedding_provider": "openai_compatible",
+    "embedding_model": "openai/text-embedding-3-small",
+    "embedding_dimension": 1536,
     "pipeline_version_activated": false,
     "shared_data_modified": false
   },
@@ -365,6 +387,10 @@
     "real_embedding_preflight_receipt": {
       "command": "one sanitized single-input Embedding request from the isolated preview container with no retry",
       "result": "OpenRouter openai/text-embedding-3-small returned exactly one finite nonzero vector with expected and actual dimension 1536 in 1201.49 ms; no input, vector, key, candidate, or index data recorded"
+    },
+    "real_candidate_build_receipt": {
+      "command": "single POST /api/rag/pipeline/draft/{kb_id}/execute after read-only state checks and a ready draft preflight, followed only by polling the created job and candidate version",
+      "result": "job kpjob_75061cf38d7e4badbb20fb796ca64c66 attempt 1 succeeded with 4 documents, 53 chunks, one batched provider request by the EmbeddingClient execution contract, no warnings, and no retry; candidate kpv_97da4ee3c5fa481f8e0805252887936f is ready with OpenRouter openai/text-embedding-3-small dimension 1536, vector and lexical indexes ready, and active=false; pipeline version count is 2 and active_version_id remains null"
     }
   },
   "prohibited_claims": [
@@ -375,6 +401,7 @@
     "The authorized regeneration produced a qualified, reviewed, or published Gold draft.",
     "The published Gold proves that the real embedding route, candidate, or Formal evaluation has passed.",
     "The successful one-vector embedding preflight proves that a full candidate index build or Formal evaluation has passed.",
+    "The ready unactivated real embedding candidate constitutes Formal promotion evidence or has passed the paired evaluation gates.",
     "A candidate passed or was authorized for promotion.",
     "The repository-wide backend or frontend test suite is fully green."
   ],
