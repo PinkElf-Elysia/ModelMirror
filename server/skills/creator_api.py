@@ -302,6 +302,9 @@ class CreatorEvaluationReviewRequest(CreatorEvaluationRunMutationRequest):
     decision: Literal["accept", "revise"]
     reason: str = Field(default="", max_length=4_000)
     acknowledge_failed_assertions: bool = False
+    acknowledged_regression_item_ids: list[str] = Field(
+        default_factory=list, max_length=36
+    )
 
 
 class CreatorEvaluationWaiveRequest(CreatorEvaluationWriteRequest):
@@ -636,6 +639,11 @@ def _session_response(
             else None
         ),
         "evolution_plan": _evolution_projection(session.session_id),
+        "regression_governance": (
+            _evaluation_service.governance_projection(session, draft)
+            if _evaluation_service is not None and draft is not None
+            else None
+        ),
     }
     return response
 
@@ -1437,6 +1445,9 @@ async def review_creator_evaluation(
             decision=payload.decision,
             reason=payload.reason,
             acknowledge_failed_assertions=payload.acknowledge_failed_assertions,
+            acknowledged_regression_item_ids=(
+                payload.acknowledged_regression_item_ids
+            ),
         )
         return _session_response(creator, session, draft, evaluation_run=run)
     except (SkillCreatorError, SkillDraftError, SkillEvaluationError) as exc:

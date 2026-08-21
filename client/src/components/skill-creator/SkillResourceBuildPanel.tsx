@@ -171,7 +171,22 @@ export default function SkillResourceBuildPanel({
   }
 
   async function start() {
-    await run("start", () => startSkillCreatorResourceBuild(session), "资源构建已创建，可以按依赖顺序生成。 ");
+    setBusy("start");
+    setError("");
+    setNotice("");
+    try {
+      const started = await startSkillCreatorResourceBuild(session);
+      setBuild(started);
+      const generated = await advanceSkillCreatorResourceBuild(session, started);
+      update(generated, generated.phase === "skill_markdown"
+        ? "辅助内容已准备好，正在整理最终说明。"
+        : "第一项内容已经生成并通过基础检查，请确认是否符合需要。");
+      await onSessionRefresh();
+    } catch (caught) {
+      setError(errorMessage(caught, "资源生成启动失败。"));
+    } finally {
+      setBusy("");
+    }
   }
 
   async function next() {
@@ -238,17 +253,31 @@ export default function SkillResourceBuildPanel({
     );
   }
 
-  if (!build) {
+  const buildMatchesCurrentPlan = Boolean(build
+    && !build.stale
+    && build.state !== "stale"
+    && build.plan_id === session.resource_plan.plan_id
+    && build.plan_revision === session.resource_plan.revision
+    && build.plan_digest === session.resource_plan.digest);
+
+  if (!build || !buildMatchesCurrentPlan) {
     return (
       <section className="rounded-lg border border-white/10 bg-surface-900/80 p-5 sm:p-6" aria-labelledby="resource-build-start-heading">
-        <h2 className="text-xl font-semibold text-white" id="resource-build-start-heading">按确认计划构建 Skill</h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">服务端固定路径和依赖顺序，每次只生成一个完整资源。内部可分段，但只在组装、校验和脚本实测完成后请求一次确认。</p>
+        <h2 className="text-xl font-semibold text-white" id="resource-build-start-heading">
+          {build ? "按新方案重新生成" : "准备生成内容"}
+        </h2>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">点击后会立即生成第一项内容。每项完成基础检查后只请你确认一次，不会用内部生成片段反复打扰。</p>
+        {build ? (
+          <p className="mt-3 rounded-md border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-xs leading-5 text-amber-50">
+            旧版本仍会只读保留；这次会严格按你刚确认的新方案重新生成。
+          </p>
+        ) : null}
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40" disabled={!builderReady || Boolean(busy)} onClick={() => void start()} type="button">
             {busy === "start" ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" size={16} /> : <Play aria-hidden="true" size={16} />}
-            {busy === "start" ? "正在创建构建…" : "创建资源构建"}
+            {busy === "start" ? "正在生成第一项…" : build ? "按新方案开始生成" : "开始生成内容"}
           </button>
-          <span className="text-xs text-slate-500">{session.resource_plan.resources.length} 个附加资源，随后生成 SKILL.md</span>
+          <span className="text-xs text-slate-500">共 {session.resource_plan.resources.length} 项辅助内容，最后自动整理完整使用说明</span>
         </div>
         {!builderReady ? <p className="mt-3 text-xs text-amber-200">模型网关不可用，当前只能查看已保存计划，不能开始生成。</p> : null}
       </section>
@@ -263,13 +292,12 @@ export default function SkillResourceBuildPanel({
       <div className="border-y border-white/10 py-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-white" id="resource-build-heading">资源构建工作台</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{activeTarget ? `当前目标：${activeTarget}` : "所有附加资源已完成，准备最终文档。"}</p>
+            <h2 className="text-xl font-semibold text-white" id="resource-build-heading">逐项生成内容</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{activeTarget ? `正在处理：${activeTarget}` : "辅助内容已完成，准备整理最终使用说明。"}</p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full bg-white/[0.055] px-3 py-1.5 text-slate-300">build r{build.revision}</span>
-            <span className="rounded-full bg-brand-300/10 px-3 py-1.5 text-brand-100">{acceptedCount}/{totalCount} 资源已确认</span>
-            <span className="rounded-full bg-white/[0.055] px-3 py-1.5 text-slate-400">{Math.ceil(generatedBytes / 1024)} KiB / 160 KiB</span>
+            <span className="rounded-full bg-brand-300/10 px-3 py-1.5 text-brand-100">已确认 {acceptedCount}/{totalCount}</span>
+            <details className="relative"><summary className="cursor-pointer list-none rounded-full bg-white/[0.055] px-3 py-1.5 text-slate-400">技术信息</summary><div className="absolute right-0 z-10 mt-2 w-48 rounded-lg border border-white/10 bg-ink-950 p-3 text-right shadow-xl"><p>构建版本 {build.revision}</p><p className="mt-1">{Math.ceil(generatedBytes / 1024)} KiB / 160 KiB</p></div></details>
           </div>
         </div>
         <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/[0.06]" aria-label={`资源确认进度 ${acceptedCount}/${totalCount}`}>

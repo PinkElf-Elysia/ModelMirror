@@ -4,6 +4,8 @@ import {
   copySkillCreatorSession,
   createSkillCreatorSession,
   generateSkillCreatorProposal,
+  confirmSkillCreatorEvaluationSuite,
+  generateSkillCreatorEvaluationSuite,
   retrySkillCreatorEvaluation,
   saveSkillCreatorEvaluationCases,
   saveSkillCreatorDraft,
@@ -14,6 +16,7 @@ import {
   type SkillCreatorSession,
   type SkillEvaluationCase,
   type SkillEvaluationRun,
+  type SkillEvaluationSuite,
 } from "./skillCreatorApi";
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -289,6 +292,7 @@ describe("skillCreatorApi", () => {
     await submitSkillCreatorEvaluationReview(session, draft, evaluationRun, "accept", {
       feedback: "三组结果均改善",
       confirm_failed_assertions: true,
+      acknowledged_regression_item_ids: ["candidate-case-2"],
     });
 
     const retryBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
@@ -305,7 +309,48 @@ describe("skillCreatorApi", () => {
       expected_run_revision: 4,
       expected_review_revision: 2,
       acknowledge_failed_assertions: true,
+      acknowledged_regression_item_ids: ["candidate-case-2"],
     });
     expect(reviewBody).not.toHaveProperty("feedback");
+  });
+
+  it("binds suite generation and confirmation to immutable session and draft facts", async () => {
+    const stateAdvancedDraft = { ...draft, revision: draft.revision + 1 };
+    const suite: SkillEvaluationSuite = {
+      suite_id: "suite-1",
+      version: "skill-evaluation-suite-v2",
+      suite_revision: 1,
+      suite_digest: "d".repeat(64),
+      session_id: session.session_id,
+      draft_id: draft.draft_id,
+      draft_revision: stateAdvancedDraft.content_revision,
+      draft_digest: draft.content_digest,
+      quality_mode: "objective",
+      state: "draft",
+      cases: [],
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({
+      session: { ...session, evaluation_suite: suite },
+      draft: stateAdvancedDraft,
+      evaluation_suite: String(input).endsWith("/confirm") ? { ...suite, state: "confirmed" } : suite,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const generated = await generateSkillCreatorEvaluationSuite(session, stateAdvancedDraft);
+    await confirmSkillCreatorEvaluationSuite(generated, stateAdvancedDraft);
+
+    const generateBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(generateBody).toMatchObject({
+      expected_session_revision: session.session_revision,
+      expected_draft_state_revision: session.draft_state_revision,
+      expected_draft_revision: stateAdvancedDraft.content_revision,
+      expected_draft_digest: draft.content_digest,
+    });
+    const confirmBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
+    expect(confirmBody).toMatchObject({
+      suite_id: suite.suite_id,
+      expected_suite_revision: suite.suite_revision,
+      expected_suite_digest: suite.suite_digest,
+    });
   });
 });

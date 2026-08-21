@@ -20007,7 +20007,7 @@ async def run_skill_evaluation_item(
         child = completed[0]
         actual_model = require_skill_evaluation_actual_model(child.metadata)
         application_receipt = None
-        if item.target == "candidate" and run.evaluation_suite_id is not None:
+        if item.overlay_id is not None and run.evaluation_suite_id is not None:
             expected_policy = (
                 "require_stage" if case.required_resource_paths else "require_read"
             )
@@ -20141,7 +20141,7 @@ def verify_skill_evaluation_application_receipts(run: Any) -> None:
         return
     cases = {case.case_id: case for case in run.cases}
     for item in run.items:
-        if item.target != "candidate":
+        if item.overlay_id is None:
             continue
         try:
             receipt = skill_application_receipt_store.require_verified(
@@ -20153,6 +20153,11 @@ def verify_skill_evaluation_application_receipts(run: Any) -> None:
                 code=exc.code,
             ) from exc
         case = cases[item.case_id]
+        expected_content_digest = (
+            run.frozen_digest
+            if item.target == "candidate"
+            else skill_evaluation_store.require_overlay(item.overlay_id).content_digest
+        )
         expected_policy = (
             "require_stage" if case.required_resource_paths else "require_read"
         )
@@ -20162,7 +20167,7 @@ def verify_skill_evaluation_application_receipts(run: Any) -> None:
             or receipt.skill_id != "evaluation-skill"
             or receipt.source_kind != "evaluation_overlay"
             or receipt.version_id != item.overlay_id
-            or receipt.content_digest != run.frozen_digest
+            or receipt.content_digest != expected_content_digest
             or receipt.policy != expected_policy
             or tuple(receipt.required_resource_paths)
             != tuple(case.required_resource_paths)
@@ -20183,6 +20188,7 @@ skill_creator_evaluation_service = SkillCreatorEvaluationService(
     actor_id=authoring_service.local_console_actor_id,
     iteration=iterate_skill_creator_from_evaluation,
     suite_service=skill_creator_evaluation_suite_service,
+    evolution_store=skill_creator_evolution_store,
     application_receipt_verifier=verify_skill_evaluation_application_receipts,
 )
 configure_skill_creator_evaluation(skill_creator_evaluation_service)

@@ -17,7 +17,8 @@ from server.skills.application_receipts import (
     SkillApplicationScope,
     build_application_contract,
 )
-from server.skills.creator_evaluation import SkillEvaluationValidationError
+from server.skills.creator_evaluation import SkillEvaluationStore, SkillEvaluationValidationError
+from server.skills.package_validation import compute_package_digest
 from server.xpert_runtime.sandbox_store import SandboxWorkspace
 from server.xpert_runtime.sandbox_toolset import SandboxToolsetProvider
 from server.xpert_runtime.toolset import RuntimeToolCall
@@ -673,6 +674,76 @@ def test_creator_v2_accept_verifier_rechecks_protected_receipt(
     with pytest.raises(SkillEvaluationValidationError) as captured:
         main.verify_skill_evaluation_application_receipts(run)
     assert captured.value.code == "skill_application_receipt_mismatch"
+
+
+def test_creator_v2_verifier_uses_previous_overlay_digest(
+    tmp_path, monkeypatch
+):
+    import server.main as main
+
+    evaluation_store = SkillEvaluationStore(tmp_path / "evaluation")
+    package = {
+        "name": "previous-version",
+        "slug": "previous-version",
+        "description": "Use when verifying a previous Skill version.",
+        "skill_markdown": (
+            "---\nname: previous-version\n"
+            "description: Use when verifying a previous Skill version.\n---\n\n"
+            "# Previous version\n\nRead the frozen previous revision.\n"
+        ),
+        "files": {},
+    }
+    overlay = evaluation_store.create_overlay(
+        draft_id="draft_previous",
+        draft_revision=2,
+        content_digest=compute_package_digest(package["skill_markdown"], package["files"]),
+        package=package,
+    )
+    receipt_store = SkillApplicationReceiptStore(tmp_path / "receipts")
+    contract = build_application_contract(
+        skill_id="evaluation-skill",
+        source_kind="evaluation_overlay",
+        version_id=overlay.overlay_id,
+        content_digest=overlay.content_digest,
+        policy="require_read",
+    )
+    receipt = receipt_store.observe(
+        contract,
+        SkillApplicationScope(
+            run_id="runtime_previous",
+            task_id="task_previous",
+            node_id="evaluation-agent",
+            runtime_kind="skill_evaluation",
+        ),
+        method="skill_read",
+        resource_paths=["SKILL.md"],
+        resource_digests={"SKILL.md": _digest(package["skill_markdown"])},
+        expected_resource_digests={"SKILL.md": _digest(package["skill_markdown"])},
+        tool_name="skill_read",
+    )
+    assert receipt is not None
+    receipt = receipt_store.protect(
+        receipt.receipt_id,
+        reference_id="evaluation-item:item_previous",
+    )
+    monkeypatch.setattr(main, "skill_application_receipt_store", receipt_store)
+    monkeypatch.setattr(main, "skill_evaluation_store", evaluation_store)
+    run = SimpleNamespace(
+        evaluation_suite_id="suite_previous",
+        frozen_digest=_digest("candidate-digest"),
+        cases=[SimpleNamespace(case_id="case-one", required_resource_paths=())],
+        items=[SimpleNamespace(
+            item_id="item_previous",
+            case_id="case-one",
+            target="previous",
+            runtime_run_id="runtime_previous",
+            overlay_id=overlay.overlay_id,
+            application_receipt_id=receipt.receipt_id,
+            application_receipt_revision=receipt.revision,
+        )],
+    )
+
+    main.verify_skill_evaluation_application_receipts(run)
 
 
 def test_enforce_mode_propagates_receipt_failures(monkeypatch):

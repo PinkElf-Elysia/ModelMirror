@@ -33,6 +33,7 @@ class EvaluationSuiteGenerationRequest:
     allowed_requirement_ids: tuple[str, ...]
     allowed_resource_paths: tuple[str, ...]
     allowed_workflow_step_ids: tuple[str, ...]
+    coverage_repair: dict[str, Any] | None = None
 
 
 class EvaluationSuiteGenerator(Protocol):
@@ -64,7 +65,7 @@ class SkillCreatorEvaluationSuiteService:
         self.resource_plan_store = resource_plan_store
         self.generator = generator
         self.enabled = (
-            os.getenv("SKILL_CREATOR_EVOLUTION_V2_ENABLED", "false")
+            os.getenv("SKILL_CREATOR_EVOLUTION_V2_ENABLED", "true")
             .strip()
             .lower()
             in {"1", "true", "yes", "on"}
@@ -218,11 +219,40 @@ class SkillCreatorEvaluationSuiteService:
                 "The dedicated Skill Creator agent could not design an evaluation suite.",
                 code="skill_evaluation_suite_generator_failed",
             ) from exc
-        cases = payload.get("cases") if isinstance(payload, Mapping) else None
-        if not isinstance(cases, list):
+        cases = self._generated_cases(payload)
+        missing_requirement_ids = self._missing_requirement_ids(
+            cases, coverage["requirements"]
+        )
+        if missing_requirement_ids:
+            repair_request = EvaluationSuiteGenerationRequest(
+                session=request.session,
+                draft=request.draft,
+                resource_plan=request.resource_plan,
+                allowed_requirement_ids=request.allowed_requirement_ids,
+                allowed_resource_paths=request.allowed_resource_paths,
+                allowed_workflow_step_ids=request.allowed_workflow_step_ids,
+                coverage_repair={
+                    "missing_requirement_ids": list(missing_requirement_ids),
+                    "previous_cases": cases,
+                },
+            )
+            try:
+                payload = await generator.generate(repair_request)
+            except (SkillCreatorConflictError, SkillCreatorValidationError):
+                raise
+            except Exception as exc:
+                raise SkillCreatorValidationError(
+                    "The dedicated Skill Creator agent could not repair evaluation suite coverage.",
+                    code="skill_evaluation_suite_generator_failed",
+                ) from exc
+            cases = self._generated_cases(payload)
+            missing_requirement_ids = self._missing_requirement_ids(
+                cases, coverage["requirements"]
+            )
+        if missing_requirement_ids:
             raise SkillCreatorValidationError(
-                "The evaluation suite generator returned an invalid case list.",
-                code="skill_evaluation_suite_generator_invalid",
+                "The evaluation suite generator did not cover every frozen Creator requirement.",
+                code="skill_evaluation_suite_generator_coverage_incomplete",
             )
 
         # Freeze only if the session and draft are still the facts shown to the model.
@@ -248,6 +278,38 @@ class SkillCreatorEvaluationSuiteService:
             allowed_requirement_ids=coverage["requirements"],
             allowed_resource_paths=coverage["resources"],
             allowed_workflow_step_ids=coverage["workflow_steps"],
+        )
+
+    @staticmethod
+    def _generated_cases(payload: Any) -> list[Mapping[str, Any]]:
+        cases = payload.get("cases") if isinstance(payload, Mapping) else None
+        if not isinstance(cases, list) or not all(
+            isinstance(case, Mapping) for case in cases
+        ):
+            raise SkillCreatorValidationError(
+                "The evaluation suite generator returned an invalid case list.",
+                code="skill_evaluation_suite_generator_invalid",
+            )
+        return cases
+
+    @staticmethod
+    def _missing_requirement_ids(
+        cases: list[Mapping[str, Any]], allowed_requirement_ids: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        covered = {
+            requirement_id
+            for case in cases
+            for requirement_id in (
+                case.get("requirement_ids")
+                if isinstance(case.get("requirement_ids"), (list, tuple))
+                else ()
+            )
+            if isinstance(requirement_id, str)
+        }
+        return tuple(
+            requirement_id
+            for requirement_id in allowed_requirement_ids
+            if requirement_id not in covered
         )
 
     def patch(
@@ -377,12 +439,21 @@ class SkillCreatorEvaluationSuiteService:
     def _coverage_context(
         self, session: SkillCreatorSession, draft: WorkspaceSkillDraft
     ) -> dict[str, Any]:
-        requirements = build_session_requirement_ids(
+        creator_requirements = build_session_requirement_ids(
             intent=session.intent,
             positive_examples=session.positive_examples,
             near_miss_examples=session.near_miss_examples,
             expected_output=session.expected_output,
             success_criteria=session.success_criteria,
+        )
+        # Positive examples guide the fixed three-role case designer, but they are
+        # not independent test obligations.  Requiring one frozen coverage ID per
+        # example can make a valid normal/ambiguous/boundary suite impossible to
+        # confirm without inventing extra model-authored regression cases.
+        requirements = tuple(
+            requirement_id
+            for requirement_id in creator_requirements
+            if not requirement_id.startswith("positive_example:")
         )
         resources = tuple(
             sorted(path for path in draft.files if path.startswith(_RESOURCE_ROOTS))

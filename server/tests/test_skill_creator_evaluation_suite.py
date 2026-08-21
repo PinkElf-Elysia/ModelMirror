@@ -105,6 +105,45 @@ def test_generated_suite_requires_exact_core_roles_and_round_trips(tmp_path: Pat
     assert captured.value.code == "skill_evaluation_suite_core_roles_required"
 
 
+def test_confirm_preserves_generated_asset_resource_paths(tmp_path: Path) -> None:
+    store = SkillEvaluationSuiteStore(tmp_path)
+    cases = _core_cases()
+    cases[0]["required_resource_paths"] = ["assets/report_template.md"]
+    suite = store.save_generated(
+        session_id="session-assets",
+        session_revision=3,
+        session_definition_digest=SESSION_DEFINITION_DIGEST,
+        draft_id="draft-assets",
+        draft_state_revision=2,
+        draft_revision=1,
+        draft_digest=DIGEST,
+        quality_mode="objective",
+        cases=cases,
+        expected_suite_revision=None,
+        expected_suite_digest=None,
+        allowed_requirement_ids=REQUIREMENTS,
+        allowed_resource_paths=("assets/report_template.md",),
+        allowed_workflow_step_ids=("step-1",),
+    )
+
+    confirmed = store.confirm(
+        suite.suite_id,
+        expected_suite_revision=suite.suite_revision,
+        expected_suite_digest=suite.suite_digest,
+        session_revision=4,
+        session_definition_digest=SESSION_DEFINITION_DIGEST,
+        draft_state_revision=2,
+        allowed_requirement_ids=REQUIREMENTS,
+        allowed_resource_paths=("assets/report_template.md",),
+        allowed_workflow_step_ids=("step-1",),
+    )
+
+    assert confirmed.state == "confirmed"
+    assert confirmed.cases[0].required_resource_paths == (
+        "assets/report_template.md",
+    )
+
+
 def test_only_user_patch_can_add_regression_and_confirm_coverage(tmp_path: Path) -> None:
     store = SkillEvaluationSuiteStore(tmp_path)
     suite = _generated(store)

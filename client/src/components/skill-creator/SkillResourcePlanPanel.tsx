@@ -229,17 +229,13 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
         <div>
           <div className="flex items-center gap-2 text-brand-100">
             <Sparkles aria-hidden="true" size={17} />
-            <h3 className="text-base font-semibold" id="creator-resource-plan-heading">资源规划</h3>
+            <h3 className="text-base font-semibold" id="creator-resource-plan-heading">AI 给出的制作方案</h3>
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-            先决定哪些步骤需要脚本、参考资料或输出模板。规划阶段不会写草稿，也不会为了显得完整而强行增加文件。
+            AI 会先决定是否真的需要脚本、参考资料或输出模板。简单任务可以不增加任何文件，复杂任务才会拆分。
           </p>
         </div>
-        {plan ? (
-          <span className="rounded-full border border-white/10 bg-ink-950/55 px-3 py-1 text-xs text-slate-300">
-            plan r{plan.revision} · {plan.digest.slice(0, 10)}
-          </span>
-        ) : null}
+        {plan ? <span className="rounded-full border border-white/10 bg-ink-950/55 px-3 py-1 text-xs text-slate-300">方案 {plan.revision}</span> : null}
       </div>
 
       {error ? <p className="mt-4 rounded-md border border-red-400/25 bg-red-400/10 px-3 py-2 text-sm text-red-100" role="alert">{error}</p> : null}
@@ -250,7 +246,7 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
           <p className="text-sm text-slate-300">
             {legacyFlow
               ? "这是旧版 Creator 会话。现有提案和草稿保持可读；只有你主动进入资源规划后，才切换到逐资源生成流程。"
-              : "素材确认后，让固定 Creator 助手只生成一份可编辑计划，不生成任何文件。"}
+              : "先让 AI 给出一份可编辑方案。此时不会生成文件，也不会安装任何内容。"}
           </p>
           <button
             className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-40"
@@ -259,7 +255,7 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
             type="button"
           >
             {busy === "generate" ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <Sparkles aria-hidden="true" size={16} />}
-            {busy === "generate" ? "正在分析需求…" : legacyFlow ? "进入资源规划并生成计划" : "生成资源计划"}
+            {busy === "generate" ? "正在理解需求…" : legacyFlow ? "切换到新流程并生成方案" : "让 AI 生成方案"}
           </button>
           {plannerUnavailable ? <p className="mt-3 text-xs text-amber-200">模型网关未配置，暂时不能生成资源计划。</p> : null}
         </div>
@@ -305,6 +301,23 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
 
       {plan && !plan.stale && (plan.state === "ready" || plan.state === "confirmed") ? (
         <div className="mt-5 space-y-5">
+          <div className="rounded-lg border border-white/10 bg-ink-950/45 p-4 sm:p-5">
+            <p className="text-xs font-semibold text-brand-100">AI 的理解</p>
+            <h4 className="mt-2 text-base font-semibold text-white">{skillName || "待命名 Skill"}</h4>
+            <p className="mt-2 text-sm leading-6 text-slate-300">{skillDescription}</p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {resources.length ? resources.map((item) => (
+                <div className="rounded-md bg-white/[0.035] p-3" key={item.resource_id}>
+                  <p className="text-xs font-semibold text-white">{KIND_LABELS[item.kind]} · {item.action === "create" ? "新增" : ACTION_LABELS[item.action]}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">{item.purpose}</p>
+                </div>
+              )) : <p className="text-sm text-emerald-100">这个任务不需要额外资源，保持简单即可。</p>}
+            </div>
+          </div>
+
+          <details className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-slate-300">调整技术细节（可选）</summary>
+            <div className="mt-5 space-y-5">
           <div className="grid gap-4 lg:grid-cols-2">
             <label className="block">
               <span className="text-xs font-semibold text-slate-300">Skill ID</span>
@@ -366,16 +379,18 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
               })}
             </div>
           </div>
+            </div>
+          </details>
 
           {plan.state === "confirmed" ? (
             <div className="rounded-md border border-emerald-300/20 bg-emerald-300/[0.08] p-4">
-              <p className="flex items-center gap-2 text-sm font-semibold text-emerald-100"><CheckCircle2 aria-hidden="true" size={17} />资源计划已确认</p>
-              <p className="mt-1 text-xs leading-5 text-emerald-100/75">路径、来源和生成顺序已经冻结。当前阶段不会提前写入草稿或安装目录。</p>
+              <p className="flex items-center gap-2 text-sm font-semibold text-emerald-100"><CheckCircle2 aria-hidden="true" size={17} />方案已确认</p>
+              <p className="mt-1 text-xs leading-5 text-emerald-100/75">下一步会按这个方案逐项生成，仍不会自动安装。</p>
             </div>
           ) : (
             <div className="flex flex-wrap justify-end gap-3 border-t border-white/10 pt-4">
-              <button className="min-h-11 rounded-full border border-white/15 px-5 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!planDirty || Boolean(busy)} onClick={() => void savePlan()} type="button">{busy === "save" ? "正在保存…" : "保存计划修改"}</button>
-              <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-5 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={planDirty || Boolean(busy)} onClick={() => void confirmPlan()} type="button"><CheckCircle2 aria-hidden="true" size={16} />{busy === "confirm" ? "正在确认…" : "确认并冻结资源计划"}</button>
+              <button className="min-h-11 rounded-full border border-white/15 px-5 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!planDirty || Boolean(busy)} onClick={() => void savePlan()} type="button">{busy === "save" ? "正在保存…" : "保存我的调整"}</button>
+              <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-5 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={planDirty || Boolean(busy)} onClick={() => void confirmPlan()} type="button"><CheckCircle2 aria-hidden="true" size={16} />{busy === "confirm" ? "正在确认…" : "方案没问题，开始生成"}</button>
             </div>
           )}
         </div>

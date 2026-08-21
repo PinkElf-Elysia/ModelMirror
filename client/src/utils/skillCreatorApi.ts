@@ -70,6 +70,35 @@ export interface SkillEvaluationCase {
   assertions: SkillEvaluationAssertion[];
 }
 
+export type SkillEvaluationSuiteRole = "normal" | "ambiguous" | "boundary" | "regression";
+
+export interface SkillEvaluationSuiteCase extends SkillEvaluationCase {
+  role: SkillEvaluationSuiteRole;
+  source: "generated" | "migrated" | "user";
+  requirement_ids: string[];
+  required_resource_paths: string[];
+  workflow_step_ids: string[];
+  case_fingerprint?: string;
+}
+
+export interface SkillEvaluationSuite {
+  suite_id: string;
+  version: string;
+  suite_revision: number;
+  suite_digest: string;
+  session_id: string;
+  draft_id: string;
+  draft_revision: number;
+  draft_digest: string;
+  quality_mode: SkillCreatorQualityMode;
+  state: "draft" | "confirmed";
+  cases: SkillEvaluationSuiteCase[];
+  change_reason?: string;
+  based_on_revision?: number | null;
+  stale?: boolean;
+  created_at?: number;
+}
+
 export interface SkillEvaluationUsage {
   prompt_tokens?: number | null;
   completion_tokens?: number | null;
@@ -104,7 +133,7 @@ export interface SkillEvaluationItem {
   item_id: string;
   pair_id?: string | null;
   case_id: string;
-  target: "baseline" | "candidate";
+  target: "baseline" | "previous" | "candidate";
   repetition: number;
   status: SkillEvaluationItemStatus;
   attempts?: number;
@@ -127,6 +156,7 @@ export interface SkillEvaluationReview {
   decision: "accept" | "revise";
   feedback?: string | null;
   reason?: string | null;
+  acknowledged_regression_item_ids?: string[];
   actor_kind?: string;
   created_at?: number;
 }
@@ -140,6 +170,26 @@ export interface SkillEvaluationReport {
   candidate_usage?: SkillEvaluationUsage | null;
   baseline_latency_ms?: number | null;
   candidate_latency_ms?: number | null;
+  previous_usage?: SkillEvaluationUsage | null;
+  previous_latency_ms?: number | null;
+  candidate_assertion_failed_count?: number;
+  eligible_for_accept?: boolean;
+  application_receipt_verified_count?: number;
+  model_mismatch_count?: number;
+  regression_item_ids?: string[];
+  comparison_reference?: "baseline" | "previous";
+  comparison_counts?: Record<"regressed" | "improved" | "flat" | "inconclusive", number>;
+  pairs?: Array<{
+    pair_id: string;
+    case_id: string;
+    repetition: number;
+    baseline_item_id?: string | null;
+    previous_item_id?: string | null;
+    candidate_item_id?: string | null;
+    classification: "regressed" | "improved" | "flat" | "inconclusive";
+    new_failure_indices?: number[];
+    fixed_failure_indices?: number[];
+  }>;
 }
 
 export interface SkillEvaluationRun {
@@ -149,10 +199,14 @@ export interface SkillEvaluationRun {
   revision: number;
   frozen_digest: string;
   baseline_overlay_id?: string | null;
+  previous_overlay_id?: string | null;
   candidate_overlay_id?: string | null;
   model_id: string;
   repetitions: number;
   case_set_revision?: number | null;
+  evaluation_suite_id?: string | null;
+  evaluation_suite_revision?: number | null;
+  evaluation_suite_digest?: string | null;
   cases: SkillEvaluationCase[];
   items: SkillEvaluationItem[];
   report?: SkillEvaluationReport | null;
@@ -166,6 +220,106 @@ export interface SkillEvaluationRun {
   error?: string | null;
   created_at?: number;
   updated_at?: number;
+}
+
+export interface SkillEvolutionQuestion {
+  question_id: string;
+  question: string;
+  reason: string;
+}
+
+export interface SkillEvolutionDiagnosis {
+  case_id: string;
+  evidence_item_ids: string[];
+  failure_types: string[];
+  requirement_ids: string[];
+  resource_ids: string[];
+  sections: string[];
+  summary: string;
+}
+
+export interface SkillEvolutionAction {
+  action_id: string;
+  action: "keep" | "update" | "create" | "delete";
+  resource_id: string;
+  kind: "script" | "reference" | "asset";
+  path: string;
+  purpose: string;
+  source_ids: string[];
+  used_by_steps: string[];
+  depends_on: string[];
+  acceptance_checks: string[];
+  related_case_ids: string[];
+  expected_improvement: string;
+  non_regression_case_ids: string[];
+}
+
+export interface SkillEvolutionPlan {
+  plan_id: string;
+  version: string;
+  revision: number;
+  digest: string;
+  state: "needs_input" | "needs_regeneration" | "ready" | "confirmed" | "stale";
+  session_id: string;
+  draft_id: string;
+  draft_revision: number;
+  draft_digest: string;
+  evaluation_run_id: string;
+  evaluation_run_revision: number;
+  review_revision: number;
+  suite_id: string;
+  suite_revision: number;
+  suite_digest: string;
+  diagnoses: SkillEvolutionDiagnosis[];
+  actions: SkillEvolutionAction[];
+  expected_improvements: string[];
+  acceptance_criteria: string[];
+  non_goals: string[];
+  overfitting_risks: string[];
+  clarifications: SkillEvolutionQuestion[];
+  clarification_answers: Record<string, string>;
+  created_at?: number;
+  updated_at?: number;
+}
+
+export interface SkillUnavailableProjection {
+  available: false;
+  code: string;
+}
+
+export interface SkillRegressionGovernance {
+  version: string;
+  enabled: boolean;
+  max_items: number;
+  case_count: number;
+  target_count: 2 | 3;
+  estimated_model_calls: number;
+  max_repetitions: number;
+  previous_revision?: number | null;
+  previous_digest?: string | null;
+  evolution_history_available?: boolean;
+  revisions: Array<{
+    revision: number;
+    content_digest: string;
+    source_proposal_id?: string | null;
+    created_at?: number;
+    is_current: boolean;
+    is_installed: boolean;
+    is_previous: boolean;
+  }>;
+  runs: Array<{
+    run_id: string;
+    draft_revision: number;
+    frozen_digest: string;
+    status: SkillEvaluationRunStatus;
+    review_state?: string | null;
+    suite_revision?: number | null;
+    target_count: 2 | 3;
+    item_count: number;
+    comparison_counts?: Record<string, number>;
+    created_at?: number;
+    completed_at?: number | null;
+  }>;
 }
 
 export interface SkillCreatorQualityDecision {
@@ -517,6 +671,9 @@ export interface SkillCreatorSession {
   draft?: SkillCreatorDraft | null;
   resource_plan?: SkillResourcePlan | null;
   resource_build?: SkillResourceBuild | null;
+  evaluation_suite?: SkillEvaluationSuite | null;
+  evolution_plan?: SkillEvolutionPlan | SkillUnavailableProjection | null;
+  regression_governance?: SkillRegressionGovernance | null;
   created_at: number;
   updated_at: number;
 }
@@ -536,6 +693,13 @@ export interface SkillCreatorStatus {
   resource_build_version?: string | null;
   resource_builder_available?: boolean;
   script_sandbox_configured?: boolean;
+  evaluation_suite_enabled?: boolean;
+  evaluation_suite_version?: string | null;
+  evaluation_suite_generator_available?: boolean;
+  evaluation_suite_store_available?: boolean;
+  evolution_enabled?: boolean;
+  evolution_version?: string | null;
+  evolution_planner_available?: boolean;
 }
 
 export interface SkillCreatorListResponse {
@@ -627,6 +791,9 @@ function unwrapSession(
         evaluation_run?: SkillEvaluationRun | null;
         resource_plan?: SkillResourcePlan | null;
         resource_build?: SkillResourceBuild | null;
+        evaluation_suite?: SkillEvaluationSuite | null;
+        evolution_plan?: SkillEvolutionPlan | SkillUnavailableProjection | null;
+        regression_governance?: SkillRegressionGovernance | null;
       },
 ): SkillCreatorSession {
   if (!("session" in payload)) return payload;
@@ -639,6 +806,9 @@ function unwrapSession(
     evaluation_run: payload.evaluation_run ?? payload.session.evaluation_run,
     resource_plan: payload.resource_plan ?? payload.session.resource_plan,
     resource_build: payload.resource_build ?? payload.session.resource_build,
+    evaluation_suite: payload.evaluation_suite ?? payload.session.evaluation_suite,
+    evolution_plan: payload.evolution_plan ?? payload.session.evolution_plan,
+    regression_governance: payload.regression_governance ?? payload.session.regression_governance,
   };
 }
 
@@ -742,6 +912,95 @@ export async function saveSkillCreatorEvaluationCases(
   ));
 }
 
+function suiteOptimisticPayload(session: SkillCreatorSession, draft: SkillCreatorDraft) {
+  return {
+    expected_session_revision: session.session_revision,
+    expected_draft_state_revision: session.draft_state_revision,
+    expected_draft_revision: draft.content_revision,
+    expected_draft_digest: draft.content_digest,
+  };
+}
+
+function suiteCasePayload(evaluationCase: SkillEvaluationSuiteCase) {
+  return {
+    case_id: evaluationCase.case_id,
+    role: evaluationCase.role,
+    name: evaluationCase.name,
+    prompt: evaluationCase.prompt,
+    expected_behavior: evaluationCase.expected_behavior,
+    fixtures: evaluationCase.fixtures,
+    assertions: evaluationCase.assertions,
+    requirement_ids: evaluationCase.requirement_ids,
+    required_resource_paths: evaluationCase.required_resource_paths,
+    workflow_step_ids: evaluationCase.workflow_step_ids,
+  };
+}
+
+export async function generateSkillCreatorEvaluationSuite(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+) {
+  const suite = session.evaluation_suite;
+  return unwrapSession(await request<SkillCreatorSession | {
+    session: SkillCreatorSession;
+    draft?: SkillCreatorDraft;
+    evaluation_suite?: SkillEvaluationSuite | null;
+  }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/evaluation-suite/generate`,
+    jsonRequest("POST", {
+      ...suiteOptimisticPayload(session, draft),
+      expected_suite_revision: suite?.suite_revision,
+      expected_suite_digest: suite?.suite_digest,
+    }),
+  ));
+}
+
+export async function updateSkillCreatorEvaluationSuite(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  cases: SkillEvaluationSuiteCase[],
+  changeReason: string,
+) {
+  const suite = session.evaluation_suite;
+  if (!suite) throw new Error("Evaluation suite is not available.");
+  return unwrapSession(await request<SkillCreatorSession | {
+    session: SkillCreatorSession;
+    draft?: SkillCreatorDraft;
+    evaluation_suite?: SkillEvaluationSuite | null;
+  }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/evaluation-suite`,
+    jsonRequest("PATCH", {
+      ...suiteOptimisticPayload(session, draft),
+      suite_id: suite.suite_id,
+      expected_suite_revision: suite.suite_revision,
+      expected_suite_digest: suite.suite_digest,
+      cases: cases.map(suiteCasePayload),
+      change_reason: changeReason.trim(),
+    }),
+  ));
+}
+
+export async function confirmSkillCreatorEvaluationSuite(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+) {
+  const suite = session.evaluation_suite;
+  if (!suite) throw new Error("Evaluation suite is not available.");
+  return unwrapSession(await request<SkillCreatorSession | {
+    session: SkillCreatorSession;
+    draft?: SkillCreatorDraft;
+    evaluation_suite?: SkillEvaluationSuite | null;
+  }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/evaluation-suite/confirm`,
+    jsonRequest("POST", {
+      ...suiteOptimisticPayload(session, draft),
+      suite_id: suite.suite_id,
+      expected_suite_revision: suite.suite_revision,
+      expected_suite_digest: suite.suite_digest,
+    }),
+  ));
+}
+
 export async function startSkillCreatorEvaluation(
   session: SkillCreatorSession,
   draft: SkillCreatorDraft,
@@ -756,6 +1015,12 @@ export async function startSkillCreatorEvaluation(
     jsonRequest("POST", {
       ...optimisticPayload(session, draft),
       repetitions,
+      evaluation_suite_revision: session.evaluation_suite?.state === "confirmed"
+        ? session.evaluation_suite.suite_revision
+        : undefined,
+      evaluation_suite_digest: session.evaluation_suite?.state === "confirmed"
+        ? session.evaluation_suite.suite_digest
+        : undefined,
     }),
   );
   return {
@@ -837,7 +1102,12 @@ export async function submitSkillCreatorEvaluationReview(
   draft: SkillCreatorDraft,
   run: SkillEvaluationRun,
   decision: "accept" | "revise",
-  payload: { feedback?: string; reason?: string; confirm_failed_assertions?: boolean },
+  payload: {
+    feedback?: string;
+    reason?: string;
+    confirm_failed_assertions?: boolean;
+    acknowledged_regression_item_ids?: string[];
+  },
 ) {
   const result = await request<
     SkillEvaluationRun |
@@ -852,6 +1122,7 @@ export async function submitSkillCreatorEvaluationReview(
       decision,
       reason: payload.reason?.trim() || undefined,
       acknowledge_failed_assertions: payload.confirm_failed_assertions ?? false,
+      acknowledged_regression_item_ids: payload.acknowledged_regression_item_ids ?? [],
     }),
   );
   return {
@@ -881,6 +1152,95 @@ export async function iterateSkillCreatorDraft(
     proposal: result.proposal,
     session: result.session ?? await readSkillCreatorSession(session.session_id),
   };
+}
+
+function evolutionOptimisticPayload(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  plan: SkillEvolutionPlan,
+) {
+  return {
+    plan_id: plan.plan_id,
+    expected_session_revision: session.session_revision,
+    expected_draft_state_revision: session.draft_state_revision,
+    expected_draft_revision: draft.content_revision,
+    expected_draft_digest: draft.content_digest,
+    expected_plan_revision: plan.revision,
+    expected_plan_digest: plan.digest,
+  };
+}
+
+export async function generateSkillCreatorEvolutionPlan(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  run: SkillEvaluationRun,
+) {
+  const resourcePlan = session.resource_plan;
+  if (!resourcePlan) throw new Error("Resource plan is not available.");
+  const evolution = session.evolution_plan && "plan_id" in session.evolution_plan
+    ? session.evolution_plan
+    : null;
+  const result = await request<{ evolution_plan: SkillEvolutionPlan }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/evolution-plan/generate`,
+    jsonRequest("POST", {
+      evaluation_run_id: run.run_id,
+      expected_session_revision: session.session_revision,
+      expected_draft_state_revision: session.draft_state_revision,
+      expected_draft_revision: draft.content_revision,
+      expected_draft_digest: draft.content_digest,
+      expected_review_revision:
+        run.reviews?.at(-1)?.review_revision ?? run.review_revision ?? session.review_revision ?? 0,
+      expected_run_revision: run.revision,
+      expected_resource_plan_revision: resourcePlan.revision,
+      expected_resource_plan_digest: resourcePlan.digest,
+      expected_evolution_revision: evolution?.revision,
+      expected_evolution_digest: evolution?.digest,
+    }),
+  );
+  return result.evolution_plan;
+}
+
+export async function answerSkillCreatorEvolutionPlan(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  plan: SkillEvolutionPlan,
+  answers: Record<string, string>,
+) {
+  const result = await request<{ evolution_plan: SkillEvolutionPlan }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/evolution-plan/answers`,
+    jsonRequest("PUT", {
+      ...evolutionOptimisticPayload(session, draft, plan),
+      answers,
+    }),
+  );
+  return result.evolution_plan;
+}
+
+export async function updateSkillCreatorEvolutionPlan(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  plan: SkillEvolutionPlan,
+  changes: Record<string, unknown>,
+) {
+  const result = await request<{ evolution_plan: SkillEvolutionPlan }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/evolution-plan`,
+    jsonRequest("PATCH", {
+      ...evolutionOptimisticPayload(session, draft, plan),
+      changes,
+    }),
+  );
+  return result.evolution_plan;
+}
+
+export async function confirmSkillCreatorEvolutionPlan(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  plan: SkillEvolutionPlan,
+) {
+  return request<{ evolution_plan: SkillEvolutionPlan; resource_plan: SkillResourcePlan }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/evolution-plan/confirm`,
+    jsonRequest("POST", evolutionOptimisticPayload(session, draft, plan)),
+  );
 }
 
 export async function waiveSkillCreatorEvaluation(
