@@ -48,6 +48,20 @@ describe("WorkflowRun file assets", () => {
         "fallback",
       ),
     ).toBe("文件不存在或无权访问。");
+    expect(
+      apiErrorMessage(
+        {
+          detail: [
+            {
+              type: "value_error",
+              loc: ["body"],
+              msg: "Value error, workflow_variable_producer_conflict:user_input",
+            },
+          ],
+        },
+        "fallback",
+      ),
+    ).toBe("Value error, workflow_variable_producer_conflict:user_input");
     expect(apiErrorMessage(null, "fallback")).toBe("fallback");
   });
 

@@ -6,6 +6,8 @@ export type WorkflowNodeKind =
   | "scheduled_start"
   | "http_event_entry"
   | "failure_event_entry"
+  | "workflow_call_entry"
+  | "invoke_workflow"
   | "llm"
   | "condition"
   | "code"
@@ -167,6 +169,10 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   executionMode?: string;
   waitForCompletion?: string;
   resultVariable?: string;
+  targetProjectId?: string;
+  targetVersion?: number | string;
+  inputBindings?: Record<string, unknown>;
+  timeoutSeconds?: number | string;
   waitTimeoutSeconds?: string;
   reason?: string;
   reasonTemplate?: string;

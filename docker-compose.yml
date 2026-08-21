@@ -589,6 +589,7 @@ services:
       XPERT_STORAGE_DIR: /app/xperts/storage
       AGENT_TASK_STORAGE_DIR: /app/xpert_runtime/storage
       WORKFLOW_FAILURE_TRIGGERS_ENABLED: ${WORKFLOW_FAILURE_TRIGGERS_ENABLED:-false}
+      WORKFLOW_SUBWORKFLOWS_ENABLED: ${WORKFLOW_SUBWORKFLOWS_ENABLED:-false}
       AGENT_TABLE_STORAGE_DIR: /app/xpert_runtime/storage
       DATAX_STORAGE_DIR: /app/datax/storage
       TOOLSET_STORAGE_DIR: /app/toolsets/storage

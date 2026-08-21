@@ -52,6 +52,16 @@ describe("WorkflowEditor palette defaults", () => {
       sourceProjectIds: [],
       eventVariable: "failure_event",
     });
+    expect(createNodeData("workflow_call_entry")).toMatchObject({
+      eventVariable: "call_event",
+    });
+    expect(createNodeData("invoke_workflow")).toMatchObject({
+      targetProjectId: "",
+      targetVersion: "",
+      inputBindings: {},
+      resultVariable: "workflow_result",
+      timeoutSeconds: 60,
+    });
   });
 
   it("repairs missing or non-finite positions from server and legacy drafts", () => {

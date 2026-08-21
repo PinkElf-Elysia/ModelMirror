@@ -5,11 +5,16 @@ import type {
   WorkflowNodeData,
 } from "../../types/workflow";
 import {
+  fetchWorkflowProject,
   fetchWorkflowProjects,
+  fetchWorkflowVersionInterface,
+  type WorkflowInterfaceInput,
   type WorkflowProjectSummary,
+  type WorkflowVersionInterface,
 } from "../../utils/workflowDeployments";
 import WorkflowVariableField from "./WorkflowVariableField";
 import type { WorkflowNodeContractProjection } from "./workflowNodeRegistry";
+import type { WorkflowVariableValueType } from "./workflowVariables";
 
 type DurationUnit = "seconds" | "minutes" | "hours" | "days";
 type CronPattern = "minutes" | "hourly" | "daily" | "weekly" | "monthly" | "custom";
@@ -546,6 +551,339 @@ function FailureEntryConfig({
   );
 }
 
+function WorkflowCallEntryConfig({
+  node,
+  nodes,
+  edges,
+  contract,
+  data,
+  onChange,
+}: {
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  contract: WorkflowNodeContractProjection | null;
+  data: WorkflowNodeData;
+  onChange: (patch: Partial<WorkflowNodeData>) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-indigo-300/25 bg-indigo-300/10 px-3 py-2 text-xs leading-5 text-indigo-50">
+        该入口只接受其他已发布工作流的内部同步调用，不会生成公开 URL；输入直接使用全局变量中心里的“外部输入”声明。
+      </div>
+      <Section
+        title="调用上下文"
+        description="写入父执行、根执行、调用节点和固定版本等安全上下文，不包含调用输入正文。"
+      >
+        <GlobalVariableField
+          contract={contract}
+          edges={edges}
+          fieldName="eventVariable"
+          hint="例如 call_event"
+          label="调用事件变量"
+          node={node}
+          nodes={nodes}
+          onChange={(eventVariable) => onChange({ eventVariable })}
+          value={String(data.eventVariable ?? "")}
+        />
+      </Section>
+      <p className="rounded-lg border border-white/10 bg-black/15 px-3 py-2 text-xs leading-5 text-slate-400">
+        请在全局变量中心添加类型化外部输入和默认值。常量只属于本工作流，调用方无法覆盖。
+      </p>
+    </div>
+  );
+}
+
+function literalText(value: unknown, valueType: WorkflowInterfaceInput["value_type"]) {
+  if (valueType === "json") {
+    try {
+      return JSON.stringify(value ?? null, null, 2);
+    } catch {
+      return "null";
+    }
+  }
+  return String(value ?? "");
+}
+
+export function parseJsonLiteralForUi(raw: string):
+  | { valid: true; value: unknown }
+  | { valid: false } {
+  try {
+    return { valid: true, value: JSON.parse(raw) as unknown };
+  } catch {
+    return { valid: false };
+  }
+}
+
+export function JsonLiteralInput({
+  inputName,
+  value,
+  onChange,
+}: {
+  inputName: string;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const serialized = literalText(value, "json");
+  const [draft, setDraft] = useState(serialized);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setDraft(serialized);
+    setError("");
+  }, [serialized]);
+
+  return (
+    <div>
+      <textarea
+        aria-invalid={Boolean(error)}
+        aria-label={`${inputName} 固定 JSON 值`}
+        className={`${inputClass} min-h-20 font-mono`}
+        onChange={(event) => {
+          const raw = event.target.value;
+          setDraft(raw);
+          const parsed = parseJsonLiteralForUi(raw);
+          if (!parsed.valid) {
+            setError("请输入合法 JSON；字符串需要使用双引号。当前内容尚未保存。");
+            return;
+          }
+          setError("");
+          onChange(parsed.value);
+        }}
+        value={draft}
+      />
+      {error ? (
+        <p className="mt-1.5 text-[11px] leading-5 text-rose-200" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function InvokeWorkflowConfig({
+  currentProjectId,
+  node,
+  nodes,
+  edges,
+  data,
+  onChange,
+}: {
+  currentProjectId?: string;
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  data: WorkflowNodeData;
+  onChange: (patch: Partial<WorkflowNodeData>) => void;
+}) {
+  const [projects, setProjects] = useState<WorkflowProjectSummary[]>([]);
+  const [versions, setVersions] = useState<number[]>([]);
+  const [targetInterface, setTargetInterface] = useState<WorkflowVersionInterface | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [search, setSearch] = useState("");
+  const targetProjectId = String(data.targetProjectId ?? "");
+  const targetVersion = Number(data.targetVersion || 0);
+  const bindings = (data.inputBindings && typeof data.inputBindings === "object"
+    ? data.inputBindings
+    : {}) as Record<string, { source?: string; variable?: string; value?: unknown }>;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCallableProjects() {
+      const collected: WorkflowProjectSummary[] = [];
+      let offset = 0;
+      let total = 0;
+      do {
+        const response = await fetchWorkflowProjects({
+          limit: 100,
+          offset,
+          activeOnly: true,
+          triggerKind: "call",
+        });
+        collected.push(...response.items);
+        total = response.total;
+        offset += response.items.length;
+      } while (offset < total && offset < 1_000);
+      return collected;
+    }
+    void loadCallableProjects()
+      .then((items) => {
+        if (!cancelled) {
+          setProjects(items.filter((item) => item.project_id !== currentProjectId));
+          setLoadError("");
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : "无法读取可调用工作流。");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [currentProjectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!targetProjectId) {
+      setVersions([]);
+      setTargetInterface(null);
+      return () => { cancelled = true; };
+    }
+    void fetchWorkflowProject(targetProjectId)
+      .then((project) => {
+        if (cancelled) return;
+        setVersions(project.published_versions.map((item) => item.version));
+        if (!targetVersion && project.active_version) {
+          onChange({ targetVersion: project.active_version, inputBindings: {} });
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : "无法读取目标版本。");
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetProjectId, targetVersion]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!targetProjectId || targetVersion < 1) {
+      setTargetInterface(null);
+      return () => { cancelled = true; };
+    }
+    void fetchWorkflowVersionInterface(targetProjectId, targetVersion)
+      .then((value) => {
+        if (cancelled) return;
+        setTargetInterface(value);
+        const nextBindings = Object.fromEntries(
+          value.inputs.flatMap((input) => {
+            const existing = bindings[input.name];
+            if (existing) return [[input.name, existing]];
+            if (!input.required) return [];
+            return [[input.name, { source: "variable", variable: input.name }]];
+          }),
+        );
+        if (JSON.stringify(nextBindings) !== JSON.stringify(bindings)) {
+          onChange({ inputBindings: nextBindings });
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setTargetInterface(null);
+          setLoadError(error instanceof Error ? error.message : "无法读取目标接口。");
+        }
+      });
+    return () => { cancelled = true; };
+    // bindings are reconciled only when the selected interface changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetProjectId, targetVersion]);
+
+  const filteredProjects = projects.filter((project) => {
+    const query = search.trim().toLocaleLowerCase();
+    return !query || project.title.toLocaleLowerCase().includes(query) || project.project_id.includes(query);
+  });
+  const selectedProject = projects.find((project) => project.project_id === targetProjectId);
+  const updateBinding = (name: string, binding?: Record<string, unknown>) => {
+    const next = { ...bindings };
+    if (binding) next[name] = binding;
+    else delete next[name];
+    onChange({ inputBindings: next });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-indigo-300/25 bg-indigo-300/10 px-3 py-2 text-xs leading-5 text-indigo-50">
+        仅调用当前已启用的精确版本；不会跟随“最新版”。失败、超时或取消会使当前工作流失败。
+      </div>
+      <Section title="固定目标" description="先选择使用子流程入口且当前已启用的工作流，再固定它的发布版本。">
+        <input aria-label="搜索可调用工作流" className={inputClass} onChange={(event) => setSearch(event.target.value)} placeholder="按名称或工作流 ID 搜索" type="search" value={search} />
+        <Field label="目标工作流">
+          <select
+            className={inputClass}
+            disabled={loading}
+            onChange={(event) => onChange({ targetProjectId: event.target.value, targetVersion: "", inputBindings: {} })}
+            value={targetProjectId}
+          >
+            <option value="">请选择已启用的可调用工作流</option>
+            {filteredProjects.map((project) => <option key={project.project_id} value={project.project_id}>{project.title} · v{project.active_version}</option>)}
+          </select>
+        </Field>
+        {targetProjectId && !selectedProject ? <p className="text-xs text-amber-200">已保存的目标当前不在可调用目录中，请重新选择。</p> : null}
+        <Field label="固定发布版本" hint="只有当前启用版本可运行">
+          <select className={inputClass} disabled={!targetProjectId} onChange={(event) => onChange({ targetVersion: Number(event.target.value), inputBindings: {} })} value={targetVersion || ""}>
+            <option value="">请选择版本</option>
+            {versions.map((version) => <option disabled={version !== selectedProject?.active_version} key={version} value={version}>v{version}{version === selectedProject?.active_version ? " · 当前启用" : " · 未启用"}</option>)}
+          </select>
+        </Field>
+        {loadError ? <p className="rounded-lg border border-rose-300/20 bg-rose-300/[0.06] px-3 py-2 text-xs text-rose-100">{loadError}</p> : null}
+      </Section>
+      {targetInterface ? (
+        <Section title="输入绑定" description="目标的外部输入会自动列出；可绑定上游变量或填写类型化固定值。">
+          {!targetInterface.active || targetInterface.trigger_kind !== "call" ? <p className="text-xs text-rose-200">该固定版本当前不可调用。</p> : null}
+          {!targetInterface.inputs.length ? <p className="text-xs text-slate-400">目标没有声明外部输入。</p> : null}
+          {targetInterface.inputs.map((input) => {
+            const binding = bindings[input.name];
+            const source = binding?.source ?? (input.required ? "variable" : "default");
+            const expectedTypes: WorkflowVariableValueType[] = input.value_type === "json" ? ["json", "unknown"] : [input.value_type, "unknown"];
+            return (
+              <div className="space-y-2 rounded-lg border border-white/10 bg-black/15 p-3" key={input.name}>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-mono text-xs text-slate-100">{input.name}</span>
+                  <span className="text-[10px] text-slate-500">{input.value_type}{input.required ? " · 必填" : " · 有默认值"}</span>
+                </div>
+                <select className={inputClass} onChange={(event) => {
+                  const mode = event.target.value;
+                  if (mode === "default") updateBinding(input.name);
+                  else if (mode === "variable") updateBinding(input.name, { source: "variable", variable: input.name });
+                  else updateBinding(input.name, { source: "literal", value: input.default_value ?? (input.value_type === "boolean" ? false : input.value_type === "number" ? 0 : input.value_type === "json" ? null : "") });
+                }} value={source}>
+                  {!input.required ? <option value="default">使用目标默认值</option> : null}
+                  <option value="variable">绑定上游变量</option>
+                  <option value="literal">填写固定值</option>
+                </select>
+                {source === "variable" ? (
+                  <WorkflowVariableField
+                    descriptor={{ nodeKind: "invoke_workflow", field: "inputBindings", mode: "binding", fallbackTypes: expectedTypes }}
+                    edges={edges}
+                    fieldName="inputBindings"
+                    node={node}
+                    nodes={nodes}
+                    onChange={(variable) => updateBinding(input.name, { source: "variable", variable })}
+                    placeholder="选择或输入上游变量"
+                    value={String(binding?.variable ?? input.name)}
+                  />
+                ) : null}
+                {source === "literal" ? (
+                  input.value_type === "boolean" ? (
+                    <select className={inputClass} onChange={(event) => updateBinding(input.name, { source: "literal", value: event.target.value === "true" })} value={String(Boolean(binding?.value))}><option value="false">false</option><option value="true">true</option></select>
+                  ) : input.value_type === "number" ? (
+                    <input className={inputClass} onChange={(event) => updateBinding(input.name, { source: "literal", value: Number(event.target.value) })} type="number" value={Number(binding?.value ?? 0)} />
+                  ) : input.value_type === "json" ? (
+                    <JsonLiteralInput
+                      inputName={input.name}
+                      onChange={(value) => updateBinding(input.name, { source: "literal", value })}
+                      value={binding?.value}
+                    />
+                  ) : (
+                    <input className={inputClass} onChange={(event) => updateBinding(input.name, { source: "literal", value: event.target.value })} value={literalText(binding?.value, input.value_type)} />
+                  )
+                ) : null}
+                {input.description ? <p className="text-[11px] leading-5 text-slate-500">{input.description}</p> : null}
+              </div>
+            );
+          })}
+        </Section>
+      ) : null}
+      <Section title="运行结果" description="子流程完成后写入固定版本、父子执行关系和最终文本结果。">
+        <GlobalVariableField contract={null} edges={edges} fieldName="resultVariable" hint="例如 workflow_result" label="结果变量" node={node} nodes={nodes} onChange={(resultVariable) => onChange({ resultVariable })} value={String(data.resultVariable ?? "")} />
+        <Field label="最长等待时间" hint="1–60 秒">
+          <input className={inputClass} max={60} min={1} onChange={(event) => onChange({ timeoutSeconds: Number(event.target.value) })} type="number" value={Number(data.timeoutSeconds ?? 60)} />
+        </Field>
+      </Section>
+    </div>
+  );
+}
+
 export default function WorkflowDeploymentNodeConfig({
   currentProjectId,
   node,
@@ -567,6 +905,32 @@ export default function WorkflowDeploymentNodeConfig({
     return (
       <FailureEntryConfig
         contract={contract}
+        currentProjectId={currentProjectId}
+        data={data}
+        edges={edges}
+        node={node}
+        nodes={nodes}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (data.kind === "workflow_call_entry") {
+    return (
+      <WorkflowCallEntryConfig
+        contract={contract}
+        data={data}
+        edges={edges}
+        node={node}
+        nodes={nodes}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (data.kind === "invoke_workflow") {
+    return (
+      <InvokeWorkflowConfig
         currentProjectId={currentProjectId}
         data={data}
         edges={edges}

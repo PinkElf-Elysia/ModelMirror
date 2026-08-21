@@ -77,8 +77,10 @@ try:
     from server.api.workflow_deployments import (
         WorkflowTriggerCoordinator,
         configure_workflow_deployment_runtime,
+        execute_workflow_trigger,
         router as workflow_deployments_router,
         workflow_failure_triggers_enabled,
+        workflow_subworkflows_enabled,
     )
     from server.workflow_deployments import (
         WorkflowDeploymentStore,
@@ -89,8 +91,10 @@ except ModuleNotFoundError:
     from api.workflow_deployments import (
         WorkflowTriggerCoordinator,
         configure_workflow_deployment_runtime,
+        execute_workflow_trigger,
         router as workflow_deployments_router,
         workflow_failure_triggers_enabled,
+        workflow_subworkflows_enabled,
     )
     from workflow_deployments import (
         WorkflowDeploymentStore,
@@ -2303,6 +2307,8 @@ class WorkflowPayload(BaseModel):
             "scheduled_start": ("eventVariable",),
             "http_event_entry": ("eventVariable",),
             "failure_event_entry": ("eventVariable",),
+            "workflow_call_entry": ("eventVariable",),
+            "invoke_workflow": ("resultVariable",),
             "llm": ("outputVariable",),
             "code": ("codeOutputVariable",),
             "variable_assign": ("variableName",),
@@ -4810,6 +4816,8 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
         "scheduled_start",
         "http_event_entry",
         "failure_event_entry",
+        "workflow_call_entry",
+        "invoke_workflow",
         "llm",
         "condition",
         "code",
@@ -4966,6 +4974,309 @@ def resolve_data_table_value_binding(
     raise ValueError(
         f"{label} must use source=literal or source=variable."
     )
+
+
+def workflow_call_monotonic() -> float:
+    return time.monotonic()
+
+
+async def run_private_subworkflow_call(
+    *,
+    node: WorkflowNodePayload,
+    variables: dict[str, WorkflowValue],
+    task_id: str,
+    runtime_metadata: dict[str, Any],
+    cancellation_requested: Callable[[], bool],
+) -> dict[str, Any]:
+    if not workflow_subworkflows_enabled():
+        raise ValueError("Workflow subworkflows are disabled.")
+    target_project_id = str(node.data.get("targetProjectId") or "").strip()
+    target_version = int(node.data.get("targetVersion") or 0)
+    timeout_seconds = int(node.data.get("timeoutSeconds") or 60)
+    if not 1 <= timeout_seconds <= 60:
+        raise ValueError("Workflow call timeoutSeconds must be between 1 and 60.")
+    raw_bindings = node.data.get("inputBindings")
+    if not isinstance(raw_bindings, dict):
+        raise ValueError("Workflow call inputBindings must be an object.")
+    resolved_inputs = {
+        str(name): resolve_data_table_value_binding(
+            binding,
+            variables,
+            label=f"$.invoke_workflow.{node.id}.inputBindings.{name}",
+        )
+        for name, binding in raw_bindings.items()
+    }
+    release = workflow_deployment_store.require_version(
+        target_project_id,
+        target_version,
+    )
+    target_inputs = {
+        str(declaration.get("name") or ""): declaration
+        for declaration in release.workflow.get("variables", [])
+        if isinstance(declaration, dict) and declaration.get("kind") == "input"
+    }
+    unknown_inputs = sorted(set(resolved_inputs) - set(target_inputs))
+    if unknown_inputs:
+        raise ValueError(
+            f"Workflow call contains unknown input '{unknown_inputs[0]}'."
+        )
+    missing_inputs = sorted(
+        name
+        for name, declaration in target_inputs.items()
+        if "defaultValue" not in declaration and name not in resolved_inputs
+    )
+    if missing_inputs:
+        raise ValueError(
+            f"Workflow call is missing required input '{missing_inputs[0]}'."
+        )
+    WorkflowRunRequest.model_validate(
+        {"workflow": release.workflow, "inputs": resolved_inputs}
+    )
+    parent_execution_id = str(
+        runtime_metadata.get("workflow_deployment_execution_id")
+        or f"test:{task_id}"
+    )
+    root_execution_id = str(
+        runtime_metadata.get("workflow_root_execution_id")
+        or parent_execution_id
+    )
+    try:
+        parent_depth = int(runtime_metadata.get("workflow_call_depth") or 0)
+    except (TypeError, ValueError):
+        parent_depth = 0
+    test_mode = bool(
+        runtime_metadata.get("workflow_test_mode")
+        or not runtime_metadata.get("workflow_deployment_execution_id")
+    )
+    child, _ = workflow_deployment_store.materialize_subworkflow_execution(
+        parent_execution_id=parent_execution_id,
+        root_execution_id=root_execution_id,
+        parent_depth=parent_depth,
+        call_node_id=node.id,
+        target_project_id=target_project_id,
+        target_version=target_version,
+        test_mode=test_mode,
+        suppress_failure_dispatch=bool(
+            runtime_metadata.get("suppress_failure_dispatch", False)
+        ),
+    )
+
+    async def cancel_child(reason: str, durable_reason: str) -> None:
+        workflow_deployment_store.cancel_execution(
+            child.execution_id,
+            error=reason,
+        )
+        durable = (
+            workflow_execution_store.get(child.task_id)
+            if child.task_id
+            else None
+        )
+        if durable is None:
+            return
+        workflow_execution_store.cancel(
+            durable.task_id,
+            error=durable_reason,
+        )
+        try:
+            await run_registry.cancel_run(
+                durable.run_id,
+                reason=durable_reason,
+            )
+        except KeyError:
+            logger.warning(
+                "Subworkflow cancellation could not find runtime run task_id=%s",
+                durable.task_id,
+            )
+
+    def reconcile_durable_terminal(
+        current_child: WorkflowTriggerExecution,
+    ) -> tuple[WorkflowTriggerExecution, WorkflowExecution | None]:
+        durable = (
+            workflow_execution_store.get(current_child.task_id)
+            if current_child.task_id
+            else None
+        )
+        if (
+            durable is None
+            or current_child.status in {"completed", "failed", "cancelled", "skipped"}
+            or (
+                current_child.status == "running"
+                and current_child.lease_expires_at > time.time()
+            )
+        ):
+            return current_child, durable
+        if durable.status == "completed":
+            current_child = workflow_deployment_store.complete_execution(
+                current_child.execution_id,
+                task_id=durable.task_id,
+                run_id=durable.run_id,
+                result=durable.result or "",
+                expected_lease_token=(
+                    str(current_child.lease_token or "") or None
+                ),
+            )
+        elif durable.status in {"failed", "rejected"}:
+            current_child = workflow_deployment_store.fail_execution(
+                current_child.execution_id,
+                error=durable.error or "Subworkflow execution failed.",
+                task_id=durable.task_id,
+                run_id=durable.run_id,
+                dispatch_failures=workflow_failure_triggers_enabled(),
+                expected_lease_token=(
+                    str(current_child.lease_token or "") or None
+                ),
+            )
+        elif durable.status == "cancelled":
+            current_child = workflow_deployment_store.cancel_execution(
+                current_child.execution_id,
+                error=durable.error or "Subworkflow execution was cancelled.",
+            )
+        return current_child, durable
+
+    deadline = workflow_call_monotonic() + timeout_seconds
+    while child.status == "running" and child.lease_expires_at > time.time():
+        if cancellation_requested():
+            await cancel_child(
+                "Parent workflow execution was cancelled.",
+                "parent_workflow_cancelled",
+            )
+            return {
+                "status": "cancelled",
+                "projectId": target_project_id,
+                "version": target_version,
+                "executionId": child.execution_id,
+                "taskId": child.task_id,
+                "runId": child.run_id,
+                "result": "",
+            }
+        if workflow_call_monotonic() >= deadline:
+            await cancel_child(
+                "Subworkflow execution timed out.",
+                "subworkflow_timeout",
+            )
+            raise ValueError("Subworkflow execution timed out.")
+        await asyncio.sleep(0.05)
+        child = workflow_deployment_store.get_execution(child.execution_id) or child
+
+    child, durable_child = reconcile_durable_terminal(child)
+    if child.status == "completed":
+        if durable_child is None or durable_child.status != "completed":
+            raise ValueError("Completed subworkflow result is unavailable.")
+        return {
+            "status": "completed",
+            "projectId": target_project_id,
+            "version": target_version,
+            "executionId": child.execution_id,
+            "taskId": child.task_id,
+            "runId": child.run_id,
+            "result": durable_child.result or "",
+        }
+    if child.status in {"failed", "cancelled", "skipped"}:
+        raise ValueError(child.error_summary or "Subworkflow execution failed.")
+    if child.status == "waiting":
+        await cancel_child(
+            "Callable workflows cannot enter a waiting state.",
+            "subworkflow_wait_forbidden",
+        )
+        raise ValueError("Callable workflows cannot enter a waiting state.")
+
+    event = {
+        "type": "workflow_call",
+        "inputs": resolved_inputs,
+        "parent_execution_id": parent_execution_id,
+        "root_execution_id": root_execution_id,
+        "call_node_id": node.id,
+        "test_mode": test_mode,
+    }
+    call_task = asyncio.create_task(execute_workflow_trigger(child, event))
+    while not call_task.done():
+        if cancellation_requested():
+            await cancel_child(
+                "Parent workflow execution was cancelled.",
+                "parent_workflow_cancelled",
+            )
+            call_task.cancel()
+            try:
+                await call_task
+            except asyncio.CancelledError:
+                pass
+            return {
+                "status": "cancelled",
+                "projectId": target_project_id,
+                "version": target_version,
+                "executionId": child.execution_id,
+                "taskId": child.task_id,
+                "runId": child.run_id,
+                "result": "",
+            }
+        if workflow_call_monotonic() >= deadline:
+            await cancel_child(
+                "Subworkflow execution timed out.",
+                "subworkflow_timeout",
+            )
+            call_task.cancel()
+            try:
+                await call_task
+            except asyncio.CancelledError:
+                pass
+            raise ValueError("Subworkflow execution timed out.")
+        await asyncio.wait({call_task}, timeout=0.05)
+    completed_child = await call_task
+    while completed_child.status == "running":
+        if cancellation_requested():
+            await cancel_child(
+                "Parent workflow execution was cancelled.",
+                "parent_workflow_cancelled",
+            )
+            return {
+                "status": "cancelled",
+                "projectId": target_project_id,
+                "version": target_version,
+                "executionId": child.execution_id,
+                "taskId": child.task_id,
+                "runId": child.run_id,
+                "result": "",
+            }
+        if workflow_call_monotonic() >= deadline:
+            await cancel_child(
+                "Subworkflow execution timed out.",
+                "subworkflow_timeout",
+            )
+            raise ValueError("Subworkflow execution timed out.")
+        completed_child, _ = reconcile_durable_terminal(completed_child)
+        if completed_child.status != "running":
+            break
+        if completed_child.lease_expires_at <= time.time():
+            completed_child = await execute_workflow_trigger(
+                completed_child,
+                event,
+            )
+            continue
+        await asyncio.sleep(0.05)
+        completed_child = (
+            workflow_deployment_store.get_execution(child.execution_id)
+            or completed_child
+        )
+    if completed_child.status != "completed":
+        raise ValueError(
+            completed_child.error_summary or "Subworkflow execution failed."
+        )
+    durable_child = (
+        workflow_execution_store.get(completed_child.task_id)
+        if completed_child.task_id
+        else None
+    )
+    if durable_child is None or durable_child.status != "completed":
+        raise ValueError("Subworkflow completed without a reusable result.")
+    return {
+        "status": "completed",
+        "projectId": target_project_id,
+        "version": target_version,
+        "executionId": completed_child.execution_id,
+        "taskId": completed_child.task_id,
+        "runId": completed_child.run_id,
+        "result": durable_child.result or "",
+    }
 
 
 def resolve_data_table_filter(
@@ -7583,6 +7894,7 @@ async def _run_workflow_response(
     resolved_client_request: ClientToolRequest | None = None,
     runtime_execution_source_kind: str | None = None,
     runtime_trigger_event: dict[str, Any] | None = None,
+    runtime_task_id: str | None = None,
 ):
     trusted_source_kind = runtime_execution_source_kind or (
         _trusted_workflow_execution_source_kind(
@@ -7596,7 +7908,8 @@ async def _run_workflow_response(
         in {"llm", "workflow_agent"}
         for node in payload.workflow.nodes
     )
-    if requires_model and not get_llm_gateway_config()[0]:
+    model_gateway_missing = requires_model and not get_llm_gateway_config()[0]
+    if model_gateway_missing and trusted_source_kind != "workflow_deployment":
         return JSONResponse(
             status_code=500,
             content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
@@ -7622,7 +7935,7 @@ async def _run_workflow_response(
         node.id
         for node in payload.workflow.nodes
         if workflow_node_kind(node)
-        in {"input", "scheduled_start", "http_event_entry", "failure_event_entry"}
+        in {"input", "scheduled_start", "http_event_entry", "failure_event_entry", "workflow_call_entry"}
     ]
     if not start_node_ids and order:
         start_node_ids = [order[0]]
@@ -7633,7 +7946,11 @@ async def _run_workflow_response(
         if resume_execution is not None
         else {}
     )
-    task_id = resume_execution.task_id if resume_execution is not None else uuid.uuid4().hex
+    task_id = (
+        resume_execution.task_id
+        if resume_execution is not None
+        else str(runtime_task_id or uuid.uuid4().hex)
+    )
     run_metadata = {
         "workflow_id": payload.workflow.id,
         "workflow_title": payload.workflow.title,
@@ -7837,6 +8154,26 @@ async def _run_workflow_response(
             inputs=dict(payload.inputs),
             source_kind=trusted_source_kind,
             runtime_metadata=run_metadata,
+        )
+
+    if model_gateway_missing:
+        workflow_task_store.pop(task_id, None)
+        workflow_execution_store.fail(
+            task_id,
+            error=LLM_GATEWAY_NOT_CONFIGURED_MESSAGE,
+        )
+        await run_registry.update_run(
+            workflow_run.run_id,
+            status="failed",
+            error=LLM_GATEWAY_NOT_CONFIGURED_MESSAGE,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
+            headers={
+                "X-ModelMirror-Runtime-Task-Id": task_id,
+                "X-ModelMirror-Runtime-Run-Id": workflow_run.run_id,
+            },
         )
 
     async def workflow_stream_body():
@@ -11545,6 +11882,7 @@ async def _run_workflow_response(
                     "scheduled_start",
                     "http_event_entry",
                     "failure_event_entry",
+                    "workflow_call_entry",
                 }:
                     variable_name = str(node.data.get("eventVariable") or "trigger_event")
                     event_value: dict[str, Any] = dict(
@@ -11568,6 +11906,8 @@ async def _run_workflow_response(
                                 "test": True,
                                 "started_at": time.time(),
                             }
+                    if kind == "workflow_call_entry":
+                        event_value.pop("inputs", None)
                     variables[variable_name] = normalize_workflow_value(
                         event_value,
                         path=f"$.variables.{variable_name}",
@@ -11580,6 +11920,23 @@ async def _run_workflow_response(
                                 path=f"$.variables.{body_variable}",
                             )
                     output = json.dumps(event_value, ensure_ascii=False)
+
+                elif kind == "invoke_workflow":
+                    result_variable = str(
+                        node.data.get("resultVariable") or "workflow_result"
+                    )
+                    call_result = await run_private_subworkflow_call(
+                        node=node,
+                        variables=variables,
+                        task_id=task_id,
+                        runtime_metadata=run_metadata,
+                        cancellation_requested=cancellation_requested,
+                    )
+                    variables[result_variable] = normalize_workflow_value(
+                        call_result,
+                        path=f"$.variables.{result_variable}",
+                    )
+                    output = json.dumps(call_result, ensure_ascii=False)
 
                 elif kind == "llm":
                     model_id = str(node.data.get("modelId") or TEXT_FALLBACK_MODEL)
@@ -16915,7 +17272,11 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
         except (TypeError, ValueError, json.JSONDecodeError):
             payload = {}
         message = payload.get("error") if isinstance(payload, dict) else None
-        raise RuntimeError(str(message or "Xpert workflow could not start."))
+        raise WorkflowStreamFailure(
+            str(message or "Xpert workflow could not start."),
+            task_id=response.headers.get("X-ModelMirror-Runtime-Task-Id"),
+            run_id=response.headers.get("X-ModelMirror-Runtime-Run-Id"),
+        )
     if not isinstance(response, StreamingResponse):
         raise RuntimeError("Xpert workflow returned an unsupported response.")
 
@@ -16988,8 +17349,12 @@ async def run_deployed_workflow_trigger(
             if isinstance(node, dict)
         ],
     }
+    event_inputs = event.get("inputs") if execution.trigger_kind == "call" else {}
     payload = WorkflowRunRequest.model_validate(
-        {"workflow": runtime_workflow, "inputs": {}}
+        {
+            "workflow": runtime_workflow,
+            "inputs": event_inputs if isinstance(event_inputs, dict) else {},
+        }
     )
     metadata = {
         "workflow_deployment_execution_id": execution.execution_id,
@@ -17000,7 +17365,15 @@ async def run_deployed_workflow_trigger(
         "suppress_failure_dispatch": bool(
             execution.trigger_summary.get("suppress_failure_dispatch", False)
         ),
+        "workflow_root_execution_id": execution.root_execution_id
+        or execution.execution_id,
+        "workflow_parent_execution_id": execution.parent_execution_id,
+        "workflow_call_node_id": execution.call_node_id,
+        "workflow_call_depth": int(execution.trigger_summary.get("depth") or 0),
+        "workflow_test_mode": bool(execution.test_mode),
     }
+    safe_event = dict(event)
+    safe_event.pop("inputs", None)
     response = await _run_workflow_response(
         payload,
         None,
@@ -17008,7 +17381,8 @@ async def run_deployed_workflow_trigger(
         runtime_source_id=execution.project_id,
         runtime_metadata=metadata,
         runtime_execution_source_kind="workflow_deployment",
-        runtime_trigger_event=event,
+        runtime_trigger_event=safe_event,
+        runtime_task_id=execution.task_id,
     )
     try:
         final_event = await consume_workflow_stream(response)

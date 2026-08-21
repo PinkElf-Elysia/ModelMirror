@@ -130,6 +130,16 @@ def test_failure_entry_contract_is_complete_private_and_not_plannable() -> None:
     assert not node_policy_service.decision("failure_event_entry", "xpert").allowed
 
 
+def test_subworkflow_call_contract_does_not_overclaim_idempotency() -> None:
+    contract = workflow_node_contract_registry.require("invoke_workflow")
+
+    assert contract.contract_status == "complete"
+    assert contract.execution.side_effect == "external_write"
+    assert contract.execution.idempotent is False
+    assert contract.execution.can_wait is False
+    assert contract.planner.enabled is False
+
+
 def test_only_current_seven_nodes_have_valid_planner_contracts() -> None:
     available = {
         kind
@@ -202,6 +212,8 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "scheduled_start",
         "http_event_entry",
         "failure_event_entry",
+        "workflow_call_entry",
+        "invoke_workflow",
         "suspend_wait",
         "http_event_reply",
     }
@@ -217,6 +229,8 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "scheduled_start",
         "http_event_entry",
         "failure_event_entry",
+        "workflow_call_entry",
+        "invoke_workflow",
         "suspend_wait",
         "http_event_reply",
     }
@@ -232,6 +246,8 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "scheduled_start",
         "http_event_entry",
         "failure_event_entry",
+        "workflow_call_entry",
+        "invoke_workflow",
         "suspend_wait",
         "http_event_reply",
     }

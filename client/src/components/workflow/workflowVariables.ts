@@ -165,6 +165,8 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("http_event_entry", "eventVariable", "declaration", JSON_TYPES),
   field("http_event_entry", "bodyVariable", "declaration", ANY_RENDERABLE_TYPES),
   field("failure_event_entry", "eventVariable", "declaration", JSON_TYPES),
+  field("workflow_call_entry", "eventVariable", "declaration", JSON_TYPES),
+  field("invoke_workflow", "resultVariable", "declaration", JSON_TYPES),
   field("suspend_wait", "untilTemplate", "template", TEMPLATE_TYPES),
   field("suspend_wait", "outputVariable", "declaration", JSON_TYPES),
   field("http_event_reply", "bodyTemplate", "template", TEMPLATE_TYPES),
@@ -336,6 +338,12 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
   ],
   failure_event_entry: [
     { field: "eventVariable", fallback: "failure_event", valueType: "json" },
+  ],
+  workflow_call_entry: [
+    { field: "eventVariable", fallback: "call_event", valueType: "json" },
+  ],
+  invoke_workflow: [
+    { field: "resultVariable", fallback: "workflow_result", valueType: "json" },
   ],
   suspend_wait: [
     { field: "outputVariable", fallback: "resume_event", valueType: "json" },
@@ -744,6 +752,13 @@ function collectReferences(nodes: WorkflowNode[], knownNames: Set<string>) {
       seen,
     );
     collectNestedVariableReferences(
+      node.data.inputBindings,
+      "inputBindings",
+      node,
+      referencesByName,
+      seen,
+    );
+    collectNestedVariableReferences(
       node.data.filter,
       "filter",
       node,
@@ -1045,7 +1060,6 @@ export function validateWorkflowVariableDeclaration(
   }
   const nodeNames = new Set(
     collectSources(nodes, [])
-      .filter(({ source }) => source.sourceKind !== "workflow_input")
       .map(({ name }) => name),
   );
   if (nodeNames.has(declaration.name)) {
@@ -1167,10 +1181,16 @@ export function planWorkflowVariableRename(
       } else if (reference.mode === "template" && typeof current === "string") {
         node.data[reference.field] = replaceStrictTemplateToken(current, oldName, normalized);
       } else if (reference.mode === "structured") {
-        const root = reference.field.startsWith("valueBindings") ? "valueBindings" : "filter";
+        const root = reference.field.startsWith("valueBindings")
+          ? "valueBindings"
+          : reference.field.startsWith("inputBindings")
+            ? "inputBindings"
+            : "filter";
         const replaced = replaceStructuredVariable(node.data[root], oldName, normalized);
         if (root === "valueBindings") {
           node.data.valueBindings = replaced as typeof node.data.valueBindings;
+        } else if (root === "inputBindings") {
+          node.data.inputBindings = replaced as typeof node.data.inputBindings;
         } else {
           node.data.filter = replaced as typeof node.data.filter;
         }

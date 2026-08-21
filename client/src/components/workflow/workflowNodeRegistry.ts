@@ -136,6 +136,20 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["failure", "error", "deployment"],
       },
       {
+        kind: "workflow_call_entry",
+        icon: "CALL IN",
+        title: "子流程入口",
+        description: "声明仅供其他已发布工作流同步调用的私有入口。",
+        tags: ["workflow", "call", "entry"],
+      },
+      {
+        kind: "invoke_workflow",
+        icon: "CALL",
+        title: "调用已发布工作流",
+        description: "同步调用已启用的固定工作流版本并接收结果。",
+        tags: ["workflow", "call", "subworkflow"],
+      },
+      {
         kind: "suspend_wait",
         icon: "WAIT",
         title: "挂起等待",

@@ -31,6 +31,10 @@ NODE_KIND_ALIASES = {
     "http-event-entry": "http_event_entry",
     "failure_event_entry": "failure_event_entry",
     "failure-event-entry": "failure_event_entry",
+    "workflow_call_entry": "workflow_call_entry",
+    "workflow-call-entry": "workflow_call_entry",
+    "invoke_workflow": "invoke_workflow",
+    "invoke-workflow": "invoke_workflow",
     "llm": "llm",
     "if-else": "condition",
     "condition": "condition",
@@ -390,7 +394,7 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
             )
 
     if not any(
-        kind in {"input", "scheduled_start", "http_event_entry", "failure_event_entry"}
+        kind in {"input", "scheduled_start", "http_event_entry", "failure_event_entry", "workflow_call_entry"}
         for kind in kinds_by_id.values()
     ):
         issues.append(
@@ -466,6 +470,14 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
         nodes_by_id={node.id: node for node in workflow.nodes},
         kinds_by_id=kinds_by_id,
     )
+    validate_invoke_workflow_upstream_bindings(
+        workflow.nodes,
+        valid_edges,
+        issues,
+        kinds_by_id=kinds_by_id,
+        declaration_names=set(declaration_names),
+        producers=node_variable_producers,
+    )
     validate_http_event_reply_structure(
         workflow.nodes,
         valid_edges,
@@ -518,6 +530,52 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
         node_count=len(workflow.nodes),
         edge_count=len(workflow.edges),
     )
+
+
+def validate_invoke_workflow_upstream_bindings(
+    nodes: list[NativeWorkflowNode],
+    edges: list[NativeWorkflowEdge],
+    issues: list[ValidationIssue],
+    *,
+    kinds_by_id: dict[str, str],
+    declaration_names: set[str],
+    producers: dict[str, list[str]],
+) -> None:
+    parents: dict[str, set[str]] = defaultdict(set)
+    for edge in edges:
+        parents[edge.target].add(edge.source)
+    for node in nodes:
+        if kinds_by_id.get(node.id) != "invoke_workflow":
+            continue
+        ancestors: set[str] = set()
+        stack = list(parents.get(node.id, set()))
+        while stack:
+            current = stack.pop()
+            if current in ancestors:
+                continue
+            ancestors.add(current)
+            stack.extend(parents.get(current, set()))
+        bindings = node.data.get("inputBindings")
+        if not isinstance(bindings, dict):
+            continue
+        for binding in bindings.values():
+            if not isinstance(binding, dict) or binding.get("source") != "variable":
+                continue
+            variable = str(binding.get("variable") or "").strip()
+            if not variable or variable in declaration_names:
+                continue
+            producer_ids = set(producers.get(variable, []))
+            if producer_ids and producer_ids.isdisjoint(ancestors):
+                issues.append(
+                    ValidationIssue(
+                        code="invoke_workflow_binding_not_upstream",
+                        message=(
+                            f"Workflow call variable '{variable}' must be declared globally "
+                            "or produced by an upstream node."
+                        ),
+                        node_id=node.id,
+                    )
+                )
 
 
 def validate_http_event_reply_structure(
@@ -598,7 +656,7 @@ def validate_node_configuration(
                 )
             )
 
-    if kind in {"scheduled_start", "http_event_entry", "failure_event_entry"}:
+    if kind in {"scheduled_start", "http_event_entry", "failure_event_entry", "workflow_call_entry"}:
         event_variable = str(data.get("eventVariable") or "").strip()
         if not is_variable_name(event_variable):
             issues.append(
@@ -685,6 +743,76 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
+
+    if kind == "invoke_workflow":
+        target_project_id = str(data.get("targetProjectId") or "").strip()
+        if not re.fullmatch(r"wf_[a-f0-9]{32}", target_project_id):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_invoke_workflow_target_project",
+                    message="Workflow call needs a fixed workflow project ID.",
+                    node_id=node.id,
+                )
+            )
+        try:
+            target_version = int(data.get("targetVersion") or 0)
+        except (TypeError, ValueError):
+            target_version = 0
+        if target_version < 1:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_invoke_workflow_target_version",
+                    message="Workflow call needs a fixed published version.",
+                    node_id=node.id,
+                )
+            )
+        try:
+            timeout_seconds = int(data.get("timeoutSeconds") or 60)
+        except (TypeError, ValueError):
+            timeout_seconds = 0
+        if not 1 <= timeout_seconds <= 60:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_invoke_workflow_timeout",
+                    message="Workflow call timeoutSeconds must be between 1 and 60.",
+                    node_id=node.id,
+                )
+            )
+        result_variable = str(data.get("resultVariable") or "").strip()
+        if not is_variable_name(result_variable):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_invoke_workflow_result_variable",
+                    message="Workflow call resultVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+        input_bindings = data.get("inputBindings")
+        if not isinstance(input_bindings, dict):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_invoke_workflow_input_bindings",
+                    message="Workflow call inputBindings must be an object.",
+                    node_id=node.id,
+                )
+            )
+        else:
+            for input_name, binding in input_bindings.items():
+                if not is_variable_name(str(input_name)):
+                    issues.append(
+                        ValidationIssue(
+                            code="invalid_invoke_workflow_input_name",
+                            message="Workflow call input names must be identifiers.",
+                            node_id=node.id,
+                        )
+                    )
+                issues.extend(
+                    validate_data_table_binding(
+                        binding,
+                        node_id=node.id,
+                        label=f"Workflow call input '{input_name}'",
+                    )
+                )
 
     if kind == "http_event_entry":
         body_variable = str(data.get("bodyVariable") or "").strip()
@@ -3038,7 +3166,7 @@ def collect_declared_variables(
     for node in nodes:
         data = node.data
         kind = kinds_by_id[node.id]
-        if kind in {"input", "scheduled_start", "http_event_entry", "failure_event_entry"}:
+        if kind in {"input", "scheduled_start", "http_event_entry", "failure_event_entry", "workflow_call_entry"}:
             field_name = "variableName" if kind == "input" else "eventVariable"
             variable = str(data.get(field_name) or "").strip()
             if is_variable_name(variable):
@@ -3090,6 +3218,10 @@ def collect_declared_variables(
             variable = str(data.get("outputVariable") or "").strip()
             if is_variable_name(variable):
                 variables.add(variable)
+        if kind == "invoke_workflow":
+            result_variable = str(data.get("resultVariable") or "").strip()
+            if is_variable_name(result_variable):
+                variables.add(result_variable)
         if kind in {"agent_handoff", "handoff_router"} and config_truthy(
             data.get("waitForCompletion")
         ):
@@ -3110,6 +3242,8 @@ def collect_node_variable_producers(
         "scheduled_start": ("eventVariable",),
         "http_event_entry": ("eventVariable", "bodyVariable"),
         "failure_event_entry": ("eventVariable",),
+        "workflow_call_entry": ("eventVariable",),
+        "invoke_workflow": ("resultVariable",),
         "llm": ("outputVariable",),
         "code": ("codeOutputVariable",),
         "variable_assign": ("variableName",),
@@ -3235,6 +3369,22 @@ def validate_variable_references(
                         node_id=node.id,
                     )
                 )
+
+    if kind == "invoke_workflow":
+        input_bindings = data.get("inputBindings")
+        if isinstance(input_bindings, dict):
+            for binding in input_bindings.values():
+                if not isinstance(binding, dict) or str(binding.get("source") or "") != "variable":
+                    continue
+                variable = str(binding.get("variable") or "").strip()
+                if variable and variable not in available_variables:
+                    issues.append(
+                        ValidationIssue(
+                            code="missing_invoke_workflow_variable_reference",
+                            message=f"Workflow call binding references undefined variable '{variable}'.",
+                            node_id=node.id,
+                        )
+                    )
 
     if kind == "variable_assign":
         template = str(data.get("template") or "")

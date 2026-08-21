@@ -581,6 +581,75 @@ def _complete_contracts() -> dict[str, NodeContract]:
         availability=deployment_only_availability,
         planner=_planner(),
     )
+    contracts["workflow_call_entry"] = NodeContract(
+        kind="workflow_call_entry",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {"eventVariable": {"type": "string"}},
+            required=["eventVariable"],
+        ),
+        ports=(NodePortContract(name="event", direction="output", value_schema=event_value),),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=False,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="private_subworkflow_entry",
+        ),
+        availability=deployment_only_availability,
+        planner=_planner(),
+    )
+    binding_schema = {
+        "type": "object",
+        "properties": {
+            "source": {"type": "string", "enum": ["literal", "variable"]},
+            "value": {},
+            "variable": {"type": "string"},
+        },
+        "required": ["source"],
+        "additionalProperties": False,
+    }
+    contracts["invoke_workflow"] = NodeContract(
+        kind="invoke_workflow",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "targetProjectId": {
+                    "type": "string",
+                    "pattern": r"^wf_[a-f0-9]{32}$",
+                },
+                "targetVersion": {"type": "integer", "minimum": 1},
+                "inputBindings": {
+                    "type": "object",
+                    "additionalProperties": binding_schema,
+                },
+                "resultVariable": {"type": "string"},
+                "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 60},
+            },
+            required=[
+                "targetProjectId",
+                "targetVersion",
+                "inputBindings",
+                "resultVariable",
+                "timeoutSeconds",
+            ],
+        ),
+        ports=(
+            NodePortContract(name="inputs", direction="input", value_schema=object_value),
+            NodePortContract(name="result", direction="output", value_schema=object_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_write",
+            deterministic=False,
+            idempotent=False,
+            external_io=False,
+            can_wait=False,
+            error_semantics="fail_closed",
+            security_category="private_subworkflow_call",
+        ),
+        availability=deployment_only_availability,
+        planner=_planner(),
+    )
     contracts["suspend_wait"] = NodeContract(
         kind="suspend_wait",
         contract_status="complete",

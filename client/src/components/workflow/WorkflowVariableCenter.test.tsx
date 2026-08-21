@@ -72,6 +72,7 @@ function renderCenter(overrides: {
   onLocateSource?: (nodeId: string) => void;
   onPlanRename?: (oldName: string, newName: string) => WorkflowVariableRenamePlan;
   declarations?: WorkflowVariableDeclaration[];
+  nodes?: WorkflowNode[];
   variables?: WorkflowVariableDescriptor[];
   selectedNode?: WorkflowNode | null;
 } = {}) {
@@ -85,7 +86,7 @@ function renderCenter(overrides: {
       </button>
       <WorkflowVariableCenter
         declarations={overrides.declarations ?? []}
-        nodes={[selectedNode]}
+        nodes={overrides.nodes ?? [selectedNode]}
         onApplyRename={vi.fn()}
         onClose={onClose}
         onCreate={overrides.onCreate ?? vi.fn()}
@@ -184,6 +185,32 @@ describe("WorkflowVariableCenter", () => {
         defaultValue: "zh-CN",
       }),
     );
+  });
+
+  it("blocks a declaration that collides with the manual entry variable", () => {
+    const onCreate = vi.fn();
+    const inputNode = {
+      id: "input",
+      type: "workflowNode",
+      position: { x: 0, y: 0 },
+      data: {
+        kind: "input",
+        title: "开始",
+        description: "",
+        variableName: "user_input",
+      },
+    } as WorkflowNode;
+    renderCenter({ nodes: [inputNode, selectedNode], onCreate });
+
+    fireEvent.click(screen.getByRole("button", { name: "新建" }));
+    const dialog = screen.getByRole("dialog", { name: "新建变量" });
+    fireEvent.change(within(dialog).getByLabelText("名称"), {
+      target: { value: "user_input" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存变量" }));
+
+    expect(within(dialog).getByText("名称与节点输出变量冲突。")).toBeInTheDocument();
+    expect(onCreate).not.toHaveBeenCalled();
   });
 
   it("shows exact rename changes and keeps referenced declarations protected", () => {

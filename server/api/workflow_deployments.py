@@ -99,6 +99,12 @@ def workflow_failure_triggers_enabled() -> bool:
     }
 
 
+def workflow_subworkflows_enabled() -> bool:
+    return os.getenv("WORKFLOW_SUBWORKFLOWS_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 def _map_error(exc: Exception) -> HTTPException:
     if isinstance(exc, WorkflowDeploymentNotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
@@ -195,6 +201,47 @@ async def list_workflow_versions(project_id: str) -> dict[str, Any]:
         raise _map_error(exc) from exc
 
 
+@router.get("/api/workflows/{project_id}/versions/{version}/interface")
+async def get_workflow_version_interface(
+    project_id: str,
+    version: int,
+) -> dict[str, Any]:
+    store = _require_store()
+    try:
+        release = store.require_version(project_id, version)
+        deployment = store.active_deployment(project_id)
+        inputs: list[dict[str, Any]] = []
+        for declaration in release.workflow.get("variables", []):
+            if not isinstance(declaration, dict) or declaration.get("kind") != "input":
+                continue
+            item = {
+                "name": str(declaration.get("name") or ""),
+                "value_type": str(declaration.get("valueType") or "json"),
+                "required": "defaultValue" not in declaration,
+                "has_default": "defaultValue" in declaration,
+                "description": str(declaration.get("description") or "")[:500],
+            }
+            if "defaultValue" in declaration:
+                item["default_value"] = declaration.get("defaultValue")
+            inputs.append(item)
+        return {
+            "project_id": project_id,
+            "version": version,
+            "active": bool(
+                deployment is not None
+                and deployment.active
+                and deployment.version == version
+            ),
+            "trigger_kind": release.trigger_kind,
+            "node_contract_checksum": release.node_contract_checksum,
+            "definition_checksum": release.definition_checksum,
+            "inputs": inputs,
+            "output": {"type": "text"},
+        }
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
 @router.post("/api/workflows/{project_id}/publish", status_code=201)
 async def publish_workflow(project_id: str) -> dict[str, Any]:
     store = _require_store()
@@ -213,6 +260,7 @@ async def activate_workflow(project_id: str, version: int) -> dict[str, Any]:
             version,
             webhooks_enabled=_webhooks_enabled(),
             failure_triggers_enabled=workflow_failure_triggers_enabled(),
+            subworkflows_enabled=workflow_subworkflows_enabled(),
         )
         payload = store.serialize_deployment(deployment)
         if plaintext_key:
@@ -428,6 +476,15 @@ async def _execute_trigger(
             lease_stop.set()
         if lease_heartbeat is not None:
             await lease_heartbeat
+
+
+async def execute_workflow_trigger(
+    item: WorkflowTriggerExecution,
+    event: dict[str, Any],
+) -> WorkflowTriggerExecution:
+    """Execute an already-materialized private trigger without adding a public API."""
+
+    return await _execute_trigger(item, event)
 
 
 async def _renew_trigger_execution_lease(
