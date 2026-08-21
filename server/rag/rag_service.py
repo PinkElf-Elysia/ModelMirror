@@ -3590,16 +3590,46 @@ class RagService:
             raise PipelineVersionNotFoundError(
                 "Knowledge version does not contain every Gold corpus document."
             )
+        stored_documents: dict[str, Any] = {}
+        if any(not str(item.get("content_hash") or "") for item in documents):
+            metadata_reader = getattr(self, "_read_metadata", None)
+            if callable(metadata_reader):
+                metadata = metadata_reader()
+                stored_documents = dict(metadata.get("documents") or {})
+
+        def document_content_hash(item: dict[str, Any]) -> str:
+            content_hash = str(item.get("content_hash") or "")
+            if content_hash:
+                return content_hash[:64]
+            stored = stored_documents.get(str(item.get("source_id") or ""))
+            if (
+                not isinstance(stored, dict)
+                or str(stored.get("kb_id") or "") != str(version.get("kb_id") or "")
+            ):
+                return ""
+            return str(stored.get("content_hash") or "")[:64]
+
         document_manifest = sorted(
             [
                 {
                     "document_id": str(item.get("source_id") or ""),
-                    "content_hash": str(item.get("content_hash") or "")[:64],
+                    "content_hash": document_content_hash(item),
                 }
                 for item in documents
             ],
             key=lambda item: item["document_id"],
         )
+        if any(
+            len(item["content_hash"]) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in item["content_hash"].casefold()
+            )
+            for item in document_manifest
+        ):
+            raise PipelineJobStateError(
+                "Knowledge version is missing stable document content hashes."
+            )
         source_blocks: list[dict[str, str]] = []
         for document in document_manifest:
             document_id = document["document_id"]

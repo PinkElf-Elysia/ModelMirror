@@ -1,8 +1,8 @@
 {
   "schema_version": "modelmirror-rag-p0-round3-implementation-v1",
-  "status": "real_gold_generation_failed_configuration_gate_closed",
+  "status": "real_gold_draft_generated_quality_gate_closed",
   "created_at": "2026-08-20T17:35:18.2764123Z",
-  "updated_at": "2026-08-20T18:03:22.9067437Z",
+  "updated_at": "2026-08-21T02:31:11.2960350Z",
   "base": {
     "branch": "origin/main",
     "commit": "0e0202b313b2378d13d899cf53166665baac6bee",
@@ -17,10 +17,14 @@
     ]
   },
   "constraints": {
-    "real_provider_http_attempts": 1,
-    "gold_generation_job_attempts": 1,
-    "successful_gold_generations": 0,
-    "reported_model_token_usage": null,
+    "real_provider_http_attempts": 2,
+    "gold_generation_job_attempts": 2,
+    "successful_gold_generations": 1,
+    "reported_model_token_usage": {
+      "prompt_tokens": 7811,
+      "completion_tokens": 5789,
+      "total_tokens": 13600
+    },
     "embedding_preflight_calls": 0,
     "real_candidate_builds": 0,
     "formal_evaluation_runs": 0,
@@ -52,31 +56,84 @@
       ]
     },
     "3C": {
-      "status": "workbench_implemented_real_gold_attempt_failed_no_retry",
+      "status": "workbench_implemented_real_gold_draft_unqualified_no_retry",
       "implemented": [
         "42-case review workbench for positive grounding, negative answer absence, review reasons, rejection, blockers, and readiness",
         "formal-run readiness and paired confidence/comparability presentation",
         "bounded one-attempt Gold generation contract and explicit no-calibration-before-formal quota boundary"
       ],
       "real_gold_generation": {
-        "status": "failed_before_model_generation",
-        "job_id": "benchmark_job_463addad44b34b858e4b23e690fe5545",
+        "status": "completed_draft_unqualified",
         "generator_model_id": "openai/gpt-5.6-sol",
         "seed": 0,
-        "attempts": 1,
-        "generation_attempt_receipts": 0,
-        "provider_http_status": 404,
-        "provider_http_target": "configured local gateway /v1 endpoint",
-        "error": "Invalid URL (POST /v1)",
-        "dataset_id": null,
-        "dataset_revision": null,
-        "reported_usage": null,
-        "automatic_repair": false,
-        "automatic_retry": false,
-        "root_cause": "The benchmark generator posts to LLM_GATEWAY_URL as an exact endpoint, but the isolated preview was configured with the /v1 base instead of /v1/chat/completions."
+        "attempt_history": [
+          {
+            "job_id": "benchmark_job_463addad44b34b858e4b23e690fe5545",
+            "status": "failed_before_model_generation",
+            "attempts": 1,
+            "generation_attempt_receipts": 0,
+            "provider_http_status": 404,
+            "provider_http_target": "configured local gateway /v1 endpoint",
+            "error": "Invalid URL (POST /v1)",
+            "dataset_id": null,
+            "dataset_revision": null,
+            "reported_usage": null,
+            "automatic_repair": false,
+            "automatic_retry": false,
+            "root_cause": "The benchmark generator posts to LLM_GATEWAY_URL as an exact endpoint, but the isolated preview was configured with the /v1 base instead of /v1/chat/completions."
+          },
+          {
+            "job_id": "benchmark_job_a6517e82014a46eaa0810210c7c463b6",
+            "status": "completed",
+            "attempts": 1,
+            "generation_attempt_receipts": 1,
+            "dataset_id": "evalset_03a85cc25a2b47888cad113bd45f99fe",
+            "dataset_revision": 1,
+            "case_count": 42,
+            "positive_count": 30,
+            "hard_negative_count": 12,
+            "reviewed_count": 0,
+            "reported_usage": {
+              "prompt_tokens": 7811,
+              "completion_tokens": 5789,
+              "total_tokens": 13600
+            },
+            "automatic_repair": false,
+            "automatic_retry": false,
+            "warnings": 0,
+            "error": null
+          }
+        ],
+        "dataset": {
+          "eval_set_id": "evalset_03a85cc25a2b47888cad113bd45f99fe",
+          "revision": 1,
+          "benchmark_contract_version": "rag-gold-v2",
+          "published_version": null,
+          "review_status": "pending_42_of_42",
+          "qualification_status": "blocked",
+          "blocking_checks": [
+            "manual_reviews",
+            "leakage_warning_reasons",
+            "corpus_content_hashes"
+          ],
+          "leakage_warning_count": 2,
+          "valid_document_and_block_hashes": 36,
+          "required_document_and_block_hashes": 40,
+          "corpus_snapshot_hash": "3efe18b42c41bbec51214e825a248648dbbb17dd268220c927aa58ad4537adef"
+        },
+        "post_run_root_cause": {
+          "classification": "implementation_defect_in_corpus_snapshot_document_hash_source",
+          "detail": "Candidate publication intentionally strips content_hash from pipeline version document_results, while pipeline_corpus_snapshot read only that stripped field. The resulting Gold provenance contained four empty document hashes even though the immutable knowledge document records retained valid hashes.",
+          "leakage_warning_reasons": "expected_manual_review_gate_for_two_warning_cases",
+          "minimal_fix": "Recover missing document hashes from the immutable knowledge document record and reject corpus snapshots that still lack a 64-character hexadecimal document hash.",
+          "existing_dataset_mutated": false,
+          "additional_provider_call": false,
+          "prospective_fixed_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263"
+        }
       },
       "pending_external_sequence": [
-        "correct the isolated preview endpoint without invoking the provider, then obtain new explicit authorization for one replacement Gold generation attempt",
+        "retain the current generated dataset as unqualified diagnostic evidence; do not review or publish it",
+        "after the snapshot hash fix is reviewed, obtain separate explicit authorization for one new Gold generation attempt; do not reuse or mutate the invalid revision",
         "complete manual review of all 42 cases and replace any rejected cases only with new authorization or manual edits",
         "publish one immutable rag-gold-v2 version",
         "obtain separate authorization and make one sanitized embedding preflight",
@@ -96,7 +153,10 @@
     "stable_evidence_count": 36,
     "sampled_evidence_count": 36,
     "estimated_context_chars": 4030,
-    "corpus_snapshot_hash": "3efe18b42c41bbec51214e825a248648dbbb17dd268220c927aa58ad4537adef",
+    "generated_dataset_corpus_snapshot_hash": "3efe18b42c41bbec51214e825a248648dbbb17dd268220c927aa58ad4537adef",
+    "prospective_fixed_corpus_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263",
+    "prospective_fixed_document_hash_count": 4,
+    "prospective_fixed_source_block_hash_count": 36,
     "embedding_provider": "hash",
     "embedding_model": "deterministic-hash-v1",
     "pipeline_version_activated": false,
@@ -109,7 +169,7 @@
     },
     "backend_affected_area": {
       "command": "python -m pytest server/tests -q -k 'rag or knowledge or benchmark' --tb=short",
-      "result": "311 passed, 3189 deselected, 6 warnings"
+      "result": "312 passed, 3189 deselected, 6 warnings"
     },
     "backend_full": {
       "command": "python -m pytest server/tests -q",
@@ -138,12 +198,29 @@
     "python_syntax": {
       "command": "python -m py_compile <nine changed backend modules>",
       "result": "passed"
+    },
+    "post_real_gold_hash_fix_red": {
+      "command": "python -m pytest server/tests/test_rag_evaluation.py -k corpus_snapshot_recovers_document_hash -vv",
+      "result": "failed before fix: document content_hash was empty instead of the stored 64-character hash"
+    },
+    "post_real_gold_hash_fix_targeted": {
+      "command": "python -m pytest server/tests/test_rag_evaluation.py server/tests/test_rag_benchmark_generator.py server/tests/test_rag_strategy_tuner.py server/tests/test_rag_pipeline.py -q --tb=short",
+      "result": "103 passed, 4 warnings"
+    },
+    "post_real_gold_hash_fix_preview_read_only": {
+      "command": "read-only pipeline_corpus_snapshot against isolated preview data",
+      "result": "4/4 valid document hashes, 36 source block hashes, prospective corpus snapshot c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263; no model call"
+    },
+    "post_real_gold_hash_fix_python_syntax": {
+      "command": "python -m py_compile server/rag/rag_service.py server/tests/test_rag_evaluation.py",
+      "result": "passed"
     }
   },
   "prohibited_claims": [
     "Third-round formal promotion evidence exists.",
-    "A rag-gold-v2 dataset has been generated, reviewed, or published.",
-    "The failed Gold request reported model token usage or proved that provider billing occurred.",
+    "The generated rag-gold-v2 draft is qualified, reviewed, or published.",
+    "The first failed Gold request reported model token usage or proved that provider billing occurred.",
+    "The existing invalid dataset was repaired or upgraded after generation.",
     "The real embedding route or candidate has passed preflight.",
     "A candidate passed or was authorized for promotion.",
     "The repository-wide backend or frontend test suite is fully green."

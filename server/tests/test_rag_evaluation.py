@@ -304,6 +304,60 @@ def test_corpus_snapshot_uses_parent_block_not_chunk_slices() -> None:
     assert before == after
 
 
+def test_corpus_snapshot_recovers_document_hash_from_knowledge_metadata() -> None:
+    class VectorStore:
+        @staticmethod
+        def list_document_chunks(_namespace: str):
+            return [
+                StoredVectorChunk(
+                    chunk_id="parent",
+                    kb_id="kb",
+                    doc_id="v-doc",
+                    document_name="doc.md",
+                    text="Stable complete source block text.",
+                    chunk_index=0,
+                    chunk_type="parent",
+                    source_block_id="block-1",
+                )
+            ]
+
+    class Service:
+        vector_store = VectorStore()
+
+        @staticmethod
+        def get_pipeline_version(_version_id: str):
+            return {
+                "kb_id": "kb",
+                "document_results": [
+                    {
+                        "source_id": "doc",
+                        "status": "completed",
+                    }
+                ],
+            }
+
+        @staticmethod
+        def _read_metadata():
+            return {
+                "documents": {
+                    "doc": {
+                        "kb_id": "kb",
+                        "content_hash": "a" * 64,
+                    }
+                }
+            }
+
+        @staticmethod
+        def _mapping_sha256(value):
+            return _gold_v2_hash(value)
+
+    snapshot = RagService.pipeline_corpus_snapshot(Service(), "v")
+
+    assert snapshot["corpus_snapshot"]["documents"] == [
+        {"document_id": "doc", "content_hash": "a" * 64}
+    ]
+
+
 def test_paired_bootstrap_is_deterministic_and_ci_can_block_point_estimate() -> None:
     cases = [
         {
