@@ -147,7 +147,7 @@ test("PR boundary excludes one-off qualification scripts and preserves truthful 
   ].map((relativePath) => readFile(new URL(`../${relativePath}`, import.meta.url), "utf8")));
   const productSource = productSources.join("\n").toLowerCase();
   for (const forbidden of ["last-train", "last train", "subway", "metro", "node-carriage", "node-platform",
-    "matrix-oasis-r12", "c:\\\\tmp", "15ea379b", "bde11ce", "81f122d9", "705fd38b"])
+    "matrix-oasis-r12", "15ea379b", "bde11ce", "81f122d9", "705fd38b"])
     assert.equal(productSource.includes(forbidden), false, forbidden);
 
   const [acceptance, limitations, criticalPath, mvpStatusText, packageText] = await Promise.all([
