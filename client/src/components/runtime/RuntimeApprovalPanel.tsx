@@ -138,6 +138,9 @@ export default function RuntimeApprovalPanel({
   const [editText, setEditText] = useState("");
   const [messageDrafts, setMessageDrafts] = useState<Record<string, string>>({});
   const [replacementDrafts, setReplacementDrafts] = useState<Record<string, string>>({});
+  const requestTypeKey = requestTypes === undefined
+    ? null
+    : [...new Set(requestTypes)].sort().join("\u0000");
 
   const query = useMemo(() => {
     const params = new URLSearchParams({ status: "pending", limit: compact ? "20" : "100" });
@@ -162,9 +165,16 @@ export default function RuntimeApprovalPanel({
       if (!response.ok) {
         throw new Error(approvalError(payload, "审批列表加载失败"));
       }
+      const allowedRequestTypes = requestTypeKey === null
+        ? null
+        : new Set(
+            requestTypeKey
+              ? requestTypeKey.split("\u0000") as RuntimeApproval["request_type"][]
+              : [],
+          );
       setItems(
         (payload?.items ?? []).filter(
-          (item) => !requestTypes || requestTypes.includes(item.request_type),
+          (item) => !allowedRequestTypes || allowedRequestTypes.has(item.request_type),
         ),
       );
       setError("");
@@ -175,7 +185,7 @@ export default function RuntimeApprovalPanel({
     } finally {
       if (!quiet) setLoading(false);
     }
-  }, [query, requestTypes, runId, scopeId, scopeType, taskId]);
+  }, [query, requestTypeKey, runId, scopeId, scopeType, taskId]);
 
   useEffect(() => {
     void load();
@@ -237,7 +247,7 @@ export default function RuntimeApprovalPanel({
     }
   }
 
-  if (!loading && !error && items.length === 0) return null;
+  if (!error && items.length === 0) return null;
 
   return (
     <section className="rounded-lg border border-amber-300/25 bg-amber-300/[0.065] p-3">

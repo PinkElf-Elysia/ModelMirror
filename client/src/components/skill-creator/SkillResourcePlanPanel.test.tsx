@@ -45,8 +45,8 @@ const plan: SkillResourcePlan = {
     { step_id: "review", instruction: "Review unsupported claims." },
     { step_id: "render", instruction: "Render the final report." },
   ],
-  output_contract: ["Return a factual incident report."],
-  failure_modes: ["Mark missing facts as unconfirmed."],
+  output_contract: ["- Return a factual incident report."],
+  failure_modes: ["• Mark missing facts as unconfirmed."],
   resources: [{
     resource_id: "resource_existing",
     spec_digest: "c".repeat(64),
@@ -91,6 +91,16 @@ afterEach(() => {
 });
 
 describe("SkillResourcePlanPanel", () => {
+  it("shows the output and failure contract before technical details are expanded", () => {
+    render(<SkillResourcePlanPanel onSession={vi.fn()} session={session} status={status} />);
+
+    expect(screen.getByRole("heading", { name: "交付结果" })).toBeVisible();
+    expect(screen.getByText(/Return a factual incident report\./)).toBeVisible();
+    expect(screen.getByRole("heading", { name: "遇到信息不足时" })).toBeVisible();
+    expect(screen.getByText(/Mark missing facts as unconfirmed\./)).toBeVisible();
+    expect(screen.getByText("共 4 步执行流程")).toBeVisible();
+  });
+
   it("generates a plan without writing resource files", async () => {
     const emptySession = { ...session, resource_plan: null };
     const plannedSession = { ...session, resource_plan: { ...plan, resources: [] } };

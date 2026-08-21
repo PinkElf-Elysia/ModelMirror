@@ -55,6 +55,17 @@ class WorkflowCreatorResourcePlanner:
                 "Creator resource planner returned an unsupported contract version.",
                 code="skill_creator_resource_planner_invalid",
             )
+        # A clarification response is intentionally non-committal. Models can still
+        # speculate about resources despite the prompt, so discard those suggestions
+        # at the model boundary and let the typed plan store validate the questions.
+        # The discarded values never reach a Store or an Authoring Proposal.
+        if isinstance(payload.get("clarifications"), list) and payload["clarifications"]:
+            payload["resources"] = []
+        else:
+            _constrain_model_source_ids(
+                payload,
+                allowed_source_ids=set(request.allowed_source_ids),
+            )
         return payload
 
 
@@ -189,6 +200,45 @@ def parse_resource_plan_output(value: Any) -> dict[str, Any]:
     return payload
 
 
+def _constrain_model_source_ids(
+    payload: dict[str, Any], *, allowed_source_ids: set[str]
+) -> None:
+    """Keep model-authored provenance inside the server-frozen requirement set.
+
+    Resource source IDs are internal identifiers rather than user content. A model may
+    paraphrase or invent one even when the prompt includes the allow-list. Preserve valid
+    IDs, discard unknown IDs, and bind an otherwise unbound resource to the session intent.
+    Malformed non-list/non-string values remain untouched so the typed Store rejects them.
+    """
+
+    resources = payload.get("resources")
+    if not isinstance(resources, list):
+        return
+    fallback = "intent" if "intent" in allowed_source_ids else None
+    constrained: list[Any] = []
+    for raw in resources:
+        if not isinstance(raw, dict):
+            constrained.append(raw)
+            continue
+        source_ids = raw.get("source_ids")
+        if not isinstance(source_ids, list) or any(
+            not isinstance(source_id, str) for source_id in source_ids
+        ):
+            constrained.append(raw)
+            continue
+        retained = list(
+            dict.fromkeys(
+                source_id.strip()
+                for source_id in source_ids
+                if source_id.strip() in allowed_source_ids
+            )
+        )
+        if not retained and fallback is not None:
+            retained = [fallback]
+        constrained.append({**raw, "source_ids": retained})
+    payload["resources"] = constrained
+
+
 def _decode_resource_plan_json(text: str) -> Any:
     """Decode one versioned plan while tolerating harmless model narration.
 
@@ -252,6 +302,10 @@ def _resource_planner_prompt() -> str:
         "return at most five concise clarifications and an empty resources array. Do not invent "
         "facts. When previous_plan contains clarification_answers, use them as trusted user "
         "answers and produce a revised plan.\n\n"
+        "Use the same primary natural language as definition.intent for every human-readable "
+        "field, including skill_description, workflow instructions, output contracts, failure "
+        "modes, resource purposes, acceptance checks, and clarification questions. Keep only "
+        "skill_name and fixed JSON enum values in their required machine-readable form.\n\n"
         "A previous plan is advisory, never authoritative. When the current definition or "
         "target draft differs, re-evaluate every resource from scratch. If the user explicitly "
         "requires a supported resource type for a deterministic or reusable concern, either "
@@ -259,7 +313,9 @@ def _resource_planner_prompt() -> str:
         "be planned safely; do not silently preserve an incompatible previous plan.\n\n"
         "For updates, account for every target_draft.resource_inventory path with exactly one "
         "keep, update, or delete action. New paths use create. Dependencies are expressed as "
-        "resource paths. Use only allowed_source_ids and real workflow step IDs.\n\n"
+        "resource paths. Source IDs are opaque server tokens: copy only exact values from "
+        "allowed_source_ids, and use intent when no narrower source applies. Use only real "
+        "workflow step IDs.\n\n"
         "Use the pinned planning guidance below only to reason about requirements and "
         "resource necessity. This phase stops before frontmatter, file content, or a typed "
         "Authoring Proposal is written.\n\nPinned planning guidance:\n\n"

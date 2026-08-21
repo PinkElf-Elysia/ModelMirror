@@ -60,6 +60,11 @@ import {
 } from "../../utils/workflowStorage";
 import { reconcileRuntimeMiddlewareNodes } from "../../utils/runtimeMiddlewareMigration";
 import {
+  creatorHandoffMiddlewareConfig,
+  isLegacySkillCreatorMiddleware,
+  isSkillCreatorMiddleware,
+} from "../../utils/skillCreatorMiddleware";
+import {
   getSkillCatalogApprovalState,
   reconcileSkillCatalogApprovals,
 } from "../../utils/skillCatalogApproval";
@@ -91,6 +96,7 @@ import {
 import TrustedSkillSelect, {
   type TrustSelectableSkill,
 } from "../skill-trust/TrustedSkillSelect";
+import SkillCreatorMiddlewareModePanel from "../skill-creator/SkillCreatorMiddlewareModePanel";
 import {
   createDataTableNodeData,
   createTypedCanvasNodeData,
@@ -352,13 +358,21 @@ function parseRuntimeMiddlewarePayload(
 
 function createRuntimeMiddlewareConfig(
   fields: RuntimeMiddlewareField[],
+  middlewareId: string,
 ): Record<string, unknown> {
-  return fields.reduce<Record<string, unknown>>((config, field) => {
+  const config = fields.reduce<Record<string, unknown>>((current, field) => {
     if (field.default !== undefined) {
-      config[field.name] = field.default;
+      current[field.name] = field.default;
     }
-    return config;
+    return current;
   }, {});
+  if (
+    middlewareId === "skill_creator"
+    && config.authoring_mode === "creator_handoff"
+  ) {
+    return creatorHandoffMiddlewareConfig();
+  }
+  return config;
 }
 
 export function createNodeData(
@@ -919,7 +933,7 @@ export function createNodeData(
       runtimeMiddlewareKind: middlewareKind,
       runtimeMiddlewareFields: fields,
       runtimeMiddlewareMetadata: payload?.metadata ?? {},
-      runtimeMiddlewareConfig: createRuntimeMiddlewareConfig(fields),
+      runtimeMiddlewareConfig: createRuntimeMiddlewareConfig(fields, middlewareId),
       middlewarePriority: "100",
     };
   }
@@ -2821,6 +2835,18 @@ function NodeConfig({
   const runtimeMiddlewareConfig = isRecord(data.runtimeMiddlewareConfig)
     ? data.runtimeMiddlewareConfig
     : undefined;
+  const skillCreatorMiddleware = isSkillCreatorMiddleware(data);
+  const legacySkillCreatorMiddleware = isLegacySkillCreatorMiddleware(data);
+  const visibleRuntimeMiddlewareFields = (data.runtimeMiddlewareFields ?? []).filter(
+    (field) => {
+      if (!skillCreatorMiddleware) return true;
+      if (field.name === "authoring_mode") return false;
+      if (legacySkillCreatorMiddleware) return true;
+      return !["allow_create", "allow_update", "allowed_draft_ids"].includes(
+        field.name,
+      );
+    },
+  );
   const appendTrustedSkill = (skillId: string) => {
     if (!skillId || !runtimeMiddlewareConfig) return;
     const current = String(runtimeMiddlewareConfig.skill_ids ?? "")
@@ -4048,9 +4074,20 @@ function NodeConfig({
 
       {data.kind === "runtime_middleware" ? (
         <div className="space-y-4">
-          <div className="rounded-lg border border-indigo-300/25 bg-indigo-300/10 px-3 py-2 text-xs leading-5 text-indigo-50">
-            使用紫色端口绑定到一个 workflow_agent，或使用普通端口作为线性中间件。两种连接方式不可混用。
-          </div>
+          {skillCreatorMiddleware ? (
+            <SkillCreatorMiddlewareModePanel
+              legacy={legacySkillCreatorMiddleware}
+              onUpgrade={() =>
+                update({
+                  runtimeMiddlewareConfig: creatorHandoffMiddlewareConfig(),
+                })
+              }
+            />
+          ) : (
+            <div className="rounded-lg border border-indigo-300/25 bg-indigo-300/10 px-3 py-2 text-xs leading-5 text-indigo-50">
+              使用紫色端口绑定到一个 workflow_agent，或使用普通端口作为线性中间件。两种连接方式不可混用。
+            </div>
+          )}
           <Field label="执行优先级（0-1000）">
             <input
               className={textInputClass()}
@@ -4063,9 +4100,11 @@ function NodeConfig({
               value={data.middlewarePriority ?? "100"}
             />
           </Field>
-          <div className="rounded-lg border border-indigo-300/25 bg-indigo-300/10 px-3 py-2 text-xs leading-5 text-indigo-50">
-            绑定模式仅作用于目标 workflow_agent；线性模式会影响其后执行的智能体。核心中间件已接入真实 MiddlewarePipeline。
-          </div>
+          {!skillCreatorMiddleware ? (
+            <div className="rounded-lg border border-indigo-300/25 bg-indigo-300/10 px-3 py-2 text-xs leading-5 text-indigo-50">
+              绑定模式仅作用于目标 workflow_agent；线性模式会影响其后执行的智能体。核心中间件已接入真实 MiddlewarePipeline。
+            </div>
+          ) : null}
           <div className="rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2">
             <p className="text-xs font-semibold text-slate-200">
               {data.runtimeMiddlewareKind ?? "runtime_middleware.unknown"}
@@ -4074,14 +4113,16 @@ function NodeConfig({
               ID：{data.runtimeMiddlewareId ?? "unknown"}
             </p>
           </div>
-          {(data.runtimeMiddlewareFields ?? []).length === 0 ? (
+          {visibleRuntimeMiddlewareFields.length === 0 ? (
             <p className="rounded-lg border border-dashed border-white/15 bg-white/[0.035] px-3 py-4 text-sm leading-6 text-slate-400">
-              此中间件暂无可配置字段。
+              {skillCreatorMiddleware
+                ? "Creator V2 不需要额外权限配置。运行成功后由你前往 Creator 继续规划。"
+                : "此中间件暂无可配置字段。"}
             </p>
           ) : (
             <>
               <p className="text-xs font-semibold text-slate-300">中间件配置</p>
-              {(data.runtimeMiddlewareFields ?? []).map((field) => (
+              {visibleRuntimeMiddlewareFields.map((field) => (
                 <Field
                   key={field.name}
                   label={`${field.label}${field.required ? " *" : ""}`}
@@ -5951,7 +5992,7 @@ function WorkflowCanvas({
         ) : null}
       </section>
 
-      <aside className="surface-panel flex min-h-[520px] flex-col rounded-lg p-4">
+      <aside className="surface-panel flex min-h-[520px] min-w-0 flex-col rounded-lg p-4">
         <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
           <div>
             <p className="text-sm font-semibold text-white">工作台</p>

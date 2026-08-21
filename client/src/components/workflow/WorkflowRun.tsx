@@ -8,6 +8,9 @@ import FileOutputTray from "../FileOutputTray";
 import SkillCreatorCaptureButton, {
   completedWorkflowCaptureSource,
 } from "../skill-creator/SkillCreatorCaptureButton";
+import SkillCreatorHandoffCard, {
+  latestSkillCreatorHandoff,
+} from "../skill-creator/SkillCreatorHandoffCard";
 import { useSkillCreatorStatus } from "../../hooks/useSkillCreatorStatus";
 import {
   fetchFileOutputs,
@@ -97,6 +100,69 @@ interface RunHistoryEntry {
   finishedAt: number;
   status: "completed" | "cancelled" | "error";
   summary: string;
+}
+
+interface WorkflowRunRecoveryPointer {
+  taskId: string;
+  runId: string | null;
+}
+
+const WORKFLOW_RUN_RECOVERY_PREFIX = "modelmirror-workflow-run-v1";
+const WORKFLOW_TASK_ID_PATTERN = /^[0-9a-f]{32}$/i;
+const RUNTIME_RUN_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function workflowRunRecoveryKey(workflowId: string) {
+  return `${WORKFLOW_RUN_RECOVERY_PREFIX}:${workflowId.trim()}`;
+}
+
+export function readWorkflowRunRecovery(
+  workflowId: string,
+): WorkflowRunRecoveryPointer | null {
+  if (typeof window === "undefined" || !workflowId.trim()) return null;
+  const key = workflowRunRecoveryKey(workflowId);
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(key) ?? "null") as
+      | { taskId?: unknown; runId?: unknown }
+      | null;
+    const taskId = typeof parsed?.taskId === "string" ? parsed.taskId.trim() : "";
+    const runId = typeof parsed?.runId === "string" ? parsed.runId.trim() : "";
+    if (
+      !WORKFLOW_TASK_ID_PATTERN.test(taskId)
+      || (runId && !RUNTIME_RUN_ID_PATTERN.test(runId))
+    ) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    return { taskId, runId: runId || null };
+  } catch {
+    window.sessionStorage.removeItem(key);
+    return null;
+  }
+}
+
+export function persistWorkflowRunRecovery(
+  workflowId: string,
+  pointer: WorkflowRunRecoveryPointer,
+) {
+  const cleanWorkflowId = workflowId.trim();
+  const taskId = pointer.taskId.trim();
+  const runId = pointer.runId?.trim() || null;
+  if (
+    typeof window === "undefined"
+    || !cleanWorkflowId
+    || !taskId
+    || !WORKFLOW_TASK_ID_PATTERN.test(taskId)
+    || (runId !== null && !RUNTIME_RUN_ID_PATTERN.test(runId))
+  ) return;
+  try {
+    window.sessionStorage.setItem(
+      workflowRunRecoveryKey(cleanWorkflowId),
+      JSON.stringify({ taskId, runId }),
+    );
+  } catch {
+    // Session recovery is best-effort and never blocks workflow execution.
+  }
 }
 
 interface WorkflowFileFormatCapability {
@@ -429,7 +495,7 @@ function RuntimeCheckpointList({
   );
 }
 
-function buildRunSteps(events: WorkflowRunEvent[]) {
+export function buildRunSteps(events: WorkflowRunEvent[]) {
   const steps: WorkflowRunStep[] = [];
   const byNodeId = new Map<string, WorkflowRunStep>();
 
@@ -456,7 +522,11 @@ function buildRunSteps(events: WorkflowRunEvent[]) {
   }
 
   events.forEach((event, index) => {
-    if (event.event === "workflow_meta" || event.event === "workflow_end") {
+    if (
+      event.event === "workflow_meta"
+      || event.event === "workflow_end"
+      || event.event === "skill_creator_handoff"
+    ) {
       return;
     }
     if (event.event === "error" && !event.node_id) {
@@ -898,6 +968,10 @@ export default function WorkflowRun({
     () => completedWorkflowCaptureSource(events, taskId, runId, isRunning),
     [events, isRunning, runId, taskId],
   );
+  const skillCreatorHandoff = useMemo(
+    () => latestSkillCreatorHandoff(events),
+    [events],
+  );
   const skillCaptureEnabled = Boolean(
     skillCreatorStatus?.enabled
     && skillCreatorStatus.supported_sources.includes("workflow_classic"),
@@ -937,6 +1011,51 @@ export default function WorkflowRun({
     }
     await refreshWorkflowFileOutputs();
   }
+
+  useEffect(() => {
+    const recovery = readWorkflowRunRecovery(definition.id);
+    if (!recovery) return;
+    const abort = new AbortController();
+    let active = true;
+
+    setTaskId(recovery.taskId);
+    setRunId(recovery.runId);
+    runMetaRef.current = {
+      taskId: recovery.taskId,
+      runId: recovery.runId,
+    };
+    setIsResuming(true);
+    fetch(
+      `/api/workflow/run/${encodeURIComponent(recovery.taskId)}/stream?after_sequence=0`,
+      { signal: abort.signal },
+    )
+      .then(async (response) => {
+        if (!response.ok) {
+          if (response.status === 404) {
+            window.sessionStorage.removeItem(workflowRunRecoveryKey(definition.id));
+          }
+          throw new Error("无法恢复上次运行。请重新运行工作流。");
+        }
+        await consumeWorkflowResponse(response, true);
+      })
+      .catch((caught) => {
+        if (!active || (caught instanceof DOMException && caught.name === "AbortError")) {
+          return;
+        }
+        setError(caught instanceof Error ? caught.message : "无法恢复上次运行。");
+      })
+      .finally(() => {
+        if (active) setIsResuming(false);
+      });
+
+    return () => {
+      active = false;
+      abort.abort();
+    };
+    // The persisted task pointer is scoped by immutable workflow id. Event
+    // handlers intentionally remain the same ones used by live execution.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [definition.id]);
 
   async function selectWorkflowFile(
     variableName: string,
@@ -1166,6 +1285,12 @@ export default function WorkflowRun({
       if (responseRunId) {
         setRunId(responseRunId);
         runMetaRef.current.runId = responseRunId;
+      }
+      if (responseTaskId) {
+        persistWorkflowRunRecovery(definition.id, {
+          taskId: responseTaskId,
+          runId: responseRunId,
+        });
       }
 
       await consumeWorkflowResponse(response);
@@ -1447,8 +1572,8 @@ export default function WorkflowRun({
     <aside
       className={
         embedded
-          ? "flex min-h-0 flex-1 flex-col"
-          : "surface-panel flex min-h-0 flex-col rounded-lg"
+          ? "flex min-h-0 min-w-0 flex-1 flex-col"
+          : "surface-panel flex min-h-0 min-w-0 flex-col rounded-lg"
       }
     >
       <div className="border-b border-white/10 p-4">
@@ -2200,7 +2325,17 @@ export default function WorkflowRun({
         </div>
       ) : null}
 
-      {skillCaptureSource && skillCaptureEnabled ? (
+      {skillCreatorHandoff ? (
+        <div className="border-t border-white/10 p-4">
+          <SkillCreatorHandoffCard
+            captureEnabled={skillCaptureEnabled}
+            captureSource={skillCaptureSource}
+            event={skillCreatorHandoff}
+          />
+        </div>
+      ) : null}
+
+      {!skillCreatorHandoff && skillCaptureSource && skillCaptureEnabled ? (
         <div className="border-t border-white/10 p-4">
           <div className="flex flex-col gap-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] p-3 sm:flex-row sm:items-center sm:justify-between">
             <div>

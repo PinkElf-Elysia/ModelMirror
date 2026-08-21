@@ -1,5 +1,6 @@
 import type { RuntimeMiddlewareNode } from "../types/runtimeMiddleware";
 import type { WorkflowNode } from "../types/workflow";
+import { SKILL_CREATOR_MIDDLEWARE_ID } from "./skillCreatorMiddleware";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -25,7 +26,14 @@ export function reconcileRuntimeMiddlewareNodes(
       ? node.data.runtimeMiddlewareConfig
       : {};
     const nextConfig: Record<string, unknown> = { ...existingConfig };
+    const preserveLegacySkillCreatorMode =
+      middlewareId === SKILL_CREATOR_MIDDLEWARE_ID
+      && existingConfig.authoring_mode === undefined;
     definition.fields.forEach((field) => {
+      if (
+        preserveLegacySkillCreatorMode
+        && field.name === "authoring_mode"
+      ) return;
       if (nextConfig[field.name] === undefined && field.default !== undefined) {
         nextConfig[field.name] = field.default;
       }

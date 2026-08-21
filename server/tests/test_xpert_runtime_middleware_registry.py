@@ -60,7 +60,12 @@ def test_registry_list_returns_builtin_nodes() -> None:
     skill_creator = registry.get("skill_creator")
     assert authoring is not None and skill_creator is not None
     assert authoring.requires_tool_mode == "mcp_tools"
-    assert skill_creator.requires_tool_mode == "mcp_tools"
+    assert skill_creator.requires_tool_mode is None
+    authoring_mode = next(
+        field for field in skill_creator.fields if field.name == "authoring_mode"
+    )
+    assert authoring_mode.default == "creator_handoff"
+    assert authoring_mode.options == ["creator_handoff", "legacy_proposal"]
     assert skill_creator.metadata["supported_authoring_modes"] == [
         "legacy_proposal",
         "creator_handoff",

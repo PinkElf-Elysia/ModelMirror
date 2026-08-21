@@ -24,6 +24,35 @@ describe("WorkflowEditor palette defaults", () => {
     }
   });
 
+  it("creates newly dragged Skill Creator middleware in V2 handoff mode", () => {
+    const data = createNodeData("runtime_middleware", {
+      kind: "runtime_middleware",
+      runtimeMiddlewareId: "skill_creator",
+      runtimeMiddlewareKind: "runtime_middleware.skill_creator",
+      title: "Skill 创建器",
+      description: "完成需求分析后创建 Creator 会话。",
+      metadata: {},
+      fields: [
+        {
+          name: "authoring_mode",
+          label: "创建方式",
+          type: "select",
+          default: "creator_handoff",
+        },
+        {
+          name: "allow_create",
+          label: "允许创建",
+          type: "boolean",
+          default: true,
+        },
+      ],
+    });
+
+    expect(data.runtimeMiddlewareConfig).toEqual({
+      authoring_mode: "creator_handoff",
+    });
+  });
+
   it("keeps R1 deployment nodes planner-independent with safe defaults", () => {
     expect(createNodeData("scheduled_start")).toMatchObject({
       scheduleType: "interval",

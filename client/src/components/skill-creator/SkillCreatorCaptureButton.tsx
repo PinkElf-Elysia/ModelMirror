@@ -90,9 +90,13 @@ export function completedWorkflowCaptureSource(
 export default function SkillCreatorCaptureButton({
   enabled,
   source,
+  label = "沉淀为 Skill",
+  busyLabel = "正在创建会话...",
 }: {
   enabled: boolean;
   source: SkillCreatorCaptureSource;
+  label?: string;
+  busyLabel?: string;
 }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -142,7 +146,7 @@ export default function SkillCreatorCaptureButton({
         onClick={() => void capture()}
         type="button"
       >
-        {busy ? "正在创建会话..." : "沉淀为 Skill"}
+        {busy ? busyLabel : label}
       </button>
       {error ? (
         <span className="max-w-72 text-[11px] leading-5 text-rose-200" role="alert">

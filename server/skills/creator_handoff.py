@@ -20,7 +20,9 @@ Clarify only the intended use, expected inputs, expected output, boundaries, and
 missing information. Do not write SKILL.md, resource files, tool calls,
 installation steps, or an authoring proposal. Finish the user's workflow task
 normally; ModelMirror will create the Creator session only after the workflow
-has completed successfully.
+has completed successfully. Use the same primary language as the user's request.
+Return concise plain text without Markdown syntax so the analysis remains readable
+in the workflow result and Creator evidence review.
 """.strip()
 
 _HANDOFF_ERROR_CODES = {
@@ -58,7 +60,7 @@ class SkillCreatorHandoffService:
     ) -> None:
         self.creator_service = creator_service
         self.enabled = (
-            os.getenv("SKILL_CREATOR_MIDDLEWARE_V2_ENABLED", "false")
+            os.getenv("SKILL_CREATOR_MIDDLEWARE_V2_ENABLED", "true")
             .strip()
             .lower()
             in {"1", "true", "yes", "on"}

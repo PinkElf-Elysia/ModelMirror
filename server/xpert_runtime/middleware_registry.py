@@ -173,10 +173,21 @@ def register_builtin_middleware_nodes(
             id="skill_creator",
             kind="runtime_middleware.skill_creator",
             title="Skill 创建器",
-            description="创建或修改 Workspace Skill 提案；批准后生成草稿，仍需用户显式安装。",
+            description=(
+                "完成需求分析后创建 Creator 会话；"
+                "不会直接生成、批准或安装 Skill。"
+            ),
             category="tool",
             icon="WandSparkles",
             fields=[
+                RuntimeMiddlewareField(
+                    name="authoring_mode",
+                    label="创建方式",
+                    type="select",
+                    default="creator_handoff",
+                    options=["creator_handoff", "legacy_proposal"],
+                    description="新节点使用 Creator V2；旧节点仅在用户确认后升级。",
+                ),
                 RuntimeMiddlewareField(
                     name="allow_create",
                     label="允许创建提案",
@@ -210,7 +221,6 @@ def register_builtin_middleware_nodes(
                     "creator_handoff",
                 ],
             },
-            requires_tool_mode="mcp_tools",
             app_policy="forbidden",
             security_category="authoring",
         )

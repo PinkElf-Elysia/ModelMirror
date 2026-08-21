@@ -100,6 +100,79 @@ afterEach(() => {
 });
 
 describe("Skill Creator pages", () => {
+  it("opens trusted workflow evidence after saving the handoff requirement", async () => {
+    let currentSession: SkillCreatorSession = {
+      ...baseSession,
+      mode: "run",
+      source_kind: "workflow_classic",
+      source_task_id: "task-1",
+      source_run_id: "run-1",
+      evidence_confirmed: false,
+      selected_evidence: [],
+    };
+    const preview = {
+      preview_fingerprint: "f".repeat(64),
+      source_kind: "workflow_classic",
+      source_task_id: "task-1",
+      source_run_id: "run-1",
+      candidates: [
+        {
+          candidate_id: "intent-summary",
+          kind: "intent_summary",
+          title: "目标摘要",
+          summary: "把客户访谈整理成决策简报。",
+          content_hash: "1".repeat(64),
+          default_selected: true,
+        },
+        {
+          candidate_id: "workflow-analysis",
+          kind: "final_output_excerpt",
+          title: "最终输出片段",
+          summary: "**缺失信息：** 请确认访谈格式。",
+          content_hash: "2".repeat(64),
+          default_selected: false,
+        },
+      ],
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/skills/creator/status") return jsonResponse(status);
+      if (url === "/api/skills/creator/sessions/creator_1" && !init?.method) {
+        return jsonResponse({ session: currentSession });
+      }
+      if (url === "/api/skills/creator/sessions/creator_1" && init?.method === "PATCH") {
+        currentSession = { ...currentSession, session_revision: 3 };
+        return jsonResponse({ session: currentSession });
+      }
+      if (url.endsWith("/source-preview") && init?.method === "POST") {
+        return jsonResponse(preview);
+      }
+      return jsonResponse({ detail: `not found: ${url}` }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <MemoryRouter initialEntries={["/skills/create/creator_1"]}>
+        <Routes>
+          <Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", { name: "把你的做法变成可复用的 Skill" });
+    await userEvent.click(screen.getByRole("button", { name: "保存需求，查看素材" }));
+
+    expect(await screen.findByText("工作流分析不会自动写入方案")).toBeVisible();
+    expect(screen.getByText("已选 1 项")).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: /目标摘要/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /工作流生成的需求分析/ })).not.toBeChecked();
+    expect(screen.getByText("缺失信息： 请确认访谈格式。")).toBeVisible();
+    expect(screen.getByRole("button", { name: "保存选中素材并继续" })).toBeEnabled();
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith("/source-preview") && (init as RequestInit | undefined)?.method === "POST"
+    )).toBe(true);
+  });
+
   it("fails closed on a disabled direct route", async () => {
     vi.stubGlobal("fetch", vi.fn(() => jsonResponse({
       ...status,

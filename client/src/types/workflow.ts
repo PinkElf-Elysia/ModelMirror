@@ -319,6 +319,7 @@ export interface WorkflowRunEvent {
     | "sandbox_operation_finished"
     | "sandbox_artifact_published"
     | "skill_runtime_status"
+    | "skill_creator_handoff"
     | "heartbeat"
     | "node_end"
     | "workflow_cancelled"
@@ -338,6 +339,8 @@ export interface WorkflowRunEvent {
   wait_id?: string;
   resume_at?: number;
   host_id?: string;
+  session_id?: string;
+  error_code?: string;
   request_type?: "tool_call" | "final_output" | "manual_input";
   tool_name?: string;
   workspace_id?: string;

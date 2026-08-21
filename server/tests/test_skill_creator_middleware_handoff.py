@@ -230,6 +230,18 @@ def _failing_handoff_workflow() -> dict:
     return workflow
 
 
+def test_handoff_is_enabled_by_default_with_explicit_env_rollback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SKILL_CREATOR_MIDDLEWARE_V2_ENABLED", raising=False)
+    enabled = SkillCreatorHandoffService(SimpleNamespace())
+    assert enabled.enabled is True
+
+    monkeypatch.setenv("SKILL_CREATOR_MIDDLEWARE_V2_ENABLED", "false")
+    disabled = SkillCreatorHandoffService(SimpleNamespace())
+    assert disabled.enabled is False
+
+
 def test_handoff_store_is_idempotent_and_hydrates_pristine_capture(
     tmp_path: Path,
 ) -> None:
@@ -650,6 +662,10 @@ async def test_completed_v2_middleware_creates_one_session_without_proposal_tool
     assert model_calls == 1
     assert captured["prompt"] == session.intent
     assert SKILL_CREATOR_HANDOFF_ROLE_INSTRUCTION in captured["system_prompt"]
+    assert "same primary language as the user's request" in captured[
+        "system_prompt"
+    ].lower()
+    assert "plain text without markdown" in captured["system_prompt"].lower()
     after = {
         item.proposal_id for item in main_module.authoring_proposal_store.list(limit=500)
     }
