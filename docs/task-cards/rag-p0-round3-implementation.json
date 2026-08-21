@@ -1,8 +1,8 @@
 {
   "schema_version": "modelmirror-rag-p0-round3-implementation-v1",
-  "status": "real_gold_draft_unqualified_review_admission_closed",
+  "status": "authorized_regeneration_unqualified_stale_preview_process_no_retry",
   "created_at": "2026-08-20T17:35:18.2764123Z",
-  "updated_at": "2026-08-21T03:27:46.2827387Z",
+  "updated_at": "2026-08-21T03:45:12.8873848Z",
   "base": {
     "branch": "origin/main",
     "commit": "0e0202b313b2378d13d899cf53166665baac6bee",
@@ -16,17 +16,18 @@
       "929c4304615daa7b5f727a45798da2e1c97be305",
       "0623d6d36cb05bd885b5348dce7d34f8d6de2810",
       "a8d7ad8041d35e67689fd9426efeb4f3c251d542",
-      "b6752329e133bbc680abc445acd94797aa466fde"
+      "b6752329e133bbc680abc445acd94797aa466fde",
+      "bc1478f5bf07507b0c815dd0666331bd90dd2f7f"
     ]
   },
   "constraints": {
-    "real_provider_http_attempts": 2,
-    "gold_generation_job_attempts": 2,
-    "successful_gold_generations": 1,
+    "real_provider_http_attempts": 3,
+    "gold_generation_job_attempts": 3,
+    "successful_gold_generations": 2,
     "reported_model_token_usage": {
-      "prompt_tokens": 7811,
-      "completion_tokens": 5789,
-      "total_tokens": 13600
+      "prompt_tokens": 15622,
+      "completion_tokens": 10280,
+      "total_tokens": 25902
     },
     "embedding_preflight_calls": 0,
     "real_candidate_builds": 0,
@@ -59,7 +60,7 @@
       ]
     },
     "3C": {
-      "status": "workbench_hardened_real_gold_draft_unqualified_no_retry",
+      "status": "workbench_hardened_two_real_gold_drafts_unqualified_no_retry",
       "implemented": [
         "42-case review workbench for positive grounding, negative answer absence, review reasons, rejection, blockers, and readiness",
         "structurally invalid rag-gold-v2 drafts are rejected by the review API before any review write and the workbench disables approval and rejection controls",
@@ -68,7 +69,7 @@
         "bounded one-attempt Gold generation contract and explicit no-calibration-before-formal quota boundary"
       ],
       "real_gold_generation": {
-        "status": "completed_draft_unqualified",
+        "status": "two_completed_drafts_unqualified",
         "generator_model_id": "openai/gpt-5.6-sol",
         "seed": 0,
         "attempt_history": [
@@ -107,6 +108,27 @@
             "automatic_retry": false,
             "warnings": 0,
             "error": null
+          },
+          {
+            "job_id": "benchmark_job_1e602c8119654f0cb924595818e59465",
+            "status": "completed_draft_unqualified_stale_preview_process",
+            "attempts": 1,
+            "generation_attempt_receipts": 1,
+            "dataset_id": "evalset_6a1ca176867e4937a1a0f922bcceeda8",
+            "dataset_revision": 1,
+            "case_count": 42,
+            "positive_count": 30,
+            "hard_negative_count": 12,
+            "reviewed_count": 0,
+            "reported_usage": {
+              "prompt_tokens": 7811,
+              "completion_tokens": 4491,
+              "total_tokens": 12302
+            },
+            "automatic_repair": false,
+            "automatic_retry": false,
+            "warnings": 0,
+            "error": null
           }
         ],
         "dataset": {
@@ -126,6 +148,20 @@
           "required_document_and_block_hashes": 40,
           "corpus_snapshot_hash": "3efe18b42c41bbec51214e825a248648dbbb17dd268220c927aa58ad4537adef"
         },
+        "authorized_regeneration_dataset": {
+          "eval_set_id": "evalset_6a1ca176867e4937a1a0f922bcceeda8",
+          "revision": 1,
+          "benchmark_contract_version": "rag-gold-v2",
+          "published_version": null,
+          "review_status": "pending_42_of_42",
+          "qualification_status": "blocked",
+          "blocking_checks": [
+            "manual_reviews",
+            "leakage_warning_reasons",
+            "corpus_content_hashes"
+          ],
+          "corpus_snapshot_hash": "3efe18b42c41bbec51214e825a248648dbbb17dd268220c927aa58ad4537adef"
+        },
         "post_run_root_cause": {
           "classification": "implementation_defect_in_corpus_snapshot_document_hash_source",
           "detail": "Candidate publication intentionally strips content_hash from pipeline version document_results, while pipeline_corpus_snapshot read only that stripped field. The resulting Gold provenance contained four empty document hashes even though the immutable knowledge document records retained valid hashes.",
@@ -133,13 +169,15 @@
           "minimal_fix": "Recover missing document hashes from the immutable knowledge document record and reject corpus snapshots that still lack a 64-character hexadecimal document hash.",
           "review_admission_fix": "Treat every failed Gold v2 qualification check except manual review completion, leakage warning reasons, and explicit rejection of blocking leakage as a structural pre-review blocker. Enforce the same distinction in the API and UI.",
           "existing_dataset_mutated": false,
-          "additional_provider_call": false,
+          "additional_provider_call": true,
+          "authorized_regeneration_environment_root_cause": "The isolated preview server started at 2026-08-21T02:02:42Z before b6752329 was committed at 2026-08-21T02:40:42Z. Its /app bind mount contained the fixed source, but Uvicorn was not running with reload, so the authorized regeneration executed the stale in-memory implementation.",
+          "post_failure_action": "Stop without retry, retain both datasets as diagnostic-only, restart only modelmirror-rag-r3-preview-server-v2, and run an unbilled preflight.",
           "prospective_fixed_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263"
         }
       },
       "pending_external_sequence": [
-        "retain the current generated dataset as unqualified diagnostic evidence; the API and UI now block review and publication",
-        "after the snapshot hash fix is reviewed, obtain separate explicit authorization for one new Gold generation attempt; do not reuse or mutate the invalid revision",
+        "retain both generated datasets as unqualified diagnostic evidence; the API and UI block review and publication",
+        "the preview backend now loads the fixed implementation and its unbilled preflight returns corpus snapshot c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263; obtain fresh explicit authorization before any further Gold generation",
         "complete manual review of all 42 cases and replace any rejected cases only with new authorization or manual edits",
         "publish one immutable rag-gold-v2 version",
         "obtain separate authorization and make one sanitized embedding preflight",
@@ -160,6 +198,8 @@
     "sampled_evidence_count": 36,
     "estimated_context_chars": 4030,
     "generated_dataset_corpus_snapshot_hash": "3efe18b42c41bbec51214e825a248648dbbb17dd268220c927aa58ad4537adef",
+    "authorized_regeneration_dataset_id": "evalset_6a1ca176867e4937a1a0f922bcceeda8",
+    "authorized_regeneration_corpus_snapshot_hash": "3efe18b42c41bbec51214e825a248648dbbb17dd268220c927aa58ad4537adef",
     "prospective_fixed_corpus_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263",
     "prospective_fixed_document_hash_count": 4,
     "prospective_fixed_source_block_hash_count": 36,
@@ -243,6 +283,14 @@
     "post_real_gold_review_admission_preview": {
       "command": "read-only independent preview workbench inspection",
       "result": "invalid revision 1 is labelled diagnostic-only; review reason, approve Gold, and reject case controls are disabled after evidence expansion; no write or provider call"
+    },
+    "authorized_regeneration_receipt": {
+      "command": "single visible preview generation action",
+      "result": "job benchmark_job_1e602c8119654f0cb924595818e59465 completed in one attempt with no repair or retry; reported usage 7811 prompt, 4491 completion, 12302 total tokens; dataset evalset_6a1ca176867e4937a1a0f922bcceeda8 remained unqualified and unpublished"
+    },
+    "post_restart_generation_preflight": {
+      "command": "unbilled POST /api/benchmarks/generations/preflight after restarting only the isolated preview backend",
+      "result": "valid=true, 4 documents, 36 evidence blocks, 0 issues, corpus snapshot c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263; no model call"
     }
   },
   "prohibited_claims": [
@@ -250,6 +298,7 @@
     "The generated rag-gold-v2 draft is qualified, reviewed, or published.",
     "The first failed Gold request reported model token usage or proved that provider billing occurred.",
     "The existing invalid dataset was repaired or upgraded after generation.",
+    "The authorized regeneration produced a qualified, reviewed, or published Gold draft.",
     "The real embedding route or candidate has passed preflight.",
     "A candidate passed or was authorized for promotion.",
     "The repository-wide backend or frontend test suite is fully green."
