@@ -2,16 +2,31 @@ from __future__ import annotations
 
 import argparse
 import csv
-import re
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import get_args
 
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 DIRECT_UPDATES = {
     "errorTrigger": {
         "模镜当前状态": "已实现",
         "模镜对应节点": "failure_event_entry",
         "判断说明": "自研失败处置入口显式订阅 1–50 个独立工作流项目，只接收激活后的脱敏失败摘要；原子派发、occurrence key 去重并抑制处理器递归触发。",
+    },
+    "executeWorkflowTrigger": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "workflow_call_entry",
+        "判断说明": "自研私有子流程入口复用全局类型化输入声明，只接受内部固定版本同步调用，不生成公开远程调用接口。",
+    },
+    "executeWorkflow": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "invoke_workflow",
+        "判断说明": "自研同步调用节点固定项目与发布版本，校验类型化输入、环路、深度和后代上限，并持久化父子执行关系与稳定 occurrence key。",
     },
     "scheduleTrigger": {
         "模镜当前状态": "已实现",
@@ -32,6 +47,41 @@ DIRECT_UPDATES = {
         "模镜当前状态": "已实现",
         "模镜对应节点": "http_event_reply",
         "判断说明": "自研 HTTP 事件回执支持常用语义状态或 200-599 自定义状态、文本/JSON 模板正文，必须是私有 HTTP 工作流终端节点。",
+    },
+    "stopAndError": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "terminate_error",
+        "判断说明": "自研安全错误码与固定消息终止；禁止模板和出边。",
+    },
+    "switch": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "multi_route",
+        "判断说明": "自研顺序首个命中分派；使用稳定出口 ID，固定默认出口。",
+    },
+    "filter": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "list_operation",
+        "判断说明": "自研 1–10 条类型化 all/any 筛选规则。",
+    },
+    "sort": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "list_operation",
+        "判断说明": "自研 1–3 个顶层字段稳定排序，支持空值位置。",
+    },
+    "removeDuplicates": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "list_operation",
+        "判断说明": "自研深比较或最多五个顶层字段去重，保留首次出现项。",
+    },
+    "aggregate": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "data_aggregate",
+        "判断说明": "自研对象数组分组聚合，输出稳定有序的新对象数组。",
+    },
+    "summarize": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "data_aggregate",
+        "判断说明": "自研对象数组分组与 count/sum/avg/min/max 度量。",
     },
     "dataTable": {
         "模镜当前状态": "部分实现",
@@ -65,6 +115,30 @@ def status_bucket(value: str) -> str:
     return "未实现"
 
 
+def current_registry_counts() -> tuple[int, int, int, int]:
+    from server.workflow_native.node_contracts import workflow_node_contract_registry
+    from server.workflow_native.schemas import NativeNodeKind
+    from server.xpert_runtime.workflow_node_registry import (
+        WorkflowNodeRegistry,
+        register_builtin_workflow_nodes,
+    )
+
+    contracts = workflow_node_contract_registry.list()
+    registry = WorkflowNodeRegistry()
+    register_builtin_workflow_nodes(registry)
+    palette_kinds = {
+        item.kind
+        for section in registry.sections()
+        for item in section.items
+    } | {item.kind for item in registry.knowledge_pipeline().items}
+    return (
+        len(get_args(NativeNodeKind)),
+        len(palette_kinds),
+        sum(contract.contract_status == "compatibility" for contract in contracts),
+        sum(contract.planner.enabled for contract in contracts),
+    )
+
+
 def main() -> None:
     args = parse_args()
     with args.source_csv.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -96,6 +170,9 @@ def main() -> None:
         domains[row["能力域"]]["总数"] += 1
     ee_count = sum(".ee" in row.get("来源条目标识", "") for row in rows)
     direct_rows = [row for row in rows if row.get("n8n内部标识") in DIRECT_UPDATES]
+    native_count, palette_count, compatibility_count, planner_count = (
+        current_registry_counts()
+    )
 
     domain_lines = []
     for domain, counts in domains.items():
@@ -109,13 +186,15 @@ def main() -> None:
         f"{row['n8n原名参考']} | {row['模镜当前状态']} |"
         for row in direct_rows
     ]
-    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5）
+    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6）
 
-- 审计日期：2026-08-20
+- 审计日期：2026-08-21
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
 - R0 基线事实：NodeContract V3、37 个 `NativeNodeKind`、35 个画布目录项、20 个冻结 compatibility 合同
 - R1 结果：新增 4 个完整合同，并将既有 `llm` 提升为完整合同；自研节点总数 41、画布目录项 39、当前 19 个冻结 compatibility 合同；四节点与 `llm` Planner 均关闭
 - R1.5 PR1 结果：新增完整合同 `failure_event_entry`；自研节点总数 42、画布目录项 40、compatibility 白名单不增长；Planner 关闭且 Xpert 内嵌入口禁止
+- R1.5 PR2 结果：新增完整合同 `workflow_call_entry` 与 `invoke_workflow`；自研节点总数 44、画布目录项 42、compatibility 白名单不增长；仅支持私有同步固定版本调用，Planner 关闭且 Xpert 内嵌入口禁止
+- R1.6 结果：新增完整合同 `terminate_error`、`multi_route`、`data_aggregate`，并将 `list_operation` 提升为完整合同；自研节点总数 {native_count}、画布目录项 {palette_count}、当前 {compatibility_count} 个冻结 compatibility 合同；四类均允许经典工作流和 Xpert 使用，Planner 关闭
 - 参考清单：563 条节点名称/类型，其中 `.ee` {ee_count} 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -150,7 +229,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1 四节点和 R1.5 失败处置入口均禁止 Planner 自动生成。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1、R1.5 和 R1.6 新增节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
 """
     (args.output_dir / "N8N_NODE_CAPABILITY_MATRIX.md").write_text(
         markdown,
