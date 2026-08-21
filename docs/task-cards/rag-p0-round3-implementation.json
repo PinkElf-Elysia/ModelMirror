@@ -1,8 +1,8 @@
 {
   "schema_version": "modelmirror-rag-p0-round3-implementation-v1",
-  "status": "authorized_regeneration_unqualified_stale_preview_process_no_retry",
+  "status": "third_real_gold_draft_structurally_reviewable_awaiting_manual_review",
   "created_at": "2026-08-20T17:35:18.2764123Z",
-  "updated_at": "2026-08-21T03:45:12.8873848Z",
+  "updated_at": "2026-08-21T04:00:56.8897568Z",
   "base": {
     "branch": "origin/main",
     "commit": "0e0202b313b2378d13d899cf53166665baac6bee",
@@ -17,17 +17,18 @@
       "0623d6d36cb05bd885b5348dce7d34f8d6de2810",
       "a8d7ad8041d35e67689fd9426efeb4f3c251d542",
       "b6752329e133bbc680abc445acd94797aa466fde",
-      "bc1478f5bf07507b0c815dd0666331bd90dd2f7f"
+      "bc1478f5bf07507b0c815dd0666331bd90dd2f7f",
+      "d482e521df60a8e7da4a1327a85e4e11e0111ea2"
     ]
   },
   "constraints": {
-    "real_provider_http_attempts": 3,
-    "gold_generation_job_attempts": 3,
-    "successful_gold_generations": 2,
+    "real_provider_http_attempts": 4,
+    "gold_generation_job_attempts": 4,
+    "successful_gold_generations": 3,
     "reported_model_token_usage": {
-      "prompt_tokens": 15622,
-      "completion_tokens": 10280,
-      "total_tokens": 25902
+      "prompt_tokens": 23441,
+      "completion_tokens": 14711,
+      "total_tokens": 38152
     },
     "embedding_preflight_calls": 0,
     "real_candidate_builds": 0,
@@ -60,7 +61,7 @@
       ]
     },
     "3C": {
-      "status": "workbench_hardened_two_real_gold_drafts_unqualified_no_retry",
+      "status": "third_real_gold_draft_structurally_reviewable_awaiting_manual_review",
       "implemented": [
         "42-case review workbench for positive grounding, negative answer absence, review reasons, rejection, blockers, and readiness",
         "structurally invalid rag-gold-v2 drafts are rejected by the review API before any review write and the workbench disables approval and rejection controls",
@@ -69,7 +70,7 @@
         "bounded one-attempt Gold generation contract and explicit no-calibration-before-formal quota boundary"
       ],
       "real_gold_generation": {
-        "status": "two_completed_drafts_unqualified",
+        "status": "latest_draft_structurally_reviewable_awaiting_manual_review",
         "generator_model_id": "openai/gpt-5.6-sol",
         "seed": 0,
         "attempt_history": [
@@ -129,6 +130,27 @@
             "automatic_retry": false,
             "warnings": 0,
             "error": null
+          },
+          {
+            "job_id": "benchmark_job_c888845ed73e4e2282f6f9fcea0ce325",
+            "status": "completed_structurally_reviewable",
+            "attempts": 1,
+            "generation_attempt_receipts": 1,
+            "dataset_id": "evalset_7e837e532a0544fb91d8d6e029fa74cc",
+            "dataset_revision": 1,
+            "case_count": 42,
+            "positive_count": 30,
+            "hard_negative_count": 12,
+            "reviewed_count": 0,
+            "reported_usage": {
+              "prompt_tokens": 7819,
+              "completion_tokens": 4431,
+              "total_tokens": 12250
+            },
+            "automatic_repair": false,
+            "automatic_retry": false,
+            "warnings": 0,
+            "error": null
           }
         ],
         "dataset": {
@@ -162,6 +184,22 @@
           ],
           "corpus_snapshot_hash": "3efe18b42c41bbec51214e825a248648dbbb17dd268220c927aa58ad4537adef"
         },
+        "third_generation_dataset": {
+          "eval_set_id": "evalset_7e837e532a0544fb91d8d6e029fa74cc",
+          "revision": 1,
+          "benchmark_contract_version": "rag-gold-v2",
+          "published_version": null,
+          "review_status": "pending_42_of_42",
+          "qualification_status": "awaiting_manual_review",
+          "failed_checks": [
+            "manual_reviews",
+            "leakage_warning_reasons"
+          ],
+          "structural_review_blockers": [],
+          "leakage_warning_count": 3,
+          "blocking_leakage_count": 0,
+          "corpus_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263"
+        },
         "post_run_root_cause": {
           "classification": "implementation_defect_in_corpus_snapshot_document_hash_source",
           "detail": "Candidate publication intentionally strips content_hash from pipeline version document_results, while pipeline_corpus_snapshot read only that stripped field. The resulting Gold provenance contained four empty document hashes even though the immutable knowledge document records retained valid hashes.",
@@ -176,9 +214,9 @@
         }
       },
       "pending_external_sequence": [
-        "retain both generated datasets as unqualified diagnostic evidence; the API and UI block review and publication",
-        "the preview backend now loads the fixed implementation and its unbilled preflight returns corpus snapshot c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263; obtain fresh explicit authorization before any further Gold generation",
-        "complete manual review of all 42 cases and replace any rejected cases only with new authorization or manual edits",
+        "retain the first two structurally invalid generated datasets as unqualified diagnostic evidence; the API and UI block their review and publication",
+        "use evalset_7e837e532a0544fb91d8d6e029fa74cc as the only review candidate; it has no structural review blocker and must not be regenerated automatically",
+        "complete manual review of all 42 cases, including reasons for the 3 leakage warnings, and replace any rejected cases only with new authorization or manual edits",
         "publish one immutable rag-gold-v2 version",
         "obtain separate authorization and make one sanitized embedding preflight",
         "build one unactivated real embedding candidate only after a successful preflight",
@@ -200,6 +238,8 @@
     "generated_dataset_corpus_snapshot_hash": "3efe18b42c41bbec51214e825a248648dbbb17dd268220c927aa58ad4537adef",
     "authorized_regeneration_dataset_id": "evalset_6a1ca176867e4937a1a0f922bcceeda8",
     "authorized_regeneration_corpus_snapshot_hash": "3efe18b42c41bbec51214e825a248648dbbb17dd268220c927aa58ad4537adef",
+    "third_generation_dataset_id": "evalset_7e837e532a0544fb91d8d6e029fa74cc",
+    "third_generation_corpus_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263",
     "prospective_fixed_corpus_snapshot_hash": "c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263",
     "prospective_fixed_document_hash_count": 4,
     "prospective_fixed_source_block_hash_count": 36,
@@ -291,6 +331,14 @@
     "post_restart_generation_preflight": {
       "command": "unbilled POST /api/benchmarks/generations/preflight after restarting only the isolated preview backend",
       "result": "valid=true, 4 documents, 36 evidence blocks, 0 issues, corpus snapshot c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263; no model call"
+    },
+    "third_generation_receipt": {
+      "command": "single visible preview generation action after a repeated valid preflight",
+      "result": "job benchmark_job_c888845ed73e4e2282f6f9fcea0ce325 completed in one attempt with no repair or retry; reported usage 7819 prompt, 4431 completion, 12250 total tokens; dataset evalset_7e837e532a0544fb91d8d6e029fa74cc uses corpus snapshot c3f1d5dc50c7f4e277ed3cdd69b174b2cf7866dddbcdc147b07dda7b20ed4263"
+    },
+    "third_generation_review_admission": {
+      "command": "read-only dataset contract and workbench inspection",
+      "result": "42 cases = 30 positive + 12 hard negative; failed checks are manual_reviews and leakage_warning_reasons only; structural review blockers 0; 3 leakage warnings, 0 blocking leaks; first-case review controls enabled; no review write"
     }
   },
   "prohibited_claims": [
@@ -299,6 +347,7 @@
     "The first failed Gold request reported model token usage or proved that provider billing occurred.",
     "The existing invalid dataset was repaired or upgraded after generation.",
     "The authorized regeneration produced a qualified, reviewed, or published Gold draft.",
+    "The third generated draft is already qualified, reviewed, or published before all 42 manual decisions are recorded.",
     "The real embedding route or candidate has passed preflight.",
     "A candidate passed or was authorized for promotion.",
     "The repository-wide backend or frontend test suite is fully green."
