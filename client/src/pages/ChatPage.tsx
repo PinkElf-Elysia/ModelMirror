@@ -147,6 +147,170 @@ export const CHAT_COMPOSER_COLUMN_CLASSES = "mx-auto w-full max-w-[1000px]";
 export const AUTO_ROUTING_GUIDANCE =
   "描述任务后，模镜会选择实际模型，并在回答末尾给出服务、Token、成本与请求编号。可在“设置”中更改路由设置。";
 
+interface ProviderChatCanaryStatus {
+  contract_version: "modelmirror-provider-chat-canary-v1";
+  feature_enabled: boolean;
+  available: boolean;
+  gateway: "newapi_canary";
+  model_id: string;
+  reason_code: string;
+  consent_revision: string;
+}
+
+export interface ProviderChatCanarySelection {
+  enabled: boolean;
+  sessionId: string;
+}
+
+function createProviderChatCanarySessionId() {
+  return typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `canary-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+export function ProviderChatCanaryControl({
+  blockedReason,
+  disabled,
+  modelId,
+  onChange,
+}: {
+  blockedReason: string;
+  disabled: boolean;
+  modelId: string;
+  onChange: (selection: ProviderChatCanarySelection) => void;
+}) {
+  const [status, setStatus] = useState<ProviderChatCanaryStatus | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [notice, setNotice] = useState("");
+  const sessionIdRef = useRef(createProviderChatCanarySessionId());
+  const confirmedRef = useRef(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    sessionIdRef.current = createProviderChatCanarySessionId();
+    confirmedRef.current = false;
+    setEnabled(false);
+    setConfirming(false);
+    setNotice("");
+    setStatus(null);
+    onChange({ enabled: false, sessionId: sessionIdRef.current });
+    void fetch(
+      `/api/models/provider-chat-canary?model_id=${encodeURIComponent(modelId)}`,
+      { signal: controller.signal },
+    )
+      .then(async (response) => {
+        if (!response.ok) throw new Error("canary status unavailable");
+        return (await response.json()) as ProviderChatCanaryStatus;
+      })
+      .then((payload) => {
+        if (!controller.signal.aborted) setStatus(payload);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setStatus(null);
+      });
+    return () => controller.abort();
+  }, [modelId, onChange]);
+
+  useEffect(() => {
+    if (!enabled || !blockedReason) return;
+    setEnabled(false);
+    setNotice(`已关闭 newAPI 试运行：${blockedReason}`);
+    onChange({ enabled: false, sessionId: sessionIdRef.current });
+  }, [blockedReason, enabled, onChange]);
+
+  if (!status?.available) return null;
+
+  const enable = () => {
+    setEnabled(true);
+    setNotice("");
+    onChange({ enabled: true, sessionId: sessionIdRef.current });
+  };
+  const toggle = () => {
+    if (enabled) {
+      setEnabled(false);
+      onChange({ enabled: false, sessionId: sessionIdRef.current });
+      return;
+    }
+    if (blockedReason) {
+      setNotice(`暂不可开启：${blockedReason}`);
+      return;
+    }
+    if (!confirmedRef.current) {
+      setConfirming(true);
+      return;
+    }
+    enable();
+  };
+
+  return (
+    <div className="mb-2 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.06] px-3 py-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="font-semibold text-cyan-100">newAPI 试运行</p>
+          <p className="mt-1 text-[11px] leading-5 text-slate-400">
+            仅作用于当前页面会话，不代表默认数据面已切换。
+          </p>
+        </div>
+        <button
+          aria-pressed={enabled}
+          className={`min-h-9 rounded-full px-3 font-semibold transition ${
+            enabled
+              ? "bg-cyan-200 text-slate-950"
+              : "border border-white/15 text-slate-200 hover:bg-white/[0.07]"
+          }`}
+          disabled={disabled}
+          onClick={toggle}
+          type="button"
+        >
+          {enabled ? "已开启" : "开启试运行"}
+        </button>
+      </div>
+      {notice ? <p className="mt-2 text-amber-100" role="status">{notice}</p> : null}
+      {confirming ? (
+        <div
+          aria-labelledby="provider-chat-canary-confirm-title"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          role="dialog"
+        >
+          <div className="w-full max-w-lg rounded-xl border border-white/15 bg-slate-950 p-5 shadow-2xl">
+            <h3 className="font-semibold text-white" id="provider-chat-canary-confirm-title">
+              确认当前会话使用 newAPI 试运行
+            </h3>
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-300">
+              <li>本会话真实文本将发送到独立 newAPI，可能产生费用。</li>
+              <li>失败后不会自动重放到第二个 Provider。</li>
+              <li>切换模型或刷新页面后必须重新确认。</li>
+              <li>切换开关本身不会调用模型。</li>
+            </ul>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200"
+                onClick={() => setConfirming(false)}
+                type="button"
+              >
+                取消
+              </button>
+              <button
+                className="rounded-full bg-cyan-200 px-4 py-2 text-sm font-semibold text-slate-950"
+                onClick={() => {
+                  confirmedRef.current = true;
+                  setConfirming(false);
+                  enable();
+                }}
+                type="button"
+              >
+                确认当前会话
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function shouldShowBatchServingSettings(
   isAutoRoute: boolean,
   hasBatchServingVariant: boolean,
@@ -733,6 +897,9 @@ function markdownComponents(
 }
 
 const routeReasonLabels: Record<string, string> = {
+  explicit_session: "用户明确开启当前会话试运行",
+  manual_canary: "手动 newAPI Canary",
+  baseline_overlap: "与当前静态默认端点重合，仅计试运行证据",
   preference_pool_fallback: "放宽非必要偏好后找到可用模型",
   soft_budget_cheapest_fallback: "预算不足时选择了最低成本候选",
   last_known_good: "优先选择本会话近期成功的模型",
@@ -782,9 +949,13 @@ function RouteReceiptCard({ receipt }: { receipt: RouteReceipt }) {
       ? "本地调度"
       : receipt.engine === "shadow"
         ? "对照观察"
-        : receipt.engine
-          ? "稳定调度"
-          : null;
+        : receipt.engine === "newapi_canary"
+          ? "newAPI 试运行"
+          : receipt.engine === "newapi_canary_fallback"
+            ? "newAPI 预检回退"
+            : receipt.engine
+              ? "稳定调度"
+              : null;
 
   return (
     <div className="mt-4 border-t border-white/10 pt-3 text-xs">
@@ -1478,6 +1649,14 @@ function ChatConversationPage() {
   const [compressionMode, setCompressionMode] = useState<
     "auto" | "off" | "standard" | "strong"
   >("auto");
+  const [providerChatCanary, setProviderChatCanary] =
+    useState<ProviderChatCanarySelection>({ enabled: false, sessionId: "" });
+  const handleProviderChatCanaryChange = useCallback(
+    (selection: ProviderChatCanarySelection) => {
+      setProviderChatCanary(selection);
+    },
+    [],
+  );
 
   useEffect(() => {
     const nonce = searchParams.get("prompt_draft");
@@ -1504,6 +1683,61 @@ function ChatConversationPage() {
     () => (isOmniAutoRoute ? getOrCreateRoutingSessionId(decodedModelId) : ""),
     [decodedModelId, isOmniAutoRoute],
   );
+  const providerChatCanaryBlockedReason = useMemo(() => {
+    if (agentInterview) return "专家/Agent 会话不进入本轮试运行";
+    if (isOmniAutoRoute || isFederationRoute) return "智能调度不进入本轮试运行";
+    if (selectedKnowledgeBaseId) return "知识库检索已启用";
+    if (selectedSkillId) return "Skill 已启用";
+    if (runtimeToolsEnabled) return "MCP 工具已启用";
+    if (chatOutputEnabled) return "文件输出已启用";
+    if (chatFileState.count > 0 || visualAnalysisState.count > 0) {
+      return "文件或视觉分析输入已启用";
+    }
+    if (
+      uploadedImages.length > 0 ||
+      messages.some(
+        (message) =>
+          (message.images?.length ?? 0) > 0 ||
+          (Array.isArray(message.content) &&
+            message.content.some(
+              (part) =>
+                typeof part === "object" &&
+                part !== null &&
+                "type" in part &&
+                part.type !== "text",
+            )),
+      )
+    ) {
+      return "当前会话包含图片或非文本历史";
+    }
+    if (
+      audioComposerOpen ||
+      nativeAudioEnabled ||
+      videoComposerOpen ||
+      Boolean(videoSelection) ||
+      Boolean(reusedDirectMedia)
+    ) {
+      return "音频或视频能力已启用";
+    }
+    return "";
+  }, [
+    agentInterview,
+    audioComposerOpen,
+    chatFileState.count,
+    chatOutputEnabled,
+    isFederationRoute,
+    isOmniAutoRoute,
+    messages,
+    nativeAudioEnabled,
+    reusedDirectMedia,
+    runtimeToolsEnabled,
+    selectedKnowledgeBaseId,
+    selectedSkillId,
+    uploadedImages.length,
+    videoComposerOpen,
+    videoSelection,
+    visualAnalysisState.count,
+  ]);
   const chatFileScopeId = chatFileScope.scopeId;
   const handleChatFileStateChange = useCallback(
     (state: ChatFileComposerState) => setChatFileState(state),
@@ -2967,12 +3201,23 @@ function ChatConversationPage() {
         parsedRoutingBudget > 0
           ? parsedRoutingBudget
           : undefined;
+      const useProviderChatCanary = Boolean(
+        providerChatCanary.enabled &&
+          providerChatCanary.sessionId &&
+          !providerChatCanaryBlockedReason,
+      );
       await fetchChatStream({
         modelId: isOmniAutoRoute ? decodedModelId : model.id,
         messages: apiMessages,
-        gateway: isOmniAutoRoute ? "auto" : "default",
-        routing: isOmniAutoRoute
-          ? {
+        gateway: useProviderChatCanary
+          ? "newapi_canary"
+          : isOmniAutoRoute
+            ? "auto"
+            : "default",
+        routing: useProviderChatCanary
+          ? { session_id: providerChatCanary.sessionId }
+          : isOmniAutoRoute
+            ? {
               session_id: routingSessionId,
               mode: routingMode,
               budget_usd: validRoutingBudget,
@@ -2980,8 +3225,8 @@ function ChatConversationPage() {
                 validRoutingBudget == null
                   ? undefined
                   : routingBudgetFallback,
-            }
-          : undefined,
+              }
+            : undefined,
         compression: isOmniAutoRoute ? { mode: compressionMode } : undefined,
         responseAudio: requestNativeAudio
           ? {
@@ -4193,6 +4438,14 @@ function ChatConversationPage() {
                     ref={fileInputRef}
                     type="file"
                   />
+                  {!isOmniAutoRoute && !isFederationRoute && !agentInterview ? (
+                    <ProviderChatCanaryControl
+                      blockedReason={providerChatCanaryBlockedReason}
+                      disabled={isSending}
+                      modelId={model.id}
+                      onChange={handleProviderChatCanaryChange}
+                    />
+                  ) : null}
                   <ChatActiveContextBar contexts={activeContexts} />
 
                   <textarea

@@ -1,7 +1,7 @@
 # Model Provider Control Plane
 
-状态：Round 0–2 建设批准，默认数据面切换未批准
-Round 2 基线：`origin/main@ed27945e676986a5f7bb7d07619b10e96a03e534`
+状态：Round 0–3 建设批准，Round 3 真实额度验收及默认数据面切换未批准
+Round 3 基线：`origin/main@0e0202b313b2378d13d899cf53166665baac6bee`
 更新日期：2026-08-20
 
 ## 决策
@@ -29,6 +29,8 @@ Provider Control Plane 的会话、SQLite 或主密钥。它只加入独立外�
 - Round 0–1C 不改变 `/api/chat`、SSE、公开模型目录或默认路由协议。
 - Round 2 统一普通文本 Chat 的内部调用契约，但不改变默认 Provider、公开请求协议、
   SSE 或路由回执，也不产生影子复制流量。
+- Round 3 只增加用户显式、页面会话级的 `newapi_canary`；默认关闭，不做百分比灰度、
+  影子复制、自动切流或默认资格判定。
 - newAPI 是否成为强制默认数据面由后续独立决策决定。
 - 任一门禁失败时保留现有静态数据面和 SQLite，不自动迁移或删除数据。
 
@@ -86,10 +88,45 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   或凭据。
 - `MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_ENABLED=false` 可停止新的认证操作，不影响
   连接管理、现有认证记录或默认数据面。
+- 认证默认有效 24 小时，可通过
+  `MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS` 在 300 到 2592000 秒范围内
+  调整。过期、非法 TTL 或无法解析的完成时间都会让 Canary 失败关闭；系统不会自动发起
+  可能计费的重新认证。
 - 连接的 Base URL、类型、scope 或凭据变化会让旧结果派生为 `stale`；名称或健康检查
   时间变化不会。Server 重启会把遗留 `running` 标为 `uncertain`，不会自动重放。
+
+## 手动会话 Canary 与证据
+
+- `MODEL_MIRROR_PROVIDER_CHAT_CANARY_ENABLED` 默认 `false`。关闭只禁用手动 Canary，
+  不影响连接、认证或当前 default/OmniRoute/Native 数据面。
+- 管理员通过 `GET/PUT /api/router/canaries/chat` 选择唯一 newAPI 连接；启用前必须存在
+  当前连接指纹下至少一个逐模型 `passed` 认证。Settings 只显示脱敏状态、指标与暂停
+  原因，不提供比例灰度或默认切换控件。
+- Chat 页通过公开只读、`Cache-Control: no-store` 的
+  `GET /api/models/provider-chat-canary?model_id=<exact-id>` 判断精确模型资格。开关默认
+  关闭且只保存在页面内存；切换模型或刷新页面后重新确认，开关本身不调用模型。
+- `gateway=newapi_canary` 必须提供页面 `routing.session_id`，并只接受纯文本历史、
+  `tool_mode=none`、`output_mode=none`，以及无 Skill、文件、图片、音频或视频的请求。
+  temperature、top_p、seed、stop、max_tokens 与纯文本 prompt suffix 保持现有契约。
+- 预检失败可在 Canary POST 发出前回到当前默认路径，并回执
+  `engine=newapi_canary_fallback`。一旦受管 Transport 标记 `dispatched`，只连接一个已批准
+  IP、只发送一个 POST，之后不得切换 IP、连接、模型或默认 Provider。
+- 成功流原样转发，同时旁路观察正文是否出现、终止、TTFT/E2E 和可用 usage；证据不保存
+  用户消息、模型正文、完整上游错误或凭据。回执使用 `engine=newapi_canary` 与
+  `strategy=explicit_session`，不公开连接或数据库运行 ID。
+- SQLite v13 新增租户级策略和运行证据表。遗留 `running` 在重启后变为 `uncertain`，
+  绝不重放。401/402/403/404、非法 SSE、空流和缺少终止会立即按连接+模型暂停；429、
+  5xx、连接/读取超时或流中断连续三次后暂停；请求特定 4xx 和客户端取消不触发暂停。
+  新的同模型真实认证通过后，以新 certification ID 开始新的失败窗口。
+- Settings 将当前连接指纹与最新有效认证下的近期记录单独汇总；旧指纹、旧认证窗口或
+  过期认证下的运行保留为明确标记的历史证据，不计入当前成功率。该汇总只覆盖接口返回的
+  最近记录，不能解释为全量历史或默认数据面资格。
+- 受管端点与当前静态默认端点相同时标记 `baseline_overlap`；该运行只证明受管路径，不能
+  作为未来默认资格证据。每次真实额度 Canary 仍需单独授权和人工验收。
 
 ## 回退
 
 关闭管理面或回退路由不得删除 Provider SQLite、newAPI 数据目录、旧主密钥或迁移
-备份。部署回退通过恢复上一版本 Compose 与对应显式环境配置完成。
+备份。将 `MODEL_MIRROR_PROVIDER_CHAT_CANARY_ENABLED=false` 可立即关闭 Round 3 入口；
+代码回退保留 v13 表和脱敏证据，旧版本可忽略新表继续运行。部署回退通过恢复上一版本
+Compose 与对应显式环境配置完成。

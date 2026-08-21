@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
@@ -28,6 +29,9 @@ from .schemas import (
     ProviderChatCertificationListResponse,
     ProviderChatCertificationRequest,
     ProviderChatCertificationSummary,
+    ProviderChatCanaryAdminResponse,
+    ProviderChatCanaryPolicyUpdate,
+    ProviderChatCanaryPublicStatus,
     ProviderModelsRefreshResponse,
     RouterConnection,
     RouterConnectionCreate,
@@ -37,6 +41,7 @@ from .schemas import (
     RouterStatus,
 )
 from .chat_certification import ProviderChatCertificationService
+from .chat_canary import ProviderChatCanaryService
 from .service import (
     ModelRouterService,
     RouterServiceError,
@@ -245,6 +250,45 @@ async def run_chat_certification(
         _raise_public_error(exc)
 
 
+@router.get(
+    "/canaries/chat",
+    response_model=ProviderChatCanaryAdminResponse,
+)
+def get_chat_canary_admin_status(
+    limit: int = 50,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> ProviderChatCanaryAdminResponse:
+    try:
+        return ProviderChatCanaryService(
+            get_model_router_service()
+        ).admin_status(
+            limit=max(1, min(limit, 100)),
+            default_gateway_url=os.getenv("LLM_GATEWAY_URL"),
+        )
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.put(
+    "/canaries/chat",
+    response_model=ProviderChatCanaryAdminResponse,
+)
+def update_chat_canary_policy(
+    payload: ProviderChatCanaryPolicyUpdate,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderChatCanaryAdminResponse:
+    try:
+        return ProviderChatCanaryService(
+            get_model_router_service()
+        ).update_policy(
+            payload.connection_id,
+            enabled=payload.enabled,
+            default_gateway_url=os.getenv("LLM_GATEWAY_URL"),
+        )
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
 @router.get("/policy", response_model=RouterPolicy)
 def get_policy(
     _principal: ProviderControlPrincipal = Depends(require_provider_admin),
@@ -318,3 +362,23 @@ async def get_model_catalog() -> ModelCatalogResponse:
 @models_router.get("/router-status", response_model=RouterStatusResponse)
 async def get_public_router_status() -> RouterStatusResponse:
     return await get_catalog_coordinator().get_status()
+
+
+@models_router.get(
+    "/provider-chat-canary",
+    response_model=ProviderChatCanaryPublicStatus,
+)
+def get_public_chat_canary_status(
+    model_id: str,
+    response: Response,
+) -> ProviderChatCanaryPublicStatus:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return ProviderChatCanaryService(
+            get_model_router_service()
+        ).public_status(
+            model_id,
+            default_gateway_url=os.getenv("LLM_GATEWAY_URL"),
+        )
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)

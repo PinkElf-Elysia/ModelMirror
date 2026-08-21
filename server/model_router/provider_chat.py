@@ -142,10 +142,11 @@ class ProviderChatTransport:
         *,
         headers: Mapping[str, str] | None = None,
         certification: bool = False,
+        single_address: bool = False,
     ) -> httpx.Response:
         request_headers = target.authorization_headers(headers)
         if target.source == "managed":
-            if certification:
+            if certification or single_address:
                 approved = await self.egress_policy.authorize(
                     target.chat_completions_url
                 )
@@ -189,6 +190,7 @@ class ProviderChatTransport:
         *,
         headers: Mapping[str, str] | None = None,
         certification: bool = False,
+        single_address: bool = False,
     ) -> AsyncIterator[httpx.Response]:
         response = await self.send_stream(
             client,
@@ -196,6 +198,7 @@ class ProviderChatTransport:
             payload,
             headers=headers,
             certification=certification,
+            single_address=single_address,
         )
         try:
             yield response
