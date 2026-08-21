@@ -1806,6 +1806,114 @@ async def test_authoring_middleware_requires_runtime_tool_mode_and_scoped_ids(
 
 
 @pytest.mark.asyncio
+async def test_creator_handoff_does_not_require_runtime_tool_mode(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = middleware_binding_workflow()
+    middleware = workflow["nodes"][-1]
+    middleware["id"] = "creator-handoff"
+    middleware["data"].update(
+        {
+            "runtimeMiddlewareId": "skill_creator",
+            "runtimeMiddlewareKind": "runtime_middleware.skill_creator",
+            "runtimeMiddlewareConfig": {
+                "authoring_mode": "creator_handoff"
+            },
+        }
+    )
+    workflow["edges"][-1]["source"] = "creator-handoff"
+
+    result = await validate(client, workflow)
+
+    assert result["valid"] is True, result["issues"]
+    assert "authoring_requires_runtime_tool_mode" not in issue_codes(result)
+    assert "skill_creator_legacy_middleware" not in issue_codes(result)
+
+
+@pytest.mark.asyncio
+async def test_creator_handoff_rejects_multiple_bindings_and_warns_for_legacy(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = middleware_binding_workflow()
+    middleware = workflow["nodes"][-1]
+    middleware["id"] = "legacy-creator"
+    middleware["data"].update(
+        {
+            "runtimeMiddlewareId": "skill_creator",
+            "runtimeMiddlewareKind": "runtime_middleware.skill_creator",
+            "runtimeMiddlewareConfig": {},
+        }
+    )
+    workflow["edges"][-1]["source"] = "legacy-creator"
+    workflow["nodes"][1]["data"]["toolMode"] = "mcp_tools"
+    legacy = await validate(client, workflow)
+    assert legacy["valid"] is True, legacy["issues"]
+    assert "skill_creator_legacy_middleware" in issue_codes(legacy)
+
+    middleware["data"]["runtimeMiddlewareConfig"] = {
+        "authoring_mode": "creator_handoff"
+    }
+    second = {
+        "id": "creator-handoff-2",
+        "type": "runtime_middleware",
+        "data": {
+            "kind": "runtime_middleware",
+            "runtimeMiddlewareId": "skill_creator",
+            "runtimeMiddlewareKind": "runtime_middleware.skill_creator",
+            "runtimeMiddlewareConfig": {
+                "authoring_mode": "creator_handoff"
+            },
+        },
+    }
+    workflow["nodes"].append(second)
+    workflow["edges"].append(
+        {
+            "id": "bind-second-creator",
+            "source": "creator-handoff-2",
+            "target": workflow["nodes"][1]["id"],
+            "sourceHandle": "middleware-binding",
+            "targetHandle": "middleware",
+        }
+    )
+
+    multiple = await validate(client, workflow)
+    assert "skill_creator_multiple_handoffs" in issue_codes(multiple)
+    assert multiple["valid"] is False
+
+    workflow["nodes"].remove(second)
+    workflow["edges"][-1]["source"] = "legacy-creator"
+    workflow["nodes"].append(
+        {
+            "id": "workflow_agent_2",
+            "type": "workflow_agent",
+            "data": {
+                "kind": "workflow_agent",
+                "agentName": "second-agent",
+                "modelId": "openai/gpt-4o-mini",
+                "rolePrompt": "Answer accurately.",
+                "taskInput": "{{agent_output}}",
+                "toolMode": "none",
+                "outputVariable": "second_output",
+            },
+        }
+    )
+    workflow["nodes"][2]["data"]["outputVariable"] = "second_output"
+    workflow["edges"][1]["source"] = "workflow_agent_2"
+    workflow["edges"].insert(
+        1,
+        {
+            "id": "agent-to-agent-2",
+            "source": "workflow_agent",
+            "target": "workflow_agent_2",
+        },
+    )
+    workflow["edges"][-1]["target"] = "workflow_agent_2"
+    duplicate_binding = await validate(client, workflow)
+    assert "skill_creator_multiple_handoffs" in issue_codes(duplicate_binding)
+    assert duplicate_binding["valid"] is False
+
+
+@pytest.mark.asyncio
 async def test_automation_middleware_configuration_is_validated(
     client: httpx.AsyncClient,
 ) -> None:

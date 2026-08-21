@@ -135,6 +135,168 @@ class SkillCreatorSessionStore:
         source_message_id: str | None = None,
         authoring_flow: CreatorAuthoringFlow = "legacy",
     ) -> SkillCreatorSession:
+        session = self._new_session(
+            mode=mode,
+            intent=intent,
+            positive_examples=positive_examples,
+            near_miss_examples=near_miss_examples,
+            expected_output=expected_output,
+            success_criteria=success_criteria,
+            source_kind=source_kind,
+            source_task_id=source_task_id,
+            source_run_id=source_run_id,
+            source_xpert_id=source_xpert_id,
+            source_conversation_id=source_conversation_id,
+            source_message_id=source_message_id,
+            authoring_flow=authoring_flow,
+        )
+        with self._lock:
+            self._insert_unlocked(session)
+        return self._copy(session)
+
+    def create_or_get_workflow_handoff(
+        self,
+        *,
+        intent: str,
+        positive_examples: list[str],
+        near_miss_examples: list[str],
+        expected_output: str,
+        success_criteria: list[str],
+        source_task_id: str,
+        source_run_id: str,
+    ) -> SkillCreatorSession:
+        """Atomically create one resource-authoring session per trusted run.
+
+        A pristine run-capture session may win a narrow race with the automatic
+        handoff. In that case it is hydrated in place. Any edited or otherwise
+        divergent session fails closed instead of silently changing ownership.
+        """
+
+        candidate = self._new_session(
+            mode="run",
+            intent=intent,
+            positive_examples=positive_examples,
+            near_miss_examples=near_miss_examples,
+            expected_output=expected_output,
+            success_criteria=success_criteria,
+            source_kind="workflow_classic",
+            source_task_id=source_task_id,
+            source_run_id=source_run_id,
+            authoring_flow="resource",
+        )
+        with self._lock:
+            self._ensure_writable_unlocked()
+            matches = [
+                item
+                for item in self._items.values()
+                if item.source_kind == "workflow_classic"
+                and item.source_task_id == candidate.source_task_id
+                and item.source_run_id == candidate.source_run_id
+            ]
+            if len(matches) > 1:
+                raise SkillCreatorConflictError(
+                    "Multiple Creator sessions match this workflow execution."
+                )
+            if matches:
+                existing = matches[0]
+                if self._handoff_definition_matches(existing, candidate):
+                    return self._copy(existing)
+                if self._is_pristine_run_capture(existing):
+                    previous = self._copy(existing)
+                    existing.authoring_flow = "resource"
+                    existing.intent = candidate.intent
+                    existing.positive_examples = candidate.positive_examples
+                    existing.near_miss_examples = candidate.near_miss_examples
+                    existing.expected_output = candidate.expected_output
+                    existing.success_criteria = candidate.success_criteria
+                    existing.state = self._derive_state(existing)
+                    existing.session_revision += 1
+                    existing.updated_at = time.time()
+                    try:
+                        self._save_unlocked()
+                    except BaseException:
+                        self._items[existing.session_id] = previous
+                        raise
+                    return self._copy(existing)
+                raise SkillCreatorConflictError(
+                    "Creator workflow handoff conflicts with an existing session."
+                )
+            self._insert_unlocked(candidate)
+            return self._copy(candidate)
+
+    def create_or_get_run_capture(
+        self,
+        *,
+        intent: str = "",
+        positive_examples: list[str] | None = None,
+        near_miss_examples: list[str] | None = None,
+        expected_output: str = "",
+        success_criteria: list[str] | None = None,
+        source_kind: CreatorSourceKind,
+        source_task_id: str,
+        source_run_id: str,
+        source_xpert_id: str | None = None,
+        source_conversation_id: str | None = None,
+        source_message_id: str | None = None,
+        authoring_flow: CreatorAuthoringFlow = "legacy",
+    ) -> SkillCreatorSession:
+        """Make the existing completed-run capture API idempotent by source."""
+
+        candidate = self._new_session(
+            mode="run",
+            intent=intent,
+            positive_examples=positive_examples,
+            near_miss_examples=near_miss_examples,
+            expected_output=expected_output,
+            success_criteria=success_criteria,
+            source_kind=source_kind,
+            source_task_id=source_task_id,
+            source_run_id=source_run_id,
+            source_xpert_id=source_xpert_id,
+            source_conversation_id=source_conversation_id,
+            source_message_id=source_message_id,
+            authoring_flow=authoring_flow,
+        )
+        with self._lock:
+            self._ensure_writable_unlocked()
+            matches = [
+                item
+                for item in self._items.values()
+                if self._source_matches(item, candidate)
+            ]
+            if len(matches) > 1:
+                raise SkillCreatorConflictError(
+                    "Multiple Creator sessions match this runtime source."
+                )
+            if matches:
+                existing = matches[0]
+                if self._is_empty_definition(candidate) or self._definitions_match(
+                    existing, candidate
+                ):
+                    return self._copy(existing)
+                raise SkillCreatorConflictError(
+                    "Creator runtime source is already bound to another definition."
+                )
+            self._insert_unlocked(candidate)
+            return self._copy(candidate)
+
+    def _new_session(
+        self,
+        *,
+        mode: CreatorMode,
+        intent: str,
+        positive_examples: list[str] | None,
+        near_miss_examples: list[str] | None,
+        expected_output: str,
+        success_criteria: list[str] | None,
+        source_kind: CreatorSourceKind,
+        source_task_id: str | None,
+        source_run_id: str | None,
+        source_xpert_id: str | None = None,
+        source_conversation_id: str | None = None,
+        source_message_id: str | None = None,
+        authoring_flow: CreatorAuthoringFlow = "legacy",
+    ) -> SkillCreatorSession:
         session = SkillCreatorSession(
             session_id=f"skillcreator_{uuid.uuid4().hex}",
             mode=self._mode(mode),
@@ -164,20 +326,91 @@ class SkillCreatorSessionStore:
         self._validate_source(session)
         self._reject_credentials(session)
         session.state = self._derive_state(session)
-        with self._lock:
-            self._ensure_writable_unlocked()
-            if len(self._items) >= self.MAX_SESSIONS:
-                raise SkillCreatorValidationError(
-                    "Skill Creator session limit reached.",
-                    code="skill_creator_session_limit",
-                )
-            self._items[session.session_id] = session
-            try:
-                self._save_unlocked()
-            except BaseException:
-                self._items.pop(session.session_id, None)
-                raise
-        return self._copy(session)
+        return session
+
+    def _insert_unlocked(self, session: SkillCreatorSession) -> None:
+        self._ensure_writable_unlocked()
+        if len(self._items) >= self.MAX_SESSIONS:
+            raise SkillCreatorValidationError(
+                "Skill Creator session limit reached.",
+                code="skill_creator_session_limit",
+            )
+        self._items[session.session_id] = session
+        try:
+            self._save_unlocked()
+        except BaseException:
+            self._items.pop(session.session_id, None)
+            raise
+
+    @staticmethod
+    def _handoff_definition_matches(
+        existing: SkillCreatorSession,
+        candidate: SkillCreatorSession,
+    ) -> bool:
+        return (
+            existing.mode == "run"
+            and existing.authoring_flow == "resource"
+            and existing.intent == candidate.intent
+            and existing.positive_examples == candidate.positive_examples
+            and existing.near_miss_examples == candidate.near_miss_examples
+            and existing.expected_output == candidate.expected_output
+            and existing.success_criteria == candidate.success_criteria
+        )
+
+    @staticmethod
+    def _definitions_match(
+        existing: SkillCreatorSession,
+        candidate: SkillCreatorSession,
+    ) -> bool:
+        return (
+            existing.intent == candidate.intent
+            and existing.positive_examples == candidate.positive_examples
+            and existing.near_miss_examples == candidate.near_miss_examples
+            and existing.expected_output == candidate.expected_output
+            and existing.success_criteria == candidate.success_criteria
+        )
+
+    @staticmethod
+    def _is_empty_definition(item: SkillCreatorSession) -> bool:
+        return not any(
+            (
+                item.intent,
+                item.positive_examples,
+                item.near_miss_examples,
+                item.expected_output,
+                item.success_criteria,
+            )
+        )
+
+    @staticmethod
+    def _source_matches(
+        existing: SkillCreatorSession,
+        candidate: SkillCreatorSession,
+    ) -> bool:
+        return (
+            existing.mode == "run"
+            and existing.source_kind == candidate.source_kind
+            and existing.source_task_id == candidate.source_task_id
+            and existing.source_run_id == candidate.source_run_id
+            and existing.source_xpert_id == candidate.source_xpert_id
+            and existing.source_conversation_id == candidate.source_conversation_id
+            and existing.source_message_id == candidate.source_message_id
+        )
+
+    @staticmethod
+    def _is_pristine_run_capture(item: SkillCreatorSession) -> bool:
+        return (
+            item.mode == "run"
+            and item.session_revision == 1
+            and not item.intent
+            and not item.positive_examples
+            and not item.near_miss_examples
+            and not item.expected_output
+            and not item.success_criteria
+            and not item.evidence_confirmed
+            and not item.proposal_id
+            and not item.draft_id
+        )
 
     def activate_resource_authoring(
         self,

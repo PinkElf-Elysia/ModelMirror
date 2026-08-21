@@ -4,6 +4,7 @@ from server.xpert_runtime import (
     RuntimeMiddlewareNode,
     RuntimeMiddlewareRegistry,
     register_builtin_middleware_nodes,
+    skill_creator_authoring_mode,
 )
 
 
@@ -60,8 +61,21 @@ def test_registry_list_returns_builtin_nodes() -> None:
     assert authoring is not None and skill_creator is not None
     assert authoring.requires_tool_mode == "mcp_tools"
     assert skill_creator.requires_tool_mode == "mcp_tools"
+    assert skill_creator.metadata["supported_authoring_modes"] == [
+        "legacy_proposal",
+        "creator_handoff",
+    ]
     assert {"xpert_authoring", "skill_creator"}.issubset(
         registry.app_forbidden_ids()
+    )
+
+
+def test_skill_creator_authoring_mode_defaults_legacy_for_saved_nodes() -> None:
+    assert skill_creator_authoring_mode(None) == "legacy_proposal"
+    assert skill_creator_authoring_mode({}) == "legacy_proposal"
+    assert (
+        skill_creator_authoring_mode({"authoring_mode": "creator_handoff"})
+        == "creator_handoff"
     )
 
 

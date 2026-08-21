@@ -88,8 +88,10 @@ from .middleware_registry import (
     RuntimeMiddlewareField,
     RuntimeMiddlewareNode,
     RuntimeMiddlewareRegistry,
+    SKILL_CREATOR_AUTHORING_MODES,
     register_builtin_middleware_nodes,
     runtime_middleware_registry,
+    skill_creator_authoring_mode,
 )
 from .memory_toolset import MemoryToolsetProvider, register_memory_toolset_capability
 from .file_memory_middleware import build_xpert_file_memory_middleware
@@ -364,6 +366,7 @@ __all__ = [
     "ToolAuditStatus",
     "ToolsetProvider",
     "ToolPermissionPolicy",
+    "SKILL_CREATOR_AUTHORING_MODES",
     "register_builtin_middleware_nodes",
     "register_builtin_workflow_nodes",
     "register_mcp_toolset_capability",
@@ -383,6 +386,7 @@ __all__ = [
     "middleware_config_schema",
     "middleware_spec",
     "middleware_spec_from_node",
+    "skill_creator_authoring_mode",
     "select_runtime_tools",
     "todo_planning_instruction",
     "validate_structured_output",
