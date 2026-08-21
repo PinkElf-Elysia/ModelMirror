@@ -82,6 +82,12 @@ import {
   planWorkflowVariableRename,
   type WorkflowVariableRenamePlan,
 } from "./workflowVariables";
+import {
+  analyzeXpertWorkflowConversion,
+  INDEPENDENT_DEPLOYMENT_NODE_KINDS,
+  validateXpertConversionGraph,
+  type XpertConversionAnalysis,
+} from "./workflowXpertConversion";
 import TrustedSkillSelect, {
   type TrustSelectableSkill,
 } from "../skill-trust/TrustedSkillSelect";
@@ -4335,16 +4341,6 @@ interface WorkflowCanvasProps {
 
 type WorkflowWorkspaceTab = "config" | "run";
 
-const INDEPENDENT_DEPLOYMENT_NODE_KINDS = new Set<WorkflowNodeKind>([
-  "scheduled_start",
-  "http_event_entry",
-  "failure_event_entry",
-  "workflow_call_entry",
-  "invoke_workflow",
-  "http_event_reply",
-  "suspend_wait",
-]);
-
 interface WorkflowFileInputFocusRequest {
   requestId: number;
   variableName: string;
@@ -4376,6 +4372,12 @@ function WorkflowCanvas({
   const [errorNotice, setErrorNotice] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
+  const [xpertRegistry, setXpertRegistry] =
+    useState<WorkflowNodeRegistryResponse | null>(null);
+  const [xpertRegistryError, setXpertRegistryError] = useState("");
+  const [conversionReview, setConversionReview] =
+    useState<XpertConversionAnalysis | null>(null);
+  const [conversionInputVariable, setConversionInputVariable] = useState("");
   const [projectRevision, setProjectRevision] = useState<number | null>(null);
   const [activeDeployment, setActiveDeployment] =
     useState<WorkflowDeploymentSummary | null>(null);
@@ -4419,6 +4421,26 @@ function WorkflowCanvas({
   >([]);
   const { screenToFlowPosition, fitView } = useReactFlow();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchWorkflowNodeRegistry()
+      .then((registry) => {
+        if (cancelled) return;
+        setXpertRegistry(registry);
+        setXpertRegistryError("");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setXpertRegistry(null);
+        setXpertRegistryError(
+          "节点 Registry 暂不可用，已暂停智能体转换与入口修复。",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (onSave || !workflowId.startsWith("wf_")) return;
@@ -4526,6 +4548,21 @@ function WorkflowCanvas({
     }),
     [edges, nodes, title, variables, workflowId],
   );
+  const xpertEntryRepair = useMemo(() => {
+    if (
+      !onSave ||
+      !xpertRegistry ||
+      nodes.some((node) => node.data.kind === "input") ||
+      !nodes.some((node) => node.data.kind === "workflow_call_entry")
+    ) {
+      return null;
+    }
+    return analyzeXpertWorkflowConversion(
+      definition,
+      xpertRegistry,
+      conversionInputVariable || undefined,
+    );
+  }, [conversionInputVariable, definition, nodes, onSave, xpertRegistry]);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
@@ -5146,22 +5183,50 @@ function WorkflowCanvas({
     }
   }
 
-  async function convertToXpertDraft() {
+  async function convertToXpertDraft(selectedInputVariable?: string) {
     if (onSave || isConverting) return;
+    if (!xpertRegistry) {
+      setErrorNotice(
+        xpertRegistryError || "节点 Registry 正在加载，请稍后再试。",
+      );
+      return;
+    }
     const currentDefinition = stripRunStatus({
       ...definition,
       updatedAt: new Date().toISOString(),
     });
+    const analysis = analyzeXpertWorkflowConversion(
+      currentDefinition,
+      xpertRegistry,
+      selectedInputVariable,
+    );
+    setConversionInputVariable(analysis.selectedInputVariable);
+    if (analysis.status !== "ready" || !analysis.definition) {
+      setConversionReview(analysis);
+      return;
+    }
+    setConversionReview(null);
+
     setIsConverting(true);
     try {
-      const inputVariable =
-        currentDefinition.nodes
-          .find((node) => node.data.kind === "input")
-          ?.data.variableName?.trim() || "user_input";
-      const outputVariable =
-        currentDefinition.nodes
-          .find((node) => node.data.kind === "output")
-          ?.data.outputVariable?.trim() || "agent_output";
+      const staticValidation = await validateXpertConversionGraph(
+        analysis.definition,
+      );
+      if (!staticValidation.valid) {
+        const blockers = staticValidation.issues
+          .filter((issue) => issue.severity === "error")
+          .map((issue) =>
+            `${issue.node_id ? `${issue.node_id}：` : ""}${issue.message}`,
+          );
+        setConversionReview({
+          ...analysis,
+          status: "blocked",
+          blockers:
+            blockers.length > 0 ? blockers : ["静态图校验未通过。"],
+          definition: null,
+        });
+        return;
+      }
       const created = await createXpert({
         name: title.trim() || "未命名智能体",
         description: "由经典工作流草稿转换。",
@@ -5170,21 +5235,41 @@ function WorkflowCanvas({
       await updateXpert(created.id, {
         draft: {
           ...created.draft,
-          workflow: toXpertDraftWorkflow(currentDefinition),
-          input_variable: inputVariable,
-          output_variable: outputVariable,
+          workflow: toXpertDraftWorkflow(analysis.definition),
+          input_variable: analysis.selectedInputVariable,
+          output_variable: analysis.outputVariable,
         },
       });
       saveStoredWorkflow(currentDefinition);
+      setConversionReview(null);
       navigate(`/agents/studio/${created.id}`);
     } catch (error) {
-      setSaveNotice(
+      setErrorNotice(
         error instanceof Error ? error.message : "转换智能体草稿失败，请稍后重试",
       );
-      window.setTimeout(() => setSaveNotice(""), 2600);
     } finally {
       setIsConverting(false);
     }
+  }
+
+  function repairXpertEntry() {
+    if (!onSave || !xpertRegistry || !xpertEntryRepair || isConverting) return;
+    const selectedInput =
+      conversionInputVariable || xpertEntryRepair.selectedInputVariable;
+    const analysis = analyzeXpertWorkflowConversion(
+      definition,
+      xpertRegistry,
+      selectedInput,
+    );
+    if (analysis.status !== "ready" || !analysis.definition) return;
+    commitHistory();
+    setNodes(analysis.definition.nodes);
+    setVariables(analysis.definition.variables ?? []);
+    setSelectedNodeId(analysis.convertedEntryNodeId);
+    setConversionInputVariable("");
+    setErrorNotice("");
+    setSaveNotice("入口已转换；请显式保存智能体草稿");
+    window.setTimeout(() => setSaveNotice(""), 2600);
   }
 
   function onDrop(event: React.DragEvent<HTMLDivElement>) {
@@ -5433,8 +5518,13 @@ function WorkflowCanvas({
             {!onSave ? (
               <button
                 className="rounded-md border border-cyan-300/30 bg-cyan-300/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/20 disabled:opacity-50"
-                disabled={isConverting}
+                disabled={isConverting || !xpertRegistry}
                 onClick={() => void convertToXpertDraft()}
+                title={
+                  !xpertRegistry
+                    ? xpertRegistryError || "节点 Registry 正在加载"
+                    : undefined
+                }
                 type="button"
               >
                 {isConverting ? "转换中..." : "转为智能体草稿"}
@@ -5450,6 +5540,157 @@ function WorkflowCanvas({
             </button>
           </div>
         </div>
+
+        {xpertRegistryError ? (
+          <div
+            aria-live="polite"
+            className="border-b border-amber-300/20 bg-amber-300/[0.08] px-4 py-2 text-xs text-amber-100"
+          >
+            {xpertRegistryError}
+          </div>
+        ) : null}
+
+        {!onSave && conversionReview ? (
+          <div
+            aria-live="polite"
+            className={`border-b px-4 py-3 ${
+              conversionReview.status === "blocked"
+                ? "border-rose-300/20 bg-rose-400/[0.08]"
+                : "border-cyan-300/20 bg-cyan-300/[0.08]"
+            }`}
+          >
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white">
+                  {conversionReview.status === "selection_required"
+                    ? "选择智能体输入"
+                    : "暂时不能转为智能体草稿"}
+                </p>
+                {conversionReview.status === "selection_required" ? (
+                  <p className="mt-1 text-xs leading-5 text-slate-300">
+                    子流程有多个输入候选。请选择智能体每次对话接收的主输入。
+                  </p>
+                ) : (
+                  <ul className="mt-1 space-y-1 text-xs leading-5 text-rose-100">
+                    {conversionReview.blockers.map((blocker) => (
+                      <li key={blocker}>• {blocker}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {conversionReview.inputCandidates.length > 1 ? (
+                  <select
+                    aria-label="智能体主输入"
+                    className="rounded-md border border-white/15 bg-slate-950 px-2.5 py-1.5 text-xs text-white outline-none focus:border-cyan-300/60"
+                    onChange={(event) =>
+                      setConversionInputVariable(event.target.value)
+                    }
+                    value={
+                      conversionInputVariable ||
+                      conversionReview.selectedInputVariable
+                    }
+                  >
+                    {conversionReview.inputCandidates.map((candidate) => (
+                      <option key={candidate} value={candidate}>
+                        {candidate}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                {conversionReview.status === "selection_required" ||
+                (conversionReview.status === "blocked" &&
+                  conversionReview.inputCandidates.length > 1) ? (
+                  <button
+                    className="rounded-md bg-cyan-300 px-3 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:opacity-50"
+                    disabled={isConverting}
+                    onClick={() =>
+                      void convertToXpertDraft(
+                        conversionInputVariable ||
+                          conversionReview.selectedInputVariable,
+                      )
+                    }
+                    type="button"
+                  >
+                    {conversionReview.status === "selection_required"
+                      ? "继续转换"
+                      : "重新检查"}
+                  </button>
+                ) : null}
+                <button
+                  className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-white/10 hover:text-white"
+                  onClick={() => setConversionReview(null)}
+                  type="button"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {onSave && xpertEntryRepair ? (
+          <div
+            aria-live="polite"
+            className={`border-b px-4 py-3 ${
+              xpertEntryRepair.status === "blocked"
+                ? "border-rose-300/20 bg-rose-400/[0.08]"
+                : "border-amber-300/20 bg-amber-300/[0.08]"
+            }`}
+          >
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white">
+                  独立工作流入口需要转换
+                </p>
+                {xpertEntryRepair.status === "blocked" ? (
+                  <ul className="mt-1 space-y-1 text-xs leading-5 text-rose-100">
+                    {xpertEntryRepair.blockers.map((blocker) => (
+                      <li key={blocker}>• {blocker}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs leading-5 text-slate-300">
+                    只修改当前智能体草稿的入口；原独立工作流不会变化。修改可撤销，仍需显式保存。
+                  </p>
+                )}
+              </div>
+              {xpertEntryRepair.status !== "blocked" ||
+              xpertEntryRepair.inputCandidates.length > 1 ? (
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {xpertEntryRepair.inputCandidates.length > 1 ? (
+                    <select
+                      aria-label="修复后的智能体主输入"
+                      className="rounded-md border border-white/15 bg-slate-950 px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-300/60"
+                      onChange={(event) =>
+                        setConversionInputVariable(event.target.value)
+                      }
+                      value={
+                        conversionInputVariable ||
+                        xpertEntryRepair.selectedInputVariable
+                      }
+                    >
+                      {xpertEntryRepair.inputCandidates.map((candidate) => (
+                        <option key={candidate} value={candidate}>
+                          {candidate}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  {xpertEntryRepair.status !== "blocked" ? (
+                    <button
+                      className="rounded-md bg-amber-300 px-3 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-amber-200"
+                      onClick={repairXpertEntry}
+                      type="button"
+                    >
+                      转换为智能体输入
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         {oneTimeWebhookKey ? (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-6">

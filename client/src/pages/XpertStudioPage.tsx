@@ -20,6 +20,7 @@ import {
   updateXpert,
   validateXpert,
 } from "../utils/xpertApi";
+import { consolidateXpertValidation } from "../utils/xpertValidation";
 
 function splitTags(value: string) {
   return value.split(/[,\n]/).map((item) => item.trim()).filter(Boolean);
@@ -140,10 +141,16 @@ export default function XpertStudioPage() {
 
   async function saveWorkflow(definition: WorkflowDefinition) {
     if (!xpert) return;
+    const inputNode = definition.nodes.find((node) => node.data.kind === "input");
+    const outputNode = definition.nodes.find((node) => node.data.kind === "output");
+    const inputVariable = String(inputNode?.data.variableName ?? "").trim();
+    const outputVariable = String(outputNode?.data.outputVariable ?? "").trim();
     const updated = await updateXpert(xpert.id, {
       draft: {
         ...xpert.draft,
         workflow: toXpertDraftWorkflow(definition),
+        input_variable: inputVariable || xpert.draft.input_variable,
+        output_variable: outputVariable || xpert.draft.output_variable,
       },
     });
     setXpert(updated);
@@ -156,7 +163,13 @@ export default function XpertStudioPage() {
     setError("");
     try {
       const result = await validateXpert(xpert.id);
-      setValidation(result);
+      setValidation(
+        consolidateXpertValidation(
+          result,
+          xpert.draft.workflow,
+          xpert.draft.input_variable,
+        ),
+      );
       setNotice(result.valid ? "发布预检通过" : "发布预检发现问题");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "发布预检失败");
@@ -171,7 +184,13 @@ export default function XpertStudioPage() {
     setError("");
     try {
       const result = await validateXpert(xpert.id);
-      setValidation(result);
+      setValidation(
+        consolidateXpertValidation(
+          result,
+          xpert.draft.workflow,
+          xpert.draft.input_variable,
+        ),
+      );
       if (!result.valid) {
         setNotice("请先修复预检问题");
         return;
