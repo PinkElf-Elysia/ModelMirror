@@ -140,6 +140,7 @@ from .tool_policy import (
 )
 from .toolset import (
     MCPToolsetProvider,
+    CompositeMCPToolsetProvider,
     RuntimeTool,
     RuntimeToolCall,
     RuntimeToolError,
@@ -148,6 +149,7 @@ from .toolset import (
     register_mcp_toolset_capability,
 )
 from .tool_runner import run_tool_with_runtime
+from .hub_toolset import HubMCPToolsetProvider
 from .sandbox_api import configure_runtime_sandbox, router as runtime_sandbox_router
 from .sandbox_client import (
     LocalSandboxClient,
@@ -301,6 +303,8 @@ __all__ = [
     "validate_goal_plan",
     "InMemoryToolAuditStore",
     "MCPToolsetProvider",
+    "CompositeMCPToolsetProvider",
+    "HubMCPToolsetProvider",
     "KnowledgeToolsetProvider",
     "MemoryToolsetProvider",
     "build_xpert_file_memory_middleware",

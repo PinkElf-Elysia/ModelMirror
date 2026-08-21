@@ -477,3 +477,12 @@ and cannot access HCP Terraform, Terraform Enterprise, private registries,
 local Terraform files, or infrastructure mutation tools. Its pinned direct
 Python runtime dependencies are MCP Python SDK 1.27.2 (MIT) and tzdata 2026.3
 (public-domain/IANA database notices retained in installed package metadata).
+
+The `modelmirror-mcp-hub:wave1-v1` image contains the pinned MCP Python SDK
+1.27.2 (MIT), tzdata 2026.3, and their installed dependency license metadata.
+All direct and transitive Python artifacts are pinned with SHA256 hashes in the
+Hub-specific `requirements.hub.lock`. It does not install
+or execute packages referenced by MCP Registry records. The offline remote
+process uses the official SDK only for anonymous Streamable HTTP initialize,
+tools/list and approved tool calls through the separate exact-host egress
+service.

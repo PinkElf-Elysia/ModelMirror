@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -150,6 +152,135 @@ async def test_hitl_interrupt_never_falls_back_to_provider(tmp_path) -> None:
     approval = approvals.require(caught.value.approval_id)
     assert approval.status == "pending"
     assert approval.tool_name == "search"
+
+
+@pytest.mark.asyncio
+async def test_hub_hitl_request_exposes_fixed_registry_warning_and_redacts_arguments(
+    tmp_path,
+) -> None:
+    approvals = RuntimeApprovalStore(tmp_path)
+    provider = MagicMock()
+    provider.call_tool = AsyncMock(return_value=RuntimeToolResult(output="no call"))
+    capabilities = CapabilityRegistry()
+    capabilities.register("mcp_tools", provider)
+    pipeline = MiddlewarePipeline(
+        [
+            build_human_in_the_loop_middleware(
+                RuntimeMiddlewareSpec(
+                    node_id="hitl-1",
+                    middleware_id="human_in_the_loop",
+                    config={"interrupt_on_tools": "*"},
+                ),
+                approvals,
+            )
+        ]
+    )
+    context = MiddlewareContext(
+        task_id="task-1",
+        trace_id="run-1",
+        metadata={"run_id": "run-1", "node_id": "agent-1"},
+    )
+
+    with pytest.raises(RuntimeInterrupt) as caught:
+        await run_tool_with_runtime(
+            RuntimeToolCall(
+                tool_name="hub__example__search",
+                arguments={
+                    "query": "x" * 20_001,
+                    "items": list(range(201)),
+                    "token": "private",
+                },
+                metadata={
+                    "iteration": 1,
+                    "hub_approval": {
+                        "server_name": "io.example/public",
+                        "version": "1.2.3",
+                        "origin": "https://mcp.example.com",
+                        "schema_digest": "a" * 64,
+                        "arguments_digest": "b" * 64,
+                    },
+                },
+            ),
+            capabilities,
+            pipeline,
+            context,
+        )
+
+    provider.call_tool.assert_not_awaited()
+    public = approvals.serialize(approvals.require(caught.value.approval_id))
+    assert "io.example/public" in public["description"]
+    assert "https://mcp.example.com" in public["description"]
+    assert "Schema: " + "a" * 64 in public["description"]
+    assert "Registry 收录不代表安全认证" in public["description"]
+    assert public["arguments"]["query"] == "x" * 20_001
+    assert public["arguments"]["items"] == list(range(201))
+    assert public["arguments"]["token"] == "[REDACTED]"
+
+
+@pytest.mark.asyncio
+async def test_hub_hitl_edit_recomputes_bound_arguments_digest(tmp_path) -> None:
+    approvals = RuntimeApprovalStore(tmp_path)
+    provider = MagicMock()
+    provider.call_tool = AsyncMock(return_value=RuntimeToolResult(output="edited"))
+    capabilities = CapabilityRegistry()
+    capabilities.register("mcp_tools", provider)
+    pipeline = MiddlewarePipeline(
+        [
+            build_human_in_the_loop_middleware(
+                RuntimeMiddlewareSpec(
+                    node_id="hitl-1",
+                    middleware_id="human_in_the_loop",
+                    config={"interrupt_on_tools": "*"},
+                ),
+                approvals,
+            )
+        ]
+    )
+    context = MiddlewareContext(
+        task_id="task-1",
+        trace_id="run-1",
+        metadata={"run_id": "run-1", "node_id": "agent-1"},
+    )
+    edited = {"query": "new"}
+
+    result = await run_tool_with_runtime(
+        RuntimeToolCall(
+            tool_name="hub__example__search",
+            arguments={"query": "old"},
+            metadata={
+                "iteration": 1,
+                "hub_approval": {"arguments_digest": "old"},
+                "resolved_approval": {
+                    "approval_id": "approval-1",
+                    "decision": "edit",
+                    "edited_arguments": edited,
+                    "metadata": {"hub_approval": {"arguments_digest": "old"}},
+                },
+            },
+        ),
+        capabilities,
+        pipeline,
+        context,
+    )
+
+    assert result.output == "edited"
+    forwarded = provider.call_tool.await_args.args[0]
+    assert forwarded.arguments == edited
+    expected = hashlib.sha256(
+        json.dumps(
+            edited,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    assert forwarded.metadata["hub_approval"]["arguments_digest"] == expected
+    assert (
+        forwarded.metadata["resolved_approval"]["metadata"]["hub_approval"][
+            "arguments_digest"
+        ]
+        == expected
+    )
 
 
 @pytest.mark.asyncio

@@ -186,6 +186,37 @@ class MCPToolsetProvider:
         )
 
 
+class CompositeMCPToolsetProvider:
+    """Expose curated and Hub MCP providers through the existing capability."""
+
+    def __init__(self, *providers: ToolsetProvider) -> None:
+        self.providers = tuple(providers)
+
+    async def list_tools(self) -> list[RuntimeTool]:
+        tools: list[RuntimeTool] = []
+        seen: set[str] = set()
+        for provider in self.providers:
+            for tool in await provider.list_tools():
+                if tool.name in seen:
+                    continue
+                seen.add(tool.name)
+                tools.append(tool)
+        return tools
+
+    async def find_tool(self, tool_name: str) -> RuntimeTool | None:
+        for provider in self.providers:
+            tool = await provider.find_tool(tool_name)
+            if tool is not None:
+                return tool
+        return None
+
+    async def call_tool(self, call: RuntimeToolCall) -> RuntimeToolResult:
+        for provider in self.providers:
+            if await provider.find_tool(call.tool_name) is not None:
+                return await provider.call_tool(call)
+        raise RuntimeToolError(call.tool_name, "Tool not found", code="tool_not_found")
+
+
 def register_mcp_toolset_capability(
     capability_registry: CapabilityRegistry,
     provider: MCPToolsetProvider,

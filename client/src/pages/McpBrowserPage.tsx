@@ -11,6 +11,7 @@ import {
 import McpServerCard, {
   type McpSessionSummary,
 } from "../components/McpServerCard";
+import McpHubPanel from "../components/McpHubPanel";
 import ModelWorkbenchSidebar from "../components/ModelWorkbenchSidebar";
 import PageContainer from "../components/PageContainer";
 import {
@@ -68,7 +69,7 @@ function matchesAvailability(
 export default function McpBrowserPage() {
   const [sessions, setSessions] = useState<McpSessionSummary[]>([]);
   const [registryTools, setRegistryTools] = useState<RegistryTool[]>([]);
-  const [activeView, setActiveView] = useState<"servers" | "registry">("servers");
+  const [activeView, setActiveView] = useState<"servers" | "registry" | "hub">("servers");
   const [query, setQuery] = useState("");
   const [selectedCategory, setSelectedCategory] =
     useState<CatalogCategory>("全部类别");
@@ -309,8 +310,21 @@ export default function McpBrowserPage() {
               >
                 已连接注册表
               </button>
+              <button
+                aria-selected={activeView === "hub"}
+                className={`min-h-10 rounded-md px-4 py-2 text-sm font-semibold transition ${
+                  activeView === "hub"
+                    ? "bg-hire-300 text-ink-950"
+                    : "text-slate-300 hover:bg-white/[0.055] hover:text-white"
+                }`}
+                onClick={() => setActiveView("hub")}
+                role="tab"
+                type="button"
+              >
+                MCP Hub
+              </button>
             </div>
-            <button
+            {activeView !== "hub" ? <button
               className="flex min-h-10 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/35 hover:text-hire-100 disabled:cursor-wait disabled:opacity-60"
               disabled={isLoadingRuntime}
               onClick={() => void refreshRuntime()}
@@ -318,7 +332,7 @@ export default function McpBrowserPage() {
             >
               <RefreshCw aria-hidden="true" className={isLoadingRuntime ? "motion-safe:animate-spin" : ""} size={16} />
               {isLoadingRuntime ? "正在刷新" : "刷新连接状态"}
-            </button>
+            </button> : null}
           </div>
 
           {activeView === "servers" ? (
@@ -453,12 +467,14 @@ export default function McpBrowserPage() {
 
         <div className="mb-3 mt-4 flex items-center justify-between gap-3">
           <h2 className="text-xl font-semibold text-white sm:text-2xl">
-            {activeView === "servers" ? "已上架工具箱" : "已连接注册表"}
+            {activeView === "servers" ? "已上架工具箱" : activeView === "registry" ? "已连接注册表" : "MCP Hub"}
           </h2>
           <span className="w-fit shrink-0 rounded-md border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold text-slate-300">
             {activeView === "servers"
               ? `匹配 ${filteredProjects.length}`
-              : `${registryTools.length} 个工具`}
+              : activeView === "registry"
+                ? `${registryTools.length} 个工具`
+                : "官方 Registry"}
           </span>
         </div>
 
@@ -514,7 +530,7 @@ export default function McpBrowserPage() {
               </button>
             </div>
           )
-        ) : (
+        ) : activeView === "registry" ? (
           <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.045]">
             {registryTools.length === 0 ? (
               <div className="p-6 text-sm leading-6 text-slate-400">
@@ -553,6 +569,8 @@ export default function McpBrowserPage() {
               </div>
             )}
           </div>
+        ) : (
+          <McpHubPanel />
         )}
       </section>
     </PageContainer>
