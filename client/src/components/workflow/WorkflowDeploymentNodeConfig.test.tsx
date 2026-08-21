@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { WorkflowNode, WorkflowNodeData } from "../../types/workflow";
 import WorkflowDeploymentNodeConfig, {
+  JsonLiteralInput,
   cronExpressionForUi,
   dateTimeLocalValue,
   durationParts,
+  parseJsonLiteralForUi,
   parseCronExpressionForUi,
 } from "./WorkflowDeploymentNodeConfig";
 
@@ -38,6 +40,31 @@ describe("WorkflowDeploymentNodeConfig", () => {
     const cron = parseCronExpressionForUi("0 9 * * 1");
     expect(cron).toMatchObject({ pattern: "weekly", hour: 9, weekday: 1 });
     expect(cronExpressionForUi({ ...cron, weekday: 5 })).toBe("0 9 * * 5");
+    expect(parseJsonLiteralForUi('{"enabled":true}')).toEqual({
+      valid: true,
+      value: { enabled: true },
+    });
+    expect(parseJsonLiteralForUi("{unfinished")).toEqual({ valid: false });
+  });
+
+  it("keeps incomplete JSON local and only saves a valid typed value", () => {
+    const onChange = vi.fn();
+    render(
+      <JsonLiteralInput
+        inputName="payload"
+        onChange={onChange}
+        value={{ enabled: false }}
+      />,
+    );
+
+    const input = screen.getByLabelText("payload 固定 JSON 值");
+    fireEvent.change(input, { target: { value: "{unfinished" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("当前内容尚未保存");
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: '{"enabled":true}' } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(onChange).toHaveBeenCalledWith({ enabled: true });
   });
 
   it("offers common calendar rules instead of exposing Cron by default", () => {
@@ -133,6 +160,101 @@ describe("WorkflowDeploymentNodeConfig", () => {
     expect(screen.getByLabelText("失败事件变量")).toHaveValue("failure_event");
     fireEvent.click(screen.getByRole("checkbox"));
     expect(onChange).toHaveBeenCalledWith({ sourceProjectIds: [] });
+    vi.unstubAllGlobals();
+  });
+
+  it("explains callable inputs and exposes the call context variable", () => {
+    renderConfig({
+      kind: "workflow_call_entry",
+      title: "子流程入口",
+      description: "",
+      eventVariable: "call_event",
+    });
+
+    expect(screen.getByLabelText("调用事件变量")).toHaveValue("call_event");
+    expect(screen.getByText(/不会生成公开 URL/)).toBeInTheDocument();
+    expect(screen.getByText(/全局变量中心添加类型化外部输入/)).toBeInTheDocument();
+  });
+
+  it("loads an active fixed target and creates its typed binding table", async () => {
+    const targetId = `wf_${"c".repeat(32)}`;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/interface")) {
+        return {
+          ok: true,
+          json: async () => ({
+            project_id: targetId,
+            version: 2,
+            active: true,
+            trigger_kind: "call",
+            node_contract_checksum: "contract",
+            definition_checksum: "definition",
+            inputs: [
+              { name: "message", value_type: "text", required: true, has_default: false },
+              { name: "count", value_type: "number", required: false, has_default: true, default_value: 1 },
+            ],
+            output: { type: "text" },
+          }),
+        } as Response;
+      }
+      if (url === `/api/workflows/${targetId}`) {
+        return {
+          ok: true,
+          json: async () => ({
+            project_id: targetId,
+            title: "文本清洗",
+            draft: {},
+            draft_revision: 1,
+            active_version: 2,
+            active_deployment: null,
+            published_versions: [
+              { project_id: targetId, version: 2, trigger_kind: "call" },
+              { project_id: targetId, version: 1, trigger_kind: "call" },
+            ],
+            created_at: 1,
+            updated_at: 2,
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          items: [{
+            project_id: targetId,
+            title: "文本清洗",
+            active_version: 2,
+            active_trigger_kind: "call",
+            updated_at: 2,
+          }],
+          total: 1,
+          limit: 100,
+          offset: 0,
+        }),
+      } as Response;
+    }));
+
+    const onChange = renderConfig({
+      kind: "invoke_workflow",
+      title: "调用已发布工作流",
+      description: "",
+      targetProjectId: targetId,
+      targetVersion: 2,
+      inputBindings: {},
+      resultVariable: "workflow_result",
+      timeoutSeconds: 60,
+    });
+
+    await waitFor(() => expect(screen.getByText("message")).toBeInTheDocument());
+    expect(screen.getByLabelText("目标工作流")).toHaveValue(targetId);
+    expect(screen.getByLabelText(/固定发布版本/)).toHaveValue("2");
+    expect(screen.getByPlaceholderText("选择或输入上游变量")).toHaveValue("message");
+    expect(screen.getByText("count")).toBeInTheDocument();
+    expect(onChange).toHaveBeenCalledWith({
+      inputBindings: {
+        message: { source: "variable", variable: "message" },
+      },
+    });
     vi.unstubAllGlobals();
   });
 });

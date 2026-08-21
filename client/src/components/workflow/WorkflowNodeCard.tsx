@@ -31,6 +31,20 @@ const nodeMeta = {
     bg: "bg-rose-300/10",
     text: "text-rose-100",
   },
+  workflow_call_entry: {
+    icon: "IN",
+    label: "子流程入口",
+    border: "border-indigo-300/40",
+    bg: "bg-indigo-300/10",
+    text: "text-indigo-100",
+  },
+  invoke_workflow: {
+    icon: "CALL",
+    label: "调用工作流",
+    border: "border-indigo-300/40",
+    bg: "bg-indigo-300/10",
+    text: "text-indigo-100",
+  },
   suspend_wait: {
     icon: "WAIT",
     label: "挂起等待",
@@ -398,6 +412,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           "scheduled_start",
           "http_event_entry",
           "failure_event_entry",
+          "workflow_call_entry",
           "external_xpert",
           "knowledge_base",
           "toolset_resource",

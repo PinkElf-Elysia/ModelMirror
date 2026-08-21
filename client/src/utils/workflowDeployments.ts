@@ -1,11 +1,13 @@
 import { type WorkflowDefinition } from "../types/workflow";
 
+export type WorkflowTriggerKind = "manual" | "schedule" | "http" | "failure" | "call";
+
 export interface WorkflowVersionSummary {
   project_id: string;
   version: number;
   node_contract_checksum: string;
   definition_checksum: string;
-  trigger_kind: "manual" | "schedule" | "http" | "failure";
+  trigger_kind: WorkflowTriggerKind;
   entry_node_id: string;
   published_at: number;
 }
@@ -14,7 +16,7 @@ export interface WorkflowDeploymentSummary {
   deployment_id: string;
   project_id: string;
   version: number;
-  trigger_kind: "manual" | "schedule" | "http" | "failure";
+  trigger_kind: WorkflowTriggerKind;
   active: boolean;
   hook_id?: string | null;
   webhook_key_prefix?: string | null;
@@ -41,7 +43,7 @@ export interface WorkflowExecutionSummary {
   execution_id: string;
   project_id: string;
   version: number;
-  trigger_kind: "manual" | "schedule" | "http" | "failure";
+  trigger_kind: WorkflowTriggerKind;
   occurrence_key: string;
   status: "pending" | "running" | "waiting" | "completed" | "failed" | "skipped" | "cancelled";
   wait_kind?: string | null;
@@ -60,7 +62,7 @@ export interface WorkflowProjectSummary {
   project_id: string;
   title: string;
   active_version?: number | null;
-  active_trigger_kind?: "manual" | "schedule" | "http" | "failure" | null;
+  active_trigger_kind?: WorkflowTriggerKind | null;
   updated_at: number;
 }
 
@@ -69,6 +71,26 @@ export interface WorkflowProjectListResponse {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface WorkflowInterfaceInput {
+  name: string;
+  value_type: "text" | "number" | "boolean" | "json";
+  required: boolean;
+  has_default: boolean;
+  default_value?: unknown;
+  description?: string;
+}
+
+export interface WorkflowVersionInterface {
+  project_id: string;
+  version: number;
+  active: boolean;
+  trigger_kind: WorkflowTriggerKind;
+  node_contract_checksum: string;
+  definition_checksum: string;
+  inputs: WorkflowInterfaceInput[];
+  output: { type: "text" };
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -110,7 +132,7 @@ export function fetchWorkflowProjects({
   limit?: number;
   offset?: number;
   activeOnly?: boolean;
-  triggerKind?: "manual" | "schedule" | "http" | "failure";
+  triggerKind?: WorkflowTriggerKind;
 } = {}) {
   const query = new URLSearchParams({
     limit: String(limit),
@@ -162,5 +184,14 @@ export function rotateWorkflowWebhookKey(projectId: string, version: number) {
 export function fetchWorkflowExecutions(projectId: string, limit = 20) {
   return requestJson<{ items: WorkflowExecutionSummary[] }>(
     `/api/workflows/${projectId}/executions?limit=${limit}`,
+  );
+}
+
+export function fetchWorkflowVersionInterface(
+  projectId: string,
+  version: number,
+) {
+  return requestJson<WorkflowVersionInterface>(
+    `/api/workflows/${projectId}/versions/${version}/interface`,
   );
 }

@@ -414,6 +414,28 @@ export function createNodeData(
     };
   }
 
+  if (kind === "workflow_call_entry") {
+    return {
+      kind,
+      title: "子流程入口",
+      description: "接收其他已发布工作流的同步调用。",
+      eventVariable: "call_event",
+    };
+  }
+
+  if (kind === "invoke_workflow") {
+    return {
+      kind,
+      title: "调用已发布工作流",
+      description: "同步调用一个已启用的固定版本。",
+      targetProjectId: "",
+      targetVersion: "",
+      inputBindings: {},
+      resultVariable: "workflow_result",
+      timeoutSeconds: 60,
+    };
+  }
+
   if (kind === "suspend_wait") {
     return {
       kind,
@@ -2837,7 +2859,7 @@ function NodeConfig({
         </Field>
       ) : null}
 
-      {["scheduled_start", "http_event_entry", "failure_event_entry", "suspend_wait", "http_event_reply"].includes(data.kind) ? (
+      {["scheduled_start", "http_event_entry", "failure_event_entry", "workflow_call_entry", "invoke_workflow", "suspend_wait", "http_event_reply"].includes(data.kind) ? (
         <WorkflowDeploymentNodeConfig
           currentProjectId={workflowId.startsWith("wf_") ? workflowId : undefined}
           contract={variableContract}
@@ -4317,6 +4339,8 @@ const INDEPENDENT_DEPLOYMENT_NODE_KINDS = new Set<WorkflowNodeKind>([
   "scheduled_start",
   "http_event_entry",
   "failure_event_entry",
+  "workflow_call_entry",
+  "invoke_workflow",
   "http_event_reply",
   "suspend_wait",
 ]);
@@ -5730,6 +5754,19 @@ function WorkflowCanvas({
                         "未知",
                     )}
                   </span>
+                ) : null}
+                {deploymentExecutions[0].trigger_kind === "call" ? (
+                  <>
+                    <span>
+                      父执行：{deploymentExecutions[0].parent_execution_id ?? "测试运行"}
+                    </span>
+                    <span>
+                      根执行：{deploymentExecutions[0].root_execution_id ?? "未知"}
+                    </span>
+                    <span>
+                      调用节点：{deploymentExecutions[0].call_node_id ?? "未知"}
+                    </span>
+                  </>
                 ) : null}
                 {deploymentExecutions[0].wait_kind ? (
                   <span>等待：{deploymentExecutions[0].wait_kind}</span>

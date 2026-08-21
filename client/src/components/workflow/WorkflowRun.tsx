@@ -259,6 +259,19 @@ export function apiErrorMessage(payload: unknown, fallback: string) {
   if (typeof candidate.detail === "string" && candidate.detail.trim()) {
     return candidate.detail;
   }
+  if (Array.isArray(candidate.detail)) {
+    const firstMessage = candidate.detail.find(
+      (item): item is { msg: string } =>
+        Boolean(
+          item &&
+            typeof item === "object" &&
+            "msg" in item &&
+            typeof item.msg === "string" &&
+            item.msg.trim(),
+        ),
+    )?.msg;
+    if (firstMessage) return firstMessage;
+  }
   if (
     candidate.detail &&
     typeof candidate.detail === "object" &&
@@ -1136,10 +1149,8 @@ export default function WorkflowRun({
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { error?: string; detail?: string }
-          | null;
-        throw new Error(payload?.error ?? payload?.detail ?? "工作流运行失败。");
+        const payload = await response.json().catch(() => null);
+        throw new Error(apiErrorMessage(payload, "工作流运行失败。"));
       }
 
       const responseTaskId = response.headers.get(

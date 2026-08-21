@@ -21,7 +21,10 @@ try:
         canonical_checksum,
         workflow_node_contract_registry,
     )
-    from server.workflow_native.schemas import NativeWorkflowDefinition
+    from server.workflow_native.schemas import (
+        NativeWorkflowDefinition,
+        workflow_variable_value_matches_type,
+    )
     from server.workflow_native.validate import node_kind, validate_workflow_graph
     from server.xpert_runtime.automation_store import (
         AutomationStore,
@@ -33,7 +36,10 @@ except ModuleNotFoundError:
         canonical_checksum,
         workflow_node_contract_registry,
     )
-    from workflow_native.schemas import NativeWorkflowDefinition
+    from workflow_native.schemas import (
+        NativeWorkflowDefinition,
+        workflow_variable_value_matches_type,
+    )
     from workflow_native.validate import node_kind, validate_workflow_graph
     from xpert_runtime.automation_store import (
         AutomationStore,
@@ -42,7 +48,7 @@ except ModuleNotFoundError:
     )
 
 
-WorkflowTriggerKind = Literal["manual", "schedule", "http", "failure"]
+WorkflowTriggerKind = Literal["manual", "schedule", "http", "failure", "call"]
 WorkflowTriggerExecutionStatus = Literal[
     "pending", "running", "waiting", "completed", "failed", "skipped", "cancelled"
 ]
@@ -51,6 +57,7 @@ ENTRY_NODE_KINDS = {
     "scheduled_start",
     "http_event_entry",
     "failure_event_entry",
+    "workflow_call_entry",
 }
 TERMINAL_EXECUTION_STATUSES = {"completed", "failed", "skipped", "cancelled"}
 _SENSITIVE_KEY = re.compile(
@@ -141,6 +148,11 @@ class WorkflowTriggerExecution:
     webhook_reply: dict[str, Any] | None = None
     idempotency_hash: str | None = None
     trigger_summary: dict[str, Any] = field(default_factory=dict)
+    parent_execution_id: str | None = None
+    root_execution_id: str | None = None
+    source_execution_id: str | None = None
+    call_node_id: str | None = None
+    test_mode: bool = False
     lease_owner: str | None = None
     lease_token: str | None = None
     lease_expires_at: float = 0.0
@@ -156,6 +168,18 @@ class WorkflowFailureSubscription:
     handler_version: int
     handler_deployment_id: str
     activated_at: float = field(default_factory=time.time)
+
+
+@dataclass(slots=True)
+class WorkflowSubworkflowRelation:
+    occurrence_key: str
+    parent_execution_id: str
+    child_execution_id: str
+    root_execution_id: str
+    call_node_id: str
+    depth: int
+    task_id: str
+    created_at: float = field(default_factory=time.time)
 
 
 class WorkflowDeploymentStore:
@@ -175,6 +199,7 @@ class WorkflowDeploymentStore:
         self._deployments: dict[str, WorkflowDeployment] = {}
         self._executions: dict[str, WorkflowTriggerExecution] = {}
         self._failure_subscriptions: dict[str, WorkflowFailureSubscription] = {}
+        self._subworkflow_relations: dict[str, WorkflowSubworkflowRelation] = {}
         self._load()
 
     def create_project(self, workflow: dict[str, Any]) -> WorkflowProject:
@@ -277,6 +302,10 @@ class WorkflowDeploymentStore:
                     project_id,
                     self._failure_source_project_ids(project.draft, entry_node_id),
                 )
+            self._validate_subworkflow_targets_unlocked(
+                project_id,
+                project.draft,
+            )
             versions = [number for key, number in self._versions if key == project_id]
             next_version = max(versions or [0]) + 1
             snapshot = json.loads(json.dumps(project.draft, ensure_ascii=False))
@@ -314,6 +343,7 @@ class WorkflowDeploymentStore:
         *,
         webhooks_enabled: bool,
         failure_triggers_enabled: bool = False,
+        subworkflows_enabled: bool = False,
         now: float | None = None,
     ) -> tuple[WorkflowDeployment, str | None]:
         current = time.time() if now is None else float(now)
@@ -330,6 +360,21 @@ class WorkflowDeploymentStore:
                 raise WorkflowDeploymentConflictError(
                     "Workflow failure triggers are disabled."
                 )
+            has_workflow_calls = any(
+                _raw_node_kind(node) == "invoke_workflow"
+                for node in release.workflow.get("nodes", [])
+                if isinstance(node, dict)
+            )
+            if (
+                release.trigger_kind == "call" or has_workflow_calls
+            ) and not subworkflows_enabled:
+                raise WorkflowDeploymentConflictError(
+                    "Workflow subworkflows are disabled."
+                )
+            self._validate_subworkflow_targets_unlocked(
+                project_id,
+                release.workflow,
+            )
             failure_sources: list[str] = []
             if release.trigger_kind == "failure":
                 failure_sources = self._failure_source_project_ids(
@@ -746,6 +791,135 @@ class WorkflowDeploymentStore:
         with self._lock:
             return self._failure_subscriptions.get(source_project_id)
 
+    def materialize_subworkflow_execution(
+        self,
+        *,
+        parent_execution_id: str,
+        root_execution_id: str,
+        parent_depth: int,
+        call_node_id: str,
+        target_project_id: str,
+        target_version: int,
+        test_mode: bool,
+        suppress_failure_dispatch: bool,
+        now: float | None = None,
+    ) -> tuple[WorkflowTriggerExecution, bool]:
+        current = time.time() if now is None else float(now)
+        clean_parent = str(parent_execution_id).strip()
+        clean_root = str(root_execution_id).strip() or clean_parent
+        clean_node = str(call_node_id).strip()
+        if not clean_parent or not clean_node:
+            raise WorkflowDeploymentValidationError(
+                "Subworkflow calls need parent execution and call node IDs."
+            )
+        depth = int(parent_depth) + 1
+        if depth > 8:
+            raise WorkflowDeploymentConflictError(
+                "Subworkflow call depth cannot exceed 8."
+            )
+        occurrence_key = f"call:{clean_parent}:{clean_node}"
+        with self._lock:
+            existing_relation = self._subworkflow_relations.get(occurrence_key)
+            if existing_relation is not None:
+                return (
+                    self._require_execution_unlocked(
+                        existing_relation.child_execution_id
+                    ),
+                    False,
+                )
+            descendants = sum(
+                1
+                for relation in self._subworkflow_relations.values()
+                if relation.root_execution_id == clean_root
+            )
+            if descendants >= 32:
+                raise WorkflowDeploymentConflictError(
+                    "A root workflow execution cannot create more than 32 subworkflow calls."
+                )
+            release = self._require_version_unlocked(
+                target_project_id,
+                int(target_version),
+            )
+            deployment = self._active_deployment_for_version_unlocked(
+                target_project_id,
+                int(target_version),
+            )
+            if release.trigger_kind != "call" or deployment.trigger_kind != "call":
+                raise WorkflowDeploymentConflictError(
+                    "Target version is not an active callable workflow."
+                )
+            child_execution_id = f"wfx_{uuid.uuid4().hex}"
+            task_id = "wft_" + hashlib.sha256(
+                occurrence_key.encode("utf-8")
+            ).hexdigest()[:32]
+            item = WorkflowTriggerExecution(
+                execution_id=child_execution_id,
+                project_id=target_project_id,
+                version=int(target_version),
+                deployment_id=deployment.deployment_id,
+                trigger_kind="call",
+                occurrence_key=occurrence_key,
+                scheduled_at=current,
+                task_id=task_id,
+                trigger_summary={
+                    "suppress_failure_dispatch": bool(suppress_failure_dispatch),
+                    "test_mode": bool(test_mode),
+                    "depth": depth,
+                },
+                parent_execution_id=clean_parent,
+                root_execution_id=clean_root,
+                call_node_id=clean_node,
+                test_mode=bool(test_mode),
+                created_at=current,
+                updated_at=current,
+            )
+            relation = WorkflowSubworkflowRelation(
+                occurrence_key=occurrence_key,
+                parent_execution_id=clean_parent,
+                child_execution_id=child_execution_id,
+                root_execution_id=clean_root,
+                call_node_id=clean_node,
+                depth=depth,
+                task_id=task_id,
+                created_at=current,
+            )
+            self._executions[item.execution_id] = item
+            self._subworkflow_relations[occurrence_key] = relation
+            self._persist_unlocked()
+            return item, True
+
+    def subworkflow_relation_for_child(
+        self,
+        child_execution_id: str,
+    ) -> WorkflowSubworkflowRelation | None:
+        with self._lock:
+            return next(
+                (
+                    relation
+                    for relation in self._subworkflow_relations.values()
+                    if relation.child_execution_id == child_execution_id
+                ),
+                None,
+            )
+
+    def cancel_execution(
+        self,
+        execution_id: str,
+        *,
+        error: str = "Subworkflow execution was cancelled.",
+    ) -> WorkflowTriggerExecution:
+        with self._lock:
+            item = self._require_execution_unlocked(execution_id)
+            if item.status in TERMINAL_EXECUTION_STATUSES:
+                return item
+            item.status = "cancelled"
+            item.error_summary = _safe_error_summary(error)
+            item.completed_at = time.time()
+            item.updated_at = item.completed_at
+            self._clear_lease(item)
+            self._persist_unlocked()
+            return item
+
     @staticmethod
     def serialize_project(item: WorkflowProject) -> dict[str, Any]:
         return asdict(item)
@@ -770,12 +944,18 @@ class WorkflowDeploymentStore:
         payload.pop("lease_owner", None)
         payload.pop("lease_token", None)
         payload.pop("lease_expires_at", None)
-        source_execution_id = item.trigger_summary.get("source_execution_id")
-        payload["parent_execution_id"] = None
-        payload["root_execution_id"] = source_execution_id or item.execution_id
+        source_execution_id = item.source_execution_id or item.trigger_summary.get(
+            "source_execution_id"
+        )
+        payload["parent_execution_id"] = item.parent_execution_id
+        payload["root_execution_id"] = (
+            item.root_execution_id or source_execution_id or item.execution_id
+        )
         payload["source_execution_id"] = source_execution_id
-        payload["call_node_id"] = None
-        payload["test_mode"] = bool(item.trigger_summary.get("test_mode", False))
+        payload["call_node_id"] = item.call_node_id
+        payload["test_mode"] = bool(
+            item.test_mode or item.trigger_summary.get("test_mode", False)
+        )
         return payload
 
     def _normalize_workflow(self, workflow: dict[str, Any]) -> dict[str, Any]:
@@ -878,6 +1058,175 @@ class WorkflowDeploymentStore:
         if item is None:
             raise WorkflowDeploymentNotFoundError("Workflow deployment not found.")
         return item
+
+    def _active_deployment_for_version_unlocked(
+        self,
+        project_id: str,
+        version: int,
+    ) -> WorkflowDeployment:
+        item = next(
+            (
+                deployment
+                for deployment in self._deployments.values()
+                if deployment.project_id == project_id
+                and deployment.version == int(version)
+                and deployment.active
+            ),
+            None,
+        )
+        if item is None:
+            raise WorkflowDeploymentConflictError(
+                "Target workflow version is not currently active."
+            )
+        return item
+
+    def _validate_subworkflow_targets_unlocked(
+        self,
+        source_project_id: str,
+        workflow: dict[str, Any],
+    ) -> None:
+        call_nodes = [
+            node
+            for node in workflow.get("nodes", [])
+            if isinstance(node, dict) and _raw_node_kind(node) == "invoke_workflow"
+        ]
+        for node in call_nodes:
+            data = dict(node.get("data") or {})
+            target_project_id = str(data.get("targetProjectId") or "").strip()
+            try:
+                target_version = int(data.get("targetVersion") or 0)
+            except (TypeError, ValueError) as exc:
+                raise WorkflowDeploymentValidationError(
+                    "Workflow calls need a fixed target version."
+                ) from exc
+            if target_project_id == source_project_id:
+                raise WorkflowDeploymentConflictError(
+                    "A workflow cannot call itself."
+                )
+            target = self._require_version_unlocked(
+                target_project_id,
+                target_version,
+            )
+            self._active_deployment_for_version_unlocked(
+                target_project_id,
+                target_version,
+            )
+            if target.trigger_kind != "call":
+                raise WorkflowDeploymentConflictError(
+                    "Target version must use a subworkflow entry."
+                )
+            waiting_node = next(
+                (
+                    target_node
+                    for target_node in target.workflow.get("nodes", [])
+                    if isinstance(target_node, dict)
+                    and workflow_node_contract_registry.require(
+                        _raw_node_kind(target_node)
+                    ).execution.can_wait
+                ),
+                None,
+            )
+            if waiting_node is not None:
+                raise WorkflowDeploymentConflictError(
+                    "Callable workflows cannot contain waiting nodes."
+                )
+            self._validate_call_bindings_unlocked(data, target)
+            if self._release_reaches_project_unlocked(
+                target,
+                source_project_id,
+                visited=set(),
+            ):
+                raise WorkflowDeploymentConflictError(
+                    "Subworkflow dependency cycle detected."
+                )
+
+    @staticmethod
+    def _validate_call_bindings_unlocked(
+        data: dict[str, Any],
+        target: WorkflowVersion,
+    ) -> None:
+        bindings = data.get("inputBindings")
+        if not isinstance(bindings, dict):
+            raise WorkflowDeploymentValidationError(
+                "Workflow call inputBindings must be an object."
+            )
+        declarations = {
+            str(item.get("name") or ""): item
+            for item in target.workflow.get("variables", [])
+            if isinstance(item, dict) and item.get("kind") == "input"
+        }
+        unknown = sorted(set(bindings) - set(declarations))
+        if unknown:
+            raise WorkflowDeploymentValidationError(
+                f"Workflow call contains unknown input '{unknown[0]}'."
+            )
+        missing = sorted(
+            name
+            for name, declaration in declarations.items()
+            if "defaultValue" not in declaration and name not in bindings
+        )
+        if missing:
+            raise WorkflowDeploymentValidationError(
+                f"Workflow call is missing required input '{missing[0]}'."
+            )
+        for name, binding in bindings.items():
+            if not isinstance(binding, dict):
+                raise WorkflowDeploymentValidationError(
+                    f"Workflow call input '{name}' has an invalid binding."
+                )
+            source = str(binding.get("source") or "")
+            if source == "variable":
+                if not re.fullmatch(
+                    r"[A-Za-z_][A-Za-z0-9_]{0,63}",
+                    str(binding.get("variable") or ""),
+                ):
+                    raise WorkflowDeploymentValidationError(
+                        f"Workflow call input '{name}' needs a variable identifier."
+                    )
+                continue
+            if source != "literal" or "value" not in binding:
+                raise WorkflowDeploymentValidationError(
+                    f"Workflow call input '{name}' has an invalid binding source."
+                )
+            declaration = declarations[name]
+            if not workflow_variable_value_matches_type(
+                str(declaration.get("valueType") or "json"),
+                binding.get("value"),
+            ):
+                raise WorkflowDeploymentValidationError(
+                    f"Workflow call literal for '{name}' has the wrong type."
+                )
+
+    def _release_reaches_project_unlocked(
+        self,
+        release: WorkflowVersion,
+        target_project_id: str,
+        *,
+        visited: set[tuple[str, int]],
+    ) -> bool:
+        key = (release.project_id, release.version)
+        if key in visited:
+            return False
+        visited.add(key)
+        for node in release.workflow.get("nodes", []):
+            if not isinstance(node, dict) or _raw_node_kind(node) != "invoke_workflow":
+                continue
+            data = dict(node.get("data") or {})
+            project_id = str(data.get("targetProjectId") or "")
+            if project_id == target_project_id:
+                return True
+            try:
+                version = int(data.get("targetVersion") or 0)
+            except (TypeError, ValueError):
+                continue
+            dependency = self._versions.get((project_id, version))
+            if dependency is not None and self._release_reaches_project_unlocked(
+                dependency,
+                target_project_id,
+                visited=visited,
+            ):
+                return True
+        return False
 
     def _require_execution_unlocked(self, execution_id: str) -> WorkflowTriggerExecution:
         item = self._executions.get(execution_id)
@@ -1058,6 +1407,9 @@ class WorkflowDeploymentStore:
             "failure_subscriptions": [
                 asdict(item) for item in self._failure_subscriptions.values()
             ],
+            "subworkflow_relations": [
+                asdict(item) for item in self._subworkflow_relations.values()
+            ],
         }
         temporary = self.snapshot_path.with_suffix(".tmp")
         temporary.write_text(
@@ -1081,6 +1433,11 @@ class WorkflowDeploymentStore:
                 item = WorkflowDeployment(**raw)
                 self._deployments[item.deployment_id] = item
             for raw in payload.get("executions", []):
+                raw.setdefault("parent_execution_id", None)
+                raw.setdefault("root_execution_id", None)
+                raw.setdefault("source_execution_id", None)
+                raw.setdefault("call_node_id", None)
+                raw.setdefault("test_mode", False)
                 item = WorkflowTriggerExecution(**raw)
                 if item.status == "running":
                     if item.trigger_kind == "http":
@@ -1098,6 +1455,24 @@ class WorkflowDeploymentStore:
                     raise ValueError("Duplicate workflow failure subscription source.")
                 seen_failure_sources.add(item.source_project_id)
                 self._failure_subscriptions[item.source_project_id] = item
+            for raw in payload.get("subworkflow_relations", []):
+                relation = WorkflowSubworkflowRelation(**raw)
+                if relation.occurrence_key in self._subworkflow_relations:
+                    raise ValueError("Duplicate subworkflow occurrence key.")
+                child = self._executions.get(relation.child_execution_id)
+                if child is None:
+                    raise ValueError("Subworkflow relation child execution is missing.")
+                if (
+                    child.trigger_kind != "call"
+                    or child.occurrence_key != relation.occurrence_key
+                    or child.parent_execution_id != relation.parent_execution_id
+                    or child.root_execution_id != relation.root_execution_id
+                    or child.call_node_id != relation.call_node_id
+                    or child.task_id != relation.task_id
+                    or not 1 <= relation.depth <= 8
+                ):
+                    raise ValueError("Subworkflow relation does not match its child execution.")
+                self._subworkflow_relations[relation.occurrence_key] = relation
             self._validate_loaded_failure_subscriptions_unlocked()
         except Exception as exc:
             raise WorkflowDeploymentValidationError(
@@ -1159,6 +1534,7 @@ def validate_publishable_workflow(workflow: dict[str, Any]) -> tuple[WorkflowTri
         "schedule" if entry_kind == "scheduled_start"
         else "http" if entry_kind == "http_event_entry"
         else "failure" if entry_kind == "failure_event_entry"
+        else "call" if entry_kind == "workflow_call_entry"
         else "manual"
     )
     if entry.id in {edge.target for edge in definition.edges}:
@@ -1181,6 +1557,10 @@ def validate_publishable_workflow(workflow: dict[str, Any]) -> tuple[WorkflowTri
         if trigger_kind == "http" and kind == "runtime_middleware":
             raise WorkflowDeploymentValidationError(
                 "HTTP deployments cannot contain runtime middleware in R1."
+            )
+        if trigger_kind == "call" and contract.execution.can_wait:
+            raise WorkflowDeploymentValidationError(
+                "Callable workflows cannot contain waiting nodes."
             )
     sensitive_path = _find_sensitive_value(workflow)
     if sensitive_path:
@@ -1225,6 +1605,16 @@ def validate_publishable_workflow(workflow: dict[str, Any]) -> tuple[WorkflowTri
             )
         )
     return trigger_kind, entry.id
+
+
+def _raw_node_kind(node: dict[str, Any]) -> str:
+    data = node.get("data")
+    raw = (
+        data.get("kind")
+        if isinstance(data, dict) and data.get("kind")
+        else node.get("type")
+    )
+    return str(raw or "").strip().replace("-", "_")
 
 
 def _find_sensitive_value(value: Any, *, path: str = "$") -> str | None:

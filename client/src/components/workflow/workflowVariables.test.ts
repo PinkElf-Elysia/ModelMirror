@@ -83,22 +83,33 @@ describe("analyzeWorkflowVariables", () => {
       node("failure", "failure_event_entry", {
         eventVariable: "failure_event",
       }),
+      node("call-entry", "workflow_call_entry", {
+        eventVariable: "call_event",
+      }),
+      node("invoke", "invoke_workflow", {
+        resultVariable: "workflow_result",
+      }),
       node("wait", "suspend_wait", { outputVariable: "resume_event" }),
     ];
 
     const variables = analyzeWorkflowVariables(nodes, [], null);
     expect(variables.map((variable) => variable.name)).toEqual([
+      "call_event",
       "failure_event",
       "http_event",
       "request_body",
       "resume_event",
       "schedule_event",
+      "workflow_result",
     ]);
     expect(
       getWorkflowVariableFieldDescriptor("http_event_entry", "bodyVariable")?.mode,
     ).toBe("declaration");
     expect(
       getWorkflowVariableFieldDescriptor("failure_event_entry", "eventVariable")?.mode,
+    ).toBe("declaration");
+    expect(
+      getWorkflowVariableFieldDescriptor("invoke_workflow", "resultVariable")?.mode,
     ).toBe("declaration");
   });
 
@@ -253,7 +264,10 @@ describe("analyzeWorkflowVariables", () => {
     const existing: WorkflowVariableDeclaration[] = [
       { id: "existing", name: "locale", kind: "input", valueType: "text" },
     ];
-    const nodes = [node("producer", "llm", { outputVariable: "answer" })];
+    const nodes = [
+      node("entry", "input", { variableName: "user_input" }),
+      node("producer", "llm", { outputVariable: "answer" }),
+    ];
 
     expect(
       validateWorkflowVariableDeclaration(
@@ -276,6 +290,13 @@ describe("analyzeWorkflowVariables", () => {
     expect(
       validateWorkflowVariableDeclaration(
         { id: "collision", name: "answer", kind: "input", valueType: "text" },
+        existing,
+        nodes,
+      ),
+    ).toContain("名称与节点输出变量冲突。");
+    expect(
+      validateWorkflowVariableDeclaration(
+        { id: "input-collision", name: "user_input", kind: "input", valueType: "text" },
         existing,
         nodes,
       ),
@@ -305,6 +326,12 @@ describe("analyzeWorkflowVariables", () => {
         template: "收到 {{ request }}",
         valueBindings: { body: { source: "variable", variable: "request" } },
       }),
+      node("invoke", "invoke_workflow", {
+        inputBindings: {
+          message: { source: "variable", variable: "request" },
+        },
+        resultVariable: "workflow_result",
+      }),
     ];
     const plan = planWorkflowVariableRename(
       "request",
@@ -320,6 +347,9 @@ describe("analyzeWorkflowVariables", () => {
     expect(plan.nodes[1].data.template).toBe("收到 {{ customer_request }}");
     expect(plan.nodes[1].data.valueBindings).toEqual({
       body: { source: "variable", variable: "customer_request" },
+    });
+    expect(plan.nodes[2].data.inputBindings).toEqual({
+      message: { source: "variable", variable: "customer_request" },
     });
   });
 
