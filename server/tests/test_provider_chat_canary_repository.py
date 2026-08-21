@@ -112,7 +112,7 @@ def test_v12_to_v13_is_additive_and_preserves_round2_rows(tmp_path: Path) -> Non
     restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(restarted.database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
         tables = {
             row[0]
             for row in connection.execute(

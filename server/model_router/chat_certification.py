@@ -16,6 +16,7 @@ from .provider_chat import (
     ProviderChatTarget,
     ProviderChatTransport,
 )
+from .provider_catalog import ProviderCatalogService
 from .egress import ProviderEgressError
 from .repository import RouterCredentialUnavailable, RouterRepositoryError
 from .schemas import (
@@ -83,19 +84,9 @@ class ProviderChatCertificationService:
         return value.strip().casefold() not in {"0", "false", "no", "off"}
 
     async def refresh_models(self, connection_id: str) -> ProviderModelsRefreshResponse:
-        result, model_ids = await self.router_service.fetch_connection_models(
-            connection_id
-        )
-        unique_ids = list(dict.fromkeys(str(item) for item in model_ids if str(item)))
-        return ProviderModelsRefreshResponse(
-            connection_id=connection_id,
-            ok=result.ok,
-            model_ids=unique_ids[:500],
-            model_count=len(unique_ids),
-            checked_at=result.checked_at,
-            truncated=len(unique_ids) > 500,
-            message=result.message,
-        )
+        return await ProviderCatalogService(
+            self.router_service
+        ).refresh_connection_legacy(connection_id)
 
     def list(self) -> ProviderChatCertificationListResponse:
         rows = {

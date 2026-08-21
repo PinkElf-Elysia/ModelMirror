@@ -1,6 +1,6 @@
 # 部署与运维指南
 
-最后更新日期：2026-08-13
+最后更新日期：2026-08-21
 维护人：模镜团队
 
 ## 支持边界
@@ -96,6 +96,40 @@ docker compose -f docker-compose.yml `
 `127.0.0.1:3000`，并复用 `${MODELMIRROR_DATA_ROOT}/new-api-data`。停止或回退
 ModelMirror 不得删除该目录。newAPI 上游为带附加条款的 AGPLv3 项目；本仓库不
 嵌入或修改其管理 UI，部署者仍需自行完成许可证与业务使用合规审查。
+
+### Provider Control Plane 与 v14 Catalog
+
+Provider 管理面仍需外部注入至少 32 字符的
+`MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET` 和规范凭据主密钥。升级到 SQLite v14
+前，先停止 Server 写入并使用 SQLite Backup API 或等价一致性方式备份 Router 数据库，
+同时保留旧主密钥；不得复制正在写入的数据库文件充当一致性备份。
+
+设置入口为：
+
+```text
+/settings?section=overview
+/settings?section=providers
+/settings?section=routing
+```
+
+管理员在 Provider 页执行“刷新目录”只会对该连接发送一次受 SSRF/DNS pinning 保护的
+模型目录 GET，不会发起 Chat、认证或付费调用。刷新失败或返回截断目录时，最后一次成功
+Inventory 会保留并标记 stale；不要通过删除 Router SQLite 来处理目录异常。
+
+受管 Provider 连接与普通 `/api/chat` 当前使用的环境路径相互独立。R4 不会把设置页中的
+OpenRouter 或 newAPI 连接自动转成 `LLM_GATEWAY_URL/KEY`；迁移属于 Round 5。若公网
+Provider 被报告为受保护网络，先检查容器内 DNS。VPN 的 Fake-IP 模式可能把公网域名解析
+到 `198.18.0.0/15` 等保留地址，安全出口会按设计拒绝；应让容器解析到真实公网地址，
+不得将保留地址加入内网白名单或降低 SSRF 规则。
+
+只读检查可使用：
+
+```bash
+curl -H "Cache-Control: no-cache" "http://localhost:8000/api/models/control-plane-catalog?include_unavailable=true&limit=200"
+```
+
+该接口描述当前发现与 Readiness，不是 liveness、默认 Provider 资格或计费账本。回退旧
+代码时保留 v14 表；旧版本可忽略这些加法表，无需降级或重写数据库。
 
 规则：
 

@@ -36,12 +36,14 @@ async def test_public_https_is_pinned_and_public_http_is_rejected() -> None:
         "https://169.254.169.254/latest/meta-data",
         "https://224.0.0.1/v1",
         "https://0.0.0.0/v1",
+        "https://198.18.0.1/v1",
     ],
 )
 async def test_protected_addresses_fail_closed(url: str) -> None:
     with pytest.raises(ProviderEgressError) as exc_info:
         await ProviderEgressPolicy().authorize(url)
     assert exc_info.value.code == "provider_address_blocked"
+    assert "VPN Fake-IP" in exc_info.value.message
 
 
 @pytest.mark.asyncio

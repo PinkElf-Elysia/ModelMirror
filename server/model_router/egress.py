@@ -295,7 +295,9 @@ class ProviderEgressPolicy:
     def _blocked() -> ProviderEgressError:
         return ProviderEgressError(
             "provider_address_blocked",
-            "模型服务地址指向受保护网络；仅允许公网 HTTPS 或显式内网白名单。",
+            "模型服务地址解析到受保护或保留网络；仅允许公网 HTTPS 或显式内网白名单。"
+            "若这是公网域名，请检查容器 DNS 或 VPN Fake-IP，确保其解析为真实公网地址；"
+            "保留地址不能通过白名单放行。",
         )
 
     @staticmethod

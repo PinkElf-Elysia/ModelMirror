@@ -2,7 +2,7 @@
 
 > **文档范围：Current State。** 本文只描述当前主分支中能够由代码、配置和测试定位的已合并实现。AI Capability Compiler、Router Federation、统一 Capability Graph / Evaluation 与自演进闭环属于[目标架构](./architecture/ai-capability-compiler.md)，不能由本文件中的局部 Router、Runtime 或 Evaluation 入口外推为已经完成的平台能力。
 
-最后更新日期：2026-08-13
+最后更新日期：2026-08-21
 维护人：模镜团队
 
 ## 当前定位
@@ -139,6 +139,26 @@ sequenceDiagram
   A-->>C: 文本/图片事件与 route_receipt
   C-->>U: 合帧渲染与最终强制刷新
 ```
+
+### Model Provider Control Plane
+
+Provider Control Plane 是单租户 `local` 的管理与证据层，不是新的统一数据面。
+SQLite v14 保存租户隔离的 Provider Inventory、逐 operation Offering 与脱敏刷新证据；
+Provider 凭据仍使用既有加密存储。显式目录刷新只发送 `/models` GET，并与连接健康、
+Inventory 和 Offering 在同一事务提交。
+
+`GET /api/models/control-plane-catalog` 将 managed Inventory、static/default、OmniRoute、
+Chat certification、显式 newAPI Canary 和多模态专用目录的已有证据聚合为只读 Readiness。
+该查询不刷新上游、不发起 Chat，也不改变 default、Native 或 Canary 调度。现有普通目录、
+多模态目录和各专用调用 API 保持兼容；统一 Catalog 不代表调用协议、默认 Provider 或
+计费控制面已经统一。
+
+公共 `/models` 与 Prompt 模型选择器仍使用原有静态快照和适配口径，不消费运行时
+`invocable`，也不展示仅由 Provider 发现的模型；运行时 Readiness 只在设置控制面审计。
+普通 `/api/chat` 在 R4 仍使用既有环境配置路径，受管 Provider 的数据面迁移属于 Round 5。
+
+`/settings?section=overview|providers|routing` 共用一份 Provider 管理会话。Marble 等其他
+集成位于该门禁之外；newAPI 管理 UI 继续只通过安全外链访问，不嵌入或代理。
 
 ### 本地知识流水线
 

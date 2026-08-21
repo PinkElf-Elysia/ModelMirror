@@ -60,6 +60,7 @@ describe("OpenRouter model refresh", () => {
     expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(491);
     expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(55);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(6);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(546);
   });
 
   it("restores V4 Flash ahead of V4 Pro and keeps Seedream in row four", () => {

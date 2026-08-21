@@ -116,7 +116,7 @@ function TargetModelPicker({ models, available, value, onChange }: TargetModelPi
               </button>
             ))}
             {filteredModels.length === 0 ? (
-              <p className="px-3 py-5 text-center text-sm text-slate-500">没有匹配的可调用模型</p>
+              <p className="px-3 py-5 text-center text-sm text-slate-500">没有匹配的目标模型</p>
             ) : null}
           </div>
           {models.length > filteredModels.length ? (
@@ -134,43 +134,12 @@ export default function PromptTemplateLibrary() {
   const [categoryId, setCategoryId] = useState("all");
   const [targetModelId, setTargetModelId] = useState("");
   const [notice, setNotice] = useState("");
-  const [invocableModelIds, setInvocableModelIds] = useState<Set<string> | null>(null);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetch("/api/models/catalog", { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("catalog unavailable");
-        return await response.json() as {
-          models?: Array<{ profile_id?: string; invocation_id?: string; root?: string | null; invocable?: boolean }>;
-          routes?: Array<{ id?: string; invocable?: boolean }>;
-        };
-      })
-      .then((payload) => {
-        if (controller.signal.aborted) return;
-        const next = new Set<string>();
-        for (const model of payload.models ?? []) {
-          if (!model.invocable) continue;
-          if (model.profile_id) next.add(model.profile_id);
-          if (model.invocation_id) next.add(model.invocation_id);
-          if (model.root) next.add(model.root);
-        }
-        for (const route of payload.routes ?? []) {
-          if (route.invocable && route.id) next.add(route.id);
-        }
-        setInvocableModelIds(next);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setInvocableModelIds(null);
-      });
-    return () => controller.abort();
-  }, []);
-
-  const callableModels = useMemo(
+  const selectableModels = useMemo(
     () => chatModelOptions.filter(
-      (model) => model.interaction_status === "ready" && invocableModelIds?.has(model.id),
+      (model) => model.interaction_status === "ready",
     ),
-    [invocableModelIds],
+    [],
   );
   const visibleCategories = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -205,9 +174,9 @@ export default function PromptTemplateLibrary() {
           <span className="sr-only">搜索模板</span>
           <input className="h-12 w-full rounded-xl border border-white/10 bg-[#0a1423] px-4 text-sm text-white outline-none placeholder:text-slate-500 focus:border-[#ffb45e]/60" onChange={(event) => setQuery(event.target.value)} placeholder="搜索模板或使用场景" type="search" value={query} />
         </label>
-        <TargetModelPicker
-          available={invocableModelIds !== null}
-          models={callableModels}
+          <TargetModelPicker
+            available
+            models={selectableModels}
           onChange={(modelId) => {
             setTargetModelId(modelId);
             setNotice("");

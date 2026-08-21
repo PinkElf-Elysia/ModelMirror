@@ -57,6 +57,22 @@ class NativeCatalogService:
         self._cache: _CacheEntry | None = None
         self._lock = asyncio.Lock()
 
+    def peek_catalog(self) -> ModelCatalogResponse | None:
+        """Return the last bounded native snapshot without provider I/O."""
+        cached = self._cache
+        if cached is None:
+            return None
+        age = time.monotonic() - cached.stored_at
+        if age > STALE_IF_ERROR_SECONDS:
+            return None
+        catalog = cached.catalog.model_copy(deep=True)
+        if age > CATALOG_TTL_SECONDS:
+            catalog.stale = True
+            catalog.router_status = "stale"
+            for model in catalog.models:
+                model.availability = "degraded"
+        return catalog
+
     async def get_catalog(
         self,
         service: ModelRouterService,
@@ -211,6 +227,17 @@ class CatalogCoordinator:
     ) -> None:
         self.sidecar = sidecar
         self.native = native or NativeCatalogService()
+
+    def peek_catalog(self) -> ModelCatalogResponse | None:
+        """Read the selected engine snapshot without starting a refresh."""
+        try:
+            service = get_model_router_service()
+            policy = service.get_policy()
+        except (RouterRepositoryError, RouterServiceError):
+            return self.sidecar.peek_catalog()
+        if policy.engine in {"native", "native_canary"}:
+            return self.native.peek_catalog()
+        return self.sidecar.peek_catalog()
 
     async def get_catalog(self) -> ModelCatalogResponse:
         try:

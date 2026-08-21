@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 import threading
+from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 
 try:
     from server.omniroute.catalog import OmniRouteCatalogService
@@ -32,6 +33,11 @@ from .schemas import (
     ProviderChatCanaryAdminResponse,
     ProviderChatCanaryPolicyUpdate,
     ProviderChatCanaryPublicStatus,
+    ProviderCatalogRefreshResponse,
+    ProviderCatalogOfferingsResponse,
+    ProviderControlPlaneOverview,
+    ControlPlaneCatalogResponse,
+    OperationName,
     ProviderModelsRefreshResponse,
     RouterConnection,
     RouterConnectionCreate,
@@ -42,6 +48,8 @@ from .schemas import (
 )
 from .chat_certification import ProviderChatCertificationService
 from .chat_canary import ProviderChatCanaryService
+from .provider_catalog import ProviderCatalogService
+from .control_plane_catalog import ControlPlaneCatalogService
 from .service import (
     ModelRouterService,
     RouterServiceError,
@@ -92,6 +100,28 @@ def get_native_router_engine():
 
         _native_engine = NativeRouterEngine(get_model_router_service())
     return _native_engine
+
+
+def get_control_plane_catalog_service() -> ControlPlaneCatalogService:
+    try:
+        from server.multimodal.api import (
+            get_audio_catalog_service,
+            get_image_catalog_service,
+            get_video_catalog_service,
+        )
+    except ModuleNotFoundError:
+        from multimodal.api import (
+            get_audio_catalog_service,
+            get_image_catalog_service,
+            get_video_catalog_service,
+        )
+    return ControlPlaneCatalogService(
+        get_model_router_service(),
+        general_catalog=get_catalog_coordinator().peek_catalog(),
+        audio_catalog=get_audio_catalog_service().peek_catalog(),
+        image_catalog=get_image_catalog_service().peek_catalog(),
+        video_catalog=get_video_catalog_service().peek_catalog(),
+    )
 
 
 def _raise_public_error(exc: Exception) -> None:
@@ -196,6 +226,22 @@ async def test_saved_connection(
 ) -> ConnectionTestResult:
     try:
         return await get_model_router_service().test_saved_connection(connection_id)
+    except (ProviderEgressError, RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.post(
+    "/connections/{connection_id}/catalog/refresh",
+    response_model=ProviderCatalogRefreshResponse,
+)
+async def refresh_provider_catalog(
+    connection_id: str,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderCatalogRefreshResponse:
+    try:
+        return await ProviderCatalogService(
+            get_model_router_service()
+        ).refresh_connection(connection_id)
     except (ProviderEgressError, RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
@@ -320,6 +366,47 @@ def get_status(
         _raise_public_error(exc)
 
 
+@router.get(
+    "/control-plane/overview",
+    response_model=ProviderControlPlaneOverview,
+)
+def get_control_plane_overview(
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> ProviderControlPlaneOverview:
+    try:
+        return get_control_plane_catalog_service().overview()
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.get(
+    "/catalog/offerings",
+    response_model=ProviderCatalogOfferingsResponse,
+)
+def get_provider_catalog_offerings(
+    connection_id: str | None = None,
+    model_id: str | None = None,
+    operation: OperationName | None = None,
+    status_filter: Literal["active", "stale", "retired", "invocable"] | None = Query(
+        default=None, alias="status"
+    ),
+    cursor: str | None = None,
+    limit: int = 200,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> ProviderCatalogOfferingsResponse:
+    try:
+        return get_control_plane_catalog_service().offerings(
+            connection_id=connection_id,
+            model_id=model_id,
+            operation=operation,
+            status=status_filter,
+            cursor=cursor,
+            limit=limit,
+        )
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
 @router.get("/diagnostics")
 def get_diagnostics(
     _principal: ProviderControlPrincipal = Depends(require_provider_admin),
@@ -362,6 +449,31 @@ async def get_model_catalog() -> ModelCatalogResponse:
 @models_router.get("/router-status", response_model=RouterStatusResponse)
 async def get_public_router_status() -> RouterStatusResponse:
     return await get_catalog_coordinator().get_status()
+
+
+@models_router.get(
+    "/control-plane-catalog",
+    response_model=ControlPlaneCatalogResponse,
+)
+def get_public_control_plane_catalog(
+    response: Response,
+    model_id: str | None = None,
+    operation: OperationName | None = None,
+    include_unavailable: bool = False,
+    cursor: str | None = None,
+    limit: int = 200,
+) -> ControlPlaneCatalogResponse:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return get_control_plane_catalog_service().public_catalog(
+            model_id=model_id,
+            operation=operation,
+            include_unavailable=include_unavailable,
+            cursor=cursor,
+            limit=max(1, min(limit, 500)),
+        )
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
 
 
 @models_router.get(

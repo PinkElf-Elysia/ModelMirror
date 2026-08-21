@@ -12,10 +12,10 @@ describe("ModelMarketHero", () => {
 
     render(
       <ModelMarketHero
+        adaptedCount={17}
         onsiteCount={24}
         onSearchChange={onSearchChange}
         searchTerm="vision"
-        usableCount={15}
       />,
     );
 
@@ -27,9 +27,10 @@ describe("ModelMarketHero", () => {
     ).toBeInTheDocument();
     const status = screen.getByLabelText("模型市场状态");
     expect(status).toHaveTextContent("24 个模型");
-    expect(status).toHaveTextContent("15 可直接调用");
+    expect(status).toHaveTextContent("17 已适配");
+    expect(status).not.toHaveTextContent("可直接调用");
+    expect(status).not.toHaveTextContent("可调用数待确认");
     expect(status).not.toHaveTextContent("岗位要求");
-    expect(status).not.toHaveTextContent("已适配");
 
     const search = screen.getByRole("searchbox");
     expect(search).toHaveClass("h-12");
@@ -40,20 +41,6 @@ describe("ModelMarketHero", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("does not report a false zero while realtime invocation status is unavailable", () => {
-    render(
-      <ModelMarketHero
-        onsiteCount={24}
-        onSearchChange={vi.fn()}
-        searchTerm=""
-        usableCount={null}
-      />,
-    );
-
-    const status = screen.getByLabelText("模型市场状态");
-    expect(status).toHaveTextContent("可调用数待确认");
-    expect(status).not.toHaveTextContent("0 可直接调用");
-  });
 });
 
 describe("model market recommendation layout", () => {

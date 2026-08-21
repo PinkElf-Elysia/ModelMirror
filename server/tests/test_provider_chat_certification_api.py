@@ -110,6 +110,9 @@ async def test_certification_admin_routes_require_session_csrf_and_idempotency(
         assert (
             await client.post(f"/api/router/connections/{connection_id}/models/refresh")
         ).status_code == 401
+        assert (
+            await client.post(f"/api/router/connections/{connection_id}/catalog/refresh")
+        ).status_code == 401
 
         paired = await client.post(
             "/api/router/admin/session", json={"pairing_secret": PAIRING_SECRET}
@@ -131,6 +134,18 @@ async def test_certification_admin_routes_require_session_csrf_and_idempotency(
         assert len(refreshed.json()["model_ids"]) == 500
         assert refreshed.json()["model_count"] == 501
         assert refreshed.json()["truncated"] is True
+
+        catalog_refreshed = await client.post(
+            f"/api/router/connections/{connection_id}/catalog/refresh",
+            headers={"X-ModelMirror-CSRF": csrf},
+        )
+        assert catalog_refreshed.status_code == 200
+        assert catalog_refreshed.json()["contract_version"] == (
+            "modelmirror-provider-catalog-v1"
+        )
+        assert catalog_refreshed.json()["model_count"] == 501
+        assert catalog_refreshed.json()["truncated"] is False
+        assert "secret-key" not in catalog_refreshed.text
 
         missing_idempotency = await client.post(
             f"/api/router/connections/{connection_id}/certifications/chat",

@@ -184,7 +184,11 @@ class ModelRouterService:
         return result, model_ids
 
     async def fetch_connection_model_records(
-        self, connection_id: str
+        self,
+        connection_id: str,
+        *,
+        persist_result: bool = True,
+        require_chat_scope: bool = True,
     ) -> tuple[ConnectionTestResult, list[dict[str, object]]]:
         connection = self.repository.get_connection(self.tenant_id, connection_id)
         if not connection.enabled:
@@ -193,14 +197,14 @@ class ModelRouterService:
                 "该模型服务已停用。",
                 status_code=409,
             )
-        if "chat" not in connection.scopes:
+        if require_chat_scope and "chat" not in connection.scopes:
             return self._scope_mismatch_result(connection), []
         api_key = self.repository.resolve_api_key(self.tenant_id, connection_id)
         result, _, records = await self._probe_with_models(
             connection.base_url, api_key
         )
         save_result = getattr(self.repository, "save_test_result", None)
-        if callable(save_result):
+        if persist_result and callable(save_result):
             save_result(
                 self.tenant_id,
                 connection_id,
