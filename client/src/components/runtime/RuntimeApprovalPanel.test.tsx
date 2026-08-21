@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import RuntimeApprovalPanel, { type RuntimeApproval } from "./RuntimeApprovalPanel";
 
@@ -16,6 +16,95 @@ afterEach(() => {
 });
 
 describe("RuntimeApprovalPanel Skill install approval", () => {
+  it("does not flash an empty approval card while the initial request is loading", async () => {
+    let resolveRequest!: (response: Response) => void;
+    const pendingResponse = new Promise<Response>((resolve) => {
+      resolveRequest = resolve;
+    });
+    const fetchMock = vi.fn(() => pendingResponse);
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <RuntimeApprovalPanel
+        pollIntervalMs={60_000}
+        requestTypes={["tool_call", "final_output"]}
+        taskId="task-empty"
+        title="Agent 运行审批"
+      />,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Agent 运行审批")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveRequest(await jsonResponse({ items: [] }));
+      await pendingResponse;
+    });
+    expect(screen.queryByText("Agent 运行审批")).not.toBeInTheDocument();
+  });
+
+  it("does not restart polling when an equivalent request-type array is recreated", async () => {
+    const fetchMock = vi.fn(() => jsonResponse({ items: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(
+      <RuntimeApprovalPanel
+        pollIntervalMs={60_000}
+        requestTypes={["tool_call", "final_output"]}
+        taskId="task-stable"
+      />,
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    rerender(
+      <RuntimeApprovalPanel
+        pollIntervalMs={60_000}
+        requestTypes={["tool_call", "final_output"]}
+        taskId="task-stable"
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an explicit empty request-type filter distinct from no filter", async () => {
+    const approval: RuntimeApproval = {
+      approval_id: "approval-filtered",
+      request_type: "tool_call",
+      task_id: "task-filtered",
+      run_id: "run-filtered",
+      node_id: "agent-filtered",
+      node_title: "Filtered Agent",
+      status: "pending",
+      revision: 1,
+      scope_type: "workflow",
+      scope_id: "task-filtered",
+      tool_name: "skill_read",
+      arguments: {},
+      description: "This approval must remain filtered.",
+      content_preview: "",
+      allowed_decisions: ["approve", "reject"],
+      expires_at: 2_000_000_000,
+      created_at: 1_900_000_000,
+      metadata: {},
+    };
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({ items: [approval] })));
+
+    render(
+      <RuntimeApprovalPanel
+        pollIntervalMs={60_000}
+        requestTypes={[]}
+        taskId="task-filtered"
+      />,
+    );
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(approval.description)).not.toBeInTheDocument();
+  });
+
   it("shows trusted fixed-SHA details without exposing editable install arguments", async () => {
     const approval: RuntimeApproval = {
       approval_id: "approval-skill-install",

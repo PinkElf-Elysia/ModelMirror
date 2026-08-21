@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { RuntimeMiddlewareNode } from "../types/runtimeMiddleware";
 import type { WorkflowNode } from "../types/workflow";
 import { reconcileRuntimeMiddlewareNodes } from "./runtimeMiddlewareMigration";
+import {
+  creatorHandoffMiddlewareConfig,
+  isLegacySkillCreatorMiddleware,
+  skillCreatorAuthoringMode,
+} from "./skillCreatorMiddleware";
 
 describe("reconcileRuntimeMiddlewareNodes", () => {
   it("upgrades an existing Skill Runtime field snapshot without losing user config", () => {
@@ -96,5 +101,64 @@ describe("reconcileRuntimeMiddlewareNodes", () => {
 
     expect(migrated[0]).toBe(input);
     expect(migrated[1]).toBe(unknown);
+  });
+
+  it("keeps saved Skill Creator nodes in Legacy mode until explicit upgrade", () => {
+    const legacy: WorkflowNode = {
+      id: "skill-creator-legacy",
+      type: "workflowNode",
+      position: { x: 0, y: 0 },
+      data: {
+        kind: "runtime_middleware",
+        title: "Skill 创建器",
+        description: "旧节点",
+        runtimeMiddlewareId: "skill_creator",
+        runtimeMiddlewareKind: "runtime_middleware.skill_creator",
+        runtimeMiddlewareConfig: {
+          allow_create: true,
+          allow_update: false,
+          allowed_draft_ids: "draft-1",
+        },
+      },
+    };
+    const definition: RuntimeMiddlewareNode = {
+      id: "skill_creator",
+      kind: "runtime_middleware.skill_creator",
+      title: "Skill 创建器",
+      description: "完成需求分析后创建 Creator 会话。",
+      category: "tool",
+      icon: "WandSparkles",
+      enabled: true,
+      fields: [
+        {
+          name: "authoring_mode",
+          label: "创建方式",
+          type: "select",
+          default: "creator_handoff",
+        },
+        { name: "allow_create", label: "允许创建", type: "boolean", default: true },
+        { name: "allow_update", label: "允许更新", type: "boolean", default: true },
+      ],
+    };
+
+    const [migrated] = reconcileRuntimeMiddlewareNodes([legacy], [definition]);
+
+    expect(migrated.data.runtimeMiddlewareConfig).toEqual({
+      allow_create: true,
+      allow_update: false,
+      allowed_draft_ids: "draft-1",
+    });
+    expect(isLegacySkillCreatorMiddleware(migrated.data)).toBe(true);
+  });
+
+  it("uses a minimal V2 config for explicit Skill Creator upgrades", () => {
+    const config = creatorHandoffMiddlewareConfig();
+
+    expect(config).toEqual({ authoring_mode: "creator_handoff" });
+    expect(skillCreatorAuthoringMode(config)).toBe("creator_handoff");
+    expect(skillCreatorAuthoringMode(undefined)).toBe("legacy_proposal");
+    expect(config).not.toHaveProperty("allow_create");
+    expect(config).not.toHaveProperty("allow_update");
+    expect(config).not.toHaveProperty("allowed_draft_ids");
   });
 });

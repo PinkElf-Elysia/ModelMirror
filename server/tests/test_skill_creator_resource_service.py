@@ -283,6 +283,10 @@ def test_resource_planner_workflow_has_no_tools_and_strict_contract() -> None:
     assert "do not create a script for subjective judgment" in agent["data"][
         "rolePrompt"
     ].lower()
+    assert "same primary natural language as definition.intent" in agent["data"][
+        "rolePrompt"
+    ].lower()
+    assert "source ids are opaque server tokens" in agent["data"]["rolePrompt"].lower()
     assert "## 1. Turn the session into explicit requirements" in agent["data"][
         "rolePrompt"
     ]
@@ -324,6 +328,95 @@ async def test_workflow_resource_planner_accepts_only_versioned_json() -> None:
     with pytest.raises(SkillCreatorValidationError) as caught:
         await invalid.plan(request)
     assert caught.value.code == "skill_creator_resource_planner_invalid"
+
+
+@pytest.mark.asyncio
+async def test_workflow_resource_planner_discards_precommitted_resources_when_clarifying() -> None:
+    request = ResourcePlanningRequest(
+        session={"session_id": "skillcreator_test", "session_revision": 3},
+        target_draft=None,
+        current_plan=None,
+        allowed_source_ids=["intent"],
+    )
+    clarification = {
+        "id": "input_format",
+        "question": "Which input fields are authoritative?",
+        "reason": "The supplied examples do not define a stable input contract.",
+    }
+    speculative_resource = {
+        "kind": "asset",
+        "action": "create",
+        "path": "assets/report-template.md",
+        "purpose": "Render the final report.",
+        "source_ids": ["intent"],
+        "used_by_steps": ["deliver"],
+        "depends_on": [],
+        "acceptance_checks": ["Contains every required section."],
+    }
+
+    async def runner(_invocation):
+        return json.dumps(
+            {
+                "resource_plan_version": RESOURCE_PLAN_VERSION,
+                **_plan_payload(
+                    clarifications=[clarification],
+                    resources=[speculative_resource],
+                ),
+            }
+        )
+
+    planner = WorkflowCreatorResourcePlanner(
+        model_id="gateway/default-text",
+        model_available=lambda: True,
+        runner=runner,
+    )
+
+    payload = await planner.plan(request)
+
+    assert payload["clarifications"] == [clarification]
+    assert payload["resources"] == []
+
+
+@pytest.mark.asyncio
+async def test_workflow_resource_planner_constrains_model_source_ids() -> None:
+    request = ResourcePlanningRequest(
+        session={"session_id": "skillcreator_test", "session_revision": 3},
+        target_draft=None,
+        current_plan=None,
+        allowed_source_ids=["intent", "expected_output"],
+    )
+    resource = {
+        "kind": "asset",
+        "action": "create",
+        "path": "assets/report-template.md",
+        "purpose": "Render the final report.",
+        "source_ids": ["expected_output", "invented-requirement"],
+        "used_by_steps": ["deliver"],
+        "depends_on": [],
+        "acceptance_checks": ["Contains every required section."],
+    }
+
+    async def runner(_invocation):
+        return json.dumps(
+            {
+                "resource_plan_version": RESOURCE_PLAN_VERSION,
+                **_plan_payload(resources=[resource]),
+            }
+        )
+
+    planner = WorkflowCreatorResourcePlanner(
+        model_id="gateway/default-text",
+        model_available=lambda: True,
+        runner=runner,
+    )
+
+    payload = await planner.plan(request)
+
+    assert payload["resources"][0]["source_ids"] == ["expected_output"]
+
+    resource["source_ids"] = ["invented-requirement"]
+    fallback_payload = await planner.plan(request)
+    assert fallback_payload["resources"][0]["source_ids"] == ["intent"]
 
 
 def test_resource_planner_extracts_one_versioned_json_from_model_narration() -> None:

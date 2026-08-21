@@ -274,6 +274,26 @@ def test_unknown_model_enum_values_still_fail_closed(
     assert caught.value.code == code
 
 
+def test_unknown_source_requirement_still_fails_closed_at_store_boundary(
+    tmp_path: Path,
+) -> None:
+    resource = {
+        "kind": "reference",
+        "action": "create",
+        "generation_cost": "medium",
+        "path": "references/rules.md",
+        "purpose": "Keep detailed rules out of SKILL.md.",
+        "source_ids": ["invented-requirement"],
+        "used_by_steps": ["collect"],
+        "acceptance_checks": ["Contains only supplied rules."],
+    }
+
+    with pytest.raises(SkillCreatorValidationError) as caught:
+        _save(SkillResourcePlanStore(tmp_path), _payload(resources=[resource]))
+
+    assert caught.value.code == "skill_creator_resource_source_unknown"
+
+
 def test_clarification_answers_are_immutable_and_require_regeneration(tmp_path: Path) -> None:
     store = SkillResourcePlanStore(tmp_path)
     plan = _save(

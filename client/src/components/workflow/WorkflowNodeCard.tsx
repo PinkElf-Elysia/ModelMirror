@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { type WorkflowNode } from "../../types/workflow";
+import { isLegacySkillCreatorMiddleware } from "../../utils/skillCreatorMiddleware";
 
 const nodeMeta = {
   input: {
@@ -342,6 +343,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
   const multiRoutes = data.kind === "multi_route" && Array.isArray(data.routes)
     ? data.routes.filter((route) => route.id && route.label)
     : [];
+  const legacySkillCreator = isLegacySkillCreatorMiddleware(data);
 
   const statusClassName =
     runStatus === "running"
@@ -460,6 +462,11 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
         <h3 className="max-w-24 truncate text-xs font-semibold leading-tight text-white">
           {data.title}
         </h3>
+        {legacySkillCreator ? (
+          <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-100">
+            Legacy
+          </span>
+        ) : null}
       </div>
 
       {showInfo ? (

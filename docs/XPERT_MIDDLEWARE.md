@@ -12,9 +12,11 @@
 
 写回只创建 create/update 候选，正式写入必须经过人工审批和 revision 冲突检查。旧扁平字段会编译为隐式配置，显式绑定优先。公开 App 只有 `allow_xpert_memory=true` 时可只读，候选生成与写回始终禁止。详见 `docs/XPERT_FILE_MEMORY.md`。
 
-## Xpert / Skill 自编写（2026-07-18）
+## Xpert / Skill 自编写（2026-08-21）
 
-`xpert_authoring` 与 `skill_creator` 是 proposal-only Agent 中间件。它们要求绑定 `workflow_agent` 并启用 Runtime 工具模式，允许 Agent 在显式资源范围内读取草稿、创建或更新提案并运行校验；不暴露 publish、install、delete 或直接覆盖动作。
+`xpert_authoring` 保持 proposal-only Agent 中间件：要求绑定 `workflow_agent` 并启用 Runtime 工具模式，允许 Agent 在显式资源范围内读取草稿、创建或更新提案并运行校验；不暴露 publish、install、delete 或直接覆盖动作。
+
+新 `skill_creator` 节点默认进入 Creator V2 交接模式。它只要求 Agent 做简短需求分析，工作流成功完成后由 Server 以可信 task/run 创建 Creator Session；不会向 Agent 暴露提案工具，也不会直接生成 `SKILL.md`、批准或安装。运行面板提供 Creator 链接，用户在独立 Creator 工作台继续资源规划、构建、评测和安装。未声明 `authoring_mode` 的历史节点保留 Legacy 提案语义，并在画布显示告警和显式升级入口。
 
 Registry 契约现包含 `config_version`、`execution_status`、`requires_tool_mode`、`app_policy` 与 `security_category`。Workflow 校验、Xpert 发布和 App 部署预检消费相同契约；两类自编写能力固定为 `app_policy=forbidden`。提案批准只写 Xpert/Workspace Skill 草稿，revision 冲突不得 fail-open。完整提案、Skill 包和 API 边界见 `docs/XPERT_AUTHORING.md`。
 

@@ -133,4 +133,25 @@ describe("trusted Skill Creator capture sources", () => {
 
     expect(screen.queryByRole("button", { name: "沉淀为 Skill" })).not.toBeInTheDocument();
   });
+
+  it("supports an explicit retry label without changing the capture contract", () => {
+    render(
+      <MemoryRouter>
+        <SkillCreatorCaptureButton
+          busyLabel="正在重试..."
+          enabled
+          label="重试创建 Creator 会话"
+          source={{
+            sourceKind: "workflow_classic",
+            taskId: "task-2",
+            runId: "run-2",
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "重试创建 Creator 会话" }),
+    ).toBeVisible();
+  });
 });

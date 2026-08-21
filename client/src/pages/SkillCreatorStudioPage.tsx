@@ -85,6 +85,41 @@ const EVIDENCE_LABELS: Record<SkillCreatorEvidenceCandidate["kind"], string> = {
   final_output_excerpt: "最终输出片段",
 };
 
+function evidenceLabel(
+  candidate: SkillCreatorEvidenceCandidate,
+  sourceKind?: SkillCreatorSession["source_kind"],
+) {
+  if (candidate.kind === "final_output_excerpt" && sourceKind === "workflow_classic") {
+    return "工作流生成的需求分析";
+  }
+  return EVIDENCE_LABELS[candidate.kind];
+}
+
+function evidenceSummary(candidate: SkillCreatorEvidenceCandidate) {
+  if (candidate.kind === "io_shape") {
+    try {
+      const payload = JSON.parse(candidate.summary) as {
+        inputs?: Array<{ name?: string; type?: string }>;
+        output?: { type?: string; present?: boolean };
+      };
+      const inputs = (payload.inputs ?? [])
+        .map((item) => `${item.name || "未命名输入"}（${item.type || "未知类型"}）`)
+        .join("、") || "未声明";
+      const output = payload.output?.present === false
+        ? "无"
+        : payload.output?.type || "文本";
+      return `输入：${inputs}；输出：${output}`;
+    } catch {
+      // Fall through to the bounded plain-text presentation below.
+    }
+  }
+  return candidate.summary
+    .replace(/\*\*/g, "")
+    .replace(/\s*[（(]workflow_agent[）)]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function splitLines(value: string) {
   return value.split("\n").map((item) => item.trim()).filter(Boolean);
 }
@@ -343,6 +378,24 @@ export default function SkillCreatorStudioPage() {
   const validManualDescription = manualDescription.trim().length > 0 && manualDescription.trim().length <= 1_024;
   const selectedEvidenceCount = selectedEvidence.size;
 
+  function applySourcePreview(
+    value: SkillCreatorSession,
+    preview: SkillCreatorSourcePreview,
+  ) {
+    setSourcePreview(preview);
+    const availableIds = new Set(preview.candidates.map((item) => item.candidate_id));
+    const persistedIds = value.selected_evidence
+      .map((item) => item.candidate_id)
+      .filter((candidateId) => availableIds.has(candidateId));
+    setSelectedEvidence(new Set(
+      value.evidence_confirmed || value.selected_evidence.length > 0
+        ? persistedIds
+        : preview.candidates
+            .filter((item) => item.default_selected)
+            .map((item) => item.candidate_id),
+    ));
+  }
+
   async function saveIntent() {
     if (!session) return;
     setBusy("intent");
@@ -377,8 +430,17 @@ export default function SkillCreatorStudioPage() {
       await hydrate(updated, { preserveActiveStep: true });
       setActiveStep(1);
       setNotice(status?.resource_authoring_enabled
-        ? "需求已保存。接下来让 AI 给出方案；需要补充信息时，它会明确提问。"
+        ? updated.mode === "run"
+          ? "需求已保存。请检查工作流素材，确认哪些内容可以用于方案。"
+          : "需求已保存。接下来让 AI 给出方案；需要补充信息时，它会明确提问。"
         : "需求已保存。接下来确认 AI 的理解并生成草稿。");
+      if (updated.mode === "run" && updated.source_kind) {
+        try {
+          applySourcePreview(updated, await previewSkillCreatorSource(updated));
+        } catch (previewError) {
+          handleError(previewError, "需求已保存，但脱敏素材暂时无法加载。请在下一步重试。");
+        }
+      }
     } catch (caught) {
       handleError(caught, "用途保存失败。");
     } finally {
@@ -402,18 +464,7 @@ export default function SkillCreatorStudioPage() {
     setError("");
     try {
       const preview = await previewSkillCreatorSource(session);
-      setSourcePreview(preview);
-      const availableIds = new Set(preview.candidates.map((item) => item.candidate_id));
-      const persistedIds = session.selected_evidence
-        .map((item) => item.candidate_id)
-        .filter((candidateId) => availableIds.has(candidateId));
-      setSelectedEvidence(new Set(
-        session.evidence_confirmed || session.selected_evidence.length > 0
-          ? persistedIds
-          : preview.candidates
-              .filter((item) => item.default_selected)
-              .map((item) => item.candidate_id),
-      ));
+      applySourcePreview(session, preview);
     } catch (caught) {
       handleError(caught, "脱敏素材加载失败。");
     } finally {
@@ -766,7 +817,7 @@ export default function SkillCreatorStudioPage() {
                 <p className="max-w-xl text-xs leading-5 text-slate-500">一句话模式会补上通用边界与“不得编造”要求；你仍会在下一步确认 AI 的具体方案。</p>
                 <button className="inline-flex items-center gap-2 rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500" disabled={!intentComplete || Boolean(busy)} onClick={() => void saveIntent()} type="button">
                   <ArrowRight aria-hidden="true" size={15} />
-                  {busy === "intent" ? "正在准备…" : "继续，让 AI 完善"}
+                  {busy === "intent" ? "正在保存…" : session.mode === "run" ? "保存需求，查看素材" : "保存需求并继续"}
                 </button>
               </div>
             </section>
@@ -777,29 +828,37 @@ export default function SkillCreatorStudioPage() {
               {session.mode !== "blank" && session.source_kind ? <section className="rounded-lg border border-white/10 bg-surface-900/80 p-5 sm:p-6" aria-labelledby="creator-evidence-heading">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <h2 className="text-xl font-semibold text-white" id="creator-evidence-heading">确认用于草稿的素材</h2>
-                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">只保存服务端生成的脱敏摘要和内容哈希。完整对话、工具参数、附件与 Sandbox 文件不会进入 Creator。</p>
+                    <h2 className="text-xl font-semibold text-white" id="creator-evidence-heading">选择方案可以使用的素材</h2>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">只保存脱敏摘要和内容哈希。完整对话、工具参数、附件与 Sandbox 文件不会进入 Creator。</p>
                   </div>
-                  <span className="w-fit rounded-full bg-white/[0.055] px-3 py-1.5 text-xs font-semibold text-slate-300">已选 {session.selected_evidence.length} 项</span>
+                  <span className="w-fit rounded-full bg-white/[0.055] px-3 py-1.5 text-xs font-semibold text-slate-300">已选 {sourcePreview ? selectedEvidenceCount : session.selected_evidence.length} 项</span>
                 </div>
 
                 {sourcePreview ? (
                   <div className="mt-5">
+                    {session.source_kind === "workflow_classic" ? (
+                      <div className="mb-4 rounded-md border border-brand-300/20 bg-brand-300/[0.06] px-4 py-3">
+                        <p className="text-sm font-semibold text-brand-100">工作流分析不会自动写入方案</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-300">请阅读“工作流生成的需求分析”。只有你主动勾选并保存后，它才会成为资源规划依据。</p>
+                      </div>
+                    ) : null}
                     <div className="grid gap-3 lg:grid-cols-2">
-                      {sourcePreview.candidates.map((candidate) => (
-                        <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition ${selectedEvidence.has(candidate.candidate_id) ? "border-brand-300/35 bg-brand-300/[0.08]" : "border-white/10 bg-white/[0.025] hover:bg-white/[0.045]"}`} key={candidate.candidate_id}>
+                      {sourcePreview.candidates.map((candidate) => {
+                        const label = evidenceLabel(candidate, session.source_kind);
+                        const summary = evidenceSummary(candidate);
+                        return <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition ${selectedEvidence.has(candidate.candidate_id) ? "border-brand-300/35 bg-brand-300/[0.08]" : "border-white/10 bg-white/[0.025] hover:bg-white/[0.045]"}`} key={candidate.candidate_id}>
                           <input checked={selectedEvidence.has(candidate.candidate_id)} className="mt-1 h-4 w-4 accent-cyan-300" onChange={() => toggleEvidence(candidate.candidate_id)} type="checkbox" />
                           <span className="min-w-0">
-                            <span className="text-xs font-semibold text-brand-100">{EVIDENCE_LABELS[candidate.kind]}</span>
-                            <span className="mt-1 block text-sm font-semibold text-white">{candidate.title}</span>
-                            <span className="mt-2 block text-xs leading-5 text-slate-400">{candidate.summary}</span>
-                            {candidate.kind === "final_output_excerpt" ? <span className="mt-2 block text-[11px] text-amber-100">输出片段默认不选中，请逐项确认。</span> : null}
+                            <span className="text-xs font-semibold text-brand-100">{label}</span>
+                            {candidate.title && candidate.title !== label ? <span className="mt-1 block text-sm font-semibold text-white">{candidate.title}</span> : null}
+                            <span className="mt-2 block whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">{summary}</span>
+                            {candidate.kind === "final_output_excerpt" ? <span className="mt-2 block text-[11px] text-amber-100">模型输出默认不选中，请确认内容准确后再勾选。</span> : null}
                           </span>
-                        </label>
-                      ))}
+                        </label>;
+                      })}
                     </div>
                     <div className="mt-4 flex justify-end">
-                      <button className="rounded-full border border-brand-300/30 bg-brand-300/10 px-4 py-2 text-sm font-semibold text-brand-100 transition hover:bg-brand-300/20 disabled:opacity-50" disabled={busy === "evidence"} onClick={() => void saveEvidence()} type="button">{busy === "evidence" ? "正在保存…" : `保存 ${selectedEvidenceCount} 项素材`}</button>
+                      <button className="rounded-full border border-brand-300/30 bg-brand-300/10 px-4 py-2 text-sm font-semibold text-brand-100 transition hover:bg-brand-300/20 disabled:opacity-50" disabled={busy === "evidence"} onClick={() => void saveEvidence()} type="button">{busy === "evidence" ? "正在保存…" : "保存选中素材并继续"}</button>
                     </div>
                   </div>
                 ) : (

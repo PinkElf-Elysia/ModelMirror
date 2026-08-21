@@ -14,11 +14,15 @@
 
 ## 中间件
 
-`xpert_authoring` 和 `skill_creator` 仅可绑定到 `workflow_agent`，并要求 `toolMode=mcp_tools`。两者通过既有 Tool Permission Policy、HITL、audit、LLM 工具选择器和 checkpoint 管线执行。
+`xpert_authoring` 仅可绑定到 `workflow_agent`，并要求 `toolMode=mcp_tools`。它通过既有 Tool Permission Policy、HITL、audit、LLM 工具选择器和 checkpoint 管线执行，提供资源目录、草稿读取、创建/更新提案和提案校验工具；`allowed_xpert_ids` 是运行时访问边界，来源 Xpert 只能额外读取自己的草稿。
 
-`xpert_authoring` 提供资源目录、草稿读取、创建/更新提案和提案校验工具；`skill_creator` 提供对应的 Skill 工具。配置中的 `allowed_xpert_ids` 与 `allowed_draft_ids` 是运行时访问边界；来源 Xpert 只能额外读取自己的草稿。
+新拖入的 `skill_creator` 默认使用 `authoring_mode=creator_handoff`。它仍只允许绑定一个 `workflow_agent`，但不要求 Runtime 工具模式，也不向普通 Agent 暴露 Skill 提案工具。Agent 只完成用途、输入、输出、边界和缺失信息分析；经典工作流成功持久化后，Server 创建一个可信 Creator Session 并返回交接事件。工作流 Agent 的文本不是 Skill 包，正式创建必须在 Creator 中由用户继续完成资源计划、资源构建、评测与独立安装。
 
-每个 run 最多创建 5 条提案，每个来源最多保留 20 条 pending 提案。工具不提供 publish、install、delete 或 archive 动作。
+运行面板只在当前浏览器标签会话保存有界 task/run ID，不保存需求、输出或 trace；刷新后通过持久执行流恢复 `skill_creator_handoff` 卡片。`ready` 卡片直接进入精确 Creator Session，`failed` 卡片展示稳定错误码并复用可信 workflow capture API 重试。存在自动交接事件时不再显示重复的普通“沉淀为 Skill”入口。
+
+未保存 `authoring_mode` 的旧节点继续按 `legacy_proposal` 运行：要求 `toolMode=mcp_tools`，并保留 `allow_create`、`allow_update` 和 `allowed_draft_ids` 的原提案边界。画布只在用户显式确认后把当前节点升级为 Creator V2，不批量迁移其他工作流。
+
+Legacy 路径每个 run 最多创建 5 条提案，每个来源最多保留 20 条 pending 提案。工具不提供 publish、install、delete 或 archive 动作。Creator V2 交接不创建 Authoring Proposal，也不会在工作流内调用 Planner、批准草稿或安装 Skill。
 
 ## 提案状态与并发
 

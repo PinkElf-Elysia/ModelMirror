@@ -60,6 +60,10 @@ function errorMessage(value: unknown, fallback: string) {
   return value instanceof Error && value.message ? value.message : fallback;
 }
 
+function summaryItem(value: string) {
+  return value.replace(/^\s*[-•]\s*/, "").trim();
+}
+
 export default function SkillResourcePlanPanel({ session, status, onSession }: Props) {
   const plan = session.resource_plan ?? null;
   const legacyFlow = session.authoring_flow !== "resource";
@@ -313,10 +317,25 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
                 </div>
               )) : <p className="text-sm text-emerald-100">这个任务不需要额外资源，保持简单即可。</p>}
             </div>
+            <p className="mt-4 text-xs font-semibold text-slate-300">共 {plan.workflow_steps.length} 步执行流程</p>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <section className="rounded-md border border-white/10 bg-white/[0.025] p-3" aria-labelledby="creator-plan-output-heading">
+                <h5 className="text-sm font-semibold text-white" id="creator-plan-output-heading">交付结果</h5>
+                <ul className="mt-2 space-y-1.5 text-xs leading-5 text-slate-300">
+                  {plan.output_contract.map((item) => <li key={item}>• {summaryItem(item)}</li>)}
+                </ul>
+              </section>
+              <section className="rounded-md border border-white/10 bg-white/[0.025] p-3" aria-labelledby="creator-plan-failure-heading">
+                <h5 className="text-sm font-semibold text-white" id="creator-plan-failure-heading">遇到信息不足时</h5>
+                <ul className="mt-2 space-y-1.5 text-xs leading-5 text-slate-300">
+                  {plan.failure_modes.map((item) => <li key={item}>• {summaryItem(item)}</li>)}
+                </ul>
+              </section>
+            </div>
           </div>
 
           <details className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
-            <summary className="cursor-pointer text-sm font-semibold text-slate-300">调整技术细节（可选）</summary>
+            <summary className="cursor-pointer text-sm font-semibold text-slate-300">查看并调整完整方案（可选）</summary>
             <div className="mt-5 space-y-5">
           <div className="grid gap-4 lg:grid-cols-2">
             <label className="block">
