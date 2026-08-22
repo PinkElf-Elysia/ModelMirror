@@ -9,6 +9,7 @@ from server.skills.runtime_guidance import (
     SkillRuntimeGuidanceError,
     build_skill_runtime_guidance_plan,
     missing_required_skill_ids,
+    skill_guidance_plan_status_events,
     skill_runtime_guidance_enabled,
     tool_requires_skill_application,
 )
@@ -24,13 +25,13 @@ def _contract(skill_id: str, marker: str):
     )
 
 
-def test_guidance_flag_defaults_off_and_accepts_explicit_true(
+def test_guidance_flag_defaults_on_and_accepts_explicit_false(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("SKILL_RUNTIME_GUIDANCE_V2_ENABLED", raising=False)
-    assert skill_runtime_guidance_enabled() is False
-    monkeypatch.setenv("SKILL_RUNTIME_GUIDANCE_V2_ENABLED", "true")
     assert skill_runtime_guidance_enabled() is True
+    monkeypatch.setenv("SKILL_RUNTIME_GUIDANCE_V2_ENABLED", "false")
+    assert skill_runtime_guidance_enabled() is False
 
 
 def test_plan_distinguishes_explicit_activated_plugin_and_auto_sources() -> None:
@@ -63,6 +64,14 @@ def test_plan_distinguishes_explicit_activated_plugin_and_auto_sources() -> None
         auto_discover=True,
         contracts=contracts,
     ).fingerprint
+    events = skill_guidance_plan_status_events(plan)
+    assert [event["status"] for event in events] == [
+        "required",
+        "required",
+        "available",
+    ]
+    assert all("content_digest" not in event for event in events)
+    assert all("trust_fingerprint" not in event for event in events)
 
 
 def test_required_skill_without_frozen_contract_fails_closed() -> None:

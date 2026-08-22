@@ -219,6 +219,7 @@ try:
         build_skill_runtime_guidance_plan,
         missing_required_skill_ids,
         skill_application_repair_instruction,
+        skill_guidance_plan_status_events,
         skill_runtime_guidance_enabled,
         tool_requires_skill_application,
     )
@@ -327,6 +328,7 @@ except ModuleNotFoundError:
         build_skill_runtime_guidance_plan,
         missing_required_skill_ids,
         skill_application_repair_instruction,
+        skill_guidance_plan_status_events,
         skill_runtime_guidance_enabled,
         tool_requires_skill_application,
     )
@@ -11148,6 +11150,31 @@ async def _run_workflow_response(
             )
             skill_guidance_plan: SkillRuntimeGuidancePlanV2 | None = None
             skill_guidance_contracts: dict[str, Any] = {}
+            announced_guidance_entries: set[tuple[str, str, str]] = set()
+
+            def emit_guidance_plan_statuses() -> None:
+                if skill_guidance_plan is None:
+                    return
+                for status_event in skill_guidance_plan_status_events(
+                    skill_guidance_plan
+                ):
+                    key = (
+                        str(status_event.get("skill_id") or ""),
+                        str(status_event.get("status") or ""),
+                        str(status_event.get("skill_version_id") or ""),
+                    )
+                    if key in announced_guidance_entries:
+                        continue
+                    announced_guidance_entries.add(key)
+                    events.append(
+                        {
+                            **status_event,
+                            "node_id": node.id,
+                            "node_title": title,
+                            "node_type": kind,
+                        }
+                    )
+
             if include_skills and not skill_runtime_guidance_enabled():
                 skills_config_for_bindings = dict(
                     skills_spec.config if skills_spec is not None else {}
@@ -11220,6 +11247,11 @@ async def _run_workflow_response(
                         or None
                     ),
                 )
+                if skill_guidance_plan is not None:
+                    pending_state["skill_guidance_plan_fingerprint"] = (
+                        skill_guidance_plan.fingerprint
+                    )
+                    emit_guidance_plan_statuses()
                 if (
                     skill_guidance_plan is not None
                     and skill_guidance_plan.required_skill_ids
@@ -11242,9 +11274,6 @@ async def _run_workflow_response(
                     )
                     messages[0] = ChatMessage(
                         role="system", content=react_system_prompt
-                    )
-                    pending_state["skill_guidance_plan_fingerprint"] = (
-                        skill_guidance_plan.fingerprint
                     )
             staged_skill_resources: dict[str, dict[str, Any]] = {}
 
@@ -11435,6 +11464,7 @@ async def _run_workflow_response(
                     pending_state["skill_guidance_plan_fingerprint"] = (
                         skill_guidance_plan.fingerprint
                     )
+                    emit_guidance_plan_statuses()
 
             async def observe_skill_guidance_contract(
                 contract: Any,
@@ -11935,14 +11965,82 @@ async def _run_workflow_response(
                 result: RuntimeToolResult,
             ) -> None:
                 await apply_skill_runtime_result(tool_name, arguments, result)
-                if skill_guidance_plan is not None and not result.is_error:
-                    await emit_guidance_verified()
-                if not tool_name.startswith("skill_"):
-                    return
                 metadata = dict(result.metadata or {})
+
+                if (
+                    tool_name in {"sandbox_read_file", "sandbox_search_files"}
+                    and not result.is_error
+                ):
+                    accessed_by_skill: dict[str, set[str]] = {}
+                    raw_accessed_paths = metadata.get("sandbox_accessed_paths")
+                    if isinstance(raw_accessed_paths, list):
+                        for raw_workspace_path in raw_accessed_paths[:100]:
+                            try:
+                                workspace_path = normalize_staged_workspace_path(
+                                    raw_workspace_path
+                                )
+                            except SkillRuntimeGuidanceError:
+                                continue
+                            staged = staged_skill_resources.get(workspace_path)
+                            if staged is None or not staged.get("text", False):
+                                continue
+                            accessed_by_skill.setdefault(
+                                str(staged["skill_id"]), set()
+                            ).add(str(staged["skill_path"]))
+                    for skill_id, resource_paths in sorted(
+                        accessed_by_skill.items()
+                    ):
+                        contract = skill_guidance_contracts.get(skill_id)
+                        events.append(
+                            {
+                                "event": "skill_runtime_status",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "tool_name": tool_name,
+                                "status": "resource_accessed",
+                                "skill_id": skill_id,
+                                "skill_version_id": (
+                                    contract.version_id if contract else None
+                                ),
+                                "resource_count": len(resource_paths),
+                                "resource_paths": sorted(resource_paths)[:12],
+                                "run_id": run_id,
+                            }
+                        )
+                if not tool_name.startswith("skill_"):
+                    if skill_guidance_plan is not None and not result.is_error:
+                        await emit_guidance_verified()
+                    return
                 event_name = str(metadata.get("skill_runtime_event") or "").strip()
                 if metadata.get("approval_rejected"):
                     event_name = "reject"
+                skill_id = str(
+                    metadata.get("skill_id")
+                    or arguments.get("skill_id")
+                    or metadata.get("activated_skill_id")
+                    or ""
+                ).strip()
+                raw_resource_paths = metadata.get("application_resource_paths")
+                resource_paths = (
+                    sorted(
+                        {
+                            str(path).replace("\\", "/")
+                            for path in raw_resource_paths
+                            if isinstance(path, str)
+                            and path.strip()
+                            and len(path) <= 240
+                        }
+                    )
+                    if isinstance(raw_resource_paths, list)
+                    else []
+                )
+                if result.is_error and tool_name in {"skill_read", "skill_stage"}:
+                    event_name = "failed"
+                elif not result.is_error and tool_name == "skill_read":
+                    event_name = "reading"
+                elif not result.is_error and tool_name == "skill_stage":
+                    event_name = "staged"
                 events.append(
                     {
                         "event": "skill_runtime_status",
@@ -11951,13 +12049,22 @@ async def _run_workflow_response(
                         "node_type": kind,
                         "tool_name": tool_name,
                         "status": event_name or "completed",
+                        "skill_id": skill_id or None,
+                        "skill_version_id": metadata.get(
+                            "application_version_id"
+                        ),
                         "candidate_id": arguments.get("candidate_id"),
                         "activated_skill_id": metadata.get("activated_skill_id"),
                         "source_ref": metadata.get("source_ref"),
                         "result_count": metadata.get("result_count"),
+                        "resource_count": len(resource_paths),
+                        "resource_paths": resource_paths[:12],
+                        "error_code": metadata.get("error_code"),
                         "run_id": run_id,
                     }
                 )
+                if skill_guidance_plan is not None and not result.is_error:
+                    await emit_guidance_verified()
 
             async def call_workflow_runtime_tool_observed(
                 *,
@@ -11981,6 +12088,30 @@ async def _run_workflow_response(
                         middleware_specs=middleware_specs,
                     )
                 except RuntimeToolError as exc:
+                    if tool_name in {"skill_read", "skill_stage"}:
+                        events.append(
+                            {
+                                "event": "skill_runtime_status",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "tool_name": tool_name,
+                                "status": "failed",
+                                "skill_id": str(
+                                    arguments.get("skill_id") or ""
+                                ).strip()
+                                or None,
+                                "error_code": str(
+                                    getattr(
+                                        exc,
+                                        "code",
+                                        "skill_application_tool_failed",
+                                    )
+                                    or "skill_application_tool_failed"
+                                ),
+                                "run_id": run_id,
+                            }
+                        )
                     await record_skill_runtime_failure(
                         tool_name,
                         arguments,
@@ -16653,6 +16784,20 @@ async def _run_workflow_response(
                                     break
 
                         if not success:
+                            if isinstance(last_error, SkillRuntimeGuidanceError):
+                                skill_failure_event = {
+                                    "event": "skill_runtime_status",
+                                    "node_id": node.id,
+                                    "node_title": title,
+                                    "node_type": kind,
+                                    "status": "failed",
+                                    "error_code": last_error.code,
+                                    "run_id": workflow_agent_run.run_id,
+                                }
+                                workflow_execution_store.append_event(
+                                    task_id, skill_failure_event
+                                )
+                                yield sse_payload(skill_failure_event)
                             if exception_handling == "empty_output":
                                 output = ""
                                 if not disable_output:

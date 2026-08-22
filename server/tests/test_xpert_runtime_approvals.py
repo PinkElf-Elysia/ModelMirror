@@ -113,6 +113,50 @@ def test_execution_store_suspend_claim_and_restart_recovery(tmp_path) -> None:
         reloaded.claim("task-1", worker_id="worker-b", lease_seconds=30)
 
 
+def test_execution_store_preserves_bounded_skill_runtime_status(tmp_path) -> None:
+    store = WorkflowExecutionStore(tmp_path)
+    store.create(
+        task_id="task-1",
+        run_id="run-1",
+        run_type="workflow",
+        workflow={"nodes": [], "edges": []},
+        inputs={"user_input": "hello"},
+    )
+
+    stored = store.append_event(
+        "task-1",
+        {
+            "event": "skill_runtime_status",
+            "status": "resource_accessed",
+            "skill_id": "pdf-reader",
+            "skill_version_id": "skillversion-1",
+            "requirement": "required",
+            "required_skill_ids": ["pdf-reader"],
+            "available_skill_ids": ["optional-helper"],
+            "resource_count": 9_999,
+            "resource_paths": [
+                "/host/private.txt",
+                "../escape.txt",
+                "C:\\private\\secret.txt",
+                *[f"references/item-{index}.md" for index in range(20)],
+            ],
+            "query": "must not persist",
+            "content": "must not persist",
+        },
+    ).events[-1]
+
+    assert stored["skill_id"] == "pdf-reader"
+    assert stored["skill_version_id"] == "skillversion-1"
+    assert stored["requirement"] == "required"
+    assert stored["required_skill_ids"] == ["pdf-reader"]
+    assert stored["available_skill_ids"] == ["optional-helper"]
+    assert stored["resource_count"] == 2_000
+    assert len(stored["resource_paths"]) == 12
+    assert all(path.startswith("references/") for path in stored["resource_paths"])
+    assert "query" not in stored
+    assert "content" not in stored
+
+
 @pytest.mark.asyncio
 async def test_hitl_interrupt_never_falls_back_to_provider(tmp_path) -> None:
     approvals = RuntimeApprovalStore(tmp_path)

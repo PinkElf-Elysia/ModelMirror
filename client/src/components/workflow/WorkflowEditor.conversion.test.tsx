@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type WorkflowDefinition, type WorkflowNodeKind } from "../../types/workflow";
+import { type RuntimeMiddlewareNode } from "../../types/runtimeMiddleware";
 import WorkflowEditor from "./WorkflowEditor";
 import { type WorkflowNodeRegistryResponse } from "./workflowNodeRegistry";
 
@@ -145,6 +146,62 @@ function jsonResponse(value: unknown) {
   });
 }
 
+function skillRuntimeMiddleware(): RuntimeMiddlewareNode {
+  return {
+    id: "skills_runtime",
+    kind: "runtime_middleware.skills_runtime",
+    title: "Skill 执行指导",
+    description: "要求 Agent 实际读取选定 Skill。",
+    category: "tool",
+    icon: "BookOpenCheck",
+    enabled: true,
+    fields: [
+      { name: "skill_ids", label: "选择必用 Skill", type: "textarea" },
+      {
+        name: "auto_discover",
+        label: "允许发现其他已安装 Skill",
+        type: "boolean",
+        default: false,
+      },
+      {
+        name: "catalog_search",
+        label: "允许按需检索已核验 Skill 目录",
+        type: "boolean",
+        default: false,
+      },
+    ],
+  };
+}
+
+function workflowWithSkillRuntime(): WorkflowDefinition {
+  const definition = ordinaryWorkflow();
+  definition.nodes.push({
+    id: "skills-runtime",
+    type: "workflowNode",
+    position: { x: 300, y: 260 },
+    data: {
+      kind: "runtime_middleware",
+      title: "Skill 执行指导",
+      description: "要求 Agent 实际读取选定 Skill。",
+      runtimeMiddlewareId: "skills_runtime",
+      runtimeMiddlewareKind: "runtime_middleware.skills_runtime",
+      runtimeMiddlewareConfig: {
+        skill_ids: "pdf, tdd",
+        auto_discover: true,
+        catalog_search: true,
+      },
+    },
+  });
+  definition.edges.push({
+    id: "bind-skills-runtime",
+    source: "skills-runtime",
+    target: "agent",
+    sourceHandle: "middleware-binding",
+    targetHandle: "middleware",
+  });
+  return definition;
+}
+
 describe("WorkflowEditor Xpert entry repair", () => {
   beforeEach(() => {
     registryAvailable = true;
@@ -175,7 +232,9 @@ describe("WorkflowEditor Xpert entry repair", () => {
         if (url === "/api/workflow-native/validate") {
           return Promise.resolve(jsonResponse(staticValidation));
         }
-        if (url === "/api/runtime/middleware-nodes") return Promise.resolve(jsonResponse([]));
+        if (url === "/api/runtime/middleware-nodes") {
+          return Promise.resolve(jsonResponse([skillRuntimeMiddleware()]));
+        }
         if (url.startsWith("/api/xperts")) {
           return Promise.resolve(jsonResponse({ items: [], total: 0, version: "test" }));
         }
@@ -294,5 +353,42 @@ describe("WorkflowEditor Xpert entry repair", () => {
           String(request) === "/api/xperts" && init?.method === "POST",
       ),
     ).toBe(false);
+  });
+
+  it("edits required Skills as removable tags and keeps discovery advanced", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MemoryRouter>
+        <WorkflowEditor
+          initialDefinition={workflowWithSkillRuntime()}
+          onSave={onSave}
+          saveLabel="保存测试草稿"
+          workflowId="classic-skill-runtime"
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByTestId("rf__node-skills-runtime"));
+    expect(
+      await screen.findByRole("button", { name: "移除必用 Skill：pdf" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "移除必用 Skill：tdd" })).toBeVisible();
+    expect(screen.queryByText("允许发现其他已安装 Skill")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "展开高级选项" }));
+    expect((await screen.findAllByText("允许发现其他已安装 Skill")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "移除必用 Skill：pdf" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存测试草稿" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    const saved = onSave.mock.calls[0][0] as WorkflowDefinition;
+    expect(
+      saved.nodes.find((node) => node.id === "skills-runtime")?.data
+        .runtimeMiddlewareConfig,
+    ).toMatchObject({
+      skill_ids: "tdd",
+      auto_discover: true,
+      catalog_search: true,
+    });
   });
 });

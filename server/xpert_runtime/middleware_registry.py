@@ -682,21 +682,22 @@ def register_builtin_middleware_nodes(
             id="skills_runtime",
             kind="runtime_middleware.skills_runtime",
             title="Skill 执行指导",
-            description="按需读取已安装 Skill；可选启用本地目录发现，并经审批安装固定提交版本。",
+            description="要求 Agent 实际读取选定 Skill，并按说明消费已暂存的支持资源。",
             category="tool",
             icon="BookOpenCheck",
             fields=[
                 RuntimeMiddlewareField(
                     name="skill_ids",
-                    label="已安装 Skill ID（逗号或换行分隔）",
+                    label="选择必用 Skill",
                     type="textarea",
                     rows=4,
                 ),
                 RuntimeMiddlewareField(
                     name="auto_discover",
-                    label="允许发现全部已安装 Skill",
+                    label="允许发现其他已安装 Skill",
                     type="boolean",
                     default=False,
+                    description="仅作为可选候选，不会要求 Agent 全部读取。",
                 ),
                 RuntimeMiddlewareField(
                     name="catalog_search",

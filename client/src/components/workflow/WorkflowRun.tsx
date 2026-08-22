@@ -11,6 +11,9 @@ import SkillCreatorCaptureButton, {
 import SkillCreatorHandoffCard, {
   latestSkillCreatorHandoff,
 } from "../skill-creator/SkillCreatorHandoffCard";
+import SkillApplicationCard, {
+  requiredSkillIdsFromWorkflowNodes,
+} from "../skill-runtime/SkillApplicationCard";
 import { useSkillCreatorStatus } from "../../hooks/useSkillCreatorStatus";
 import {
   fetchFileOutputs,
@@ -561,19 +564,6 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
       return;
     }
     if (event.event === "skill_runtime_status") {
-      const statusText =
-        event.status === "find"
-          ? `本地 Skill 检索完成：${event.result_count ?? 0} 项候选`
-          : event.status === "enable"
-            ? `已为本轮激活 Skill：${event.activated_skill_id ?? event.candidate_id ?? "-"}`
-            : event.status === "install"
-              ? `Skill 已安装并仅授权本轮使用：${event.activated_skill_id ?? "-"}`
-              : event.status === "upgrade"
-                ? `Skill 已升级并仅授权本轮使用：${event.activated_skill_id ?? "-"}`
-                : event.status === "reject"
-                  ? `用户已拒绝本轮 Skill 候选：${event.candidate_id ?? "-"}`
-                  : `Skill 状态已更新：${event.status ?? "completed"}`;
-      step.output = appendStepOutput(step.output, statusText, step.type);
       return;
     }
     if (event.event === "client_tool_waiting") {
@@ -964,6 +954,10 @@ export default function WorkflowRun({
   }, [events]);
 
   const runSteps = useMemo(() => buildRunSteps(events), [events]);
+  const expectedRequiredSkillIds = useMemo(
+    () => requiredSkillIdsFromWorkflowNodes(definition.nodes),
+    [definition.nodes],
+  );
   const skillCaptureSource = useMemo(
     () => completedWorkflowCaptureSource(events, taskId, runId, isRunning),
     [events, isRunning, runId, taskId],
@@ -1991,6 +1985,11 @@ export default function WorkflowRun({
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <SkillApplicationCard
+          className="mb-3"
+          events={events}
+          expectedRequiredSkillIds={expectedRequiredSkillIds}
+        />
         {runHistory.length > 0 ? (
           <div className="mb-3 rounded-lg border border-white/10 bg-white/[0.03] p-3">
             <p className="text-[11px] font-semibold text-slate-400">最近运行</p>
