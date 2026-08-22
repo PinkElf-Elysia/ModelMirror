@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ from server.benchmarks.models import BenchmarkGenerationRequest
 from server.benchmarks.service import BenchmarkGenerationError
 from server.benchmarks.store import BenchmarkJobStore
 from server.main import app
+from server.rag.document_processor import StructuredDocumentProcessor
 from server.rag.evaluation import (
     EvaluationStateError,
     KnowledgeEvaluationStore,
@@ -231,8 +233,45 @@ class _RagService:
                     }
         raise RuntimeError("missing chunk")
 
+    def get_knowledge_source_block(
+        self,
+        kb_id: str,
+        document_id: str,
+        source_block_id: str,
+        *,
+        version_id: str | None = None,
+    ) -> dict:
+        assert kb_id == "kb_target"
+        assert version_id == "pipeline_v2"
+        for chunks in self.vector_store.chunks.values():
+            for chunk in chunks:
+                resolved_document_id = chunk.doc_id.removeprefix("pipeline_v2_")
+                if (
+                    resolved_document_id == document_id
+                    and chunk.source_block_id == source_block_id
+                ):
+                    return {
+                        "document_id": resolved_document_id,
+                        "document_name": chunk.document_name,
+                        "chunk_id": chunk.chunk_id,
+                        "source_block_id": chunk.source_block_id,
+                        "page_number": chunk.page_number,
+                        "heading_path": list(chunk.heading_path),
+                        "visual_kind": chunk.visual_kind,
+                        "text": chunk.text,
+                    }
+        raise RuntimeError("missing source block")
 
-def _chunk(chunk_id: str, source_id: str, name: str, block_id: str, text: str) -> StoredVectorChunk:
+
+def _chunk(
+    chunk_id: str,
+    source_id: str,
+    name: str,
+    block_id: str,
+    text: str,
+    *,
+    chunk_type: str = "child",
+) -> StoredVectorChunk:
     return StoredVectorChunk(
         chunk_id=chunk_id,
         kb_id="kb_target",
@@ -240,7 +279,7 @@ def _chunk(chunk_id: str, source_id: str, name: str, block_id: str, text: str) -
         document_name=name,
         text=text,
         chunk_index=0,
-        chunk_type="child",
+        chunk_type=chunk_type,
         heading_path=("Policy",),
         source_block_id=block_id,
     )
@@ -319,6 +358,66 @@ def test_formal_blueprints_are_publishable_by_construction(tmp_path: Path) -> No
     assert set(document_case_counts) == {"doc_alpha", "doc_beta", "doc_gamma"}
     assert max(document_case_counts.values()) <= 12
     assert len({item["context_evidence_ids"][0] for item in negative}) == 12
+
+
+def test_formal_evidence_catalog_excludes_heading_only_chunks(tmp_path: Path) -> None:
+    service, _ = _service(tmp_path, formal=True)
+    service.rag_service.vector_store.chunks["pipeline_v2_doc_alpha"].insert(
+        0,
+        _chunk(
+            "alpha_heading",
+            "doc_alpha",
+            "alpha.md",
+            "block_alpha_heading",
+            "Policy handbook > Renewal\n## Renewal",
+            chunk_type="heading",
+        ),
+    )
+
+    snapshot, _ = service.snapshot_target(
+        {
+            "kind": "knowledge_version",
+            "kb_id": "kb_target",
+            "pipeline_version_id": "pipeline_v2",
+        }
+    )
+
+    assert "block_alpha_heading" not in {
+        item["source_block_id"] for item in snapshot["_evidence"]
+    }
+    assert all(item["chunk_type"] != "heading" for item in snapshot["_evidence"])
+
+
+def test_rag_p0_r3_content_fixture_satisfies_formal_reference_capacity() -> None:
+    root = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "task-cards"
+        / "fixtures"
+        / "rag-p0-r3-content-v2"
+    )
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    processor = StructuredDocumentProcessor()
+    content_counts: list[int] = []
+    for item in manifest["files"]:
+        path = root / item["file"]
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == item["sha256"]
+        document = processor.process(
+            path,
+            filename=path.name,
+            source_id=f"doc_{path.stem}",
+        )
+        content_counts.append(
+            sum(block.kind != "heading" for block in document.blocks)
+        )
+
+    qualification = manifest["qualification"]
+    assert content_counts == qualification["content_source_block_distribution"]
+    assert sum(content_counts) == qualification["content_source_block_count"] == 18
+    assert sum(min(count * 2, 12) for count in content_counts) >= qualification[
+        "required_positive_reference_count"
+    ]
+    assert sum(content_counts) >= qualification["required_unique_negative_contexts"]
 
 
 def _generated_knowledge_payload(user: str) -> str:
@@ -569,7 +668,8 @@ async def test_strategy_tuning_generation_waits_for_hard_negative_review(
     assert completed["calibration"]["status"] == "review_required"
     assert completed["evaluation_run_id"] is None
     assert rag_executor.notifications == 0
-    assert dataset["benchmark_role"] == "promotion_evidence"
+    assert dataset["benchmark_role"] == "promotion_sealed"
+    assert dataset["provenance"]["evidence_policy_version"] == "content-source-block-v1"
     assert dataset["calibration"]["status"] == "not_required"
     assert len(positives) == 30
     assert len(negatives) == 12

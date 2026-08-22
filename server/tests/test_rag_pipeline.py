@@ -494,6 +494,40 @@ async def test_rag_pipeline_draft_rejects_enabled_image_understanding(
 
 
 @pytest.mark.asyncio
+async def test_rag_pipeline_preflight_allows_first_pipeline_only_build(
+    client: httpx.AsyncClient,
+) -> None:
+    kb_id = await create_kb(client, "pipeline-only preflight")
+    upload = await client.post(
+        f"/api/rag/knowledge_bases/{kb_id}/documents?pipeline_only=true",
+        files={
+            "file": (
+                "source.md",
+                b"# Source\n\nThe first pipeline build must create its own chunks.",
+                "text/markdown",
+            )
+        },
+    )
+    assert upload.status_code == 200, upload.text
+    assert upload.json()["chunk_count"] == 0
+
+    response = await client.post(f"/api/rag/pipeline/draft/{kb_id}/preflight")
+
+    assert response.status_code == 200, response.text
+    preflight = response.json()
+    assert preflight["ready"] is True
+    assert preflight["document_count"] == 1
+    assert preflight["artifact_count"] == 1
+    assert preflight["chunk_count"] == 0
+    assert preflight["warnings"] == []
+    chunker = next(
+        item for item in preflight["stage_checks"] if item["id"] == "stage_chunker"
+    )
+    assert chunker["status"] == "ready"
+    assert chunker["severity"] == "info"
+
+
+@pytest.mark.asyncio
 async def test_rag_pipeline_draft_preflight_empty_and_with_document(
     client: httpx.AsyncClient,
 ) -> None:

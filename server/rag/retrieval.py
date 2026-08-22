@@ -6,6 +6,7 @@ from typing import Any
 
 RETRIEVAL_MODES = {"vector", "fulltext", "hybrid"}
 RERANK_PROVIDERS = {"none", "auto", "api", "llm"}
+ABSTENTION_SCORE_DOMAINS = {"vector_score", "evidence_verdict_v1"}
 RRF_CONSTANT = 60
 
 
@@ -23,6 +24,10 @@ class RetrievalConfig:
     rerank_provider: str = "auto"
     rerank_model: str = ""
     rerank_top_n: int = 5
+    abstention_enabled: bool = False
+    abstention_score_domain: str = "vector_score"
+    abstention_threshold: float = 0.0
+    evidence_verification_enabled: bool = False
 
     @classmethod
     def from_mapping(
@@ -76,6 +81,42 @@ class RetrievalConfig:
         if len(rerank_model) > 200:
             raise ValueError("retrieval.rerank_model is too long.")
 
+        abstention_enabled = _coerce_bool(
+            current.get("abstention_enabled"), "abstention_enabled"
+        )
+        abstention_score_domain = str(
+            current.get("abstention_score_domain") or "vector_score"
+        ).strip().lower()
+        if abstention_score_domain not in ABSTENTION_SCORE_DOMAINS:
+            raise ValueError(
+                "retrieval.abstention_score_domain must be vector_score; "
+                "rank-derived fused_score is not answerability evidence."
+            )
+        abstention_threshold = _coerce_float(
+            current.get("abstention_threshold"), "abstention_threshold"
+        )
+        if not -1 <= abstention_threshold <= 1:
+            raise ValueError(
+                "retrieval.abstention_threshold must be between -1 and 1."
+            )
+        if abstention_enabled and mode == "fulltext":
+            raise ValueError(
+                "retrieval abstention currently requires vector or hybrid retrieval."
+            )
+        evidence_verification_enabled = _coerce_bool(
+            current.get("evidence_verification_enabled"),
+            "evidence_verification_enabled",
+        )
+        if evidence_verification_enabled and (
+            not rerank_enabled or provider != "llm"
+        ):
+            raise ValueError(
+                "retrieval evidence verification requires rerank_provider=llm "
+                "with rerank_enabled=true."
+            )
+        if evidence_verification_enabled:
+            abstention_score_domain = "evidence_verdict_v1"
+
         return cls(
             mode=mode,
             vector_weight=round(vector_weight, 6),
@@ -87,6 +128,10 @@ class RetrievalConfig:
             rerank_provider=provider,
             rerank_model=rerank_model,
             rerank_top_n=rerank_top_n,
+            abstention_enabled=abstention_enabled,
+            abstention_score_domain=abstention_score_domain,
+            abstention_threshold=round(abstention_threshold, 6),
+            evidence_verification_enabled=evidence_verification_enabled,
         )
 
     def payload(self) -> dict[str, Any]:
@@ -189,7 +234,7 @@ def select_candidates(
     score_threshold: float,
     top_k: int,
 ) -> list[RetrievalCandidate]:
-    """Apply a stable recall threshold, parent dedupe, then document diversity."""
+    """Apply a stable recall threshold and parent dedupe without reordering."""
 
     eligible = [item for item in items if item.fused_score >= score_threshold]
     deduplicated: list[RetrievalCandidate] = []
@@ -202,23 +247,72 @@ def select_candidates(
             seen_parent_groups.add(group)
         deduplicated.append(item)
 
-    selected: list[RetrievalCandidate] = []
-    deferred: list[RetrievalCandidate] = []
-    seen_documents: set[str] = set()
-    for item in deduplicated:
-        if item.doc_id in seen_documents:
-            deferred.append(item)
-            continue
-        selected.append(item)
-        seen_documents.add(item.doc_id)
-        if len(selected) >= top_k:
-            return selected
+    # Fusion and successful rerank already establish the authoritative order.
+    # Forcing one result per document here can move a higher-scoring Gold block
+    # below a fixed evaluation cutoff merely because another document exists.
+    return deduplicated[:top_k]
 
-    for item in deferred:
-        selected.append(item)
-        if len(selected) >= top_k:
-            break
-    return selected
+
+def apply_abstention(
+    items: list[RetrievalCandidate],
+    config: RetrievalConfig,
+) -> tuple[list[RetrievalCandidate], dict[str, Any]]:
+    """Apply an explicit no-answer decision after ranking and selection.
+
+    RRF fused scores intentionally never enter this decision: they describe
+    relative rank, while abstention requires an absolute evidence domain.
+    """
+
+    input_count = len(items)
+    decision: dict[str, Any] = {
+        "abstention_enabled": bool(config.abstention_enabled),
+        "abstention_applied": False,
+        "abstained": False,
+        "abstention_score_domain": config.abstention_score_domain,
+        "abstention_threshold": config.abstention_threshold,
+        "abstention_score": None,
+        "abstention_input_count": input_count,
+        "abstention_reason": "disabled",
+    }
+    if not items:
+        decision.update(
+            {
+                "abstention_applied": True,
+                "abstained": True,
+                "abstention_reason": "no_candidates",
+            }
+        )
+        return [], decision
+    if not config.abstention_enabled:
+        return items, decision
+
+    decision["abstention_applied"] = True
+    scores = [
+        float(item.vector_score)
+        for item in items
+        if item.vector_score is not None
+    ]
+    if not scores:
+        decision.update(
+            {
+                "abstained": True,
+                "abstention_reason": "missing_vector_score",
+            }
+        )
+        return [], decision
+
+    evidence_score = max(scores)
+    decision["abstention_score"] = round(evidence_score, 6)
+    if evidence_score < config.abstention_threshold:
+        decision.update(
+            {
+                "abstained": True,
+                "abstention_reason": "below_threshold",
+            }
+        )
+        return [], decision
+    decision["abstention_reason"] = "accepted"
+    return items, decision
 
 
 def _coerce_int(value: Any, name: str) -> int:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import random
 import statistics
@@ -15,6 +16,7 @@ from typing import Any
 from .evaluation import (
     KnowledgeEvaluationStore,
     aggregate_target_metrics,
+    build_development_evidence_manifest,
     evaluate_promotion_gate,
     evaluate_retrieval_case,
 )
@@ -33,7 +35,7 @@ from .strategy_tuning_qualification import (
 
 TUNER_VERSION = "rag-strategy-tuner-v4"
 VALIDATION_VERSION = "rag-strategy-validation-v1"
-KNOWN_WINNER_FIXTURE_VERSION = "rag-strategy-known-winner-v1"
+KNOWN_WINNER_FIXTURE_VERSION = "rag-strategy-known-winner-v2"
 VALIDATION_RESAMPLE_COUNT = 3
 VALIDATION_QUERY_REPETITIONS = 3
 VALIDATION_BOOTSTRAP_SAMPLES = 1000
@@ -117,6 +119,9 @@ class RagStrategyTuningStore:
             "winner": None,
             "no_improvement_reason": None,
             "optimization_baseline_metrics": {},
+            "optimization_execution_receipt": {},
+            "retrieval_search_space": {},
+            "scope_receipt": {},
             "optimization_gate_summary": {},
             "chunk_sensitivity": {},
             "retrieval_deduplication": {},
@@ -232,6 +237,9 @@ class RagStrategyTuningStore:
             winner=None,
             no_improvement_reason=None,
             optimization_baseline_metrics={},
+            optimization_execution_receipt={},
+            retrieval_search_space={},
+            scope_receipt={},
             optimization_gate_summary={},
             chunk_sensitivity={},
             retrieval_deduplication={},
@@ -537,9 +545,18 @@ def paired_statistical_validation(
     }
 
 
-def retrieval_candidates(base: dict[str, Any], *, degraded: bool) -> list[dict[str, Any]]:
+def retrieval_candidates(
+    base: dict[str, Any],
+    *,
+    degraded: bool,
+    require_vector_answerability: bool = False,
+) -> list[dict[str, Any]]:
     values: list[dict[str, Any]] = []
-    modes = ["fulltext"] if degraded else ["fulltext", "vector", "hybrid"]
+    modes = (
+        ([] if degraded else ["vector", "hybrid"])
+        if require_vector_answerability
+        else (["fulltext"] if degraded else ["fulltext", "vector", "hybrid"])
+    )
     for mode in modes:
         weights = [0.5] if mode != "hybrid" else [0.3, 0.5, 0.7]
         for top_k in (5, 10):
@@ -570,6 +587,32 @@ def retrieval_candidates(base: dict[str, Any], *, degraded: bool) -> list[dict[s
     return deduped
 
 
+def _without_rerank(value: dict[str, Any]) -> dict[str, Any]:
+    """Apply a zero-rerank contract to a complete retrieval profile."""
+
+    payload = RetrievalConfig.from_mapping(value).payload()
+    evidence_domain = bool(payload.get("evidence_verification_enabled")) or str(
+        payload.get("abstention_score_domain") or ""
+    ) == "evidence_verdict_v1"
+    payload.update(
+        {
+            "rerank_enabled": False,
+            "rerank_provider": "none",
+            "rerank_model": "",
+            "evidence_verification_enabled": False,
+        }
+    )
+    if evidence_domain:
+        payload.update(
+            {
+                "abstention_enabled": False,
+                "abstention_score_domain": "vector_score",
+                "abstention_threshold": 0.0,
+            }
+        )
+    return RetrievalConfig.from_mapping(payload).payload()
+
+
 def retrieval_semantic_payload(value: dict[str, Any]) -> dict[str, Any]:
     """Return only fields that can change retrieval behavior for this mode."""
 
@@ -580,6 +623,7 @@ def retrieval_semantic_payload(value: dict[str, Any]) -> dict[str, Any]:
         "score_threshold": round(float(config["score_threshold"]), 6),
         "candidate_multiplier": int(config["candidate_multiplier"]),
         "rerank_enabled": bool(config["rerank_enabled"]),
+        "abstention_enabled": bool(config["abstention_enabled"]),
     }
     if config["mode"] == "hybrid":
         payload["vector_weight"] = round(float(config["vector_weight"]), 6)
@@ -592,11 +636,168 @@ def retrieval_semantic_payload(value: dict[str, Any]) -> dict[str, Any]:
                 "rerank_top_n": int(config["rerank_top_n"]),
             }
         )
+    if config["abstention_enabled"]:
+        payload.update(
+            {
+                "abstention_score_domain": str(
+                    config["abstention_score_domain"]
+                ),
+                "abstention_threshold": round(
+                    float(config["abstention_threshold"]), 6
+                ),
+            }
+        )
     return payload
 
 
 def retrieval_semantic_checksum(value: dict[str, Any]) -> str:
     return _checksum(retrieval_semantic_payload(value))
+
+
+def _answerability_score_summary(
+    ranking: list[dict[str, Any]], score_field: str
+) -> dict[str, float | int | None]:
+    scores: list[float] = []
+    for item in ranking:
+        value = item.get(score_field)
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(score):
+            scores.append(score)
+    scores.sort(reverse=True)
+    highest = scores[0] if scores else None
+    second = scores[1] if len(scores) > 1 else None
+    top = scores[:3]
+    return {
+        "available_count": len(scores),
+        "maximum": round(highest, 6) if highest is not None else None,
+        "second_highest": round(second, 6) if second is not None else None,
+        "top_margin": (
+            round(highest - second, 6)
+            if highest is not None and second is not None
+            else None
+        ),
+        "top3_mean": round(sum(top) / len(top), 6) if top else None,
+    }
+
+
+def _safe_answerability_metric(value: Any) -> float:
+    try:
+        metric = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(metric, 6) if math.isfinite(metric) else 0.0
+
+
+def build_answerability_feature_manifest(result: dict[str, Any]) -> dict[str, Any]:
+    """Seal content-free per-case score features for later signal design.
+
+    The manifest intentionally excludes queries, paths, source identifiers,
+    ranking identities, text, and provider payloads. It is evidence for an
+    offline design decision, not a new online abstention rule.
+    """
+
+    cases = [item for item in result.get("cases") or [] if isinstance(item, dict)]
+    case_ids = [str(item.get("case_id") or "") for item in cases]
+    nonempty_case_ids = [item for item in case_ids if item]
+    invalid_case_identity_count = sum(1 for item in case_ids if not item) + (
+        len(nonempty_case_ids) - len(set(nonempty_case_ids))
+    )
+    results_by_id = {
+        str(item.get("case_id") or ""): item
+        for item in result.get("case_results") or []
+        if isinstance(item, dict) and int(item.get("repeat_index") or 0) == 0
+    }
+    entries: list[dict[str, Any]] = []
+    domain_coverage = {
+        "vector_score": 0,
+        "fused_score": 0,
+        "fulltext_score": 0,
+    }
+    failed_case_count = 0
+    missing_vector_score_case_count = 0
+    for case in cases:
+        case_id = str(case.get("case_id") or "")
+        case_result = results_by_id.get(case_id)
+        completed = bool(case_result) and (
+            str(case_result.get("status") or "") == "completed"
+        )
+        if not completed:
+            failed_case_count += 1
+        ranking = (
+            [
+                item
+                for item in case_result.get("ranking") or []
+                if isinstance(item, dict)
+            ]
+            if case_result
+            else []
+        )
+        summaries = {
+            field: _answerability_score_summary(ranking, field)
+            for field in domain_coverage
+        }
+        for field, summary in summaries.items():
+            if int(summary["available_count"] or 0) > 0:
+                domain_coverage[field] += 1
+        if int(summaries["vector_score"]["available_count"] or 0) == 0:
+            missing_vector_score_case_count += 1
+        metrics = dict((case_result or {}).get("metrics") or {})
+        expected_no_result = bool(case.get("expected_no_result"))
+        entries.append(
+            {
+                "case_ref": hashlib.sha256(case_id.encode("utf-8")).hexdigest(),
+                "status": "completed" if completed else "failed",
+                "expected_no_result": expected_no_result,
+                "ranking_count": len(ranking),
+                **summaries,
+                "outcome": {
+                    "recall_at_5": _safe_answerability_metric(
+                        metrics.get("recall_at_5")
+                    ),
+                    "ndcg_at_10": _safe_answerability_metric(
+                        metrics.get("ndcg_at_10")
+                    ),
+                    "no_result_accuracy": _safe_answerability_metric(
+                        metrics.get("no_result_accuracy")
+                    ),
+                    "no_result": bool((case_result or {}).get("no_result")),
+                },
+            }
+        )
+    entries.sort(key=lambda item: str(item["case_ref"]))
+    positive_case_count = sum(
+        1 for item in entries if not item["expected_no_result"]
+    )
+    no_result_case_count = len(entries) - positive_case_count
+    payload = {
+        "manifest_version": "rag-answerability-features-v1",
+        "case_count": len(entries),
+        "positive_case_count": positive_case_count,
+        "no_result_case_count": no_result_case_count,
+        "failed_case_count": failed_case_count,
+        "invalid_case_identity_count": invalid_case_identity_count,
+        "missing_vector_score_case_count": missing_vector_score_case_count,
+        "score_domain_case_coverage": domain_coverage,
+        "eligible_for_signal_design": bool(entries)
+        and positive_case_count > 0
+        and no_result_case_count > 0
+        and failed_case_count == 0
+        and invalid_case_identity_count == 0
+        and missing_vector_score_case_count == 0,
+        "cases": entries,
+    }
+    return {**payload, "checksum": _checksum(payload)}
+
+
+def answerability_feature_manifest_valid(value: dict[str, Any]) -> bool:
+    if str(value.get("manifest_version") or "") != "rag-answerability-features-v1":
+        return False
+    checksum = str(value.get("checksum") or "")
+    payload = {key: item for key, item in value.items() if key != "checksum"}
+    return len(checksum) == 64 and checksum == _checksum(payload)
 
 
 def chunker_candidates(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
@@ -640,7 +841,114 @@ def chunker_candidates(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     return deduped[:4]
 
 
-def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> dict[str, Any]:
+def execution_budget_receipt(
+    cases: list[dict[str, Any]],
+    snapshot: dict[str, Any],
+    request: dict[str, Any],
+) -> dict[str, Any]:
+    """Project the bounded query envelope that the selected request can execute."""
+
+    split = stratified_split(cases, int(request["seed"]))
+    optimization_count = len(split["optimization_case_ids"])
+    holdout_count = len(split["holdout_case_ids"])
+    chunkers = chunker_candidates(snapshot)
+    if snapshot["retrieval_only"]:
+        chunkers = chunkers[:1]
+    index_count = min(int(request["max_chunk_indexes"]), len(chunkers))
+    retrieval_profiles = retrieval_candidates(
+        snapshot["base_retrieval"],
+        degraded=bool(snapshot["embedding_degraded"]),
+        require_vector_answerability=bool(snapshot.get("threshold_tuning_available")),
+    )
+    if snapshot.get("threshold_tuning_available"):
+        retrieval_profiles = [
+            {
+                **profile,
+                "abstention_enabled": False,
+                "abstention_score_domain": "vector_score",
+                "abstention_threshold": 0.0,
+            }
+            for profile in retrieval_profiles
+        ]
+    else:
+        fixed_threshold = float(
+            (snapshot.get("base_retrieval") or {}).get("score_threshold") or 0
+        )
+        retrieval_profiles = [
+            {**profile, "score_threshold": fixed_threshold}
+            for profile in retrieval_profiles
+        ]
+    candidate_count = min(
+        int(request["max_retrieval_trials"]),
+        index_count * len(retrieval_profiles),
+    )
+    base_profile_limit = min(
+        int(request["max_retrieval_trials"]), len(retrieval_profiles)
+    )
+    baseline_reused = any(
+        retrieval_semantic_checksum(profile)
+        == retrieval_semantic_checksum(snapshot["base_retrieval"])
+        for profile in retrieval_profiles[:base_profile_limit]
+    )
+    optimization_queries = candidate_count * optimization_count + (
+        0 if baseline_reused else optimization_count
+    )
+    finalist_count = min(int(request["max_finalists"]), candidate_count)
+    reranked_finalist_count = (
+        min(2, finalist_count) if request.get("enable_rerank") else 0
+    )
+    if request["run_scope"] == "full":
+        holdout_queries = (
+            1 + finalist_count + reranked_finalist_count
+        ) * holdout_count * VALIDATION_QUERY_REPETITIONS
+        rerank_queries = (
+            reranked_finalist_count
+            * holdout_count
+            * VALIDATION_QUERY_REPETITIONS
+            + (len(cases) if reranked_finalist_count else 0)
+        )
+        formal_queries = len(cases) * 2
+    else:
+        holdout_queries = 0
+        rerank_queries = 0
+        formal_queries = 0
+    return {
+        "receipt_version": "rag-strategy-execution-budget-v1",
+        "run_scope": str(request["run_scope"]),
+        "evaluation_case_count": len(cases),
+        "optimization_case_count": optimization_count,
+        "holdout_case_count": holdout_count,
+        "candidate_profile_upper_bound": candidate_count,
+        "optimization_query_executions_upper_bound": optimization_queries,
+        "trial_index_builds_upper_bound": max(0, index_count - 1),
+        "holdout_query_executions_upper_bound": holdout_queries,
+        "rerank_query_executions_upper_bound": rerank_queries,
+        "formal_query_executions_upper_bound": formal_queries,
+        "total_retrieval_query_executions_upper_bound": (
+            optimization_queries + holdout_queries + formal_queries
+        ),
+        "provider_call_note": (
+            "Retrieval-query bounds are conservative execution counts; trial index "
+            "builds and Provider batching are recorded separately."
+        ),
+    }
+
+
+def calibrate_threshold(
+    result: dict[str, Any],
+    retrieval: dict[str, Any],
+    *,
+    min_recall_at_5: float | None = None,
+    min_no_result_accuracy: float | None = None,
+) -> dict[str, Any]:
+    """Calibrate explicit abstention without changing fused-score filtering.
+
+    The historical name is retained for response compatibility. Calibration now
+    uses the absolute vector score at the post-selection abstention stage; RRF
+    fused scores are relative ranks and are never treated as answerability.
+    """
+
+    normalized_retrieval = RetrievalConfig.from_mapping(retrieval).payload()
     cases_by_id = {str(case["case_id"]): case for case in result["cases"]}
     case_results = [
         item for item in result.get("case_results") or [] if isinstance(item, dict)
@@ -660,22 +968,40 @@ def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> di
         if not any(isinstance(item, dict) for item in case_result.get("ranking") or [])
     )
     missing_case_result_count = len(set(cases_by_id) - observed_case_ids)
-    missing_fused_scores = [
-        item for item in rankings if item.get("fused_score") is None
+    missing_answerability_scores = [
+        item for item in rankings if item.get("vector_score") is None
     ]
-    if missing_fused_scores or empty_ranking_case_count or missing_case_result_count:
-        current = round(float(retrieval.get("score_threshold") or 0), 6)
+    unavailable_domain = normalized_retrieval["mode"] == "fulltext"
+    if (
+        unavailable_domain
+        or missing_answerability_scores
+        or empty_ranking_case_count
+        or missing_case_result_count
+    ):
+        current = round(
+            float(normalized_retrieval.get("abstention_threshold") or 0), 6
+        )
+        missing_count = (
+            len(missing_answerability_scores)
+            + empty_ranking_case_count
+            + missing_case_result_count
+        )
         return {
-            "retrieval": {**_copy(retrieval), "score_threshold": current},
+            "retrieval": _copy(normalized_retrieval),
             "metrics": _copy(result.get("metrics") or {}),
             "threshold_candidates": [current],
             "threshold_front": [],
-            "threshold_selection_reason": "missing_fused_score_evidence",
+            "threshold_selection_reason": (
+                "answerability_score_unavailable"
+                if unavailable_domain
+                else "missing_answerability_score_evidence"
+            ),
             "threshold_calibration_eligible": False,
-            "threshold_score_domain": "fused_score",
-            "missing_fused_score_count": (
-                len(missing_fused_scores) + empty_ranking_case_count
-                + missing_case_result_count
+            "threshold_score_domain": "vector_score",
+            "missing_fused_score_count": missing_count,
+            "missing_answerability_score_count": missing_count,
+            "maximum_no_result_accuracy": float(
+                (result.get("metrics") or {}).get("no_result_accuracy") or 0
             ),
         }
     thresholds = _threshold_candidates(result, retrieval, cases_by_id=cases_by_id)
@@ -684,11 +1010,13 @@ def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> di
         rescored: list[dict[str, Any]] = []
         for case_result in result["case_results"]:
             case = cases_by_id[str(case_result["case_id"])]
-            ranking = [
-                item
-                for item in case_result.get("ranking") or []
-                if float(item.get("fused_score") or 0) >= threshold
+            ranking = list(case_result.get("ranking") or [])
+            answerability_scores = [
+                float(item["vector_score"])
+                for item in ranking
+                if item.get("vector_score") is not None
             ]
+            abstained = not answerability_scores or max(answerability_scores) < threshold
             sources = [
                 {
                     "chunk_id": item.get("chunk_id"),
@@ -697,9 +1025,13 @@ def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> di
                     "document_name": item.get("document_name"),
                     "source_block_id": item.get("source_block_id"),
                     "page_number": item.get("page_number"),
-                    "score": item.get("fused_score"),
+                    "score": item.get("score"),
+                    "vector_score": item.get("vector_score"),
+                    "fulltext_score": item.get("fulltext_score"),
+                    "fused_score": item.get("fused_score"),
+                    "rerank_score": item.get("rerank_score"),
                 }
-                for item in ranking
+                for item in ([] if abstained else ranking)
             ]
             rescored.append(
                 evaluate_retrieval_case(
@@ -708,12 +1040,34 @@ def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> di
                     ks=[1, 3, 5, 10],
                     latency_ms=float(case_result.get("latency_ms") or 0),
                     expected_no_result=bool(case.get("expected_no_result")),
+                    retrieval_receipt={
+                        "abstention_enabled": True,
+                        "abstention_applied": True,
+                        "abstained": abstained,
+                        "abstention_score_domain": "vector_score",
+                        "abstention_threshold": threshold,
+                        "abstention_score": (
+                            round(max(answerability_scores), 6)
+                            if answerability_scores
+                            else None
+                        ),
+                        "abstention_input_count": len(ranking),
+                        "abstention_reason": (
+                            "no_candidates"
+                            if not answerability_scores
+                            else "below_threshold"
+                            if abstained
+                            else "accepted"
+                        ),
+                    },
                 )
             )
         metrics = aggregate_target_metrics(rescored, ks=[1, 3, 5, 10])
         points.append({"threshold": threshold, "metrics": metrics})
 
-    baseline_threshold = round(float(retrieval.get("score_threshold") or 0), 6)
+    baseline_threshold = round(
+        float(normalized_retrieval.get("abstention_threshold") or 0), 6
+    )
     baseline = min(points, key=lambda item: abs(float(item["threshold"]) - baseline_threshold))
     baseline_metrics = dict(baseline["metrics"])
     pareto = _threshold_pareto_front(points)
@@ -727,9 +1081,97 @@ def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> di
         and float((item.get("metrics") or {}).get("false_positive_rate") or 0)
         <= float(baseline_metrics.get("false_positive_rate") or 0)
     ]
+    feasible = [
+        item
+        for item in pareto
+        if (
+            min_recall_at_5 is None
+            or float((item.get("metrics") or {}).get("recall_at_5") or 0)
+            >= float(min_recall_at_5)
+        )
+        and (
+            min_no_result_accuracy is None
+            or float((item.get("metrics") or {}).get("no_result_accuracy") or 0)
+            >= float(min_no_result_accuracy)
+        )
+    ]
+    maximum_no_result_accuracy = max(
+        (
+            float((item.get("metrics") or {}).get("no_result_accuracy") or 0)
+            for item in points
+        ),
+        default=0.0,
+    )
+    required_recall = float(min_recall_at_5 or 0)
+    required_no_result = float(min_no_result_accuracy or 0)
+    promotion_target_diagnostics = {
+        "required_recall_at_5": (
+            float(min_recall_at_5) if min_recall_at_5 is not None else None
+        ),
+        "required_no_result_accuracy": (
+            float(min_no_result_accuracy)
+            if min_no_result_accuracy is not None
+            else None
+        ),
+        "maximum_no_result_accuracy_at_required_recall": round(
+            max(
+                (
+                    float(
+                        (item.get("metrics") or {}).get("no_result_accuracy")
+                        or 0
+                    )
+                    for item in points
+                    if float((item.get("metrics") or {}).get("recall_at_5") or 0)
+                    >= required_recall
+                ),
+                default=0.0,
+            ),
+            6,
+        ),
+        "maximum_recall_at_required_no_result_accuracy": round(
+            max(
+                (
+                    float((item.get("metrics") or {}).get("recall_at_5") or 0)
+                    for item in points
+                    if float(
+                        (item.get("metrics") or {}).get("no_result_accuracy")
+                        or 0
+                    )
+                    >= required_no_result
+                ),
+                default=0.0,
+            ),
+            6,
+        ),
+        "joint_target_feasible": bool(feasible),
+    }
+    if (
+        (min_recall_at_5 is not None or min_no_result_accuracy is not None)
+        and not feasible
+    ):
+        return {
+            "retrieval": _copy(normalized_retrieval),
+            "metrics": baseline_metrics,
+            "threshold_candidates": thresholds,
+            "threshold_front": [
+                _threshold_front_item(item) for item in pareto
+            ],
+            "threshold_selection_reason": "promotion_targets_unachievable",
+            "threshold_calibration_eligible": False,
+            "threshold_score_domain": "vector_score",
+            "missing_fused_score_count": 0,
+            "missing_answerability_score_count": 0,
+            "maximum_no_result_accuracy": round(maximum_no_result_accuracy, 6),
+            "promotion_target_diagnostics": promotion_target_diagnostics,
+        }
+
+    targets_required = (
+        min_recall_at_5 is not None or min_no_result_accuracy is not None
+    )
+    selection_pool = feasible if targets_required else admissible
     improved = [
         item
-        for item in admissible
+        for item in selection_pool
         if float((item.get("metrics") or {}).get("false_positive_rate") or 0)
         <= float(baseline_metrics.get("false_positive_rate") or 0) - 0.01
     ]
@@ -743,34 +1185,40 @@ def calibrate_threshold(result: dict[str, Any], retrieval: dict[str, Any]) -> di
                 float(item["threshold"]),
             ),
         )
-        selection_reason = "hard_negative_false_positive_improved"
+        selection_reason = "hard_negative_abstention_improved"
     else:
         selected = baseline
         selection_reason = "baseline_preserved_no_safe_negative_improvement"
     threshold = float(selected["threshold"])
     metrics = dict(selected["metrics"])
     return {
-        "retrieval": {**_copy(retrieval), "score_threshold": threshold},
+        "retrieval": {
+            **_copy(normalized_retrieval),
+            "abstention_enabled": True,
+            "abstention_score_domain": "vector_score",
+            "abstention_threshold": threshold,
+        },
         "metrics": metrics,
         "threshold_candidates": thresholds,
-        "threshold_front": [
-            {
-                "threshold": float(item["threshold"]),
-                "recall_at_5": float((item.get("metrics") or {}).get("recall_at_5") or 0),
-                "ndcg_at_10": float((item.get("metrics") or {}).get("ndcg_at_10") or 0),
-                "no_result_accuracy": float(
-                    (item.get("metrics") or {}).get("no_result_accuracy") or 0
-                ),
-                "false_positive_rate": float(
-                    (item.get("metrics") or {}).get("false_positive_rate") or 0
-                ),
-            }
-            for item in pareto
-        ],
+        "threshold_front": [_threshold_front_item(item) for item in pareto],
         "threshold_selection_reason": selection_reason,
         "threshold_calibration_eligible": True,
-        "threshold_score_domain": "fused_score",
+        "threshold_score_domain": "vector_score",
         "missing_fused_score_count": 0,
+        "missing_answerability_score_count": 0,
+        "maximum_no_result_accuracy": round(maximum_no_result_accuracy, 6),
+        "promotion_target_diagnostics": promotion_target_diagnostics,
+    }
+
+
+def _threshold_front_item(item: dict[str, Any]) -> dict[str, float]:
+    metrics = item.get("metrics") or {}
+    return {
+        "threshold": float(item["threshold"]),
+        "recall_at_5": float(metrics.get("recall_at_5") or 0),
+        "ndcg_at_10": float(metrics.get("ndcg_at_10") or 0),
+        "no_result_accuracy": float(metrics.get("no_result_accuracy") or 0),
+        "false_positive_rate": float(metrics.get("false_positive_rate") or 0),
     }
 
 
@@ -788,9 +1236,9 @@ def _threshold_candidates(
         ranking = [
             item
             for item in case_result.get("ranking") or []
-            if item.get("fused_score") is not None
+            if item.get("vector_score") is not None
         ]
-        scores = [round(float(item.get("fused_score") or 0), 6) for item in ranking]
+        scores = [round(float(item.get("vector_score") or 0), 6) for item in ranking]
         all_scores.extend(scores)
         if case.get("expected_no_result"):
             if scores:
@@ -800,7 +1248,7 @@ def _threshold_candidates(
 
     thresholds = {
         0.0,
-        round(float(retrieval.get("score_threshold") or 0), 6),
+        round(float(retrieval.get("abstention_threshold") or 0), 6),
     }
     for values, add_epsilon in (
         (sorted(negative_top_scores), True),
@@ -812,7 +1260,7 @@ def _threshold_candidates(
         for fraction in (0.0, 0.5, 1.0):
             observed = values[min(len(values) - 1, round((len(values) - 1) * fraction))]
             thresholds.add(
-                min(1.0, max(0.0, round(observed + (0.000001 if add_epsilon else 0), 6)))
+                min(1.0, max(-1.0, round(observed + (0.000001 if add_epsilon else 0), 6)))
             )
     ordered = sorted(thresholds)
     if len(ordered) <= 8:
@@ -820,7 +1268,7 @@ def _threshold_candidates(
     selected = [ordered[0], ordered[-1]]
     for fraction in (0.2, 0.4, 0.6, 0.8):
         selected.append(ordered[round((len(ordered) - 1) * fraction)])
-    current = round(float(retrieval.get("score_threshold") or 0), 6)
+    current = round(float(retrieval.get("abstention_threshold") or 0), 6)
     selected.append(current)
     return sorted(set(selected))[:8]
 
@@ -1076,6 +1524,7 @@ class RagStrategyTuner:
             "version": TUNER_VERSION,
             "rules_version": RULES_VERSION,
             "objectives": sorted(OBJECTIVES),
+            "run_scopes": ["optimization_only", "full"],
             "limits": {
                 "max_chunk_indexes": 4,
                 "max_retrieval_trials": 24,
@@ -1193,6 +1642,14 @@ class RagStrategyTuner:
             for item in base_job.get("sources") or []
             if isinstance(item, dict)
         ]
+        # Search and baseline comparison are always provider-free. Rerank is a
+        # separately authorized finalist-only step in full runs.
+        base_retrieval = _without_rerank(base.get("retrieval_profile") or {})
+        request_contract = {
+            key: value
+            for key, value in normalized.items()
+            if key != "expected_snapshot_hash"
+        }
         snapshot = {
             "kb_id": kb_id,
             "base_version_id": base_version_id,
@@ -1207,6 +1664,8 @@ class RagStrategyTuner:
             "benchmark_role": str(readiness.get("benchmark_role") or "unclassified"),
             "tuning_readiness": readiness,
             "selection_eligible": bool(readiness.get("selection_eligible")),
+            "run_scope": normalized["run_scope"],
+            "request_contract": request_contract,
             "rules_version": RULES_VERSION,
             "router_recommendation": recommendation,
             "chunk_tuning_available": bool(
@@ -1220,6 +1679,12 @@ class RagStrategyTuner:
             ),
             "embedding_degraded": degraded_embedding,
             "rerank_available": rerank_available,
+            "rerank_requested": bool(normalized["enable_rerank"]),
+            "rerank_execution_policy": (
+                "finalists_only"
+                if normalized["enable_rerank"]
+                else "disabled_entire_run"
+            ),
             "processor_profile": _copy(base.get("processor_profile") or {}),
             "vision_profile": _copy(base.get("vision_profile") or {}),
             "embedding_profile": embedding,
@@ -1228,9 +1693,12 @@ class RagStrategyTuner:
                 .get("stages", {})
                 .get("stage_chunker", {})
             ),
-            "base_retrieval": _copy(base.get("retrieval_profile") or {}),
+            "base_retrieval": base_retrieval,
             "warnings": warnings,
         }
+        snapshot["execution_budget"] = execution_budget_receipt(
+            cases, snapshot, normalized
+        )
         snapshot["snapshot_hash"] = _checksum(
             {key: value for key, value in snapshot.items() if key != "router_recommendation"}
         )
@@ -1239,6 +1707,14 @@ class RagStrategyTuner:
     def create_run(self, request: dict[str, Any]) -> dict[str, Any]:
         normalized = self._normalize_request(request)
         snapshot = self.preflight(normalized)
+        expected_snapshot_hash = normalized.get("expected_snapshot_hash")
+        if (
+            expected_snapshot_hash
+            and expected_snapshot_hash != snapshot.get("snapshot_hash")
+        ):
+            raise RagStrategyTuningValidationError(
+                "Preflight snapshot changed; run preflight again before starting."
+            )
         if not snapshot.get("selection_eligible"):
             readiness = dict(snapshot.get("tuning_readiness") or {})
             reasons = [str(item) for item in readiness.get("blockers") or []]
@@ -1288,6 +1764,9 @@ class RagStrategyTuner:
         objective = str(request.get("objective") or "balanced")
         if objective not in OBJECTIVES:
             raise RagStrategyTuningValidationError("Unknown tuning objective.")
+        run_scope = str(request.get("run_scope") or "full")
+        if run_scope not in {"optimization_only", "full"}:
+            raise RagStrategyTuningValidationError("Unknown tuning run scope.")
         max_indexes = int(request.get("max_chunk_indexes") or 4)
         max_trials = int(request.get("max_retrieval_trials") or 24)
         max_finalists = int(request.get("max_finalists") or 3)
@@ -1304,6 +1783,7 @@ class RagStrategyTuner:
             "eval_set_version": int(request.get("eval_set_version") or 0),
             "recommendation_id": str(request.get("recommendation_id") or "") or None,
             "objective": objective,
+            "run_scope": run_scope,
             "seed": int(request.get("seed") or 42),
             "max_chunk_indexes": max_indexes,
             "max_retrieval_trials": max_trials,
@@ -1311,7 +1791,14 @@ class RagStrategyTuner:
             "enable_rerank": bool(request.get("enable_rerank", False)),
             "rerank_provider": str(request.get("rerank_provider") or "auto"),
             "rerank_model": str(request.get("rerank_model") or "")[:200],
+            "expected_snapshot_hash": (
+                str(request.get("expected_snapshot_hash") or "") or None
+            ),
         }
+        if normalized["run_scope"] == "optimization_only" and normalized["enable_rerank"]:
+            raise RagStrategyTuningValidationError(
+                "Rerank is unavailable in optimization-only runs because no finalists are evaluated."
+            )
         if not normalized["kb_id"] or not normalized["base_version_id"]:
             raise RagStrategyTuningValidationError("Knowledge base and base version are required.")
         if not normalized["eval_set_id"] or normalized["eval_set_version"] < 1:
@@ -1333,6 +1820,7 @@ class RagStrategyTuner:
                     "tuning_run_id": run_id,
                     "kb_id": str(run["kb_id"]),
                     "objective": str((run.get("request") or {}).get("objective") or "balanced"),
+                    "run_scope": str((run.get("request") or {}).get("run_scope") or "full"),
                 },
             )
             self._raise_if_cancelled(run_id)
@@ -1353,6 +1841,34 @@ class RagStrategyTuner:
                     "eligible_count": len(search.get("eligible") or []),
                 },
             )
+            if search.get("scope_completed") == "optimization_only":
+                self.store.update(
+                    run_id,
+                    status="completed",
+                    stage="optimization_completed",
+                    progress=100,
+                    completed_at=time.time(),
+                    winner=None,
+                )
+                await self._checkpoint(
+                    registry_id,
+                    "rag_strategy_tuning.optimization_completed",
+                    "RAG strategy optimization evidence completed",
+                    {
+                        "tuning_run_id": run_id,
+                        "run_scope": "optimization_only",
+                        "eligible_count": len(search.get("eligible") or []),
+                    },
+                )
+                await self._finish_registry(
+                    registry_id,
+                    "completed",
+                    metadata={
+                        "tuning_run_id": run_id,
+                        "outcome": "optimization_only",
+                    },
+                )
+                return
             if not search["eligible"]:
                 self.store.update(
                     run_id,
@@ -1493,12 +2009,51 @@ class RagStrategyTuner:
         holdout_ids = set(split["holdout_case_ids"])
         optimization_cases = [case for case in cases if case["case_id"] in optimization_ids]
         holdout_cases = [case for case in cases if case["case_id"] in holdout_ids]
-        retrieval_profiles = retrieval_candidates(
-            snapshot["base_retrieval"], degraded=bool(snapshot["embedding_degraded"])
+        unfiltered_retrieval_profiles = retrieval_candidates(
+            snapshot["base_retrieval"],
+            degraded=bool(snapshot["embedding_degraded"]),
         )
+        retrieval_profiles = retrieval_candidates(
+            snapshot["base_retrieval"],
+            degraded=bool(snapshot["embedding_degraded"]),
+            require_vector_answerability=bool(
+                snapshot.get("threshold_tuning_available")
+            ),
+        )
+        eligible_checksums = {
+            retrieval_semantic_checksum(item) for item in retrieval_profiles
+        }
+        excluded_fulltext_profile_count = sum(
+            1
+            for item in unfiltered_retrieval_profiles
+            if retrieval_semantic_checksum(item) not in eligible_checksums
+            and str(item.get("mode") or "") == "fulltext"
+        )
+        self.store.update(
+            run_id,
+            retrieval_search_space={
+                "receipt_version": "rag-strategy-search-space-v1",
+                "answerability_score_required": bool(
+                    snapshot.get("threshold_tuning_available")
+                ),
+                "base_profile_retained": True,
+                "unfiltered_profile_count": len(unfiltered_retrieval_profiles),
+                "eligible_profile_count": len(retrieval_profiles),
+                "excluded_fulltext_profile_count": excluded_fulltext_profile_count,
+                "eligible_profile_modes": [
+                    str(item.get("mode") or "") for item in retrieval_profiles
+                ],
+            },
+        )
+        gate_policy = self.evaluation_store.get_gate_policy(snapshot["kb_id"])
         if snapshot.get("threshold_tuning_available"):
             retrieval_profiles = [
-                {**profile, "score_threshold": 0.0}
+                {
+                    **profile,
+                    "abstention_enabled": False,
+                    "abstention_score_domain": "vector_score",
+                    "abstention_threshold": 0.0,
+                }
                 for profile in retrieval_profiles
             ]
         else:
@@ -1521,6 +2076,7 @@ class RagStrategyTuner:
             for item in candidates
             if item.get("search_profile_checksum")
         }
+        evaluated_profiles: dict[str, dict[str, Any]] = {}
         trial_cache = {
             str(item.get("chunker_checksum") or ""): item
             for item in current_run.get("trial_indexes") or []
@@ -1616,9 +2172,19 @@ class RagStrategyTuner:
                 result = await self._evaluate_profile(
                     version_id, retrieval, optimization_cases
                 )
+                evaluated_profiles[search_profile_checksum] = result
                 retrieval_input_checksum = retrieval_semantic_checksum(retrieval)
                 calibrated = (
-                    calibrate_threshold(result, retrieval)
+                    calibrate_threshold(
+                        result,
+                        retrieval,
+                        min_recall_at_5=float(
+                            gate_policy.get("min_recall_at_5") or 0
+                        ),
+                        min_no_result_accuracy=float(
+                            gate_policy.get("min_no_result_accuracy") or 0
+                        ),
+                    )
                     if snapshot.get("threshold_tuning_available")
                     else {
                         "retrieval": _copy(retrieval),
@@ -1628,6 +2194,7 @@ class RagStrategyTuner:
                         "metrics": _copy(result["metrics"]),
                     }
                 )
+                answerability_features = build_answerability_feature_manifest(result)
                 candidate = {
                     "candidate_id": f"ragtc_{uuid.uuid4().hex}",
                     "chunker": _copy(chunker),
@@ -1637,9 +2204,23 @@ class RagStrategyTuner:
                     "threshold_selection_reason": calibrated.get(
                         "threshold_selection_reason"
                     ),
+                    "threshold_calibration_eligible": bool(
+                        calibrated.get("threshold_calibration_eligible", True)
+                    ),
+                    "threshold_score_domain": str(
+                        calibrated.get("threshold_score_domain") or "vector_score"
+                    ),
+                    "maximum_no_result_accuracy": float(
+                        calibrated.get("maximum_no_result_accuracy") or 0
+                    ),
+                    "promotion_target_diagnostics": _copy(
+                        calibrated.get("promotion_target_diagnostics") or {}
+                    ),
                     "version_id": version_id,
                     "trial_version": chunk_index > 0,
                     "optimization_metrics": calibrated["metrics"],
+                    "search_metrics": _copy(result["metrics"]),
+                    "answerability_feature_manifest": answerability_features,
                     "cost": {**cost, "checksum": _checksum(cost)},
                     "checksum": _checksum(
                         {"chunker": chunker, "retrieval": calibrated["retrieval"]}
@@ -1651,14 +2232,41 @@ class RagStrategyTuner:
                     "ranking_fingerprint": ranking_fingerprint(
                         list(result.get("case_results") or [])
                     ),
+                    "optimization_execution_receipt": {
+                        "receipt_version": "rag-strategy-candidate-execution-v1",
+                        "search_profile_checksum": search_profile_checksum,
+                        "answerability_feature_manifest_checksum": str(
+                            answerability_features["checksum"]
+                        ),
+                        "query_executions": int(
+                            (result.get("metrics") or {}).get("execution_count") or 0
+                        ),
+                        "offline_threshold_replays": (
+                            len(calibrated.get("threshold_candidates") or [])
+                            if snapshot.get("threshold_tuning_available")
+                            and calibrated.get("threshold_selection_reason")
+                            not in {
+                                "answerability_score_unavailable",
+                                "missing_answerability_score_evidence",
+                            }
+                            else 0
+                        ),
+                    },
                     "rerank_call_count": 0,
-                    "automatic_winner_eligible": not (
+                    "automatic_winner_eligible": bool(
+                        calibrated.get("threshold_calibration_eligible", True)
+                    )
+                    and not (
                         snapshot["embedding_degraded"]
                         and calibrated["retrieval"]["mode"] in {"vector", "hybrid"}
                     ),
                 }
                 if not candidate["automatic_winner_eligible"]:
-                    candidate["ineligible_reason"] = "hash_embedding"
+                    candidate["ineligible_reason"] = (
+                        "threshold_calibration_ineligible"
+                        if not calibrated.get("threshold_calibration_eligible", True)
+                        else "hash_embedding"
+                    )
                 elif candidate["checksum"] == baseline_candidate_checksum:
                     candidate["automatic_winner_eligible"] = False
                     candidate["ineligible_reason"] = "baseline_equivalent"
@@ -1685,12 +2293,83 @@ class RagStrategyTuner:
             chunk_sensitivity=chunk_sensitivity,
             retrieval_deduplication=retrieval_deduplication,
         )
-        gate_policy = self.evaluation_store.get_gate_policy(snapshot["kb_id"])
-        optimization_baseline = await self._evaluate_profile(
-            snapshot["base_version_id"],
-            snapshot["base_retrieval"],
-            optimization_cases,
+        baseline_profile_checksum = _checksum(
+            {
+                "version_id": snapshot["base_version_id"],
+                "retrieval": retrieval_semantic_payload(
+                    snapshot["base_retrieval"]
+                ),
+            }
         )
+        reused_candidate = next(
+            (
+                item
+                for item in candidates
+                if item.get("search_profile_checksum") == baseline_profile_checksum
+                and isinstance(item.get("search_metrics"), dict)
+                and item.get("search_metrics")
+            ),
+            None,
+        )
+        if baseline_profile_checksum in evaluated_profiles:
+            optimization_baseline = evaluated_profiles[baseline_profile_checksum]
+            baseline_source = "reused_exact_candidate_profile"
+        elif reused_candidate is not None:
+            optimization_baseline = {
+                "metrics": _copy(reused_candidate["search_metrics"])
+            }
+            baseline_source = "reused_exact_candidate_profile"
+        else:
+            optimization_baseline = await self._evaluate_profile(
+                snapshot["base_version_id"],
+                snapshot["base_retrieval"],
+                optimization_cases,
+            )
+            baseline_source = "dedicated_query"
+        candidate_receipts = [
+            item.get("optimization_execution_receipt")
+            for item in candidates
+            if isinstance(item.get("optimization_execution_receipt"), dict)
+        ]
+        candidate_query_executions = sum(
+            int(item.get("query_executions") or 0)
+            for item in candidate_receipts
+        )
+        baseline_query_executions = (
+            0
+            if baseline_source == "reused_exact_candidate_profile"
+            else int(
+                (optimization_baseline.get("metrics") or {}).get("execution_count")
+                or 0
+            )
+        )
+        optimization_execution_receipt = {
+            "receipt_version": "rag-strategy-optimization-execution-v1",
+            "complete": len(candidate_receipts) == len(candidates),
+            "candidate_profile_count": len(candidates),
+            "candidate_query_executions": candidate_query_executions,
+            "baseline_query_executions": baseline_query_executions,
+            "retrieval_query_executions": (
+                candidate_query_executions + baseline_query_executions
+            ),
+            "offline_threshold_replays": sum(
+                int(item.get("offline_threshold_replays") or 0)
+                for item in candidate_receipts
+            ),
+            "baseline_source": baseline_source,
+            "baseline_profile_checksum": baseline_profile_checksum,
+            "reused_candidate_id": (
+                str(reused_candidate.get("candidate_id") or "")
+                if baseline_source == "reused_exact_candidate_profile"
+                and reused_candidate is not None
+                else None
+            ),
+            "query_executions_avoided": (
+                len(optimization_cases)
+                if baseline_source == "reused_exact_candidate_profile"
+                else 0
+            ),
+        }
         candidates, ranked_training, optimization_gate_summary = apply_optimization_gate(
             candidates,
             baseline_metrics=optimization_baseline["metrics"],
@@ -1702,9 +2381,28 @@ class RagStrategyTuner:
             run_id,
             candidates=candidates,
             optimization_baseline_metrics=optimization_baseline["metrics"],
+            optimization_execution_receipt=optimization_execution_receipt,
             optimization_gate_summary=optimization_gate_summary,
             no_improvement_reason=None if ranked_training else "optimization_gate",
         )
+        if request["run_scope"] == "optimization_only":
+            scope_receipt = {
+                "receipt_version": "rag-strategy-run-scope-v1",
+                "requested_scope": "optimization_only",
+                "effective_stop": "after_optimization_gate",
+                "optimization_candidate_count": len(candidates),
+                "optimization_eligible_count": len(ranked_training),
+                "holdout_query_executions": 0,
+                "finalist_count": 0,
+                "materialization_attempted": False,
+                "evaluation_run_created": False,
+            }
+            self.store.update(run_id, scope_receipt=scope_receipt)
+            return {
+                "eligible": ranked_training,
+                "baseline_metrics": optimization_baseline["metrics"],
+                "scope_completed": "optimization_only",
+            }
         if not ranked_training:
             return {
                 "eligible": [],
@@ -1954,6 +2652,11 @@ class RagStrategyTuner:
                     retrieval_profile=winner["retrieval"],
                     tuning_run_id=run_id,
                     trial=False,
+                    development_evidence=build_development_evidence_manifest(
+                        self.evaluation_store.get_set_version(
+                            snapshot["eval_set_id"], snapshot["eval_set_version"]
+                        )
+                    ),
                 )
                 self._append_run_value(
                     run_id, "pipeline_job_ids", str(materialization_job["job_id"])
@@ -2093,6 +2796,7 @@ class RagStrategyTuner:
                         latency_ms=(time.perf_counter() - started) * 1000,
                         warnings=list(response.get("warnings") or []),
                         expected_no_result=bool(case.get("expected_no_result")),
+                        retrieval_receipt=dict(response.get("retrieval") or {}),
                     )
                 except Exception as exc:
                     result = {

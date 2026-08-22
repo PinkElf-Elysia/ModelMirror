@@ -27,10 +27,13 @@ FORMAL_GOLD_POSITIVE_COUNT = 30
 FORMAL_GOLD_NEGATIVE_COUNT = 12
 FORMAL_GOLD_MIN_EVIDENCE = 18
 FORMAL_GOLD_MAX_DOCUMENT_CASES = 12
+GOLD_V2_EVIDENCE_POLICY = "content-source-block-v1"
 
 
 class KnowledgeBenchmarkGenerationService:
     """Build targeted retrieval cases from one immutable knowledge version."""
+
+    evidence_policy_version = GOLD_V2_EVIDENCE_POLICY
 
     def __init__(self, *, rag_service: Any, evaluation_store: Any) -> None:
         self.rag_service = rag_service
@@ -114,6 +117,9 @@ class KnowledgeBenchmarkGenerationService:
                 ),
             )
             for chunk in ordered:
+                chunk_type = str(chunk.chunk_type or "").strip().casefold()
+                if chunk_type == "heading":
+                    continue
                 source_block_id = str(chunk.source_block_id or "")
                 text = str(chunk.text or "").strip()
                 if not source_block_id or len(text) < 24:
@@ -132,7 +138,7 @@ class KnowledgeBenchmarkGenerationService:
                         "document_name": str(chunk.document_name or document.get("filename") or "")[:240],
                         "chunk_id": str(chunk.chunk_id),
                         "source_block_id": source_block_id,
-                        "chunk_type": str(chunk.chunk_type or "standard")[:80],
+                        "chunk_type": chunk_type or "standard",
                         "page_number": chunk.page_number,
                         "heading_path": [str(item)[:160] for item in chunk.heading_path[:12]],
                         "visual_kind": str(chunk.visual_kind or "")[:80] or None,

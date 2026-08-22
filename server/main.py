@@ -22475,6 +22475,7 @@ async def shutdown_mcp_sessions() -> None:
     await workflow_trigger_coordinator.stop()
     await mcp_hub_review_service.close()
     await mcp_hub_service.close()
+    await get_rag_service().aclose()
     await mcp_catalog_service.clear_sessions()
     await toolset_service.close()
     await mcp_manager.stop_ttl_cleanup()

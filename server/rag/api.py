@@ -41,13 +41,16 @@ from .pipeline_executor import KnowledgePipelineExecutor
 from .source_metadata import MAX_HEADING_PATH_LEVELS, normalize_heading_path
 from .processor_generator import ProcessorGenerationError
 from .evaluation import (
+    ABSTENTION_CONTRACT_VERSION,
     EvaluationPromotionError,
     EvaluationRevisionError,
     EvaluationRunNotFoundError,
     EvaluationSetNotFoundError,
     EvaluationStateError,
     KnowledgeEvaluationStore,
+    assess_formal_evidence_independence,
     build_paired_execution_schedule,
+    gold_v2_leakage_receipt,
     gold_v2_review_admission_blockers,
     qualify_promotion_evidence,
 )
@@ -249,6 +252,10 @@ class RetrievalOptionsPayload(BaseModel):
     rerank_provider: str | None = None
     rerank_model: str | None = None
     rerank_top_n: int | None = None
+    abstention_enabled: bool | None = None
+    abstention_score_domain: str | None = None
+    abstention_threshold: float | None = None
+    evidence_verification_enabled: bool | None = None
 
 
 class RagQueryRequest(BaseModel):
@@ -353,6 +360,10 @@ class PipelineDraftUpdateRequest(BaseModel):
     retrieval_profile: RetrievalOptionsPayload | None = None
 
 
+class PipelineRetrievalVariantRequest(BaseModel):
+    retrieval_profile: RetrievalOptionsPayload
+
+
 class RagStrategyRequirementsPayload(BaseModel):
     exact_terms: bool = False
     semantic_rewrite: bool = False
@@ -383,6 +394,7 @@ class RagStrategyTuningRequest(BaseModel):
     eval_set_version: int = Field(ge=1)
     recommendation_id: str | None = Field(default=None, max_length=200)
     objective: Literal["balanced", "quality", "low_latency"] = "balanced"
+    run_scope: Literal["optimization_only", "full"] = "full"
     seed: int = Field(default=42, ge=0, le=2_147_483_647)
     max_chunk_indexes: int = Field(default=4, ge=1, le=4)
     max_retrieval_trials: int = Field(default=24, ge=1, le=24)
@@ -390,6 +402,9 @@ class RagStrategyTuningRequest(BaseModel):
     enable_rerank: bool = False
     rerank_provider: Literal["auto", "api", "llm"] = "auto"
     rerank_model: str = Field(default="", max_length=200)
+    expected_snapshot_hash: str | None = Field(
+        default=None, min_length=64, max_length=64
+    )
 
 
 class PipelineGraphNodePayload(BaseModel):
@@ -633,6 +648,11 @@ class PipelineVersionPayload(BaseModel):
     vision_processed_page_count: int = 0
     vision_failed_page_count: int = 0
     vision_block_count: int = 0
+    promotion_required: bool = False
+    promotion_source_run_id: str | None = None
+    base_version_id: str | None = None
+    index_reused: bool = False
+    index_owner_version_id: str | None = None
 
 
 class PipelineVersionListResponse(BaseModel):
@@ -645,6 +665,10 @@ class PipelineVersionQueryRequest(BaseModel):
     question: str = Field(min_length=1, max_length=20_000)
     top_k: int | None = Field(default=None, ge=1, le=50)
     retrieval: RetrievalOptionsPayload | None = None
+    generate_answer: bool = True
+    probe_mode: Literal[
+        "standard", "bounded_evidence", "full_chain_diagnostic"
+    ] = "standard"
 
 
 class PipelineVersionQueryResponse(BaseModel):
@@ -654,6 +678,7 @@ class PipelineVersionQueryResponse(BaseModel):
     sources: list[RagSourcePayload]
     warnings: list[str] = Field(default_factory=list)
     retrieval: dict[str, Any] = Field(default_factory=dict)
+    probe: dict[str, Any] = Field(default_factory=dict)
 
 
 class CitationAnchorPayload(_HeadingPathPayload):
@@ -720,7 +745,13 @@ class EvaluationSetCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     description: str = Field(default="", max_length=1000)
     benchmark_role: Literal[
-        "unclassified", "regression_guard", "strategy_tuning", "promotion_evidence"
+        "unclassified",
+        "regression_guard",
+        "strategy_tuning",
+        "promotion_evidence",
+        "calibration",
+        "regression",
+        "promotion_sealed",
     ] = "unclassified"
 
 
@@ -730,7 +761,13 @@ class EvaluationSetUpdateRequest(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     status: str | None = None
     benchmark_role: Literal[
-        "unclassified", "regression_guard", "strategy_tuning", "promotion_evidence"
+        "unclassified",
+        "regression_guard",
+        "strategy_tuning",
+        "promotion_evidence",
+        "calibration",
+        "regression",
+        "promotion_sealed",
     ] | None = None
 
 
@@ -738,6 +775,11 @@ class EvaluationSetPublishRequest(BaseModel):
     expected_revision: int = Field(ge=1)
     release_notes: str = Field(default="", max_length=1000)
     acknowledge_calibration_warnings: bool = False
+
+
+class EvaluationCalibrationForkRequest(BaseModel):
+    target_pipeline_version_id: str = Field(min_length=1, max_length=200)
+    name: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class EvaluationCasesRequest(BaseModel):
@@ -1140,7 +1182,11 @@ async def delete_knowledge_base(kb_id: str) -> dict[str, bool]:
 
 
 @router.post("/knowledge_bases/{kb_id}/documents", response_model=DocumentPayload)
-async def upload_document(kb_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
+async def upload_document(
+    kb_id: str,
+    file: UploadFile = File(...),
+    pipeline_only: bool = False,
+) -> dict[str, Any]:
     filename = file.filename or "document.txt"
     content = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(content) > MAX_UPLOAD_BYTES:
@@ -1154,6 +1200,7 @@ async def upload_document(kb_id: str, file: UploadFile = File(...)) -> dict[str,
             filename,
             content,
             declared_media_type=declared_type or None,
+            pipeline_only=pipeline_only,
         )
     except KnowledgeBaseDeletionError as exc:
         raise HTTPException(
@@ -1893,6 +1940,43 @@ async def get_evaluation_set_version(eval_set_id: str, version: int) -> dict[str
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.post(
+    "/evaluation-sets/{eval_set_id}/versions/{version}/fork-calibration"
+)
+async def fork_evaluation_calibration_set(
+    eval_set_id: str,
+    version: int,
+    payload: EvaluationCalibrationForkRequest,
+) -> dict[str, Any]:
+    try:
+        source = get_evaluation_store().get_set_version(eval_set_id, version)
+        target = get_rag_service().get_pipeline_version(
+            payload.target_pipeline_version_id
+        )
+        if str(target.get("kb_id") or "") != str(source.get("kb_id") or ""):
+            raise ValueError(
+                "Calibration target must belong to the source knowledge base."
+            )
+        if str(target.get("status") or "") not in {"ready", "active"}:
+            raise ValueError(
+                "Calibration target must be a ready or active pipeline version."
+            )
+        target_corpus_snapshot = get_rag_service().pipeline_corpus_snapshot(
+            payload.target_pipeline_version_id
+        )
+        return get_evaluation_store().fork_calibration_set(
+            eval_set_id,
+            source_version=version,
+            target_pipeline_version_id=payload.target_pipeline_version_id,
+            target_corpus_snapshot=target_corpus_snapshot,
+            name=payload.name,
+        )
+    except (EvaluationSetNotFoundError, PipelineVersionNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (EvaluationStateError, PipelineJobStateError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/evaluation-sets/{eval_set_id}/cases")
 async def add_evaluation_case(
     eval_set_id: str,
@@ -1919,15 +2003,60 @@ async def update_evaluation_case(
     payload: EvaluationCaseUpdateRequest,
 ) -> dict[str, Any]:
     try:
+        values = payload.case.model_dump()
+        evaluation_set = get_evaluation_store().get_set(eval_set_id)
+        provenance = dict(evaluation_set.get("provenance") or {})
+        current_case = next(
+            (
+                item
+                for item in evaluation_set.get("cases", [])
+                if str(item.get("case_id") or "") == case_id
+            ),
+            None,
+        )
+        if not isinstance(current_case, dict):
+            raise EvaluationSetNotFoundError("Knowledge evaluation case not found.")
+        if (
+            str(provenance.get("benchmark_contract_version") or "") == "rag-gold-v2"
+            and not bool(values.get("expected_no_result"))
+        ):
+            version_id = str(provenance.get("pipeline_version_id") or "")
+            if not version_id:
+                raise ValueError("Generated evaluation set has no fixed knowledge version.")
+            evidence_texts: list[str] = []
+            for reference in values.get("expected_refs") or []:
+                chunk = get_rag_service().get_knowledge_chunk(
+                    str(evaluation_set["kb_id"]),
+                    str(reference.get("chunk_id") or ""),
+                    version_id=version_id,
+                )
+                if str(chunk.get("document_id") or "") != str(
+                    reference.get("document_id") or ""
+                ) or str(chunk.get("source_block_id") or "") != str(
+                    reference.get("source_block_id") or ""
+                ):
+                    raise ValueError(
+                        "Fixed Gold evidence no longer matches the target version."
+                    )
+                evidence_texts.append(str(chunk.get("text") or ""))
+            targeting = dict(current_case.get("targeting") or {})
+            targeting["leakage"] = gold_v2_leakage_receipt(
+                str(values.get("query") or ""),
+                evidence_texts,
+                query_type=str(targeting.get("query_type") or ""),
+            )
+            values["targeting"] = targeting
         return get_evaluation_store().update_case(
             eval_set_id,
             case_id,
             expected_revision=payload.expected_revision,
-            values=payload.case.model_dump(),
+            values=values,
         )
     except EvaluationSetNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except EvaluationRevisionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (DocumentNotFoundError, PipelineVersionNotFoundError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -2035,11 +2164,20 @@ async def get_evaluation_case_evidence(
                     "Generated hard negative has no fixed corpus-near review context."
                 )
         for reference in references:
-            chunk = get_rag_service().get_knowledge_chunk(
-                str(evaluation_set["kb_id"]),
-                str(reference.get("chunk_id") or ""),
-                version_id=version_id,
-            )
+            service = get_rag_service()
+            if expected_no_result:
+                chunk = service.get_knowledge_source_block(
+                    str(evaluation_set["kb_id"]),
+                    str(reference.get("document_id") or ""),
+                    str(reference.get("source_block_id") or ""),
+                    version_id=version_id,
+                )
+            else:
+                chunk = service.get_knowledge_chunk(
+                    str(evaluation_set["kb_id"]),
+                    str(reference.get("chunk_id") or ""),
+                    version_id=version_id,
+                )
             if str(chunk.get("document_id") or "") != str(
                 reference.get("document_id") or ""
             ) or str(chunk.get("source_block_id") or "") != str(
@@ -2216,6 +2354,29 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
             version_evidence = get_rag_service().pipeline_version_evidence(
                 target.version_id
             )
+            requested_retrieval = (
+                target.retrieval.model_dump(exclude_none=True)
+                if target.retrieval
+                else {}
+            )
+            version_retrieval = dict(version_evidence.get("retrieval") or {})
+            if payload.run_mode == "formal":
+                get_rag_service().validate_evidence_verifier_identity(
+                    version_retrieval
+                )
+                mismatched_overrides = [
+                    key
+                    for key, value in requested_retrieval.items()
+                    if version_retrieval.get(key) != value
+                ]
+                if mismatched_overrides:
+                    raise ValueError(
+                        "Formal evaluation retrieval overrides must match the immutable "
+                        f"target profile: {', '.join(sorted(mismatched_overrides))}."
+                    )
+                effective_retrieval = version_retrieval
+            else:
+                effective_retrieval = requested_retrieval
             corpus_identity = get_rag_service().pipeline_corpus_snapshot(
                 target.version_id,
                 document_ids=gold_document_ids or None,
@@ -2226,7 +2387,7 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
                     "version_id": target.version_id,
                     "version": int(version["version"]),
                     "label": target.label or f"v{version['version']}",
-                    "retrieval": target.retrieval.model_dump(exclude_none=True) if target.retrieval else {},
+                    "retrieval": effective_retrieval,
                     "version_evidence": version_evidence,
                     "corpus_snapshot_hash": corpus_identity[
                         "corpus_snapshot_hash"
@@ -2255,6 +2416,46 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
             raise ValueError(
                 "Formal evaluation requires baseline, candidate, and Gold to use the same corpus snapshot."
             )
+        formal_candidate_version_id: str | None = None
+        evidence_independence = assess_formal_evidence_independence(
+            None, evaluation_snapshot
+        )
+        if payload.run_mode == "formal":
+            formal_candidate_version_id = next(
+                version_id
+                for version_id in version_ids
+                if version_id != payload.baseline_version_id
+            )
+            candidate_version = get_rag_service().get_pipeline_version(
+                formal_candidate_version_id
+            )
+            candidate_status = str(candidate_version.get("status") or "")
+            if candidate_status != "ready":
+                raise ValueError(
+                    "Formal evaluation candidate must be ready and inactive."
+                )
+            candidate_origin = dict(candidate_version.get("origin") or {})
+            development_evidence = candidate_origin.get("development_evidence")
+            evidence_independence = assess_formal_evidence_independence(
+                development_evidence
+                if isinstance(development_evidence, dict)
+                else None,
+                evaluation_snapshot,
+            )
+            if (
+                str(candidate_origin.get("kind") or "") == "rag_strategy_tuner"
+                and not isinstance(development_evidence, dict)
+            ):
+                evidence_independence = {
+                    **evidence_independence,
+                    "status": "missing_tuner_development_evidence",
+                    "independent": False,
+                }
+            if not evidence_independence.get("independent"):
+                raise ValueError(
+                    "Formal evaluation requires evidence independent from candidate "
+                    "development; the selected Gold overlaps tuning evidence."
+                )
         schedule = build_paired_execution_schedule(
             list(evaluation_snapshot.get("cases") or []),
             targets,
@@ -2268,6 +2469,17 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
                 separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()
+        runtime_identities = [
+            dict(item["version_evidence"].get("runtime") or {})
+            for item in targets
+        ]
+        runtime_identity = runtime_identities[0] if runtime_identities else {}
+        if payload.run_mode == "formal" and any(
+            identity != runtime_identity for identity in runtime_identities[1:]
+        ):
+            raise ValueError(
+                "Formal evaluation targets must use the same RAG runtime identity."
+            )
         execution_manifest = {
             "version": "rag-eval-v2",
             "evaluation_set_version_id": evaluation_snapshot.get("version_id"),
@@ -2285,16 +2497,21 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
                     "processor": item["version_evidence"].get("processor") or {},
                     "retrieval": item["version_evidence"].get("retrieval") or {},
                     "embedding": item["version_evidence"].get("embedding") or {},
+                    "runtime": item["version_evidence"].get("runtime") or {},
                     "corpus_snapshot_hash": item["corpus_snapshot_hash"],
                 }
                 for item in targets
             ],
             "execution_seed": payload.execution_seed,
+            "observation_depth": max(evaluation_ks),
             "order_algorithm": "sha256-paired-interleave-v1",
             "schedule_checksum": schedule_checksum,
             "threshold_score_domain": "fused_score",
+            "abstention_contract_version": ABSTENTION_CONTRACT_VERSION,
+            "runtime": runtime_identity,
             "retry_policy": "none",
             "warmup_policy": "none",
+            "development_evidence_independence": evidence_independence,
         }
         run = get_evaluation_store().create_run(
             evaluation_set=evaluation_set,
@@ -2312,13 +2529,18 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
             execution_manifest=execution_manifest,
             comparability=comparability,
         )
+        if formal_candidate_version_id:
+            get_rag_service().mark_pipeline_version_promotion_required(
+                formal_candidate_version_id,
+                source_run_id=str(run["run_id"]),
+            )
         get_evaluation_executor().notify()
         return run
     except EvaluationSetNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PipelineVersionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except (EvaluationStateError, ValueError) as exc:
+    except (EvaluationStateError, PipelineDraftValidationError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -2391,17 +2613,158 @@ async def query_pipeline_version(
     payload: PipelineVersionQueryRequest,
 ) -> PipelineVersionQueryResponse:
     try:
-        result = await get_rag_service().query_pipeline_version(
+        service = get_rag_service()
+        retrieval = (
+            payload.retrieval.model_dump(exclude_none=True)
+            if payload.retrieval
+            else {}
+        )
+        bounded_probe = payload.probe_mode == "bounded_evidence"
+        full_chain_probe = payload.probe_mode == "full_chain_diagnostic"
+        evidence_verifier_model = ""
+        version: dict[str, Any] | None = None
+        if bounded_probe:
+            if payload.generate_answer:
+                raise ValueError("Bounded evidence probe must disable answer generation.")
+            if (
+                retrieval.get("mode") != "fulltext"
+                or retrieval.get("rerank_enabled") is not True
+                or retrieval.get("rerank_provider") != "llm"
+                or retrieval.get("evidence_verification_enabled") is not True
+                or int(retrieval.get("top_k") or 0) not in range(1, 6)
+            ):
+                raise ValueError(
+                    "Bounded evidence probe requires fulltext Top-1..5, LLM rerank, "
+                    "and evidence verification."
+                )
+            rerank_capabilities = dict(
+                service.retrieval_capabilities().get("rerank") or {}
+            )
+            evidence_verifier_model = str(
+                rerank_capabilities.get("evidence_verifier_model") or ""
+            ).strip()
+            if not (
+                rerank_capabilities.get("evidence_verifier_configured")
+                and evidence_verifier_model
+            ):
+                raise ValueError(
+                    "Bounded evidence probe requires a dedicated evidence verifier model."
+                )
+            retrieval["rerank_model"] = evidence_verifier_model
+        elif full_chain_probe:
+            if payload.generate_answer:
+                raise ValueError(
+                    "Full-chain diagnostic must disable answer generation."
+                )
+            if payload.retrieval is not None or payload.top_k is not None:
+                raise ValueError(
+                    "Full-chain diagnostic must use the immutable candidate retrieval profile."
+                )
+            version = service.get_pipeline_version(version_id)
+            kb_id = str(version.get("kb_id") or "")
+            active_version = (
+                service.get_active_pipeline_version(kb_id) if kb_id else None
+            )
+            if (
+                str(version.get("status") or "") != "ready"
+                or not kb_id
+                or str((active_version or {}).get("version_id") or "")
+                == version_id
+            ):
+                raise ValueError(
+                    "Full-chain diagnostic requires a ready, inactive candidate."
+                )
+            evidence = service.pipeline_version_evidence(version_id)
+            effective_embedding = dict(
+                (evidence.get("embedding") or {}).get("effective") or {}
+            )
+            if (
+                str(effective_embedding.get("provider") or "")
+                != "openai_compatible"
+                or not bool(effective_embedding.get("ready"))
+            ):
+                raise ValueError(
+                    "Full-chain diagnostic requires a ready external embedding profile."
+                )
+            immutable_retrieval = dict(evidence.get("retrieval") or {})
+            if (
+                immutable_retrieval.get("mode") not in {"vector", "hybrid"}
+                or immutable_retrieval.get("rerank_enabled") is not True
+                or immutable_retrieval.get("rerank_provider") != "llm"
+                or immutable_retrieval.get("evidence_verification_enabled") is not True
+                or int(immutable_retrieval.get("top_k") or 0) not in range(1, 6)
+            ):
+                raise ValueError(
+                    "Full-chain diagnostic requires an immutable Vector/Hybrid Top-1..5 "
+                    "profile with LLM evidence verification."
+                )
+            retrieval = service.validate_evidence_verifier_identity(
+                immutable_retrieval
+            )
+            evidence_verifier_model = str(
+                retrieval.get("rerank_model") or ""
+            ).strip()
+        result = await service.query_pipeline_version(
             version_id,
             payload.question,
             top_k=payload.top_k,
-            retrieval=(
-                payload.retrieval.model_dump(exclude_none=True)
-                if payload.retrieval
-                else None
+            retrieval=retrieval or None,
+            generate_answer=(
+                False
+                if bounded_probe or full_chain_probe
+                else payload.generate_answer
             ),
+            external_call_limit=(
+                2 if full_chain_probe else 1 if bounded_probe else None
+            ),
+            allow_vector_fallback=not (bounded_probe or full_chain_probe),
         )
-        version = get_rag_service().get_pipeline_version(version_id)
+        if bounded_probe or full_chain_probe:
+            receipt = dict(result.get("retrieval") or {})
+            external_call_count = int(receipt.get("external_call_count") or 0)
+            external_call_limit = 2 if full_chain_probe else 1
+            if external_call_count > external_call_limit:
+                raise ValueError("Diagnostic probe exceeded its external call budget.")
+            if full_chain_probe and (
+                external_call_count != 2
+                or int(receipt.get("embedding_external_call_count") or 0) != 1
+                or int(receipt.get("rerank_external_call_count") or 0) != 1
+                or int(receipt.get("answer_external_call_count") or 0) != 0
+            ):
+                raise ValueError(
+                    "Full-chain diagnostic did not complete exactly one embedding and one verifier call."
+                )
+            result["probe"] = {
+                "version": (
+                    "rag-full-chain-diagnostic-v1"
+                    if full_chain_probe
+                    else "rag-bounded-evidence-probe-v1"
+                ),
+                "diagnostic_only": True,
+                **(
+                    {"immutable_retrieval_profile": True}
+                    if full_chain_probe
+                    else {}
+                ),
+                "answer_generation_enabled": False,
+                "vector_fallback_enabled": False,
+                "external_call_limit": external_call_limit,
+                "external_call_count": external_call_count,
+                "embedding_external_call_count": int(
+                    receipt.get("embedding_external_call_count") or 0
+                ),
+                "rerank_external_call_count": int(
+                    receipt.get("rerank_external_call_count") or 0
+                ),
+                "answer_external_call_count": int(
+                    receipt.get("answer_external_call_count") or 0
+                ),
+                "evidence_verifier_model": evidence_verifier_model,
+                "evidence_verifier_model_source": (
+                    "candidate_profile" if full_chain_probe else "server_config"
+                ),
+            }
+        version = version or service.get_pipeline_version(version_id)
         await get_pipeline_executor().record_job_event(
             str(version["job_id"]),
             event_type="knowledge_pipeline.version_previewed",
@@ -2412,7 +2775,29 @@ async def query_pipeline_version(
         return PipelineVersionQueryResponse.model_validate(result)
     except PipelineVersionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
+    except (PipelineDraftValidationError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/pipeline/versions/{version_id}/retrieval-variant",
+    response_model=PipelineVersionPayload,
+)
+async def create_pipeline_retrieval_variant(
+    version_id: str,
+    payload: PipelineRetrievalVariantRequest,
+) -> PipelineVersionPayload:
+    try:
+        variant = get_rag_service().create_retrieval_profile_variant(
+            version_id,
+            payload.retrieval_profile.model_dump(exclude_none=True),
+        )
+        return PipelineVersionPayload.model_validate(variant)
+    except PipelineVersionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PipelineJobStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (PipelineDraftValidationError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -2428,6 +2813,11 @@ async def activate_pipeline_version(
             version_id=version_id,
             evaluation_run_id=payload.evaluation_run_id if payload else None,
             require_passed_run=bool(stored.get("promotion_required")),
+            current_runtime=(
+                get_rag_service()
+                .pipeline_version_evidence(version_id)
+                .get("runtime")
+            ),
         )
         version = get_rag_service().activate_pipeline_version(version_id)
         await get_pipeline_executor().record_job_event(
@@ -2458,6 +2848,11 @@ async def promote_pipeline_version(
             version_id=version_id,
             evaluation_run_id=payload.evaluation_run_id,
             require_passed_run=True,
+            current_runtime=(
+                get_rag_service()
+                .pipeline_version_evidence(version_id)
+                .get("runtime")
+            ),
         )
         version = get_rag_service().activate_pipeline_version(version_id)
         await get_pipeline_executor().record_job_event(

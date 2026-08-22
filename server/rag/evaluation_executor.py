@@ -14,9 +14,155 @@ from .evaluation import (
     paired_primary_confidence_report,
 )
 from .rag_service import RagService
+from .runtime_identity import is_valid_rag_runtime_identity
 
 
 logger = logging.getLogger(__name__)
+
+
+def _formal_target_fingerprint(
+    run: dict[str, Any], target: dict[str, Any]
+) -> dict[str, Any]:
+    version_id = str(target.get("version_id") or "")
+    fingerprints = (run.get("execution_manifest") or {}).get("target_fingerprints") or []
+    return next(
+        (
+            dict(item)
+            for item in fingerprints
+            if isinstance(item, dict)
+            and str(item.get("version_id") or "") == version_id
+        ),
+        {},
+    )
+
+
+def _validate_formal_retrieval_receipt(
+    run: dict[str, Any],
+    target: dict[str, Any],
+    receipt: dict[str, Any],
+    *,
+    source_count: int,
+) -> None:
+    fingerprint = _formal_target_fingerprint(run, target)
+    expected_retrieval = dict(fingerprint.get("retrieval") or {})
+    mismatches = [
+        key
+        for key, expected in expected_retrieval.items()
+        if receipt.get(key) != expected
+    ]
+    expected_top_k = int(expected_retrieval.get("top_k") or 0)
+    expected_multiplier = int(expected_retrieval.get("candidate_multiplier") or 0)
+    expected_candidate_limit = min(200, expected_top_k * expected_multiplier)
+    if int(receipt.get("candidate_limit") or 0) != expected_candidate_limit:
+        mismatches.append("candidate_limit")
+    observation_depth = int(
+        (run.get("execution_manifest") or {}).get("observation_depth") or 0
+    )
+    if int(receipt.get("observation_depth") or 0) != observation_depth:
+        mismatches.append("observation_depth")
+    required_abstention_fields = {
+        "abstention_applied": bool,
+        "abstained": bool,
+        "abstention_score_domain": str,
+        "abstention_input_count": int,
+        "abstention_reason": str,
+    }
+    for key, expected_type in required_abstention_fields.items():
+        if type(receipt.get(key)) is not expected_type:
+            mismatches.append(key)
+    abstained = receipt.get("abstained")
+    abstention_applied = receipt.get("abstention_applied")
+    abstention_reason = receipt.get("abstention_reason")
+    abstention_input_count = receipt.get("abstention_input_count")
+    if type(abstention_input_count) is int and abstention_input_count < 0:
+        mismatches.append("abstention_input_count")
+    if type(abstained) is bool and abstained != (source_count == 0):
+        mismatches.append("abstained")
+    if abstained is True and abstention_applied is not True:
+        mismatches.append("abstention_applied")
+    if abstained is True and abstention_reason not in {
+        "no_candidates",
+        "missing_vector_score",
+        "below_threshold",
+        "requested_fact_absent",
+        "insufficient_context",
+        "conflicting_evidence",
+        "verifier_unavailable",
+    }:
+        mismatches.append("abstention_reason")
+    if abstained is False and abstention_reason not in {
+        "disabled",
+        "accepted",
+        "evidence_supported",
+    }:
+        mismatches.append("abstention_reason")
+    if expected_retrieval.get("evidence_verification_enabled"):
+        evidence_fields = {
+            "evidence_verification_enabled": bool,
+            "evidence_verification_applied": bool,
+            "evidence_verdict": str,
+            "evidence_provider": str,
+            "evidence_model": str,
+        }
+        for key, expected_type in evidence_fields.items():
+            if type(receipt.get(key)) is not expected_type:
+                mismatches.append(key)
+        no_candidates = (
+            abstained is True
+            and abstention_applied is True
+            and abstention_reason == "no_candidates"
+            and abstention_input_count == 0
+            and source_count == 0
+        )
+        if no_candidates:
+            if receipt.get("evidence_verification_applied") is not False:
+                mismatches.append("evidence_verification_applied")
+            if receipt.get("evidence_verdict") != "unavailable":
+                mismatches.append("evidence_verdict")
+        else:
+            if receipt.get("evidence_verification_applied") is not True:
+                mismatches.append("evidence_verification_applied")
+            if receipt.get("evidence_verdict") not in {"answerable", "abstain"}:
+                mismatches.append("evidence_verdict")
+    expected_embedding = dict((fingerprint.get("embedding") or {}).get("effective") or {})
+    embedding_fields = {
+        "embedding_provider": str(expected_embedding.get("provider") or ""),
+        "embedding_model": str(expected_embedding.get("model") or ""),
+        "embedding_dimension": int(expected_embedding.get("dimension") or 0),
+    }
+    for key, expected in embedding_fields.items():
+        if expected and receipt.get(key) != expected:
+            mismatches.append(key)
+    if mismatches:
+        fields = ", ".join(sorted(set(mismatches)))
+        raise ValueError(
+            f"Formal retrieval receipt does not match execution manifest: {fields}."
+        )
+
+
+def _validate_formal_runtime_identity(
+    run: dict[str, Any], service: RagService
+) -> None:
+    if str(run.get("run_mode") or "diagnostic") != "formal":
+        return
+    expected = (run.get("execution_manifest") or {}).get("runtime")
+    if not is_valid_rag_runtime_identity(expected):
+        raise ValueError("Formal evaluation RAG runtime identity is invalid.")
+    for target in run.get("targets") or []:
+        if not isinstance(target, dict):
+            raise ValueError("Formal evaluation target runtime identity is invalid.")
+        fingerprint = _formal_target_fingerprint(run, target)
+        live = service.pipeline_version_evidence(
+            str(target.get("version_id") or "")
+        )
+        if (
+            fingerprint.get("runtime") != expected
+            or (target.get("version_evidence") or {}).get("runtime") != expected
+            or live.get("runtime") != expected
+        ):
+            raise ValueError(
+                "Formal evaluation RAG runtime changed after the run was queued."
+            )
 
 
 class KnowledgeEvaluationExecutor:
@@ -101,14 +247,31 @@ class KnowledgeEvaluationExecutor:
                 list(run["targets"]),
                 seed=int(run.get("execution_seed") or 0),
             )
+            _validate_formal_runtime_identity(run, self.service)
             for scheduled in schedule:
                 target = targets_by_id.get(str(scheduled.get("target_id") or ""))
                 case = cases_by_id.get(str(scheduled.get("case_id") or ""))
                 if not isinstance(target, dict) or not isinstance(case, dict):
                     raise ValueError("Evaluation execution schedule no longer matches its snapshot.")
                 target_id = str(target["target_id"])
+                formal = str(run.get("run_mode") or "diagnostic") == "formal"
+                target_retrieval = dict(target.get("retrieval") or {})
                 target_top_k = max_k
-                if bool(target.get("respect_profile_top_k")):
+                observation_depth: int | None = None
+                if formal:
+                    fingerprint = _formal_target_fingerprint(run, target)
+                    target_retrieval = dict(fingerprint.get("retrieval") or {})
+                    target_top_k = int(target_retrieval.get("top_k") or 0)
+                    observation_depth = int(
+                        (run.get("execution_manifest") or {}).get(
+                        "observation_depth", max_k
+                        )
+                    )
+                    if target_top_k < 1:
+                        raise ValueError(
+                            "Formal evaluation target is missing its retrieval Top-K fingerprint."
+                        )
+                elif bool(target.get("respect_profile_top_k")):
                     target_top_k = max(
                         1,
                         min(
@@ -126,25 +289,34 @@ class KnowledgeEvaluationExecutor:
                 if isinstance(existing, dict):
                     continue
                 started = time.perf_counter()
+                retrieval_receipt: dict[str, Any] = {}
+                retrieval_warnings: list[str] = []
                 try:
                     retrieval = await self.service.query_pipeline_version(
                         str(target["version_id"]),
                         str(case["query"]),
                         top_k=target_top_k,
-                        retrieval={
-                            **dict(target.get("retrieval") or {}),
-                            "top_k": target_top_k,
-                        },
+                        retrieval={**target_retrieval, "top_k": target_top_k},
+                        observation_depth=observation_depth,
                         generate_answer=False,
                     )
+                    retrieval_receipt = dict(retrieval.get("retrieval") or {})
+                    retrieval_warnings = list(retrieval.get("warnings") or [])
+                    if formal:
+                        _validate_formal_retrieval_receipt(
+                            run,
+                            target,
+                            retrieval_receipt,
+                            source_count=len(retrieval.get("sources") or []),
+                        )
                     case_result = evaluate_retrieval_case(
                         list(retrieval.get("sources") or []),
                         list(case.get("expected_refs") or []),
                         ks=list(run["ks"]),
                         latency_ms=(time.perf_counter() - started) * 1000,
-                        warnings=list(retrieval.get("warnings") or []),
+                        warnings=retrieval_warnings,
                         expected_no_result=bool(case.get("expected_no_result")),
-                        retrieval_receipt=dict(retrieval.get("retrieval") or {}),
+                        retrieval_receipt=retrieval_receipt,
                     )
                 except asyncio.CancelledError:
                     raise
@@ -165,11 +337,13 @@ class KnowledgeEvaluationExecutor:
                         "matched_expected_count": 0,
                         "expected_no_result": bool(case.get("expected_no_result")),
                         "no_result": True,
-                        "warning_count": 0,
-                        "warnings": [],
+                        "warning_count": len(retrieval_warnings),
+                        "warnings": retrieval_warnings,
                         "ranking": [],
                         "error": self.service._safe_pipeline_error(exc),
                     }
+                    if retrieval_receipt:
+                        case_result["retrieval_receipt"] = retrieval_receipt
                 case_result.update(
                     {
                         "case_id": case_id,

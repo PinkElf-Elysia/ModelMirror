@@ -1,12 +1,12 @@
 {
-  "schema_version": 1,
-  "fixture_version": "rag-strategy-known-winner-v1",
+  "schema_version": 2,
+  "fixture_version": "rag-strategy-known-winner-v2",
   "source": "ModelMirror project-owned synthetic fixture",
   "license": "ModelMirror repository license",
   "scenarios": [
     {
       "scenario_id": "threshold_recovery",
-      "description": "Full-text OR recall returns corpus-near hard negatives below exact positive matches. A safe non-zero threshold must preserve the Gold block and reject the negatives.",
+      "description": "Legacy full-text rank confidence separates this synthetic corpus, but it has no absolute answerability score and must now fail closed instead of becoming an automatic winner.",
       "document_name": "orbit-control-policy.md",
       "document_content": "# Orbit control policy\n\nControl MM-2042 requires an owner, a reviewer, and a dated audit record. Every audit record uses the cobalt ledger and quartz seal. Emergency exceptions expire after seven days.\n",
       "positive_queries": [
@@ -21,7 +21,7 @@
       ],
       "positive_case_count": 30,
       "hard_negative_case_count": 12,
-      "expected_outcome": "completed",
+      "expected_outcome": "no_improvement",
       "expected_winner": {
         "retrieval_mode": "fulltext",
         "score_threshold": "greater_than_zero",

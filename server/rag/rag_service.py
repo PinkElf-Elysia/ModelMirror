@@ -45,9 +45,11 @@ from .reranker import RerankDocument, RerankService
 from .retrieval import (
     RetrievalCandidate,
     RetrievalConfig,
+    apply_abstention,
     fuse_rankings,
     select_candidates,
 )
+from .runtime_identity import rag_runtime_identity
 from .source_metadata import normalize_heading_path
 from .processor_generator import ProcessorGenerationService
 from .pipeline_graph import (
@@ -254,6 +256,14 @@ class RagService:
             self.llm_enabled = os.getenv("RAG_DISABLE_LLM", "").lower() not in {"1", "true", "yes"}
         else:
             self.llm_enabled = llm_enabled
+
+    async def aclose(self) -> None:
+        """Close reusable outbound HTTP clients owned by the RAG service."""
+
+        for component in (self.embedder, self.reranker):
+            closer = getattr(component, "aclose", None)
+            if callable(closer):
+                await closer()
 
     def create_knowledge_base(
         self,
@@ -1963,9 +1973,13 @@ class RagService:
             for stage_id, config in draft["stages"].items()
         }
         try:
-            next_retrieval = RetrievalConfig.from_mapping(
-                retrieval_profile,
-                base=RetrievalConfig.from_mapping(draft.get("retrieval_profile")),
+            next_retrieval = self._pin_evidence_verifier_identity(
+                RetrievalConfig.from_mapping(
+                    retrieval_profile,
+                    base=RetrievalConfig.from_mapping(
+                        draft.get("retrieval_profile")
+                    ),
+                )
             ).payload()
         except ValueError as exc:
             raise PipelineDraftValidationError(str(exc)) from exc
@@ -2051,7 +2065,7 @@ class RagService:
             warnings.append("当前知识库还没有上传文档，流水线只能预检配置。")
         if artifact_count == 0:
             warnings.append("当前没有可检索 Artifact，上传文档后处理器才会产生结果。")
-        if chunk_count == 0:
+        if chunk_count == 0 and artifact_count == 0:
             warnings.append("当前没有 KnowledgeChunk，RAG 检索不会返回引用片段。")
         if not bool(embedding_effective.get("ready")):
             requested = dict(embedding_profile.get("requested") or {})
@@ -2097,9 +2111,13 @@ class RagService:
                 status = "blocked"
                 summary = "生成式处理器配置有效，但当前没有可用模型网关。"
             elif stage["id"] == "stage_chunker" and chunk_count == 0:
-                severity = "warning"
-                status = "empty"
-                summary = "分块器草稿配置有效，但当前没有已索引 chunk。"
+                if artifact_count > 0:
+                    status = "ready"
+                    summary = "分块器配置有效，将在本次流水线执行时生成 chunk。"
+                else:
+                    severity = "warning"
+                    status = "empty"
+                    summary = "分块器草稿配置有效，但当前没有可处理 Artifact。"
             elif stage["id"] == "stage_image_understanding":
                 if visual_document_count and not bool(vision_config.get("enabled")):
                     severity = "warning"
@@ -2509,7 +2527,9 @@ class RagService:
                     "processor_profile": processor_profile,
                     "vision_profile": vision_profile,
                     "embedding_profile": json.loads(json.dumps(draft["embedding_profile"])),
-                    "retrieval_profile": json.loads(json.dumps(draft["retrieval_profile"])),
+                    "retrieval_profile": json.loads(
+                        json.dumps(compiled.retrieval_profile)
+                    ),
                 },
                 "origin": self._safe_pipeline_origin(origin),
                 "base_version_id": base_version_id,
@@ -2544,6 +2564,7 @@ class RagService:
         retrieval_profile: dict[str, Any],
         tuning_run_id: str,
         trial: bool,
+        development_evidence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create an isolated tuning job from one immutable version snapshot.
 
@@ -2589,14 +2610,20 @@ class RagService:
                 chunker_profile,
             )
             try:
-                config_snapshot["retrieval_profile"] = RetrievalConfig.from_mapping(
-                    retrieval_profile,
-                    base=RetrievalConfig.from_mapping(
-                        config_snapshot.get("retrieval_profile")
-                        if isinstance(config_snapshot.get("retrieval_profile"), dict)
-                        else None
-                    ),
-                ).payload()
+                config_snapshot["retrieval_profile"] = (
+                    self._pin_evidence_verifier_identity(
+                        RetrievalConfig.from_mapping(
+                            retrieval_profile,
+                            base=RetrievalConfig.from_mapping(
+                                config_snapshot.get("retrieval_profile")
+                                if isinstance(
+                                    config_snapshot.get("retrieval_profile"), dict
+                                )
+                                else None
+                            ),
+                        )
+                    ).payload()
+                )
             except ValueError as exc:
                 raise PipelineDraftValidationError(str(exc)) from exc
             processor_profile = json.loads(
@@ -2689,6 +2716,10 @@ class RagService:
                 "promotion_required": True,
                 "source_run_id": str(tuning_run_id)[:200],
             }
+            if not trial and development_evidence:
+                origin["development_evidence"] = json.loads(
+                    json.dumps(development_evidence)
+                )
             job = {
                 "job_id": job_id,
                 "kb_id": kb_id,
@@ -3493,6 +3524,144 @@ class RagService:
         self._ensure_kb_exists(metadata, str(version.get("kb_id") or ""))
         return json.loads(json.dumps(version))
 
+    def mark_pipeline_version_promotion_required(
+        self,
+        version_id: str,
+        *,
+        source_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Fail closed once an inactive version is selected as a Formal candidate."""
+
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            version = metadata["pipeline_versions"].get(version_id)
+            if not isinstance(version, dict):
+                raise PipelineVersionNotFoundError(
+                    "Knowledge pipeline version not found."
+                )
+            kb_id = str(version.get("kb_id") or "")
+            self._ensure_kb_exists(metadata, kb_id)
+            if metadata["pipeline_active_versions"].get(kb_id) == version_id:
+                raise PipelineJobStateError(
+                    "An active knowledge version cannot be selected as the Formal candidate."
+                )
+            origin = dict(version.get("origin") or {})
+            origin["promotion_required"] = True
+            version["origin"] = origin
+            version["promotion_required"] = True
+            if source_run_id:
+                version["promotion_source_run_id"] = str(source_run_id)[:200]
+            self._write_metadata_unlocked(metadata)
+            return self.pipeline_version_payload(version)
+
+    def create_retrieval_profile_variant(
+        self,
+        base_version_id: str,
+        retrieval_profile: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create an immutable retrieval-only candidate over one read-only index."""
+
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            base = metadata["pipeline_versions"].get(base_version_id)
+            if not isinstance(base, dict):
+                raise PipelineVersionNotFoundError(
+                    "Base knowledge pipeline version not found."
+                )
+            kb_id = str(base.get("kb_id") or "")
+            self._ensure_kb_exists(metadata, kb_id)
+            if base.get("status") not in {"ready", "active"}:
+                raise PipelineJobStateError(
+                    "Retrieval variants require a ready or active base version."
+                )
+            if str((base.get("origin") or {}).get("kind") or "") == "rag_strategy_tuner_trial":
+                raise PipelineJobStateError(
+                    "Retrieval variants cannot reuse a temporary strategy tuning trial index."
+                )
+            if int(base.get("index_schema_version") or 1) < 2:
+                raise PipelineDraftValidationError(
+                    "Retrieval variants require an index schema v2 base version."
+                )
+            if not str(base.get("namespace") or ""):
+                raise PipelineDraftValidationError(
+                    "Base knowledge pipeline index namespace is unavailable."
+                )
+            try:
+                normalized = RetrievalConfig.from_mapping(
+                    retrieval_profile,
+                    base=RetrievalConfig.from_mapping(
+                        base.get("retrieval_profile")
+                        if isinstance(base.get("retrieval_profile"), dict)
+                        else None
+                    ),
+                )
+            except ValueError as exc:
+                raise PipelineDraftValidationError(str(exc)) from exc
+            normalized = self._pin_evidence_verifier_identity(normalized)
+            normalized_profile = normalized.payload()
+            base_profile = RetrievalConfig.from_mapping(
+                base.get("retrieval_profile")
+                if isinstance(base.get("retrieval_profile"), dict)
+                else None
+            ).payload()
+            if normalized_profile == base_profile:
+                raise PipelineDraftValidationError(
+                    "Retrieval variant must differ from its base profile."
+                )
+
+            reserved_numbers = [
+                int(item.get("version", 0))
+                for item in metadata["pipeline_versions"].values()
+                if item.get("kb_id") == kb_id
+            ] + [
+                int(item.get("candidate_version", 0))
+                for item in metadata["pipeline_jobs"].values()
+                if item.get("kb_id") == kb_id
+            ]
+            version_id = f"kpv_{uuid.uuid4().hex}"
+            config_snapshot = json.loads(
+                json.dumps(base.get("config_snapshot") or {})
+            )
+            config_snapshot["retrieval_profile"] = json.loads(
+                json.dumps(normalized_profile)
+            )
+            now = time.time()
+            variant = json.loads(json.dumps(base))
+            variant.update(
+                {
+                    "version_id": version_id,
+                    "version": max(reserved_numbers, default=0) + 1,
+                    "status": "ready",
+                    "config_snapshot": config_snapshot,
+                    "retrieval_profile": json.loads(
+                        json.dumps(normalized_profile)
+                    ),
+                    "origin": {
+                        "kind": "formal_retrieval_variant",
+                        "promotion_required": True,
+                    },
+                    "promotion_required": True,
+                    "promotion_source_run_id": None,
+                    "base_version_id": base_version_id,
+                    "index_reused": True,
+                    "index_owner_version_id": str(
+                        base.get("index_owner_version_id") or base_version_id
+                    ),
+                    "index_reuse_receipt": {
+                        "version": "rag-index-reuse-v1",
+                        "base_version_id": base_version_id,
+                        "vector_index_reused": bool(base.get("vector_index_ready")),
+                        "lexical_index_reused": bool(base.get("lexical_index_ready")),
+                    },
+                    "created_at": now,
+                    "activated_at": None,
+                }
+            )
+            metadata["pipeline_versions"][version_id] = variant
+            metadata["knowledge_bases"][kb_id]["updated_at"] = now
+            self._write_metadata_unlocked(metadata)
+            return self.pipeline_version_payload(variant)
+
     def pipeline_version_evidence(self, version_id: str) -> dict[str, Any]:
         """Return a credential-free identity receipt for one immutable index."""
 
@@ -3527,6 +3696,18 @@ class RagService:
             None,
             top_k=None,
         ).payload()
+        embedding_execution_contract = (
+            self.embedder.execution_contract()
+            if hasattr(self.embedder, "execution_contract")
+            else {}
+        )
+        rerank_execution_contract = self.reranker.runtime_contract()
+        runtime = rag_runtime_identity(
+            {
+                "embedding_http": embedding_execution_contract,
+                "rerank_request": rerank_execution_contract,
+            }
+        )
         source_manifest_fingerprint = self._mapping_sha256(
             {"sources": list(version.get("source_summary") or [])}
         )
@@ -3564,6 +3745,7 @@ class RagService:
             "source_manifest_fingerprint": source_manifest_fingerprint,
             "configuration_fingerprint": configuration_fingerprint,
             "version_fingerprint": version_fingerprint,
+            "runtime": runtime,
         }
 
     def pipeline_corpus_snapshot(
@@ -3631,10 +3813,13 @@ class RagService:
                 "Knowledge version is missing stable document content hashes."
             )
         source_blocks: list[dict[str, str]] = []
+        index_owner_version_id = str(
+            version.get("index_owner_version_id") or version_id
+        )
         for document in document_manifest:
             document_id = document["document_id"]
             chunks = self.vector_store.list_document_chunks(
-                f"{version_id}_{document_id}"
+                f"{index_owner_version_id}_{document_id}"
             )
             chunks_by_block: dict[str, list[Any]] = {}
             for chunk in chunks:
@@ -3689,6 +3874,13 @@ class RagService:
         }
         payload["active"] = str(active_id or "") == str(version.get("version_id"))
         return payload
+
+    def _pipeline_index_owner_version_id(self, version: dict[str, Any]) -> str:
+        return str(
+            version.get("index_owner_version_id")
+            or version.get("version_id")
+            or ""
+        )
 
     def activate_pipeline_version(self, version_id: str) -> dict[str, Any]:
         with self._metadata_lock:
@@ -3830,7 +4022,10 @@ class RagService:
         *,
         top_k: int | None = None,
         retrieval: dict[str, Any] | None = None,
+        observation_depth: int | None = None,
         generate_answer: bool = True,
+        external_call_limit: int | None = None,
+        allow_vector_fallback: bool = True,
     ) -> dict[str, Any]:
         version = self.get_pipeline_version(version_id)
         profile = self._retrieval_config_for_version(version, retrieval, top_k=top_k)
@@ -3841,9 +4036,15 @@ class RagService:
             config=profile,
             lexical_ready=bool(version.get("lexical_index_ready")),
             embedding_profile=version.get("embedding_profile"),
+            observation_depth=observation_depth,
             generate_answer=generate_answer,
+            external_call_limit=external_call_limit,
+            allow_vector_fallback=allow_vector_fallback,
         )
-        result = self._with_source_document_ids(result, version_id)
+        result = self._with_source_document_ids(
+            result,
+            self._pipeline_index_owner_version_id(version),
+        )
         return {
             "version_id": version_id,
             "version": int(version["version"]),
@@ -4252,7 +4453,12 @@ class RagService:
             generate_answer=False,
         )
         version_id = str(version.get("version_id") or "") if isinstance(version, dict) else None
-        result = self._with_source_document_ids(result, version_id)
+        result = self._with_source_document_ids(
+            result,
+            self._pipeline_index_owner_version_id(version)
+            if isinstance(version, dict)
+            else None,
+        )
         result["version_id"] = version_id
         return result
 
@@ -4294,7 +4500,12 @@ class RagService:
             raise DocumentNotFoundError("Knowledge chunk was deleted.")
         indexed_document_id = str(chunk.doc_id)
         version_id = str(version.get("version_id") or "") if isinstance(version, dict) else ""
-        prefix = f"{version_id}_" if version_id else ""
+        index_owner_version_id = (
+            self._pipeline_index_owner_version_id(version)
+            if isinstance(version, dict)
+            else ""
+        )
+        prefix = f"{index_owner_version_id}_" if index_owner_version_id else ""
         source_document_id = (
             indexed_document_id[len(prefix) :]
             if prefix and indexed_document_id.startswith(prefix)
@@ -4320,6 +4531,57 @@ class RagService:
             "visual_kind": chunk.visual_kind,
             "source_block_id": chunk.source_block_id,
         }
+
+    def get_knowledge_source_block(
+        self,
+        kb_id: str,
+        document_id: str,
+        source_block_id: str,
+        *,
+        version_id: str,
+    ) -> dict[str, Any]:
+        """Resolve a stable source block inside one explicitly fixed version."""
+
+        metadata = self._read_metadata()
+        self._ensure_kb_exists(metadata, kb_id)
+        version = metadata["pipeline_versions"].get(str(version_id))
+        if not isinstance(version, dict) or str(version.get("kb_id") or "") != kb_id:
+            raise PipelineVersionNotFoundError(
+                "Fixed knowledge pipeline version was not found."
+            )
+        clean_document_id = str(document_id or "")
+        clean_source_block_id = str(source_block_id or "")
+        if not clean_document_id or not clean_source_block_id:
+            raise DocumentNotFoundError(
+                "Knowledge source block was not found in the fixed version."
+            )
+        owner_version_id = self._pipeline_index_owner_version_id(version)
+        chunks = self.vector_store.list_document_chunks(
+            f"{owner_version_id}_{clean_document_id}"
+        )
+        matches = [
+            chunk
+            for chunk in chunks
+            if str(chunk.source_block_id or "") == clean_source_block_id
+        ]
+        if not matches:
+            raise DocumentNotFoundError(
+                "Knowledge source block was not found in the fixed version."
+            )
+        representative = min(
+            matches,
+            key=lambda item: (
+                0 if str(item.chunk_type or "") in {"parent", "standard"} else 1,
+                -len(str(item.text or "")),
+                int(item.chunk_index),
+                str(item.chunk_id),
+            ),
+        )
+        return self.get_knowledge_chunk(
+            kb_id,
+            str(representative.chunk_id),
+            version_id=str(version_id),
+        )
 
     def list_pipeline_artifact_chunks(self, artifact_id: str) -> list[dict[str, Any]]:
         """Return chunk metadata for one artifact without exposing embeddings."""
@@ -4821,7 +5083,7 @@ class RagService:
         )
         return self._with_source_document_ids(
             result,
-            str(version["version_id"]) if version else None,
+            self._pipeline_index_owner_version_id(version) if version else None,
         )
 
     async def _query_namespace(
@@ -4833,7 +5095,10 @@ class RagService:
         config: RetrievalConfig,
         lexical_ready: bool,
         embedding_profile: dict[str, Any] | None = None,
+        observation_depth: int | None = None,
         generate_answer: bool = True,
+        external_call_limit: int | None = None,
+        allow_vector_fallback: bool = True,
     ) -> dict[str, Any]:
         """Query one explicit index namespace while preserving public KB identity."""
 
@@ -4844,29 +5109,121 @@ class RagService:
         self._ensure_kb_exists(metadata, kb_id)
         if kb_id not in metadata["knowledge_bases"]:
             raise KnowledgeBaseNotFoundError("知识库不存在。")
+        if external_call_limit is not None and external_call_limit not in {1, 2}:
+            raise ValueError("external_call_limit must be 1 or 2 when specified.")
 
         candidate_count = min(200, config.top_k * config.candidate_multiplier)
+        result_limit = (
+            config.top_k
+            if observation_depth is None
+            else max(1, min(int(observation_depth), 50))
+        )
         warnings: list[str] = []
         vector_results: list[SearchResult] = []
         lexical_results: list[LexicalSearchResult] = []
+        external_call_count = 0
+        embedding_external_call_count = 0
+        rerank_external_call_count = 0
+        answer_external_call_count = 0
         resolved_embedding_profile = self._resolved_embedding_profile_for_query(
             embedding_profile
         )
+        effective_embedding_provider = str(
+            (resolved_embedding_profile.get("effective") or {}).get("provider")
+            or ""
+        )
+        embedding_uses_external_provider = (
+            effective_embedding_provider == EMBEDDING_PROVIDER_OPENAI_COMPATIBLE
+        )
+        retrieval_started = time.perf_counter()
+        stage_timings = {
+            "embedding_elapsed_ms": 0.0,
+            "vector_search_elapsed_ms": 0.0,
+            "fulltext_search_elapsed_ms": 0.0,
+            "fusion_elapsed_ms": 0.0,
+        }
+
+        def retrieval_timing_details() -> dict[str, float]:
+            return {
+                **{
+                    key: round(max(0.0, float(value)), 3)
+                    for key, value in stage_timings.items()
+                },
+                "retrieval_elapsed_ms": round(
+                    max(0.0, (time.perf_counter() - retrieval_started) * 1000),
+                    3,
+                ),
+            }
 
         async def query_vector_candidates() -> list[SearchResult]:
-            query_embedding = await self._embed_query(
-                clean_question,
-                resolved_embedding_profile,
-            )
-            return self.vector_store.query(namespace, query_embedding, candidate_count)
+            nonlocal external_call_count, embedding_external_call_count
+            if (
+                embedding_uses_external_provider
+                and external_call_limit is not None
+                and external_call_count >= external_call_limit
+            ):
+                raise ValueError("External call budget was exhausted before embedding.")
+            if embedding_uses_external_provider:
+                external_call_count += 1
+                embedding_external_call_count += 1
+            embedding_started = time.perf_counter()
+            try:
+                query_embedding = await self._embed_query(
+                    clean_question,
+                    resolved_embedding_profile,
+                )
+            finally:
+                stage_timings["embedding_elapsed_ms"] += (
+                    time.perf_counter() - embedding_started
+                ) * 1000
+            vector_search_started = time.perf_counter()
+            try:
+                return self.vector_store.query(
+                    namespace, query_embedding, candidate_count
+                )
+            finally:
+                stage_timings["vector_search_elapsed_ms"] += (
+                    time.perf_counter() - vector_search_started
+                ) * 1000
 
-        if config.mode in {"vector", "hybrid"}:
+        async def query_fulltext_candidates() -> list[LexicalSearchResult]:
+            fulltext_started = time.perf_counter()
+            try:
+                def query_sync() -> tuple[bool, list[LexicalSearchResult]]:
+                    available = (
+                        lexical_ready
+                        or self.lexical_store.count_namespace(namespace) > 0
+                    )
+                    return (
+                        available,
+                        self.lexical_store.query(
+                            namespace, clean_question, candidate_count
+                        )
+                        if available
+                        else [],
+                    )
+
+                available, results = await asyncio.to_thread(query_sync)
+                if not available:
+                    warnings.append(
+                        "Full-text index is unavailable for this legacy version; "
+                        "vector retrieval was used."
+                    )
+                return results
+            finally:
+                stage_timings["fulltext_search_elapsed_ms"] += (
+                    time.perf_counter() - fulltext_started
+                ) * 1000
+
+        if config.mode == "hybrid":
+            vector_results, lexical_results = await asyncio.gather(
+                query_vector_candidates(),
+                query_fulltext_candidates(),
+            )
+        elif config.mode == "vector":
             vector_results = await query_vector_candidates()
-        if config.mode in {"fulltext", "hybrid"}:
-            if lexical_ready or self.lexical_store.count_namespace(namespace) > 0:
-                lexical_results = self.lexical_store.query(namespace, clean_question, candidate_count)
-            else:
-                warnings.append("Full-text index is unavailable for this legacy version; vector retrieval was used.")
+        elif config.mode == "fulltext":
+            lexical_results = await query_fulltext_candidates()
 
         deleted_document_ids = self._deleted_document_ids()
         if deleted_document_ids:
@@ -4888,7 +5245,12 @@ class RagService:
         vector_candidates = [self._candidate_from_vector(item) for item in vector_results]
         lexical_candidates = [self._candidate_from_lexical(item) for item in lexical_results]
         effective_config = config
-        if config.mode == "fulltext" and not lexical_candidates and not lexical_ready:
+        if (
+            config.mode == "fulltext"
+            and not lexical_candidates
+            and not lexical_ready
+            and allow_vector_fallback
+        ):
             effective_config = RetrievalConfig.from_mapping(
                 {**config.payload(), "mode": "vector", "rerank_enabled": config.rerank_enabled}
             )
@@ -4902,10 +5264,18 @@ class RagService:
                     )
                 ]
                 vector_candidates = [self._candidate_from_vector(item) for item in vector_results]
-        fused = fuse_rankings(vector_candidates, lexical_candidates, effective_config)
-        fused = [
-            item for item in fused if item.fused_score >= config.score_threshold
-        ]
+        fusion_started = time.perf_counter()
+        try:
+            fused = fuse_rankings(
+                vector_candidates, lexical_candidates, effective_config
+            )
+            fused = [
+                item for item in fused if item.fused_score >= config.score_threshold
+            ]
+        finally:
+            stage_timings["fusion_elapsed_ms"] += (
+                time.perf_counter() - fusion_started
+            ) * 1000
 
         rerank_provider = "none"
         rerank_model = ""
@@ -4913,32 +5283,97 @@ class RagService:
         rerank_output_count = 0
         rerank_tail_dropped = 0
         rerank_details: dict[str, Any] = {}
+        evidence_candidate_count = 0
+        evidence_input_count = 0
+        evidence_details: dict[str, Any] = {
+            "evidence_verification_enabled": bool(
+                config.evidence_verification_enabled
+            ),
+            "evidence_verification_applied": False,
+            "evidence_verdict": "unavailable",
+            "evidence_support_score": None,
+            "evidence_reason_code": None,
+            "evidence_provider": "none",
+            "evidence_model": "",
+        }
         if config.rerank_enabled and fused:
+            if (
+                external_call_limit is not None
+                and external_call_count >= external_call_limit
+            ):
+                raise ValueError("External call budget was exhausted before rerank.")
             fused_before_rerank = list(fused)
+            if config.evidence_verification_enabled:
+                evidence_candidate_count = len(fused_before_rerank)
             outcome = await self.reranker.rerank(
                 clean_question,
                 [RerankDocument(chunk_id=item.chunk_id, text=item.matched_text) for item in fused],
                 provider=config.rerank_provider,
                 model=config.rerank_model,
                 top_n=min(config.rerank_top_n, len(fused)),
+                max_provider_attempts=(1 if external_call_limit is not None else None),
+                require_evidence_verdict=config.evidence_verification_enabled,
             )
+            rerank_external_call_count = int(outcome.external_call_count)
+            external_call_count += rerank_external_call_count
+            if (
+                external_call_limit is not None
+                and external_call_count > external_call_limit
+            ):
+                raise ValueError("External call budget was exceeded by rerank.")
             rerank_provider = outcome.provider
             rerank_model = outcome.model
             rerank_input_count = int(outcome.input_count or len(fused_before_rerank))
+            if config.evidence_verification_enabled:
+                evidence_input_count = rerank_input_count
             rerank_details = {
                 "rerank_requested_input_count": int(outcome.requested_input_count),
                 "rerank_input_char_count": int(outcome.input_char_count),
                 "rerank_candidate_limit": int(outcome.candidate_limit),
                 "rerank_input_char_limit": int(outcome.input_char_limit),
+                "rerank_max_output_tokens": int(outcome.max_output_tokens),
                 "rerank_timeout_budget_ms": int(outcome.timeout_budget_ms),
                 "rerank_elapsed_ms": round(float(outcome.elapsed_ms), 3),
+                "rerank_provider_http_elapsed_ms": _rounded_optional(
+                    outcome.provider_http_elapsed_ms
+                ),
+                "rerank_provider_prompt_tokens": outcome.provider_prompt_tokens,
+                "rerank_provider_completion_tokens": (
+                    outcome.provider_completion_tokens
+                ),
+                "rerank_provider_total_tokens": outcome.provider_total_tokens,
+                "rerank_provider_response_char_count": (
+                    outcome.provider_response_char_count
+                ),
                 "rerank_attempted_provider": str(outcome.attempted_provider or "none"),
                 "rerank_attempted_model": str(outcome.attempted_model or ""),
                 "rerank_fallback_reason": str(outcome.fallback_reason or "") or None,
                 "rerank_provider_target_used": str(outcome.provider_target or "") or None,
                 "rerank_attempted_targets": ";".join(outcome.attempted_targets) or None,
                 "rerank_target_attempt_count": len(outcome.attempted_targets),
+                "rerank_external_call_count": int(outcome.external_call_count),
             }
+            evidence_details.update(
+                {
+                    "evidence_verification_applied": bool(
+                        config.evidence_verification_enabled
+                        and outcome.provider == "llm"
+                        and outcome.evidence_verdict in {"answerable", "abstain"}
+                    ),
+                    "evidence_verdict": str(
+                        outcome.evidence_verdict or "unavailable"
+                    ),
+                    "evidence_support_score": _rounded_optional(
+                        outcome.support_score
+                    ),
+                    "evidence_reason_code": str(
+                        outcome.evidence_reason_code or ""
+                    )
+                    or None,
+                    "evidence_provider": str(outcome.provider or "none"),
+                    "evidence_model": str(outcome.model or ""),
+                }
+            )
             if outcome.warning:
                 warnings.append(outcome.warning)
             by_id = {item.chunk_id: item for item in fused_before_rerank}
@@ -4974,8 +5409,59 @@ class RagService:
                 )
             ],
             score_threshold=config.score_threshold,
-            top_k=config.top_k,
+            top_k=result_limit,
         )
+        results, abstention_details = apply_abstention(results, config)
+        if config.evidence_verification_enabled:
+            verdict = str(evidence_details.get("evidence_verdict") or "unavailable")
+            applied = bool(evidence_details.get("evidence_verification_applied"))
+            # `no_candidates` describes the retrieval input to the verifier, not
+            # the verifier's output. A valid abstain verdict may intentionally
+            # return an empty ranking after inspecting non-empty candidates.
+            no_candidates = evidence_candidate_count == 0
+            reason_code = str(
+                evidence_details.get("evidence_reason_code") or ""
+            )
+            abstention_details.update(
+                {
+                    "abstention_applied": True,
+                    "abstention_score_domain": "evidence_verdict_v1",
+                    "abstention_score": evidence_details.get(
+                        "evidence_support_score"
+                    ),
+                }
+            )
+            if no_candidates:
+                abstention_details.update(
+                    {
+                        "abstained": True,
+                        "abstention_reason": "no_candidates",
+                    }
+                )
+            elif applied and verdict == "answerable":
+                abstention_details.update(
+                    {
+                        "abstention_input_count": evidence_input_count,
+                        "abstained": False,
+                        "abstention_reason": "evidence_supported",
+                    }
+                )
+            else:
+                results = []
+                abstention_details.update(
+                    {
+                        "abstention_input_count": evidence_input_count,
+                        "abstained": True,
+                        "abstention_reason": (
+                            reason_code if applied and reason_code else "verifier_unavailable"
+                        ),
+                    }
+                )
+                if not applied and not no_candidates:
+                    warnings.append(
+                        "Evidence verifier was unavailable or invalid; retrieval abstained."
+                    )
+        abstention_details.update(evidence_details)
         if not results:
             return {
                 "answer": "没有在该知识库中找到相关内容，请尝试换一种问法或上传更多资料。",
@@ -4983,6 +5469,8 @@ class RagService:
                 "warnings": warnings,
                 "retrieval": self._retrieval_diagnostics(
                     config,
+                    candidate_limit=candidate_count,
+                    observation_depth=result_limit,
                     vector_count=len(vector_results),
                     fulltext_count=len(lexical_results),
                     rerank_provider=rerank_provider,
@@ -4991,11 +5479,28 @@ class RagService:
                     rerank_output_count=rerank_output_count,
                     rerank_tail_dropped=rerank_tail_dropped,
                     rerank_details=rerank_details,
+                    abstention_details=abstention_details,
+                    timing_details=retrieval_timing_details(),
                     embedding_profile=resolved_embedding_profile,
+                    external_call_limit=external_call_limit,
+                    external_call_count=external_call_count,
+                    embedding_external_call_count=embedding_external_call_count,
+                    rerank_external_call_count=rerank_external_call_count,
+                    answer_external_call_count=answer_external_call_count,
                 ),
             }
 
-        answer = await self._generate_answer(clean_question, results) if generate_answer else ""
+        if generate_answer:
+            if (
+                external_call_limit is not None
+                and external_call_count >= external_call_limit
+            ):
+                raise ValueError("External call budget was exhausted before answer generation.")
+            external_call_count += 1
+            answer_external_call_count += 1
+            answer = await self._generate_answer(clean_question, results)
+        else:
+            answer = ""
         return {
             "answer": answer,
             "sources": [
@@ -5028,6 +5533,8 @@ class RagService:
             "warnings": warnings,
             "retrieval": self._retrieval_diagnostics(
                 config,
+                candidate_limit=candidate_count,
+                observation_depth=result_limit,
                 vector_count=len(vector_results),
                 fulltext_count=len(lexical_results),
                 rerank_provider=rerank_provider,
@@ -5036,7 +5543,14 @@ class RagService:
                 rerank_output_count=rerank_output_count,
                 rerank_tail_dropped=rerank_tail_dropped,
                 rerank_details=rerank_details,
+                abstention_details=abstention_details,
+                timing_details=retrieval_timing_details(),
                 embedding_profile=resolved_embedding_profile,
+                external_call_limit=external_call_limit,
+                external_call_count=external_call_count,
+                embedding_external_call_count=embedding_external_call_count,
+                rerank_external_call_count=rerank_external_call_count,
+                answer_external_call_count=answer_external_call_count,
             ),
         }
 
@@ -5147,6 +5661,46 @@ class RagService:
             "modes": ["vector", "fulltext", "hybrid"],
         }
 
+    def validate_evidence_verifier_identity(
+        self,
+        retrieval_profile: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Require Formal evidence verification to use the configured pinned model."""
+
+        try:
+            requested = RetrievalConfig.from_mapping(retrieval_profile)
+        except ValueError as exc:
+            raise PipelineDraftValidationError(str(exc)) from exc
+        if not requested.evidence_verification_enabled:
+            return requested.payload()
+        pinned = self._pin_evidence_verifier_identity(requested)
+        if requested.rerank_model != pinned.rerank_model:
+            raise PipelineDraftValidationError(
+                "Formal evidence verification must use the pinned verifier model."
+            )
+        return requested.payload()
+
+    def _pin_evidence_verifier_identity(
+        self,
+        config: RetrievalConfig,
+    ) -> RetrievalConfig:
+        if not config.evidence_verification_enabled:
+            return config
+        capabilities = dict(self.reranker.capabilities() or {})
+        verifier_model = str(
+            capabilities.get("evidence_verifier_model") or ""
+        ).strip()
+        if not (
+            capabilities.get("evidence_verifier_configured") and verifier_model
+        ):
+            raise PipelineDraftValidationError(
+                "Evidence verification requires a dedicated configured verifier model."
+            )
+        return RetrievalConfig.from_mapping(
+            {"rerank_model": verifier_model},
+            base=config,
+        )
+
     def _retrieval_config_for_version(
         self,
         version: dict[str, Any] | None,
@@ -5216,6 +5770,8 @@ class RagService:
         self,
         config: RetrievalConfig,
         *,
+        candidate_limit: int,
+        observation_depth: int,
         vector_count: int,
         fulltext_count: int,
         rerank_provider: str,
@@ -5224,11 +5780,20 @@ class RagService:
         rerank_output_count: int,
         rerank_tail_dropped: int,
         rerank_details: dict[str, Any],
+        abstention_details: dict[str, Any],
+        timing_details: dict[str, float],
         embedding_profile: dict[str, Any],
+        external_call_limit: int | None,
+        external_call_count: int,
+        embedding_external_call_count: int,
+        rerank_external_call_count: int,
+        answer_external_call_count: int,
     ) -> dict[str, Any]:
         effective = dict(embedding_profile.get("effective") or {})
         return {
             **config.payload(),
+            "candidate_limit": max(0, int(candidate_limit)),
+            "observation_depth": max(1, int(observation_depth)),
             "vector_candidate_count": vector_count,
             "fulltext_candidate_count": fulltext_count,
             "rerank_provider_used": rerank_provider,
@@ -5238,10 +5803,28 @@ class RagService:
             "rerank_output_count": max(0, int(rerank_output_count)),
             "rerank_tail_dropped": max(0, int(rerank_tail_dropped)),
             **rerank_details,
+            **abstention_details,
+            **{
+                key: round(max(0.0, float(timing_details.get(key) or 0.0)), 3)
+                for key in (
+                    "retrieval_elapsed_ms",
+                    "embedding_elapsed_ms",
+                    "vector_search_elapsed_ms",
+                    "fulltext_search_elapsed_ms",
+                    "fusion_elapsed_ms",
+                )
+            },
             "threshold_score_domain": "fused_score",
             "embedding_provider": str(effective.get("provider") or ""),
             "embedding_model": str(effective.get("model") or ""),
             "embedding_dimension": int(effective.get("dimension") or 0),
+            "external_call_limit": external_call_limit,
+            "external_call_count": max(0, int(external_call_count)),
+            "embedding_external_call_count": max(
+                0, int(embedding_external_call_count)
+            ),
+            "rerank_external_call_count": max(0, int(rerank_external_call_count)),
+            "answer_external_call_count": max(0, int(answer_external_call_count)),
         }
 
     def _resolved_embedding_profile_for_query(
@@ -5282,6 +5865,7 @@ class RagService:
         if dimension <= 0:
             raise EmbeddingError("Embedding profile has no valid vector dimension.")
 
+        owns_embedder = False
         if provider == EMBEDDING_PROVIDER_HASH:
             embedder = EmbeddingClient(
                 api_base="",
@@ -5292,7 +5876,10 @@ class RagService:
             embedder.api_key = ""
             embedder.embedding_mode = "hash"
         else:
-            if model == self.embedder.model:
+            if (
+                model == self.embedder.model
+                and dimension == self.embedder.dimension
+            ):
                 embedder = self.embedder
             else:
                 embedder = EmbeddingClient(
@@ -5301,7 +5888,12 @@ class RagService:
                     model=model,
                     dimension=dimension,
                 )
-        vectors = await embedder.embed_texts([text])
+                owns_embedder = True
+        try:
+            vectors = await embedder.embed_texts([text])
+        finally:
+            if owns_embedder:
+                await embedder.aclose()
         if len(vectors) != 1 or len(vectors[0]) != dimension:
             actual = len(vectors[0]) if vectors else 0
             raise EmbeddingError(
@@ -5623,9 +6215,13 @@ class RagService:
                 draft.get("embedding_profile"),
                 compiled.embedding_profile,
             )
-            retrieval = RetrievalConfig.from_mapping(
-                compiled.retrieval_profile,
-                base=RetrievalConfig.from_mapping(draft.get("retrieval_profile")),
+            retrieval = self._pin_evidence_verifier_identity(
+                RetrievalConfig.from_mapping(
+                    compiled.retrieval_profile,
+                    base=RetrievalConfig.from_mapping(
+                        draft.get("retrieval_profile")
+                    ),
+                )
             ).payload()
             processor = stages["stage_processor"]
             vision = stages["stage_image_understanding"]

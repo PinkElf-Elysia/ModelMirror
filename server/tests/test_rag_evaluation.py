@@ -9,6 +9,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
+import server.rag.api as rag_api
 from server.main import app
 from server.rag.api import (
     set_evaluation_executor_for_tests,
@@ -22,9 +23,12 @@ from server.rag.evaluation import (
     EvaluationStateError,
     KnowledgeEvaluationStore,
     aggregate_target_metrics,
+    assess_formal_evidence_independence,
+    build_development_evidence_manifest,
     build_paired_execution_schedule,
     evaluate_promotion_gate,
     evaluate_retrieval_case,
+    gold_v2_leakage_receipt,
     gold_v2_review_admission_blockers,
     paired_primary_confidence_report,
     qualify_promotion_evidence,
@@ -32,6 +36,12 @@ from server.rag.evaluation import (
 from server.rag.evaluation_executor import KnowledgeEvaluationExecutor
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import RagService
+from server.rag.runtime_identity import (
+    build_rag_runtime_identity,
+    is_valid_rag_runtime_identity,
+    rag_runtime_identity,
+)
+from server.rag.strategy_tuning_qualification import build_tuning_readiness
 from server.rag.vector_store import LocalJsonVectorStore, StoredVectorChunk
 from server.xpert_runtime.run_registry import RunRegistry
 
@@ -109,6 +119,470 @@ async def _execute_draft(
     job = (await client.get(f"/api/rag/pipeline/jobs/{response.json()['job_id']}")).json()
     assert job["status"] == "succeeded", job
     return job
+
+
+def _formal_executor_run(*, receipt_top_k: int = 5) -> tuple[dict, dict]:
+    runtime = rag_runtime_identity()
+    retrieval = {
+        "mode": "hybrid",
+        "top_k": 5,
+        "score_threshold": 0.0,
+        "vector_weight": 0.7,
+        "fulltext_weight": 0.3,
+        "candidate_multiplier": 4,
+        "per_document_limit": 2,
+        "rerank_enabled": False,
+        "rerank_provider": "none",
+        "rerank_model": "",
+        "rerank_top_n": 5,
+        "abstention_enabled": False,
+        "abstention_score_domain": "vector_score",
+        "abstention_threshold": 0.0,
+    }
+    target = {
+        "target_id": "candidate",
+        "version_id": "candidate",
+        "retrieval": copy.deepcopy(retrieval),
+        "version_evidence": {
+            "retrieval": copy.deepcopy(retrieval),
+            "runtime": copy.deepcopy(runtime),
+        },
+    }
+    run = {
+        "run_id": "evalrun-formal-runtime-contract",
+        "kb_id": "kb-formal-runtime-contract",
+        "eval_set_id": "evalset-formal-runtime-contract",
+        "eval_set_snapshot": {
+            "cases": [
+                {
+                    "case_id": "case-1",
+                    "query": "Which source is relevant?",
+                    "expected_refs": [{"document_id": "doc-a"}],
+                    "expected_no_result": False,
+                    "targeting": {"locale": "en-US"},
+                }
+            ]
+        },
+        "targets": [target],
+        "execution_schedule": [{"case_id": "case-1", "target_id": "candidate"}],
+        "execution_seed": 7,
+        "baseline_version_id": "candidate",
+        "ks": [1, 5, 10],
+        "gate_policy": {"min_recall_at_5": 0.0, "min_no_result_accuracy": 0.0},
+        "evidence_qualification": {"status": "qualified", "qualified": True},
+        "run_mode": "formal",
+        "comparability": {"comparable": True, "reasons": []},
+        "execution_manifest": {
+            "version": "rag-eval-v2",
+            "abstention_contract_version": "rag-abstention-v1",
+            "observation_depth": 10,
+            "target_fingerprints": [
+                {
+                    "version_id": "candidate",
+                    "retrieval": copy.deepcopy(retrieval),
+                    "runtime": copy.deepcopy(runtime),
+                }
+            ],
+            "runtime": copy.deepcopy(runtime),
+        },
+        "case_results": {},
+        "receipt_top_k": receipt_top_k,
+    }
+    return run, target
+
+
+class _FormalExecutorStore:
+    def __init__(self, run: dict) -> None:
+        self.run = run
+
+    def get_run(self, _run_id: str) -> dict:
+        return self.run
+
+    def cancel_requested(self, _run_id: str) -> bool:
+        return False
+
+    def record_case_result(
+        self, _run_id: str, target_id: str, case_id: str, result: dict
+    ) -> None:
+        self.run.setdefault("case_results", {}).setdefault(target_id, {})[case_id] = result
+
+    def complete_run(self, _run_id: str, aggregates: list[dict]) -> dict:
+        self.run["status"] = "succeeded"
+        self.run["target_results"] = aggregates
+        return self.run
+
+    def fail_run(self, _run_id: str, error: str) -> None:
+        self.run["status"] = "failed"
+        self.run["error"] = error
+
+
+class _RecordingFormalService:
+    def __init__(
+        self,
+        *,
+        receipt_top_k: int,
+        include_abstention_receipt: bool = True,
+        sources: list[dict] | None = None,
+        receipt_overrides: dict | None = None,
+        runtime_identity: dict | None = None,
+    ) -> None:
+        self.receipt_top_k = receipt_top_k
+        self.include_abstention_receipt = include_abstention_receipt
+        self.sources = (
+            copy.deepcopy(sources)
+            if sources is not None
+            else [{"chunk_id": "chunk-a", "source_document_id": "doc-a"}]
+        )
+        self.receipt_overrides = copy.deepcopy(receipt_overrides or {})
+        self.runtime_identity = copy.deepcopy(
+            runtime_identity or rag_runtime_identity()
+        )
+        self.calls: list[dict] = []
+
+    async def query_pipeline_version(self, _version_id: str, _query: str, **kwargs) -> dict:
+        self.calls.append(copy.deepcopy(kwargs))
+        retrieval = dict(kwargs.get("retrieval") or {})
+        receipt = {
+            **retrieval,
+            "top_k": self.receipt_top_k,
+            "candidate_limit": self.receipt_top_k
+            * int(retrieval.get("candidate_multiplier") or 1),
+            "observation_depth": int(kwargs.get("observation_depth") or self.receipt_top_k),
+        }
+        if self.include_abstention_receipt:
+            receipt.update(
+                {
+                    "abstention_applied": False,
+                    "abstained": False,
+                    "abstention_score": None,
+                    "abstention_input_count": len(self.sources),
+                    "abstention_reason": "disabled",
+                }
+            )
+        receipt.update(self.receipt_overrides)
+        return {
+            "sources": copy.deepcopy(self.sources),
+            "warnings": [],
+            "retrieval": receipt,
+        }
+
+    def pipeline_version_evidence(self, _version_id: str) -> dict:
+        return {"runtime": copy.deepcopy(self.runtime_identity)}
+
+    @staticmethod
+    def _safe_pipeline_error(exc: Exception) -> str:
+        return str(exc)
+
+
+@pytest.mark.asyncio
+async def test_formal_executor_keeps_profile_top_k_and_separates_observation_depth() -> None:
+    run, _target = _formal_executor_run()
+    store = _FormalExecutorStore(run)
+    service = _RecordingFormalService(receipt_top_k=5)
+
+    await KnowledgeEvaluationExecutor(service, store)._execute(run)
+
+    assert service.calls == [
+        {
+            "top_k": 5,
+            "retrieval": run["targets"][0]["retrieval"],
+            "observation_depth": 10,
+            "generate_answer": False,
+        }
+    ]
+    case_result = run["case_results"]["candidate"]["case-1"]
+    assert case_result["status"] == "completed"
+    assert case_result["retrieval_receipt"]["candidate_limit"] == 20
+
+
+@pytest.mark.asyncio
+async def test_formal_executor_rejects_runtime_change_after_queue(
+    tmp_path: Path,
+) -> None:
+    run, _target = _formal_executor_run()
+    source_dir = tmp_path / "different-runtime"
+    source_dir.mkdir()
+    (source_dir / "runtime.py").write_text("VERSION = 2\n", encoding="utf-8")
+    service = _RecordingFormalService(
+        receipt_top_k=5,
+        runtime_identity=build_rag_runtime_identity(source_dir),
+    )
+
+    await KnowledgeEvaluationExecutor(service, _FormalExecutorStore(run))._execute(run)
+
+    assert run["status"] == "failed"
+    assert "runtime changed" in str(run["error"]).lower()
+    assert service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_formal_executor_rejects_receipt_that_differs_from_manifest() -> None:
+    run, _target = _formal_executor_run(receipt_top_k=10)
+    store = _FormalExecutorStore(run)
+    service = _RecordingFormalService(receipt_top_k=10)
+
+    await KnowledgeEvaluationExecutor(service, store)._execute(run)
+
+    case_result = run["case_results"]["candidate"]["case-1"]
+    assert case_result["status"] == "failed"
+    assert "retrieval receipt" in case_result["error"].lower()
+    assert run["target_results"][0]["promotion_gate"]["passed"] is False
+
+
+@pytest.mark.asyncio
+async def test_formal_executor_rejects_missing_explicit_abstention_receipt() -> None:
+    run, _target = _formal_executor_run()
+    store = _FormalExecutorStore(run)
+    service = _RecordingFormalService(
+        receipt_top_k=5, include_abstention_receipt=False
+    )
+
+    await KnowledgeEvaluationExecutor(service, store)._execute(run)
+
+    case_result = run["case_results"]["candidate"]["case-1"]
+    assert case_result["status"] == "failed"
+    assert "abstained" in case_result["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_formal_executor_rejects_abstention_decision_inconsistent_with_sources() -> None:
+    run, _target = _formal_executor_run()
+    store = _FormalExecutorStore(run)
+    service = _RecordingFormalService(receipt_top_k=5, sources=[])
+
+    await KnowledgeEvaluationExecutor(service, store)._execute(run)
+
+    case_result = run["case_results"]["candidate"]["case-1"]
+    assert case_result["status"] == "failed"
+    assert "abstained" in case_result["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_formal_executor_rejects_boolean_abstention_input_count() -> None:
+    run, _target = _formal_executor_run()
+    store = _FormalExecutorStore(run)
+    service = _RecordingFormalService(
+        receipt_top_k=5,
+        receipt_overrides={"abstention_input_count": True},
+    )
+
+    await KnowledgeEvaluationExecutor(service, store)._execute(run)
+
+    case_result = run["case_results"]["candidate"]["case-1"]
+    assert case_result["status"] == "failed"
+    assert "abstention_input_count" in case_result["error"]
+
+
+@pytest.mark.asyncio
+async def test_formal_executor_accepts_explicit_no_candidates_without_verifier_call() -> None:
+    run, _target = _formal_executor_run()
+    evidence_retrieval = {
+        **run["targets"][0]["retrieval"],
+        "rerank_enabled": True,
+        "rerank_provider": "llm",
+        "rerank_model": "support-verifier",
+        "evidence_verification_enabled": True,
+        "abstention_score_domain": "evidence_verdict_v1",
+    }
+    run["targets"][0]["retrieval"] = copy.deepcopy(evidence_retrieval)
+    run["targets"][0]["version_evidence"]["retrieval"] = copy.deepcopy(
+        evidence_retrieval
+    )
+    run["execution_manifest"]["target_fingerprints"][0]["retrieval"] = copy.deepcopy(
+        evidence_retrieval
+    )
+    store = _FormalExecutorStore(run)
+    service = _RecordingFormalService(
+        receipt_top_k=5,
+        sources=[],
+        receipt_overrides={
+            "abstention_enabled": False,
+            "abstention_applied": True,
+            "abstained": True,
+            "abstention_input_count": 0,
+            "abstention_reason": "no_candidates",
+            "evidence_verification_enabled": True,
+            "evidence_verification_applied": False,
+            "evidence_verdict": "unavailable",
+            "evidence_provider": "none",
+            "evidence_model": "",
+        },
+    )
+
+    await KnowledgeEvaluationExecutor(service, store)._execute(run)
+
+    case_result = run["case_results"]["candidate"]["case-1"]
+    assert case_result["status"] == "completed"
+    assert case_result["no_result"] is True
+    assert case_result["retrieval_receipt"]["abstention_reason"] == "no_candidates"
+
+
+@pytest.mark.asyncio
+async def test_formal_executor_accepts_valid_verifier_abstain_with_nonzero_input() -> None:
+    run, _target = _formal_executor_run()
+    evidence_retrieval = {
+        **run["targets"][0]["retrieval"],
+        "rerank_enabled": True,
+        "rerank_provider": "llm",
+        "rerank_model": "support-verifier",
+        "evidence_verification_enabled": True,
+        "abstention_score_domain": "evidence_verdict_v1",
+    }
+    run["targets"][0]["retrieval"] = copy.deepcopy(evidence_retrieval)
+    run["targets"][0]["version_evidence"]["retrieval"] = copy.deepcopy(
+        evidence_retrieval
+    )
+    run["execution_manifest"]["target_fingerprints"][0]["retrieval"] = copy.deepcopy(
+        evidence_retrieval
+    )
+    run["eval_set_snapshot"]["cases"][0].update(
+        {"expected_refs": [], "expected_no_result": True}
+    )
+    store = _FormalExecutorStore(run)
+    service = _RecordingFormalService(
+        receipt_top_k=5,
+        sources=[],
+        receipt_overrides={
+            "abstention_enabled": False,
+            "abstention_applied": True,
+            "abstained": True,
+            "abstention_score_domain": "evidence_verdict_v1",
+            "abstention_input_count": 5,
+            "abstention_reason": "requested_fact_absent",
+            "evidence_verification_enabled": True,
+            "evidence_verification_applied": True,
+            "evidence_verdict": "abstain",
+            "evidence_provider": "llm",
+            "evidence_model": "support-verifier",
+        },
+    )
+
+    await KnowledgeEvaluationExecutor(service, store)._execute(run)
+
+    case_result = run["case_results"]["candidate"]["case-1"]
+    assert case_result["status"] == "completed"
+    assert case_result["no_result"] is True
+    assert case_result["metrics"]["no_result_accuracy"] == 1.0
+    assert case_result["retrieval_receipt"]["abstention_input_count"] == 5
+    assert case_result["retrieval_receipt"]["evidence_verdict"] == "abstain"
+
+
+@pytest.mark.asyncio
+async def test_formal_executor_rejects_no_candidates_bypass_with_nonzero_input() -> None:
+    run, _target = _formal_executor_run()
+    evidence_retrieval = {
+        **run["targets"][0]["retrieval"],
+        "rerank_enabled": True,
+        "rerank_provider": "llm",
+        "rerank_model": "support-verifier",
+        "evidence_verification_enabled": True,
+        "abstention_score_domain": "evidence_verdict_v1",
+    }
+    run["targets"][0]["retrieval"] = copy.deepcopy(evidence_retrieval)
+    run["targets"][0]["version_evidence"]["retrieval"] = copy.deepcopy(
+        evidence_retrieval
+    )
+    run["execution_manifest"]["target_fingerprints"][0]["retrieval"] = copy.deepcopy(
+        evidence_retrieval
+    )
+    store = _FormalExecutorStore(run)
+    service = _RecordingFormalService(
+        receipt_top_k=5,
+        sources=[],
+        receipt_overrides={
+            "abstention_enabled": False,
+            "abstention_applied": True,
+            "abstained": True,
+            "abstention_input_count": 1,
+            "abstention_reason": "no_candidates",
+            "evidence_verification_enabled": True,
+            "evidence_verification_applied": False,
+            "evidence_verdict": "unavailable",
+            "evidence_provider": "none",
+            "evidence_model": "",
+            "rerank_fallback_reason": "llm:invalid_provider_response",
+        },
+    )
+
+    await KnowledgeEvaluationExecutor(service, store)._execute(run)
+
+    case_result = run["case_results"]["candidate"]["case-1"]
+    assert case_result["status"] == "failed"
+    assert "evidence_verification_applied" in case_result["error"]
+    assert case_result["retrieval_receipt"]["rerank_fallback_reason"] == (
+        "llm:invalid_provider_response"
+    )
+
+
+def test_no_result_metric_uses_explicit_abstention_instead_of_source_emptiness() -> None:
+    explicitly_rejected = evaluate_retrieval_case(
+        [
+            {
+                "chunk_id": "near-context",
+                "source_document_id": "doc-near",
+                "fused_score": 1.0,
+                "vector_score": 0.55,
+            }
+        ],
+        [],
+        ks=[1, 5, 10],
+        expected_no_result=True,
+        retrieval_receipt={
+            "abstention_enabled": True,
+            "abstention_applied": True,
+            "abstained": True,
+            "abstention_score_domain": "vector_score",
+            "abstention_threshold": 0.7,
+            "abstention_score": 0.55,
+            "abstention_input_count": 1,
+            "abstention_reason": "below_threshold",
+        },
+    )
+    empty_but_not_rejected = evaluate_retrieval_case(
+        [],
+        [],
+        ks=[1, 5, 10],
+        expected_no_result=True,
+        retrieval_receipt={
+            "abstention_enabled": False,
+            "abstention_applied": False,
+            "abstained": False,
+            "abstention_score_domain": "vector_score",
+            "abstention_threshold": 0.0,
+            "abstention_score": None,
+            "abstention_input_count": 0,
+            "abstention_reason": "disabled",
+        },
+    )
+
+    assert explicitly_rejected["metrics"]["no_result_accuracy"] == 1.0
+    assert explicitly_rejected["abstention_contract"] == "explicit"
+    assert empty_but_not_rejected["metrics"]["no_result_accuracy"] == 0.0
+
+
+def test_evaluation_receipt_preserves_only_sanitized_provider_latency_fields() -> None:
+    result = evaluate_retrieval_case(
+        [],
+        [],
+        ks=[1, 5, 10],
+        expected_no_result=True,
+        retrieval_receipt={
+            "rerank_provider_http_elapsed_ms": 123.4,
+            "rerank_provider_prompt_tokens": 321,
+            "rerank_provider_completion_tokens": 45,
+            "rerank_provider_total_tokens": 366,
+            "rerank_provider_response_char_count": 108,
+            "raw_provider_response": "must-not-be-retained",
+        },
+    )
+
+    receipt = result["retrieval_receipt"]
+    assert receipt["rerank_provider_http_elapsed_ms"] == 123.4
+    assert receipt["rerank_provider_prompt_tokens"] == 321
+    assert receipt["rerank_provider_completion_tokens"] == 45
+    assert receipt["rerank_provider_total_tokens"] == 366
+    assert receipt["rerank_provider_response_char_count"] == 108
+    assert "raw_provider_response" not in receipt
 
 
 def test_evaluation_metrics_match_stable_references_and_rankings() -> None:
@@ -637,6 +1111,7 @@ def _gold_v2_provenance() -> dict:
     }
     return {
         "benchmark_contract_version": "rag-gold-v2",
+        "evidence_policy_version": "content-source-block-v1",
         "generator": "test-generator",
         "generator_model_id": "test/model",
         "seed": 17,
@@ -662,7 +1137,7 @@ def test_gold_v2_publish_requires_every_case_review_and_protects_integrity(
         provenance=_gold_v2_provenance(),
         coverage={},
         calibration={"status": "calibrated", "dataset_revision": 1},
-        benchmark_role="promotion_evidence",
+        benchmark_role="promotion_sealed",
     )
     with pytest.raises(EvaluationStateError, match="42 cases require explicit review"):
         store.publish_set(draft["eval_set_id"], expected_revision=1)
@@ -675,12 +1150,17 @@ def test_gold_v2_publish_requires_every_case_review_and_protects_integrity(
         provenance=_gold_v2_provenance(),
         coverage={},
         calibration={"status": "calibrated", "dataset_revision": 1},
-        benchmark_role="promotion_evidence",
+        benchmark_role="promotion_sealed",
     )
     published = store.publish_set(approved["eval_set_id"], expected_revision=1)
     assert published["benchmark_contract_version"] == "rag-gold-v2"
+    assert published["qualification_manifest"]["version"] == "rag-gold-v2-qualification-v2"
     assert published["qualification_manifest"]["qualified"] is True
     assert qualify_promotion_evidence(published)["qualified"] is True
+    listed = store.list_set_versions(approved["eval_set_id"])
+    assert listed[0]["evidence_qualification"]["qualified"] is True
+    with pytest.raises(EvaluationStateError, match="identical sealed Gold"):
+        store.publish_set(approved["eval_set_id"], expected_revision=1)
 
     tampered = copy.deepcopy(published)
     tampered["provenance"]["seed"] = 18
@@ -689,6 +1169,409 @@ def test_gold_v2_publish_requires_every_case_review_and_protects_integrity(
     assert next(
         check for check in qualification["checks"] if check["id"] == "published_checksum"
     )["passed"] is False
+
+
+def test_calibration_fork_is_target_bound_and_clears_every_review(
+    tmp_path: Path,
+) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    source = store.create_generated_set(
+        "kb-gold-v2",
+        "Independent Gold",
+        "",
+        cases=_gold_v2_cases(),
+        provenance=_gold_v2_provenance(),
+        coverage={"source": "independent-holdout"},
+        calibration={"status": "not_required", "dataset_revision": 1},
+        benchmark_role="promotion_sealed",
+    )
+    published = store.publish_set(source["eval_set_id"], expected_revision=1)
+
+    forked = store.fork_calibration_set(
+        source["eval_set_id"],
+        source_version=published["version"],
+        target_pipeline_version_id="kpv-target",
+        target_corpus_snapshot={
+            "corpus_snapshot": published["corpus_snapshot"],
+            "corpus_snapshot_hash": published["corpus_snapshot_hash"],
+        },
+    )
+
+    assert forked["origin"] == "generated"
+    assert forked["benchmark_role"] == "calibration"
+    assert forked["provenance"]["benchmark_contract_version"] == (
+        "rag-calibration-v1"
+    )
+    assert forked["provenance"]["pipeline_version_id"] == "kpv-target"
+    assert forked["provenance"]["source_evidence"]["checksum"] == published["checksum"]
+    assert {item["case_id"] for item in forked["cases"]}.isdisjoint(
+        {item["case_id"] for item in published["cases"]}
+    )
+    assert all(item["review_status"] == "pending" for item in forked["cases"])
+    assert all(item["review_evidence"] == {} for item in forked["cases"])
+    with pytest.raises(EvaluationStateError, match="manual review"):
+        store.publish_set(forked["eval_set_id"], expected_revision=1)
+
+    reviewed = forked
+    for case in [item for item in forked["cases"] if item["expected_no_result"]]:
+        reviewed = store.update_case(
+            forked["eval_set_id"],
+            case["case_id"],
+            expected_revision=reviewed["revision"],
+            values={
+                "review_status": "approved",
+                "review_evidence": {
+                    "source": "manual_ui",
+                    "decision": "approved",
+                    "reviewed_at": 3000.0 + reviewed["revision"],
+                    "dataset_revision": reviewed["revision"],
+                    "reason": "Confirmed absent against the displayed corpus-near block.",
+                },
+            },
+        )
+    calibration_version = store.publish_set(
+        forked["eval_set_id"],
+        expected_revision=reviewed["revision"],
+    )
+    assert calibration_version["benchmark_contract_version"] == "rag-calibration-v1"
+    assert build_tuning_readiness(
+        calibration_version,
+        target_version_id="kpv-target",
+    )["selection_eligible"] is True
+
+    tampered = copy.deepcopy(calibration_version)
+    tampered["provenance"]["source_evidence"]["checksum"] = "0" * 64
+    tampered_readiness = build_tuning_readiness(
+        tampered,
+        target_version_id="kpv-target",
+    )
+    checksum_check = next(
+        item
+        for item in tampered_readiness["checks"]
+        if item["check_id"] == "published_checksum"
+    )
+    assert checksum_check["passed"] is False
+    assert tampered_readiness["selection_eligible"] is False
+
+
+def test_calibration_fork_accepts_sealed_gold_from_before_freshness_manifest(
+    tmp_path: Path,
+) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    source = store.create_generated_set(
+        "kb-gold-v2",
+        "Legacy independent Gold",
+        "",
+        cases=_gold_v2_cases(),
+        provenance=_gold_v2_provenance(),
+        coverage={"source": "independent-holdout"},
+        calibration={"status": "not_required", "dataset_revision": 1},
+        benchmark_role="promotion_sealed",
+    )
+    published = store.publish_set(source["eval_set_id"], expected_revision=1)
+
+    data = json.loads(store.path.read_text(encoding="utf-8"))
+    sealed = data["versions"][published["version_id"]]
+    sealed.pop("freshness_manifest")
+    legacy_checksum_payload = {
+        key: sealed.get(key) or {}
+        for key in (
+            "benchmark_contract_version",
+            "benchmark_role",
+            "cases",
+            "provenance",
+            "coverage",
+            "calibration",
+            "corpus_snapshot",
+            "qualification_manifest",
+        )
+    }
+    sealed["checksum"] = hashlib.sha256(
+        json.dumps(
+            legacy_checksum_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    store.path.write_text(json.dumps(data), encoding="utf-8")
+
+    forked = store.fork_calibration_set(
+        source["eval_set_id"],
+        source_version=published["version"],
+        target_pipeline_version_id="kpv-target",
+        target_corpus_snapshot={
+            "corpus_snapshot": published["corpus_snapshot"],
+            "corpus_snapshot_hash": published["corpus_snapshot_hash"],
+        },
+    )
+    assert forked["provenance"]["source_evidence"]["checksum"] == sealed["checksum"]
+
+    data = json.loads(store.path.read_text(encoding="utf-8"))
+    data["versions"][published["version_id"]]["provenance"]["seed"] = 99
+    store.path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(EvaluationStateError, match="checksum validation failed"):
+        store.fork_calibration_set(
+            source["eval_set_id"],
+            source_version=published["version"],
+            target_pipeline_version_id="kpv-target",
+            target_corpus_snapshot={
+                "corpus_snapshot": published["corpus_snapshot"],
+                "corpus_snapshot_hash": published["corpus_snapshot_hash"],
+            },
+        )
+
+
+def test_calibration_fork_rejects_a_different_corpus(tmp_path: Path) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    source = store.create_generated_set(
+        "kb-gold-v2",
+        "Independent Gold",
+        "",
+        cases=_gold_v2_cases(),
+        provenance=_gold_v2_provenance(),
+        coverage={},
+        calibration={"status": "not_required", "dataset_revision": 1},
+        benchmark_role="promotion_sealed",
+    )
+    published = store.publish_set(source["eval_set_id"], expected_revision=1)
+
+    with pytest.raises(EvaluationStateError, match="same corpus snapshot"):
+        store.fork_calibration_set(
+            source["eval_set_id"],
+            source_version=published["version"],
+            target_pipeline_version_id="kpv-target",
+            target_corpus_snapshot={
+                "corpus_snapshot": {},
+                "corpus_snapshot_hash": "f" * 64,
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_calibration_fork_api_resolves_target_corpus_server_side(
+    evaluation_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, service, _, _, _ = evaluation_runtime
+    store = rag_api.get_evaluation_store()
+    source = store.create_generated_set(
+        "kb-gold-v2",
+        "Independent Gold",
+        "",
+        cases=_gold_v2_cases(),
+        provenance=_gold_v2_provenance(),
+        coverage={},
+        calibration={"status": "not_required", "dataset_revision": 1},
+        benchmark_role="promotion_sealed",
+    )
+    published = store.publish_set(source["eval_set_id"], expected_revision=1)
+    monkeypatch.setattr(
+        service,
+        "get_pipeline_version",
+        lambda version_id: {
+            "version_id": version_id,
+            "kb_id": "kb-gold-v2",
+            "status": "ready",
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "pipeline_corpus_snapshot",
+        lambda _version_id: {
+            "corpus_snapshot": published["corpus_snapshot"],
+            "corpus_snapshot_hash": published["corpus_snapshot_hash"],
+        },
+    )
+
+    response = await client.post(
+        f"/api/rag/evaluation-sets/{source['eval_set_id']}/versions/1/fork-calibration",
+        json={"target_pipeline_version_id": "kpv-target"},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["provenance"]["pipeline_version_id"] == "kpv-target"
+    assert payload["provenance"]["corpus_snapshot_hash"] == published[
+        "corpus_snapshot_hash"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hard_negative_review_resolves_stable_context_across_versions(
+    evaluation_runtime,
+) -> None:
+    client, service, pipeline_executor, _, _ = evaluation_runtime
+    kb_id = await _create_kb(client, "calibration context")
+    document_id = await _upload_text(
+        client,
+        kb_id,
+        "context.txt",
+        "The fixed policy states that Cedar reviews close after fourteen days.",
+    )
+    source_job = await _execute_draft(client, pipeline_executor, kb_id, [document_id])
+    target_job = await _execute_draft(client, pipeline_executor, kb_id, [document_id])
+    source_version_id = str(source_job["candidate_version_id"])
+    target_version_id = str(target_job["candidate_version_id"])
+    source_chunk = service.vector_store.list_document_chunks(
+        f"{source_version_id}_{document_id}"
+    )[0]
+
+    store = rag_api.get_evaluation_store()
+    dataset = store.create_generated_set(
+        kb_id,
+        "Target-bound calibration context",
+        "",
+        cases=[
+            {
+                "query": "Which regulator receives the Cedar closure report?",
+                "expected_refs": [],
+                "expected_no_result": True,
+                "review_status": "pending",
+                "tags": ["generated", "no_result", "en-US", "hard_negative"],
+                "targeting": {
+                    "query_type": "no_result",
+                    "locale": "en-US",
+                    "context_refs": [
+                        {
+                            "document_id": document_id,
+                            "chunk_id": source_chunk.chunk_id,
+                            "source_block_id": source_chunk.source_block_id,
+                        }
+                    ],
+                },
+            }
+        ],
+        provenance={
+            "benchmark_contract_version": "rag-calibration-v1",
+            "pipeline_version_id": target_version_id,
+        },
+        coverage={},
+        calibration={"status": "not_required", "dataset_revision": 1},
+        benchmark_role="calibration",
+    )
+
+    response = await client.get(
+        f"/api/rag/evaluation-sets/{dataset['eval_set_id']}/cases/"
+        f"{dataset['cases'][0]['case_id']}/evidence"
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["pipeline_version_id"] == target_version_id
+    assert payload["evidence"][0]["chunk_id"] != source_chunk.chunk_id
+    assert payload["evidence"][0]["source_block_id"] == source_chunk.source_block_id
+
+
+def test_gold_v2_republish_after_consumption_requires_fresh_queries(
+    tmp_path: Path,
+) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    draft = store.create_generated_set(
+        "kb-gold-v2",
+        "Consumed Gold v2",
+        "",
+        cases=_gold_v2_cases(),
+        provenance=_gold_v2_provenance(),
+        coverage={},
+        calibration={"status": "not_required", "dataset_revision": 1},
+        benchmark_role="promotion_sealed",
+    )
+    published = store.publish_set(draft["eval_set_id"], expected_revision=1)
+    with store._lock:
+        data = store._read_unlocked()
+        data["evidence_usages"][f"checksum:{published['checksum']}"] = {
+            "status": "consumed",
+            "evidence_checksum": published["checksum"],
+            "version_id": published["version_id"],
+        }
+        store._write_unlocked(data)
+
+    replacement_query = "A replacement for only one of the forty-two queries"
+    replacement_targeting = copy.deepcopy(draft["cases"][0]["targeting"])
+    replacement_targeting["leakage"] = gold_v2_leakage_receipt(
+        replacement_query,
+        ["fixed source text with no copied sequence"],
+        query_type=str(replacement_targeting["query_type"]),
+    )
+    changed = store.update_case(
+        draft["eval_set_id"],
+        draft["cases"][0]["case_id"],
+        expected_revision=1,
+        values={"query": replacement_query, "targeting": replacement_targeting},
+    )
+    reviewed = store.update_case(
+        draft["eval_set_id"],
+        draft["cases"][0]["case_id"],
+        expected_revision=2,
+        values={
+            "review_status": "approved",
+            "review_evidence": {
+                "source": "manual_ui",
+                "decision": "approved",
+                "reviewed_at": 3000.0,
+                "dataset_revision": 2,
+                "reason": "Replacement checked against the fixed source block.",
+            },
+        },
+    )
+
+    assert changed["cases"][0]["review_status"] == "pending"
+    assert reviewed["cases"][0]["review_status"] == "approved"
+    with pytest.raises(EvaluationStateError, match="fresh queries"):
+        store.publish_set(draft["eval_set_id"], expected_revision=3)
+
+
+def test_rag_runtime_identity_is_deterministic_and_source_sensitive(
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "rag"
+    source_dir.mkdir()
+    (source_dir / "a.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (source_dir / "b.py").write_text("VALUE = 2\n", encoding="utf-8")
+
+    original = build_rag_runtime_identity(source_dir)
+    assert is_valid_rag_runtime_identity(original) is True
+    assert build_rag_runtime_identity(source_dir) == original
+
+    (source_dir / "b.py").write_text("VALUE = 3\n", encoding="utf-8")
+    changed = build_rag_runtime_identity(source_dir)
+    assert changed["fingerprint"] != original["fingerprint"]
+    assert is_valid_rag_runtime_identity(changed) is True
+
+    configured = build_rag_runtime_identity(
+        source_dir,
+        settings={"rerank_request": {"timeout_budget_ms": 5000}},
+    )
+    assert configured["fingerprint"] != changed["fingerprint"]
+    assert is_valid_rag_runtime_identity(configured) is True
+
+    tampered = copy.deepcopy(changed)
+    tampered["source_hashes"][0]["sha256"] = "0" * 64
+    assert is_valid_rag_runtime_identity(tampered) is False
+
+
+def test_gold_v2_publish_rejects_missing_content_source_block_policy(
+    tmp_path: Path,
+) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    provenance = _gold_v2_provenance()
+    provenance.pop("evidence_policy_version")
+    draft = store.create_generated_set(
+        "kb-gold-v2",
+        "Heading-only Gold is not formal evidence",
+        "",
+        cases=_gold_v2_cases(),
+        provenance=provenance,
+        coverage={},
+        calibration={"status": "not_required", "dataset_revision": 1},
+        benchmark_role="promotion_sealed",
+    )
+
+    with pytest.raises(
+        EvaluationStateError,
+        match="content_source_block_evidence",
+    ):
+        store.publish_set(draft["eval_set_id"], expected_revision=1)
 
 
 def test_gold_v2_semantic_edit_clears_prior_manual_review(tmp_path: Path) -> None:
@@ -712,6 +1595,17 @@ def test_gold_v2_semantic_edit_clears_prior_manual_review(tmp_path: Path) -> Non
 
     assert changed["cases"][0]["review_status"] == "pending"
     assert changed["cases"][0]["review_evidence"] == {}
+    assert changed["cases"][0]["targeting"]["leakage"]["stale"] is True
+    assert "fresh_leakage_receipts" in gold_v2_review_admission_blockers(changed)
+    assert changed["provenance"]["query_revision_contract"] == (
+        "server-case-update-v1"
+    )
+    receipt = changed["provenance"]["query_revision_receipts"]
+    assert len(receipt) == 1
+    assert receipt[0]["case_id"] == draft["cases"][0]["case_id"]
+    assert receipt[0]["source"] == "server_case_update"
+    assert receipt[0]["dataset_revision"] == 2
+    assert receipt[0]["previous_query_hash"] != receipt[0]["new_query_hash"]
 
 
 def test_gold_v2_review_admission_separates_structural_and_review_stage_failures(
@@ -745,6 +1639,47 @@ def test_gold_v2_review_admission_separates_structural_and_review_stage_failures
     assert "corpus_snapshot_hash" in blockers
 
 
+def test_formal_evidence_independence_rejects_exact_near_and_tampered_development_use() -> None:
+    development = {
+        "version_id": "gold-development-v1",
+        "checksum": "d" * 64,
+        "corpus_snapshot_hash": "c" * 64,
+        "cases": [
+            {"case_id": "dev-1", "query": "Which policy requires an audit owner?"},
+            {"case_id": "dev-2", "query": "紧急例外会在七天后到期吗"},
+        ],
+    }
+    manifest = build_development_evidence_manifest(development)
+
+    exact = assess_formal_evidence_independence(
+        manifest,
+        {"cases": [{"case_id": "formal-1", "query": "Which policy requires an audit owner?"}]},
+    )
+    assert exact["independent"] is False
+    assert exact["status"] == "development_evidence_overlap"
+    assert exact["overlap_case_count"] == 1
+
+    near = assess_formal_evidence_independence(
+        manifest,
+        {"cases": [{"case_id": "formal-2", "query": "紧急例外会在七天后到期么"}]},
+    )
+    assert near["independent"] is False
+    assert near["overlap_case_count"] == 1
+
+    fresh = assess_formal_evidence_independence(
+        manifest,
+        {"cases": [{"case_id": "formal-3", "query": "Who approves the monthly ledger?"}]},
+    )
+    assert fresh["independent"] is True
+    assert fresh["overlap_case_count"] == 0
+
+    tampered = copy.deepcopy(manifest)
+    tampered["case_count"] = 999
+    invalid = assess_formal_evidence_independence(tampered, {"cases": []})
+    assert invalid["independent"] is False
+    assert invalid["status"] == "invalid_development_evidence"
+
+
 def test_formal_run_requires_published_gold_v2_full_pair_and_comparable_corpus(
     tmp_path: Path,
 ) -> None:
@@ -757,7 +1692,7 @@ def test_formal_run_requires_published_gold_v2_full_pair_and_comparable_corpus(
         provenance=_gold_v2_provenance(),
         coverage={},
         calibration={"status": "calibrated", "dataset_revision": 1},
-        benchmark_role="promotion_evidence",
+        benchmark_role="promotion_sealed",
     )
     published = store.publish_set(draft["eval_set_id"], expected_revision=1)
     targets = [
@@ -772,6 +1707,7 @@ def test_formal_run_requires_published_gold_v2_full_pair_and_comparable_corpus(
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
+    runtime_identity = rag_runtime_identity()
     target_fingerprints = [
         {
             "version_id": version_id,
@@ -786,6 +1722,7 @@ def test_formal_run_requires_published_gold_v2_full_pair_and_comparable_corpus(
                     "dimension": 128,
                 }
             },
+            "runtime": copy.deepcopy(runtime_identity),
             "corpus_snapshot_hash": published["corpus_snapshot_hash"],
         }
         for version_id, marker in (("baseline", "a"), ("candidate", "b"))
@@ -800,6 +1737,7 @@ def test_formal_run_requires_published_gold_v2_full_pair_and_comparable_corpus(
                 "processor",
                 "retrieval",
                 "embedding",
+                "runtime",
             )
         }
     manifest = {
@@ -808,17 +1746,64 @@ def test_formal_run_requires_published_gold_v2_full_pair_and_comparable_corpus(
         "corpus_snapshot_hash": published["corpus_snapshot_hash"],
         "target_fingerprints": target_fingerprints,
         "execution_seed": 19,
+        "observation_depth": 10,
         "order_algorithm": "sha256-paired-interleave-v1",
         "schedule_checksum": schedule_checksum,
         "threshold_score_domain": "fused_score",
+        "abstention_contract_version": "rag-abstention-v1",
+        "runtime": copy.deepcopy(runtime_identity),
         "retry_policy": "none",
         "warmup_policy": "none",
+        "development_evidence_independence": {
+            "version": "rag-development-evidence-v1",
+            "status": "no_declared_development_evidence",
+            "independent": True,
+            "overlap_case_count": 0,
+            "similarity_threshold": 0.8,
+        },
     }
     comparable = {
         "comparable": True,
         "corpus_snapshot_hash": published["corpus_snapshot_hash"],
         "reasons": [],
     }
+
+    manifest_without_runtime = copy.deepcopy(manifest)
+    manifest_without_runtime.pop("runtime")
+    with pytest.raises(EvaluationStateError, match="runtime"):
+        store.create_run(
+            evaluation_set=store.get_set(draft["eval_set_id"]),
+            evaluation_set_version=published,
+            targets=targets,
+            baseline_version_id="baseline",
+            ks=[1, 5, 10],
+            gate_policy=store.get_gate_policy("kb-gold-v2"),
+            run_mode="formal",
+            metric_contract_version="rag-eval-v2",
+            execution_manifest=manifest_without_runtime,
+            comparability=comparable,
+            execution_seed=19,
+        )
+
+    mismatched_runtime_fingerprints = copy.deepcopy(target_fingerprints)
+    mismatched_runtime_fingerprints[1]["runtime"]["fingerprint"] = "e" * 64
+    with pytest.raises(EvaluationStateError, match="runtime"):
+        store.create_run(
+            evaluation_set=store.get_set(draft["eval_set_id"]),
+            evaluation_set_version=published,
+            targets=targets,
+            baseline_version_id="baseline",
+            ks=[1, 5, 10],
+            gate_policy=store.get_gate_policy("kb-gold-v2"),
+            run_mode="formal",
+            metric_contract_version="rag-eval-v2",
+            execution_manifest={
+                **manifest,
+                "target_fingerprints": mismatched_runtime_fingerprints,
+            },
+            comparability=comparable,
+            execution_seed=19,
+        )
 
     with pytest.raises(EvaluationStateError, match="case subsets"):
         store.create_run(
@@ -915,7 +1900,24 @@ def test_formal_run_requires_published_gold_v2_full_pair_and_comparable_corpus(
     assert run["metric_contract_version"] == "rag-eval-v2"
     assert run["comparability"]["comparable"] is True
     assert len(run["execution_schedule"]) == 84
-    store.complete_run(
+    assert run["evidence_usage"]["status"] == "reserved"
+    assert run["evidence_usage"]["eval_set_version_id"] == published["version_id"]
+
+    with pytest.raises(EvaluationStateError, match="already been consumed"):
+        store.create_run(
+            evaluation_set=store.get_set(draft["eval_set_id"]),
+            evaluation_set_version=published,
+            targets=targets,
+            baseline_version_id="baseline",
+            ks=[1, 5, 10],
+            gate_policy=store.get_gate_policy("kb-gold-v2"),
+            run_mode="formal",
+            metric_contract_version="rag-eval-v2",
+            execution_manifest=manifest,
+            comparability=comparable,
+            execution_seed=19,
+        )
+    completed = store.complete_run(
         run["run_id"],
         [
             {
@@ -944,12 +1946,44 @@ def test_formal_run_requires_published_gold_v2_full_pair_and_comparable_corpus(
             },
         ],
     )
+    assert completed["evidence_usage"]["status"] == "consumed"
+    assert completed["evidence_usage"]["terminal_status"] == "succeeded"
+    assert completed["evidence_usage"]["evidence_checksum"] == published["checksum"]
+    assert completed["evidence_usage"]["evidence_usage_key"] == (
+        f"checksum:{published['checksum']}"
+    )
+    assert completed["evidence_usage"]["consumed_at"] >= run["evidence_usage"]["reserved_at"]
+    persisted_usage = store.get_run(run["run_id"])["evidence_usage"]
+    assert persisted_usage == completed["evidence_usage"]
+
+    duplicate = copy.deepcopy(published)
+    duplicate["version_id"] = "evalsetver_duplicate_checksum"
+    duplicate["version"] = 2
+    with store._lock:
+        data = store._read_unlocked()
+        data["versions"][duplicate["version_id"]] = copy.deepcopy(duplicate)
+        store._write_unlocked(data)
+    with pytest.raises(EvaluationStateError, match="already been consumed"):
+        store.create_run(
+            evaluation_set=store.get_set(draft["eval_set_id"]),
+            evaluation_set_version=duplicate,
+            targets=targets,
+            baseline_version_id="baseline",
+            ks=[1, 5, 10],
+            gate_policy=store.get_gate_policy("kb-gold-v2"),
+            run_mode="formal",
+            metric_contract_version="rag-eval-v2",
+            execution_manifest=manifest,
+            comparability=comparable,
+            execution_seed=19,
+        )
     with pytest.raises(EvaluationPromotionError, match="candidate, not the baseline"):
         store.assert_promotion_allowed(
             kb_id="kb-gold-v2",
             version_id="baseline",
             evaluation_run_id=run["run_id"],
             require_passed_run=True,
+            current_runtime=runtime_identity,
         )
     with pytest.raises(EvaluationPromotionError, match="all 42"):
         store.assert_promotion_allowed(
@@ -957,7 +1991,134 @@ def test_formal_run_requires_published_gold_v2_full_pair_and_comparable_corpus(
             version_id="candidate",
             evaluation_run_id=run["run_id"],
             require_passed_run=True,
+            current_runtime=runtime_identity,
         )
+
+
+@pytest.mark.parametrize(
+    ("initial_status", "terminal_action", "terminal_status"),
+    [
+        ("running", "complete", "succeeded"),
+        ("running", "fail", "failed"),
+        ("queued", "request_cancel", "cancelled"),
+        ("running", "complete_cancel", "cancelled"),
+    ],
+)
+def test_formal_evidence_usage_is_consumed_for_every_terminal_outcome(
+    tmp_path: Path,
+    initial_status: str,
+    terminal_action: str,
+    terminal_status: str,
+) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    run_id = f"evalrun-{terminal_action}"
+    version_id = f"evalsetver-{terminal_action}"
+    usage = {
+        "status": "reserved",
+        "eval_set_version_id": version_id,
+        "run_id": run_id,
+        "target_fingerprints": [],
+        "reserved_at": 10.0,
+    }
+    data = store._read_unlocked()
+    data["runs"][run_id] = {
+        "run_id": run_id,
+        "run_mode": "formal",
+        "eval_set_version_id": version_id,
+        "status": initial_status,
+        "cancel_requested": False,
+        "evidence_usage": copy.deepcopy(usage),
+    }
+    data["evidence_usages"][version_id] = copy.deepcopy(usage)
+    store._write_unlocked(data)
+
+    if terminal_action == "complete":
+        result = store.complete_run(run_id, [])
+    elif terminal_action == "fail":
+        result = store.fail_run(run_id, "expected failure")
+    elif terminal_action == "request_cancel":
+        result = store.request_cancel(run_id)
+    else:
+        result = store.complete_cancel(run_id)
+
+    assert result["status"] == terminal_status
+    assert result["evidence_usage"]["status"] == "consumed"
+    assert result["evidence_usage"]["terminal_status"] == terminal_status
+    assert result["evidence_usage"]["consumed_at"] >= 10.0
+    persisted = store._read()
+    assert persisted["evidence_usages"][version_id] == result["evidence_usage"]
+    assert persisted["runs"][run_id]["evidence_usage"] == result["evidence_usage"]
+
+
+def test_formal_rejects_legacy_or_nonformal_use_of_sealed_gold(tmp_path: Path) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    legacy = store.create_generated_set(
+        "kb-gold-v2",
+        "Legacy promotion evidence",
+        "",
+        cases=_gold_v2_cases(),
+        provenance=_gold_v2_provenance(),
+        coverage={},
+        calibration={"status": "not_required", "dataset_revision": 1},
+        benchmark_role="promotion_evidence",
+    )
+    with pytest.raises(EvaluationStateError, match="promotion_sealed"):
+        store.publish_set(legacy["eval_set_id"], expected_revision=1)
+
+    sealed = store.create_generated_set(
+        "kb-gold-v2",
+        "Sealed promotion evidence",
+        "",
+        cases=_gold_v2_cases(),
+        provenance=_gold_v2_provenance(),
+        coverage={},
+        calibration={"status": "not_required", "dataset_revision": 1},
+        benchmark_role="promotion_sealed",
+    )
+    published = store.publish_set(sealed["eval_set_id"], expected_revision=1)
+    with pytest.raises(EvaluationStateError, match="cannot be used for diagnostic"):
+        store.create_run(
+            evaluation_set=store.get_set(sealed["eval_set_id"]),
+            evaluation_set_version=published,
+            targets=[{"target_id": "candidate", "version_id": "candidate"}],
+            baseline_version_id=None,
+            ks=[5],
+            gate_policy=store.get_gate_policy("kb-gold-v2"),
+            run_mode="diagnostic",
+        )
+
+
+def test_gold_v2_role_upgrade_reseals_only_unchanged_reviewed_content(
+    tmp_path: Path,
+) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    draft = store.create_generated_set(
+        "kb-gold-v2",
+        "Reviewed Gold awaiting final seal",
+        "",
+        cases=_gold_v2_cases(),
+        provenance=_gold_v2_provenance(),
+        coverage={},
+        calibration={"status": "not_required", "dataset_revision": 1},
+        benchmark_role="promotion_evidence",
+    )
+    reviewed_cases = copy.deepcopy(draft["cases"])
+
+    sealed = store.update_set(
+        draft["eval_set_id"],
+        expected_revision=draft["revision"],
+        benchmark_role="promotion_sealed",
+    )
+    published = store.publish_set(
+        sealed["eval_set_id"],
+        expected_revision=sealed["revision"],
+    )
+
+    assert sealed["cases"] == reviewed_cases
+    assert sealed["calibration"]["dataset_revision"] == sealed["revision"]
+    assert published["source_revision"] == sealed["revision"]
+    assert published["cases"] == reviewed_cases
+    assert qualify_promotion_evidence(published)["qualified"] is True
 
 
 def test_gold_v2_publication_does_not_require_preformal_retrieval_calibration(
@@ -976,7 +2137,7 @@ def test_gold_v2_publication_does_not_require_preformal_retrieval_calibration(
             "dataset_revision": 1,
             "reason": "Retrieval is measured once by the paired Formal run.",
         },
-        benchmark_role="promotion_evidence",
+        benchmark_role="promotion_sealed",
     )
 
     published = store.publish_set(draft["eval_set_id"], expected_revision=1)
@@ -1020,6 +2181,37 @@ def test_legacy_run_defaults_to_diagnostic_contract(tmp_path: Path) -> None:
             version_id="v1",
             evaluation_run_id=run["run_id"],
             require_passed_run=True,
+        )
+
+
+def test_historical_formal_without_development_independence_cannot_promote(
+    tmp_path: Path,
+) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    runtime = rag_runtime_identity()
+    with store._lock:
+        data = store._read_unlocked()
+        data["runs"]["evalrun-pre-independence"] = {
+            "run_id": "evalrun-pre-independence",
+            "kb_id": "kb-legacy-formal",
+            "status": "succeeded",
+            "run_mode": "formal",
+            "metric_contract_version": "rag-eval-v2",
+            "comparability": {"comparable": True},
+            "execution_manifest": {
+                "abstention_contract_version": "rag-abstention-v1",
+                "runtime": runtime,
+            },
+        }
+        store._write_unlocked(data)
+
+    with pytest.raises(EvaluationPromotionError, match="independent development"):
+        store.assert_promotion_allowed(
+            kb_id="kb-legacy-formal",
+            version_id="candidate",
+            evaluation_run_id="evalrun-pre-independence",
+            require_passed_run=True,
+            current_runtime=runtime,
         )
 
 
@@ -1216,6 +2408,283 @@ async def test_evaluation_gate_api_defaults_no_result_floor_and_allows_explicit_
     assert override_response.json()["min_no_result_accuracy"] == 0.0
 
 
+@pytest.mark.asyncio
+async def test_formal_candidate_protection_blocks_direct_activation(
+    evaluation_runtime,
+) -> None:
+    client, service, pipeline_executor, _evaluation_executor, _registry = evaluation_runtime
+    kb_id = await _create_kb(client, "formal candidate activation guard")
+    document_id = await _upload_text(
+        client,
+        kb_id,
+        "candidate.txt",
+        "The immutable candidate remains inactive until its Formal evaluation passes.",
+    )
+    candidate_job = await _execute_draft(
+        client,
+        pipeline_executor,
+        kb_id,
+        [document_id],
+    )
+    candidate_version_id = str(candidate_job["candidate_version_id"])
+
+    service.mark_pipeline_version_promotion_required(
+        candidate_version_id,
+        source_run_id="evalrun-formal-guard",
+    )
+
+    candidate = service.get_pipeline_version(candidate_version_id)
+    assert candidate["status"] == "ready"
+    assert candidate["promotion_required"] is True
+    assert candidate["promotion_source_run_id"] == "evalrun-formal-guard"
+
+    blocked = await client.post(
+        f"/api/rag/pipeline/versions/{candidate_version_id}/activate"
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert service.get_active_pipeline_version(kb_id) is None
+
+
+@pytest.mark.asyncio
+async def test_formal_run_protects_candidate_only_after_valid_queueing(monkeypatch) -> None:
+    corpus_hash = "c" * 64
+    retrieval = {
+        "mode": "fulltext",
+        "top_k": 5,
+        "score_threshold": 0.0,
+        "vector_weight": 0.0,
+        "fulltext_weight": 1.0,
+        "candidate_multiplier": 4,
+        "per_document_limit": 2,
+        "rerank_enabled": False,
+        "rerank_provider": "none",
+        "rerank_model": "",
+        "rerank_top_n": 5,
+        "abstention_enabled": False,
+        "abstention_score_domain": "fused_score",
+        "abstention_threshold": 0.0,
+    }
+
+    class FakeService:
+        def __init__(self) -> None:
+            self.mark_calls: list[tuple[str, str | None]] = []
+            self.validated_evidence_profiles: list[dict] = []
+            self.versions = {
+                "baseline": {"version_id": "baseline", "version": 1, "kb_id": "kb", "status": "active"},
+                "candidate": {"version_id": "candidate", "version": 2, "kb_id": "kb", "status": "ready"},
+            }
+
+        def get_pipeline_version(self, version_id: str) -> dict:
+            return copy.deepcopy(self.versions[version_id])
+
+        def pipeline_version_evidence(self, version_id: str) -> dict:
+            return {
+                "version_fingerprint": ("a" if version_id == "baseline" else "b") * 64,
+                "configuration_fingerprint": ("d" if version_id == "baseline" else "e") * 64,
+                "processor": {"mode": "general"},
+                "retrieval": copy.deepcopy(retrieval),
+                "embedding": {
+                    "effective": {
+                        "provider": "hash",
+                        "model": "deterministic-hash-v1",
+                        "dimension": 128,
+                    }
+                },
+                "runtime": rag_runtime_identity(),
+            }
+
+        def pipeline_corpus_snapshot(self, _version_id: str, **_kwargs) -> dict:
+            return {"corpus_snapshot": {}, "corpus_snapshot_hash": corpus_hash}
+
+        def validate_evidence_verifier_identity(
+            self, retrieval_profile: dict
+        ) -> dict:
+            self.validated_evidence_profiles.append(copy.deepcopy(retrieval_profile))
+            return copy.deepcopy(retrieval_profile)
+
+        def mark_pipeline_version_promotion_required(
+            self,
+            version_id: str,
+            *,
+            source_run_id: str | None = None,
+        ) -> dict:
+            self.mark_calls.append((version_id, source_run_id))
+            return {}
+
+    service = FakeService()
+
+    class FakeStore:
+        def get_set(self, _eval_set_id: str) -> dict:
+            return {
+                "eval_set_id": "set",
+                "kb_id": "kb",
+                "status": "active",
+                "cases": [{"case_id": "case", "query": "q"}],
+            }
+
+        def get_set_version(self, _eval_set_id: str, _version: int) -> dict:
+            return {
+                "version_id": "gold",
+                "version": 1,
+                "checksum": "f" * 64,
+                "cases": [{"case_id": "case", "query": "q"}],
+                "corpus_snapshot": {"documents": []},
+                "corpus_snapshot_hash": corpus_hash,
+            }
+
+        def get_gate_policy(self, _kb_id: str) -> dict:
+            return {}
+
+        def create_run(self, **kwargs) -> dict:
+            assert service.mark_calls == []
+            manifest = kwargs["execution_manifest"]
+            assert manifest["runtime"]["version"] == "rag-runtime-v1"
+            assert len(manifest["runtime"]["fingerprint"]) == 64
+            assert all(
+                target["runtime"] == manifest["runtime"]
+                for target in manifest["target_fingerprints"]
+            )
+            return {"run_id": "evalrun-formal"}
+
+    class FakeExecutor:
+        def __init__(self) -> None:
+            self.notified = False
+
+        def notify(self) -> None:
+            self.notified = True
+
+    executor = FakeExecutor()
+    monkeypatch.setattr(rag_api, "get_rag_service", lambda: service)
+    monkeypatch.setattr(rag_api, "get_evaluation_store", lambda: FakeStore())
+    monkeypatch.setattr(rag_api, "get_evaluation_executor", lambda: executor)
+    monkeypatch.setattr(
+        rag_api,
+        "qualify_promotion_evidence",
+        lambda _snapshot: {"qualified": True},
+    )
+
+    run = await rag_api.create_evaluation_run(
+        rag_api.EvaluationRunCreateRequest(
+            eval_set_id="set",
+            eval_set_version=1,
+            targets=[
+                rag_api.EvaluationTargetInput(version_id="baseline"),
+                rag_api.EvaluationTargetInput(version_id="candidate"),
+            ],
+            baseline_version_id="baseline",
+            run_mode="formal",
+            execution_seed=7,
+        )
+    )
+
+    assert run["run_id"] == "evalrun-formal"
+    assert service.mark_calls == [("candidate", "evalrun-formal")]
+    assert service.validated_evidence_profiles == [retrieval, retrieval]
+    assert executor.notified is True
+
+    service.versions["candidate"]["origin"] = {
+        "kind": "rag_strategy_tuner",
+        "development_evidence": build_development_evidence_manifest(
+            FakeStore().get_set_version("set", 1)
+        ),
+    }
+    with pytest.raises(rag_api.HTTPException) as blocked:
+        await rag_api.create_evaluation_run(
+            rag_api.EvaluationRunCreateRequest(
+                eval_set_id="set",
+                eval_set_version=1,
+                targets=[
+                    rag_api.EvaluationTargetInput(version_id="baseline"),
+                    rag_api.EvaluationTargetInput(version_id="candidate"),
+                ],
+                baseline_version_id="baseline",
+                run_mode="formal",
+                execution_seed=7,
+            )
+        )
+    assert blocked.value.status_code == 400
+    assert "independent" in str(blocked.value.detail)
+    assert service.mark_calls == [("candidate", "evalrun-formal")]
+
+
+@pytest.mark.asyncio
+async def test_retrieval_variant_reuses_immutable_index_and_requires_promotion(
+    evaluation_runtime,
+    monkeypatch,
+) -> None:
+    client, service, pipeline_executor, _evaluation_executor, _registry = evaluation_runtime
+    kb_id = await _create_kb(client, "retrieval-only formal candidate")
+    document_id = await _upload_text(
+        client,
+        kb_id,
+        "fixed-corpus.txt",
+        "A fixed corpus can support multiple immutable retrieval profiles without rebuilding embeddings.",
+    )
+    base_job = await _execute_draft(
+        client,
+        pipeline_executor,
+        kb_id,
+        [document_id],
+    )
+    base_version_id = str(base_job["candidate_version_id"])
+    assert (
+        await client.post(f"/api/rag/pipeline/versions/{base_version_id}/activate")
+    ).status_code == 200
+    monkeypatch.setattr(
+        service.reranker,
+        "capabilities",
+        lambda: {
+            "evidence_verifier_configured": True,
+            "evidence_verifier_model": "test/evidence-verifier",
+        },
+    )
+
+    response = await client.post(
+        f"/api/rag/pipeline/versions/{base_version_id}/retrieval-variant",
+        json={
+            "retrieval_profile": {
+                "mode": "hybrid",
+                "vector_weight": 0.7,
+                "fulltext_weight": 0.3,
+                "top_k": 5,
+                "score_threshold": 0.0,
+                "candidate_multiplier": 4,
+                "rerank_enabled": True,
+                "rerank_provider": "llm",
+                "rerank_top_n": 5,
+                "evidence_verification_enabled": True,
+            }
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    variant_payload = response.json()
+    variant = service.get_pipeline_version(variant_payload["version_id"])
+    base = service.get_pipeline_version(base_version_id)
+    assert variant["version_id"] != base_version_id
+    assert variant["status"] == "ready"
+    assert variant["promotion_required"] is True
+    assert variant["base_version_id"] == base_version_id
+    assert variant["index_reused"] is True
+    assert variant["namespace"] == base["namespace"]
+    assert variant["embedding_profile"] == base["embedding_profile"]
+    assert variant["retrieval_profile"]["evidence_verification_enabled"] is True
+    assert variant["retrieval_profile"]["rerank_model"] == "test/evidence-verifier"
+    assert service.pipeline_version_evidence(variant["version_id"])["runtime"] == (
+        service.pipeline_version_evidence(base_version_id)["runtime"]
+    )
+    assert service.pipeline_corpus_snapshot(variant["version_id"]) == service.pipeline_corpus_snapshot(
+        base_version_id
+    )
+    assert service.get_active_pipeline_version(kb_id)["version_id"] == base_version_id
+
+    blocked = await client.post(
+        f"/api/rag/pipeline/versions/{variant['version_id']}/activate"
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert service.get_active_pipeline_version(kb_id)["version_id"] == base_version_id
+
+
 def test_promotion_gate_does_not_penalize_correct_no_result_abstention() -> None:
     positive = evaluate_retrieval_case(
         [{"chunk_id": "answer", "source_document_id": "doc-a", "score": 0.9}],
@@ -1384,6 +2853,110 @@ def test_published_evaluation_version_remains_available_after_draft_archive(
 
 
 @pytest.mark.asyncio
+async def test_gold_v2_api_query_edit_recomputes_leakage_from_fixed_source(
+    evaluation_runtime,
+) -> None:
+    client, service, pipeline_executor, _, _ = evaluation_runtime
+    kb_id = await _create_kb(client, "leakage receipt")
+    document_id = await _upload_text(
+        client,
+        kb_id,
+        "fixed-source.txt",
+        (
+            "Production approval requires a signed safety review, a dated rollback "
+            "rehearsal, and a fourteen day observation window."
+        ),
+    )
+    job = await _execute_draft(client, pipeline_executor, kb_id, [document_id])
+    version_id = str(job["candidate_version_id"])
+    source = service.vector_store.list_document_chunks(
+        f"{version_id}_{document_id}"
+    )[0]
+    resolved_source = service.get_knowledge_chunk(
+        kb_id,
+        source.chunk_id,
+        version_id=version_id,
+    )
+    store = rag_api.get_evaluation_store()
+    dataset = store.create_generated_set(
+        kb_id,
+        "Editable Gold v2",
+        "",
+        cases=[
+            {
+                "query": "What is required before production approval?",
+                "expected_refs": [
+                    {
+                        "document_id": resolved_source["document_id"],
+                        "chunk_id": source.chunk_id,
+                        "source_block_id": resolved_source["source_block_id"],
+                        "match_mode": "chunk",
+                        "relevance": 3,
+                    }
+                ],
+                "review_status": "approved",
+                "review_evidence": {
+                    "source": "manual_ui",
+                    "decision": "approved",
+                    "reviewed_at": 1.0,
+                    "dataset_revision": 1,
+                    "reason": "Original query reviewed.",
+                },
+                "targeting": {
+                    "query_type": "factual_lookup",
+                    "locale": "en-US",
+                    "leakage": {
+                        "max_normalized_copy": 0,
+                        "warning_threshold": 24,
+                        "warning": False,
+                        "blocked": False,
+                    },
+                },
+            }
+        ],
+        provenance={
+            "benchmark_contract_version": "rag-gold-v2",
+            "pipeline_version_id": version_id,
+        },
+        coverage={},
+        calibration={"status": "not_required", "dataset_revision": 1},
+        benchmark_role="promotion_sealed",
+    )
+    copied_query = str(source.text)
+    response = await client.patch(
+        f"/api/rag/evaluation-sets/{dataset['eval_set_id']}/cases/{dataset['cases'][0]['case_id']}",
+        json={
+            "expected_revision": 1,
+            "case": {
+                "query": copied_query,
+                "expected_refs": dataset["cases"][0]["expected_refs"],
+                "expected_no_result": False,
+                "review_status": "approved",
+                "tags": [],
+                "notes": "",
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    changed = response.json()["cases"][0]
+    assert changed["review_status"] == "pending"
+    assert changed["review_evidence"] == {}
+    assert changed["targeting"]["leakage"] == {
+        "max_normalized_copy": 32,
+        "warning_threshold": 24,
+        "warning": True,
+        "blocked": True,
+        "query_hash": gold_v2_leakage_receipt(
+            copied_query,
+            [copied_query],
+            query_type="factual_lookup",
+        )["query_hash"],
+        "stale": False,
+    }
+
+
+@pytest.mark.asyncio
 async def test_evaluation_api_runs_versions_and_enforces_required_gate(
     evaluation_runtime,
 ) -> None:
@@ -1475,6 +3048,15 @@ async def test_evaluation_api_runs_versions_and_enforces_required_gate(
     evidence = candidate["version_evidence"]
     assert evidence["version_id"] == candidate_version
     assert evidence["version_fingerprint"]
+    assert evidence["runtime"]["version"] == "rag-runtime-v1"
+    assert len(evidence["runtime"]["fingerprint"]) == 64
+    assert evidence["runtime"]["source_hashes"]
+    assert evidence["runtime"]["settings"]["embedding_http"][
+        "max_keepalive_connections"
+    ] == 10
+    assert evidence["runtime"]["settings"]["rerank_request"][
+        "timeout_budget_ms"
+    ] == 5000
     assert evidence["embedding"]["effective"]["provider"] == "hash"
     assert evidence["embedding"]["effective"]["model"] == "deterministic-hash-v1"
     receipt = candidate["case_results"][0]["retrieval_receipt"]
@@ -1482,6 +3064,16 @@ async def test_evaluation_api_runs_versions_and_enforces_required_gate(
     assert receipt["embedding_model"] == "deterministic-hash-v1"
     assert receipt["embedding_dimension"] == 128
     assert receipt["rerank_provider_used"] == "none"
+    assert receipt["embedding_external_call_count"] == 0
+    for timing_key in (
+        "retrieval_elapsed_ms",
+        "embedding_elapsed_ms",
+        "vector_search_elapsed_ms",
+        "fulltext_search_elapsed_ms",
+        "fusion_elapsed_ms",
+    ):
+        assert isinstance(receipt[timing_key], (int, float))
+        assert receipt[timing_key] >= 0
     serialized = str(completed).lower()
     assert "project orion deployment requires a signed" not in serialized
     assert "api_key" not in serialized

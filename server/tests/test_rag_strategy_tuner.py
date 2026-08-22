@@ -9,6 +9,7 @@ import pytest_asyncio
 
 from server.main import app
 from server.rag.api import (
+    RagStrategyTuningRequest,
     set_evaluation_executor_for_tests,
     set_pipeline_executor_for_tests,
     set_rag_service_for_tests,
@@ -23,8 +24,12 @@ from server.rag.strategy_tuner import (
     KNOWN_WINNER_FIXTURE_VERSION,
     RagStrategyTuner,
     RagStrategyTuningStore,
+    RagStrategyTuningValidationError,
     apply_optimization_gate,
+    answerability_feature_manifest_valid,
+    build_answerability_feature_manifest,
     calibrate_threshold,
+    execution_budget_receipt,
     improvement_summary,
     mark_semantic_duplicate_candidates,
     paired_statistical_validation,
@@ -34,6 +39,7 @@ from server.rag.strategy_tuner import (
     stratified_split,
     summarize_repeated_case_results,
 )
+from server.rag.strategy_tuning_qualification import build_tuning_readiness
 from server.rag.vector_store import LocalJsonVectorStore
 from server.xpert_runtime.run_registry import RunRegistry
 
@@ -54,6 +60,52 @@ def _known_winner_fixture(scenario_id: str) -> dict:
     if inherited:
         scenario = {**dict(scenarios[inherited]), **scenario}
     return scenario
+
+
+def test_full_execution_budget_counts_holdout_formal_and_rerank_envelopes() -> None:
+    cases = [
+        {
+            "case_id": f"case-{index}",
+            "query": f"query {index}",
+            "expected_no_result": index >= 30,
+            "tags": ["default"],
+        }
+        for index in range(42)
+    ]
+    snapshot = {
+        "base_chunker": {"strategy": "recursive_character", "chunk_size": 700},
+        "base_retrieval": {
+            "mode": "hybrid",
+            "top_k": 5,
+            "vector_weight": 0.7,
+            "fulltext_weight": 0.3,
+            "score_threshold": 0.0,
+            "rerank_enabled": False,
+        },
+        "router_recommendation": None,
+        "retrieval_only": False,
+        "embedding_degraded": False,
+        "threshold_tuning_available": True,
+    }
+    receipt = execution_budget_receipt(
+        cases,
+        snapshot,
+        {
+            "seed": 42,
+            "run_scope": "full",
+            "max_chunk_indexes": 1,
+            "max_retrieval_trials": 3,
+            "max_finalists": 1,
+            "enable_rerank": True,
+        },
+    )
+
+    assert receipt["candidate_profile_upper_bound"] == 3
+    assert receipt["optimization_query_executions_upper_bound"] == 84
+    assert receipt["holdout_query_executions_upper_bound"] == 126
+    assert receipt["rerank_query_executions_upper_bound"] == 84
+    assert receipt["formal_query_executions_upper_bound"] == 84
+    assert receipt["total_retrieval_query_executions_upper_bound"] == 294
 
 
 @pytest_asyncio.fixture
@@ -125,12 +177,18 @@ def _published_set(
     *,
     stable_blocks: bool = True,
     qualified: bool = False,
+    target_version_id: str | None = None,
 ) -> tuple[str, int]:
     evaluation_set = store.create_set(
         kb_id,
         "Tuning Gold",
         "fixed benchmark",
         benchmark_role="strategy_tuning" if qualified else "unclassified",
+        provenance=(
+            {"pipeline_version_id": target_version_id}
+            if target_version_id
+            else None
+        ),
     )
     cases = []
     for index in range(30 if qualified else 12):
@@ -180,6 +238,67 @@ def _published_set(
     return evaluation_set["eval_set_id"], int(version["version"])
 
 
+def test_tuning_readiness_requires_every_calibration_pack_to_match_target() -> None:
+    cases = [
+        {
+            "case_id": f"positive-{index}",
+            "query": f"positive query {index}",
+            "expected_refs": [
+                {
+                    "document_id": "doc-fixed",
+                    "source_block_id": f"block-{index}",
+                    "match_mode": "source_block",
+                }
+            ],
+            "tags": ["fact"],
+        }
+        for index in range(30)
+    ] + [
+        {
+            "case_id": f"negative-{index}",
+            "query": f"corpus-near absent query {index}",
+            "expected_no_result": True,
+            "expected_refs": [],
+            "review_status": "approved",
+            "tags": ["corpus_near"],
+        }
+        for index in range(12)
+    ]
+    snapshot = {
+        "origin": "manual",
+        "benchmark_role": "calibration",
+        "cases": cases,
+        "calibration": {"status": "calibrated"},
+        "provenance": {},
+    }
+
+    missing = build_tuning_readiness(snapshot, target_version_id="kpv-target")
+    mismatched = build_tuning_readiness(
+        {
+            **snapshot,
+            "provenance": {"pipeline_version_id": "kpv-other"},
+        },
+        target_version_id="kpv-target",
+    )
+    matched = build_tuning_readiness(
+        {
+            **snapshot,
+            "provenance": {"pipeline_version_id": "kpv-target"},
+        },
+        target_version_id="kpv-target",
+    )
+
+    for payload in (missing, mismatched):
+        check = next(
+            item
+            for item in payload["checks"]
+            if item["check_id"] == "target_version_snapshot"
+        )
+        assert check["passed"] is False
+        assert payload["selection_eligible"] is False
+    assert matched["selection_eligible"] is True
+
+
 async def _published_set_for_version(
     service: RagService,
     store: KnowledgeEvaluationStore,
@@ -206,6 +325,7 @@ async def _published_set_for_version(
         kb_id,
         "Executable tuning Gold",
         benchmark_role="strategy_tuning",
+        provenance={"pipeline_version_id": version_id},
     )
     updated = store.add_cases(
         evaluation_set["eval_set_id"],
@@ -373,6 +493,7 @@ async def _known_winner_evaluation_set(
         f"Known winner: {scenario['scenario_id']}",
         "Project-owned deterministic strategy tuner fixture",
         benchmark_role="strategy_tuning",
+        provenance={"pipeline_version_id": version_id},
     )
     positive_queries = list(scenario["positive_queries"])
     negative_queries = list(scenario["hard_negative_queries"])
@@ -555,6 +676,36 @@ def test_split_and_hash_retrieval_candidates_are_deterministic() -> None:
     assert all(item["mode"] == "fulltext" for item in profiles[1:])
 
 
+def test_threshold_search_space_excludes_non_base_fulltext_profiles() -> None:
+    hybrid = retrieval_candidates(
+        {"mode": "hybrid", "top_k": 5},
+        degraded=False,
+        require_vector_answerability=True,
+    )
+    assert hybrid[0]["mode"] == "hybrid"
+    assert [item["mode"] for item in hybrid[:3]] == [
+        "hybrid",
+        "vector",
+        "vector",
+    ]
+    assert all(item["mode"] != "fulltext" for item in hybrid)
+
+    fulltext_base = retrieval_candidates(
+        {"mode": "fulltext", "top_k": 5},
+        degraded=False,
+        require_vector_answerability=True,
+    )
+    assert fulltext_base[0]["mode"] == "fulltext"
+    assert all(item["mode"] != "fulltext" for item in fulltext_base[1:])
+
+    degraded = retrieval_candidates(
+        {"mode": "hybrid", "top_k": 5},
+        degraded=True,
+        require_vector_answerability=True,
+    )
+    assert [item["mode"] for item in degraded] == ["hybrid"]
+
+
 def test_repeated_validation_plan_stays_inside_fixed_holdout() -> None:
     cases = [
         {
@@ -663,6 +814,171 @@ def test_retrieval_semantic_checksum_ignores_inactive_mode_fields() -> None:
     }
 
     assert retrieval_semantic_checksum(first) == retrieval_semantic_checksum(second)
+    vector_disabled = {
+        **first,
+        "mode": "hybrid",
+        "vector_weight": 0.5,
+        "fulltext_weight": 0.5,
+    }
+    abstaining = {
+        **vector_disabled,
+        "abstention_enabled": True,
+        "abstention_score_domain": "vector_score",
+        "abstention_threshold": 0.2,
+    }
+    assert retrieval_semantic_checksum(vector_disabled) != retrieval_semantic_checksum(
+        abstaining
+    )
+
+
+def test_answerability_feature_manifest_is_complete_sanitized_and_sealed() -> None:
+    result = {
+        "cases": [
+            {
+                "case_id": "positive-case",
+                "query": "private positive query marker",
+                "expected_no_result": False,
+                "tags": ["paraphrase"],
+            },
+            {
+                "case_id": "negative-case",
+                "query": "private negative query marker",
+                "expected_no_result": True,
+                "tags": ["corpus_near"],
+            },
+        ],
+        "case_results": [
+            {
+                "case_id": "positive-case",
+                "status": "completed",
+                "stratum": "False:paraphrase",
+                "expected_no_result": False,
+                "no_result": False,
+                "metrics": {"recall_at_5": 1.0, "ndcg_at_10": 0.9},
+                "ranking": [
+                    {
+                        "document_name": "private-positive.md",
+                        "chunk_id": "private-positive-chunk",
+                        "vector_score": 0.8,
+                        "fused_score": 0.9,
+                        "fulltext_score": 0.4,
+                    },
+                    {
+                        "document_name": "private-second.md",
+                        "chunk_id": "private-second-chunk",
+                        "vector_score": 0.7,
+                        "fused_score": 0.6,
+                        "fulltext_score": 0.5,
+                    },
+                ],
+            },
+            {
+                "case_id": "negative-case",
+                "status": "completed",
+                "stratum": "True:corpus_near",
+                "expected_no_result": True,
+                "no_result": False,
+                "metrics": {"no_result_accuracy": 0.0},
+                "ranking": [
+                    {
+                        "document_name": "private-negative.md",
+                        "chunk_id": "private-negative-chunk",
+                        "vector_score": 0.75,
+                        "fused_score": 0.8,
+                        "fulltext_score": 0.6,
+                    },
+                    {
+                        "document_name": "private-neighbor.md",
+                        "chunk_id": "private-neighbor-chunk",
+                        "vector_score": 0.2,
+                        "fused_score": 0.3,
+                        "fulltext_score": 0.1,
+                    },
+                ],
+            },
+        ],
+    }
+
+    manifest = build_answerability_feature_manifest(result)
+
+    assert manifest["manifest_version"] == "rag-answerability-features-v1"
+    assert manifest["case_count"] == 2
+    assert manifest["positive_case_count"] == 1
+    assert manifest["no_result_case_count"] == 1
+    assert manifest["failed_case_count"] == 0
+    assert manifest["missing_vector_score_case_count"] == 0
+    assert manifest["eligible_for_signal_design"] is True
+    assert manifest["cases"][0]["case_ref"] < manifest["cases"][1]["case_ref"]
+    positive = next(
+        item for item in manifest["cases"] if not item["expected_no_result"]
+    )
+    assert positive["ranking_count"] == 2
+    assert positive["vector_score"] == {
+        "available_count": 2,
+        "maximum": 0.8,
+        "second_highest": 0.7,
+        "top_margin": 0.1,
+        "top3_mean": 0.75,
+    }
+    assert positive["fused_score"]["top_margin"] == pytest.approx(0.3)
+    assert positive["fulltext_score"]["maximum"] == 0.5
+    serialized = json.dumps(manifest, ensure_ascii=False)
+    for forbidden in (
+        "positive-case",
+        "negative-case",
+        "private positive query marker",
+        "private-negative.md",
+        "private-neighbor-chunk",
+    ):
+        assert forbidden not in serialized
+    assert answerability_feature_manifest_valid(manifest) is True
+    tampered = json.loads(serialized)
+    tampered["cases"][0]["vector_score"]["maximum"] = 1.0
+    assert answerability_feature_manifest_valid(tampered) is False
+
+
+def test_answerability_feature_manifest_fails_closed_on_incomplete_scores() -> None:
+    manifest = build_answerability_feature_manifest(
+        {
+            "cases": [
+                {"case_id": "positive", "expected_no_result": False},
+                {"case_id": "negative", "expected_no_result": True},
+            ],
+            "case_results": [
+                {
+                    "case_id": "positive",
+                    "status": "completed",
+                    "metrics": {"recall_at_5": float("nan")},
+                    "ranking": [
+                        {
+                            "vector_score": float("nan"),
+                            "fused_score": float("inf"),
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert manifest["failed_case_count"] == 1
+    assert manifest["invalid_case_identity_count"] == 0
+    assert manifest["missing_vector_score_case_count"] == 2
+    assert manifest["score_domain_case_coverage"]["vector_score"] == 0
+    assert manifest["eligible_for_signal_design"] is False
+    json.dumps(manifest, allow_nan=False)
+    assert answerability_feature_manifest_valid(manifest) is True
+
+    duplicate_identity = build_answerability_feature_manifest(
+        {
+            "cases": [
+                {"case_id": "duplicate", "expected_no_result": False},
+                {"case_id": "duplicate", "expected_no_result": True},
+            ],
+            "case_results": [],
+        }
+    )
+    assert duplicate_identity["invalid_case_identity_count"] == 1
+    assert duplicate_identity["eligible_for_signal_design"] is False
 
 
 def test_semantic_outcome_duplicates_cannot_consume_winner_slots() -> None:
@@ -791,6 +1107,7 @@ def test_threshold_calibration_preserves_recall_before_improving_abstention() ->
                     "document_name": f"doc-{index}.md",
                     "score": score,
                     "fused_score": score,
+                    "vector_score": score,
                 }
             ]
             + (
@@ -801,6 +1118,7 @@ def test_threshold_calibration_preserves_recall_before_improving_abstention() ->
                         "document_name": "noise.md",
                         "score": 0.1,
                         "fused_score": 0.1,
+                        "vector_score": 0.1,
                     }
                 ]
                 if index == 0
@@ -819,6 +1137,7 @@ def test_threshold_calibration_preserves_recall_before_improving_abstention() ->
                     "document_name": f"noise-{index}.md",
                     "score": score,
                     "fused_score": score,
+                    "vector_score": score,
                 }
             ],
             "latency_ms": 1,
@@ -828,14 +1147,16 @@ def test_threshold_calibration_preserves_recall_before_improving_abstention() ->
 
     calibrated = calibrate_threshold(
         {"cases": cases, "case_results": case_results},
-        {"mode": "fulltext", "top_k": 10, "score_threshold": 0},
+        {"mode": "hybrid", "top_k": 10, "score_threshold": 0},
     )
 
     assert len(calibrated["threshold_candidates"]) <= 8
-    assert calibrated["retrieval"]["score_threshold"] > 0
+    assert calibrated["retrieval"]["score_threshold"] == 0
+    assert calibrated["retrieval"]["abstention_threshold"] > 0
+    assert calibrated["retrieval"]["abstention_enabled"] is True
     assert calibrated["metrics"]["recall_at_5"] == 1.0
     assert calibrated["metrics"]["no_result_accuracy"] == 0.75
-    assert calibrated["threshold_selection_reason"] == "hard_negative_false_positive_improved"
+    assert calibrated["threshold_selection_reason"] == "hard_negative_abstention_improved"
     assert calibrated["threshold_front"]
 
 
@@ -856,14 +1177,24 @@ def test_threshold_calibration_keeps_baseline_when_abstention_costs_recall() -> 
         {
             "case_id": "positive",
             "ranking": [
-                {"document_id": "doc-positive", "score": 0.1, "fused_score": 0.1}
+                {
+                    "document_id": "doc-positive",
+                    "score": 0.1,
+                    "fused_score": 0.1,
+                    "vector_score": 0.1,
+                }
             ],
             "latency_ms": 1,
         },
         {
             "case_id": "negative",
             "ranking": [
-                {"document_id": "noise", "score": 0.2, "fused_score": 0.2}
+                {
+                    "document_id": "noise",
+                    "score": 0.2,
+                    "fused_score": 0.2,
+                    "vector_score": 0.2,
+                }
             ],
             "latency_ms": 1,
         },
@@ -871,7 +1202,7 @@ def test_threshold_calibration_keeps_baseline_when_abstention_costs_recall() -> 
 
     calibrated = calibrate_threshold(
         {"cases": cases, "case_results": case_results},
-        {"mode": "fulltext", "top_k": 10, "score_threshold": 0},
+        {"mode": "hybrid", "top_k": 10, "score_threshold": 0},
     )
 
     assert calibrated["retrieval"]["score_threshold"] == 0
@@ -880,7 +1211,7 @@ def test_threshold_calibration_keeps_baseline_when_abstention_costs_recall() -> 
     )
 
 
-def test_threshold_calibration_uses_fused_score_when_rerank_score_disagrees() -> None:
+def test_threshold_calibration_uses_vector_score_when_rank_scores_disagree() -> None:
     cases = [
         {
             "case_id": "positive",
@@ -902,6 +1233,7 @@ def test_threshold_calibration_uses_fused_score_when_rerank_score_disagrees() ->
                     "score": 0.1,
                     "rerank_score": 0.1,
                     "fused_score": 0.9,
+                    "vector_score": 0.9,
                 }
             ],
             "latency_ms": 1,
@@ -914,6 +1246,7 @@ def test_threshold_calibration_uses_fused_score_when_rerank_score_disagrees() ->
                     "score": 0.9,
                     "rerank_score": 0.9,
                     "fused_score": 0.1,
+                    "vector_score": 0.1,
                 }
             ],
             "latency_ms": 1,
@@ -931,13 +1264,14 @@ def test_threshold_calibration_uses_fused_score_when_rerank_score_disagrees() ->
     )
 
     assert calibrated["threshold_calibration_eligible"] is True
-    assert calibrated["threshold_score_domain"] == "fused_score"
-    assert calibrated["retrieval"]["score_threshold"] > 0.1
+    assert calibrated["threshold_score_domain"] == "vector_score"
+    assert calibrated["retrieval"]["score_threshold"] == 0
+    assert calibrated["retrieval"]["abstention_threshold"] > 0.1
     assert calibrated["metrics"]["recall_at_5"] == 1.0
     assert calibrated["metrics"]["no_result_accuracy"] == 1.0
 
 
-def test_threshold_calibration_fails_closed_without_fused_score_evidence() -> None:
+def test_threshold_calibration_fails_closed_without_vector_score_evidence() -> None:
     calibrated = calibrate_threshold(
         {
             "cases": [
@@ -955,12 +1289,12 @@ def test_threshold_calibration_fails_closed_without_fused_score_evidence() -> No
                 }
             ],
         },
-        {"mode": "fulltext", "top_k": 5, "score_threshold": 0},
+        {"mode": "hybrid", "top_k": 5, "score_threshold": 0},
     )
 
     assert calibrated["threshold_calibration_eligible"] is False
-    assert calibrated["threshold_score_domain"] == "fused_score"
-    assert calibrated["threshold_selection_reason"] == "missing_fused_score_evidence"
+    assert calibrated["threshold_score_domain"] == "vector_score"
+    assert calibrated["threshold_selection_reason"] == "missing_answerability_score_evidence"
     assert calibrated["retrieval"]["score_threshold"] == 0
 
 
@@ -985,12 +1319,77 @@ def test_threshold_calibration_fails_closed_without_any_ranking_evidence(
             ],
             "case_results": case_results,
         },
-        {"mode": "fulltext", "top_k": 5, "score_threshold": 0},
+        {"mode": "hybrid", "top_k": 5, "score_threshold": 0},
     )
 
     assert calibrated["threshold_calibration_eligible"] is False
-    assert calibrated["threshold_selection_reason"] == "missing_fused_score_evidence"
+    assert calibrated["threshold_selection_reason"] == "missing_answerability_score_evidence"
     assert calibrated["missing_fused_score_count"] == 1
+
+
+def test_abstention_calibration_fails_closed_when_promotion_target_is_unreachable() -> None:
+    cases = [
+        {
+            "case_id": f"positive-{index}",
+            "expected_refs": [{"document_id": f"doc-{index}"}],
+            "expected_no_result": False,
+        }
+        for index in range(30)
+    ] + [
+        {
+            "case_id": f"negative-{index}",
+            "expected_refs": [],
+            "expected_no_result": True,
+        }
+        for index in range(12)
+    ]
+    case_results = [
+        {
+            "case_id": f"positive-{index}",
+            "ranking": [
+                {
+                    "document_id": f"doc-{index}",
+                    "vector_score": 0.6,
+                    "fused_score": 1.0,
+                }
+            ],
+            "latency_ms": 1,
+        }
+        for index in range(30)
+    ] + [
+        {
+            "case_id": f"negative-{index}",
+            "ranking": [
+                {
+                    "document_id": f"near-{index}",
+                    "vector_score": 1.0 if index < 8 else 0.5,
+                    "fused_score": 1.0,
+                }
+            ],
+            "latency_ms": 1,
+        }
+        for index in range(12)
+    ]
+
+    calibrated = calibrate_threshold(
+        {"cases": cases, "case_results": case_results},
+        {"mode": "hybrid", "top_k": 5, "score_threshold": 0},
+        min_recall_at_5=0.8,
+        min_no_result_accuracy=0.8,
+    )
+
+    assert calibrated["threshold_calibration_eligible"] is False
+    assert calibrated["threshold_score_domain"] == "vector_score"
+    assert calibrated["threshold_selection_reason"] == "promotion_targets_unachievable"
+    assert calibrated["maximum_no_result_accuracy"] == pytest.approx(4 / 12)
+    assert calibrated["promotion_target_diagnostics"] == {
+        "required_recall_at_5": 0.8,
+        "required_no_result_accuracy": 0.8,
+        "maximum_no_result_accuracy_at_required_recall": round(4 / 12, 6),
+        "maximum_recall_at_required_no_result_accuracy": 0.0,
+        "joint_target_feasible": False,
+    }
+    assert calibrated["retrieval"]["abstention_enabled"] is False
 
 
 @pytest.mark.asyncio
@@ -1025,6 +1424,209 @@ async def test_preflight_degrades_chunk_tuning_and_hides_sensitive_snapshot(
 
 
 @pytest.mark.asyncio
+async def test_preflight_binds_the_selected_budget_and_projects_the_execution_envelope(
+    tuning_runtime,
+) -> None:
+    client, service, executor, evaluation_store, _ = tuning_runtime
+    kb_id, _, version_id = await _base_version(service, executor)
+    eval_set_id, eval_version = await _published_set_for_version(
+        service, evaluation_store, kb_id, version_id
+    )
+    request = {
+        "kb_id": kb_id,
+        "base_version_id": version_id,
+        "eval_set_id": eval_set_id,
+        "eval_set_version": eval_version,
+        "objective": "low_latency",
+        "run_scope": "optimization_only",
+        "seed": 42,
+        "max_chunk_indexes": 1,
+        "max_retrieval_trials": 3,
+        "max_finalists": 1,
+        "enable_rerank": False,
+    }
+
+    response = await client.post("/api/rag/strategy-tuner/preflight", json=request)
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["request_contract"] == request | {
+        "recommendation_id": None,
+        "rerank_provider": "auto",
+        "rerank_model": "",
+    }
+    assert payload["execution_budget"] == {
+        "receipt_version": "rag-strategy-execution-budget-v1",
+        "run_scope": "optimization_only",
+        "evaluation_case_count": 42,
+        "optimization_case_count": 28,
+        "holdout_case_count": 14,
+        "candidate_profile_upper_bound": 1,
+        "optimization_query_executions_upper_bound": 28,
+        "trial_index_builds_upper_bound": 0,
+        "holdout_query_executions_upper_bound": 0,
+        "rerank_query_executions_upper_bound": 0,
+        "formal_query_executions_upper_bound": 0,
+        "total_retrieval_query_executions_upper_bound": 28,
+        "provider_call_note": (
+            "Retrieval-query bounds are conservative execution counts; trial index "
+            "builds and Provider batching are recorded separately."
+        ),
+    }
+
+    changed = await client.post(
+        "/api/rag/strategy-tuner/runs",
+        json={
+            **request,
+            "max_retrieval_trials": 4,
+            "expected_snapshot_hash": payload["snapshot_hash"],
+        },
+    )
+    assert changed.status_code == 400
+    assert "Preflight snapshot changed" in changed.text
+
+    accepted = await client.post(
+        "/api/rag/strategy-tuner/runs",
+        json={**request, "expected_snapshot_hash": payload["snapshot_hash"]},
+    )
+    assert accepted.status_code == 202, accepted.text
+    assert accepted.json()["snapshot"]["snapshot_hash"] == payload["snapshot_hash"]
+
+
+def test_strategy_tuning_request_defaults_to_full_and_rejects_unknown_scope() -> None:
+    required = {
+        "kb_id": "kb-fixed",
+        "base_version_id": "kpv-fixed",
+        "eval_set_id": "eval-fixed",
+        "eval_set_version": 1,
+    }
+
+    request = RagStrategyTuningRequest(**required)
+
+    assert request.run_scope == "full"
+    with pytest.raises(ValueError):
+        RagStrategyTuningRequest(**required, run_scope="unexpected")
+
+
+def test_optimization_only_scope_rejects_rerank_authorization(tuning_runtime) -> None:
+    _, _, _, _, tuner = tuning_runtime
+
+    with pytest.raises(
+        RagStrategyTuningValidationError,
+        match="Rerank is unavailable in optimization-only runs",
+    ):
+        tuner._normalize_request(
+            {
+                "kb_id": "kb-fixed",
+                "base_version_id": "kpv-fixed",
+                "eval_set_id": "eval-fixed",
+                "eval_set_version": 1,
+                "run_scope": "optimization_only",
+                "enable_rerank": True,
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_no_rerank_preflight_disables_existing_rerank_and_verifier(
+    tuning_runtime,
+) -> None:
+    client, service, executor, evaluation_store, _ = tuning_runtime
+    kb_id, _, version_id = await _base_version(service, executor)
+    eval_set_id, eval_version = await _published_set_for_version(
+        service, evaluation_store, kb_id, version_id
+    )
+    with service._metadata_lock:
+        metadata = service._read_metadata_unlocked()
+        metadata["pipeline_versions"][version_id]["retrieval_profile"].update(
+            {
+                "rerank_enabled": True,
+                "rerank_provider": "llm",
+                "rerank_model": "configured-verifier",
+                "evidence_verification_enabled": True,
+                "abstention_enabled": True,
+                "abstention_score_domain": "evidence_verdict_v1",
+                "abstention_threshold": 0.5,
+            }
+        )
+        service._write_metadata_unlocked(metadata)
+
+    response = await client.post(
+        "/api/rag/strategy-tuner/preflight",
+        json={
+            "kb_id": kb_id,
+            "base_version_id": version_id,
+            "eval_set_id": eval_set_id,
+            "eval_set_version": eval_version,
+            "enable_rerank": False,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    retrieval = response.json()["base_retrieval"]
+    assert retrieval["rerank_enabled"] is False
+    assert retrieval["rerank_provider"] == "none"
+    assert retrieval["rerank_model"] == ""
+    assert retrieval["evidence_verification_enabled"] is False
+    assert retrieval["abstention_enabled"] is False
+    assert retrieval["abstention_score_domain"] == "vector_score"
+    assert retrieval["abstention_threshold"] == 0
+    assert response.json()["rerank_requested"] is False
+    assert response.json()["rerank_execution_policy"] == "disabled_entire_run"
+
+
+@pytest.mark.asyncio
+async def test_rerank_authorization_still_keeps_search_baseline_provider_free(
+    tuning_runtime,
+    monkeypatch,
+) -> None:
+    client, service, executor, evaluation_store, _ = tuning_runtime
+    kb_id, _, version_id = await _base_version(service, executor)
+    eval_set_id, eval_version = await _published_set_for_version(
+        service, evaluation_store, kb_id, version_id
+    )
+    with service._metadata_lock:
+        metadata = service._read_metadata_unlocked()
+        metadata["pipeline_versions"][version_id]["retrieval_profile"].update(
+            {
+                "rerank_enabled": True,
+                "rerank_provider": "llm",
+                "rerank_model": "configured-verifier",
+                "evidence_verification_enabled": True,
+            }
+        )
+        service._write_metadata_unlocked(metadata)
+    monkeypatch.setattr(
+        service.reranker,
+        "capabilities",
+        lambda: {"api_configured": False, "llm_configured": True},
+    )
+
+    response = await client.post(
+        "/api/rag/strategy-tuner/preflight",
+        json={
+            "kb_id": kb_id,
+            "base_version_id": version_id,
+            "eval_set_id": eval_set_id,
+            "eval_set_version": eval_version,
+            "run_scope": "full",
+            "enable_rerank": True,
+            "max_chunk_indexes": 1,
+            "max_retrieval_trials": 1,
+            "max_finalists": 1,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["rerank_requested"] is True
+    assert payload["rerank_execution_policy"] == "finalists_only"
+    assert payload["base_retrieval"]["rerank_enabled"] is False
+    assert payload["base_retrieval"]["evidence_verification_enabled"] is False
+    assert payload["execution_budget"]["rerank_query_executions_upper_bound"] > 0
+
+
+@pytest.mark.asyncio
 async def test_strategy_tuner_rejects_report_only_evaluation_evidence(
     tuning_runtime,
 ) -> None:
@@ -1053,7 +1655,10 @@ async def test_strategy_tuner_api_lists_cancels_and_retries_queued_run(
     client, service, executor, evaluation_store, _ = tuning_runtime
     kb_id, _, version_id = await _base_version(service, executor)
     eval_set_id, eval_version = _published_set(
-        evaluation_store, kb_id, qualified=True
+        evaluation_store,
+        kb_id,
+        qualified=True,
+        target_version_id=version_id,
     )
     payload = {
         "kb_id": kb_id,
@@ -1067,6 +1672,7 @@ async def test_strategy_tuner_api_lists_cancels_and_retries_queued_run(
     assert created_response.status_code == 202, created_response.text
     created = created_response.json()
     assert created["status"] == "queued"
+    assert created["request"]["run_scope"] == "full"
 
     listed = await client.get(
         f"/api/rag/strategy-tuner/runs?kb_id={kb_id}&status=queued"
@@ -1147,6 +1753,11 @@ async def test_trial_version_is_hidden_unactivatable_and_cleanup_preserves_draft
     )
     with pytest.raises(PipelineJobStateError):
         service.activate_pipeline_version(trial_version_id)
+    with pytest.raises(PipelineJobStateError, match="trial"):
+        service.create_retrieval_profile_variant(
+            trial_version_id,
+            {"mode": "fulltext", "top_k": 5},
+        )
     assert service.get_pipeline_draft(kb_id) == draft_before
 
     service.cleanup_strategy_tuning_trial_version(trial_version_id)
@@ -1241,6 +1852,14 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
     assert final_version["status"] == "ready"
     assert final_version["promotion_required"] is True
     assert final_version["origin"]["kind"] == "rag_strategy_tuner"
+    development_evidence = final_version["origin"]["development_evidence"]
+    assert development_evidence["version"] == "rag-development-evidence-v1"
+    assert development_evidence["eval_set_version_id"] == evaluation_store.get_set_version(
+        eval_set_id, eval_version
+    )["version_id"]
+    assert development_evidence["case_count"] == 42
+    assert len(development_evidence["query_fingerprints"]) == 42
+    assert "MM-2042" not in json.dumps(development_evidence)
     assert service.get_active_pipeline_version(kb_id)["version_id"] == base_version_id
     evaluation = evaluation_store.get_run(completed["evaluation_run_id"])
     assert evaluation["status"] == "succeeded"
@@ -1279,10 +1898,114 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
     } == version_ids_before
 
 
+@pytest.mark.asyncio
+async def test_optimization_only_stops_after_gate_without_holdout_or_materialization(
+    tuning_runtime,
+    monkeypatch,
+) -> None:
+    _, service, executor, evaluation_store, tuner = tuning_runtime
+    kb_id, _, base_version_id = await _base_version(service, executor)
+    eval_set_id, eval_version = _published_set(
+        evaluation_store,
+        kb_id,
+        qualified=True,
+        target_version_id=base_version_id,
+    )
+    version_ids_before = {
+        item["version_id"] for item in service.list_pipeline_versions(kb_id)
+    }
+    original_evaluate = tuner._evaluate_profile
+
+    async def reject_holdout(*args, repetitions=1, **kwargs):
+        cases = args[2]
+        holdout_case_ids = set(
+            tuner.store.get_run(created["run_id"])
+            .get("case_split", {})
+            .get("holdout_case_ids", [])
+        )
+        evaluated_case_ids = {
+            str(item.get("case_id") or "") for item in cases if isinstance(item, dict)
+        }
+        if evaluated_case_ids & holdout_case_ids:
+            raise AssertionError("optimization_only evaluated Holdout cases")
+        if repetitions != 1:
+            raise AssertionError("optimization_only entered repeated Holdout")
+        return await original_evaluate(
+            *args,
+            repetitions=repetitions,
+            **kwargs,
+        )
+
+    def force_optimization_winner(candidates, **_kwargs):
+        assert candidates
+        return (
+            candidates,
+            candidates[:1],
+            {
+                "evaluated_count": len(candidates),
+                "passed_count": 1,
+                "eligible_count": 1,
+                "failed_check_counts": {},
+            },
+        )
+
+    async def reject_materialization(*_args, **_kwargs):
+        raise AssertionError("optimization_only attempted candidate materialization")
+
+    monkeypatch.setattr(tuner, "_evaluate_profile", reject_holdout)
+    monkeypatch.setattr(
+        "server.rag.strategy_tuner.apply_optimization_gate",
+        force_optimization_winner,
+    )
+    monkeypatch.setattr(tuner, "_materialize", reject_materialization)
+    created = tuner.create_run(
+        {
+            "kb_id": kb_id,
+            "base_version_id": base_version_id,
+            "eval_set_id": eval_set_id,
+            "eval_set_version": eval_version,
+            "objective": "low_latency",
+            "seed": 42,
+            "max_chunk_indexes": 1,
+            "max_retrieval_trials": 1,
+            "max_finalists": 1,
+            "run_scope": "optimization_only",
+            "enable_rerank": False,
+        }
+    )
+
+    assert await tuner.run_once() is True
+
+    completed = tuner.store.get_run(created["run_id"])
+    assert completed["request"]["run_scope"] == "optimization_only"
+    assert completed["snapshot"]["run_scope"] == "optimization_only"
+    assert completed["status"] == "completed", completed
+    assert completed["stage"] == "optimization_completed"
+    assert completed["finalists"] == []
+    assert completed["validation_baseline"] == {}
+    assert completed["winner"] is None
+    assert completed["final_version_id"] is None
+    assert completed["evaluation_run_id"] is None
+    assert {
+        item["version_id"] for item in service.list_pipeline_versions(kb_id)
+    } == version_ids_before
+    assert completed["scope_receipt"] == {
+        "receipt_version": "rag-strategy-run-scope-v1",
+        "requested_scope": "optimization_only",
+        "effective_stop": "after_optimization_gate",
+        "optimization_candidate_count": 1,
+        "optimization_eligible_count": 1,
+        "holdout_query_executions": 0,
+        "finalist_count": 0,
+        "materialization_attempted": False,
+        "evaluation_run_created": False,
+    }
+
+
 def test_known_winner_fixture_contract_is_versioned_and_project_owned() -> None:
     payload = json.loads(KNOWN_WINNER_FIXTURE_PATH.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["fixture_version"] == KNOWN_WINNER_FIXTURE_VERSION
     assert payload["source"] == "ModelMirror project-owned synthetic fixture"
     assert {item["scenario_id"] for item in payload["scenarios"]} == {
@@ -1292,8 +2015,9 @@ def test_known_winner_fixture_contract_is_versioned_and_project_owned() -> None:
 
 
 @pytest.mark.asyncio
-async def test_known_winner_threshold_recovery_runs_real_search_and_materializes(
+async def test_legacy_fulltext_threshold_fixture_fails_closed_without_answerability_score(
     tuning_runtime,
+    monkeypatch,
 ) -> None:
     _, service, executor, evaluation_store, tuner = tuning_runtime
     scenario = _known_winner_fixture("threshold_recovery")
@@ -1307,6 +2031,15 @@ async def test_known_winner_threshold_recovery_runs_real_search_and_materializes
     eval_set_id, eval_version = await _known_winner_evaluation_set(
         service, evaluation_store, kb_id, base_version_id, scenario
     )
+    original_query = service.query_pipeline_version
+    query_calls = 0
+
+    async def counting_query(*args, **kwargs):
+        nonlocal query_calls
+        query_calls += 1
+        return await original_query(*args, **kwargs)
+
+    monkeypatch.setattr(service, "query_pipeline_version", counting_query)
 
     created = tuner.create_run(
         {
@@ -1325,35 +2058,110 @@ async def test_known_winner_threshold_recovery_runs_real_search_and_materializes
 
     completed = tuner.store.get_run(created["run_id"])
     assert completed["status"] == "no_improvement", completed
-    assert completed["no_improvement_reason"] == "full_evaluation_gate"
-    winner = completed["winner"]
-    assert winner["retrieval"]["mode"] == "fulltext"
-    assert float(winner["retrieval"]["score_threshold"]) > negative_ceiling
-    assert winner["threshold_selection_reason"] == (
-        "hard_negative_false_positive_improved"
+    assert completed["no_improvement_reason"] == "optimization_gate"
+    assert completed.get("winner") is None
+    assert completed.get("final_version_id") is None
+    assert completed["candidates"][0]["automatic_winner_eligible"] is False
+    assert completed["candidates"][0]["ineligible_reason"] == (
+        "threshold_calibration_ineligible"
     )
-    assert float(winner["improvement"]["no_result_accuracy_delta"]) >= float(
-        scenario["expected_winner"]["minimum_no_result_accuracy_delta"]
+    assert completed["candidates"][0]["threshold_selection_reason"] == (
+        "answerability_score_unavailable"
     )
-    assert winner["statistical_validation"]["passed"] is True
-
-    final_version = service.get_pipeline_version(completed["final_version_id"])
-    assert final_version["status"] == "ready"
-    assert final_version["promotion_required"] is True
-    assert float(final_version["retrieval_profile"]["score_threshold"]) > 0
+    optimization_case_count = len(completed["case_split"]["optimization_case_ids"])
+    feature_manifest = completed["candidates"][0][
+        "answerability_feature_manifest"
+    ]
+    assert answerability_feature_manifest_valid(feature_manifest) is True
+    assert feature_manifest["eligible_for_signal_design"] is False
+    assert feature_manifest["missing_vector_score_case_count"] == (
+        optimization_case_count
+    )
+    assert query_calls == optimization_case_count
+    assert completed["optimization_execution_receipt"] == {
+        "receipt_version": "rag-strategy-optimization-execution-v1",
+        "complete": True,
+        "candidate_profile_count": 1,
+        "candidate_query_executions": optimization_case_count,
+        "baseline_query_executions": 0,
+        "retrieval_query_executions": optimization_case_count,
+        "offline_threshold_replays": 0,
+        "baseline_source": "reused_exact_candidate_profile",
+        "baseline_profile_checksum": completed["candidates"][0][
+            "search_profile_checksum"
+        ],
+        "reused_candidate_id": completed["candidates"][0]["candidate_id"],
+        "query_executions_avoided": optimization_case_count,
+    }
     assert service.get_active_pipeline_version(kb_id)["version_id"] == base_version_id
-    evaluation = evaluation_store.get_run(completed["evaluation_run_id"])
-    assert evaluation["status"] == "succeeded"
-    candidate_result = next(
-        item
-        for item in evaluation["target_results"]
-        if item["version_id"] == final_version["version_id"]
+
+
+@pytest.mark.asyncio
+async def test_exact_hybrid_base_profile_reuses_optimization_result(
+    tuning_runtime,
+    monkeypatch,
+) -> None:
+    _, service, executor, evaluation_store, tuner = tuning_runtime
+    kb_id, _, base_version_id = await _base_version(service, executor)
+    eval_set_id, eval_version = await _published_set_for_version(
+        service, evaluation_store, kb_id, base_version_id
     )
-    assert candidate_result["promotion_gate"]["passed"] is False
-    assert any(
-        check["id"] == "qualified_promotion_evidence" and not check["passed"]
-        for check in candidate_result["promotion_gate"]["checks"]
+    original_query = service.query_pipeline_version
+    query_calls = 0
+
+    async def counting_query(*args, **kwargs):
+        nonlocal query_calls
+        query_calls += 1
+        return await original_query(*args, **kwargs)
+
+    monkeypatch.setattr(service, "query_pipeline_version", counting_query)
+    created = tuner.create_run(
+        {
+            "kb_id": kb_id,
+            "base_version_id": base_version_id,
+            "eval_set_id": eval_set_id,
+            "eval_set_version": eval_version,
+            "max_chunk_indexes": 1,
+            "max_retrieval_trials": 1,
+            "max_finalists": 1,
+            "enable_rerank": False,
+            "seed": 42,
+        }
     )
+
+    assert await tuner.run_once() is True
+
+    completed = tuner.store.get_run(created["run_id"])
+    optimization_case_count = len(completed["case_split"]["optimization_case_ids"])
+    assert completed["candidates"][0]["retrieval"]["mode"] == "hybrid"
+    assert completed["retrieval_search_space"] == {
+        "receipt_version": "rag-strategy-search-space-v1",
+        "answerability_score_required": True,
+        "base_profile_retained": True,
+        "unfiltered_profile_count": 3,
+        "eligible_profile_count": 1,
+        "excluded_fulltext_profile_count": 2,
+        "eligible_profile_modes": ["hybrid"],
+    }
+    feature_manifest = completed["candidates"][0][
+        "answerability_feature_manifest"
+    ]
+    assert answerability_feature_manifest_valid(feature_manifest) is True
+    assert feature_manifest["case_count"] == optimization_case_count
+    assert feature_manifest["eligible_for_signal_design"] is True
+    serialized_manifest = json.dumps(feature_manifest, ensure_ascii=False)
+    assert "MM-2042" not in serialized_manifest
+    assert "policy.md" not in serialized_manifest
+    assert completed["candidates"][0]["optimization_execution_receipt"][
+        "answerability_feature_manifest_checksum"
+    ] == feature_manifest["checksum"]
+    assert query_calls == optimization_case_count
+    assert completed["optimization_execution_receipt"]["baseline_source"] == (
+        "reused_exact_candidate_profile"
+    )
+    assert completed["optimization_execution_receipt"][
+        "query_executions_avoided"
+    ] == optimization_case_count
 
 
 @pytest.mark.asyncio
@@ -1403,7 +2211,9 @@ async def test_known_winner_already_optimal_control_does_not_invent_winner(
     assert completed["no_improvement_reason"] == "optimization_gate"
     assert len(completed["candidates"]) == 1
     assert completed["candidates"][0]["automatic_winner_eligible"] is False
-    assert completed["candidates"][0]["ineligible_reason"] == "baseline_equivalent"
+    assert completed["candidates"][0]["ineligible_reason"] == (
+        "threshold_calibration_ineligible"
+    )
     assert service.get_active_pipeline_version(kb_id)["version_id"] == base_version_id
 
 

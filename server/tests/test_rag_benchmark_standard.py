@@ -157,3 +157,26 @@ async def test_pipeline_only_upload_skips_legacy_index(tmp_path: Path) -> None:
     assert document["ingestion_status"] == "pipeline_required"
     assert document["chunk_count"] == 0
     assert service.vector_store.list_document_chunks(document["id"]) == []
+
+    api_kb = service.create_knowledge_base("pipeline-only-api")
+    set_rag_service_for_tests(service)
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                f"/api/rag/knowledge_bases/{api_kb['id']}/documents?pipeline_only=true",
+                files={
+                    "file": (
+                        "source.md",
+                        b"# Source\n\nDeterministic API content.",
+                        "text/markdown",
+                    )
+                },
+            )
+    finally:
+        set_rag_service_for_tests(None)
+
+    assert response.status_code == 200
+    assert response.json()["ingestion_status"] == "pipeline_required"
+    assert response.json()["chunk_count"] == 0
+    assert service.vector_store.list_document_chunks(response.json()["id"]) == []

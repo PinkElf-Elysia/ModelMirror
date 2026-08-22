@@ -97,6 +97,316 @@ async def execute_current_draft(
     return completed
 
 
+def _bounded_probe_request(*, model: str = "openai/slow-generator") -> dict:
+    return {
+        "question": "Which section covers the security review?",
+        "generate_answer": False,
+        "probe_mode": "bounded_evidence",
+        "retrieval": {
+            "mode": "fulltext",
+            "top_k": 5,
+            "rerank_enabled": True,
+            "rerank_provider": "llm",
+            "rerank_model": model,
+            "rerank_top_n": 5,
+            "evidence_verification_enabled": True,
+        },
+    }
+
+
+def _full_chain_probe_request() -> dict:
+    return {
+        "question": "Which section covers the security review?",
+        "generate_answer": False,
+        "probe_mode": "full_chain_diagnostic",
+    }
+
+
+@pytest.mark.asyncio
+async def test_bounded_probe_rejects_missing_dedicated_verifier_before_query(
+    pipeline_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, service, _, _, _ = pipeline_runtime
+    called = False
+
+    async def query_pipeline_version(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("query must not run without a dedicated verifier")
+
+    monkeypatch.setattr(service, "query_pipeline_version", query_pipeline_version)
+    monkeypatch.delenv("RAG_EVIDENCE_VERIFIER_LLM_MODEL", raising=False)
+
+    response = await client.post(
+        "/api/rag/pipeline/versions/missing/query",
+        json=_bounded_probe_request(),
+    )
+
+    assert response.status_code == 400
+    assert "dedicated evidence verifier" in response.text.lower()
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_bounded_probe_forces_server_configured_verifier_model(
+    pipeline_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, service, executor, _, _ = pipeline_runtime
+    captured: dict = {}
+
+    async def query_pipeline_version(version_id, question, **kwargs):
+        captured.update({"version_id": version_id, "question": question, **kwargs})
+        return {
+            "version_id": version_id,
+            "version": 2,
+            "answer": "",
+            "sources": [],
+            "warnings": [],
+            "retrieval": {
+                "external_call_count": 1,
+                "embedding_external_call_count": 0,
+                "rerank_external_call_count": 1,
+                "answer_external_call_count": 0,
+                "evidence_verdict": "answerable",
+            },
+        }
+
+    monkeypatch.setattr(service, "query_pipeline_version", query_pipeline_version)
+    monkeypatch.setattr(
+        service, "get_pipeline_version", lambda _version_id: {"job_id": "job-probe"}
+    )
+
+    async def record_job_event(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "record_job_event", record_job_event)
+    monkeypatch.setenv(
+        "RAG_EVIDENCE_VERIFIER_LLM_MODEL", "openai/fast-evidence-verifier"
+    )
+    monkeypatch.setenv("LLM_GATEWAY_URL", "https://gateway.test/v1/chat/completions")
+    monkeypatch.setenv("LLM_GATEWAY_KEY", "test-key")
+
+    response = await client.post(
+        "/api/rag/pipeline/versions/version-2/query",
+        json=_bounded_probe_request(model="openai/slow-generator"),
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured["retrieval"]["rerank_model"] == "openai/fast-evidence-verifier"
+    assert captured["external_call_limit"] == 1
+    assert response.json()["probe"]["evidence_verifier_model"] == (
+        "openai/fast-evidence-verifier"
+    )
+
+
+@pytest.mark.asyncio
+async def test_full_chain_diagnostic_uses_immutable_profile_and_two_call_budget(
+    pipeline_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, service, executor, _, _ = pipeline_runtime
+    captured: dict = {}
+    retrieval = {
+        "mode": "hybrid",
+        "top_k": 5,
+        "rerank_enabled": True,
+        "rerank_provider": "llm",
+        "rerank_model": "openai/fast-evidence-verifier",
+        "rerank_top_n": 5,
+        "evidence_verification_enabled": True,
+    }
+    evidence = {
+        "embedding": {
+            "effective": {
+                "provider": "openai_compatible",
+                "model": "openai/text-embedding-3-small",
+                "dimension": 384,
+                "ready": True,
+            }
+        },
+        "retrieval": retrieval,
+    }
+
+    async def query_pipeline_version(version_id, question, **kwargs):
+        captured.update({"version_id": version_id, "question": question, **kwargs})
+        return {
+            "version_id": version_id,
+            "version": 2,
+            "answer": "",
+            "sources": [],
+            "warnings": [],
+            "retrieval": {
+                "external_call_count": 2,
+                "embedding_external_call_count": 1,
+                "rerank_external_call_count": 1,
+                "answer_external_call_count": 0,
+                "evidence_verdict": "answerable",
+            },
+        }
+
+    monkeypatch.setattr(service, "query_pipeline_version", query_pipeline_version)
+    monkeypatch.setattr(
+        service,
+        "get_pipeline_version",
+        lambda _version_id: {
+            "version_id": "version-2",
+            "kb_id": "kb-probe",
+            "status": "ready",
+            "active": False,
+            "job_id": "job-probe",
+        },
+    )
+    monkeypatch.setattr(service, "get_active_pipeline_version", lambda _kb_id: None)
+    monkeypatch.setattr(
+        service, "pipeline_version_evidence", lambda _version_id: evidence
+    )
+    monkeypatch.setattr(
+        service,
+        "validate_evidence_verifier_identity",
+        lambda profile: profile,
+    )
+
+    async def record_job_event(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "record_job_event", record_job_event)
+
+    response = await client.post(
+        "/api/rag/pipeline/versions/version-2/query",
+        json=_full_chain_probe_request(),
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured["retrieval"] == retrieval
+    assert captured["generate_answer"] is False
+    assert captured["external_call_limit"] == 2
+    assert captured["allow_vector_fallback"] is False
+    assert response.json()["probe"] == {
+        "version": "rag-full-chain-diagnostic-v1",
+        "diagnostic_only": True,
+        "immutable_retrieval_profile": True,
+        "answer_generation_enabled": False,
+        "vector_fallback_enabled": False,
+        "external_call_limit": 2,
+        "external_call_count": 2,
+        "embedding_external_call_count": 1,
+        "rerank_external_call_count": 1,
+        "answer_external_call_count": 0,
+        "evidence_verifier_model": "openai/fast-evidence-verifier",
+        "evidence_verifier_model_source": "candidate_profile",
+    }
+
+    async def incomplete_query(version_id, question, **kwargs):
+        return {
+            "version_id": version_id,
+            "version": 2,
+            "answer": "",
+            "sources": [],
+            "warnings": [],
+            "retrieval": {
+                "external_call_count": 1,
+                "embedding_external_call_count": 1,
+                "rerank_external_call_count": 0,
+                "answer_external_call_count": 0,
+            },
+        }
+
+    monkeypatch.setattr(service, "query_pipeline_version", incomplete_query)
+    incomplete = await client.post(
+        "/api/rag/pipeline/versions/version-2/query",
+        json=_full_chain_probe_request(),
+    )
+    assert incomplete.status_code == 400
+    assert "exactly one embedding and one verifier" in incomplete.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_full_chain_diagnostic_rejects_retrieval_override_before_query(
+    pipeline_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, service, _, _, _ = pipeline_runtime
+    called = False
+
+    async def query_pipeline_version(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("query must not run with a diagnostic override")
+
+    monkeypatch.setattr(service, "query_pipeline_version", query_pipeline_version)
+    payload = _full_chain_probe_request()
+    payload["retrieval"] = {"mode": "fulltext"}
+    response = await client.post(
+        "/api/rag/pipeline/versions/version-2/query",
+        json=payload,
+    )
+
+    assert response.status_code == 400
+    assert "immutable" in response.text.lower()
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_full_chain_diagnostic_rejects_active_version_before_query(
+    pipeline_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, service, _, _, _ = pipeline_runtime
+    called = False
+
+    async def query_pipeline_version(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("active version must not be probed as a candidate")
+
+    monkeypatch.setattr(service, "query_pipeline_version", query_pipeline_version)
+    monkeypatch.setattr(
+        service,
+        "get_pipeline_version",
+        lambda _version_id: {
+            "version_id": "version-active",
+            "kb_id": "kb-active",
+            "status": "ready",
+            "job_id": "job-active",
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "get_active_pipeline_version",
+        lambda _kb_id: {"version_id": "version-active"},
+    )
+    monkeypatch.setattr(
+        service,
+        "pipeline_version_evidence",
+        lambda _version_id: {
+            "embedding": {
+                "effective": {
+                    "provider": "openai_compatible",
+                    "ready": True,
+                }
+            },
+            "retrieval": {
+                "mode": "hybrid",
+                "top_k": 5,
+                "rerank_enabled": True,
+                "rerank_provider": "llm",
+                "rerank_model": "test/verifier",
+                "evidence_verification_enabled": True,
+            },
+        },
+    )
+    response = await client.post(
+        "/api/rag/pipeline/versions/version-active/query",
+        json=_full_chain_probe_request(),
+    )
+
+    assert response.status_code == 400
+    assert "inactive candidate" in response.text.lower()
+    assert called is False
+
+
 def test_knowledge_write_proposal_persists_deduplicates_and_checks_revision(
     tmp_path: Path,
 ) -> None:

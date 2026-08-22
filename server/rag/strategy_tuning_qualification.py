@@ -7,11 +7,15 @@ from typing import Any
 
 
 READINESS_VERSION = "rag-strategy-tuning-readiness-v1"
+CALIBRATION_CONTRACT_V1 = "rag-calibration-v1"
 BENCHMARK_ROLES = {
     "unclassified",
     "regression_guard",
     "strategy_tuning",
     "promotion_evidence",
+    "calibration",
+    "regression",
+    "promotion_sealed",
 }
 MIN_TOTAL_CASES = 12
 MIN_POSITIVE_CASES = 30
@@ -58,22 +62,34 @@ def build_tuning_readiness(
     role = benchmark_role_for(evaluation_version)
     positive = [item for item in cases if not item.get("expected_no_result")]
     negatives = [item for item in cases if item.get("expected_no_result")]
+    provenance = dict(evaluation_version.get("provenance") or {})
+    benchmark_contract_version = str(
+        evaluation_version.get("benchmark_contract_version")
+        or provenance.get("benchmark_contract_version")
+        or ""
+    )
+    strict_calibration_review = (
+        benchmark_contract_version == CALIBRATION_CONTRACT_V1
+    )
     reviewed_negatives = [
-        item for item in negatives if str(item.get("review_status") or "pending") == "approved"
+        item
+        for item in negatives
+        if str(item.get("review_status") or "pending") == "approved"
+        and (not strict_calibration_review or _has_manual_approval(item))
     ]
-    hard_negatives = [item for item in reviewed_negatives if _is_hard_negative(item)]
+    hard_negatives = [
+        item
+        for item in reviewed_negatives
+        if _is_hard_negative(item)
+        and (not strict_calibration_review or _has_stable_negative_context(item))
+    ]
     stable_positive = [item for item in positive if _has_stable_gold(item)]
     density = Counter(_density_bucket(item) for item in positive)
     query_types = Counter(_query_type(item) for item in cases)
     calibration = dict(evaluation_version.get("calibration") or {})
     calibration_status = str(calibration.get("status") or "pending")
     origin = str(evaluation_version.get("origin") or "manual")
-    provenance = dict(evaluation_version.get("provenance") or {})
-    gold_v2 = str(
-        evaluation_version.get("benchmark_contract_version")
-        or provenance.get("benchmark_contract_version")
-        or ""
-    ) == "rag-gold-v2"
+    gold_v2 = benchmark_contract_version == "rag-gold-v2"
     target_reference = dict(provenance.get("target_reference") or {})
     calibration_reference = dict(calibration.get("target_reference") or {})
     declared_target_version = str(
@@ -107,13 +123,18 @@ def build_tuning_readiness(
 
     add_check(
         "selection_role",
-        passed=role in {"strategy_tuning", "promotion_evidence"},
+        passed=role in {"strategy_tuning", "calibration"},
         severity="blocker",
         actual=role,
-        required=["strategy_tuning", "promotion_evidence"],
+        required=["strategy_tuning", "calibration"],
         message=(
-            "Regression packs verify engine consistency and cannot select a tuning winner."
-            if role == "regression_guard"
+            "Regression and sealed promotion packs cannot select a tuning winner."
+            if role in {
+                "regression_guard",
+                "regression",
+                "promotion_evidence",
+                "promotion_sealed",
+            }
             else "The evaluation version must declare a tuning or promotion evidence role."
         ),
     )
@@ -133,7 +154,7 @@ def build_tuning_readiness(
         required=MIN_POSITIVE_CASES,
         message="Strategy selection requires at least 30 answerable cases.",
     )
-    if target_version_id and origin == "generated":
+    if target_version_id and role in {"strategy_tuning", "calibration"}:
         add_check(
             "target_version_snapshot",
             passed=declared_target_version == target_version_id,
@@ -141,8 +162,26 @@ def build_tuning_readiness(
             actual=declared_target_version or None,
             required=target_version_id,
             message=(
-                "Generated tuning evidence must target the fixed knowledge version exactly."
+                "Tuning evidence must target the fixed knowledge version exactly."
             ),
+        )
+    if strict_calibration_review and evaluation_version.get("version_id"):
+        expected_checksum = hashlib.sha256(
+            json.dumps(
+                calibration_evidence_checksum_payload(evaluation_version),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        actual_checksum = str(evaluation_version.get("checksum") or "")
+        add_check(
+            "published_checksum",
+            passed=bool(actual_checksum) and actual_checksum == expected_checksum,
+            severity="blocker",
+            actual=actual_checksum or None,
+            required=expected_checksum,
+            message="Published calibration evidence checksum must remain intact.",
         )
     add_check(
         "stable_source_block_gold",
@@ -176,18 +215,25 @@ def build_tuning_readiness(
         "calibration_status",
         passed=(
             calibration_status in {"calibrated", "warning"}
-            or (gold_v2 and calibration_status == "not_required")
+            or (
+                (gold_v2 or strict_calibration_review)
+                and calibration_status == "not_required"
+            )
         ),
         severity="blocker" if origin == "generated" else "warning",
         actual=calibration_status,
         required=(
             ["not_required", "calibrated", "warning"]
-            if gold_v2
+            if gold_v2 or strict_calibration_review
             else ["calibrated", "warning"]
         ),
         message=(
-            "rag-gold-v2 defers retrieval measurement to the single paired Formal run."
-            if gold_v2
+            (
+                "Target-bound calibration evidence is the input to Strategy Tuner."
+                if strict_calibration_review
+                else "rag-gold-v2 defers retrieval measurement to the single paired Formal run."
+            )
+            if gold_v2 or strict_calibration_review
             else "A calibrated targeted set provides stronger evidence than an uncalibrated draft."
         ),
     )
@@ -391,3 +437,53 @@ def _is_hard_negative(case: dict[str, Any]) -> bool:
         query_type in {"confusable_content", "corpus_near"}
         or tags.intersection({"corpus_near", "confusable"})
     )
+
+
+def _has_manual_approval(case: dict[str, Any]) -> bool:
+    review = case.get("review_evidence")
+    if not isinstance(review, dict):
+        return False
+    try:
+        reviewed_at = float(review.get("reviewed_at") or 0)
+        dataset_revision = int(review.get("dataset_revision") or 0)
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        str(review.get("source") or "") == "manual_ui"
+        and str(review.get("decision") or "") == "approved"
+        and reviewed_at > 0
+        and dataset_revision > 0
+    )
+
+
+def _has_stable_negative_context(case: dict[str, Any]) -> bool:
+    targeting = case.get("targeting")
+    if not isinstance(targeting, dict):
+        return False
+    return any(
+        isinstance(item, dict)
+        and bool(str(item.get("document_id") or ""))
+        and bool(str(item.get("source_block_id") or ""))
+        for item in targeting.get("context_refs") or []
+    )
+
+
+def calibration_evidence_checksum_payload(
+    snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "benchmark_contract_version": str(
+            snapshot.get("benchmark_contract_version")
+            or (snapshot.get("provenance") or {}).get(
+                "benchmark_contract_version"
+            )
+            or ""
+        ),
+        "benchmark_role": benchmark_role_for(snapshot),
+        "cases": snapshot.get("cases") or [],
+        "provenance": snapshot.get("provenance") or {},
+        "coverage": snapshot.get("coverage") or {},
+        "calibration": snapshot.get("calibration") or {},
+        "corpus_snapshot": snapshot.get("corpus_snapshot") or {},
+        "qualification_manifest": snapshot.get("qualification_manifest") or {},
+    }

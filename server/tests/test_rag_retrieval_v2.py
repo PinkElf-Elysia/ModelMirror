@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from server.rag import rag_service as rag_service_module
 from server.rag import retrieval as retrieval_module
 from server.rag.embedder import EmbeddingClient
 from server.rag.lexical_store import LexicalChunk, SqliteLexicalStore, tokenize_for_search
@@ -31,6 +32,55 @@ def build_service(tmp_path: Path, *, reranker=None) -> RagService:
         reranker=reranker,
         llm_enabled=False,
     )
+
+
+@pytest.mark.asyncio
+async def test_query_embedder_is_not_reused_across_dimension_contracts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = build_service(tmp_path)
+    service.embedder.api_key = "test-key"
+    service.embedder.embedding_mode = ""
+    service.embedder.model = "same-model"
+    service.embedder.dimension = 64
+
+    async def unexpected_default_embedder(_texts):
+        raise AssertionError("dimension-mismatched default embedder was reused")
+
+    monkeypatch.setattr(service.embedder, "embed_texts", unexpected_default_embedder)
+    monkeypatch.setattr(service, "_ensure_embedding_profile_ready", lambda _profile: None)
+    created: list[object] = []
+
+    class ProfileEmbedder:
+        def __init__(self, *, api_base, api_key, model, dimension):
+            self.dimension = dimension
+            self.closed = False
+            created.append(self)
+
+        async def embed_texts(self, _texts):
+            return [[0.0] * self.dimension]
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(rag_service_module, "EmbeddingClient", ProfileEmbedder)
+
+    vector = await service._embed_query(
+        "dimension-specific query",
+        {
+            "effective": {
+                "ready": True,
+                "provider": "openai_compatible",
+                "model": "same-model",
+                "dimension": 8,
+            }
+        },
+    )
+
+    assert len(vector) == 8
+    assert len(created) == 1
+    assert created[0].closed is True
 
 
 def test_recursive_and_parent_child_splitters_preserve_offsets() -> None:
@@ -289,11 +339,64 @@ async def test_version_query_uses_pinned_hash_embedder_not_process_default(
     assert result["retrieval"]["embedding_provider"] == "hash"
     assert result["retrieval"]["embedding_model"] == "deterministic-hash-v1"
     assert result["retrieval"]["embedding_dimension"] == 64
+    assert result["retrieval"]["external_call_count"] == 0
+    assert result["retrieval"]["embedding_external_call_count"] == 0
+    stage_timings = {
+        key: result["retrieval"][key]
+        for key in (
+            "embedding_elapsed_ms",
+            "vector_search_elapsed_ms",
+            "fulltext_search_elapsed_ms",
+            "fusion_elapsed_ms",
+        )
+    }
+    assert all(isinstance(value, (int, float)) for value in stage_timings.values())
+    assert all(value >= 0 for value in stage_timings.values())
+    assert result["retrieval"]["retrieval_elapsed_ms"] >= max(
+        stage_timings.values()
+    )
+
+
+@pytest.mark.asyncio
+async def test_hybrid_query_starts_lexical_lookup_while_embedding_is_in_flight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = build_service(tmp_path)
+    kb = service.create_knowledge_base("hybrid overlap")
+    lexical_started = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    async def embed_after_lexical_started(_question, _profile):
+        await asyncio.wait_for(lexical_started.wait(), timeout=0.2)
+        return [0.0] * 64
+
+    def lexical_query(_namespace, _question, _top_k):
+        loop.call_soon_threadsafe(lexical_started.set)
+        return []
+
+    monkeypatch.setattr(service, "_embed_query", embed_after_lexical_started)
+    monkeypatch.setattr(service.lexical_store, "query", lexical_query)
+
+    result = await service._query_namespace(
+        kb["id"],
+        "hybrid-overlap-v1",
+        "ORION-417 and LGT-531",
+        config=RetrievalConfig.from_mapping(
+            {"mode": "hybrid", "top_k": 5, "rerank_enabled": False}
+        ),
+        lexical_ready=True,
+        generate_answer=False,
+    )
+
+    assert lexical_started.is_set()
+    assert result["retrieval"]["external_call_count"] == 0
 
 
 @pytest.mark.asyncio
 async def test_real_embedding_version_records_actual_dimension_and_fails_closed(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     storage = tmp_path / "real-storage"
     embedder = EmbeddingClient(
@@ -340,6 +443,32 @@ async def test_real_embedding_version_records_actual_dimension_and_fails_closed(
     assert version["embedding_profile"]["effective"]["dimension"] == 3
     assert version["embedding_profile"]["dimension"] == 3
     evidence_before = service.pipeline_version_evidence(version["version_id"])
+
+    class VersionDimensionEmbedder:
+        def __init__(self, *, api_base, api_key, model, dimension):
+            assert dimension == 3
+            self.dimension = dimension
+
+        async def embed_texts(self, texts):
+            return [[1.0, float(len(text) % 7), 0.25] for text in texts]
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        rag_service_module,
+        "EmbeddingClient",
+        VersionDimensionEmbedder,
+    )
+
+    query_result = await service.query_pipeline_version(
+        version["version_id"],
+        "REAL-VECTOR-IDENTITY",
+        retrieval={"mode": "vector"},
+        generate_answer=False,
+    )
+    assert query_result["retrieval"]["external_call_count"] == 1
+    assert query_result["retrieval"]["embedding_external_call_count"] == 1
 
     embedder.api_key = ""
     evidence_after = service.pipeline_version_evidence(version["version_id"])
@@ -408,6 +537,57 @@ def test_retrieval_config_validates_weights_and_limits() -> None:
         RetrievalConfig.from_mapping({"score_threshold": 1.1})
 
 
+def test_explicit_abstention_uses_raw_vector_evidence_instead_of_rrf_rank() -> None:
+    config = RetrievalConfig.from_mapping(
+        {
+            "mode": "hybrid",
+            "abstention_enabled": True,
+            "abstention_score_domain": "vector_score",
+            "abstention_threshold": 0.7,
+        }
+    )
+    near_context = _retrieval_candidate(
+        "near-context",
+        "doc-near",
+        vector_score=0.55,
+        fulltext_score=8.0,
+        fused_score=1.0,
+    )
+    accepted, decision = retrieval_module.apply_abstention([near_context], config)
+
+    assert accepted == []
+    assert decision == {
+        "abstention_enabled": True,
+        "abstention_applied": True,
+        "abstained": True,
+        "abstention_score_domain": "vector_score",
+        "abstention_threshold": 0.7,
+        "abstention_score": 0.55,
+        "abstention_input_count": 1,
+        "abstention_reason": "below_threshold",
+    }
+
+    answer = _retrieval_candidate(
+        "answer",
+        "doc-answer",
+        vector_score=0.82,
+        fused_score=0.8,
+    )
+    accepted, decision = retrieval_module.apply_abstention([answer], config)
+    assert accepted == [answer]
+    assert decision["abstained"] is False
+    assert decision["abstention_reason"] == "accepted"
+
+    with pytest.raises(ValueError, match="vector_score"):
+        RetrievalConfig.from_mapping(
+            {
+                "abstention_enabled": True,
+                "abstention_score_domain": "fused_score",
+                "abstention_threshold": 0.7,
+            }
+        )
+
+
 def _retrieval_candidate(
     chunk_id: str,
     doc_id: str,
@@ -467,7 +647,7 @@ def test_weighted_rrf_score_is_candidate_pool_invariant() -> None:
     assert 0 < expanded_scores["tail"] < expanded_scores["vector-only"] < 1
 
 
-def test_candidate_selection_uses_fused_threshold_then_parent_and_doc_diversity() -> None:
+def test_candidate_selection_uses_fused_threshold_then_parent_dedupe() -> None:
     candidates = [
         _retrieval_candidate(
             "a-parent-best",
@@ -496,8 +676,35 @@ def test_candidate_selection_uses_fused_threshold_then_parent_and_doc_diversity(
 
     assert [item.chunk_id for item in selected] == [
         "a-parent-best",
-        "b-first",
         "a-second",
+        "b-first",
+    ]
+
+
+def test_candidate_selection_does_not_push_high_score_gold_below_top_five() -> None:
+    candidates = [
+        _retrieval_candidate("a-best", "doc-a", fused_score=1.0),
+        _retrieval_candidate("a-second", "doc-a", fused_score=0.99),
+        _retrieval_candidate("a-third", "doc-a", fused_score=0.98),
+        _retrieval_candidate("a-fourth", "doc-a", fused_score=0.97),
+        _retrieval_candidate("a-gold", "doc-a", fused_score=0.96),
+        _retrieval_candidate("b-lower", "doc-b", fused_score=0.95),
+        _retrieval_candidate("c-lower", "doc-c", fused_score=0.94),
+        _retrieval_candidate("d-lower", "doc-d", fused_score=0.93),
+    ]
+
+    selected = retrieval_module.select_candidates(
+        candidates,
+        score_threshold=0.0,
+        top_k=5,
+    )
+
+    assert [item.chunk_id for item in selected] == [
+        "a-best",
+        "a-second",
+        "a-third",
+        "a-fourth",
+        "a-gold",
     ]
 
 
@@ -608,6 +815,725 @@ async def test_successful_rerank_top_n_does_not_restore_unranked_tail(
     assert len(fallback["sources"]) == 8
     assert fallback["retrieval"]["rerank_provider_used"] == "none"
     assert fallback["retrieval"]["rerank_fallback_reason"] == "api:http_status_503"
+
+
+@pytest.mark.asyncio
+async def test_llm_rerank_returns_explicit_evidence_sufficiency_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+    service = RerankService()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    async def post(self, url, **kwargs):
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "answerable": False,
+                                    "support_score": 0.18,
+                                    "reason_code": "requested_fact_absent",
+                                    "results": [{"index": 0, "score": 0.92}],
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank(
+        "Which certification body is named?",
+        [RerankDocument("near-context", "The policy requires a security review.")],
+        provider="llm",
+        model="test-llm",
+        top_n=1,
+        max_provider_attempts=1,
+    )
+
+    assert outcome.provider == "llm"
+    assert outcome.evidence_verdict == "abstain"
+    assert outcome.support_score == 0.18
+    assert outcome.evidence_reason_code == "requested_fact_absent"
+    assert outcome.external_call_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("results_fragment", [{"results": []}, {}])
+async def test_evidence_verifier_accepts_explicit_abstain_without_ranked_items(
+    monkeypatch: pytest.MonkeyPatch,
+    results_fragment: dict,
+) -> None:
+    service = RerankService()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    async def post(self, url, **kwargs):
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "answerable": False,
+                                    "support_score": 0.08,
+                                    "reason_code": "requested_fact_absent",
+                                    **results_fragment,
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank(
+        "Which external certification body is named?",
+        [RerankDocument("near-context", "The policy requires a security review.")],
+        provider="llm",
+        model="test-llm",
+        top_n=1,
+        max_provider_attempts=1,
+        require_evidence_verdict=True,
+    )
+
+    assert outcome.provider == "llm"
+    assert outcome.items == []
+    assert outcome.evidence_verdict == "abstain"
+    assert outcome.support_score == 0.08
+    assert outcome.evidence_reason_code == "requested_fact_absent"
+    assert outcome.fallback_reason is None
+    assert outcome.external_call_count == 1
+
+    ordinary_rerank = await service.rerank(
+        "Which external certification body is named?",
+        [RerankDocument("near-context", "The policy requires a security review.")],
+        provider="llm",
+        model="test-llm",
+        top_n=1,
+        max_provider_attempts=1,
+    )
+    assert ordinary_rerank.provider == "none"
+    assert ordinary_rerank.fallback_reason == (
+        "llm:openrouter:invalid_ranked_items"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("response_kind", "expected_reason"),
+    [
+        ("invalid_json", "invalid_json_response"),
+        ("missing_verdict", "missing_evidence_verdict"),
+        ("invalid_verdict", "invalid_evidence_verdict"),
+        ("invalid_reason", "invalid_reason_code"),
+        ("invalid_ranked_items", "invalid_ranked_items"),
+        ("timeout", "provider_timeout"),
+    ],
+)
+async def test_llm_verifier_failure_receipts_use_stable_sanitized_codes(
+    monkeypatch: pytest.MonkeyPatch,
+    response_kind: str,
+    expected_reason: str,
+) -> None:
+    service = RerankService()
+    monkeypatch.delenv("LLM_GATEWAY_URL", raising=False)
+    monkeypatch.delenv("LLM_GATEWAY_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret-test-key")
+
+    async def post(self, url, **kwargs):
+        request = httpx.Request("POST", url)
+        if response_kind == "timeout":
+            raise httpx.ReadTimeout("secret-response-token", request=request)
+        if response_kind == "invalid_json":
+            content = "{secret-response-token"
+        elif response_kind == "missing_verdict":
+            content = json.dumps({"results": [{"index": 0, "score": 0.9}]})
+        elif response_kind == "invalid_verdict":
+            content = json.dumps(
+                {
+                    "answerable": "secret-response-token",
+                    "support_score": 0.9,
+                    "reason_code": "supported",
+                    "results": [{"index": 0, "score": 0.9}],
+                }
+            )
+        elif response_kind == "invalid_reason":
+            content = json.dumps(
+                {
+                    "answerable": False,
+                    "support_score": 0.1,
+                    "reason_code": "secret-response-token",
+                    "results": [],
+                }
+            )
+        else:
+            content = json.dumps(
+                {
+                    "answerable": True,
+                    "support_score": 0.9,
+                    "reason_code": "supported",
+                    "results": [
+                        {"index": "secret-response-token", "score": "invalid"}
+                    ],
+                }
+            )
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": content}}]},
+            request=request,
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank(
+        "sensitive-query-marker",
+        [RerankDocument("a", "sensitive-document-marker")],
+        provider="llm",
+        model="test-llm",
+        top_n=1,
+        max_provider_attempts=1,
+        require_evidence_verdict=True,
+    )
+
+    assert outcome.provider == "none"
+    assert outcome.fallback_reason == f"llm:openrouter:{expected_reason}"
+    serialized = f"{outcome.warning} {outcome.fallback_reason}".lower()
+    assert "secret-test-key" not in serialized
+    assert "secret-response-token" not in serialized
+    assert "sensitive-query-marker" not in serialized
+    assert "sensitive-document-marker" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_evidence_verification_abstains_when_fact_is_absent(
+    tmp_path: Path,
+) -> None:
+    class VerifyingReranker:
+        async def rerank(self, _query, documents, **_kwargs):
+            return RerankOutcome(
+                items=[RerankItem(documents[0].chunk_id, 0.94)],
+                provider="llm",
+                model="support-verifier",
+                evidence_verdict="abstain",
+                support_score=0.12,
+                evidence_reason_code="requested_fact_absent",
+                external_call_count=1,
+                attempted_provider="llm",
+                attempted_model="support-verifier",
+                provider_target="llm_gateway",
+                attempted_targets=("llm_gateway",),
+            )
+
+    service = build_service(tmp_path, reranker=VerifyingReranker())
+    kb = service.create_knowledge_base("evidence verdict")
+    document = await service.upload_document(
+        kb["id"],
+        "policy.txt",
+        b"The policy requires a security review before vendor approval.",
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "fulltext", "top_k": 5},
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    executor = KnowledgePipelineExecutor(service)
+    assert await executor.run_once() is True
+    version_id = service.get_pipeline_job(job["job_id"])["candidate_version_id"]
+
+    result = await service.query_pipeline_version(
+        version_id,
+        "Which external certification body performs the review?",
+        retrieval={
+            "mode": "fulltext",
+            "top_k": 5,
+            "rerank_enabled": True,
+            "rerank_provider": "llm",
+            "rerank_top_n": 5,
+            "evidence_verification_enabled": True,
+        },
+        generate_answer=False,
+    )
+
+    assert result["sources"] == []
+    assert result["retrieval"]["abstention_enabled"] is False
+    assert result["retrieval"]["abstention_applied"] is True
+    assert result["retrieval"]["abstention_score_domain"] == "evidence_verdict_v1"
+    assert result["retrieval"]["abstained"] is True
+    assert result["retrieval"]["abstention_reason"] == "requested_fact_absent"
+    assert result["retrieval"]["evidence_verification_applied"] is True
+    assert result["retrieval"]["evidence_verdict"] == "abstain"
+    assert result["retrieval"]["evidence_support_score"] == 0.12
+
+
+@pytest.mark.asyncio
+async def test_evidence_verification_preserves_verifier_input_for_empty_abstain_ranking(
+    tmp_path: Path,
+) -> None:
+    class EmptyAbstainReranker:
+        async def rerank(self, _query, documents, **_kwargs):
+            return RerankOutcome(
+                items=[],
+                provider="llm",
+                model="support-verifier",
+                requested_input_count=len(documents),
+                input_count=len(documents),
+                evidence_verdict="abstain",
+                support_score=0.08,
+                evidence_reason_code="requested_fact_absent",
+                external_call_count=1,
+                attempted_provider="llm",
+                attempted_model="support-verifier",
+                provider_target="llm_gateway",
+                attempted_targets=("llm_gateway",),
+            )
+
+    service = build_service(tmp_path, reranker=EmptyAbstainReranker())
+    kb = service.create_knowledge_base("empty abstain ranking")
+    document = await service.upload_document(
+        kb["id"],
+        "policy.txt",
+        b"The policy requires a security review before vendor approval.",
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "fulltext", "top_k": 5},
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    executor = KnowledgePipelineExecutor(service)
+    assert await executor.run_once() is True
+    version_id = service.get_pipeline_job(job["job_id"])["candidate_version_id"]
+
+    result = await service.query_pipeline_version(
+        version_id,
+        "Which external certification body performs the review?",
+        retrieval={
+            "mode": "fulltext",
+            "top_k": 5,
+            "rerank_enabled": True,
+            "rerank_provider": "llm",
+            "rerank_top_n": 5,
+            "evidence_verification_enabled": True,
+        },
+        generate_answer=False,
+    )
+
+    assert result["sources"] == []
+    assert result["retrieval"]["rerank_input_count"] == 1
+    assert result["retrieval"]["rerank_output_count"] == 0
+    assert result["retrieval"]["abstention_input_count"] == 1
+    assert result["retrieval"]["abstention_reason"] == "requested_fact_absent"
+    assert result["retrieval"]["evidence_verification_applied"] is True
+    assert result["retrieval"]["evidence_verdict"] == "abstain"
+
+
+@pytest.mark.asyncio
+async def test_bounded_evidence_probe_uses_one_provider_call_and_no_answer(
+    tmp_path: Path,
+) -> None:
+    captured: dict = {}
+
+    class BoundedReranker:
+        async def rerank(self, _query, documents, **kwargs):
+            captured.update(kwargs)
+            return RerankOutcome(
+                items=[RerankItem(documents[0].chunk_id, 0.97)],
+                provider="llm",
+                model="support-verifier",
+                evidence_verdict="answerable",
+                support_score=0.91,
+                evidence_reason_code="supported",
+                external_call_count=1,
+                candidate_limit=10,
+                input_char_limit=12_000,
+                max_output_tokens=300,
+                attempted_provider="llm",
+                attempted_model="support-verifier",
+                provider_target="llm_gateway",
+                attempted_targets=("llm_gateway",),
+                provider_http_elapsed_ms=123.4,
+                provider_prompt_tokens=321,
+                provider_completion_tokens=45,
+                provider_total_tokens=366,
+                provider_response_char_count=108,
+            )
+
+    service = build_service(tmp_path, reranker=BoundedReranker())
+    kb = service.create_knowledge_base("bounded probe")
+    document = await service.upload_document(
+        kb["id"], "policy.txt", b"Control MM-2042 requires an owner and reviewer."
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"], {}, retrieval_profile={"mode": "fulltext", "top_k": 5}
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    executor = KnowledgePipelineExecutor(service)
+    assert await executor.run_once() is True
+    version_id = service.get_pipeline_job(job["job_id"])["candidate_version_id"]
+
+    result = await service.query_pipeline_version(
+        version_id,
+        "What does MM-2042 require?",
+        retrieval={
+            "mode": "fulltext",
+            "top_k": 5,
+            "rerank_enabled": True,
+            "rerank_provider": "llm",
+            "rerank_top_n": 5,
+            "evidence_verification_enabled": True,
+        },
+        generate_answer=False,
+        external_call_limit=1,
+        allow_vector_fallback=False,
+    )
+
+    assert result["answer"] == ""
+    assert captured["max_provider_attempts"] == 1
+    assert result["retrieval"]["external_call_limit"] == 1
+    assert result["retrieval"]["external_call_count"] == 1
+    assert result["retrieval"]["embedding_external_call_count"] == 0
+    assert result["retrieval"]["rerank_external_call_count"] == 1
+    assert result["retrieval"]["answer_external_call_count"] == 0
+    assert result["retrieval"]["rerank_candidate_limit"] == 10
+    assert result["retrieval"]["rerank_input_char_limit"] == 12_000
+    assert result["retrieval"]["rerank_max_output_tokens"] == 300
+    assert result["retrieval"]["rerank_provider_http_elapsed_ms"] == 123.4
+    assert result["retrieval"]["rerank_provider_prompt_tokens"] == 321
+    assert result["retrieval"]["rerank_provider_completion_tokens"] == 45
+    assert result["retrieval"]["rerank_provider_total_tokens"] == 366
+    assert result["retrieval"]["rerank_provider_response_char_count"] == 108
+
+
+@pytest.mark.asyncio
+async def test_full_chain_diagnostic_uses_exactly_embedding_and_verifier_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict = {}
+
+    class FullChainReranker:
+        async def rerank(self, _query, documents, **kwargs):
+            captured.update(kwargs)
+            return RerankOutcome(
+                items=[RerankItem(documents[0].chunk_id, 0.97)],
+                provider="llm",
+                model="support-verifier",
+                evidence_verdict="answerable",
+                support_score=0.91,
+                evidence_reason_code="supported",
+                external_call_count=1,
+                candidate_limit=10,
+                input_char_limit=12_000,
+                max_output_tokens=300,
+                attempted_provider="llm",
+                attempted_model="support-verifier",
+                provider_target="llm_gateway",
+                attempted_targets=("llm_gateway",),
+            )
+
+    service = build_service(tmp_path, reranker=FullChainReranker())
+    kb = service.create_knowledge_base("full chain diagnostic")
+    document = await service.upload_document(
+        kb["id"], "policy.txt", b"Control MM-2042 requires an owner and reviewer."
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"], {}, retrieval_profile={"mode": "hybrid", "top_k": 5}
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    executor = KnowledgePipelineExecutor(service)
+    assert await executor.run_once() is True
+    version_id = service.get_pipeline_job(job["job_id"])["candidate_version_id"]
+    original_embed_query = service._embed_query
+
+    monkeypatch.setattr(
+        service,
+        "_resolved_embedding_profile_for_query",
+        lambda _profile: {
+            "effective": {
+                "ready": True,
+                "provider": "openai_compatible",
+                "model": "test-embedding",
+                "dimension": 64,
+            }
+        },
+    )
+
+    async def fake_external_embed_query(question, _profile):
+        return await original_embed_query(
+            question,
+            {
+                "effective": {
+                    "ready": True,
+                    "provider": "hash",
+                    "model": "deterministic-hash-v1",
+                    "dimension": 64,
+                }
+            },
+        )
+
+    monkeypatch.setattr(service, "_embed_query", fake_external_embed_query)
+
+    result = await service.query_pipeline_version(
+        version_id,
+        "What does MM-2042 require?",
+        retrieval={
+            "mode": "hybrid",
+            "top_k": 5,
+            "rerank_enabled": True,
+            "rerank_provider": "llm",
+            "rerank_top_n": 5,
+            "evidence_verification_enabled": True,
+        },
+        generate_answer=False,
+        external_call_limit=2,
+        allow_vector_fallback=False,
+    )
+
+    assert result["answer"] == ""
+    assert captured["max_provider_attempts"] == 1
+    assert result["retrieval"]["external_call_limit"] == 2
+    assert result["retrieval"]["external_call_count"] == 2
+    assert result["retrieval"]["embedding_external_call_count"] == 1
+    assert result["retrieval"]["rerank_external_call_count"] == 1
+    assert result["retrieval"]["answer_external_call_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_enabled_evidence_verifier_fails_closed_without_valid_verdict(
+    tmp_path: Path,
+) -> None:
+    class MissingVerdictReranker:
+        async def rerank(self, _query, documents, **_kwargs):
+            return RerankOutcome(
+                items=[RerankItem(documents[0].chunk_id, 0.99)],
+                provider="llm",
+                model="support-verifier",
+                external_call_count=1,
+                attempted_targets=("llm_gateway",),
+            )
+
+    service = build_service(tmp_path, reranker=MissingVerdictReranker())
+    kb = service.create_knowledge_base("missing verdict")
+    document = await service.upload_document(
+        kb["id"], "policy.txt", b"The policy mentions vendor security review."
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"], {}, retrieval_profile={"mode": "fulltext", "top_k": 5}
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    executor = KnowledgePipelineExecutor(service)
+    assert await executor.run_once() is True
+    version_id = service.get_pipeline_job(job["job_id"])["candidate_version_id"]
+
+    result = await service.query_pipeline_version(
+        version_id,
+        "Who performs the review?",
+        retrieval={
+            "mode": "fulltext",
+            "top_k": 5,
+            "rerank_enabled": True,
+            "rerank_provider": "llm",
+            "evidence_verification_enabled": True,
+        },
+        generate_answer=False,
+    )
+
+    assert result["sources"] == []
+    assert result["retrieval"]["abstention_reason"] == "verifier_unavailable"
+    assert result["retrieval"]["evidence_verification_applied"] is False
+    assert any("verifier" in warning.lower() for warning in result["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_evidence_verification_preserves_no_candidates_without_calling_verifier(
+    tmp_path: Path,
+) -> None:
+    class UnexpectedReranker:
+        async def rerank(self, *_args, **_kwargs):
+            raise AssertionError("Verifier must not run without retrieval candidates.")
+
+    service = build_service(tmp_path, reranker=UnexpectedReranker())
+    kb = service.create_knowledge_base("empty evidence")
+    document = await service.upload_document(
+        kb["id"], "policy.txt", b"Control MM-2042 requires an owner and reviewer."
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"], {}, retrieval_profile={"mode": "fulltext", "top_k": 5}
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    executor = KnowledgePipelineExecutor(service)
+    assert await executor.run_once() is True
+    version_id = service.get_pipeline_job(job["job_id"])["candidate_version_id"]
+
+    result = await service.query_pipeline_version(
+        version_id,
+        "ZXQ-9999 imaginary certification email",
+        retrieval={
+            "mode": "fulltext",
+            "top_k": 5,
+            "rerank_enabled": True,
+            "rerank_provider": "llm",
+            "rerank_top_n": 5,
+            "evidence_verification_enabled": True,
+        },
+        generate_answer=False,
+        allow_vector_fallback=False,
+    )
+
+    assert result["sources"] == []
+    assert result["retrieval"]["abstention_enabled"] is False
+    assert result["retrieval"]["abstention_applied"] is True
+    assert result["retrieval"]["abstained"] is True
+    assert result["retrieval"]["abstention_input_count"] == 0
+    assert result["retrieval"]["abstention_reason"] == "no_candidates"
+    assert result["retrieval"]["evidence_verification_applied"] is False
+    assert result["retrieval"]["evidence_verdict"] == "unavailable"
+    assert not any("verifier" in warning.lower() for warning in result["warnings"])
+
+
+def test_evidence_verification_requires_llm_rerank() -> None:
+    with pytest.raises(ValueError, match="requires rerank_provider=llm"):
+        retrieval_module.RetrievalConfig.from_mapping(
+            {
+                "mode": "hybrid",
+                "rerank_enabled": True,
+                "rerank_provider": "api",
+                "evidence_verification_enabled": True,
+            }
+        )
+
+
+def test_rerank_capabilities_require_a_dedicated_evidence_verifier_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RerankService()
+    monkeypatch.setenv("LLM_GATEWAY_URL", "https://gateway.test/v1/chat/completions")
+    monkeypatch.setenv("LLM_GATEWAY_KEY", "test-key")
+    monkeypatch.setenv("RAG_RERANK_LLM_MODEL", "openai/slow-general-model")
+    monkeypatch.delenv("RAG_EVIDENCE_VERIFIER_LLM_MODEL", raising=False)
+
+    without_dedicated_model = service.capabilities()
+    assert without_dedicated_model["llm_configured"] is True
+    assert without_dedicated_model["evidence_verifier_configured"] is False
+    assert without_dedicated_model["evidence_verifier_model"] == ""
+
+    monkeypatch.setenv(
+        "RAG_EVIDENCE_VERIFIER_LLM_MODEL", "openai/fast-evidence-verifier"
+    )
+    dedicated = service.capabilities()
+    assert dedicated["evidence_verifier_configured"] is True
+    assert dedicated["evidence_verifier_model"] == "openai/fast-evidence-verifier"
+
+
+@pytest.mark.asyncio
+async def test_new_pipeline_job_pins_dedicated_evidence_verifier_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = build_service(tmp_path)
+    monkeypatch.setattr(
+        service.reranker,
+        "capabilities",
+        lambda: {
+            "evidence_verifier_configured": True,
+            "evidence_verifier_model": "openai/pinned-evidence-verifier",
+        },
+    )
+    kb = service.create_knowledge_base("pinned evidence verifier")
+    document = await service.upload_document(
+        kb["id"],
+        "policy.txt",
+        b"Control MER-209 requires an approved deletion manifest.",
+    )
+
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={
+            "mode": "vector",
+            "top_k": 5,
+            "rerank_enabled": True,
+            "rerank_provider": "llm",
+            "rerank_model": "openai/unverified-general-model",
+            "evidence_verification_enabled": True,
+        },
+    )
+
+    assert draft["retrieval_profile"]["rerank_model"] == (
+        "openai/pinned-evidence-verifier"
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    stored_job = service.get_pipeline_job(job["job_id"])
+    assert stored_job["config_snapshot"]["retrieval_profile"]["rerank_model"] == (
+        "openai/pinned-evidence-verifier"
+    )
+
+
+def test_formal_evidence_verifier_identity_rejects_model_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = build_service(tmp_path)
+    monkeypatch.setattr(
+        service.reranker,
+        "capabilities",
+        lambda: {
+            "evidence_verifier_configured": True,
+            "evidence_verifier_model": "openai/pinned-evidence-verifier",
+        },
+    )
+    drifted = {
+        "mode": "vector",
+        "top_k": 5,
+        "rerank_enabled": True,
+        "rerank_provider": "llm",
+        "rerank_model": "openai/different-model",
+        "evidence_verification_enabled": True,
+    }
+
+    with pytest.raises(PipelineDraftValidationError, match="pinned verifier model"):
+        service.validate_evidence_verifier_identity(drifted)
+
+    assert service.validate_evidence_verifier_identity(
+        {**drifted, "rerank_model": "openai/pinned-evidence-verifier"}
+    )["rerank_model"] == "openai/pinned-evidence-verifier"
 
 
 @pytest.mark.asyncio
@@ -732,6 +1658,208 @@ async def test_llm_rerank_budget_includes_prompt_and_serialization_overhead(
 
 
 @pytest.mark.asyncio
+async def test_evidence_verifier_uses_dedicated_small_request_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RerankService()
+    documents = [
+        RerankDocument(f"chunk-{index}", f"evidence-{index}-" + "x" * 2_000)
+        for index in range(20)
+    ]
+    captured: dict = {}
+    monkeypatch.setenv("LLM_GATEWAY_URL", "https://gateway.test/v1")
+    monkeypatch.setenv("LLM_GATEWAY_KEY", "gateway-key")
+    monkeypatch.setenv(
+        "RAG_EVIDENCE_VERIFIER_LLM_MODEL", "openai/fast-evidence-verifier"
+    )
+    monkeypatch.delenv("RAG_EVIDENCE_VERIFIER_MAX_CANDIDATES", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    async def post(self, url, **kwargs):
+        captured.update(kwargs["json"])
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"answerable":true,"support_score":0.9,'
+                                '"reason_code":"supported",'
+                                '"results":[{"index":0,"score":0.9}]}'
+                            )
+                        }
+                    }
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank(
+        "Which exact fact is supported?",
+        documents,
+        provider="llm",
+        model="openai/fast-evidence-verifier",
+        top_n=5,
+        require_evidence_verdict=True,
+    )
+
+    user_payload = json.loads(captured["messages"][1]["content"])
+    assert outcome.provider == "llm"
+    assert len(user_payload["documents"]) == 20
+    assert len(json.dumps(captured, ensure_ascii=False)) <= 12_000
+    assert captured["max_tokens"] == 300
+    assert outcome.candidate_limit == 20
+    assert outcome.input_char_limit == 12_000
+    assert outcome.max_output_tokens == 300
+
+
+@pytest.mark.asyncio
+async def test_evidence_verifier_records_sanitized_provider_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RerankService()
+    content = (
+        '{"answerable":true,"support_score":0.9,'
+        '"reason_code":"supported",'
+        '"results":[{"index":0,"score":0.9}]}'
+    )
+    monkeypatch.setenv("LLM_GATEWAY_URL", "https://gateway.test/v1")
+    monkeypatch.setenv("LLM_GATEWAY_KEY", "gateway-key")
+    monkeypatch.setenv(
+        "RAG_EVIDENCE_VERIFIER_LLM_MODEL", "openai/fast-evidence-verifier"
+    )
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    async def post(self, url, **_kwargs):
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": content}}],
+                "usage": {
+                    "prompt_tokens": 321,
+                    "completion_tokens": 45,
+                    "total_tokens": 366,
+                    "raw_private_detail": "must-not-be-retained",
+                },
+                "raw_private_response": "must-not-be-retained",
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank(
+        "Which exact fact is supported?",
+        [RerankDocument("chunk-0", "bounded evidence")],
+        provider="llm",
+        model="openai/fast-evidence-verifier",
+        top_n=1,
+        require_evidence_verdict=True,
+    )
+
+    assert outcome.provider_prompt_tokens == 321
+    assert outcome.provider_completion_tokens == 45
+    assert outcome.provider_total_tokens == 366
+    assert outcome.provider_response_char_count == len(content)
+    assert outcome.provider_http_elapsed_ms >= 0
+    assert "private" not in str(outcome).lower()
+
+
+@pytest.mark.asyncio
+async def test_evidence_verifier_output_budget_scales_for_large_top_n(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RerankService()
+    captured: dict = {}
+    monkeypatch.setenv("LLM_GATEWAY_URL", "https://gateway.test/v1")
+    monkeypatch.setenv("LLM_GATEWAY_KEY", "gateway-key")
+    monkeypatch.setenv(
+        "RAG_EVIDENCE_VERIFIER_LLM_MODEL", "openai/fast-evidence-verifier"
+    )
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    async def post(self, url, **kwargs):
+        captured.update(kwargs["json"])
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"answerable":true,"support_score":0.9,'
+                                '"reason_code":"supported",'
+                                '"results":[{"index":0,"score":0.9}]}'
+                            )
+                        }
+                    }
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    outcome = await service.rerank(
+        "large result contract",
+        [RerankDocument(f"chunk-{index}", f"evidence {index}") for index in range(50)],
+        provider="llm",
+        model="openai/fast-evidence-verifier",
+        top_n=50,
+        require_evidence_verdict=True,
+    )
+
+    assert captured["max_tokens"] >= 900
+    assert outcome.max_output_tokens == captured["max_tokens"]
+    assert outcome.max_output_tokens <= 1_200
+
+
+@pytest.mark.asyncio
+async def test_rerank_service_reuses_connection_pool_until_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    instances: list[object] = []
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            self.closed = False
+            instances.append(self)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback) -> None:
+            self.closed = True
+
+        async def post(self, url, **_kwargs):
+            return httpx.Response(
+                200,
+                json={"results": [{"index": 0, "relevance_score": 0.9}]},
+                request=httpx.Request("POST", url),
+            )
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+    monkeypatch.setenv("RERANK_API_URL", "https://rerank.test/v1/rerank")
+    monkeypatch.setenv("RERANK_API_KEY", "test-key")
+    monkeypatch.setenv("RERANK_MODEL", "test-reranker")
+    service = RerankService()
+    documents = [RerankDocument("chunk-a", "alpha")]
+
+    await service.rerank("alpha", documents, provider="api", top_n=1)
+    await service.rerank("alpha again", documents, provider="api", top_n=1)
+
+    assert len(instances) == 1
+    assert instances[0].closed is False
+
+    await service.aclose()
+
+    assert instances[0].closed is True
+
+
+@pytest.mark.asyncio
 async def test_llm_rerank_budget_drops_tail_when_empty_payload_exceeds_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -841,10 +1969,11 @@ async def test_invalid_or_empty_rerank_response_falls_back_safely(
     )
 
     assert outcome.provider == "none"
-    assert outcome.fallback_reason in {
-        "api:invalid_json_response",
-        "api:invalid_provider_response",
-    }
+    assert outcome.fallback_reason == (
+        "api:invalid_json_response"
+        if response_kind == "invalid_json"
+        else "api:invalid_ranked_items"
+    )
     serialized = f"{outcome.warning} {outcome.fallback_reason}".lower()
     assert "secret-test-key" not in serialized
     assert "rerank.test" not in serialized

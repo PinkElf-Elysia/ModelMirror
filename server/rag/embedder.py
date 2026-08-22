@@ -8,6 +8,13 @@ from typing import Any
 import httpx
 
 
+EMBEDDING_HTTP_REQUEST_TIMEOUT_SECONDS = 30.0
+EMBEDDING_HTTP_CONNECT_TIMEOUT_SECONDS = 10.0
+EMBEDDING_HTTP_MAX_CONNECTIONS = 20
+EMBEDDING_HTTP_MAX_KEEPALIVE_CONNECTIONS = 10
+EMBEDDING_HTTP_KEEPALIVE_EXPIRY_SECONDS = 30.0
+
+
 class EmbeddingError(RuntimeError):
     """Raised when embedding generation fails."""
 
@@ -28,6 +35,44 @@ class EmbeddingClient:
         self.model = (model or os.getenv("EMBEDDING_MODEL") or "text-embedding-3-small").strip()
         self.dimension = dimension
         self.embedding_mode = os.getenv("RAG_EMBEDDING_MODE", "").strip().lower()
+        self._client: httpx.AsyncClient | None = None
+
+    def _http_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    EMBEDDING_HTTP_REQUEST_TIMEOUT_SECONDS,
+                    connect=EMBEDDING_HTTP_CONNECT_TIMEOUT_SECONDS,
+                ),
+                limits=httpx.Limits(
+                    max_connections=EMBEDDING_HTTP_MAX_CONNECTIONS,
+                    max_keepalive_connections=EMBEDDING_HTTP_MAX_KEEPALIVE_CONNECTIONS,
+                    keepalive_expiry=EMBEDDING_HTTP_KEEPALIVE_EXPIRY_SECONDS,
+                ),
+            )
+        return self._client
+
+    @staticmethod
+    def execution_contract() -> dict[str, int]:
+        return {
+            "request_timeout_ms": int(
+                EMBEDDING_HTTP_REQUEST_TIMEOUT_SECONDS * 1000
+            ),
+            "connect_timeout_ms": int(
+                EMBEDDING_HTTP_CONNECT_TIMEOUT_SECONDS * 1000
+            ),
+            "max_connections": EMBEDDING_HTTP_MAX_CONNECTIONS,
+            "max_keepalive_connections": EMBEDDING_HTTP_MAX_KEEPALIVE_CONNECTIONS,
+            "keepalive_expiry_ms": int(
+                EMBEDDING_HTTP_KEEPALIVE_EXPIRY_SECONDS * 1000
+            ),
+        }
+
+    async def aclose(self) -> None:
+        client = self._client
+        self._client = None
+        if client is not None:
+            await client.aclose()
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Return embeddings for a batch of texts."""
@@ -39,17 +84,24 @@ class EmbeddingClient:
 
         base = self.api_base or "https://api.openai.com/v1"
         url = f"{base.rstrip('/')}/embeddings"
-        payload = {"model": self.model, "input": texts}
+        payload = {
+            "model": self.model,
+            "input": texts,
+            "dimensions": self.dimension,
+        }
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
 
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
-                response = await client.post(url, headers=headers, json=payload)
-                response.raise_for_status()
-                data = response.json()
+            response = await self._http_client().post(
+                url,
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
         except httpx.HTTPError as exc:
             raise EmbeddingError(f"Embedding API 调用失败：{exc}") from exc
         except ValueError as exc:
@@ -106,4 +158,3 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
     if left_norm == 0 or right_norm == 0:
         return 0.0
     return numerator / (left_norm * right_norm)
-

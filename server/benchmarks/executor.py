@@ -849,6 +849,9 @@ class BenchmarkJobExecutor:
                 "benchmark_contract_version": (
                     "rag-gold-v2" if formal_gold else "rag-gold-v1"
                 ),
+                "evidence_policy_version": str(
+                    getattr(self.knowledge_service, "evidence_policy_version", "")
+                )[:80],
                 "generator": "modelmirror-targeted-rag-benchmark-v2",
                 "generation_purpose": str(
                     request.get("generation_purpose") or "general"
@@ -887,7 +890,7 @@ class BenchmarkJobExecutor:
                 "target_reference": copy.deepcopy(reference),
                 "target_checksum": snapshot["checksum"],
             },
-            benchmark_role=("promotion_evidence" if formal_gold else "strategy_tuning"),
+            benchmark_role=("promotion_sealed" if formal_gold else "strategy_tuning"),
         )
         await asyncio.to_thread(
             self.store.update_job,

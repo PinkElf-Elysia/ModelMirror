@@ -13,11 +13,14 @@ from pathlib import Path
 from typing import Any
 
 from .strategy_tuning_qualification import (
+    CALIBRATION_CONTRACT_V1,
     MIN_HARD_NEGATIVES,
     MIN_POSITIVE_CASES,
     build_tuning_readiness,
+    calibration_evidence_checksum_payload,
     normalize_benchmark_role,
 )
+from .runtime_identity import is_valid_rag_runtime_identity
 
 
 class EvaluationError(RuntimeError):
@@ -46,6 +49,7 @@ class EvaluationPromotionError(EvaluationError):
 
 DEFAULT_KS = [1, 3, 5, 10]
 GOLD_CONTRACT_V2 = "rag-gold-v2"
+GOLD_V2_EVIDENCE_POLICY = "content-source-block-v1"
 GOLD_V2_POSITIVE_TYPES = (
     "factual_lookup",
     "paraphrase",
@@ -71,6 +75,123 @@ DEFAULT_GATE_POLICY: dict[str, Any] = {
     "require_zero_errors": True,
 }
 
+ABSTENTION_CONTRACT_VERSION = "rag-abstention-v1"
+DEVELOPMENT_EVIDENCE_VERSION = "rag-development-evidence-v1"
+
+
+def build_development_evidence_manifest(
+    evaluation_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """Create a text-free fingerprint of every query used to tune a candidate."""
+
+    query_fingerprints = []
+    for case in evaluation_snapshot.get("cases") or []:
+        if not isinstance(case, dict):
+            continue
+        query = str(case.get("query") or "")
+        normalized = _normalized_query(query)
+        query_fingerprints.append(
+            {
+                "query_hash": _checksum(normalized),
+                "token_hashes": sorted(_checksum(token) for token in _query_tokens(query)),
+            }
+        )
+    payload = {
+        "version": DEVELOPMENT_EVIDENCE_VERSION,
+        "eval_set_version_id": str(evaluation_snapshot.get("version_id") or ""),
+        "eval_set_checksum": str(evaluation_snapshot.get("checksum") or ""),
+        "corpus_snapshot_hash": str(
+            evaluation_snapshot.get("corpus_snapshot_hash") or ""
+        ),
+        "case_count": len(query_fingerprints),
+        "query_fingerprints": sorted(
+            query_fingerprints, key=lambda item: str(item["query_hash"])
+        ),
+    }
+    return {**payload, "checksum": _checksum(payload)}
+
+
+def assess_formal_evidence_independence(
+    development_manifest: dict[str, Any] | None,
+    formal_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """Reject exact or near-duplicate Formal queries previously used for tuning."""
+
+    if not development_manifest:
+        return {
+            "version": DEVELOPMENT_EVIDENCE_VERSION,
+            "status": "no_declared_development_evidence",
+            "independent": True,
+            "overlap_case_count": 0,
+            "similarity_threshold": 0.8,
+        }
+    manifest = _copy(development_manifest)
+    checksum = str(manifest.pop("checksum", ""))
+    fingerprints = manifest.get("query_fingerprints")
+    structurally_valid = (
+        isinstance(fingerprints, list)
+        and int(manifest.get("case_count") or 0) == len(fingerprints)
+        and len(str(manifest.get("eval_set_checksum") or "")) == 64
+        and len(str(manifest.get("corpus_snapshot_hash") or "")) == 64
+        and all(
+            isinstance(item, dict)
+            and len(str(item.get("query_hash") or "")) == 64
+            and isinstance(item.get("token_hashes"), list)
+            and all(len(str(token)) == 64 for token in item.get("token_hashes") or [])
+            for item in fingerprints
+        )
+    )
+    if (
+        manifest.get("version") != DEVELOPMENT_EVIDENCE_VERSION
+        or len(checksum) != 64
+        or checksum != _checksum(manifest)
+        or not structurally_valid
+    ):
+        return {
+            "version": DEVELOPMENT_EVIDENCE_VERSION,
+            "status": "invalid_development_evidence",
+            "independent": False,
+            "overlap_case_count": 0,
+            "similarity_threshold": 0.8,
+        }
+    development_queries = [
+        item
+        for item in manifest.get("query_fingerprints") or []
+        if isinstance(item, dict)
+    ]
+    overlapping_formal_queries = 0
+    for case in formal_snapshot.get("cases") or []:
+        if not isinstance(case, dict):
+            continue
+        query = str(case.get("query") or "")
+        query_hash = _checksum(_normalized_query(query))
+        token_hashes = {_checksum(token) for token in _query_tokens(query)}
+        overlaps = False
+        for prior in development_queries:
+            prior_tokens = {
+                str(item) for item in prior.get("token_hashes") or [] if str(item)
+            }
+            union = token_hashes | prior_tokens
+            similarity = len(token_hashes & prior_tokens) / len(union) if union else 0.0
+            if query_hash == str(prior.get("query_hash") or "") or similarity >= 0.8:
+                overlaps = True
+                break
+        overlapping_formal_queries += int(overlaps)
+    independent = overlapping_formal_queries == 0
+    return {
+        "version": DEVELOPMENT_EVIDENCE_VERSION,
+        "status": "independent" if independent else "development_evidence_overlap",
+        "independent": independent,
+        "overlap_case_count": overlapping_formal_queries,
+        "similarity_threshold": 0.8,
+        "development_eval_set_version_id": str(
+            manifest.get("eval_set_version_id") or ""
+        ),
+        "development_eval_set_checksum": str(
+            manifest.get("eval_set_checksum") or ""
+        ),
+    }
+
 
 def evaluate_retrieval_case(
     sources: list[dict[str, Any]],
@@ -85,24 +206,32 @@ def evaluate_retrieval_case(
     """Score one ranked retrieval response against stable relevance references."""
 
     normalized_ks = sorted(set(ks or DEFAULT_KS))
+    safe_receipt = _safe_retrieval_receipt(retrieval_receipt)
+    explicit_abstention = isinstance(safe_receipt.get("abstained"), bool)
+    abstained = (
+        bool(safe_receipt.get("abstained"))
+        if explicit_abstention
+        else len(sources) == 0
+    )
+    abstention_contract = "explicit" if explicit_abstention else "legacy_source_empty"
     if expected_no_result:
-        no_result = len(sources) == 0
         return {
             "status": "completed",
             "metrics": {
-                "no_result_accuracy": 1.0 if no_result else 0.0,
-                "false_positive_rate": 0.0 if no_result else 1.0,
+                "no_result_accuracy": 1.0 if abstained else 0.0,
+                "false_positive_rate": 0.0 if abstained else 1.0,
             },
             "latency_ms": round(max(0.0, latency_ms), 3),
             "source_count": len(sources),
             "expected_count": 0,
             "matched_expected_count": 0,
             "expected_no_result": True,
-            "no_result": no_result,
+            "no_result": abstained,
+            "abstention_contract": abstention_contract,
             "warning_count": len(warnings or []),
             "warnings": [str(item)[:240] for item in (warnings or [])[:10]],
             "ranking": [_ranking_item(source, rank) for rank, source in enumerate(sources, 1)],
-            "retrieval_receipt": _safe_retrieval_receipt(retrieval_receipt),
+            "retrieval_receipt": safe_receipt,
         }
     relevant_ranks: list[int] = []
     matched_ref_indexes: set[int] = set()
@@ -182,11 +311,12 @@ def evaluate_retrieval_case(
         "expected_count": total_relevant,
         "matched_expected_count": len(matched_ref_indexes),
         "expected_no_result": False,
-        "no_result": len(sources) == 0,
+        "no_result": abstained,
+        "abstention_contract": abstention_contract,
         "warning_count": len(warnings or []),
         "warnings": [str(item)[:240] for item in (warnings or [])[:10]],
         "ranking": ranking,
-        "retrieval_receipt": _safe_retrieval_receipt(retrieval_receipt),
+        "retrieval_receipt": safe_receipt,
     }
 
 
@@ -612,12 +742,20 @@ def _gold_v2_quality_manifest(snapshot: dict[str, Any]) -> dict[str, Any]:
         )
 
     add("contract_version", _gold_contract_version(snapshot) == GOLD_CONTRACT_V2, _gold_contract_version(snapshot), GOLD_CONTRACT_V2)
+    evidence_policy = str(provenance.get("evidence_policy_version") or "")
+    add(
+        "content_source_block_evidence",
+        evidence_policy == GOLD_V2_EVIDENCE_POLICY,
+        evidence_policy or "legacy_or_missing",
+        GOLD_V2_EVIDENCE_POLICY,
+    )
     add("case_count", len(cases) == 42, len(cases), 42)
     add("positive_count", len(positives) == 30, len(positives), 30)
     add("hard_negative_count", len(negatives) == 12, len(negatives), 12)
 
     valid_reviews = 0
     leakage_warning_reasons = 0
+    fresh_leakage_receipts = 0
     for case in cases:
         review = dict(case.get("review_evidence") or {})
         leakage = dict((case.get("targeting") or {}).get("leakage") or {})
@@ -636,6 +774,14 @@ def _gold_v2_quality_manifest(snapshot: dict[str, Any]) -> dict[str, Any]:
             if reason:
                 leakage_warning_reasons += 1
         valid_reviews += int(valid)
+        query_hash = str(leakage.get("query_hash") or "")
+        receipt_is_fresh = not leakage.get("stale") and (
+            not query_hash
+            or query_hash == _checksum(_normalized_query(str(case.get("query") or "")))
+        )
+        fresh_leakage_receipts += int(
+            bool(case.get("expected_no_result")) or receipt_is_fresh
+        )
     add("manual_reviews", valid_reviews == len(cases), valid_reviews, len(cases))
     leakage_warnings = sum(
         1
@@ -648,6 +794,23 @@ def _gold_v2_quality_manifest(snapshot: dict[str, Any]) -> dict[str, Any]:
         leakage_warning_reasons,
         leakage_warnings,
     )
+    has_bound_leakage_receipts = any(
+        not case.get("expected_no_result")
+        and (
+            dict((case.get("targeting") or {}).get("leakage") or {}).get("stale")
+            or dict((case.get("targeting") or {}).get("leakage") or {}).get(
+                "query_hash"
+            )
+        )
+        for case in cases
+    )
+    if has_bound_leakage_receipts:
+        add(
+            "fresh_leakage_receipts",
+            fresh_leakage_receipts == len(cases),
+            fresh_leakage_receipts,
+            len(cases),
+        )
     blocked_leakage = sum(
         1
         for case in positives
@@ -784,7 +947,7 @@ def _gold_v2_quality_manifest(snapshot: dict[str, Any]) -> dict[str, Any]:
     add("corpus_snapshot_hash", bool(corpus_snapshot) and actual_corpus_hash == expected_corpus_hash, actual_corpus_hash or None, expected_corpus_hash or "valid hash")
 
     return {
-        "version": "rag-gold-v2-qualification-v1",
+        "version": "rag-gold-v2-qualification-v2",
         "qualified": all(check["passed"] for check in checks),
         "checks": checks,
         "counts": {
@@ -822,12 +985,107 @@ def gold_v2_review_admission_blockers(snapshot: dict[str, Any]) -> list[str]:
 def _gold_v2_checksum_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
     return {
         "benchmark_contract_version": _gold_contract_version(snapshot),
+        "benchmark_role": normalize_benchmark_role(
+            snapshot.get("benchmark_role"),
+            origin=str(snapshot.get("origin") or "manual"),
+            catalog_ref=dict(snapshot.get("catalog_ref") or {}),
+        ),
         "cases": snapshot.get("cases") or [],
         "provenance": snapshot.get("provenance") or {},
         "coverage": snapshot.get("coverage") or {},
         "calibration": snapshot.get("calibration") or {},
         "corpus_snapshot": snapshot.get("corpus_snapshot") or {},
         "qualification_manifest": snapshot.get("qualification_manifest") or {},
+        "freshness_manifest": snapshot.get("freshness_manifest") or {},
+    }
+
+
+def _gold_v2_source_checksum_valid(snapshot: dict[str, Any]) -> bool:
+    """Validate sealed Gold, including the pre-freshness v2 checksum shape.
+
+    The freshness manifest was added after the first rag-gold-v2 version had
+    already been sealed. That immutable version remains valid calibration
+    source evidence, but it must not gain a new checksum or accept any other
+    legacy payload shape.
+    """
+
+    published = str(snapshot.get("checksum") or "")
+    if not published:
+        return False
+    payload = _gold_v2_checksum_payload(snapshot)
+    if published == _checksum(payload):
+        return True
+    if "freshness_manifest" in snapshot:
+        return False
+    payload.pop("freshness_manifest", None)
+    return published == _checksum(payload)
+
+
+def _gold_v2_freshness_manifest(
+    data: dict[str, Any],
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
+    """Require a fully fresh question set after same-corpus Gold is consumed."""
+
+    corpus_hash = str(candidate.get("corpus_snapshot_hash") or "")
+    consumed_versions: list[dict[str, Any]] = []
+    for version in (data.get("versions") or {}).values():
+        if (
+            not isinstance(version, dict)
+            or _gold_contract_version(version) != GOLD_CONTRACT_V2
+            or str(version.get("corpus_snapshot_hash") or "") != corpus_hash
+        ):
+            continue
+        _, usage = _find_evidence_usage(
+            data,
+            version,
+            version_id=str(version.get("version_id") or ""),
+        )
+        if isinstance(usage, dict) and str(usage.get("status") or "") == "consumed":
+            consumed_versions.append(version)
+
+    current_queries = [
+        str(case.get("query") or "")
+        for case in candidate.get("cases") or []
+        if isinstance(case, dict)
+    ]
+    stale_indices: set[int] = set()
+    near_duplicate_pair_count = 0
+    for current_index, current_query in enumerate(current_queries):
+        current_normalized = _normalized_query(current_query)
+        current_tokens = _query_tokens(current_query)
+        for version in consumed_versions:
+            for prior_case in version.get("cases") or []:
+                if not isinstance(prior_case, dict):
+                    continue
+                prior_query = str(prior_case.get("query") or "")
+                exact_duplicate = bool(current_normalized) and (
+                    current_normalized == _normalized_query(prior_query)
+                )
+                prior_tokens = _query_tokens(prior_query)
+                union = current_tokens | prior_tokens
+                near_duplicate = bool(union) and (
+                    len(current_tokens & prior_tokens) / len(union) >= 0.8
+                )
+                if exact_duplicate or near_duplicate:
+                    stale_indices.add(current_index)
+                    near_duplicate_pair_count += 1
+
+    current_count = len(current_queries)
+    stale_count = len(stale_indices)
+    return {
+        "version": "rag-gold-v2-freshness-v1",
+        "qualified": stale_count == 0,
+        "scope": "same_corpus_consumed_gold",
+        "similarity_threshold": 0.8,
+        "prior_consumed_gold_count": len(consumed_versions),
+        "prior_consumed_checksums": sorted(
+            str(version.get("checksum") or "") for version in consumed_versions
+        ),
+        "current_query_count": current_count,
+        "materially_fresh_query_count": current_count - stale_count,
+        "stale_query_count": stale_count,
+        "near_duplicate_pair_count": near_duplicate_pair_count,
     }
 
 
@@ -849,6 +1107,12 @@ def qualify_promotion_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
         _gold_v2_checksum_payload(snapshot)
     )
     checks = [
+        {
+            "id": "promotion_sealed_role",
+            "passed": benchmark_role == "promotion_sealed",
+            "actual": benchmark_role,
+            "required": "promotion_sealed",
+        },
         {
             "id": "gold_contract_v2",
             "passed": contract_version == GOLD_CONTRACT_V2,
@@ -873,12 +1137,6 @@ def qualify_promotion_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
             "id": "immutable_evaluation_version",
             "passed": immutable_snapshot,
             "actual": immutable_snapshot,
-            "required": True,
-        },
-        {
-            "id": "selection_eligible",
-            "passed": bool(readiness.get("selection_eligible")),
-            "actual": bool(readiness.get("selection_eligible")),
             "required": True,
         },
         {
@@ -919,6 +1177,60 @@ def qualify_promotion_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
         },
         "checks": checks,
     }
+
+
+def _sealed_evidence_usage_key(snapshot: dict[str, Any]) -> str:
+    checksum = str(snapshot.get("checksum") or "")
+    if len(checksum) != 64:
+        checksum = ""
+    else:
+        try:
+            int(checksum, 16)
+        except ValueError:
+            checksum = ""
+    if checksum:
+        return f"checksum:{checksum}"
+    return f"version:{str(snapshot.get('version_id') or '')}"
+
+
+def _find_evidence_usage(
+    data: dict[str, Any],
+    snapshot: dict[str, Any],
+    *,
+    version_id: str | None = None,
+) -> tuple[str, dict[str, Any] | None]:
+    usage_key = _sealed_evidence_usage_key(snapshot)
+    resolved_version_id = str(
+        version_id or snapshot.get("version_id") or ""
+    )
+    if usage_key == "version:" and resolved_version_id:
+        usage_key = f"version:{resolved_version_id}"
+    checksum = str(snapshot.get("checksum") or "")
+    usages = data.get("evidence_usages") or {}
+    for key in (
+        usage_key,
+        resolved_version_id,
+        f"version:{resolved_version_id}",
+    ):
+        usage = usages.get(key)
+        if isinstance(usage, dict):
+            return key, usage
+    if checksum:
+        versions = data.get("versions") or {}
+        for key, usage in usages.items():
+            if not isinstance(usage, dict):
+                continue
+            if str(usage.get("evidence_checksum") or "") == checksum:
+                return str(key), usage
+            legacy_version = versions.get(
+                str(usage.get("eval_set_version_id") or "")
+            )
+            if (
+                isinstance(legacy_version, dict)
+                and str(legacy_version.get("checksum") or "") == checksum
+            ):
+                return str(key), usage
+    return usage_key, None
 
 
 class KnowledgeEvaluationStore:
@@ -1020,6 +1332,145 @@ class KnowledgeEvaluationStore:
             self._write_unlocked(data)
         return _copy(item)
 
+    def fork_calibration_set(
+        self,
+        source_eval_set_id: str,
+        *,
+        source_version: int,
+        target_pipeline_version_id: str,
+        target_corpus_snapshot: dict[str, Any],
+        name: str | None = None,
+    ) -> dict[str, Any]:
+        """Fork immutable Gold into target-bound calibration evidence.
+
+        Human decisions are intentionally not inherited. The new draft reuses
+        only query/Gold content and requires fresh manual review before publish.
+        """
+
+        clean_target = str(target_pipeline_version_id or "").strip()
+        if not clean_target:
+            raise ValueError("Calibration fork requires a target pipeline version.")
+        with self._lock:
+            data = self._read_unlocked()
+            source_set = self._set_or_raise(data, source_eval_set_id)
+            source = next(
+                (
+                    item
+                    for item in data["versions"].values()
+                    if item.get("eval_set_id") == source_eval_set_id
+                    and int(item.get("version") or 0) == int(source_version)
+                ),
+                None,
+            )
+            if not isinstance(source, dict):
+                raise EvaluationSetNotFoundError(
+                    "Knowledge evaluation set version not found."
+                )
+            if _gold_contract_version(source) != GOLD_CONTRACT_V2:
+                raise EvaluationStateError(
+                    "Calibration forks require an immutable rag-gold-v2 source."
+                )
+            if not _gold_v2_source_checksum_valid(source):
+                raise EvaluationStateError(
+                    "Calibration source checksum validation failed."
+                )
+            source_manifest = dict(source.get("qualification_manifest") or {})
+            if not source_manifest.get("qualified"):
+                raise EvaluationStateError(
+                    "Calibration source Gold is not structurally qualified."
+                )
+            source_corpus_hash = str(source.get("corpus_snapshot_hash") or "")
+            target_corpus_hash = str(
+                target_corpus_snapshot.get("corpus_snapshot_hash") or ""
+            )
+            target_corpus = dict(
+                target_corpus_snapshot.get("corpus_snapshot") or {}
+            )
+            if (
+                not source_corpus_hash
+                or source_corpus_hash != target_corpus_hash
+                or _checksum(target_corpus) != target_corpus_hash
+            ):
+                raise EvaluationStateError(
+                    "Calibration source and target must use the same corpus snapshot."
+                )
+
+            cases = []
+            for case in source.get("cases") or []:
+                if not isinstance(case, dict):
+                    continue
+                cases.append(
+                    self._normalize_case(
+                        {
+                            **_copy(case),
+                            "review_status": "pending",
+                            "review_evidence": {},
+                        }
+                    )
+                )
+            if not cases:
+                raise EvaluationStateError("Calibration source contains no cases.")
+            now = time.time()
+            target_reference = {
+                "kind": "knowledge_pipeline_version",
+                "kb_id": str(source_set.get("kb_id") or ""),
+                "pipeline_version_id": clean_target,
+            }
+            item = {
+                "eval_set_id": f"evalset_{uuid.uuid4().hex}",
+                "kb_id": str(source_set.get("kb_id") or ""),
+                "name": str(
+                    name or f"{source.get('name') or 'Gold'} calibration"
+                )[:160],
+                "description": (
+                    "Target-bound Strategy Tuner calibration fork; manual reviews "
+                    "must be completed again."
+                ),
+                "revision": 1,
+                "status": "active",
+                "cases": cases,
+                "origin": "generated",
+                "catalog_ref": {},
+                "provenance": {
+                    "benchmark_contract_version": CALIBRATION_CONTRACT_V1,
+                    "evidence_policy_version": str(
+                        (source.get("provenance") or {}).get(
+                            "evidence_policy_version"
+                        )
+                        or GOLD_V2_EVIDENCE_POLICY
+                    ),
+                    "pipeline_version_id": clean_target,
+                    "target_reference": target_reference,
+                    "corpus_snapshot": _copy(source.get("corpus_snapshot") or {}),
+                    "corpus_snapshot_hash": source_corpus_hash,
+                    "source_evidence": {
+                        "eval_set_id": source_eval_set_id,
+                        "version_id": str(source.get("version_id") or ""),
+                        "version": int(source.get("version") or 0),
+                        "checksum": str(source.get("checksum") or ""),
+                        "benchmark_contract_version": GOLD_CONTRACT_V2,
+                    },
+                    "forked_at": now,
+                },
+                "coverage": _copy(source.get("coverage") or {}),
+                "calibration": {
+                    "status": "not_required",
+                    "reason": (
+                        "This published pack is the input to Strategy Tuner "
+                        "threshold calibration."
+                    ),
+                    "dataset_revision": 1,
+                    "target_reference": target_reference,
+                },
+                "benchmark_role": "calibration",
+                "latest_version": None,
+                "created_at": now,
+                "updated_at": now,
+            }
+            data["sets"][item["eval_set_id"]] = item
+            self._write_unlocked(data)
+            return self._set_payload(item)
+
     def list_sets(self, kb_id: str) -> list[dict[str, Any]]:
         data = self._read()
         items = [item for item in data["sets"].values() if item.get("kb_id") == kb_id]
@@ -1052,6 +1503,9 @@ class KnowledgeEvaluationStore:
                 calibration = dict(item.get("calibration") or {})
                 calibration_status = str(calibration.get("status") or "pending")
                 is_gold_v2 = _gold_contract_version(item) == GOLD_CONTRACT_V2
+                is_calibration_v1 = (
+                    _gold_contract_version(item) == CALIBRATION_CONTRACT_V1
+                )
                 if int(calibration.get("dataset_revision") or 0) != int(
                     item.get("revision") or 0
                 ):
@@ -1060,14 +1514,19 @@ class KnowledgeEvaluationStore:
                     )
                 allowed_calibration_statuses = (
                     {"not_required", "calibrated", "warning"}
-                    if is_gold_v2
+                    if is_gold_v2 or is_calibration_v1
                     else {"calibrated", "warning"}
                 )
                 if calibration_status not in allowed_calibration_statuses:
                     raise EvaluationStateError(
                         (
-                            "rag-gold-v2 uses structural validation before its single Formal run."
-                            if is_gold_v2
+                            (
+                                "Target-bound calibration evidence is validated by "
+                                "Strategy Tuner readiness."
+                                if is_calibration_v1
+                                else "rag-gold-v2 uses structural validation before its single Formal run."
+                            )
+                            if is_gold_v2 or is_calibration_v1
                             else "Generated evaluation set must complete calibration before publishing."
                         )
                     )
@@ -1076,6 +1535,13 @@ class KnowledgeEvaluationStore:
                         "Calibration warnings must be explicitly acknowledged before publishing."
                     )
                 if is_gold_v2:
+                    if normalize_benchmark_role(
+                        item.get("benchmark_role"),
+                        origin=str(item.get("origin") or "generated"),
+                    ) != "promotion_sealed":
+                        raise EvaluationStateError(
+                            "rag-gold-v2 promotion evidence must use benchmark role promotion_sealed."
+                        )
                     unreviewed = [
                         case
                         for case in item.get("cases", [])
@@ -1094,6 +1560,25 @@ class KnowledgeEvaluationStore:
                         ]
                         raise EvaluationStateError(
                             "rag-gold-v2 qualification failed: " + ", ".join(failed)
+                        )
+                elif is_calibration_v1:
+                    provenance = dict(item.get("provenance") or {})
+                    target_version_id = str(
+                        provenance.get("pipeline_version_id") or ""
+                    )
+                    qualification_manifest = build_tuning_readiness(
+                        item,
+                        target_version_id=target_version_id or None,
+                    )
+                    threshold_ready = bool(
+                        (qualification_manifest.get("dimensions") or {})
+                        .get("threshold", {})
+                        .get("eligible")
+                    )
+                    if not target_version_id or not threshold_ready:
+                        raise EvaluationStateError(
+                            "Calibration evidence requires target binding, stable Gold, "
+                            "and fresh manual review of 12 corpus-near negatives."
                         )
                 else:
                     pending_reviews = [
@@ -1154,7 +1639,47 @@ class KnowledgeEvaluationStore:
                         "qualification_manifest": _copy(qualification_manifest),
                     }
                 )
+                freshness_manifest = _gold_v2_freshness_manifest(data, version)
+                if not freshness_manifest["qualified"]:
+                    raise EvaluationStateError(
+                        "A consumed same-corpus Gold requires 42 materially fresh queries; "
+                        f"{freshness_manifest['stale_query_count']} remain duplicated or near-duplicated."
+                    )
+                version["freshness_manifest"] = freshness_manifest
                 version["checksum"] = _checksum(_gold_v2_checksum_payload(version))
+                duplicate = next(
+                    (
+                        existing
+                        for existing in data["versions"].values()
+                        if isinstance(existing, dict)
+                        and str(existing.get("benchmark_contract_version") or "")
+                        == GOLD_CONTRACT_V2
+                        and str(existing.get("checksum") or "")
+                        == str(version["checksum"])
+                    ),
+                    None,
+                )
+                if isinstance(duplicate, dict):
+                    raise EvaluationStateError(
+                        "An identical sealed Gold checksum is already published."
+                    )
+            elif _gold_contract_version(item) == CALIBRATION_CONTRACT_V1:
+                provenance = dict(item.get("provenance") or {})
+                version.update(
+                    {
+                        "benchmark_contract_version": CALIBRATION_CONTRACT_V1,
+                        "corpus_snapshot": _copy(
+                            provenance.get("corpus_snapshot") or {}
+                        ),
+                        "corpus_snapshot_hash": str(
+                            provenance.get("corpus_snapshot_hash") or ""
+                        ),
+                        "qualification_manifest": _copy(qualification_manifest),
+                    }
+                )
+                version["checksum"] = _checksum(
+                    calibration_evidence_checksum_payload(version)
+                )
             else:
                 version["checksum"] = _checksum(
                     {"cases": cases, "coverage": item.get("coverage") or {}}
@@ -1287,10 +1812,55 @@ class KnowledgeEvaluationStore:
                 key in values and values.get(key) != item["cases"][index].get(key)
                 for key in semantic_fields
             )
+            query_changed = (
+                "query" in values
+                and values.get("query") != item["cases"][index].get("query")
+            )
             merged = {**item["cases"][index], **values, "case_id": case_id}
             if semantic_change and _gold_contract_version(item) == GOLD_CONTRACT_V2:
                 merged["review_status"] = "pending"
                 merged["review_evidence"] = {}
+                if (
+                    query_changed
+                    and not bool(merged.get("expected_no_result"))
+                ):
+                    targeting = dict(merged.get("targeting") or {})
+                    leakage = dict(targeting.get("leakage") or {})
+                    expected_query_hash = _checksum(
+                        _normalized_query(str(merged.get("query") or ""))
+                    )
+                    if str(leakage.get("query_hash") or "") != expected_query_hash:
+                        leakage["stale"] = True
+                    targeting["leakage"] = leakage
+                    merged["targeting"] = targeting
+                if query_changed:
+                    provenance = dict(item.get("provenance") or {})
+                    receipts = [
+                        _copy(receipt)
+                        for receipt in provenance.get("query_revision_receipts") or []
+                        if isinstance(receipt, dict)
+                    ]
+                    receipts.append(
+                        {
+                            "case_id": case_id,
+                            "source": "server_case_update",
+                            "previous_query_hash": _checksum(
+                                _normalized_query(
+                                    str(item["cases"][index].get("query") or "")
+                                )
+                            ),
+                            "new_query_hash": _checksum(
+                                _normalized_query(str(merged.get("query") or ""))
+                            ),
+                            "changed_at": time.time(),
+                            "dataset_revision": int(item.get("revision") or 0) + 1,
+                        }
+                    )
+                    provenance["query_revision_contract"] = (
+                        "server-case-update-v1"
+                    )
+                    provenance["query_revision_receipts"] = receipts[-500:]
+                    item["provenance"] = provenance
             item["cases"][index] = self._normalize_case(merged, preserve_id=True)
             self._touch_set(item)
             self._write_unlocked(data)
@@ -1344,6 +1914,17 @@ class KnowledgeEvaluationStore:
                 "reasons": ["Diagnostic or legacy run has no formal comparability proof."],
             }
         )
+        snapshot_role = normalize_benchmark_role(
+            (evaluation_set_version or evaluation_set).get("benchmark_role"),
+            origin=str((evaluation_set_version or evaluation_set).get("origin") or "manual"),
+            catalog_ref=dict(
+                (evaluation_set_version or evaluation_set).get("catalog_ref") or {}
+            ),
+        )
+        if normalized_mode != "formal" and snapshot_role == "promotion_sealed":
+            raise EvaluationStateError(
+                "Sealed promotion Gold cannot be used for diagnostic evaluation."
+            )
         if normalized_mode == "formal":
             if case_ids is not None:
                 raise EvaluationStateError("Formal evaluation does not allow case subsets.")
@@ -1371,23 +1952,44 @@ class KnowledgeEvaluationStore:
                 "corpus_snapshot_hash",
                 "target_fingerprints",
                 "execution_seed",
+                "observation_depth",
                 "order_algorithm",
                 "schedule_checksum",
                 "threshold_score_domain",
+                "abstention_contract_version",
+                "runtime",
                 "retry_policy",
                 "warmup_policy",
+                "development_evidence_independence",
             }
+            manifest_runtime = normalized_manifest.get("runtime")
+            independence = normalized_manifest.get(
+                "development_evidence_independence"
+            )
+            if not is_valid_rag_runtime_identity(manifest_runtime):
+                raise EvaluationStateError(
+                    "Formal evaluation requires a valid RAG runtime identity."
+                )
             if (
                 required_manifest - set(normalized_manifest)
                 or normalized_manifest.get("version") != "rag-eval-v2"
                 or normalized_manifest.get("evaluation_set_checksum")
                 != evaluation_set_version.get("checksum")
                 or normalized_manifest.get("execution_seed") != int(execution_seed)
+                or int(normalized_manifest.get("observation_depth") or 0)
+                != max(int(item) for item in ks)
                 or normalized_manifest.get("order_algorithm")
                 != "sha256-paired-interleave-v1"
                 or normalized_manifest.get("threshold_score_domain") != "fused_score"
+                or normalized_manifest.get("abstention_contract_version")
+                != ABSTENTION_CONTRACT_VERSION
                 or normalized_manifest.get("retry_policy") != "none"
                 or normalized_manifest.get("warmup_policy") != "none"
+                or not isinstance(independence, dict)
+                or not bool(independence.get("independent"))
+                or independence.get("version") != DEVELOPMENT_EVIDENCE_VERSION
+                or independence.get("status")
+                not in {"independent", "no_declared_development_evidence"}
             ):
                 raise EvaluationStateError(
                     "Formal evaluation execution manifest is incomplete or inconsistent."
@@ -1417,6 +2019,15 @@ class KnowledgeEvaluationStore:
                 evidence = dict(target.get("version_evidence") or {})
                 embedding = dict(fingerprint.get("embedding") or {})
                 effective_embedding = dict(embedding.get("effective") or {})
+                fingerprint_runtime = fingerprint.get("runtime")
+                evidence_runtime = evidence.get("runtime")
+                if (
+                    fingerprint_runtime != manifest_runtime
+                    or evidence_runtime != manifest_runtime
+                ):
+                    raise EvaluationStateError(
+                        "Formal evaluation runtime identity does not match its targets."
+                    )
                 complete = (
                     len(str(fingerprint.get("version_fingerprint") or "")) == 64
                     and len(str(fingerprint.get("configuration_fingerprint") or ""))
@@ -1436,6 +2047,7 @@ class KnowledgeEvaluationStore:
                         "processor",
                         "retrieval",
                         "embedding",
+                        "runtime",
                     )
                 )
                 if not complete or not consistent:
@@ -1537,9 +2149,42 @@ class KnowledgeEvaluationStore:
             "updated_at": now,
             "started_at": None,
             "completed_at": None,
+            "evidence_usage": {},
         }
         with self._lock:
             data = self._read_unlocked()
+            if normalized_mode == "formal":
+                version_id = str(evaluation_set_version.get("version_id") or "")
+                evidence_usage_key, prior_usage = _find_evidence_usage(
+                    data,
+                    evaluation_set_version,
+                )
+                if isinstance(prior_usage, dict):
+                    raise EvaluationStateError(
+                        "This sealed promotion Gold has already been consumed by a Formal run."
+                    )
+                usage = {
+                    "status": "reserved",
+                    "eval_set_version_id": version_id,
+                    "evidence_checksum": str(
+                        evaluation_set_version.get("checksum") or ""
+                    ),
+                    "evidence_usage_key": evidence_usage_key,
+                    "run_id": run["run_id"],
+                    "target_fingerprints": [
+                        {
+                            "version_id": str(item.get("version_id") or ""),
+                            "version_fingerprint": str(
+                                item.get("version_fingerprint") or ""
+                            ),
+                        }
+                        for item in normalized_manifest.get("target_fingerprints") or []
+                        if isinstance(item, dict)
+                    ],
+                    "reserved_at": now,
+                }
+                run["evidence_usage"] = _copy(usage)
+                data["evidence_usages"][evidence_usage_key] = usage
             data["runs"][run["run_id"]] = run
             self._write_unlocked(data)
         return self.run_payload(run)
@@ -1600,7 +2245,9 @@ class KnowledgeEvaluationStore:
             run["cancel_requested"] = True
             if run["status"] == "queued":
                 run["status"] = "cancelled"
-                run["completed_at"] = time.time()
+                now = time.time()
+                run["completed_at"] = now
+                self._consume_evidence_usage(data, run, "cancelled", now)
             run["updated_at"] = time.time()
             self._write_unlocked(data)
             return self.run_payload(run)
@@ -1635,31 +2282,30 @@ class KnowledgeEvaluationStore:
         run_id: str,
         target_results: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        return self._update_run(
+        return self._finalize_run(
             run_id,
             {
-                "status": "succeeded",
                 "progress": 100,
                 "target_results": _copy(target_results),
-                "completed_at": time.time(),
                 "error": None,
             },
+            terminal_status="succeeded",
         )
 
     def fail_run(self, run_id: str, error: str) -> dict[str, Any]:
-        return self._update_run(
+        return self._finalize_run(
             run_id,
             {
-                "status": "failed",
                 "error": _safe_error(error),
-                "completed_at": time.time(),
             },
+            terminal_status="failed",
         )
 
     def complete_cancel(self, run_id: str) -> dict[str, Any]:
-        return self._update_run(
+        return self._finalize_run(
             run_id,
-            {"status": "cancelled", "completed_at": time.time()},
+            {},
+            terminal_status="cancelled",
         )
 
     def get_gate_policy(self, kb_id: str) -> dict[str, Any]:
@@ -1681,6 +2327,7 @@ class KnowledgeEvaluationStore:
         version_id: str,
         evaluation_run_id: str | None,
         require_passed_run: bool,
+        current_runtime: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         policy = self.get_gate_policy(kb_id)
         required = require_passed_run or policy["mode"] == "required"
@@ -1693,13 +2340,69 @@ class KnowledgeEvaluationStore:
         run = self.get_run(evaluation_run_id)
         if run["status"] != "succeeded" or run["kb_id"] != kb_id:
             raise EvaluationPromotionError("Evaluation run is not a successful run for this knowledge base.")
+        independence = (run.get("execution_manifest") or {}).get(
+            "development_evidence_independence"
+        )
         if (
             str(run.get("run_mode") or "diagnostic") != "formal"
             or str(run.get("metric_contract_version") or "legacy") != "rag-eval-v2"
             or not bool((run.get("comparability") or {}).get("comparable"))
+            or str(
+                (run.get("execution_manifest") or {}).get(
+                    "abstention_contract_version"
+                )
+                or ""
+            )
+            != ABSTENTION_CONTRACT_VERSION
+            or not isinstance(independence, dict)
+            or independence.get("version") != DEVELOPMENT_EVIDENCE_VERSION
+            or not bool(independence.get("independent"))
+            or independence.get("status")
+            not in {"independent", "no_declared_development_evidence"}
         ):
             raise EvaluationPromotionError(
-                "Candidate activation requires a comparable formal rag-eval-v2 run."
+                "Candidate activation requires a comparable formal rag-eval-v2 run "
+                "with independent development evidence."
+            )
+        manifest_runtime = (run.get("execution_manifest") or {}).get("runtime")
+        if (
+            not is_valid_rag_runtime_identity(manifest_runtime)
+            or current_runtime != manifest_runtime
+        ):
+            raise EvaluationPromotionError(
+                "Candidate activation requires the exact RAG runtime used by the Formal run."
+            )
+        evidence_version_id = str(run.get("eval_set_version_id") or "")
+        run_usage = dict(run.get("evidence_usage") or {})
+        ledger_data = self._read()
+        ledger_key, ledger_usage = _find_evidence_usage(
+            ledger_data,
+            dict(run.get("eval_set_snapshot") or {}),
+            version_id=evidence_version_id,
+        )
+        evidence_checksum = str(
+            (run.get("eval_set_snapshot") or {}).get("checksum") or ""
+        )
+        if (
+            not evidence_version_id
+            or not isinstance(ledger_usage, dict)
+            or str(run_usage.get("run_id") or "") != str(run.get("run_id") or "")
+            or str(ledger_usage.get("run_id") or "") != str(run.get("run_id") or "")
+            or str(run_usage.get("eval_set_version_id") or "")
+            != evidence_version_id
+            or str(run_usage.get("evidence_checksum") or "")
+            != evidence_checksum
+            or str(ledger_usage.get("evidence_checksum") or "")
+            != evidence_checksum
+            or str(run_usage.get("evidence_usage_key") or "") != ledger_key
+            or str(ledger_usage.get("evidence_usage_key") or "") != ledger_key
+            or str(run_usage.get("status") or "") != "consumed"
+            or str(ledger_usage.get("status") or "") != "consumed"
+            or str(run_usage.get("terminal_status") or "") != "succeeded"
+            or str(ledger_usage.get("terminal_status") or "") != "succeeded"
+        ):
+            raise EvaluationPromotionError(
+                "Candidate activation requires the one-shot sealed Gold usage receipt."
             )
         if run.get("eval_set_version") is None:
             current_set = self.get_set(str(run["eval_set_id"]))
@@ -1747,6 +2450,7 @@ class KnowledgeEvaluationStore:
         payload.setdefault("run_mode", "diagnostic")
         payload.setdefault("metric_contract_version", "legacy")
         payload.setdefault("execution_manifest", {})
+        payload.setdefault("evidence_usage", {})
         payload.setdefault(
             "comparability",
             {
@@ -1767,6 +2471,56 @@ class KnowledgeEvaluationStore:
             run["updated_at"] = time.time()
             self._write_unlocked(data)
             return self.run_payload(run)
+
+    def _finalize_run(
+        self,
+        run_id: str,
+        values: dict[str, Any],
+        *,
+        terminal_status: str,
+    ) -> dict[str, Any]:
+        with self._lock:
+            data = self._read_unlocked()
+            run = self._run_or_raise(data, run_id)
+            now = time.time()
+            run.update(values)
+            run["status"] = terminal_status
+            run["completed_at"] = now
+            run["updated_at"] = now
+            self._consume_evidence_usage(data, run, terminal_status, now)
+            self._write_unlocked(data)
+            return self.run_payload(run)
+
+    @staticmethod
+    def _consume_evidence_usage(
+        data: dict[str, Any],
+        run: dict[str, Any],
+        terminal_status: str,
+        now: float,
+    ) -> None:
+        if str(run.get("run_mode") or "diagnostic") != "formal":
+            return
+        version_id = str(run.get("eval_set_version_id") or "")
+        run_id = str(run.get("run_id") or "")
+        usage_key, usage = _find_evidence_usage(
+            data,
+            dict(run.get("eval_set_snapshot") or {}),
+            version_id=version_id,
+        )
+        if (
+            not version_id
+            or not isinstance(usage, dict)
+            or str(usage.get("run_id") or "") != run_id
+        ):
+            return
+        consumed = {
+            **usage,
+            "status": "consumed",
+            "terminal_status": terminal_status,
+            "consumed_at": float(usage.get("consumed_at") or now),
+        }
+        data["evidence_usages"][usage_key] = consumed
+        run["evidence_usage"] = _copy(consumed)
 
     def _normalize_case(self, raw: dict[str, Any], *, preserve_id: bool = False) -> dict[str, Any]:
         query = str(raw.get("query") or "").strip()
@@ -1818,12 +2572,16 @@ class KnowledgeEvaluationStore:
         item["updated_at"] = time.time()
         if str(item.get("origin") or "manual") == "generated":
             calibration = dict(item.get("calibration") or {})
-            if _gold_contract_version(item) == GOLD_CONTRACT_V2:
+            if _gold_contract_version(item) in {
+                GOLD_CONTRACT_V2,
+                CALIBRATION_CONTRACT_V1,
+            }:
                 item["calibration"] = {
                     **calibration,
                     "status": "not_required",
                     "reason": (
-                        "rag-gold-v2 is structurally validated before one paired Formal run."
+                        "Target-bound evidence is structurally validated before its "
+                        "single downstream evaluation run."
                     ),
                     "dataset_revision": int(item["revision"]),
                 }
@@ -1856,6 +2614,15 @@ class KnowledgeEvaluationStore:
                 case.setdefault("targeting", {})
         if _gold_contract_version(payload) == GOLD_CONTRACT_V2:
             payload["qualification_manifest"] = _gold_v2_quality_manifest(payload)
+        elif _gold_contract_version(payload) == CALIBRATION_CONTRACT_V1:
+            provenance = dict(payload.get("provenance") or {})
+            payload["qualification_manifest"] = build_tuning_readiness(
+                payload,
+                target_version_id=str(
+                    provenance.get("pipeline_version_id") or ""
+                )
+                or None,
+            )
         return payload
 
     def _version_payload(self, item: dict[str, Any]) -> dict[str, Any]:
@@ -1865,6 +2632,7 @@ class KnowledgeEvaluationStore:
             origin=str(payload.get("origin") or "manual"),
             catalog_ref=dict(payload.get("catalog_ref") or {}),
         )
+        payload["evidence_qualification"] = qualify_promotion_evidence(payload)
         return payload
 
     def _check_revision(self, item: dict[str, Any], expected_revision: int) -> None:
@@ -1889,7 +2657,14 @@ class KnowledgeEvaluationStore:
 
     def _read_unlocked(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {"version": "knowledge-evaluation-v2", "sets": {}, "versions": {}, "runs": {}, "gate_policies": {}}
+            return {
+                "version": "knowledge-evaluation-v2",
+                "sets": {},
+                "versions": {},
+                "runs": {},
+                "evidence_usages": {},
+                "gate_policies": {},
+            }
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -1899,6 +2674,11 @@ class KnowledgeEvaluationStore:
             "sets": value.get("sets") if isinstance(value.get("sets"), dict) else {},
             "versions": value.get("versions") if isinstance(value.get("versions"), dict) else {},
             "runs": value.get("runs") if isinstance(value.get("runs"), dict) else {},
+            "evidence_usages": (
+                value.get("evidence_usages")
+                if isinstance(value.get("evidence_usages"), dict)
+                else {}
+            ),
             "gate_policies": value.get("gate_policies") if isinstance(value.get("gate_policies"), dict) else {},
         }
 
@@ -2012,8 +2792,10 @@ def _safe_targeting(value: Any) -> dict[str, Any]:
             ),
             "warning": bool((leakage or {}).get("warning")),
             "blocked": bool((leakage or {}).get("blocked")),
+            "query_hash": _optional_string((leakage or {}).get("query_hash"), 64),
+            "stale": bool((leakage or {}).get("stale")),
         }
-        if isinstance(leakage, dict)
+        if isinstance(leakage, dict) and leakage
         else {},
     }
 
@@ -2120,6 +2902,23 @@ def _safe_retrieval_receipt(value: dict[str, Any] | None) -> dict[str, Any]:
         "top_k",
         "score_threshold",
         "candidate_multiplier",
+        "candidate_limit",
+        "observation_depth",
+        "abstention_enabled",
+        "abstention_applied",
+        "abstained",
+        "abstention_score_domain",
+        "abstention_threshold",
+        "abstention_score",
+        "abstention_input_count",
+        "abstention_reason",
+        "evidence_verification_enabled",
+        "evidence_verification_applied",
+        "evidence_verdict",
+        "evidence_support_score",
+        "evidence_reason_code",
+        "evidence_provider",
+        "evidence_model",
         "rerank_enabled",
         "rerank_provider",
         "rerank_model",
@@ -2134,18 +2933,34 @@ def _safe_retrieval_receipt(value: dict[str, Any] | None) -> dict[str, Any]:
         "rerank_input_char_count",
         "rerank_candidate_limit",
         "rerank_input_char_limit",
+        "rerank_max_output_tokens",
         "rerank_timeout_budget_ms",
         "rerank_elapsed_ms",
+        "rerank_provider_http_elapsed_ms",
+        "rerank_provider_prompt_tokens",
+        "rerank_provider_completion_tokens",
+        "rerank_provider_total_tokens",
+        "rerank_provider_response_char_count",
+        "retrieval_elapsed_ms",
+        "embedding_elapsed_ms",
+        "vector_search_elapsed_ms",
+        "fulltext_search_elapsed_ms",
+        "fusion_elapsed_ms",
         "rerank_attempted_provider",
         "rerank_attempted_model",
         "rerank_fallback_reason",
         "rerank_provider_target_used",
         "rerank_attempted_targets",
         "rerank_target_attempt_count",
+        "rerank_external_call_count",
         "threshold_score_domain",
         "embedding_provider",
         "embedding_model",
         "embedding_dimension",
+        "external_call_limit",
+        "external_call_count",
+        "embedding_external_call_count",
+        "answer_external_call_count",
         "vector_candidate_count",
         "fulltext_candidate_count",
     }
@@ -2209,6 +3024,59 @@ def _normalized_query(value: str) -> str:
         for character in str(value)
         if character.isalnum() or "\u3400" <= character <= "\u9fff"
     )
+
+
+def gold_v2_leakage_receipt(
+    query: str,
+    evidence_texts: list[str],
+    *,
+    query_type: str,
+) -> dict[str, Any]:
+    """Bind leakage analysis to a query and server-resolved source text."""
+
+    normalized_query = _normalized_query(query)
+    max_copy = max(
+        (
+            _max_shared_substring_length(
+                normalized_query,
+                _normalized_query(text),
+                cap=32,
+            )
+            for text in evidence_texts
+        ),
+        default=0,
+    )
+    warning_threshold = 12 if query_type in {"paraphrase", "cross_language"} else 24
+    return {
+        "max_normalized_copy": max_copy,
+        "warning_threshold": warning_threshold,
+        "warning": max_copy >= warning_threshold,
+        "blocked": max_copy >= 32,
+        "query_hash": _checksum(normalized_query),
+        "stale": False,
+    }
+
+
+def _max_shared_substring_length(left: str, right: str, *, cap: int) -> int:
+    if not left or not right:
+        return 0
+    shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
+    low = 0
+    high = min(cap, len(shorter))
+    while low < high:
+        probe = (low + high + 1) // 2
+        windows = {
+            shorter[index : index + probe]
+            for index in range(len(shorter) - probe + 1)
+        }
+        if any(
+            longer[index : index + probe] in windows
+            for index in range(len(longer) - probe + 1)
+        ):
+            low = probe
+        else:
+            high = probe - 1
+    return low
 
 
 def _query_tokens(value: str) -> set[str]:
