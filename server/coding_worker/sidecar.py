@@ -4,12 +4,13 @@ import asyncio
 import contextlib
 import os
 import signal
+import subprocess
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from .contracts import SAFE_ID
-from .claude_provider import ClaudeCodeProvider, ClaudeCodeRoute
-from .opencode_provider import OpenCodeProvider, OpenCodeRoute
+from .claude_provider import CLAUDE_CODE_VERSION, ClaudeCodeProvider, ClaudeCodeRoute
+from .opencode_provider import OPENCODE_VERSION, OpenCodeProvider, OpenCodeRoute
 from .provider_rpc import ProviderRPCServer
 from .executor import ExecutorRPCServer, SidecarExecutor
 
@@ -83,6 +84,11 @@ async def run() -> None:
         token=_required_environment("CODING_WORKER_SIDECAR_TOKEN"),
         bind_broker=provider.bind_broker,
         unbind_broker=provider.unbind_broker,
+        harness_identity=(
+            _provider_harness_identity(provider)
+            if os.getenv("CODING_WORKER_HARNESS_V3_ENABLED", "").lower() == "true"
+            else None
+        ),
     )
     await server.start_unix(socket_path)
     await _wait_for_stop(server.close)
@@ -124,6 +130,36 @@ def _provider_from_environment(
         routes={route_id: route},
         tool_broker_command=command,
     )
+
+
+def _provider_harness_identity(
+    provider: OpenCodeProvider | ClaudeCodeProvider,
+) -> tuple[str, str, str]:
+    route_id = _required_environment("CODING_WORKER_ROUTE_ID")
+    model_id = _required_environment("CODING_WORKER_MODEL_ID")
+    if isinstance(provider, ClaudeCodeProvider):
+        command = (*provider._command_prefix, "--version")
+        expected_version = CLAUDE_CODE_VERSION
+        engine_name = "claude-code"
+    else:
+        command = (provider._executable, "--version")
+        expected_version = OPENCODE_VERSION
+        engine_name = "opencode"
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError("Provider Harness CLI identity is unavailable") from exc
+    observed_version = completed.stdout.strip().split(maxsplit=1)[0]
+    if completed.returncode != 0 or observed_version != expected_version:
+        raise RuntimeError("Provider Harness CLI version does not match its runtime")
+    engine = f"{engine_name}-{observed_version}"
+    return route_id, model_id, engine
 
 
 async def _wait_for_stop(close: Callable[[], Awaitable[None]]) -> None:
