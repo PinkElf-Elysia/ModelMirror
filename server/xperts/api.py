@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from collections.abc import Awaitable, Callable
 from typing import Literal
@@ -49,6 +50,11 @@ try:
     from server.skills.skill_manager import SkillManagerError
     from server.workflow_native.schemas import NativeWorkflowDefinition, ValidationIssue
     from server.workflow_native.node_contracts import node_policy_service
+    from server.workflow_native.secure_http import (
+        WorkflowHttpRequestError,
+        is_http_request_v2,
+        validate_http_request_credential,
+    )
 except ModuleNotFoundError:
     from file_assets.contracts import FileInputKind, FilePurpose
     from file_assets.registry import get_file_format_registry
@@ -62,12 +68,25 @@ except ModuleNotFoundError:
     from skills.skill_manager import SkillManagerError
     from workflow_native.schemas import NativeWorkflowDefinition, ValidationIssue
     from workflow_native.node_contracts import node_policy_service
+    from workflow_native.secure_http import (
+        WorkflowHttpRequestError,
+        is_http_request_v2,
+        validate_http_request_credential,
+    )
 
 
 router = APIRouter(prefix="/api/xperts", tags=["xperts"])
 _xpert_store: XpertStore | None = None
 _xpert_context_store: XpertContextStore | None = None
 _memory_writeback_runner: Callable[..., Awaitable[list[dict]]] | None = None
+_workflow_http_credential_lookup: Callable[[str], object] | None = None
+
+
+def configure_workflow_http_credential_lookup(
+    lookup: Callable[[str], object] | None,
+) -> None:
+    global _workflow_http_credential_lookup
+    _workflow_http_credential_lookup = lookup
 
 
 def _validate_installed_skills(
@@ -757,6 +776,39 @@ def preview_xpert_for_publish(
                     node_id=node.id,
                 )
             )
+        if kind == "http_request":
+            if not is_http_request_v2(data):
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_http_request_migration_required",
+                        message="Legacy HTTP request nodes must be explicitly migrated before publish.",
+                        node_id=node.id,
+                    )
+                )
+                continue
+            if os.getenv("WORKFLOW_HTTP_REQUESTS_ENABLED", "false").strip().lower() not in {
+                "1", "true", "yes", "on"
+            }:
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_http_requests_disabled",
+                        message="Secure workflow HTTP requests are disabled.",
+                        node_id=node.id,
+                    )
+                )
+            try:
+                validate_http_request_credential(
+                    data,
+                    _workflow_http_credential_lookup,
+                )
+            except WorkflowHttpRequestError as exc:
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_http_credential_unavailable",
+                        message=exc.safe_message,
+                        node_id=node.id,
+                    )
+                )
     features = candidate.draft.features
     if (
         features.text_to_speech.enabled

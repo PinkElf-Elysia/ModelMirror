@@ -6,6 +6,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -184,6 +185,53 @@ def schedule_workflow() -> dict:
     }
 
 
+def secure_http_workflow(*, auth_type: str = "none") -> dict:
+    return {
+        "id": "draft",
+        "title": "secure http",
+        "nodes": [
+            {
+                "id": "start",
+                "type": "input",
+                "data": {"kind": "input", "variableName": "user_input"},
+            },
+            {
+                "id": "http",
+                "type": "http_request",
+                "data": {
+                    "kind": "http_request",
+                    "contractVersion": 2,
+                    "method": "GET",
+                    "url": "https://api.example.test/items/{{user_input}}",
+                    "queryItems": [],
+                    "headerItems": [],
+                    "bodyMode": "none",
+                    "formFields": [],
+                    "authType": auth_type,
+                    "credentialId": "cred_http_test" if auth_type != "none" else "",
+                    "apiKeyLocation": "header",
+                    "apiKeyName": "X-API-Key",
+                    "timeoutSeconds": 30,
+                    "redirectLimit": 0,
+                    "responseLimitBytes": 1_048_576,
+                    "responseMode": "auto",
+                    "statusPolicy": "success_only",
+                    "outputVariable": "http_response",
+                },
+            },
+            {
+                "id": "end",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "http_response"},
+            },
+        ],
+        "edges": [
+            {"id": "e1", "source": "start", "target": "http"},
+            {"id": "e2", "source": "http", "target": "end"},
+        ],
+    }
+
+
 def failure_workflow(source_project_ids: list[str]) -> dict:
     return {
         "id": "draft",
@@ -281,6 +329,77 @@ def test_publish_accepts_complete_llm_and_http_timer_workflows(tmp_path) -> None
     http_release = store.publish(http_project.project_id)
     assert http_release.trigger_kind == "http"
     assert http_release.entry_node_id == "start"
+
+
+def test_secure_http_publish_activation_and_credential_lifecycle(tmp_path) -> None:
+    credential = SimpleNamespace(status="active", kind="generic")
+    store = WorkflowDeploymentStore(
+        tmp_path,
+        credential_validator=lambda credential_id: credential,
+    )
+    project = store.create_project(secure_http_workflow(auth_type="bearer"))
+    release = store.publish(project.project_id)
+
+    with pytest.raises(WorkflowDeploymentConflictError, match="disabled"):
+        store.activate(
+            project.project_id,
+            release.version,
+            webhooks_enabled=False,
+            http_requests_enabled=False,
+        )
+
+    deployment, plaintext = store.activate(
+        project.project_id,
+        release.version,
+        webhooks_enabled=False,
+        http_requests_enabled=True,
+    )
+    assert deployment.active is True
+    assert plaintext is None
+
+    store.deactivate(project.project_id, release.version)
+    credential.status = "revoked"
+    with pytest.raises(WorkflowDeploymentConflictError, match="unavailable"):
+        store.activate(
+            project.project_id,
+            release.version,
+            webhooks_enabled=False,
+            http_requests_enabled=True,
+        )
+
+
+def test_secure_http_publish_rejects_legacy_and_missing_credentials(tmp_path) -> None:
+    legacy = manual_workflow()
+    legacy["nodes"].insert(
+        1,
+        {
+            "id": "http",
+            "type": "http_request",
+            "data": {
+                "kind": "http_request",
+                "method": "GET",
+                "url": "https://example.test",
+                "outputVariable": "http_output",
+            },
+        },
+    )
+    legacy["nodes"][2]["data"]["outputVariable"] = "http_output"
+    legacy["edges"] = [
+        {"id": "e1", "source": "start", "target": "http"},
+        {"id": "e2", "source": "http", "target": "end"},
+    ]
+    store = WorkflowDeploymentStore(tmp_path / "legacy")
+    project = store.create_project(legacy)
+    with pytest.raises(WorkflowDeploymentValidationError, match="migrated"):
+        store.publish(project.project_id)
+
+    unavailable = WorkflowDeploymentStore(
+        tmp_path / "missing",
+        credential_validator=lambda credential_id: (_ for _ in ()).throw(KeyError(credential_id)),
+    )
+    project = unavailable.create_project(secure_http_workflow(auth_type="api_key"))
+    with pytest.raises(WorkflowDeploymentValidationError, match="unavailable"):
+        unavailable.publish(project.project_id)
 
 
 def test_private_webhook_key_idempotency_and_safe_snapshot(tmp_path) -> None:

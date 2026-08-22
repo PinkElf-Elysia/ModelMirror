@@ -60,13 +60,13 @@ BASELINE_213_COMPATIBILITY_KINDS = {
     "variable_aggregator",
     "variable_assign",
 }
-PROMOTED_COMPLETE_KINDS = {"llm", "list_operation"}
+PROMOTED_COMPLETE_KINDS = {"condition", "http_request", "llm", "list_operation"}
 
 
 def test_contract_registry_covers_every_native_kind_once() -> None:
     expected = set(get_args(NativeNodeKind))
 
-    assert len(expected) == 47
+    assert len(expected) == 48
     assert workflow_node_contract_registry.kinds() == expected
     assert len(workflow_node_contract_registry.list()) == len(expected)
     assert workflow_node_contract_registry.get("not-a-node") is None
@@ -172,7 +172,29 @@ def test_r16_control_data_contracts_are_complete_local_and_not_plannable() -> No
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-    ) == 18
+    ) == 16
+
+
+def test_r17_http_condition_and_dataset_contracts_are_complete_and_not_plannable() -> None:
+    for kind in {"http_request", "condition", "dataset_compare"}:
+        contract = workflow_node_contract_registry.require(kind)
+        assert contract.contract_status == "complete"
+        assert contract.planner.enabled is False
+        assert node_policy_service.decision(kind, "workflow").allowed
+        assert node_policy_service.decision(kind, "xpert").allowed
+
+    http_contract = workflow_node_contract_registry.require("http_request")
+    assert http_contract.execution.external_io is True
+    assert http_contract.execution.idempotent is False
+    assert not node_policy_service.decision("http_request", "app").allowed
+    assert not node_policy_service.decision("http_request", "evaluation").allowed
+    assert not node_policy_service.decision("http_request", "evolution").allowed
+
+    condition = workflow_node_contract_registry.require("condition")
+    dataset = workflow_node_contract_registry.require("dataset_compare")
+    assert condition.edge.allowed_source_handles == ("true", "false")
+    assert dataset.execution.deterministic is True
+    assert dataset.execution.external_io is False
 
 
 def test_only_current_seven_nodes_have_valid_planner_contracts() -> None:
@@ -268,6 +290,7 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "invoke_workflow",
         "suspend_wait",
         "http_event_reply",
+        "http_request",
     }
     app_denied = {
         "external_xpert",
@@ -285,6 +308,7 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "invoke_workflow",
         "suspend_wait",
         "http_event_reply",
+        "http_request",
     }
 
     assert {
@@ -348,12 +372,14 @@ def test_registry_ui_projection_is_v4_and_contains_no_runtime_payloads() -> None
         for item in section["items"]
     ] + list(payload["knowledge_pipeline"]["items"])
 
-    assert len({item["kind"] for item in items}) == 45
+    assert len({item["kind"] for item in items}) == 46
     assert payload["version"] == "xpert-workflow-node-registry-v4"
     assert payload["contract_version"] == 3
     assert payload["contract_checksum"] == workflow_node_contract_registry.checksum
     assert all(item["contract"]["kind"] == item["kind"] for item in items)
     assert all(item["planner"]["contract_checksum"] for item in items)
-    assert "credential" not in serialized
-    assert "api_key" not in serialized
+    assert "credentialid" in serialized
+    assert "masked_value" not in serialized
+    assert "encrypted_value" not in serialized
+    assert "secret_value" not in serialized
     assert "embedding" not in serialized

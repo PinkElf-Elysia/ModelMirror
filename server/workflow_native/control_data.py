@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import re
 from functools import cmp_to_key
@@ -31,6 +32,7 @@ LIST_OPERATORS = {
 }
 AGGREGATE_OPERATIONS = {"count", "sum", "avg", "min", "max"}
 MAX_COLLECTION_ITEMS = 10_000
+MAX_DATASET_COMPARE_OUTPUT_BYTES = 5 * 1_024 * 1_024
 VARIABLE_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 ROUTE_ID_PATTERN = re.compile(r"^route_[1-8]$")
 SAFE_ERROR_CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
@@ -229,6 +231,180 @@ def select_multi_route(value: object, routes: object) -> str:
         if evaluate_comparison_rule(value, route):
             return route_id
     return "default"
+
+
+def evaluate_typed_condition(
+    value: object,
+    *,
+    field: object,
+    operator: object,
+    value_type: object,
+    expected: object,
+) -> bool:
+    clean_field = str(field or "").strip()
+    if len(clean_field) > 64:
+        _fail(
+            "INVALID_CONDITION_FIELD",
+            "Condition field must be a top-level field name of at most 64 characters.",
+        )
+    normalized = normalize_workflow_value(value, path="$.condition_input")
+    if clean_field:
+        if not isinstance(normalized, dict):
+            _fail(
+                "CONDITION_FIELD_REQUIRES_OBJECT",
+                "Condition field selection requires an object input.",
+            )
+        if clean_field not in normalized:
+            _fail(
+                "CONDITION_FIELD_MISSING",
+                "The selected condition field is missing from the input object.",
+            )
+        normalized = normalized[clean_field]
+    rule: dict[str, Any] = {
+        "operator": str(operator or "").strip(),
+        "valueType": str(value_type or "").strip(),
+    }
+    if rule["operator"] != "is_null":
+        rule["value"] = expected
+    return evaluate_comparison_rule(normalized, rule)
+
+
+def validate_dataset_compare_config(key_fields: object) -> list[str]:
+    if not isinstance(key_fields, list) or not 1 <= len(key_fields) <= 3:
+        _fail(
+            "INVALID_DATASET_KEY_FIELD_COUNT",
+            "Dataset compare requires between 1 and 3 key fields.",
+        )
+    fields = [str(field).strip() for field in key_fields]
+    if any(not field or len(field) > 64 for field in fields):
+        _fail(
+            "INVALID_DATASET_KEY_FIELD",
+            "Dataset key fields must be non-empty top-level field names.",
+        )
+    if len(fields) != len(set(fields)):
+        _fail("DUPLICATE_DATASET_KEY_FIELD", "Dataset key fields must be unique.")
+    return fields
+
+
+def _dataset_index(
+    value: object,
+    *,
+    side: str,
+    key_fields: list[str],
+) -> tuple[list[dict[str, WorkflowValue]], dict[tuple[Any, ...], dict[str, WorkflowValue]]]:
+    rows = normalize_workflow_value(value, path=f"$.dataset_compare.{side}")
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        _fail(
+            "DATASET_OBJECT_ARRAY_REQUIRED",
+            "Both dataset compare inputs must be JSON object arrays.",
+        )
+    if len(rows) > MAX_COLLECTION_ITEMS:
+        _fail(
+            "DATASET_ROW_LIMIT_EXCEEDED",
+            f"Each dataset compare input accepts at most {MAX_COLLECTION_ITEMS} rows.",
+        )
+    index: dict[tuple[Any, ...], dict[str, WorkflowValue]] = {}
+    for row in rows:
+        if any(field not in row for field in key_fields):
+            _fail(
+                "DATASET_KEY_FIELD_MISSING",
+                "Every dataset row must contain every configured key field.",
+            )
+        values = [row[field] for field in key_fields]
+        if any(isinstance(item, (dict, list)) for item in values):
+            _fail(
+                "DATASET_KEY_VALUE_NOT_SCALAR",
+                "Dataset key values must be scalar or null.",
+            )
+        identity = tuple(typed_identity(item) for item in values)
+        if identity in index:
+            _fail(
+                "DATASET_KEY_NOT_UNIQUE",
+                f"Composite keys must be unique within the {side} dataset.",
+            )
+        index[identity] = row
+    return rows, index
+
+
+def compare_datasets(
+    left: object,
+    right: object,
+    *,
+    key_fields: object,
+    include_unchanged: bool = False,
+    max_output_bytes: int = MAX_DATASET_COMPARE_OUTPUT_BYTES,
+) -> dict[str, WorkflowValue]:
+    fields = validate_dataset_compare_config(key_fields)
+    left_rows, left_index = _dataset_index(left, side="left", key_fields=fields)
+    right_rows, right_index = _dataset_index(right, side="right", key_fields=fields)
+    added: list[WorkflowValue] = []
+    removed: list[WorkflowValue] = []
+    changed: list[WorkflowValue] = []
+    unchanged: list[WorkflowValue] = []
+    unchanged_count = 0
+
+    for after in right_rows:
+        identity = tuple(typed_identity(after[field]) for field in fields)
+        before = left_index.get(identity)
+        if before is None:
+            added.append(after)
+            continue
+        if typed_deep_equal(before, after):
+            unchanged_count += 1
+            if include_unchanged:
+                unchanged.append(after)
+            continue
+        changed_fields = sorted(
+            field
+            for field in set(before) | set(after)
+            if field not in fields
+            and (
+                field not in before
+                or field not in after
+                or not typed_deep_equal(before[field], after[field])
+            )
+        )
+        changed.append(
+            {
+                "key": {field: after[field] for field in fields},
+                "before": before,
+                "after": after,
+                "changedFields": changed_fields,
+            }
+        )
+
+    for before in left_rows:
+        identity = tuple(typed_identity(before[field]) for field in fields)
+        if identity not in right_index:
+            removed.append(before)
+
+    result: dict[str, WorkflowValue] = {
+        "summary": {
+            "leftCount": len(left_rows),
+            "rightCount": len(right_rows),
+            "addedCount": len(added),
+            "removedCount": len(removed),
+            "changedCount": len(changed),
+            "unchangedCount": unchanged_count,
+        },
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+        "unchangedIncluded": bool(include_unchanged),
+        "unchanged": unchanged,
+    }
+    encoded = json.dumps(
+        result,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(encoded) > max(1, int(max_output_bytes)):
+        _fail(
+            "DATASET_OUTPUT_LIMIT_EXCEEDED",
+            "Dataset compare output exceeds the workflow persistence limit.",
+        )
+    return result
 
 
 def _field_value(item: WorkflowValue, field: str) -> WorkflowValue:

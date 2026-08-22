@@ -2,6 +2,7 @@
 
 from .api import (
     configure_memory_writeback_runner,
+    configure_workflow_http_credential_lookup,
     get_xpert_context_store,
     get_xpert_store,
     preview_xpert_for_publish,
@@ -85,6 +86,7 @@ __all__ = [
     "XpertAppStore",
     "configure_xpert_app_runtime",
     "configure_memory_writeback_runner",
+    "configure_workflow_http_credential_lookup",
     "get_xpert_context_store",
     "get_xpert_app_store",
     "get_xpert_store",

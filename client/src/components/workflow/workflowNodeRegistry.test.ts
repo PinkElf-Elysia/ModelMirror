@@ -37,6 +37,7 @@ describe("workflowNodeRegistry NodeContract V3 guard", () => {
       "terminate_error",
       "multi_route",
       "data_aggregate",
+      "dataset_compare",
     ]));
     expect(items.every((item) => item.contract === undefined)).toBe(true);
     expect(items.every((item) => item.planner === undefined)).toBe(true);

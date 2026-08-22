@@ -739,6 +739,162 @@ def _complete_contracts() -> dict[str, NodeContract]:
         required=["operator"],
         additional_properties=False,
     )
+    condition_v1_schema = _object_schema(
+        {
+            "conditionVariable": {"type": "string"},
+            "conditionOperator": {"type": "string", "enum": ["equals", "contains"]},
+            "conditionValue": {"type": "string"},
+        },
+        required=["conditionVariable", "conditionOperator", "conditionValue"],
+    )
+    condition_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "inputVariable": {"type": "string"},
+            "field": {"type": "string", "maxLength": 64},
+            **comparison_rule_properties,
+        },
+        required=["contractVersion", "inputVariable", "operator", "valueType", "value"],
+    )
+    contracts["condition"] = NodeContract(
+        kind="condition",
+        contract_status="complete",
+        config_schema={
+            "type": "object",
+            "anyOf": [condition_v1_schema, condition_v2_schema],
+        },
+        ports=(
+            NodePortContract(
+                name="value",
+                direction="input",
+                value_schema=any_value,
+                required=True,
+            ),
+        ),
+        edge=NodeEdgeContract(allowed_source_handles=("true", "false")),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=True,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="control",
+        ),
+        planner=_planner(),
+    )
+    http_binding_schema = _object_schema(
+        {
+            "source": {"type": "string", "enum": ["literal", "variable"]},
+            "variable": {"type": "string"},
+            "valueType": {
+                "type": "string",
+                "enum": ["text", "number", "boolean", "null", "json"],
+            },
+            "value": {},
+        },
+        required=["source"],
+        additional_properties=False,
+    )
+    http_item_schema = _object_schema(
+        {
+            "id": {"type": "string", "minLength": 1, "maxLength": 64},
+            "name": {"type": "string", "minLength": 1, "maxLength": 128},
+            "binding": http_binding_schema,
+        },
+        required=["id", "name", "binding"],
+        additional_properties=False,
+    )
+    http_v1_schema = _object_schema(
+        {
+            "url": {"type": "string", "minLength": 1, "maxLength": 2_048},
+            "method": {"type": "string", "enum": ["GET", "POST"]},
+            "headersJson": {"type": "string"},
+            "bodyVariable": {"type": "string"},
+            "outputVariable": {"type": "string"},
+        },
+        required=["url", "method", "outputVariable"],
+    )
+    http_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "method": {
+                "type": "string",
+                "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+            },
+            "url": {"type": "string", "minLength": 1, "maxLength": 2_048},
+            "queryItems": {"type": "array", "items": http_item_schema, "maxItems": 20},
+            "headerItems": {"type": "array", "items": http_item_schema, "maxItems": 20},
+            "bodyMode": {"type": "string", "enum": ["none", "json", "text", "form"]},
+            "bodyBinding": http_binding_schema,
+            "formFields": {"type": "array", "items": http_item_schema, "maxItems": 20},
+            "authType": {"type": "string", "enum": ["none", "api_key", "bearer", "basic"]},
+            "credentialId": {"type": "string", "maxLength": 160},
+            "apiKeyLocation": {"type": "string", "enum": ["header", "query"]},
+            "apiKeyName": {"type": "string", "maxLength": 128},
+            "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 60},
+            "redirectLimit": {"type": "integer", "minimum": 0, "maximum": 3},
+            "responseLimitBytes": {
+                "type": "integer",
+                "minimum": 1_024,
+                "maximum": 2_097_152,
+            },
+            "responseMode": {"type": "string", "enum": ["auto", "json", "text"]},
+            "statusPolicy": {"type": "string", "enum": ["success_only", "capture_all"]},
+            "outputVariable": {"type": "string"},
+        },
+        required=[
+            "contractVersion",
+            "method",
+            "url",
+            "queryItems",
+            "headerItems",
+            "bodyMode",
+            "formFields",
+            "authType",
+            "timeoutSeconds",
+            "redirectLimit",
+            "responseLimitBytes",
+            "responseMode",
+            "statusPolicy",
+            "outputVariable",
+        ],
+    )
+    contracts["http_request"] = NodeContract(
+        kind="http_request",
+        contract_status="complete",
+        config_schema={
+            "type": "object",
+            "anyOf": [http_v1_schema, http_v2_schema],
+        },
+        ports=(
+            NodePortContract(name="response", direction="output", value_schema=object_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_read",
+            external_io=True,
+            deterministic=False,
+            idempotent=False,
+            error_semantics="fail_closed",
+            security_category="network",
+        ),
+        availability=NodeAvailabilityPolicy(
+            app=_rule(
+                "deny",
+                code="app_http_request_forbidden",
+                message="Public Xpert Apps cannot deploy HTTP request nodes.",
+            ),
+            evaluation=_rule(
+                "deny",
+                code="evaluation_http_request_forbidden",
+                message="Evaluation does not allow HTTP request nodes.",
+            ),
+            evolution=_rule(
+                "deny",
+                code="evolution_http_request_forbidden",
+                message="Evolution does not allow HTTP request nodes.",
+            ),
+        ),
+        planner=_planner(),
+    )
     contracts["terminate_error"] = NodeContract(
         kind="terminate_error",
         contract_status="complete",
@@ -922,6 +1078,59 @@ def _complete_contracts() -> dict[str, NodeContract]:
                 name="result",
                 direction="output",
                 value_schema=array_object_value,
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=True,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="transform",
+        ),
+        planner=_planner(),
+    )
+    contracts["dataset_compare"] = NodeContract(
+        kind="dataset_compare",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "leftVariable": {"type": "string"},
+                "rightVariable": {"type": "string"},
+                "keyFields": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "minItems": 1,
+                    "maxItems": 3,
+                    "uniqueItems": True,
+                },
+                "includeUnchanged": {"type": "boolean"},
+                "outputVariable": {"type": "string"},
+            },
+            required=[
+                "leftVariable",
+                "rightVariable",
+                "keyFields",
+                "includeUnchanged",
+                "outputVariable",
+            ],
+        ),
+        ports=(
+            NodePortContract(
+                name="left",
+                direction="input",
+                value_schema=array_object_value,
+                required=True,
+            ),
+            NodePortContract(
+                name="right",
+                direction="input",
+                value_schema=array_object_value,
+                required=True,
+            ),
+            NodePortContract(
+                name="result",
+                direction="output",
+                value_schema=object_value,
             ),
         ),
         execution=NodeExecutionPolicy(
@@ -1580,14 +1789,6 @@ def build_builtin_node_contract_registry() -> NodeContractRegistry:
         )
         contracts[kind] = current.model_copy(update={"availability": availability})
 
-    condition = contracts["condition"]
-    contracts["condition"] = condition.model_copy(
-        update={
-            "edge": NodeEdgeContract(
-                allowed_source_handles=("true", "false"),
-            )
-        }
-    )
     return NodeContractRegistry(list(contracts.values()))
 
 

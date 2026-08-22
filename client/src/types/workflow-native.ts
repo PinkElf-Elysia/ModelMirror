@@ -49,7 +49,7 @@ export const difyNodeMappings: DifyNodeMapping[] = [
   {
     native: "condition",
     dify: "if-else",
-    note: "Native condition starts with equals/contains; Dify supports richer branches.",
+    note: "Native condition supports strict typed comparison with stable true/false exits.",
   },
   {
     native: "code",
@@ -119,7 +119,7 @@ export const difyNodeMappings: DifyNodeMapping[] = [
   {
     native: "http_request",
     dify: "http-request",
-    note: "Native HTTP request starts with GET/POST text responses and a safety switch.",
+    note: "Native HTTP request uses fixed public origins, encrypted credentials, structured bindings, and bounded typed responses.",
   },
   {
     native: "list_operation",

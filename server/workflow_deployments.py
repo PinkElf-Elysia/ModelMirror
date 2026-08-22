@@ -11,7 +11,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 from zoneinfo import ZoneInfo
 
 from jsonschema import Draft202012Validator
@@ -26,6 +26,11 @@ try:
         workflow_variable_value_matches_type,
     )
     from server.workflow_native.validate import node_kind, validate_workflow_graph
+    from server.workflow_native.secure_http import (
+        WorkflowHttpRequestError,
+        is_http_request_v2,
+        validate_http_request_credential,
+    )
     from server.xpert_runtime.automation_store import (
         AutomationStore,
         AutomationTrigger,
@@ -41,6 +46,11 @@ except ModuleNotFoundError:
         workflow_variable_value_matches_type,
     )
     from workflow_native.validate import node_kind, validate_workflow_graph
+    from workflow_native.secure_http import (
+        WorkflowHttpRequestError,
+        is_http_request_v2,
+        validate_http_request_credential,
+    )
     from xpert_runtime.automation_store import (
         AutomationStore,
         AutomationTrigger,
@@ -185,7 +195,12 @@ class WorkflowSubworkflowRelation:
 class WorkflowDeploymentStore:
     """Atomic single-instance store for workflow drafts, releases and safe summaries."""
 
-    def __init__(self, storage_dir: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        storage_dir: str | Path | None = None,
+        *,
+        credential_validator: Callable[[str], Any] | None = None,
+    ) -> None:
         package_dir = Path(__file__).resolve().parent
         self.storage_dir = Path(
             storage_dir
@@ -200,6 +215,7 @@ class WorkflowDeploymentStore:
         self._executions: dict[str, WorkflowTriggerExecution] = {}
         self._failure_subscriptions: dict[str, WorkflowFailureSubscription] = {}
         self._subworkflow_relations: dict[str, WorkflowSubworkflowRelation] = {}
+        self._credential_validator = credential_validator
         self._load()
 
     def create_project(self, workflow: dict[str, Any]) -> WorkflowProject:
@@ -296,7 +312,10 @@ class WorkflowDeploymentStore:
     def publish(self, project_id: str) -> WorkflowVersion:
         with self._lock:
             project = self._require_project_unlocked(project_id)
-            trigger_kind, entry_node_id = validate_publishable_workflow(project.draft)
+            trigger_kind, entry_node_id = validate_publishable_workflow(
+                project.draft,
+                credential_validator=self._credential_validator,
+            )
             if trigger_kind == "failure":
                 self._validate_failure_sources_unlocked(
                     project_id,
@@ -344,6 +363,7 @@ class WorkflowDeploymentStore:
         webhooks_enabled: bool,
         failure_triggers_enabled: bool = False,
         subworkflows_enabled: bool = False,
+        http_requests_enabled: bool = False,
         now: float | None = None,
     ) -> tuple[WorkflowDeployment, str | None]:
         current = time.time() if now is None else float(now)
@@ -360,6 +380,25 @@ class WorkflowDeploymentStore:
                 raise WorkflowDeploymentConflictError(
                     "Workflow failure triggers are disabled."
                 )
+            http_v2_nodes = [
+                node
+                for node in release.workflow.get("nodes", [])
+                if isinstance(node, dict)
+                and _raw_node_kind(node) == "http_request"
+                and is_http_request_v2(dict(node.get("data") or {}))
+            ]
+            if http_v2_nodes and not http_requests_enabled:
+                raise WorkflowDeploymentConflictError(
+                    "Secure workflow HTTP requests are disabled."
+                )
+            for node in http_v2_nodes:
+                try:
+                    validate_http_request_credential(
+                        dict(node.get("data") or {}),
+                        self._credential_validator,
+                    )
+                except WorkflowHttpRequestError as exc:
+                    raise WorkflowDeploymentConflictError(exc.safe_message) from exc
             has_workflow_calls = any(
                 _raw_node_kind(node) == "invoke_workflow"
                 for node in release.workflow.get("nodes", [])
@@ -1504,7 +1543,11 @@ class WorkflowDeploymentStore:
                 raise ValueError("Workflow failure subscription handler is invalid.")
 
 
-def validate_publishable_workflow(workflow: dict[str, Any]) -> tuple[WorkflowTriggerKind, str]:
+def validate_publishable_workflow(
+    workflow: dict[str, Any],
+    *,
+    credential_validator: Callable[[str], Any] | None = None,
+) -> tuple[WorkflowTriggerKind, str]:
     try:
         definition = NativeWorkflowDefinition.model_validate(
             {
@@ -1562,6 +1605,18 @@ def validate_publishable_workflow(workflow: dict[str, Any]) -> tuple[WorkflowTri
             raise WorkflowDeploymentValidationError(
                 "Callable workflows cannot contain waiting nodes."
             )
+        if kind == "http_request":
+            if not is_http_request_v2(node.data):
+                raise WorkflowDeploymentValidationError(
+                    "Legacy HTTP request nodes must be explicitly migrated before publishing."
+                )
+            try:
+                validate_http_request_credential(
+                    node.data,
+                    credential_validator,
+                )
+            except WorkflowHttpRequestError as exc:
+                raise WorkflowDeploymentValidationError(exc.safe_message) from exc
     sensitive_path = _find_sensitive_value(workflow)
     if sensitive_path:
         raise WorkflowDeploymentValidationError(

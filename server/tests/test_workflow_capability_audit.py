@@ -64,17 +64,21 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert mapped["removeDuplicates"]["模镜对应节点"] == "list_operation"
     assert mapped["aggregate"]["模镜对应节点"] == "data_aggregate"
     assert mapped["summarize"]["模镜对应节点"] == "data_aggregate"
+    assert mapped["httpRequest"]["模镜对应节点"] == "http_request"
+    assert mapped["if"]["模镜对应节点"] == "condition"
+    assert mapped["compareDatasets"]["模镜对应节点"] == "dataset_compare"
     assert all(mapped[key]["模镜当前状态"] == "已实现" for key in (
         "scheduleTrigger", "webhook", "wait", "respondToWebhook", "errorTrigger",
         "executeWorkflowTrigger", "executeWorkflow", "stopAndError", "switch",
         "filter", "sort", "removeDuplicates", "aggregate", "summarize",
+        "httpRequest", "if", "compareDatasets",
     ))
     assert all("不复制代码" in row["许可证边界"] or "企业条目" in row["许可证边界"] for row in rows)
     assert Counter(row["模镜当前状态"] for row in rows) == {
-        "已实现": 18,
-        "部分实现": 95,
+        "已实现": 21,
+        "部分实现": 93,
         "通用节点可覆盖": 276,
-        "未实现": 174,
+        "未实现": 173,
     }
     native_kinds = set(get_args(NativeNodeKind))
     assert {
@@ -104,13 +108,13 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         for contract in workflow_node_contract_registry.list()
     )
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
-    assert "R0/R1/R1.5/R1.6" in markdown
+    assert "R0/R1/R1.5/R1.6/R1.7" in markdown
     assert "44、画布目录项 42" in markdown
     assert f"{compatibility_count} 个冻结 compatibility 合同" in markdown
     assert f"自研节点总数 {native_count}" in markdown
     assert f"画布目录项 {palette_count}" in markdown
     assert f"Planner 可生成类型仍固定为 {planner_count} 类" in markdown
-    assert native_count == 47
-    assert palette_count == 45
-    assert compatibility_count == 18
+    assert native_count == 48
+    assert palette_count == 46
+    assert compatibility_count == 16
     assert planner_count == 7

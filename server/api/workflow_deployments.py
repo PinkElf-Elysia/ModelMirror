@@ -105,6 +105,12 @@ def workflow_subworkflows_enabled() -> bool:
     }
 
 
+def workflow_http_requests_enabled() -> bool:
+    return os.getenv("WORKFLOW_HTTP_REQUESTS_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 def _map_error(exc: Exception) -> HTTPException:
     if isinstance(exc, WorkflowDeploymentNotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
@@ -261,6 +267,7 @@ async def activate_workflow(project_id: str, version: int) -> dict[str, Any]:
             webhooks_enabled=_webhooks_enabled(),
             failure_triggers_enabled=workflow_failure_triggers_enabled(),
             subworkflows_enabled=workflow_subworkflows_enabled(),
+            http_requests_enabled=workflow_http_requests_enabled(),
         )
         payload = store.serialize_deployment(deployment)
         if plaintext_key:

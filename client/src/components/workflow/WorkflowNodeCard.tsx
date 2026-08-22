@@ -263,6 +263,13 @@ const nodeMeta = {
     bg: "bg-brand-300/10",
     text: "text-brand-100",
   },
+  dataset_compare: {
+    icon: "Δ",
+    label: "数据集对照",
+    border: "border-brand-300/40",
+    bg: "bg-brand-300/10",
+    text: "text-brand-100",
+  },
   iteration: {
     icon: "🔁",
     label: "迭代工位",

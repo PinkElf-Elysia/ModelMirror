@@ -231,6 +231,90 @@ async def test_multi_route_runtime_uses_the_same_normalized_handle_as_validation
 
 
 @pytest.mark.asyncio
+async def test_typed_condition_runtime_trace_names_the_selected_field(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = {
+        "id": "typed-condition-trace",
+        "title": "Typed condition trace",
+        "nodes": [
+            {
+                "id": "input",
+                "type": "input",
+                "data": {"kind": "input", "variableName": "payload"},
+            },
+            {
+                "id": "condition",
+                "type": "condition",
+                "data": {
+                    "kind": "condition",
+                    "contractVersion": 2,
+                    "inputVariable": "payload",
+                    "field": "statusCode",
+                    "operator": "equals",
+                    "valueType": "number",
+                    "value": 200,
+                },
+            },
+            {
+                "id": "yes",
+                "type": "variable_assign",
+                "data": {
+                    "kind": "variable_assign",
+                    "variableName": "result",
+                    "template": "yes",
+                },
+            },
+            {
+                "id": "no",
+                "type": "variable_assign",
+                "data": {
+                    "kind": "variable_assign",
+                    "variableName": "result",
+                    "template": "no",
+                },
+            },
+            {
+                "id": "output",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "result"},
+            },
+        ],
+        "edges": [
+            {"id": "e-input", "source": "input", "target": "condition"},
+            {
+                "id": "e-yes",
+                "source": "condition",
+                "sourceHandle": "true",
+                "target": "yes",
+            },
+            {
+                "id": "e-no",
+                "source": "condition",
+                "sourceHandle": "false",
+                "target": "no",
+            },
+            {"id": "e-yes-output", "source": "yes", "target": "output"},
+            {"id": "e-no-output", "source": "no", "target": "output"},
+        ],
+    }
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"payload": {"statusCode": 200}}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = parse_sse_events(response.text)
+    condition = next(
+        event
+        for event in events
+        if event.get("event") == "node_end" and event.get("node_id") == "condition"
+    )
+    assert condition["output"] == "payload.statusCode equals 200 -> 是"
+
+
+@pytest.mark.asyncio
 async def test_terminate_error_fails_with_code_and_stops_other_routes(
     client: httpx.AsyncClient,
 ) -> None:

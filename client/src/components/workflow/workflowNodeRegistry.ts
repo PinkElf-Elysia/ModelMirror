@@ -255,6 +255,13 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["aggregate", "group", "measure", "typed-value"],
       },
       {
+        kind: "dataset_compare",
+        icon: "DIFF",
+        title: "数据集对照",
+        description: "按稳定复合键对照两份对象数组，识别新增、删除、变化和未变化项。",
+        tags: ["dataset", "compare", "diff", "typed-value"],
+      },
+      {
         kind: "json_serialize",
         icon: "JSON",
         title: "JSON 序列化",
@@ -332,9 +339,9 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
       {
         kind: "http_request",
         icon: "HTTP",
-        title: "HTTP",
-        description: "调用 GET/POST 接口，把响应文本写入变量。",
-        tags: ["http", "api"],
+        title: "安全 HTTP 请求",
+        description: "以固定公网目标、加密凭据和结构化参数调用 HTTP 接口。",
+        tags: ["http", "api", "credential", "public-only"],
       },
       {
         kind: "mcp_tool",
