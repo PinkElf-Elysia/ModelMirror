@@ -24,7 +24,6 @@ from .provider import (
     ProviderSession,
 )
 from .executor import ExecutorSidecarClientPool, SidecarExecutor
-from .harness_v3 import PROVIDER_HARNESS_CODE_FILES, harness_code_bundle_sha256
 
 
 MAX_PROVIDER_RPC_BYTES = 8 * 1024 * 1024
@@ -184,6 +183,11 @@ class ProviderRPCServer:
 
     async def _dispatch(self, request: ProviderRPCRequest) -> dict[str, Any]:
         if request.action == "harness_attestation":
+            from .harness_v3 import (
+                PROVIDER_HARNESS_CODE_FILES,
+                harness_code_bundle_sha256,
+            )
+
             if os.getenv("CODING_WORKER_HARNESS_V3_ENABLED", "").lower() != "true":
                 raise ProviderRPCError(
                     "Provider Harness attestation is disabled.",

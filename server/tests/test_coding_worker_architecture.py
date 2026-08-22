@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import ast
 import inspect
+import subprocess
+import sys
 from pathlib import Path
 
 from server.coding_worker.ports import (
@@ -95,7 +97,6 @@ def test_pr_a_freezes_existing_boundary_debt_without_allowing_expansion() -> Non
     }
     assert actual == {
         "server/coding_worker/api.py": [
-            ".harness_v3",
             ".provider",
             ".service",
             ".store",
@@ -107,6 +108,34 @@ def test_pr_a_freezes_existing_boundary_debt_without_allowing_expansion() -> Non
             "server.coding_worker.api",
         ],
     }
+
+
+def test_production_api_imports_when_evaluation_modules_are_unavailable() -> None:
+    script = """
+import importlib.abc
+import sys
+
+class DenyEvaluation(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname in {
+            'server.coding_worker.harness_v3',
+            'server.coding_worker.parity',
+            'server.coding_worker.evaluation',
+        }:
+            raise ImportError(f'evaluation module denied: {fullname}')
+        return None
+
+sys.meta_path.insert(0, DenyEvaluation())
+import server.coding_worker.api
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_scheduler_has_no_concrete_supplier_or_sidecar_imports() -> None:
