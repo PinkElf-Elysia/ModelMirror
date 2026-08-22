@@ -160,11 +160,16 @@ test("only the isolated R15 evidence runner may read and write fixed resources i
   fs.writeFileSync(path.join(evidenceRoot, "runtime_evidence_runner.gd"), [
     "extends Node", "const OUTPUT_PATH := \"res://runtime_evidence/runtime-evidence-raw.json\"",
     "func transfer(path):", "\tvar input = FileAccess.open(path, FileAccess.READ)",
+    "\tvar image := Image.create(1, 1, false, Image.FORMAT_RGBA8)",
+    "\timage.save_png(\"res://runtime_evidence/\" + relative)",
     "\treturn FileAccess.open(OUTPUT_PATH, FileAccess.WRITE)",
   ].join("\n"), "utf8");
   assert.equal(auditGodotBoundary({ root }).ok, true);
   fs.writeFileSync(path.join(root, "scripts", "case.gd"),
     "extends Node\nfunc write(path):\n\treturn FileAccess.open(path, FileAccess.WRITE)\n", "utf8");
+  assert.equal(codes(auditGodotBoundary({ root })).includes("GODOT_FIRST_PARTY_FILESYSTEM_WRITE"), true);
+  fs.writeFileSync(path.join(root, "scripts", "case.gd"),
+    "extends Node\nfunc write(path):\n\tvar image := Image.create(1, 1, false, Image.FORMAT_RGBA8)\n\treturn image.save_png(path)\n", "utf8");
   assert.equal(codes(auditGodotBoundary({ root })).includes("GODOT_FIRST_PARTY_FILESYSTEM_WRITE"), true);
 });
 

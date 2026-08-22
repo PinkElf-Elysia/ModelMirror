@@ -56,6 +56,6 @@ export async function planPrototypeRuntimeReplay(request) {
   } catch(error){ if(error instanceof PrototypeRuntimeEvidenceOperationalError)throw error; throw new PrototypeRuntimeEvidenceOperationalError(); }
 }
 
-export function createGodotRuntimeEvidenceRunner(config){ if(!config||Object.getPrototypeOf(config)!==Object.prototype||Object.keys(config).join("\0")!=="godotBin"||typeof config.godotBin!=="string"||config.godotBin.length<1)throw new PrototypeRuntimeEvidenceOperationalError(); return deepFreeze({kind:"matrix-oasis.godot-runtime-evidence-runner/1",godotBin:config.godotBin}); }
-export async function collectPrototypeRuntimeEvidence(){ throw new PrototypeRuntimeEvidenceOperationalError(); }
 export async function qualifyPrototypeRuntimeEvidence(){ throw new PrototypeRuntimeEvidenceOperationalError(); }
+
+export { createGodotRuntimeEvidenceRunner, collectPrototypeRuntimeEvidence } from "./collector.mjs";

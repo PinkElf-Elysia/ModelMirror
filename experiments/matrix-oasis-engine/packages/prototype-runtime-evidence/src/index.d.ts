@@ -5,5 +5,5 @@ export type PrototypeRuntimeReplayResult=Readonly<{ok:true;replayPlan:PrototypeR
 export declare class PrototypeRuntimeEvidenceOperationalError extends Error { readonly code:"PROTOTYPE_RUNTIME_EVIDENCE_INTERNAL_ERROR" }
 export declare function planPrototypeRuntimeReplay(request:PrototypeRuntimeReplayRequest):Promise<PrototypeRuntimeReplayResult>;
 export declare function createGodotRuntimeEvidenceRunner(config:{readonly godotBin:string}):object;
-export declare function collectPrototypeRuntimeEvidence(request:unknown,runner:object):Promise<Readonly<{ok:true;evidence:PrototypeRuntimeEvidence;canonicalEvidenceJson:string}>|Readonly<{ok:false;diagnostics:readonly PrototypeRuntimeEvidenceDiagnostic[]}>>;
+export declare function collectPrototypeRuntimeEvidence(request:Readonly<{replayPlanJson:string;previewFiles:ReadonlyMap<string,Uint8Array>}>,runner:object):Promise<Readonly<{ok:true;evidence:PrototypeRuntimeEvidence;canonicalEvidenceJson:string;mediaFiles:ReadonlyMap<string,Uint8Array>}>|Readonly<{ok:false;diagnostics:readonly PrototypeRuntimeEvidenceDiagnostic[]}>>;
 export declare function qualifyPrototypeRuntimeEvidence(request:unknown):Promise<unknown>;

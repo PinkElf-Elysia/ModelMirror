@@ -17,6 +17,7 @@ var _navigation_region: NavigationRegion3D
 var _floor_anchors: Dictionary = {}
 var _observations: Array = []
 var _frame_micros: Array[int] = []
+var _screenshots: Array = []
 
 
 func _ready() -> void:
@@ -45,8 +46,9 @@ func _run(plan: Dictionary) -> void:
 		return
 	await get_tree().physics_frame
 	await get_tree().physics_frame
-	for replay: Dictionary in plan["replays"]:
-		var observation := await _run_replay(replay)
+	for replay_index in plan["replays"].size():
+		var replay: Dictionary = plan["replays"][replay_index]
+		var observation := await _run_replay(replay, replay_index)
 		_observations.append(observation)
 		if observation["outcome"] != "passed":
 			_publish(false, observation["diagnosticCode"])
@@ -58,7 +60,7 @@ func _run(plan: Dictionary) -> void:
 	_publish(true, "")
 
 
-func _run_replay(replay: Dictionary) -> Dictionary:
+func _run_replay(replay: Dictionary, replay_index: int) -> Dictionary:
 	_input_key(KEY_R, true)
 	_input_key(KEY_R, false)
 	await get_tree().physics_frame
@@ -67,7 +69,8 @@ func _run_replay(replay: Dictionary) -> Dictionary:
 	var initial := _inspection()
 	if initial.is_empty() or initial["location"]["id"] != replay["expectedLocationIds"][0]:
 		return _failed_observation(replay, checkpoints, "R15_RUNTIME_RESET_FAILED")
-	checkpoints.append(_checkpoint(0, null))
+	if not await _append_checkpoint(checkpoints, replay["id"], replay_index, 0, null):
+		return _failed_observation(replay, checkpoints, "R15_RUNTIME_SCREENSHOT_FAILED")
 	for index in replay["actionIds"].size():
 		var action_id: String = replay["actionIds"][index]
 		var before := _inspection()
@@ -78,7 +81,8 @@ func _run_replay(replay: Dictionary) -> Dictionary:
 		var expected: String = replay["expectedLocationIds"][index + 1]
 		if not await _wait_for_location(expected):
 			return _failed_observation(replay, checkpoints, "R15_RUNTIME_ACTION_INPUT_FAILED")
-		checkpoints.append(_checkpoint(index + 1, action_id))
+		if not await _append_checkpoint(checkpoints, replay["id"], replay_index, index + 1, action_id):
+			return _failed_observation(replay, checkpoints, "R15_RUNTIME_SCREENSHOT_FAILED")
 	if replay["probeActionId"] != null:
 		var before_probe := _inspection()
 		if not await _approach_action(str(replay["probeActionId"]), before_probe["location"]["id"]):
@@ -234,6 +238,25 @@ func _checkpoint(sequence: int, action_id: Variant) -> Dictionary:
 	return {"sequence": sequence, "locationKind": inspection["location"]["kind"], "locationId": inspection["location"]["id"], "stepCount": inspection["stepCount"], "actionId": action_id, "playerPositionMm": [roundi(player.global_position.x * 1000.0), roundi(player.global_position.y * 1000.0), roundi(player.global_position.z * 1000.0)], "floorDistanceMm": floor_distance_mm, "capsuleClear": capsule_clear, "navigationPathComplete": closest.distance_to(player.global_position) <= 0.1, "focusedActionId": focused_id, "interactionDistanceMm": interaction_distance, "visiblePlacementIds": visible}
 
 
+func _append_checkpoint(checkpoints: Array, replay_id: String, replay_index: int,
+	sequence: int, action_id: Variant) -> bool:
+	if replay_index < 0 or replay_index >= 32 or sequence < 0 or sequence > 256:
+		return false
+	var checkpoint := _checkpoint(sequence, action_id)
+	checkpoints.append(checkpoint)
+	await get_tree().process_frame
+	var image := get_viewport().get_texture().get_image()
+	if image == null or image.is_empty():
+		return false
+	# The filename is derived only from bounded integer indexes, never from pack IDs.
+	var relative := "media/replay-%04d-checkpoint-%04d.png" % [replay_index, sequence]
+	if image.save_png("res://runtime_evidence/" + relative) != OK:
+		return false
+	_screenshots.append({"replayId": replay_id, "locationId": checkpoint["locationId"],
+		"relativePath": relative})
+	return true
+
+
 func _install_navigation(facts: Dictionary) -> bool:
 	var mesh_value: Variant = facts.get("navigationMesh")
 	if typeof(mesh_value) != TYPE_DICTIONARY:
@@ -267,7 +290,8 @@ func _failed_observation(replay: Dictionary, checkpoints: Array, code: String) -
 
 
 func _publish(ok: bool, code: String) -> void:
-	var raw := {"ok": ok, "observations": _observations, "frameMicros": _frame_micros, "diagnosticCode": code}
+	var raw := {"ok": ok, "observations": _observations, "frameMicros": _frame_micros,
+		"screenshots": _screenshots, "diagnosticCode": code}
 	var file := FileAccess.open(OUTPUT_PATH, FileAccess.WRITE)
 	if file == null:
 		_fail("R15_RUNTIME_EVIDENCE_WRITE_FAILED")

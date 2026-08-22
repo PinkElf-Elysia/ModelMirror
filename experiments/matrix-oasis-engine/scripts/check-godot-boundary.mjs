@@ -136,6 +136,15 @@ function hasUnsafeFileOpen(source, relativePath) {
   return false;
 }
 
+function hasUnsafeImageSave(source, relativePath) {
+  for (const match of source.matchAll(/\bimage\s*\.\s*save_png\s*\(([^\n)]*)/gu)) {
+    const approvedEvidencePng = relativePath === "runtime_evidence/runtime_evidence_runner.gd" &&
+      /^\s*["']res:\/\/runtime_evidence\/["']\s*\+\s*relative\s*$/u.test(match[1]);
+    if (!approvedEvidencePng) return true;
+  }
+  return false;
+}
+
 export function auditGodotBoundary({ root = godotRoot } = {}) {
   const resolvedRoot = fs.realpathSync(root);
   const violations = [];
@@ -154,6 +163,9 @@ export function auditGodotBoundary({ root = godotRoot } = {}) {
       violations.push({ code: "GODOT_FIRST_PARTY_DYNAMIC_LOAD", path: relativePath });
     }
     if (hasUnsafeFileOpen(source, relativePath)) {
+      violations.push({ code: "GODOT_FIRST_PARTY_FILESYSTEM_WRITE", path: relativePath });
+    }
+    if (hasUnsafeImageSave(source, relativePath)) {
       violations.push({ code: "GODOT_FIRST_PARTY_FILESYSTEM_WRITE", path: relativePath });
     }
   }
