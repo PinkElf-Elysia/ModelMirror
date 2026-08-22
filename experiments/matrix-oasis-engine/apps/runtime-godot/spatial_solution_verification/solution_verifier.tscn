@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://spatial_solution_verification/solution_verifier.gd" id="1_verifier"]
+
+[node name="SpatialSolutionVerifier" type="Node3D"]
+script = ExtResource("1_verifier")

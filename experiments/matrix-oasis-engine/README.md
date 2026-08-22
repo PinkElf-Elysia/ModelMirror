@@ -1,18 +1,18 @@
 # 矩阵绿洲独立实验模块
 
-这是模镜仓库中可拆分的AI原生3D引擎实验模块。R1–R12已建立严格Pack、确定性Runtime、真实资产、Marble空间环境和Godot可玩层，也暴露了自动组装缺少可靠空间事实的问题。
+这是模镜仓库中可拆分的AI原生3D引擎实验模块。R1–R13已建立严格Pack、确定性Runtime、真实资产、Marble空间环境、Godot可玩层与环境事实底座；R14负责解决自动组装的系统性空间偏差。
 
-## R13目标
+## R14目标
 
 ```text
-Scene Blueprint → Spatial Intent
-Marble Collider GLB → Godot Environment Facts
-→ 为R14确定性约束求解器提供可靠输入
+Scene Blueprint + Runtime + Asset Bounds → Spatial Intent
+Spatial Intent + R13 Environment Facts → deterministic solver
+→ Godot final verification → solved preview
 ```
 
-- 固定基线：`77ec8c4eace9f8dbd1dd119cd70727570bd99e9a`。
-- R13不实现布局求解、不修改Creator或现有预览，也不对末班地铁继续局部调参。
-- 新分析器只使用本地已验证collider和Godot 4.6.3碰撞、导航、物理查询；无供应商调用或费用。
-- R13只交付可验证的语义意图与环境事实。R14求解器及两类案例重新验收前，不得宣称初版闭环完成。
+- 固定基线：`296e560d5197ff1367ad75455b2b9f5852560fd8`。
+- R14不调用模型或资产供应商，不按末班地铁坐标调参，也不回退旧AABB网格布局。
+- 求解器只使用严格合同和R13环境事实；Godot 4.6.3以真实导航、碰撞和视线复验结果。
+- R14.7人工验收前旧Creator默认预览保持不变，且不得宣称初版闭环完成。
 
 当前状态由`docs/MVP_STATUS.json`和`npm.cmd run check:mvp-claim`机器化约束。完整回归仍使用`npm.cmd run verify`。

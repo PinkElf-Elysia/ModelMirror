@@ -1,4 +1,4 @@
-# R13已知限制
+# R14已知限制
 
 - R10 panorama仅作历史来源证据；R11成功预览不渲染它。若Compute splat资格、米制对齐或30 FPS门失败，本轮停止，不回退到旧天空模式。
 - R11只支持固定SPZ→compressed PLY→gdgs Compute链，不支持HQ环境网格、SOG权威缓存、Raster回退、图片/视频输入、AI NPC、记忆、动态任务、存档、导出或父产品接入。
@@ -17,3 +17,8 @@
 - R13只提取Spatial Intent与Environment Facts，不输出最终placement、player spawn或Action terminal坐标，不切换Creator或产品预览，因此本轮不会直接改善R12成品体验。
 - NavigationMesh和anchor只在锁定的Godot 4.6.3 Windows工具链上要求20次canonical字节确定；不建立跨Godot版本或跨平台浮点golden。
 - wall anchor是由真实碰撞查询推导的可用表面候选，不等同于语义上的“墙面用途”。R14仍需结合Intent求解并执行最终物理复验。
+- R14.7人工验收前，Creator默认预览仍使用历史路径；新增solution和solved overlay不构成产品默认切换或初版完成声明。
+- 求解器只支持固定R14 profile：4 zones、6个非环境placement、16个node context和每节点64 actions；超限直接失败，不部分发布。
+- 当前无明显阻塞的人工结果只证明末班地铁已验证缓存可经显式离线R14资格链和直接R14预览运行；Creator自然语言产品入口尚未接入同一求解/复验/overlay发布链，用户目前不能通过Creator复现同等结果。
+- 最新visual-safety、全局支撑平面、接地和边界修复尚未在第二个真实环境以同版证据重新资格；中性旧缓存不包含最新visual-safety报告，因此第二真实环境泛化仍未证明。
+- 现有通用实现不含地铁题材ID或案例坐标，但仍采用固定视觉占用阈值、单一全局支撑高度及旧walkable envelope兼容入口；非平面、多层、不同点云噪声或碰撞拓扑可能需要新合同，而不是继续调节单一样例参数。

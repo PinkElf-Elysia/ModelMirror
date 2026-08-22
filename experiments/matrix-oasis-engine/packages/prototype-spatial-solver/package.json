@@ -1,0 +1,18 @@
+{
+  "name": "@matrix-oasis/prototype-spatial-solver",
+  "version": "0.1.0-r14",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": { ".": { "types": "./src/index.d.ts", "default": "./src/index.mjs" } },
+  "scripts": { "test": "node --test tests/*.test.mjs" },
+  "dependencies": {
+    "@matrix-oasis/prototype-asset-contracts": "0.1.0-r9",
+    "@matrix-oasis/prototype-generation-contracts": "0.1.0-r8",
+    "@matrix-oasis/prototype-spatial-planning-contracts": "0.1.0-r13",
+    "@matrix-oasis/prototype-spatial-solution-contracts": "0.1.0-r14",
+    "@matrix-oasis/runtime-pack-contracts": "0.1.0-r3",
+    "@matrix-oasis/runtime-pack-validator": "0.1.0-r3",
+    "ajv": "8.20.0"
+  }
+}

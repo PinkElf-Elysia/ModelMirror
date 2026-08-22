@@ -1,29 +1,30 @@
 {
-  "schemaVersion": 13,
+  "schemaVersion": 14,
   "moduleId": "matrix-oasis-engine",
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
-  "activeRound": "R13",
-  "activeRoundBaselineSha": "77ec8c4eace9f8dbd1dd119cd70727570bd99e9a",
+  "activeRound": "R14",
+  "activeRoundBaselineSha": "296e560d5197ff1367ad75455b2b9f5852560fd8",
   "activeRoundChangePolicy": {
     "allowedModuleFiles": [
       "AGENTS.md", "README.md", ".gitattributes", ".gitignore", "module-boundary.json", "package-lock.json", "package.json",
       "docs/ARCHITECTURE.md", "docs/BOUNDARIES.md", "docs/DEPENDENCIES_AND_LICENSES.md", "docs/KNOWN_LIMITATIONS.md",
-      "docs/PRODUCT.md", "docs/V1_CRITICAL_PATH.md", "docs/MVP_STATUS.json", "docs/R13_SPATIAL_FACTS_THREAT_MODEL.md", "docs/R13_TASK_CARD.md",
-      "docs/adr/0014-r13-spatial-facts-governance.md", "docs/rounds/R13_ACCEPTANCE.md",
+      "docs/PRODUCT.md", "docs/V1_CRITICAL_PATH.md", "docs/MVP_STATUS.json", "docs/R14_SPATIAL_SOLVER_THREAT_MODEL.md", "docs/R14_TASK_CARD.md",
+      "docs/adr/0015-r14-spatial-solver-governance.md", "docs/rounds/R14_ACCEPTANCE.md",
       "scripts/check-round-scope.mjs", "scripts/check-mvp-claim.mjs", "scripts/check-godot-boundary.mjs",
-      "scripts/analyze-spatial-environment.mjs", "scripts/qualify-r13-spatial-facts.mjs", "scripts/capture-spatial-facts.mjs",
-      "scripts/verify-spatial-references.mjs", "scripts/verify-spatial-analysis.mjs", "scripts/verify-r13.mjs",
+      "scripts/synthesize-spatial-intent.mjs", "scripts/solve-spatial-layout.mjs", "scripts/verify-spatial-solution.mjs",
+      "scripts/qualify-r14-spatial-solver.mjs", "scripts/preview-r14.mjs", "scripts/capture-r14.mjs", "scripts/verify-r14.mjs", "scripts/preview-prototype.mjs",
       "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/parent-scope-core.mjs",
-      "scripts/lib/spatial-analysis-core.mjs", "scripts/lib/spatial-reference-core.mjs", "scripts/lib/scope-policy.mjs",
+      "scripts/lib/spatial-solution-core.mjs", "scripts/lib/solved-spatial-cache-core.mjs", "scripts/lib/r14-preview-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/mvp-claim.test.mjs", "tests/spatial-analysis.test.mjs", "tests/spatial-reference.test.mjs", "tests/r13-qualification.test.mjs", "tests/round-scope.test.mjs"
+      "tests/mvp-claim.test.mjs", "tests/spatial-solution.test.mjs", "tests/spatial-verifier.test.mjs", "tests/spatial-visual-safety.test.mjs", "tests/r14-preview.test.mjs", "tests/r14-qualification.test.mjs", "tests/round-scope.test.mjs"
     ],
     "allowedModulePrefixes": [
-      "packages/prototype-spatial-planning-contracts",
-      "packages/prototype-environment-analyzer",
-      "apps/runtime-godot/spatial_analysis",
-      "third-party/spatial-layout-references"
+      "packages/prototype-spatial-solution-contracts",
+      "packages/prototype-spatial-solver",
+      "packages/prototype-spatial-verifier",
+      "apps/runtime-godot/spatial_solution_verification",
+      "apps/runtime-godot/solved_spatial_prototype"
     ],
     "frozenModulePaths": [
       "apps", "docs", "examples", "packages", "scripts", "tests", "third-party"
@@ -39,13 +40,14 @@
     "providerCalls": "openai-compatible-meshy-and-marble-adapters-only",
     "splatQualification": "source-checkout-and-loopback-disposable-only",
     "r12QualificationCalls": "human-approved-only",
-    "r13AnalysisCalls": "none"
+    "r13AnalysisCalls": "none",
+    "r14SolverCalls": "none"
   },
   "mvpClaimPolicy": {
     "status": "pending-spatial-solver",
     "claimAllowed": false,
     "blockingRound": "R14",
-    "acceptanceRecord": "docs/rounds/R13_ACCEPTANCE.md",
+    "acceptanceRecord": "docs/rounds/R14_ACCEPTANCE.md",
     "machineStatus": "docs/MVP_STATUS.json",
     "completionMarker": "MATRIX_OASIS_R12_MVP_READY"
   },
@@ -209,6 +211,42 @@
     "productPreviewIntegrationAllowed": false,
     "caseSpecificCoordinatesAllowed": false,
     "trackedAnalysisArtifactsAllowed": false
+  },
+  "r14SpatialSolverPolicy": {
+    "spatialSolutionFormat": "matrix-oasis.prototype-spatial-solution",
+    "formatVersion": "0.1.0",
+    "canonicalization": "matrix-oasis.canonical-json/1",
+    "coordinateSystem": "godot-right-handed-y-up",
+    "unit": "millimeter",
+    "eulerOrder": "YXZ",
+    "maxZones": 4,
+    "maxPlacements": 6,
+    "maxNodeContexts": 16,
+    "maxActionsPerNode": 64,
+    "maxCandidatesPerItem": 256,
+    "maxSearchStates": 100000,
+    "playerRadiusMm": 350,
+    "playerHeightMm": 1800,
+    "floorSnapMm": 200,
+    "compactClearanceMm": 250,
+    "humanClearanceMm": 350,
+    "largeClearanceMm": 600,
+    "terminalWidthMm": 1250,
+    "terminalDepthMm": 500,
+    "terminalColumns": 8,
+    "terminalColumnSpacingMm": 1700,
+    "terminalRowSpacingMm": 2250,
+    "interactionDistanceMm": 3000,
+    "floorContactToleranceMm": 20,
+    "pathEndpointToleranceMm": 100,
+    "networkAllowed": false,
+    "providerCallsAllowed": false,
+    "randomAllowed": false,
+    "timeDrivenExitAllowed": false,
+    "partialSuccessAllowed": false,
+    "caseSpecificCoordinatesAllowed": false,
+    "creatorDefaultCutoverRequiresHumanAcceptance": true,
+    "trackedSolutionArtifactsAllowed": false
   },
   "runtimeArtifactInputPolicy": {
     "mode": "paired-local-files-only",
