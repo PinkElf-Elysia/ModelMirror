@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator, Callable, Iterable
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -1525,6 +1525,7 @@ def record_skill_application(
     required_resource_paths: Iterable[str] = (),
     method: Literal["prompt_injected", "skill_read", "skill_stage"] | None = None,
     resource_paths: Iterable[str] = (),
+    read_resource_paths: Iterable[str] = (),
     resource_digests: dict[str, str] | None = None,
     expected_resource_digests: dict[str, str] | None = None,
     tool_name: str | None = None,
@@ -1549,6 +1550,7 @@ def record_skill_application(
             required_resource_paths=required_resource_paths,
             method=method,
             resource_paths=resource_paths,
+            read_resource_paths=read_resource_paths,
             resource_digests=resource_digests,
             expected_resource_digests=expected_resource_digests,
             tool_name=tool_name,
@@ -9643,6 +9645,20 @@ async def _run_workflow_response(
                 ).strip()
             return output_text
 
+        def runtime_tool_event_preview(
+            tool_name: str,
+            call_result: Any,
+            result_text: str,
+        ) -> str:
+            if tool_name in {"sandbox_read_file", "sandbox_search_files"}:
+                metadata = dict(getattr(call_result, "metadata", {}) or {})
+                accessed_paths = metadata.get("sandbox_accessed_text_paths")
+                accessed_count = (
+                    len(accessed_paths) if isinstance(accessed_paths, list) else 0
+                )
+                return f"text resources accessed={accessed_count}"
+            return result_text[:300]
+
         async def workflow_available_tools(
             tool_names_raw: Any,
             *,
@@ -9801,6 +9817,14 @@ async def _run_workflow_response(
                     )
                     skills_config = dict(skills_spec.config) if skills_spec else {}
                     allowed_skill_tools = {"skill_list", "skill_read", "skill_stage"}
+                    if skill_runtime_guidance_enabled():
+                        allowed_skill_tools.update(
+                            {
+                                "sandbox_list_files",
+                                "sandbox_read_file",
+                                "sandbox_search_files",
+                            }
+                        )
                     if workflow_truthy(skills_config.get("catalog_search", False)):
                         allowed_skill_tools.update({"skill_find", "skill_enable"})
                     if workflow_truthy(skills_config.get("catalog_install", False)):
@@ -11206,8 +11230,13 @@ async def _run_workflow_response(
                         "any side-effecting, sensitive, approval, or terminal tool, "
                         "call skill_read for every required Skill ID: "
                         f"{required_list}. Plugin-provided and auto-discovered Skills "
-                        "remain optional until explicitly enabled. Never claim a Skill "
-                        "was read without the tool result."
+                        "remain optional until explicitly enabled. Read SKILL.md first. "
+                        "Call skill_stage only when those instructions require package "
+                        "resources, then use exact skills/<skill-id>/<relative-path> "
+                        "paths with sandbox_read_file or a bounded sandbox_search_files "
+                        "search for long references. Do not guess files, commands, or "
+                        "dependencies, and never claim a Skill or resource was read "
+                        "without the corresponding tool result."
                     )
                     messages[0] = ChatMessage(
                         role="system", content=react_system_prompt
@@ -11215,6 +11244,77 @@ async def _run_workflow_response(
                     pending_state["skill_guidance_plan_fingerprint"] = (
                         skill_guidance_plan.fingerprint
                     )
+            staged_skill_resources: dict[str, dict[str, Any]] = {}
+
+            def normalize_staged_workspace_path(value: Any) -> str:
+                raw_path = str(value or "").strip().replace("\\", "/")
+                path = PurePosixPath(raw_path)
+                if (
+                    not raw_path
+                    or len(raw_path) > 512
+                    or path.is_absolute()
+                    or any(part in {"", ".", ".."} for part in path.parts)
+                ):
+                    raise SkillRuntimeGuidanceError(
+                        "Staged Skill resource metadata is invalid.",
+                        code="skill_application_contract_stale",
+                    )
+                return path.as_posix()
+
+            def restore_staged_skill_resources() -> None:
+                if skill_guidance_plan is None:
+                    return
+                raw_mapping = pending_state.get("skill_staged_resources") or {}
+                if not isinstance(raw_mapping, dict) or len(raw_mapping) > 2_000:
+                    raise SkillRuntimeGuidanceError(
+                        "Staged Skill resource metadata is invalid.",
+                        code="skill_application_contract_stale",
+                    )
+                for raw_workspace_path, raw_entry in raw_mapping.items():
+                    if not isinstance(raw_entry, dict):
+                        raise SkillRuntimeGuidanceError(
+                            "Staged Skill resource metadata is invalid.",
+                            code="skill_application_contract_stale",
+                        )
+                    workspace_path = normalize_staged_workspace_path(
+                        raw_workspace_path
+                    )
+                    skill_id = str(raw_entry.get("skill_id") or "").strip()
+                    skill_path = normalize_staged_workspace_path(
+                        raw_entry.get("skill_path")
+                    )
+                    contract = skill_guidance_contracts.get(skill_id)
+                    resource_digest = str(
+                        raw_entry.get("resource_digest") or ""
+                    ).strip().lower()
+                    if (
+                        contract is None
+                        or workspace_path != f"skills/{skill_id}/{skill_path}"
+                        or raw_entry.get("version_id") != contract.version_id
+                        or raw_entry.get("content_digest")
+                        != contract.content_digest
+                        or raw_entry.get("trust_fingerprint")
+                        != contract.trust_fingerprint
+                        or not re.fullmatch(r"[0-9a-f]{64}", resource_digest)
+                    ):
+                        raise SkillRuntimeGuidanceError(
+                            "Staged Skill resource metadata no longer matches the Skill contract.",
+                            code="skill_application_contract_stale",
+                        )
+                    staged_skill_resources[workspace_path] = {
+                        "skill_id": skill_id,
+                        "skill_path": skill_path,
+                        "workspace_id": str(
+                            raw_entry.get("workspace_id") or ""
+                        ).strip(),
+                        "version_id": contract.version_id,
+                        "content_digest": contract.content_digest,
+                        "trust_fingerprint": contract.trust_fingerprint,
+                        "resource_digest": resource_digest,
+                        "text": bool(raw_entry.get("text", False)),
+                    }
+
+            restore_staged_skill_resources()
             if middleware_context is not None:
                 middleware_context.metadata["skill_version_bindings"] = (
                     skill_version_bindings
@@ -11356,6 +11456,222 @@ async def _run_workflow_response(
                         code="skill_application_evidence_unavailable",
                     ) from exc
 
+            def remember_staged_skill_resources(
+                skill_id: str,
+                metadata: dict[str, Any],
+            ) -> None:
+                if skill_guidance_plan is None:
+                    return
+                contract = skill_guidance_contracts.get(skill_id)
+                paths = metadata.get("application_resource_paths")
+                digests = metadata.get("application_resource_digests")
+                text_paths = metadata.get("application_text_resource_paths")
+                workspace_id = str(metadata.get("workspace_id") or "").strip()
+                if (
+                    contract is None
+                    or metadata.get("application_version_id")
+                    != contract.version_id
+                    or not workspace_id
+                    or not isinstance(paths, list)
+                    or len(paths) > 500
+                    or not isinstance(digests, dict)
+                    or not isinstance(text_paths, list)
+                ):
+                    raise SkillRuntimeGuidanceError(
+                        "Staged Skill resources do not match the frozen contract.",
+                        code="skill_application_contract_stale",
+                    )
+                normalized_text_paths = {
+                    normalize_staged_workspace_path(path)
+                    for path in text_paths
+                }
+                next_entries: dict[str, dict[str, Any]] = {}
+                for raw_skill_path in paths:
+                    skill_path = normalize_staged_workspace_path(raw_skill_path)
+                    resource_digest = str(
+                        digests.get(skill_path) or ""
+                    ).strip().lower()
+                    if not re.fullmatch(r"[0-9a-f]{64}", resource_digest):
+                        raise SkillRuntimeGuidanceError(
+                            "Staged Skill resource digests are incomplete.",
+                            code="skill_application_evidence_unavailable",
+                        )
+                    workspace_path = normalize_staged_workspace_path(
+                        f"skills/{skill_id}/{skill_path}"
+                    )
+                    next_entries[workspace_path] = {
+                        "skill_id": skill_id,
+                        "skill_path": skill_path,
+                        "workspace_id": workspace_id,
+                        "version_id": contract.version_id,
+                        "content_digest": contract.content_digest,
+                        "trust_fingerprint": contract.trust_fingerprint,
+                        "resource_digest": resource_digest,
+                        "text": skill_path in normalized_text_paths,
+                    }
+                for workspace_path in tuple(staged_skill_resources):
+                    if staged_skill_resources[workspace_path].get("skill_id") == skill_id:
+                        staged_skill_resources.pop(workspace_path, None)
+                staged_skill_resources.update(next_entries)
+                if len(staged_skill_resources) > 2_000:
+                    raise SkillRuntimeGuidanceError(
+                        "Too many staged Skill resources are active in this run.",
+                        code="skill_application_evidence_unavailable",
+                    )
+                pending_state["skill_staged_resources"] = dict(
+                    sorted(staged_skill_resources.items())
+                )
+
+            def reject_non_text_skill_resource_access(
+                tool_name: str,
+                arguments: dict[str, Any],
+            ) -> None:
+                if tool_name not in {
+                    "sandbox_read_file",
+                    "sandbox_search_files",
+                }:
+                    return
+                raw_path = str(arguments.get("path") or "").strip()
+                if not raw_path:
+                    return
+                normalized_candidate = raw_path.replace("\\", "/")
+                if (
+                    normalized_candidate != "skills"
+                    and not normalized_candidate.startswith("skills/")
+                ):
+                    return
+                workspace_path = normalize_staged_workspace_path(
+                    normalized_candidate
+                )
+                staged = staged_skill_resources.get(workspace_path)
+                if tool_name == "sandbox_read_file" and staged is None:
+                    raise SkillRuntimeGuidanceError(
+                        "Skill resources must be staged in the current run before reading.",
+                        code="skill_application_required",
+                    )
+                if tool_name == "sandbox_search_files" and staged is None:
+                    prefix = workspace_path.rstrip("/") + "/"
+                    if not any(
+                        path.startswith(prefix) for path in staged_skill_resources
+                    ):
+                        raise SkillRuntimeGuidanceError(
+                            "Skill resources must be staged in the current run before searching.",
+                            code="skill_application_required",
+                        )
+                if staged is not None and not staged.get("text", False):
+                    raise SkillRuntimeGuidanceError(
+                        "Staged binary Skill resources cannot be parsed as UTF-8 text.",
+                        code="skill_runtime_incompatible",
+                    )
+
+            async def record_sandbox_skill_resource_access(
+                tool_name: str,
+                arguments: dict[str, Any],
+                result: RuntimeToolResult,
+            ) -> None:
+                if (
+                    skill_guidance_plan is None
+                    or result.is_error
+                    or tool_name
+                    not in {"sandbox_read_file", "sandbox_search_files"}
+                ):
+                    return
+                if tool_name == "sandbox_search_files":
+                    raw_search_path = str(
+                        arguments.get("path") or ""
+                    ).strip().replace("\\", "/")
+                    search_targets_skills = bool(
+                        raw_search_path == "skills"
+                        or raw_search_path.startswith("skills/")
+                    )
+                    try:
+                        output_payload = json.loads(result.output)
+                    except (TypeError, ValueError):
+                        output_payload = None
+                    if isinstance(output_payload, dict) and isinstance(
+                        output_payload.get("matches"), list
+                    ):
+                        filtered_matches = []
+                        for item in output_payload["matches"][:100]:
+                            if not isinstance(item, dict):
+                                continue
+                            try:
+                                item_path = normalize_staged_workspace_path(
+                                    item.get("path")
+                                )
+                            except SkillRuntimeGuidanceError:
+                                continue
+                            staged = staged_skill_resources.get(item_path)
+                            if staged is not None and staged.get("text", False):
+                                filtered_matches.append(item)
+                            elif (
+                                not search_targets_skills
+                                and not item_path.startswith("skills/")
+                            ):
+                                filtered_matches.append(item)
+                        output_payload["matches"] = filtered_matches
+                        result.output = json.dumps(
+                            output_payload,
+                            ensure_ascii=False,
+                        )
+                metadata = dict(result.metadata or {})
+                accessed_paths = metadata.get("sandbox_accessed_paths")
+                accessed_digests = metadata.get("sandbox_accessed_digests")
+                text_paths = metadata.get("sandbox_accessed_text_paths")
+                if (
+                    not isinstance(accessed_paths, list)
+                    or len(accessed_paths) > 100
+                    or not isinstance(accessed_digests, dict)
+                    or not isinstance(text_paths, list)
+                ):
+                    return
+                text_path_set = {
+                    normalize_staged_workspace_path(path) for path in text_paths
+                }
+                grouped: dict[str, dict[str, Any]] = {}
+                result_workspace_id = str(
+                    metadata.get("workspace_id") or ""
+                ).strip()
+                for raw_workspace_path in accessed_paths:
+                    workspace_path = normalize_staged_workspace_path(
+                        raw_workspace_path
+                    )
+                    staged = staged_skill_resources.get(workspace_path)
+                    if staged is None or workspace_path not in text_path_set:
+                        continue
+                    if staged.get("workspace_id") != result_workspace_id:
+                        raise SkillRuntimeGuidanceError(
+                            "Sandbox workspace no longer matches staged Skill resources.",
+                            code="skill_application_contract_stale",
+                        )
+                    skill_id = str(staged["skill_id"])
+                    skill_path = str(staged["skill_path"])
+                    group = grouped.setdefault(
+                        skill_id,
+                        {"paths": [], "actual": {}, "expected": {}},
+                    )
+                    group["paths"].append(skill_path)
+                    actual_digest = str(
+                        accessed_digests.get(workspace_path) or ""
+                    ).strip().lower()
+                    if re.fullmatch(r"[0-9a-f]{64}", actual_digest):
+                        group["actual"][skill_path] = actual_digest
+                    group["expected"][skill_path] = staged["resource_digest"]
+                for skill_id, group in sorted(grouped.items()):
+                    contract = skill_guidance_contracts.get(skill_id)
+                    if contract is None:
+                        raise SkillRuntimeGuidanceError(
+                            "Skill resource access no longer matches the guidance plan.",
+                            code="skill_application_contract_stale",
+                        )
+                    await observe_skill_guidance_contract(
+                        contract,
+                        read_resource_paths=sorted(set(group["paths"])),
+                        resource_digests=group["actual"],
+                        expected_resource_digests=group["expected"],
+                        tool_name=tool_name,
+                    )
+
             async def record_skill_runtime_failure(
                 tool_name: str,
                 arguments: dict[str, Any],
@@ -11402,9 +11718,14 @@ async def _run_workflow_response(
                 result: RuntimeToolResult,
             ) -> None:
                 nonlocal catalog_install_count
-                if not tool_name.startswith("skill_"):
-                    return
                 metadata = dict(result.metadata or {})
+                if not tool_name.startswith("skill_"):
+                    await record_sandbox_skill_resource_access(
+                        tool_name,
+                        arguments,
+                        result,
+                    )
+                    return
                 trust_authorization = metadata.get("trust_authorization")
                 if isinstance(trust_authorization, dict):
                     authorized_skill_id = str(
@@ -11568,6 +11889,14 @@ async def _run_workflow_response(
                                 ),
                                 **observe_kwargs,
                             )
+                        if (
+                            application_method == "skill_stage"
+                            and not application_failed
+                        ):
+                            remember_staged_skill_resources(
+                                application_skill_id,
+                                metadata,
+                            )
                 increment = int(metadata.get("catalog_install_increment") or 0)
                 if increment > 0:
                     catalog_install_count += increment
@@ -11603,11 +11932,11 @@ async def _run_workflow_response(
                 arguments: dict[str, Any],
                 result: RuntimeToolResult,
             ) -> None:
-                if not tool_name.startswith("skill_"):
-                    return
                 await apply_skill_runtime_result(tool_name, arguments, result)
                 if skill_guidance_plan is not None and not result.is_error:
                     await emit_guidance_verified()
+                if not tool_name.startswith("skill_"):
+                    return
                 metadata = dict(result.metadata or {})
                 event_name = str(metadata.get("skill_runtime_event") or "").strip()
                 if metadata.get("approval_rejected"):
@@ -11635,6 +11964,10 @@ async def _run_workflow_response(
                 metadata: dict[str, Any],
             ) -> RuntimeToolResult:
                 try:
+                    reject_non_text_skill_resource_access(
+                        tool_name,
+                        arguments,
+                    )
                     return await call_workflow_runtime_tool(
                         tool_name=tool_name,
                         arguments=arguments,
@@ -11654,6 +11987,13 @@ async def _run_workflow_response(
                             or "skill_application_tool_failed"
                         ),
                     )
+                    if str(getattr(exc, "code", "")) == (
+                        "skill_application_contract_stale"
+                    ):
+                        raise SkillRuntimeGuidanceError(
+                            "Frozen Skill package no longer matches its application contract.",
+                            code="skill_application_contract_stale",
+                        ) from exc
                     raise
 
             async def remember_tool_result(
@@ -11850,7 +12190,7 @@ async def _run_workflow_response(
                         "output": (
                             f"[{pending_iteration + 1}/{max_iterations}] "
                             f"审批后执行工具 {pending_tool_name}，结果预览："
-                            f"{pending_result_text[:300]}"
+                            f"{runtime_tool_event_preview(pending_tool_name, call_result, pending_result_text)}"
                         ),
                         "variable": output_variable,
                         "run_id": run_id,
@@ -12234,6 +12574,8 @@ async def _run_workflow_response(
                             }
                         except RuntimeInterrupt:
                             raise
+                        except SkillRuntimeGuidanceError:
+                            raise
                         except Exception as exc:
                             error_summary = workflow_error_summary(exc)
                             if run_id:
@@ -12424,6 +12766,9 @@ async def _run_workflow_response(
                             ),
                             "skill_version_bindings": dict(
                                 sorted(skill_version_bindings.items())
+                            ),
+                            "skill_staged_resources": dict(
+                                sorted(staged_skill_resources.items())
                             ),
                             "skill_guidance_plan_fingerprint": (
                                 skill_guidance_plan.fingerprint
@@ -12632,7 +12977,8 @@ async def _run_workflow_response(
                     "node_type": kind,
                     "output": (
                         f"[{iteration_index + 1}/{max_iterations}] 调用工具 "
-                        f"{tool_name}，结果预览：{tool_result_text[:300]}"
+                        f"{tool_name}，结果预览："
+                        f"{runtime_tool_event_preview(tool_name, call_result, tool_result_text)}"
                     ),
                     "variable": output_variable,
                 }
