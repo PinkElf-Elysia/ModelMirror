@@ -167,7 +167,9 @@ class CodingWorkerRuntime:
                 attestation_reader=self.harness_driver.harness_attestations,
                 controller_generation=lambda: self.harness_driver.controller_generation,
             )
-        self.control_plane = LegacyTaskControlPlane(self.service)
+        self.control_plane = LegacyTaskControlPlane(
+            self.service, network_enabled=network_enabled
+        )
         self.projection = StoreInteractionProjection(self.service)
         self.substrate = CodingSubstrateHandle(
             control_plane=self.control_plane,

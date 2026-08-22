@@ -13,6 +13,7 @@ from .contracts import (
     TaskState,
     WorkerApproval,
     WorkerArtifact,
+    WorkerBudgetUsage,
     WorkerEvidence,
     WorkerEvent,
     WorkerOperation,
@@ -24,6 +25,14 @@ from .contracts import (
     WorkerTurnHistory,
 )
 from .ports import WritebackCandidate
+from .ports import (
+    CodingSubstrateHandle,
+    CodingSubstrateStatus,
+    HarnessCapabilityObservation,
+    PreviewServiceStatus,
+    TaskCapabilitySnapshot,
+    WorkspaceTreeProjection,
+)
 from .provider import (
     CodingAgentProvider,
     ProviderCapabilities,
@@ -147,6 +156,20 @@ class StoreInteractionProjection:
     def get_task(self, task_id: str) -> TaskRecord:
         return self._service.store.get_task(task_id)
 
+    def get_task_capability_snapshot(
+        self, task_id: str
+    ) -> TaskCapabilitySnapshot | None:
+        snapshot = self._service.store.get_task_capability_snapshot(task_id)
+        if snapshot is None:
+            return None
+        return TaskCapabilitySnapshot(
+            task_id=snapshot.task_id,
+            binding_sha256=snapshot.binding_sha256,
+            snapshot=snapshot.snapshot,
+            observed_at=snapshot.observed_at,
+            expires_at=snapshot.expires_at,
+        )
+
     def list_tasks(self, *, origin: Origin | None = None) -> Sequence[TaskRecord]:
         return self._service.store.list_tasks(origin=origin)
 
@@ -167,6 +190,9 @@ class StoreInteractionProjection:
     def list_approvals(self, task_id: str) -> Sequence[WorkerApproval]:
         return self._service.store.list_approvals(task_id)
 
+    def get_approval(self, approval_id: str) -> WorkerApproval:
+        return self._service.store.get_approval(approval_id)
+
     def get_operation(self, operation_id: str) -> WorkerOperation:
         return self._service.store.get_operation(operation_id)
 
@@ -180,15 +206,99 @@ class StoreInteractionProjection:
     def list_artifacts(self, task_id: str) -> Sequence[WorkerArtifact]:
         return self._service.store.list_artifacts(task_id)
 
+    def read_artifact(self, task_id: str, artifact_id: str) -> bytes:
+        return self._service.store.read_artifact(artifact_id, task_id=task_id)
+
+    def list_children(self, task_id: str) -> Sequence[TaskRecord]:
+        return self._service.store.list_children(task_id)
+
+    def list_subtasks(self, task_id: str) -> Sequence[SubtaskRecord]:
+        return self._service.store.list_subtasks(task_id)
+
     def turn_history(self, task_id: str) -> WorkerTurnHistory:
         return self._service.store.turn_history(task_id)
+
+    def budget_usage(self, task_id: str) -> WorkerBudgetUsage:
+        return self._service.store.budget_usage(task_id)
+
+    def current_tree_hash(self, task_id: str) -> str | None:
+        task = self._service.store.get_task(task_id)
+        if task.workspace_id is None:
+            return None
+        return self._service.workspace_broker.current_tree_hash(task.workspace_id)
+
+    def workspace_tree(self, task_id: str) -> WorkspaceTreeProjection:
+        task = self._workspace_task(task_id)
+        entries = self._service.workspace_broker.tree(task.workspace_id)
+        return WorkspaceTreeProjection(
+            workspace_id=task.workspace_id,
+            tree_hash=self._service.workspace_broker.current_tree_hash(
+                task.workspace_id
+            ),
+            entries=tuple(item.model_dump(mode="json") for item in entries),
+        )
+
+    def read_workspace_entry(self, task_id: str, entry_id: str) -> bytes:
+        task = self._workspace_task(task_id)
+        return self._service.workspace_broker.read_entry(task.workspace_id, entry_id)
+
+    def workspace_diff(
+        self, task_id: str, *, detect_renames: bool = True
+    ) -> bytes:
+        task = self._workspace_task(task_id)
+        return self._service.workspace_broker.diff(
+            task.workspace_id, detect_renames=detect_renames
+        )
+
+    def _workspace_task(self, task_id: str) -> TaskRecord:
+        task = self._service.store.get_task(task_id)
+        if task.workspace_id is None:
+            raise WorkerConflictError(
+                "Workspace is not ready.", code="workspace_not_ready"
+            )
+        return task
 
 
 class LegacyTaskControlPlane:
     """Use-case facade over the current persistent scheduler."""
 
-    def __init__(self, service: CodingWorkerService) -> None:
+    def __init__(
+        self, service: CodingWorkerService, *, network_enabled: bool = False
+    ) -> None:
         self._service = service
+        self._network_enabled = network_enabled
+
+    def status(self) -> CodingSubstrateStatus:
+        return CodingSubstrateStatus(
+            max_active_tasks=self._service.max_active_tasks,
+            retention_seconds=self._service.store.retention_seconds,
+            network_enabled=self._network_enabled,
+            acceptance_checks=tuple(
+                sorted(
+                    self._service.tool_broker.frozen_checks
+                    if self._service.tool_broker is not None
+                    else ()
+                )
+            ),
+        )
+
+    async def refresh_harness_capabilities(self) -> None:
+        await self._service.refresh_provider_capabilities()
+
+    def cached_harness_capabilities(self) -> Sequence[ProviderCapabilities]:
+        return self._service.cached_provider_capabilities()
+
+    async def harness_capability_observation(
+        self, route_id: str
+    ) -> HarnessCapabilityObservation:
+        item = await self._service.provider_capability_observation(route_id)
+        return HarnessCapabilityObservation(
+            capabilities=item.capabilities,
+            binding_sha256=item.binding_sha256,
+            observed_at=item.observed_at,
+            expires_at=item.expires_at,
+            reason=item.reason,
+        )
 
     async def create_task(
         self, origin: Origin, request: TaskCreateRequest
@@ -211,6 +321,71 @@ class LegacyTaskControlPlane:
 
     async def cancel(self, task_id: str) -> TaskRecord:
         return await self._service.cancel(task_id)
+
+    def decide_approval(
+        self,
+        task_id: str,
+        approval_id: str,
+        *,
+        approved: bool,
+        task_scope: bool,
+        ttl_seconds: int,
+    ) -> WorkerApproval:
+        approval = self._service.store.get_approval(approval_id)
+        if approval.task_id != task_id:
+            raise WorkerConflictError(
+                "Approval was not found.", code="approval_not_found"
+            )
+        if approval.capability == "shell" and task_scope:
+            raise WorkerConflictError(
+                "Shell approval is always bound to one exact operation.",
+                code="shell_task_approval_forbidden",
+            )
+        decided = self._service.store.decide_approval(
+            approval_id,
+            approved=approved,
+            task_scope=task_scope,
+            ttl_seconds=ttl_seconds,
+        )
+        self._service.settle_approval_state(task_id)
+        return decided
+
+    def set_pinned(self, task_id: str, pinned: bool) -> TaskRecord:
+        return self._service.store.set_pinned(task_id, pinned)
+
+    def delete_task(self, task_id: str) -> None:
+        task = self._service.store.get_task(task_id)
+        if self._service.store.delete_task(task_id) and task.workspace_id is not None:
+            self._service.workspace_broker.delete(task.workspace_id)
+
+    async def preview_service_status(
+        self, task_id: str, service_id: str
+    ) -> PreviewServiceStatus:
+        task = self._service.store.get_task(task_id)
+        if task.workspace_id is None:
+            raise WorkerConflictError(
+                "Workspace is not ready.", code="workspace_not_ready"
+            )
+        broker = self._service.tool_broker
+        if broker is None or broker.executor is None:
+            raise WorkerConflictError(
+                "Preview service is unavailable.", code="preview_unavailable"
+            )
+        result = await broker.executor.service_status(
+            task_id=task_id,
+            workspace_id=task.workspace_id,
+            service_id=service_id,
+        )
+        port = result.get("preview_port")
+        return PreviewServiceStatus(
+            state=str(result.get("state", "unknown")),
+            preview_port=(
+                port if isinstance(port, int) and not isinstance(port, bool) else None
+            ),
+            slot_id=self._service.workspace_broker.workspace_slot(
+                task.workspace_id
+            ),
+        )
 
     async def navigate_turn(
         self, task_id: str, action: str
@@ -271,3 +446,33 @@ class LegacyTaskControlPlane:
             patch_sha256=hashlib.sha256(patch).hexdigest(),
             patch=patch,
         )
+
+
+def legacy_substrate_from_service(
+    service: CodingWorkerService,
+    *,
+    execution_backend: Any | None = None,
+    evaluation: Any | None = None,
+    network_enabled: bool = False,
+) -> CodingSubstrateHandle:
+    """Test/legacy composition helper; callers receive ports, never the service."""
+
+    driver = (
+        service.provider
+        if isinstance(service.provider, LegacyHarnessDriver)
+        else LegacyHarnessDriver(service.provider)
+    )
+    backend = LegacyExecutionBackend(
+        execution_backend
+        or (service.tool_broker.executor if service.tool_broker is not None else None)
+        or service.provider
+    )
+    return CodingSubstrateHandle(
+        control_plane=LegacyTaskControlPlane(
+            service, network_enabled=network_enabled
+        ),
+        projection=StoreInteractionProjection(service),
+        harness_driver=driver,
+        execution_backend=backend,
+        evaluation=evaluation,
+    )

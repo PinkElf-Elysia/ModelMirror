@@ -78,6 +78,18 @@ async def test_shadow_projection_matches_legacy_store_without_double_command(
     assert projection.get_task(created.task_id) == service.store.get_task(
         created.task_id
     )
+    assert control.status().max_active_tasks == 2
+    assert control.status().network_enabled is False
+    projected_capabilities = projection.get_task_capability_snapshot(created.task_id)
+    stored_capabilities = service.store.get_task_capability_snapshot(created.task_id)
+    assert projected_capabilities is not None and stored_capabilities is not None
+    assert projected_capabilities.model_dump() == {
+        "task_id": stored_capabilities.task_id,
+        "binding_sha256": stored_capabilities.binding_sha256,
+        "snapshot": stored_capabilities.snapshot,
+        "observed_at": stored_capabilities.observed_at,
+        "expires_at": stored_capabilities.expires_at,
+    }
     assert projection.list_tasks(origin=origin) == service.store.list_tasks(
         origin=origin
     )
@@ -99,6 +111,14 @@ async def test_shadow_projection_matches_legacy_store_without_double_command(
         request={"path": "main.py"},
     )
     assert projection.list_approvals(created.task_id) == [approval]
+    decided = control.decide_approval(
+        created.task_id,
+        approval.approval_id,
+        approved=False,
+        task_scope=False,
+        ttl_seconds=900,
+    )
+    assert projection.list_approvals(created.task_id) == [decided]
     assert projection.get_operation(operation.operation_id) == operation
     assert projection.list_events(created.task_id) == service.store.list_events(
         created.task_id
@@ -106,6 +126,8 @@ async def test_shadow_projection_matches_legacy_store_without_double_command(
     assert projection.list_questions(created.task_id) == []
     assert projection.list_evidence(created.task_id) == []
     assert projection.list_artifacts(created.task_id) == []
+    assert projection.list_children(created.task_id) == []
+    assert projection.list_subtasks(created.task_id) == []
     assert projection.latest_plan(created.task_id) is None
     assert projection.latest_todo(created.task_id) is None
     assert projection.turn_history(created.task_id) == service.store.turn_history(

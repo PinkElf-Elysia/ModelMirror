@@ -13,6 +13,7 @@ from .contracts import (
     SubtaskRequest,
     TaskCreateRequest,
     TaskRecord,
+    WorkerBudgetUsage,
     WorkerApproval,
     WorkerArtifact,
     WorkerEvidence,
@@ -53,6 +54,33 @@ class HarnessCapabilityObservation(StrictModel):
     observed_at: float
     expires_at: float
     reason: str | None = None
+
+
+class TaskCapabilitySnapshot(StrictModel):
+    task_id: str
+    binding_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    snapshot: dict[str, Any]
+    observed_at: float
+    expires_at: float
+
+
+class CodingSubstrateStatus(StrictModel):
+    max_active_tasks: int = Field(ge=1, le=16)
+    retention_seconds: int = Field(ge=1)
+    network_enabled: bool = False
+    acceptance_checks: tuple[str, ...] = ()
+
+
+class PreviewServiceStatus(StrictModel):
+    state: str
+    preview_port: int | None = None
+    slot_id: str
+
+
+class WorkspaceTreeProjection(StrictModel):
+    workspace_id: str
+    tree_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    entries: tuple[dict[str, Any], ...]
 
 
 @runtime_checkable
@@ -168,6 +196,16 @@ class TaskControlPlane(Protocol):
         self, origin: Origin, request: TaskCreateRequest
     ) -> TaskRecord: ...
 
+    def status(self) -> CodingSubstrateStatus: ...
+
+    async def refresh_harness_capabilities(self) -> None: ...
+
+    def cached_harness_capabilities(self) -> Sequence[ProviderCapabilities]: ...
+
+    async def harness_capability_observation(
+        self, route_id: str
+    ) -> HarnessCapabilityObservation: ...
+
     async def append_message(self, task_id: str, text: str) -> TaskRecord: ...
 
     async def answer_question(
@@ -179,6 +217,24 @@ class TaskControlPlane(Protocol):
     async def resume(self, task_id: str) -> TaskRecord: ...
 
     async def cancel(self, task_id: str) -> TaskRecord: ...
+
+    def decide_approval(
+        self,
+        task_id: str,
+        approval_id: str,
+        *,
+        approved: bool,
+        task_scope: bool,
+        ttl_seconds: int,
+    ) -> WorkerApproval: ...
+
+    def set_pinned(self, task_id: str, pinned: bool) -> TaskRecord: ...
+
+    def delete_task(self, task_id: str) -> None: ...
+
+    async def preview_service_status(
+        self, task_id: str, service_id: str
+    ) -> PreviewServiceStatus: ...
 
     async def navigate_turn(
         self, task_id: str, action: str
@@ -211,6 +267,10 @@ class InteractionProjection(Protocol):
 
     def get_task(self, task_id: str) -> TaskRecord: ...
 
+    def get_task_capability_snapshot(
+        self, task_id: str
+    ) -> TaskCapabilitySnapshot | None: ...
+
     def list_tasks(self, *, origin: Origin | None = None) -> Sequence[TaskRecord]: ...
 
     def list_events(
@@ -225,6 +285,8 @@ class InteractionProjection(Protocol):
 
     def list_approvals(self, task_id: str) -> Sequence[WorkerApproval]: ...
 
+    def get_approval(self, approval_id: str) -> WorkerApproval: ...
+
     def get_operation(self, operation_id: str) -> WorkerOperation: ...
 
     def list_evidence(
@@ -233,7 +295,25 @@ class InteractionProjection(Protocol):
 
     def list_artifacts(self, task_id: str) -> Sequence[WorkerArtifact]: ...
 
+    def read_artifact(self, task_id: str, artifact_id: str) -> bytes: ...
+
+    def list_children(self, task_id: str) -> Sequence[TaskRecord]: ...
+
+    def list_subtasks(self, task_id: str) -> Sequence[SubtaskRecord]: ...
+
     def turn_history(self, task_id: str) -> WorkerTurnHistory: ...
+
+    def budget_usage(self, task_id: str) -> WorkerBudgetUsage: ...
+
+    def current_tree_hash(self, task_id: str) -> str | None: ...
+
+    def workspace_tree(self, task_id: str) -> WorkspaceTreeProjection: ...
+
+    def read_workspace_entry(self, task_id: str, entry_id: str) -> bytes: ...
+
+    def workspace_diff(
+        self, task_id: str, *, detect_renames: bool = True
+    ) -> bytes: ...
 
 
 @runtime_checkable
