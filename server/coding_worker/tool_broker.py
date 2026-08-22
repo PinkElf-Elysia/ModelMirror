@@ -12,7 +12,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from time import time
-from typing import Any, Protocol
+from typing import Any
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -48,6 +48,7 @@ from .contracts import (
 from .changeset import ChangesetEngine, ChangesetError
 from .process_manager import BackgroundProcessManager, ProcessManagerError
 from .network_policy import EgressPolicy, NetworkPolicyError
+from .ports import ExecutionBackend
 from .store import CodingWorkerStore, WorkerConflictError
 from .workspace import WorkspaceBroker, WorkspaceError
 
@@ -104,16 +105,6 @@ class ToolResult(StrictModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
-class ToolExecutor(Protocol):
-    async def run_process(self, *, task_id: str, workspace_id: str, argv: Sequence[str], timeout_seconds: int, isolated: bool, environment_overrides: Mapping[str, str] | None = None) -> dict[str, Any]: ...
-    async def start_service(self, *, task_id: str, workspace_id: str, argv: Sequence[str], ttl_seconds: int, preview_port: int | None = None) -> dict[str, Any]: ...
-    async def service_status(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]: ...
-    async def service_input(self, *, task_id: str, workspace_id: str, service_id: str, data: str) -> dict[str, Any]: ...
-    async def stop_service(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]: ...
-    async def run_shell(self, *, task_id: str, workspace_id: str, operation_id: str, script: str, cwd: str, mode: str, timeout_seconds: int, output_callback: Any = None) -> dict[str, Any]: ...
-    async def code_intelligence(self, *, task_id: str, workspace_id: str, operation_id: str, operation: str, path: str, line: int, character: int) -> dict[str, Any]: ...
-
-
 class ToolBroker:
     """The sole side-effect boundary exposed to a coding provider.
 
@@ -132,7 +123,7 @@ class ToolBroker:
         egress_policy: EgressPolicy | None = None,
         egress_proxy_url: str | None = None,
         max_output_bytes: int = MAX_TOOL_OUTPUT_BYTES,
-        executor: ToolExecutor | None = None,
+        executor: ExecutionBackend | None = None,
         documentation_resources: Mapping[str, str] | None = None,
         subtask_handler: Callable[
             [str, SubtaskRequest], Awaitable[SubtaskRecord]

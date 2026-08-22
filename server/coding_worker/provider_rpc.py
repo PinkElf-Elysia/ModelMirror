@@ -523,6 +523,12 @@ class ProviderSidecarClientPool(CodingAgentProvider):
                 observations[slot_id] = None
         return observations
 
+    async def capabilities_for_slots(
+        self, slot_ids: Sequence[str]
+    ) -> dict[str, ProviderCapabilities | None]:
+        observations = await self.slot_capabilities()
+        return {slot_id: observations.get(slot_id) for slot_id in slot_ids}
+
     async def harness_attestations(self) -> dict[str, dict[str, Any]]:
         return {
             slot_id: await self._call(slot_id, "harness_attestation", {})

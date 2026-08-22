@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import AsyncIterator, Mapping, Sequence
-from typing import Any
+from typing import Any, Protocol
 
 from .contracts import (
     Origin,
@@ -45,15 +45,25 @@ from .service import CodingWorkerService
 from .store import WorkerConflictError, WorkerNotFoundError
 
 
+class LegacyProviderBinding(CodingAgentProvider, Protocol):
+    controller_generation: int
+
+    async def capabilities_for_slots(
+        self, slot_ids: Sequence[str]
+    ) -> Mapping[str, ProviderCapabilities | None]: ...
+
+    async def harness_attestations(self) -> dict[str, dict[str, Any]]: ...
+
+
 class LegacyHarnessDriver:
     """V19 adapter for the persisted Provider v4 private contract."""
 
-    def __init__(self, provider: CodingAgentProvider) -> None:
+    def __init__(self, provider: LegacyProviderBinding) -> None:
         self._provider = provider
 
     @property
     def controller_generation(self) -> int:
-        value = getattr(self._provider, "controller_generation", 0)
+        value = self._provider.controller_generation
         return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
     async def capabilities(self) -> ProviderCapabilities:
@@ -62,21 +72,10 @@ class LegacyHarnessDriver:
     async def capabilities_for_slots(
         self, slot_ids: Sequence[str]
     ) -> Mapping[str, ProviderCapabilities | None]:
-        reader = getattr(self._provider, "slot_capabilities", None)
-        if callable(reader):
-            values = await reader()
-            return {slot_id: values.get(slot_id) for slot_id in slot_ids}
-        try:
-            capabilities = await self._provider.capabilities()
-        except Exception:
-            capabilities = None
-        return {slot_id: capabilities for slot_id in slot_ids}
+        return await self._provider.capabilities_for_slots(slot_ids)
 
     async def harness_attestations(self) -> dict[str, dict[str, Any]]:
-        reader = getattr(self._provider, "harness_attestations", None)
-        if not callable(reader):
-            return {}
-        return await reader()
+        return await self._provider.harness_attestations()
 
     async def open(self, request: ProviderOpenRequest) -> ProviderSession:
         return await self._provider.open(request)

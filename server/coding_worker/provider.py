@@ -414,6 +414,9 @@ class FakeCodingAgentProvider:
         capabilities = await self.capabilities()
         return {slot_id: capabilities for slot_id in slot_ids}
 
+    async def harness_attestations(self) -> dict[str, dict[str, Any]]:
+        return {}
+
     async def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             supports_streaming=True,
