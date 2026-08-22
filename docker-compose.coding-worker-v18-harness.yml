@@ -1,0 +1,22 @@
+services:
+  server:
+    environment:
+      CODING_WORKER_HARNESS_V3_ENABLED: "true"
+      CODING_WORKER_HARNESS_V3_FIXTURES: /harness-v3/fixture-bundle.json
+      CODING_WORKER_HARNESS_CONTROLLER_TOKEN: ${CODING_WORKER_HARNESS_CONTROLLER_TOKEN:?set a random Harness controller token}
+      CODING_WORKER_PARITY_ENABLED: "false"
+      CODING_WORKER_BUILTIN_SOURCE_ROOT: ""
+      CODING_WORKER_BUILTIN_REVISION: ""
+    volumes:
+      - type: bind
+        source: ${CODING_WORKER_HARNESS_V3_FIXTURE_FILE:?set the absolute V18 fixture bundle path}
+        target: /harness-v3/fixture-bundle.json
+        read_only: true
+
+  coding-worker-provider-a:
+    environment:
+      CODING_WORKER_HARNESS_V3_ENABLED: "true"
+
+  coding-worker-provider-b:
+    environment:
+      CODING_WORKER_HARNESS_V3_ENABLED: "true"
