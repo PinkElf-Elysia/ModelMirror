@@ -174,6 +174,7 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("llm", "prompt", "template", TEMPLATE_TYPES),
   field("llm", "outputVariable", "declaration", TEXT_TYPES),
   field("condition", "conditionVariable", "binding", ANY_RENDERABLE_TYPES, "condition"),
+  field("condition", "inputVariable", "binding", ANY_RENDERABLE_TYPES, "condition"),
   field("code", "codeInputVariable", "binding", ANY_RENDERABLE_TYPES, "input"),
   field("code", "codeOutputVariable", "declaration", TEXT_TYPES),
   field("variable_assign", "variableName", "declaration", TEXT_TYPES),
@@ -222,12 +223,15 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("http_request", "url", "template", TEMPLATE_TYPES),
   field("http_request", "headersJson", "template", TEMPLATE_TYPES),
   field("http_request", "bodyVariable", "binding", ANY_RENDERABLE_TYPES, "body"),
-  field("http_request", "outputVariable", "declaration", TEXT_TYPES),
+  field("http_request", "outputVariable", "declaration", ["text", "json"]),
   field("multi_route", "inputVariable", "binding", ANY_RENDERABLE_TYPES, "value"),
   field("list_operation", "inputVariable", "binding", ["json", "unknown"], "list"),
   field("list_operation", "outputVariable", "declaration", ["json", "unknown"]),
   field("data_aggregate", "inputVariable", "binding", JSON_TYPES, "rows"),
   field("data_aggregate", "outputVariable", "declaration", JSON_TYPES),
+  field("dataset_compare", "leftVariable", "binding", JSON_TYPES, "left"),
+  field("dataset_compare", "rightVariable", "binding", JSON_TYPES, "right"),
+  field("dataset_compare", "outputVariable", "declaration", JSON_TYPES),
   field("iteration", "inputVariable", "binding", ["json", "unknown"], "items"),
   field(
     "iteration",
@@ -413,13 +417,27 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
   mcp_tool: [{ field: "outputVariable", fallback: "mcp_output", valueType: "unknown" }],
   time_tool: [{ field: "outputVariable", fallback: "current_time", valueType: "text" }],
   http_request: [
-    { field: "outputVariable", fallback: "http_output", valueType: "text" },
+    {
+      field: "outputVariable",
+      fallback: "http_output",
+      valueType: "text",
+      enabled: (node) => String(node.data.contractVersion ?? "1") !== "2",
+    },
+    {
+      field: "outputVariable",
+      fallback: "http_response",
+      valueType: "json",
+      enabled: (node) => String(node.data.contractVersion ?? "1") === "2",
+    },
   ],
   list_operation: [
     { field: "outputVariable", fallback: "list_output", valueType: "unknown" },
   ],
   data_aggregate: [
     { field: "outputVariable", fallback: "aggregate_result", valueType: "json" },
+  ],
+  dataset_compare: [
+    { field: "outputVariable", fallback: "dataset_difference", valueType: "json" },
   ],
   iteration: [
     { field: "outputVariable", fallback: "iteration_output", valueType: "text" },

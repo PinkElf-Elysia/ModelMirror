@@ -428,6 +428,159 @@ async def test_r16_general_nodes_pass_real_xpert_publish_preflight(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["condition", "dataset_compare"])
+async def test_r17_typed_nodes_pass_real_xpert_publish_preflight(
+    client: httpx.AsyncClient,
+    kind: str,
+) -> None:
+    created_response = await client.post("/api/xperts", json={"name": f"R1.7 {kind}"})
+    assert created_response.status_code == 200, created_response.text
+    xpert = created_response.json()
+    draft = xpert["draft"]
+    workflow = draft["workflow"]
+    base_nodes = {node["id"]: node for node in workflow["nodes"]}
+    input_node = base_nodes["input-1"]
+    agent_node = base_nodes["workflow-agent-1"]
+    output_node = base_nodes["output-1"]
+
+    if kind == "condition":
+        workflow["nodes"] = [
+            input_node,
+            {
+                "id": "condition-1",
+                "type": "condition",
+                "position": {"x": 220, "y": 140},
+                "data": {
+                    "kind": "condition",
+                    "contractVersion": 2,
+                    "inputVariable": "user_input",
+                    "field": "",
+                    "operator": "contains",
+                    "valueType": "text",
+                    "value": "ready",
+                },
+            },
+            agent_node,
+            output_node,
+        ]
+        workflow["edges"] = [
+            {"id": "input-condition", "source": "input-1", "target": "condition-1"},
+        ] + [
+            {
+                "id": f"condition-agent-{handle}",
+                "source": "condition-1",
+                "sourceHandle": handle,
+                "target": "workflow-agent-1",
+            }
+            for handle in ("true", "false")
+        ] + [{"id": "agent-output", "source": "workflow-agent-1", "target": "output-1"}]
+    else:
+        workflow["variables"] = [
+            {
+                "id": "before-rows",
+                "name": "before_rows",
+                "kind": "constant",
+                "valueType": "json",
+                "defaultValue": [{"id": 1, "value": "old"}],
+            },
+            {
+                "id": "after-rows",
+                "name": "after_rows",
+                "kind": "constant",
+                "valueType": "json",
+                "defaultValue": [{"id": 1, "value": "new"}],
+            },
+        ]
+        workflow["nodes"] = [
+            input_node,
+            {
+                "id": "dataset-1",
+                "type": "dataset_compare",
+                "position": {"x": 220, "y": 140},
+                "data": {
+                    "kind": "dataset_compare",
+                    "leftVariable": "before_rows",
+                    "rightVariable": "after_rows",
+                    "keyFields": ["id"],
+                    "includeUnchanged": False,
+                    "outputVariable": "dataset_difference",
+                },
+            },
+            agent_node,
+            output_node,
+        ]
+        workflow["edges"] = [
+            {"id": "input-dataset", "source": "input-1", "target": "dataset-1"},
+            {"id": "dataset-agent", "source": "dataset-1", "target": "workflow-agent-1"},
+            {"id": "agent-output", "source": "workflow-agent-1", "target": "output-1"},
+        ]
+
+    updated = await client.patch(f"/api/xperts/{xpert['id']}", json={"draft": draft})
+    assert updated.status_code == 200, updated.text
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+    assert published.status_code == 200, published.text
+
+
+@pytest.mark.asyncio
+async def test_r17_secure_http_xpert_publish_is_fail_closed_by_feature_flag(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_response = await client.post("/api/xperts", json={"name": "R1.7 secure HTTP"})
+    assert created_response.status_code == 200, created_response.text
+    xpert = created_response.json()
+    draft = xpert["draft"]
+    workflow = draft["workflow"]
+    base_nodes = {node["id"]: node for node in workflow["nodes"]}
+    workflow["nodes"] = [
+        base_nodes["input-1"],
+        {
+            "id": "http-1",
+            "type": "http_request",
+            "position": {"x": 220, "y": 140},
+            "data": {
+                "kind": "http_request",
+                "contractVersion": 2,
+                "method": "GET",
+                "url": "https://api.example.test/status",
+                "queryItems": [],
+                "headerItems": [],
+                "bodyMode": "none",
+                "formFields": [],
+                "authType": "none",
+                "timeoutSeconds": 30,
+                "redirectLimit": 0,
+                "responseLimitBytes": 1_048_576,
+                "responseMode": "auto",
+                "statusPolicy": "success_only",
+                "outputVariable": "http_response",
+            },
+        },
+        base_nodes["workflow-agent-1"],
+        base_nodes["output-1"],
+    ]
+    workflow["edges"] = [
+        {"id": "input-http", "source": "input-1", "target": "http-1"},
+        {"id": "http-agent", "source": "http-1", "target": "workflow-agent-1"},
+        {"id": "agent-output", "source": "workflow-agent-1", "target": "output-1"},
+    ]
+    updated = await client.patch(f"/api/xperts/{xpert['id']}", json={"draft": draft})
+    assert updated.status_code == 200, updated.text
+
+    monkeypatch.setenv("WORKFLOW_HTTP_REQUESTS_ENABLED", "false")
+    blocked = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+    assert blocked.status_code == 422
+    assert any(
+        issue["code"] == "xpert_http_requests_disabled"
+        for issue in blocked.json()["detail"]["issues"]
+    )
+
+    monkeypatch.setenv("WORKFLOW_HTTP_REQUESTS_ENABLED", "true")
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+    assert published.status_code == 200, published.text
+
+
+@pytest.mark.asyncio
 async def test_published_xpert_runs_immutable_snapshot_and_registers_trace(
     client: httpx.AsyncClient,
     xpert_store: XpertStore,

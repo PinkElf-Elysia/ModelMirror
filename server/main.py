@@ -446,6 +446,7 @@ try:
         parse_conversation_enrichment,
         validate_selected_files,
         configure_memory_writeback_runner,
+        configure_workflow_http_credential_lookup,
         configure_xpert_app_runtime,
         get_xpert_context_store,
         get_xpert_store,
@@ -472,6 +473,7 @@ except ModuleNotFoundError:
         parse_conversation_enrichment,
         validate_selected_files,
         configure_memory_writeback_runner,
+        configure_workflow_http_credential_lookup,
         configure_xpert_app_runtime,
         get_xpert_context_store,
         get_xpert_store,
@@ -515,9 +517,16 @@ try:
     from server.workflow_native.control_data import (
         WorkflowTerminationError,
         aggregate_rows,
+        compare_datasets,
+        evaluate_typed_condition,
         execute_list_operation,
         select_multi_route,
         validate_terminate_error_config,
+    )
+    from server.workflow_native.secure_http import (
+        execute_workflow_http_request,
+        is_http_request_v2,
+        workflow_http_requests_enabled,
     )
     from server.workflow_native.values import (
         WorkflowValue,
@@ -554,9 +563,16 @@ except ModuleNotFoundError:
     from workflow_native.control_data import (
         WorkflowTerminationError,
         aggregate_rows,
+        compare_datasets,
+        evaluate_typed_condition,
         execute_list_operation,
         select_multi_route,
         validate_terminate_error_config,
+    )
+    from workflow_native.secure_http import (
+        execute_workflow_http_request,
+        is_http_request_v2,
+        workflow_http_requests_enabled,
     )
     from workflow_native.values import (
         WorkflowValue,
@@ -1367,6 +1383,7 @@ toolset_service = ToolsetService(
     installed_project_resolver=mcp_installer.get_installed,
 )
 configure_toolsets(toolset_service)
+configure_workflow_http_credential_lookup(toolset_credential_store.get_public)
 workflow_published_toolset_provider = PublishedMCPToolsetProvider(toolset_service)
 workflow_draft_toolset_test_provider = DraftMCPToolTestProvider(toolset_service)
 xpert_context_store = get_xpert_context_store()
@@ -1468,7 +1485,8 @@ skill_application_observer = SkillApplicationObserver(
     lambda: get_skill_manager(),
 )
 workflow_deployment_store = WorkflowDeploymentStore(
-    storage_dir=AGENT_TASK_STORAGE_DIR or None
+    storage_dir=AGENT_TASK_STORAGE_DIR or None,
+    credential_validator=toolset_credential_store.get_public,
 )
 
 
@@ -2421,6 +2439,7 @@ class WorkflowPayload(BaseModel):
             "http_request": ("outputVariable",),
             "list_operation": ("outputVariable",),
             "data_aggregate": ("outputVariable",),
+            "dataset_compare": ("outputVariable",),
             "iteration": ("outputVariable",),
             "json_serialize": ("outputVariable",),
             "json_deserialize": ("outputVariable",),
@@ -12138,13 +12157,35 @@ async def _run_workflow_response(
                     variables[output_variable] = output
 
                 elif kind == "condition":
-                    variable_name = str(node.data.get("conditionVariable") or "user_input")
-                    operator = str(node.data.get("conditionOperator") or "contains")
-                    expected = str(node.data.get("conditionValue") or "")
-                    actual = variables.get(variable_name, "")
-                    matched = workflow_condition_matches(actual, operator, expected)
+                    condition_subject = ""
+                    if str(node.data.get("contractVersion") or "1") == "2":
+                        variable_name = str(node.data.get("inputVariable") or "").strip()
+                        if variable_name not in variables:
+                            raise ValueError(
+                                "CONDITION_INPUT_UNAVAILABLE: Condition input variable is unavailable."
+                            )
+                        operator = str(node.data.get("operator") or "")
+                        matched = evaluate_typed_condition(
+                            variables[variable_name],
+                            field=node.data.get("field"),
+                            operator=operator,
+                            value_type=node.data.get("valueType"),
+                            expected=node.data.get("value"),
+                        )
+                        expected = workflow_value_to_text(node.data.get("value"))
+                        field = str(node.data.get("field") or "").strip()
+                        condition_subject = (
+                            f"{variable_name}.{field}" if field else variable_name
+                        )
+                    else:
+                        variable_name = str(node.data.get("conditionVariable") or "user_input")
+                        operator = str(node.data.get("conditionOperator") or "contains")
+                        expected = str(node.data.get("conditionValue") or "")
+                        actual = variables.get(variable_name, "")
+                        matched = workflow_condition_matches(actual, operator, expected)
+                        condition_subject = variable_name
                     chosen_handle = "true" if matched else "false"
-                    output = f"{variable_name} {operator} {expected} -> {'是' if matched else '否'}"
+                    output = f"{condition_subject} {operator} {expected} -> {'是' if matched else '否'}"
 
                 elif kind == "terminate_error":
                     error_code, safe_message = validate_terminate_error_config(
@@ -12213,75 +12254,73 @@ async def _run_workflow_response(
                         )
 
                 elif kind == "http_request":
-                    try:
-                        method = str(node.data.get("method") or "GET").upper()
-                        url = render_workflow_template(
-                            str(node.data.get("url") or ""),
-                            variables,
-                        )
+                    if is_http_request_v2(node.data):
+                        if not workflow_http_requests_enabled():
+                            raise ValueError(
+                                "HTTP_REQUESTS_DISABLED: Secure HTTP requests are disabled."
+                            )
                         output_variable = str(
-                            node.data.get("outputVariable") or "http_output"
+                            node.data.get("outputVariable") or "http_response"
                         )
-                        headers: dict[str, str] = {}
-                        headers_json = str(node.data.get("headersJson") or "").strip()
-                        if headers_json:
-                            try:
-                                parsed_headers = json.loads(headers_json)
-                                if isinstance(parsed_headers, dict):
-                                    headers = {
-                                        str(key): str(value)
-                                        for key, value in parsed_headers.items()
-                                    }
-                            except ValueError as exc:
-                                yield sse_payload(
-                                    {
-                                        "event": "error",
-                                        "node_id": node.id,
-                                        "message": f"headersJson 解析失败，已忽略：{exc}",
-                                    }
-                                )
-                        body_variable = str(node.data.get("bodyVariable") or "").strip()
-                        body = (
-                            workflow_value_to_text(variables.get(body_variable, ""))
-                            if body_variable
-                            else None
+                        stored_output = await execute_workflow_http_request(
+                            node.data,
+                            variables,
+                            toolset_credential_store,
                         )
-                        if not WORKFLOW_ALLOW_HTTP_OUTBOUND:
-                            output = (
-                                f"[http mock] method={method} url={url} "
-                                "status=200 body=mocked"
+                        variables[output_variable] = normalize_workflow_value(
+                            stored_output,
+                            path=f"$.variables.{output_variable}",
+                        )
+                        output = workflow_value_to_text(stored_output)
+                        yield sse_payload(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": output,
+                                "variable": output_variable,
+                            }
+                        )
+                    else:
+                        try:
+                            method = str(node.data.get("method") or "GET").upper()
+                            url = render_workflow_template(
+                                str(node.data.get("url") or ""),
+                                variables,
                             )
-                            variables[output_variable] = output
-                            yield sse_payload(
-                                {
-                                    "event": "node_delta",
-                                    "node_id": node.id,
-                                    "node_title": title,
-                                    "node_type": kind,
-                                    "output": f"outbound disabled\n{output}",
-                                    "variable": output_variable,
-                                }
+                            output_variable = str(
+                                node.data.get("outputVariable") or "http_output"
                             )
-                        else:
-                            async with httpx.AsyncClient(timeout=10) as client:
-                                response = await client.request(
-                                    method,
-                                    url,
-                                    headers=headers,
-                                    content=body if method == "POST" else None,
+                            headers: dict[str, str] = {}
+                            headers_json = str(node.data.get("headersJson") or "").strip()
+                            if headers_json:
+                                try:
+                                    parsed_headers = json.loads(headers_json)
+                                    if isinstance(parsed_headers, dict):
+                                        headers = {
+                                            str(key): str(value)
+                                            for key, value in parsed_headers.items()
+                                        }
+                                except ValueError as exc:
+                                    yield sse_payload(
+                                        {
+                                            "event": "error",
+                                            "node_id": node.id,
+                                            "message": f"headersJson 解析失败，已忽略：{exc}",
+                                        }
+                                    )
+                            body_variable = str(node.data.get("bodyVariable") or "").strip()
+                            body = (
+                                workflow_value_to_text(variables.get(body_variable, ""))
+                                if body_variable
+                                else None
+                            )
+                            if not WORKFLOW_ALLOW_HTTP_OUTBOUND:
+                                output = (
+                                    f"[http mock] method={method} url={url} "
+                                    "status=200 body=mocked"
                                 )
-                            output = response.text
-                            if response.status_code < 200 or response.status_code >= 300:
-                                yield sse_payload(
-                                    {
-                                        "event": "error",
-                                        "node_id": node.id,
-                                        "message": (
-                                            f"HTTP 请求失败：{response.status_code}"
-                                        ),
-                                    }
-                                )
-                            else:
                                 variables[output_variable] = output
                                 yield sse_payload(
                                     {
@@ -12289,19 +12328,50 @@ async def _run_workflow_response(
                                         "node_id": node.id,
                                         "node_title": title,
                                         "node_type": kind,
-                                        "output": output,
+                                        "output": f"outbound disabled\n{output}",
                                         "variable": output_variable,
                                     }
                                 )
-                    except Exception as exc:
-                        logger.warning("Workflow http_request node failed: %s", exc)
-                        yield sse_payload(
-                            {
-                                "event": "error",
-                                "node_id": node.id,
-                                "message": str(exc),
-                            }
-                        )
+                            else:
+                                async with httpx.AsyncClient(timeout=10) as client:
+                                    response = await client.request(
+                                        method,
+                                        url,
+                                        headers=headers,
+                                        content=body if method == "POST" else None,
+                                    )
+                                output = response.text
+                                if response.status_code < 200 or response.status_code >= 300:
+                                    yield sse_payload(
+                                        {
+                                            "event": "error",
+                                            "node_id": node.id,
+                                            "message": (
+                                                f"HTTP 请求失败：{response.status_code}"
+                                            ),
+                                        }
+                                    )
+                                else:
+                                    variables[output_variable] = output
+                                    yield sse_payload(
+                                        {
+                                            "event": "node_delta",
+                                            "node_id": node.id,
+                                            "node_title": title,
+                                            "node_type": kind,
+                                            "output": output,
+                                            "variable": output_variable,
+                                        }
+                                    )
+                        except Exception as exc:
+                            logger.warning("Workflow http_request node failed: %s", exc)
+                            yield sse_payload(
+                                {
+                                    "event": "error",
+                                    "node_id": node.id,
+                                    "message": str(exc),
+                                }
+                            )
 
                 elif kind == "list_operation":
                     input_variable = str(node.data.get("inputVariable") or "").strip()
@@ -12350,6 +12420,43 @@ async def _run_workflow_response(
                         variables[input_variable],
                         group_by_fields=node.data.get("groupByFields"),
                         measures=node.data.get("measures"),
+                    )
+                    variables[output_variable] = normalize_workflow_value(
+                        stored_output,
+                        path=f"$.variables.{output_variable}",
+                    )
+                    output = workflow_value_to_text(stored_output)
+                    yield sse_payload(
+                        {
+                            "event": "node_delta",
+                            "node_id": node.id,
+                            "node_title": title,
+                            "node_type": kind,
+                            "output": output,
+                            "variable": output_variable,
+                        }
+                    )
+
+                elif kind == "dataset_compare":
+                    left_variable = str(node.data.get("leftVariable") or "").strip()
+                    right_variable = str(node.data.get("rightVariable") or "").strip()
+                    missing = [
+                        variable
+                        for variable in (left_variable, right_variable)
+                        if variable not in variables
+                    ]
+                    if missing:
+                        raise ValueError(
+                            "DATASET_INPUT_UNAVAILABLE: Dataset compare input variable is unavailable."
+                        )
+                    output_variable = str(
+                        node.data.get("outputVariable") or "dataset_difference"
+                    )
+                    stored_output = compare_datasets(
+                        variables[left_variable],
+                        variables[right_variable],
+                        key_fields=node.data.get("keyFields"),
+                        include_unchanged=bool(node.data.get("includeUnchanged", False)),
                     )
                     variables[output_variable] = normalize_workflow_value(
                         stored_output,

@@ -19,9 +19,16 @@ from .control_data import (
     sort_array,
     validate_aggregate_config,
     validate_comparison_rule,
+    validate_dataset_compare_config,
     validate_terminate_error_config,
 )
 from .node_contracts import workflow_node_contract_registry
+from .secure_http import (
+    WorkflowHttpRequestError,
+    http_request_variable_references,
+    is_http_request_v2,
+    validate_http_request_v2_config,
+)
 from .schemas import (
     NativeWorkflowDefinition,
     NativeWorkflowEdge,
@@ -105,6 +112,8 @@ NODE_KIND_ALIASES = {
     "list-operator": "list_operation",
     "data_aggregate": "data_aggregate",
     "data-aggregate": "data_aggregate",
+    "dataset_compare": "dataset_compare",
+    "dataset-compare": "dataset_compare",
     "iteration": "iteration",
     "json_serialize": "json_serialize",
     "json-serialize": "json_serialize",
@@ -1064,30 +1073,59 @@ def validate_node_configuration(
             )
 
     if kind == "condition":
-        if not str(data.get("conditionVariable") or "").strip():
-            issues.append(
-                ValidationIssue(
-                    code="missing_condition_variable",
-                    message="Condition node needs data.conditionVariable.",
-                    node_id=node.id,
+        if str(data.get("contractVersion") or "1") == "2":
+            variable_name = str(data.get("inputVariable") or "").strip()
+            if not is_variable_name(variable_name):
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_condition_input_variable",
+                        message="Condition inputVariable must be an identifier.",
+                        node_id=node.id,
+                    )
                 )
-            )
-        if str(data.get("conditionOperator") or "").strip() not in {"equals", "contains"}:
-            issues.append(
-                ValidationIssue(
-                    code="invalid_condition_operator",
-                    message="Condition node operator must be equals or contains.",
-                    node_id=node.id,
+            try:
+                validate_comparison_rule(
+                    {
+                        "field": str(data.get("field") or "").strip(),
+                        "operator": data.get("operator"),
+                        "valueType": data.get("valueType"),
+                        "value": data.get("value"),
+                    },
+                    allow_field=True,
                 )
-            )
-        if data.get("conditionValue") in {None, ""}:
-            issues.append(
-                ValidationIssue(
-                    code="missing_condition_value",
-                    message="Condition node needs data.conditionValue.",
-                    node_id=node.id,
+            except WorkflowControlDataError as exc:
+                issues.append(
+                    ValidationIssue(
+                        code=exc.code.lower(),
+                        message=exc.safe_message,
+                        node_id=node.id,
+                    )
                 )
-            )
+        else:
+            if not str(data.get("conditionVariable") or "").strip():
+                issues.append(
+                    ValidationIssue(
+                        code="missing_condition_variable",
+                        message="Condition node needs data.conditionVariable.",
+                        node_id=node.id,
+                    )
+                )
+            if str(data.get("conditionOperator") or "").strip() not in {"equals", "contains"}:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_condition_operator",
+                        message="Condition node operator must be equals or contains.",
+                        node_id=node.id,
+                    )
+                )
+            if data.get("conditionValue") in {None, ""}:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_condition_value",
+                        message="Condition node needs data.conditionValue.",
+                        node_id=node.id,
+                    )
+                )
 
     if kind == "code":
         operation = str(data.get("codeOperation") or "").strip()
@@ -2636,7 +2674,19 @@ def validate_node_configuration(
                 )
             )
 
-    if kind == "http_request":
+    if kind == "http_request" and is_http_request_v2(data):
+        try:
+            validate_http_request_v2_config(data)
+        except WorkflowHttpRequestError as exc:
+            issues.append(
+                ValidationIssue(
+                    code=exc.code.lower(),
+                    message=exc.safe_message,
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "http_request" and not is_http_request_v2(data):
         if not str(data.get("url") or "").strip():
             issues.append(
                 ValidationIssue(
@@ -2851,6 +2901,36 @@ def validate_node_configuration(
                 ValidationIssue(
                     code=exc.code.lower(),
                     message=exc.safe_message,
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "dataset_compare":
+        for field_name in ("leftVariable", "rightVariable", "outputVariable"):
+            variable = str(data.get(field_name) or "").strip()
+            if not is_variable_name(variable):
+                issues.append(
+                    ValidationIssue(
+                        code=f"invalid_dataset_compare_{field_name.lower()}",
+                        message=f"Dataset compare {field_name} must be an identifier.",
+                        node_id=node.id,
+                    )
+                )
+        try:
+            validate_dataset_compare_config(data.get("keyFields"))
+        except WorkflowControlDataError as exc:
+            issues.append(
+                ValidationIssue(
+                    code=exc.code.lower(),
+                    message=exc.safe_message,
+                    node_id=node.id,
+                )
+            )
+        if not isinstance(data.get("includeUnchanged"), bool):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_dataset_compare_include_unchanged",
+                    message="Dataset compare includeUnchanged must be boolean.",
                     node_id=node.id,
                 )
             )
@@ -3447,6 +3527,7 @@ def collect_declared_variables(
             "http_request",
             "list_operation",
             "data_aggregate",
+            "dataset_compare",
             "iteration",
             "json_serialize",
             "json_deserialize",
@@ -3507,6 +3588,7 @@ def collect_node_variable_producers(
         "http_request": ("outputVariable",),
         "list_operation": ("outputVariable",),
         "data_aggregate": ("outputVariable",),
+        "dataset_compare": ("outputVariable",),
         "iteration": ("outputVariable",),
         "json_serialize": ("outputVariable",),
         "json_deserialize": ("outputVariable",),
@@ -3558,7 +3640,14 @@ def validate_variable_references(
                 )
 
     if kind == "condition":
-        variable = str(data.get("conditionVariable") or "").strip()
+        variable = str(
+            (
+                data.get("inputVariable")
+                if str(data.get("contractVersion") or "1") == "2"
+                else data.get("conditionVariable")
+            )
+            or ""
+        ).strip()
         if variable and variable not in available_variables:
             issues.append(
                 ValidationIssue(
@@ -3640,7 +3729,18 @@ def validate_variable_references(
                     )
                 )
 
-    if kind == "http_request":
+    if kind == "http_request" and is_http_request_v2(data):
+        for variable in sorted(http_request_variable_references(data)):
+            if variable not in available_variables:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_http_request_variable_reference",
+                        message=f"HTTP request references undefined variable '{variable}'.",
+                        node_id=node.id,
+                    )
+                )
+
+    if kind == "http_request" and not is_http_request_v2(data):
         url = str(data.get("url") or "")
         for variable in sorted(extract_template_variables(url)):
             if variable not in available_variables:
@@ -3660,6 +3760,18 @@ def validate_variable_references(
                     node_id=node.id,
                 )
             )
+
+    if kind == "dataset_compare":
+        for field_name in ("leftVariable", "rightVariable"):
+            variable = str(data.get(field_name) or "").strip()
+            if variable and variable not in available_variables:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_dataset_compare_variable_reference",
+                        message=f"Dataset compare references undefined variable '{variable}'.",
+                        node_id=node.id,
+                    )
+                )
 
     if kind == "template_transform":
         template = str(data.get("template") or "")

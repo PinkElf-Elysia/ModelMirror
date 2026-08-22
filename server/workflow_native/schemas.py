@@ -44,6 +44,7 @@ NativeNodeKind = Literal[
     "multi_route",
     "list_operation",
     "data_aggregate",
+    "dataset_compare",
     "iteration",
     "json_serialize",
     "json_deserialize",

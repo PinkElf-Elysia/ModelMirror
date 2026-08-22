@@ -23,8 +23,6 @@ import { DEFAULT_WORKFLOW_AGENT_MODEL_ID } from "../../data/modelOptions";
 import { models } from "../../data/models";
 import {
   type CodeOperation,
-  type ConditionOperator,
-  type HttpRequestMethod,
   type NodeRunStatus,
   type WorkflowDefinition,
   type WorkflowEdge,
@@ -77,6 +75,7 @@ import {
 } from "./workflowNodeRegistry";
 import WorkflowTypedDataNodeConfig from "./WorkflowTypedDataNodeConfig";
 import WorkflowControlDataNodeConfig from "./WorkflowControlDataNodeConfig";
+import WorkflowHttpRequestNodeConfig from "./WorkflowHttpRequestNodeConfig";
 import WorkflowDeploymentNodeConfig from "./WorkflowDeploymentNodeConfig";
 import WorkflowNodeCard from "./WorkflowNodeCard";
 import WorkflowRun from "./WorkflowRun";
@@ -495,11 +494,14 @@ export function createNodeData(
   if (kind === "condition") {
     return {
       kind,
-      title: "分流判断",
-      description: "根据变量内容决定走“是”或“否”。",
-      conditionVariable: "user_input",
-      conditionOperator: "contains",
-      conditionValue: "",
+      title: "类型化条件",
+      description: "按明确类型判断变量，分别走“是”或“否”出口。",
+      contractVersion: 2,
+      inputVariable: "user_input",
+      field: "",
+      operator: "contains",
+      valueType: "text",
+      value: "",
     };
   }
 
@@ -863,13 +865,25 @@ export function createNodeData(
   if (kind === "http_request") {
     return {
       kind,
-      title: "HTTP 请求",
-      description: "调用一个外部接口并保存响应文本。默认运行器不会真实出站。",
+      title: "安全 HTTP 请求",
+      description: "调用公网 HTTP 接口，并把安全结构化响应写入变量。",
+      contractVersion: 2,
       url: "https://example.com",
       method: "GET",
-      headersJson: "",
-      bodyVariable: "",
-      outputVariable: "http_output",
+      queryItems: [],
+      headerItems: [],
+      bodyMode: "none",
+      formFields: [],
+      authType: "none",
+      credentialId: "",
+      apiKeyLocation: "header",
+      apiKeyName: "X-API-Key",
+      timeoutSeconds: 30,
+      redirectLimit: 0,
+      responseLimitBytes: 1_048_576,
+      responseMode: "auto",
+      statusPolicy: "success_only",
+      outputVariable: "http_response",
     };
   }
 
@@ -905,6 +919,19 @@ export function createNodeData(
       outputVariable: "aggregate_result",
       groupByFields: [],
       measures: [{ outputField: "row_count", operation: "count" }],
+    };
+  }
+
+  if (kind === "dataset_compare") {
+    return {
+      kind,
+      title: "数据集对照",
+      description: "按稳定键对照两份对象数组，识别新增、删除、变化和未变化记录。",
+      leftVariable: "before_rows",
+      rightVariable: "after_rows",
+      keyFields: ["id"],
+      includeUnchanged: false,
+      outputVariable: "dataset_difference",
     };
   }
 
@@ -2965,7 +2992,7 @@ function NodeConfig({
         />
       ) : null}
 
-      {["terminate_error", "multi_route", "list_operation", "data_aggregate"].includes(data.kind) ? (
+      {["condition", "terminate_error", "multi_route", "list_operation", "data_aggregate", "dataset_compare"].includes(data.kind) ? (
         <WorkflowControlDataNodeConfig
           contract={variableContract}
           data={data}
@@ -3019,47 +3046,6 @@ function NodeConfig({
               nodes={nodes}
               onChange={(value) => update({ outputVariable: value })}
               value={data.outputVariable ?? ""}
-            />
-          </Field>
-        </>
-      ) : null}
-
-      {data.kind === "condition" ? (
-        <>
-          <Field label="判断变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="conditionVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ conditionVariable: value })}
-              value={data.conditionVariable ?? ""}
-            />
-          </Field>
-          <Field label="判断方式">
-            <select
-              className={textInputClass()}
-              onChange={(event) =>
-                update({
-                  conditionOperator: event.target.value as ConditionOperator,
-                })
-              }
-              value={data.conditionOperator ?? "contains"}
-            >
-              <option className="bg-slate-950" value="contains">
-                包含
-              </option>
-              <option className="bg-slate-950" value="equals">
-                等于
-              </option>
-            </select>
-          </Field>
-          <Field label="比较值">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ conditionValue: event.target.value })}
-              value={data.conditionValue ?? ""}
             />
           </Field>
         </>
@@ -3951,74 +3937,16 @@ function NodeConfig({
       ) : null}
 
       {data.kind === "http_request" ? (
-        <>
-          <div className="rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-xs leading-5 text-cyan-50">
-            安全提示：默认运行器不会真实发起出站请求；管理员开启后才会调用外部 URL。
-          </div>
-          <Field label="请求方法">
-            <select
-              className={textInputClass()}
-              onChange={(event) =>
-                update({ method: event.target.value as HttpRequestMethod })
-              }
-              value={data.method ?? "GET"}
-            >
-              <option className="bg-slate-950" value="GET">
-                GET
-              </option>
-              <option className="bg-slate-950" value="POST">
-                POST
-              </option>
-            </select>
-          </Field>
-          <Field label="URL（支持 {{变量}}）">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="url"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ url: value })}
-              value={data.url ?? ""}
-            />
-          </Field>
-          <Field label="请求头 JSON（可选）">
-            <WorkflowVariableField
-              className="min-h-24 resize-none font-mono text-xs leading-5"
-              contract={variableContract}
-              edges={edges}
-              fieldName="headersJson"
-              multiline
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ headersJson: value })}
-              placeholder='{"Content-Type":"application/json"}'
-              value={data.headersJson ?? ""}
-            />
-          </Field>
-          <Field label="请求正文变量（POST 可选）">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="bodyVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ bodyVariable: value })}
-              value={data.bodyVariable ?? ""}
-            />
-          </Field>
-          <Field label="响应输出变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="outputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ outputVariable: value })}
-              value={data.outputVariable ?? ""}
-            />
-          </Field>
-        </>
+        <WorkflowHttpRequestNodeConfig
+          contract={variableContract}
+          data={data}
+          declarations={declarations}
+          edges={edges}
+          node={node}
+          nodes={nodes}
+          onChange={update}
+          onOpenVariableCenter={onOpenVariableCenter}
+        />
       ) : null}
 
       {data.kind === "iteration" ? (

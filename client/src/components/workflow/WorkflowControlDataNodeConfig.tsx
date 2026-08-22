@@ -313,6 +313,87 @@ export default function WorkflowControlDataNodeConfig({
 }) {
   const routes = data.routes ?? [];
 
+  if (data.kind === "condition") {
+    const isV2 = String(data.contractVersion ?? "1") === "2";
+    if (!isV2) {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-amber-300/25 bg-amber-300/[0.08] px-3 py-2 text-xs leading-5 text-amber-50">
+            这是旧版文本条件，仍可运行和发布。升级后会严格区分文本、数字、布尔值、空值和 JSON。
+          </div>
+          <ConfigField label="判断变量">
+            <WorkflowVariableField
+              contract={contract}
+              declarations={declarations}
+              edges={edges}
+              fieldName="conditionVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => onChange({ conditionVariable: value })}
+              value={data.conditionVariable ?? ""}
+            />
+          </ConfigField>
+          <ConfigField label="判断方式">
+            <select
+              className={inputClass}
+              onChange={(event) => onChange({ conditionOperator: event.target.value as "equals" | "contains" })}
+              value={data.conditionOperator ?? "contains"}
+            >
+              <option className="bg-slate-950" value="contains">包含</option>
+              <option className="bg-slate-950" value="equals">等于</option>
+            </select>
+          </ConfigField>
+          <ConfigField label="比较文本">
+            <input className={inputClass} onChange={(event) => onChange({ conditionValue: event.target.value })} value={data.conditionValue ?? ""} />
+          </ConfigField>
+          <button
+            className="w-full rounded-lg bg-cyan-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 focus:outline-none focus:ring-4 focus:ring-cyan-300/20"
+            onClick={() => onChange({
+              contractVersion: 2,
+              inputVariable: data.conditionVariable ?? "user_input",
+              field: "",
+              operator: data.conditionOperator ?? "contains",
+              valueType: "text",
+              value: data.conditionValue ?? "",
+            })}
+            type="button"
+          >
+            升级为类型化条件
+          </button>
+        </div>
+      );
+    }
+    const rule: WorkflowComparisonRule = {
+      field: data.field ?? "",
+      operator: (data.operator as WorkflowComparisonOperator | undefined) ?? "equals",
+      valueType: data.valueType ?? "text",
+      value: data.value,
+    };
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.07] px-3 py-2 text-xs leading-5 text-cyan-50">
+          类型不匹配、变量不存在或字段缺失时会停止工作流，不会误走“否”出口。
+        </div>
+        <ConfigField label="判断变量">
+          <WorkflowVariableField contract={contract} declarations={declarations} edges={edges} fieldName="inputVariable" node={node} nodes={nodes} onChange={(value) => onChange({ inputVariable: value })} value={data.inputVariable ?? ""} />
+        </ConfigField>
+        <div className="flex justify-end"><VariableCenterShortcut onOpen={onOpenVariableCenter} /></div>
+        <SectionHeader detail="字段留空时判断整个变量；填写后只读取对象的一个顶层字段。" title="比较规则" />
+        <RuleEditor
+          allowField
+          ariaPrefix="类型化条件"
+          onChange={(next) => onChange({
+            field: next.field ?? "",
+            operator: next.operator,
+            valueType: next.valueType,
+            value: next.value,
+          })}
+          rule={rule}
+        />
+      </div>
+    );
+  }
+
   if (data.kind === "terminate_error") {
     return (
       <div className="space-y-4">
@@ -556,6 +637,46 @@ export default function WorkflowControlDataNodeConfig({
             }}
           >添加度量</SmallButton>
         </div>
+      </div>
+    );
+  }
+
+  if (data.kind === "dataset_compare") {
+    const keyFields = data.keyFields ?? [];
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.07] px-3 py-2 text-xs leading-5 text-cyan-50">
+          两侧必须是对象数组。键在各自数据集中必须唯一，文本“1”和数字 1 会被视为不同键。
+        </div>
+        <ConfigField label="变更前数据">
+          <WorkflowVariableField contract={contract} declarations={declarations} edges={edges} fieldName="leftVariable" node={node} nodes={nodes} onChange={(value) => onChange({ leftVariable: value })} value={data.leftVariable ?? ""} />
+        </ConfigField>
+        <ConfigField label="变更后数据">
+          <WorkflowVariableField contract={contract} declarations={declarations} edges={edges} fieldName="rightVariable" node={node} nodes={nodes} onChange={(value) => onChange({ rightVariable: value })} value={data.rightVariable ?? ""} />
+        </ConfigField>
+        <div className="flex justify-end"><VariableCenterShortcut onOpen={onOpenVariableCenter} /></div>
+        <div className="space-y-3">
+          <SectionHeader detail="使用 1 至 3 个顶层字段组成稳定键，例如 id，或 tenant_id + id。" title="匹配键" />
+          {keyFields.map((field, index) => (
+            <div className="flex gap-2" key={`dataset-key-${index}`}>
+              <input aria-label={`匹配键 ${index + 1}`} className={compactInputClass} onChange={(event) => onChange({ keyFields: keyFields.map((item, itemIndex) => itemIndex === index ? event.target.value : item) })} placeholder="顶层字段" value={field} />
+              <SmallButton disabled={keyFields.length <= 1} onClick={() => onChange({ keyFields: keyFields.filter((_, itemIndex) => itemIndex !== index) })}>删除</SmallButton>
+            </div>
+          ))}
+          <SmallButton disabled={keyFields.length >= 3} onClick={() => onChange({ keyFields: [...keyFields, ""] })}>添加匹配键</SmallButton>
+        </div>
+        <label className="flex items-start gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2 text-xs leading-5 text-slate-200">
+          <input
+            checked={Boolean(data.includeUnchanged)}
+            className="mt-1"
+            onChange={(event) => onChange({ includeUnchanged: event.target.checked })}
+            type="checkbox"
+          />
+          <span>在结果中复制未变化记录。关闭时仍会统计数量，可显著减小输出。</span>
+        </label>
+        <ConfigField label="对照结果变量">
+          <WorkflowVariableField contract={contract} declarations={declarations} edges={edges} fieldName="outputVariable" node={node} nodes={nodes} onChange={(value) => onChange({ outputVariable: value })} value={data.outputVariable ?? ""} />
+        </ConfigField>
       </div>
     );
   }

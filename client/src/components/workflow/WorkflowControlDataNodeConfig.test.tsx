@@ -199,4 +199,67 @@ describe("WorkflowControlDataNodeConfig", () => {
     );
     expect(comparisonValueText("plain")).toBe("plain");
   });
+
+  it("offers an explicit V1 condition upgrade and structured V2 comparison controls", () => {
+    const conditionNode = node("condition");
+    conditionNode.data = {
+      ...conditionNode.data,
+      contractVersion: 1,
+      conditionVariable: "legacy_value",
+      conditionOperator: "equals",
+      conditionValue: "ready",
+    };
+    const onChange = vi.fn();
+    const view = render(
+      <WorkflowControlDataNodeConfig
+        data={conditionNode.data}
+        edges={[]}
+        node={conditionNode}
+        nodes={[conditionNode]}
+        onChange={onChange}
+        onOpenVariableCenter={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "升级为类型化条件" }));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      contractVersion: 2,
+      inputVariable: "legacy_value",
+      operator: "equals",
+      valueType: "text",
+      value: "ready",
+    }));
+
+    view.rerender(
+      <WorkflowControlDataNodeConfig
+        data={createNodeData("condition")}
+        edges={[]}
+        node={{ ...conditionNode, data: createNodeData("condition") }}
+        nodes={[{ ...conditionNode, data: createNodeData("condition") }]}
+        onChange={onChange}
+        onOpenVariableCenter={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("combobox", { name: "类型化条件 比较运算符" })).toBeInTheDocument();
+  });
+
+  it("configures dataset keys structurally and prevents removing the last key", () => {
+    const compareNode = node("dataset_compare");
+    const onChange = vi.fn();
+    render(
+      <WorkflowControlDataNodeConfig
+        data={compareNode.data}
+        edges={[]}
+        node={compareNode}
+        nodes={[compareNode]}
+        onChange={onChange}
+        onOpenVariableCenter={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("textbox", { name: "匹配键 1" })).toHaveValue("id");
+    expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "添加匹配键" }));
+    expect(onChange).toHaveBeenLastCalledWith({ keyFields: ["id", ""] });
+  });
 });

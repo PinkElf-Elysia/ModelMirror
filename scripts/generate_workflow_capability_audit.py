@@ -13,6 +13,21 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 DIRECT_UPDATES = {
+    "httpRequest": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "http_request",
+        "判断说明": "自研安全 HTTP 请求仅允许固定公网源站，使用结构化绑定与加密凭据，逐跳校验并绑定 DNS 结果，限制超时、重定向和响应大小；不支持 OAuth2、私网、二进制响应或自动重试。",
+    },
+    "if": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "condition",
+        "判断说明": "自研类型化条件提供稳定是/否出口，支持九类严格比较；变量不存在、字段缺失或类型非法时失败关闭。",
+    },
+    "compareDatasets": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "dataset_compare",
+        "判断说明": "自研数据集对照按 1–3 个顶层复合键比较两份对象数组，确定性输出新增、删除、变化与未变化统计。",
+    },
     "errorTrigger": {
         "模镜当前状态": "已实现",
         "模镜对应节点": "failure_event_entry",
@@ -186,7 +201,7 @@ def main() -> None:
         f"{row['n8n原名参考']} | {row['模镜当前状态']} |"
         for row in direct_rows
     ]
-    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6）
+    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7）
 
 - 审计日期：2026-08-21
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
@@ -195,6 +210,7 @@ def main() -> None:
 - R1.5 PR1 结果：新增完整合同 `failure_event_entry`；自研节点总数 42、画布目录项 40、compatibility 白名单不增长；Planner 关闭且 Xpert 内嵌入口禁止
 - R1.5 PR2 结果：新增完整合同 `workflow_call_entry` 与 `invoke_workflow`；自研节点总数 44、画布目录项 42、compatibility 白名单不增长；仅支持私有同步固定版本调用，Planner 关闭且 Xpert 内嵌入口禁止
 - R1.6 结果：新增完整合同 `terminate_error`、`multi_route`、`data_aggregate`，并将 `list_operation` 提升为完整合同；自研节点总数 {native_count}、画布目录项 {palette_count}、当前 {compatibility_count} 个冻结 compatibility 合同；四类均允许经典工作流和 Xpert 使用，Planner 关闭
+- R1.7 结果：新增完整合同 `dataset_compare`，并将 `http_request`、`condition` 提升为完整合同；自研节点总数 {native_count}、画布目录项 {palette_count}、当前 {compatibility_count} 个冻结 compatibility 合同；Planner 仍固定为 {planner_count} 类
 - 参考清单：563 条节点名称/类型，其中 `.ee` {ee_count} 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -229,7 +245,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1、R1.5 和 R1.6 新增节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1、R1.5、R1.6 和 R1.7 新增节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
 """
     (args.output_dir / "N8N_NODE_CAPABILITY_MATRIX.md").write_text(
         markdown,

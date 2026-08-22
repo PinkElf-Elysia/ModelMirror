@@ -119,6 +119,37 @@ describe("WorkflowEditor palette defaults", () => {
     });
   });
 
+  it("provides safe structured defaults for R1.7 HTTP, condition, and dataset nodes", () => {
+    expect(createNodeData("http_request")).toMatchObject({
+      contractVersion: 2,
+      method: "GET",
+      url: "https://example.com",
+      queryItems: [],
+      headerItems: [],
+      bodyMode: "none",
+      authType: "none",
+      timeoutSeconds: 30,
+      redirectLimit: 0,
+      responseLimitBytes: 1_048_576,
+      statusPolicy: "success_only",
+      outputVariable: "http_response",
+    });
+    expect(createNodeData("condition")).toMatchObject({
+      contractVersion: 2,
+      inputVariable: "user_input",
+      field: "",
+      operator: "contains",
+      valueType: "text",
+    });
+    expect(createNodeData("dataset_compare")).toMatchObject({
+      leftVariable: "before_rows",
+      rightVariable: "after_rows",
+      keyFields: ["id"],
+      includeUnchanged: false,
+      outputVariable: "dataset_difference",
+    });
+  });
+
   it("repairs missing or non-finite positions from server and legacy drafts", () => {
     const nodes = [
       {

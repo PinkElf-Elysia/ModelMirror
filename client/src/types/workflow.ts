@@ -37,6 +37,7 @@ export type WorkflowNodeKind =
   | "multi_route"
   | "list_operation"
   | "data_aggregate"
+  | "dataset_compare"
   | "iteration"
   | "json_serialize"
   | "json_deserialize"
@@ -79,7 +80,7 @@ export type ConditionOperator = "equals" | "contains";
 
 export type CodeOperation = "upper" | "lower" | "replace" | "concat" | "python";
 
-export type HttpRequestMethod = "GET" | "POST";
+export type HttpRequestMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export type WorkflowComparisonOperator =
   | "equals"
@@ -118,6 +119,19 @@ export interface WorkflowAggregateMeasure {
   outputField: string;
   operation: "count" | "sum" | "avg" | "min" | "max";
   sourceField?: string;
+}
+
+export interface WorkflowHttpBinding {
+  source: "literal" | "variable";
+  variable?: string;
+  valueType?: WorkflowComparisonValueType;
+  value?: WorkflowValue;
+}
+
+export interface WorkflowHttpParameter {
+  id: string;
+  name: string;
+  binding: WorkflowHttpBinding;
 }
 
 export type ListOperationOperator =
@@ -159,6 +173,9 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   conditionVariable?: string;
   conditionOperator?: ConditionOperator;
   conditionValue?: string;
+  field?: string;
+  valueType?: WorkflowComparisonValueType;
+  value?: WorkflowValue;
   codeOperation?: CodeOperation;
   codeInputVariable?: string;
   codeOutputVariable?: string;
@@ -258,13 +275,26 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   method?: HttpRequestMethod;
   headersJson?: string;
   bodyVariable?: string;
+  queryItems?: WorkflowHttpParameter[];
+  headerItems?: WorkflowHttpParameter[];
+  bodyMode?: "none" | "json" | "text" | "form";
+  bodyBinding?: WorkflowHttpBinding;
+  formFields?: WorkflowHttpParameter[];
+  authType?: "none" | "api_key" | "bearer" | "basic";
+  credentialId?: string;
+  apiKeyLocation?: "header" | "query";
+  apiKeyName?: string;
+  redirectLimit?: number | string;
+  responseLimitBytes?: number | string;
+  responseMode?: "auto" | "json" | "text";
+  statusPolicy?: "success_only" | "capture_all";
   errorCode?: string;
   message?: string;
   sourceProjectIds?: string[];
   inputVariable?: string;
   format?: "compact" | "pretty";
   content?: string;
-  operator?: ListOperationOperator;
+  operator?: ListOperationOperator | WorkflowComparisonOperator;
   joinSeparator?: string;
   routes?: WorkflowComparisonRule[];
   filterMode?: "all" | "any";
@@ -273,6 +303,10 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   deduplicateFields?: string[];
   groupByFields?: string[];
   measures?: WorkflowAggregateMeasure[];
+  leftVariable?: string;
+  rightVariable?: string;
+  keyFields?: string[];
+  includeUnchanged?: boolean;
   iterationVariable?: string;
   itemTemplate?: string;
   runtimeMiddlewareId?: string;

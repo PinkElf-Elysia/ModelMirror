@@ -420,12 +420,17 @@ describe("analyzeWorkflowVariables", () => {
 
   it.each([
     ["condition", "conditionVariable", "binding"],
+    ["condition", "inputVariable", "binding"],
     ["code", "codeInputVariable", "binding"],
     ["variable_assign", "template", "template"],
     ["knowledge_retrieval", "queryVariable", "binding"],
     ["http_request", "url", "template"],
     ["http_request", "bodyVariable", "binding"],
+    ["http_request", "outputVariable", "declaration"],
     ["list_operation", "inputVariable", "binding"],
+    ["dataset_compare", "leftVariable", "binding"],
+    ["dataset_compare", "rightVariable", "binding"],
+    ["dataset_compare", "outputVariable", "declaration"],
     ["iteration", "itemTemplate", "template"],
     ["document_extractor", "assetIdVariable", "declaration"],
     ["workflow_agent", "taskInput", "template"],
