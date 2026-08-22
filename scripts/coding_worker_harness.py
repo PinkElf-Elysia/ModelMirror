@@ -68,7 +68,7 @@ DOCKER_DESKTOP_PROBE_ENVIRONMENT = (
 )
 NATIVE_TASK_RUNTIME_IMAGE = "modelmirror-coding-worker-v14:local"
 NATIVE_TASK_RUNTIME_IMAGE_SHA256 = (
-    "sha256:7c2a7f29867cbc35c236a0c0e62201af0ff0c3c6eb9749f8e5f7bbfb259eab39"
+    "sha256:27302ee0527aff43e651d82148beb1c2562ffabc22606974499c13f831f417ed"
 )
 
 
@@ -926,6 +926,7 @@ def _write_workspace_policy(task_root: Path) -> None:
     (task_root / "tests" / "workspace-policy.json").write_text(
         json.dumps(policy, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
 
@@ -950,8 +951,9 @@ def compile_bundle(root: Path, *, write: bool) -> HarnessFixtureBundle:
             path.write_text(
                 json.dumps(binding, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
+                newline="\n",
             )
-        bundle_path.write_text(encoded, encoding="utf-8")
+        bundle_path.write_text(encoded, encoding="utf-8", newline="\n")
     else:
         if not bundle_path.exists() or bundle_path.read_text(encoding="utf-8") != encoded:
             raise HarnessCliError("fixture-bundle.json is stale; run compile --write")
@@ -2368,7 +2370,11 @@ def run_round(args: argparse.Namespace) -> None:
                     f"(Harbor exit {completed.returncode}): {exc}"
                 ) from exc
             temporary = output_path.with_suffix(".json.tmp")
-            temporary.write_text(record.model_dump_json(indent=2) + "\n", encoding="utf-8")
+            temporary.write_text(
+                record.model_dump_json(indent=2) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
             temporary.replace(output_path)
     if (
         _worker_attestation_sha256(
@@ -2434,7 +2440,11 @@ def create_report(args: argparse.Namespace) -> None:
         route_binding_sha256=next(iter(route_bindings)),
         runs=runs,
     )
-    args.output.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    args.output.write_text(
+        report.model_dump_json(indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
 
 
 def certify(args: argparse.Namespace) -> None:

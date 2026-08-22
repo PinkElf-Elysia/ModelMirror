@@ -8,7 +8,7 @@ import subprocess
 import tarfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -17,6 +17,7 @@ import scripts.coding_worker_harness as harness_cli
 from scripts.coding_worker_harbor_agent import ModelMirrorWorkerAgent
 from scripts.coding_worker_harbor_environment import (
     DockerDesktopAllowlistProbeEnvironment,
+    StaticNoNetworkDockerEnvironment,
 )
 from scripts.coding_worker_native_agent import (
     FAULT_COMMAND,
@@ -114,6 +115,28 @@ def test_docker_desktop_probe_environment_is_never_a_calibration_runner() -> Non
         )
 
 
+@pytest.mark.asyncio
+async def test_static_gate_cleanup_preserves_shared_runtime_images() -> None:
+    environment = object.__new__(StaticNoNetworkDockerEnvironment)
+    environment._keep_containers = False
+    environment.prepare_logs_for_host = AsyncMock()
+    environment._run_docker_compose_command = AsyncMock()
+    environment._cleanup_mounts_compose_file = MagicMock()
+    environment._cleanup_resources_compose_file = MagicMock()
+    environment._cleanup_env_compose_file = MagicMock()
+    environment._cleanup_egress_control_services_compose_file = MagicMock()
+
+    await environment.stop(delete=True)
+
+    environment._run_docker_compose_command.assert_awaited_once_with(
+        ["down", "--volumes", "--remove-orphans"]
+    )
+    environment._cleanup_mounts_compose_file.assert_called_once_with()
+    environment._cleanup_resources_compose_file.assert_called_once_with()
+    environment._cleanup_env_compose_file.assert_called_once_with()
+    environment._cleanup_egress_control_services_compose_file.assert_called_once_with()
+
+
 def test_docker_desktop_probe_sidecar_keeps_exact_egress_control() -> None:
     context = DockerDesktopAllowlistProbeEnvironment._EGRESS_CONTROL_SIDECAR_CONTEXT_PATH
     dockerfile = (context / "Dockerfile").read_text(encoding="utf-8")
@@ -142,7 +165,7 @@ def test_harbor_probe_network_routes_only_through_the_egress_sidecar() -> None:
     assert "network_mode:none" in overlay
 
 
-def test_native_task_runtime_is_daemon_attested_and_full_calibration_is_blocked(
+def test_native_task_runtime_is_daemon_attested_and_all_fixtures_are_covered(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -161,12 +184,33 @@ def test_native_task_runtime_is_daemon_attested_and_full_calibration_is_blocked(
     root = Path(__file__).resolve().parents[2] / "benchmarks" / "coding-worker-v18"
     bundle = SimpleNamespace(
         fixtures=[
-            SimpleNamespace(task_id="session-clarify-before-edit"),
-            SimpleNamespace(task_id="python-async-cache"),
+            SimpleNamespace(task_id=path.name)
+            for path in sorted((root / "tasks").iterdir())
+            if path.is_dir()
+        ]
+    )
+    _assert_native_runtime_fixture_coverage(root, bundle)
+
+
+def test_native_task_runtime_coverage_fails_closed(tmp_path: Path) -> None:
+    for task_id, dockerfile in (
+        ("covered", f"FROM {harness_cli.NATIVE_TASK_RUNTIME_IMAGE}\n"),
+        ("missing", "FROM python:3.12-slim\n"),
+    ):
+        environment = tmp_path / "tasks" / task_id / "environment"
+        environment.mkdir(parents=True)
+        (environment / "Dockerfile").write_text(
+            dockerfile,
+            encoding="utf-8",
+        )
+    bundle = SimpleNamespace(
+        fixtures=[
+            SimpleNamespace(task_id="covered"),
+            SimpleNamespace(task_id="missing"),
         ]
     )
     with pytest.raises(HarnessCliError, match="coverage is incomplete"):
-        _assert_native_runtime_fixture_coverage(root, bundle)
+        _assert_native_runtime_fixture_coverage(tmp_path, bundle)
 
 
 def test_online_attestation_covers_the_complete_coding_worker_python_package() -> None:
@@ -598,7 +642,7 @@ def test_session_probes_use_the_immutable_offline_native_runtime() -> None:
         ).read_text(encoding="utf-8")
         assert expected in dockerfile
         assert "USER root" in dockerfile
-        assert "apt-get" not in dockerfile
+        assert "apt-get install -y --no-install-recommends patch" in dockerfile
 
 
 @pytest.mark.asyncio
