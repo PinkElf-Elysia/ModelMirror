@@ -11,9 +11,16 @@ from .contracts import (
     TaskCreateRequest,
     TaskRecord,
     TaskState,
+    WorkerApproval,
+    WorkerArtifact,
+    WorkerEvidence,
     WorkerEvent,
+    WorkerOperation,
+    WorkerPlan,
+    WorkerQuestion,
     WorkerQuestionAnswer,
     WorkerTaskExport,
+    WorkerTodo,
     WorkerTurnHistory,
 )
 from .ports import WritebackCandidate
@@ -147,6 +154,34 @@ class StoreInteractionProjection:
         self, task_id: str, *, after: int = 0, limit: int = 500
     ) -> Sequence[WorkerEvent]:
         return self._service.store.list_events(task_id, after=after, limit=limit)
+
+    def latest_plan(self, task_id: str) -> WorkerPlan | None:
+        return self._service.store.latest_plan(task_id)
+
+    def latest_todo(self, task_id: str) -> WorkerTodo | None:
+        return self._service.store.latest_todo(task_id)
+
+    def list_questions(self, task_id: str) -> Sequence[WorkerQuestion]:
+        return self._service.store.list_questions(task_id)
+
+    def list_approvals(self, task_id: str) -> Sequence[WorkerApproval]:
+        return self._service.store.list_approvals(task_id)
+
+    def get_operation(self, operation_id: str) -> WorkerOperation:
+        return self._service.store.get_operation(operation_id)
+
+    def list_evidence(
+        self, task_id: str, *, current_tree_hash: str | None = None
+    ) -> Sequence[WorkerEvidence]:
+        return self._service.store.list_evidence(
+            task_id, current_tree_hash=current_tree_hash
+        )
+
+    def list_artifacts(self, task_id: str) -> Sequence[WorkerArtifact]:
+        return self._service.store.list_artifacts(task_id)
+
+    def turn_history(self, task_id: str) -> WorkerTurnHistory:
+        return self._service.store.turn_history(task_id)
 
 
 class LegacyTaskControlPlane:

@@ -13,9 +13,16 @@ from .contracts import (
     SubtaskRequest,
     TaskCreateRequest,
     TaskRecord,
+    WorkerApproval,
+    WorkerArtifact,
+    WorkerEvidence,
     WorkerEvent,
+    WorkerOperation,
+    WorkerPlan,
+    WorkerQuestion,
     WorkerQuestionAnswer,
     WorkerTaskExport,
+    WorkerTodo,
     WorkerTurnHistory,
 )
 from .provider import (
@@ -209,6 +216,24 @@ class InteractionProjection(Protocol):
     def list_events(
         self, task_id: str, *, after: int = 0, limit: int = 500
     ) -> Sequence[WorkerEvent]: ...
+
+    def latest_plan(self, task_id: str) -> WorkerPlan | None: ...
+
+    def latest_todo(self, task_id: str) -> WorkerTodo | None: ...
+
+    def list_questions(self, task_id: str) -> Sequence[WorkerQuestion]: ...
+
+    def list_approvals(self, task_id: str) -> Sequence[WorkerApproval]: ...
+
+    def get_operation(self, operation_id: str) -> WorkerOperation: ...
+
+    def list_evidence(
+        self, task_id: str, *, current_tree_hash: str | None = None
+    ) -> Sequence[WorkerEvidence]: ...
+
+    def list_artifacts(self, task_id: str) -> Sequence[WorkerArtifact]: ...
+
+    def turn_history(self, task_id: str) -> WorkerTurnHistory: ...
 
 
 @runtime_checkable
