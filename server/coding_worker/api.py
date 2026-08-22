@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import io
 import json
 import os
+import secrets
 import tarfile
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from typing import Any, Literal
@@ -45,10 +47,11 @@ from .contracts import (
     SubtaskRequest,
 )
 from .provider import ProviderCapabilities
+from .harness_v3 import SERVER_HARNESS_CODE_FILES, harness_code_bundle_sha256
 from .service import CodingWorkerService
 from .runtime import CodingWorkerRuntime, build_runtime_from_environment
 from .store import WorkerConflictError, WorkerNotFoundError, WorkerStoreError
-from .workspace import WorkspaceError
+from .workspace import WorkspaceError, WorkspaceSourceUnavailableError
 
 
 class TaskMessageRequest(StrictModel):
@@ -69,15 +72,32 @@ class SubtaskMergeRequest(StrictModel):
     operation_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 
+class HarnessFaultRequest(StrictModel):
+    task_id: str = Field(pattern=r"^task_[a-f0-9]{32}$")
+    component: Literal["executor"]
+    point: Literal["after_side_effect_before_receipt"]
+
+
 class TaskChildrenResponse(StrictModel):
     tasks: tuple[TaskRecord, ...]
     subtasks: tuple[SubtaskRecord, ...] = ()
+
+
+def _require_harness_controller(request: Request) -> None:
+    if not _feature_enabled("CODING_WORKER_HARNESS_V3_ENABLED"):
+        raise HTTPException(status_code=404, detail="Not found")
+    expected = os.getenv("CODING_WORKER_HARNESS_CONTROLLER_TOKEN", "")
+    authorization = request.headers.get("authorization", "")
+    supplied = authorization[7:] if authorization.startswith("Bearer ") else ""
+    if len(expected) < 32 or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 _service: CodingWorkerService | None = None
 _enabled_override: bool | None = None
 _runtime: CodingWorkerRuntime | None = None
 _startup_error: str | None = None
+_HARNESS_PROCESS_GENERATION = secrets.token_hex(16)
 _CONSOLE_ORIGIN = Origin(module="worker-console", object_id="local-user")
 
 
@@ -385,6 +405,15 @@ def _require_enabled() -> None:
 def _raise_worker_error(exc: Exception) -> None:
     if isinstance(exc, HTTPException):
         raise exc
+    if isinstance(exc, WorkspaceSourceUnavailableError):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "workspace_source_unavailable",
+                "message": "Workspace source is unavailable.",
+                "reason": exc.reason,
+            },
+        ) from exc
     if isinstance(exc, WorkerNotFoundError):
         status = 404
     elif isinstance(exc, WorkerConflictError):
@@ -442,9 +471,20 @@ async def get_worker_capabilities() -> WorkerCapabilities:
 
 @router.post("/tasks", response_model=TaskRecord, status_code=202)
 async def create_task(payload: TaskCreateRequest) -> TaskRecord:
-    _validate_model_route(payload.model_route)
     try:
-        return await get_coding_worker_service().create_task(_CONSOLE_ORIGIN, payload)
+        service = get_coding_worker_service()
+        existing = service.store.find_task_by_idempotency(
+            _CONSOLE_ORIGIN, payload.client_task_id
+        )
+        if existing is None:
+            try:
+                _validate_model_route(payload.model_route)
+            except HTTPException:
+                if service.store.find_task_by_idempotency(
+                    _CONSOLE_ORIGIN, payload.client_task_id
+                ) is None:
+                    raise
+        return await service.create_task(_CONSOLE_ORIGIN, payload)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -1099,7 +1139,9 @@ async def export_parity_workspace(task_id: str) -> WorkerArtifact:
     never exposes a Workspace path and cannot export a still-running task.
     """
 
-    if not _feature_enabled("CODING_WORKER_PARITY_ENABLED"):
+    parity_enabled = _feature_enabled("CODING_WORKER_PARITY_ENABLED")
+    harness_v3_enabled = _feature_enabled("CODING_WORKER_HARNESS_V3_ENABLED")
+    if not (parity_enabled or harness_v3_enabled):
         raise HTTPException(status_code=404, detail="Not found")
     service, task = _task_workspace(task_id)
     try:
@@ -1114,10 +1156,18 @@ async def export_parity_workspace(task_id: str) -> WorkerArtifact:
         usage = service.store.budget_usage(task_id)
         return service.store.create_artifact(
             task_id=task_id,
-            media_type="application/vnd.modelmirror.parity-workspace+tar",
+            media_type=(
+                "application/vnd.modelmirror.harness-workspace+tar"
+                if harness_v3_enabled
+                else "application/vnd.modelmirror.parity-workspace+tar"
+            ),
             content=content,
             metadata={
-                "kind": "parity_workspace_export",
+                "kind": (
+                    "harness_workspace_export"
+                    if harness_v3_enabled
+                    else "parity_workspace_export"
+                ),
                 "workspace_tree_hash": snapshot.tree_hash,
                 "file_count": len(files),
                 "active_seconds": usage.active_seconds,
@@ -1125,6 +1175,53 @@ async def export_parity_workspace(task_id: str) -> WorkerArtifact:
                 "turns_started": usage.turns_started,
             },
         )
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/harness/attestation")
+async def harness_attestation(request: Request) -> dict[str, Any]:
+    _require_harness_controller(request)
+    try:
+        service = get_coding_worker_service()
+        reader = getattr(service.provider, "harness_attestations", None)
+        if not callable(reader):
+            raise WorkerConflictError(
+                "Provider Harness attestation is unavailable.",
+                code="harness_attestation_unavailable",
+            )
+        providers = await reader()
+        if len(providers) != service.max_active_tasks:
+            raise WorkerConflictError(
+                "Provider Harness attestation is incomplete.",
+                code="harness_attestation_unavailable",
+            )
+        return {
+            "protocol": "modelmirror-coding-harness-attestation/v1",
+            "server_code_bundle_sha256": harness_code_bundle_sha256(
+                Path(__file__).resolve().parent,
+                SERVER_HARNESS_CODE_FILES,
+            ),
+            "server_generation": _HARNESS_PROCESS_GENERATION,
+            "controller_generation": getattr(
+                service.provider, "controller_generation", None
+            ),
+            "providers": providers,
+        }
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post("/harness/faults", status_code=202)
+async def arm_harness_fault(
+    payload: HarnessFaultRequest, request: Request
+) -> dict[str, str]:
+    _require_harness_controller(request)
+    try:
+        get_coding_worker_service().arm_harness_fault(
+            payload.task_id, payload.component, payload.point
+        )
+        return {"status": "armed"}
     except Exception as exc:
         _raise_worker_error(exc)
 

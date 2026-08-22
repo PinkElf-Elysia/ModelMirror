@@ -11,16 +11,21 @@ from typing import Any, Protocol
 
 from .contracts import WorkspaceSource
 from .workspace import (
+    MAX_EXTERNAL_SOURCE_FILE_BYTES,
     MAX_SOURCE_BYTES,
     MAX_SOURCE_FILE_BYTES,
     MAX_SOURCE_FILES,
     SourceFile,
+    SourceAdmissionReceipt,
     SourceSnapshot,
     WorkspaceError,
+    source_admission_receipt,
 )
 
 
 class ProjectSnapshotClient(Protocol):
+    async def check(self, project_id: str, expected_head: str) -> dict[str, Any]: ...
+
     async def acquire(
         self, project_id: str, *, expected_head: str | None = None
     ) -> dict[str, Any]: ...
@@ -40,6 +45,10 @@ class ProjectSnapshotClient(Protocol):
 
 
 class ProjectHostSnapshotClient(Protocol):
+    def check_project(
+        self, project_id: str, head: str, branch: str | None
+    ) -> dict[str, Any]: ...
+
     async def request_snapshot(
         self,
         project_id: str,
@@ -60,6 +69,16 @@ _DANGEROUS_CONFIG = re.compile(
 )
 
 
+def _public_revision_matches(expected: str, observed: object) -> bool:
+    """Accept the path-free public SHA prefix returned after an exact check."""
+
+    return (
+        isinstance(observed, str)
+        and re.fullmatch(r"[a-f0-9]{7,40}", observed) is not None
+        and expected.startswith(observed)
+    )
+
+
 class BuiltinGitWorkspaceSourceAdapter:
     """Read tracked blobs from one deployment-fixed ModelMirror revision."""
 
@@ -71,18 +90,112 @@ class BuiltinGitWorkspaceSourceAdapter:
             raise ValueError("builtin revision must be a full commit id")
 
     async def acquire(self, source: WorkspaceSource) -> SourceSnapshot:
-        if (
-            source.kind != "builtin"
-            or source.source_id != self._source_id
-            or source.revision != self._revision
-        ):
+        self._require_registered(source, revision_code="source_not_found")
+        return await asyncio.to_thread(self._read_revision, source)
+
+    async def admit(self, source: WorkspaceSource) -> SourceAdmissionReceipt:
+        self._require_registered(source)
+        file_count, total_bytes = await asyncio.to_thread(self._preflight_admission)
+        return source_admission_receipt(
+            source,
+            facts={
+                "adapter": "builtin",
+                "revision": self._revision,
+                "file_count": file_count,
+                "total_bytes": total_bytes,
+                "limit_policy": "builtin-16m-v1",
+            },
+        )
+
+    def _require_registered(
+        self, source: WorkspaceSource, *, revision_code: str = "source_revision_changed"
+    ) -> None:
+        if source.kind != "builtin" or source.source_id != self._source_id:
             raise WorkspaceError(
                 "Builtin source is not registered at this revision.",
                 code="source_not_found",
             )
-        return await asyncio.to_thread(self._read_revision, source)
+        if source.revision != self._revision:
+            raise WorkspaceError(
+                "Builtin source revision changed.",
+                code=revision_code,
+            )
 
     def _read_revision(self, source: WorkspaceSource) -> SourceSnapshot:
+        self._preflight_revision()
+        entries, _total_bytes = self._revision_entries()
+        contents = self._read_blobs(entries)
+        return SourceSnapshot(
+            source=source,
+            files=tuple(
+                SourceFile(path=path, content=content, executable=executable)
+                for (path, _object_id, _size, executable), content in zip(
+                    entries, contents, strict=True
+                )
+            ),
+        )
+
+    def _preflight_admission(self) -> tuple[int, int]:
+        self._preflight_revision()
+        entries, total_bytes = self._revision_entries()
+        return len(entries), total_bytes
+
+    def _revision_entries(self) -> tuple[list[tuple[str, str, int, bool]], int]:
+        tree = self._git("ls-tree", "-r", "-z", "-l", self._revision)
+        if len(tree.stdout) > 16 * 1024 * 1024:
+            raise WorkspaceError(
+                "Builtin tree metadata is too large.", code="source_limit_exceeded"
+            )
+        entries: list[tuple[str, str, int, bool]] = []
+        total_bytes = 0
+        for raw in tree.stdout.split(b"\0"):
+            if not raw:
+                continue
+            try:
+                header, encoded_path = raw.split(b"\t", 1)
+                mode, object_type, object_id, encoded_size = header.split()
+                relative = encoded_path.decode("utf-8", errors="strict")
+                size = int(encoded_size)
+            except (ValueError, UnicodeError) as exc:
+                raise WorkspaceError(
+                    "Builtin tree is invalid.", code="source_snapshot_unsafe"
+                ) from exc
+            pure = PurePosixPath(relative)
+            if size > MAX_SOURCE_FILE_BYTES:
+                raise WorkspaceError(
+                    "Builtin tree file exceeds Worker limits.",
+                    code="source_limit_exceeded",
+                )
+            if (
+                object_type != b"blob"
+                or mode not in {b"100644", b"100755"}
+                or pure.is_absolute()
+                or ".." in pure.parts
+                or not pure.parts
+                or pure.parts[0] == ".git"
+                or size < 0
+            ):
+                raise WorkspaceError(
+                    "Builtin tree contains an unsupported entry.",
+                    code="source_snapshot_unsafe",
+                )
+            total_bytes += size
+            if len(entries) >= MAX_SOURCE_FILES or total_bytes > MAX_SOURCE_BYTES:
+                raise WorkspaceError(
+                    "Builtin tree exceeds Worker limits.",
+                    code="source_limit_exceeded",
+                )
+            entries.append(
+                (
+                    relative,
+                    object_id.decode("ascii", errors="strict"),
+                    size,
+                    mode == b"100755",
+                )
+            )
+        return entries, total_bytes
+
+    def _preflight_revision(self) -> None:
         try:
             root_metadata = self._root.lstat()
             git_metadata = (self._root / ".git").lstat()
@@ -115,64 +228,6 @@ class BuiltinGitWorkspaceSourceAdapter:
             raise WorkspaceError(
                 "Builtin revision changed.", code="source_revision_changed"
             )
-        tree = self._git("ls-tree", "-r", "-z", "-l", self._revision)
-        if len(tree.stdout) > 16 * 1024 * 1024:
-            raise WorkspaceError(
-                "Builtin tree metadata is too large.", code="source_limit_exceeded"
-            )
-        entries: list[tuple[str, str, int, bool]] = []
-        total_bytes = 0
-        for raw in tree.stdout.split(b"\0"):
-            if not raw:
-                continue
-            try:
-                header, encoded_path = raw.split(b"\t", 1)
-                mode, object_type, object_id, encoded_size = header.split()
-                relative = encoded_path.decode("utf-8", errors="strict")
-                size = int(encoded_size)
-            except (ValueError, UnicodeError) as exc:
-                raise WorkspaceError(
-                    "Builtin tree is invalid.", code="source_snapshot_unsafe"
-                ) from exc
-            pure = PurePosixPath(relative)
-            if (
-                object_type != b"blob"
-                or mode not in {b"100644", b"100755"}
-                or pure.is_absolute()
-                or ".." in pure.parts
-                or not pure.parts
-                or pure.parts[0] == ".git"
-                or size < 0
-                or size > MAX_SOURCE_FILE_BYTES
-            ):
-                raise WorkspaceError(
-                    "Builtin tree contains an unsupported entry.",
-                    code="source_snapshot_unsafe",
-                )
-            total_bytes += size
-            if len(entries) >= MAX_SOURCE_FILES or total_bytes > MAX_SOURCE_BYTES:
-                raise WorkspaceError(
-                    "Builtin tree exceeds Worker limits.",
-                    code="source_limit_exceeded",
-                )
-            entries.append(
-                (
-                    relative,
-                    object_id.decode("ascii", errors="strict"),
-                    size,
-                    mode == b"100755",
-                )
-            )
-        contents = self._read_blobs(entries)
-        return SourceSnapshot(
-            source=source,
-            files=tuple(
-                SourceFile(path=path, content=content, executable=executable)
-                for (path, _object_id, _size, executable), content in zip(
-                    entries, contents, strict=True
-                )
-            ),
-        )
 
     def _read_blobs(
         self, entries: list[tuple[str, str, int, bool]]
@@ -281,6 +336,37 @@ class ProjectSnapshotWorkspaceSourceAdapter:
     def __init__(self, client: ProjectSnapshotClient, snapshot_root: Path) -> None:
         self._client = client
         self._snapshot_root = Path(snapshot_root)
+
+    async def admit(self, source: WorkspaceSource) -> SourceAdmissionReceipt:
+        expected_kind = self._KINDS.get(source.kind)
+        if expected_kind is None:
+            raise WorkspaceError(
+                "Workspace source kind is unsupported.", code="source_not_found"
+            )
+        project = await self._client.check(source.source_id, source.revision)
+        if project.get("id") != source.source_id or project.get("kind") != expected_kind:
+            raise WorkspaceError(
+                "Project source admission is inconsistent.",
+                code="source_not_found",
+            )
+        if project.get("state") != "available":
+            raise WorkspaceError(
+                "Project source is temporarily unavailable.",
+                code="source_temporarily_unavailable",
+            )
+        if not _public_revision_matches(source.revision, project.get("head")):
+            raise WorkspaceError(
+                "Project source revision changed.", code="source_revision_changed"
+            )
+        return source_admission_receipt(
+            source,
+            facts={
+                "adapter": "project_source",
+                "kind": expected_kind,
+                "state": "available",
+                "head": str(project.get("head") or ""),
+            },
+        )
 
     async def acquire(self, source: WorkspaceSource) -> SourceSnapshot:
         expected_kind = self._KINDS.get(source.kind)
@@ -401,7 +487,7 @@ class ProjectSnapshotWorkspaceSourceAdapter:
                         "Project snapshot contains an unsupported entry.",
                         code="source_snapshot_unsafe",
                     )
-                if metadata.st_size > MAX_SOURCE_FILE_BYTES:
+                if metadata.st_size > MAX_EXTERNAL_SOURCE_FILE_BYTES:
                     raise WorkspaceError(
                         "Project snapshot file is too large.",
                         code="source_file_limit_exceeded",
@@ -477,6 +563,38 @@ class HostSnapshotWorkspaceSourceAdapter:
         self._project_source = project_source
         self._reader = ProjectSnapshotWorkspaceSourceAdapter(
             project_source, snapshot_root
+        )
+
+    async def admit(self, source: WorkspaceSource) -> SourceAdmissionReceipt:
+        if source.kind != "host_snapshot":
+            raise WorkspaceError(
+                "Workspace source kind is unsupported.", code="source_not_found"
+            )
+        project = self._host.check_project(
+            source.source_id, source.revision, None
+        )
+        if project.get("id") != source.source_id or project.get("kind") != "host_git":
+            raise WorkspaceError(
+                "Host source admission is inconsistent.",
+                code="source_not_found",
+            )
+        if project.get("state") != "available":
+            raise WorkspaceError(
+                "Host source is temporarily unavailable.",
+                code="source_temporarily_unavailable",
+            )
+        if not _public_revision_matches(source.revision, project.get("head")):
+            raise WorkspaceError(
+                "Host source revision changed.", code="source_revision_changed"
+            )
+        return source_admission_receipt(
+            source,
+            facts={
+                "adapter": "project_host",
+                "kind": "host_git",
+                "state": "available",
+                "head": str(project.get("head") or ""),
+            },
         )
 
     async def acquire(self, source: WorkspaceSource) -> SourceSnapshot:
