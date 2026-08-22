@@ -1,0 +1,41 @@
+schema_version = "1.4"
+artifacts = ["/workspace"]
+
+[task]
+name = "modelmirror-coding-v18/repository-schema-codegen"
+version = "1.0.0"
+
+[metadata.modelmirror]
+category = "repository"
+binary_canary = "assets/canary.bin"
+required_modified_files = 2
+long_context = false
+sealed_checker_file = "test_hidden.py"
+sealed_checker_sha256 = "11d1a02d008550b9fe6a45dc9b7ab77a5cc4400eb890fa3b8662e82df4e0fda0"
+
+[[metadata.modelmirror.visible_checks]]
+check_id = "v18-repository-schema-codegen-visible"
+argv = ["python", "-m", "unittest", "discover", "-s", "visible_tests", "-v"]
+timeout_seconds = 180
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+network_mode = "no-network"
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 3072
+storage_mb = 4096
+
+[verifier]
+timeout_sec = 240.0
+environment_mode = "separate"
+
+[verifier.environment]
+network_mode = "no-network"
+build_timeout_sec = 600.0
+cpus = 1
+memory_mb = 2048
+storage_mb = 2048
+

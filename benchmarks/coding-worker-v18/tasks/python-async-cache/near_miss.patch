@@ -1,0 +1,26 @@
+diff --git a/async_cache/cache.py b/async_cache/cache.py
+--- a/async_cache/cache.py
++++ b/async_cache/cache.py
+@@ -1,4 +1,5 @@
+ from __future__ import annotations
++import asyncio
+ from collections import OrderedDict
+ from .backend import RecordingBackend
+ from .models import CacheKey
+@@ -8,13 +9,15 @@
+         self._backend = backend
+         self._capacity = capacity
+         self._values: OrderedDict[str, str] = OrderedDict()
++        self._lock = asyncio.Lock()
+ 
+     async def get(self, key: CacheKey) -> str:
+         normalized = key.normalized()
+         if normalized in self._values:
+             self._values.move_to_end(normalized)
+             return self._values[normalized]
+-        value = await self._backend.fetch(normalized)
++        async with self._lock:
++            value = await self._backend.fetch(normalized)
+         self._values[normalized] = value
+         self._values.move_to_end(normalized)
+         while len(self._values) > self._capacity:

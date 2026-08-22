@@ -1,0 +1,24 @@
+diff --git a/src/useProfileSearch.tsx b/src/useProfileSearch.tsx
+--- a/src/useProfileSearch.tsx
++++ b/src/useProfileSearch.tsx
+@@ -5,16 +5,18 @@
+ export function useProfileSearch(query: string, fetchProfiles: FetchProfiles): SearchState {
+   const [state, setState] = useState<SearchState>({ query: '', loading: false, results: [], error: null })
+   useEffect(() => {
++    const controller = new AbortController()
+     const normalized = query.trim()
+     if (!normalized) {
+       setState({ query: normalized, loading: false, results: [], error: null })
+-      return
++      return () => controller.abort()
+     }
+     setState(previous => ({ ...previous, query: normalized, loading: true, error: null }))
+-    fetchProfiles(normalized).then(
++    fetchProfiles(normalized, controller.signal).then(
+       results => setState({ query: normalized, loading: false, results, error: null }),
+       error => setState(previous => ({ ...previous, loading: false, error: String(error) })),
+     )
++    return () => controller.abort()
+   }, [query, fetchProfiles])
+   return state
+ }

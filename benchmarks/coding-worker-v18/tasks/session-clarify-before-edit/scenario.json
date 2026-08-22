@@ -1,0 +1,12 @@
+{
+  "allowed_approvals": [],
+  "questions": [
+    {
+      "prompt_sha256": "df25ce187d09123febbee7c1aad6978e6c9e2ef6b38977cf224252a49a2dbf7c",
+      "answer": "Use half_up.",
+      "selected_option_id": "half_up"
+    }
+  ],
+  "actions": [],
+  "required_events": ["question_requested", "question_resolved"]
+}

@@ -1,0 +1,20 @@
+{
+  "task_id": "session-steering-compaction",
+  "source_id": "v18-session-steering-compaction",
+  "revision": "dca455f3aa4bd1eba04160a14079eb7ed0d890b7de6a23d50227ac6a3bbed0c7",
+  "instruction_sha256": "badf778c7a7f8d0e10f6b1c8bd2f0268d5728fc44d01ff585de69bb501e50e34",
+  "scenario_sha256": "a88608ce02b8f78882ef566f913d3ec50ea3deb671e26203f063dde3c02d3f3d",
+  "acceptance_sha256": "6fcac9655f5b630c5a74a9ae822e1263cf18e6e266051d3a4fb6993ac30b5000",
+  "acceptance": {
+    "contract_id": "v18-session-steering-compaction",
+    "required_checks": [
+      {
+        "check_id": "v18-session-steering-compaction-visible",
+        "label": "v18-session-steering-compaction-visible",
+        "kind": "command",
+        "required": true
+      }
+    ],
+    "required_artifacts": []
+  }
+}

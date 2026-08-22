@@ -1,0 +1,13 @@
+{
+  "allowed_approvals": [],
+  "questions": [],
+  "actions": [
+    {
+      "action_id": "steer-release-order",
+      "when_state": "running",
+      "kind": "message",
+      "message": "Steering update: preserve first-seen component order; within each component sort severity critical, high, normal, then title. Request platform compact_context after recording this decision, then continue."
+    }
+  ],
+  "required_events": ["context_compacted"]
+}

@@ -1,0 +1,20 @@
+{
+  "task_id": "repository-registry-navigation",
+  "source_id": "v18-repository-registry-navigation",
+  "revision": "c34ae637d9867e5fef3762040e23dc767257f536f5f47d50809af045c3ee72ec",
+  "instruction_sha256": "2bf514c6b29df8e1d6a44f99372d8e439dc5ada638113ba22b978febe163d89c",
+  "scenario_sha256": null,
+  "acceptance_sha256": "ea3578f5170a2eb30c4a6524991ba5d4437f71fd88f7d7447963dab5926caa5d",
+  "acceptance": {
+    "contract_id": "v18-repository-registry-navigation",
+    "required_checks": [
+      {
+        "check_id": "v18-repository-registry-navigation-visible",
+        "label": "v18-repository-registry-navigation-visible",
+        "kind": "command",
+        "required": true
+      }
+    ],
+    "required_artifacts": []
+  }
+}

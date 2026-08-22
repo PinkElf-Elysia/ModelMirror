@@ -1,0 +1,36 @@
+diff --git a/registry/loader.py b/registry/loader.py
+--- a/registry/loader.py
++++ b/registry/loader.py
+@@ -1,23 +1,24 @@
+ from dataclasses import dataclass
+ from .graph import AliasCycleError
+-
+ class RegistryError(ValueError):
+     pass
+-
+ @dataclass(frozen=True)
+ class Entry:
+     name: str
+     module: str
+-
+ class Registry:
+     def __init__(self, entries: dict[str, str], aliases: dict[str, str]) -> None:
+-        self.entries = dict(entries)
+-        self.aliases = dict(aliases)
+-
++        self.entries = dict(entries); self.aliases = dict(aliases)
+     def resolve(self, name: str) -> Entry:
+-        canonical = self.aliases.get(name, name)
++        canonical = name
++        seen = set()
++        while canonical in self.aliases:
++            if canonical in seen:
++                raise RegistryError(f'alias cycle for {name}')
++            seen.add(canonical)
++            canonical = self.aliases[canonical]
+         module = self.entries.get(canonical)
+         if module is None:
+             raise RegistryError(f'unknown entry: {name}')
+         return Entry(canonical, module)
+-
++

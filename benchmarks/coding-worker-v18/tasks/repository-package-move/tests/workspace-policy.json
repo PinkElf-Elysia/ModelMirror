@@ -1,0 +1,15 @@
+{
+  "baseline": {
+    "acme/__init__.py": "217eaff0c03bb88cec2aef9713dae7a27ce8429d79f21ac9b4cb750790ff1283",
+    "acme/billing.py": "8efb7fe76697dbf219c11b0339255c725f47a2c8041dc7e0427dba847ff23b72",
+    "acme/reporting/__init__.py": "f76332064bac9c870a5108b0157140b8fc86db96236a0662eef5ccf45dfd075e",
+    "acme/reporting/formatters.py": "89bf3cf8d5836fb3e14a108990a3217a19a629679df790f9a2f18989c0b44afc",
+    "app.py": "79fe4562fae3fbe9bc888e6ec74857384708535c2447daa98bab3a01d763282b",
+    "assets/canary.bin": "5b9a0b98b6e522ebdd11ffdfdfce75a8a41414ade17d0735ab9eca47bdab8137",
+    "config/plugins.json": "8422d5885340d9c2ca699161af6008eaed2fe1d1ac0cf0e6e9161929267f0860",
+    "plugin_registry.py": "e9945c82b2b15bfa07d6b54c4dd278e9a32a4a3e813af104559046f008ab90d6",
+    "visible_tests/test_app.py": "eef517c7303a276c0de185a1f51db092d272a918446ce1ffa2e489ce73ec2029"
+  },
+  "binary_canary": "assets/canary.bin",
+  "required_modified_files": 2
+}

@@ -1,0 +1,20 @@
+{
+  "task_id": "repository-schema-codegen",
+  "source_id": "v18-repository-schema-codegen",
+  "revision": "86d0501fbcd7244a286e80536a2fc09aaaf94bafca3a98059c85acd725f7b1ee",
+  "instruction_sha256": "f70e8f687a49931814f25f130ee252ea9334b18519f133d9b68947021974beeb",
+  "scenario_sha256": null,
+  "acceptance_sha256": "e8d6bd0ee060a307c8c0c9e9991016b2476fca7e541c035effefb097823b0e16",
+  "acceptance": {
+    "contract_id": "v18-repository-schema-codegen",
+    "required_checks": [
+      {
+        "check_id": "v18-repository-schema-codegen-visible",
+        "label": "v18-repository-schema-codegen-visible",
+        "kind": "command",
+        "required": true
+      }
+    ],
+    "required_artifacts": []
+  }
+}

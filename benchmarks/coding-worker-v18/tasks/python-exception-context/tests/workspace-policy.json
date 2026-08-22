@@ -1,0 +1,14 @@
+{
+  "baseline": {
+    "README.md": "d2bd459230d5446c023b4ba1bf48e6e0c2299dd07d20ebdc064cfb9c1de5df96",
+    "assets/canary.bin": "5cf9065c4a6a31945d40380a26039969f0e13f4b79d6853d2aa84273b3cc2cbe",
+    "record_pipeline/__init__.py": "48f3b0d0ab6d4b24eb7407336018a30b88b0ff884267c38bc93de96a6e389e41",
+    "record_pipeline/errors.py": "5a9380e270863b3db74db44621d0d9e951f17bea6b4d382f73c255598a8bc540",
+    "record_pipeline/parser.py": "2f41ba8ca2ba32620ee49e74b16e58113fe7f95a1e349469c4b6068b9a68978f",
+    "record_pipeline/service.py": "066d85d4be4b32686c8b88f1e813740b67bf2e2aed6fe5ff98fca1395528cf5b",
+    "record_pipeline/transform.py": "8d54f4d8791e3a8eaa59d1964c1479f9823704d4b30a611386fb1ec9482240f7",
+    "visible_tests/test_service.py": "09c05319fd0608c5f131f5abd4d2b4ac688866b4904f2bcfab427c0068e8c295"
+  },
+  "binary_canary": "assets/canary.bin",
+  "required_modified_files": 2
+}

@@ -1,0 +1,19 @@
+diff --git a/config_tx/store.py b/config_tx/store.py
+--- a/config_tx/store.py
++++ b/config_tx/store.py
+@@ -18,12 +18,14 @@
+         return deepcopy(node)
+ 
+     def apply_batch(self, operations: list[dict[str, Any]]) -> None:
++        staged = dict(self._data)
+         for index, raw in enumerate(operations):
+             try:
+                 action, path, value = validate_operation(raw)
+-                self._apply_one(self._data, action, path, value)
++                self._apply_one(staged, action, path, value)
+             except (KeyError, TypeError, ValueError) as exc:
+                 raise BatchConfigError(f'operation {index} failed: {path}') from exc
++        self._data = staged
+ 
+     @staticmethod
+     def _apply_one(data: dict[str, Any], action: str, path: str, value: Any) -> None:

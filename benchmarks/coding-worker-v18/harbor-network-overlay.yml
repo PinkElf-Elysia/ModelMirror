@@ -1,0 +1,9 @@
+networks:
+  default:
+    # The egress sidecar shares this namespace with the task and must be able
+    # to reach its exact allowlist. Static no-network gates add Harbor's
+    # network_mode:none overlay instead of relying on this routing flag.
+    internal: false
+    ipam:
+      config:
+        - subnet: 10.246.18.0/28

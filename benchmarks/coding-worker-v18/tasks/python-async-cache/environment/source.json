@@ -1,0 +1,20 @@
+{
+  "task_id": "python-async-cache",
+  "source_id": "v18-python-async-cache",
+  "revision": "bda7b48c14e3e3dc3d7c3487d8d6f1083a1f1974eb78d503f431f8c7d173f23d",
+  "instruction_sha256": "6ee114eabcf8a4f8bfa4cc0ffb3914a99cd9be0e85bee9137200895503c12ec9",
+  "scenario_sha256": null,
+  "acceptance_sha256": "ae41fb3d87968708358403ee15e87027a84b150fde2979adab9a7e86754e9370",
+  "acceptance": {
+    "contract_id": "v18-python-async-cache",
+    "required_checks": [
+      {
+        "check_id": "v18-python-async-cache-visible",
+        "label": "v18-python-async-cache-visible",
+        "kind": "command",
+        "required": true
+      }
+    ],
+    "required_artifacts": []
+  }
+}

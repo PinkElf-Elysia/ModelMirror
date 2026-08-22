@@ -1,0 +1,10 @@
+diff --git a/release_notes/ordering.py b/release_notes/ordering.py
+--- a/release_notes/ordering.py
++++ b/release_notes/ordering.py
+@@ -1,4 +1,5 @@
+ from .models import Note
+ def order_notes(notes: list[Note]) -> list[Note]:
+-    return sorted(notes, key=lambda item: (item.component, item.title))
++    rank = {'critical': 0, 'high': 1, 'normal': 2}
++    return sorted(notes, key=lambda item: (item.component, rank.get(item.severity, 3), item.title))
+ 

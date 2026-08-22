@@ -1,0 +1,32 @@
+{
+  "allowed_approvals": [
+    {
+      "script": "python -m build_index",
+      "cwd": ".",
+      "mode": "mutate",
+      "timeout_seconds": 120
+    }
+  ],
+  "questions": [],
+  "actions": [
+    {
+      "action_id": "restart-after-index-side-effect",
+      "when_state": "waiting_approval",
+      "kind": "component_fault",
+      "component": "executor",
+      "point": "after_side_effect_before_receipt",
+      "approval": {
+        "script": "python -m build_index",
+        "cwd": ".",
+        "mode": "mutate",
+        "timeout_seconds": 120
+      }
+    },
+    {
+      "action_id": "resume-after-unknown-result",
+      "when_state": "interrupted",
+      "kind": "resume"
+    }
+  ],
+  "required_events": ["operation_reconciled"]
+}

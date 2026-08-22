@@ -1,0 +1,16 @@
+{
+  "baseline": {
+    "assets/canary.bin": "43c9c0677e3410a22cf592968bd03e26d5a029fb1764e7d483a60d09975d45a3",
+    "package-lock.json": "f526f0a3d6ef9d0936355711455754abbde3051c3fff0d50928c8db5d942f963",
+    "package.json": "18031a05d7961c27b67315c5a386beb6a4a7af98187578b69efeadf1ecce2af9",
+    "src/CommandPalette.tsx": "39e1712c585c6e77dc24b827944461756170e59516fb5379b9408966650659d6",
+    "src/PaletteLauncher.tsx": "ddcbeaf9133b3302ddc2b4f1716ac42518e3e462f00494ef22b9c2a9f959fb88",
+    "src/index.ts": "9eaf7e60cbb982b118a6f8b67d5c4d5464eb0cc9b4e47c9702f84c3d9d3f13f2",
+    "src/types.ts": "4ff182374dfa66fe041e47768f8c4d841a7ed20931fce806f1cfdd3448a13a27",
+    "src/useCommandPalette.ts": "85f1617371a790557a251d846e47a14e33b56ce868391bbad0d7ef99b3125b6a",
+    "tsconfig.json": "2fbf3326513108bfd828c0f3f2a50493278659159f73541538cbae7165f21e08",
+    "visible_tests/palette.test.tsx": "2f009b6fe223a76d8449ec62d897a9b5b628f8d331348af3cdb89f26878619dc"
+  },
+  "binary_canary": "assets/canary.bin",
+  "required_modified_files": 2
+}
