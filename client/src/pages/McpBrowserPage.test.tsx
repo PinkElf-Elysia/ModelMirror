@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mcpProjects } from "../data/mcpProjects";
 import McpBrowserPage, { prioritizeReadyProjects } from "./McpBrowserPage";
@@ -9,6 +9,14 @@ vi.mock("../components/McpServerCard", () => ({
     <article data-testid="mcp-server-card">{project.name}</article>
   ),
 }));
+
+vi.mock("../components/McpHubPanel", () => ({
+  default: () => <div data-testid="mcp-hub-panel">Hub panel</div>,
+}));
+
+function LocationProbe() {
+  return <output data-testid="location-search">{useLocation().search}</output>;
+}
 
 function response(payload: unknown) {
   return Promise.resolve(
@@ -22,6 +30,7 @@ function response(payload: unknown) {
 function renderPage(
   adapters: Array<Record<string, unknown>> = [],
   sessions: Array<Record<string, unknown>> = [],
+  initialEntry = "/mcps",
 ) {
   vi.stubGlobal(
     "fetch",
@@ -37,8 +46,9 @@ function renderPage(
   );
 
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <McpBrowserPage />
+      <LocationProbe />
     </MemoryRouter>,
   );
 }
@@ -110,6 +120,20 @@ describe("McpBrowserPage first-screen shell", () => {
       (entry) => expect(screen.getAllByText(entry).length).toBeGreaterThan(0),
     );
     expect(screen.queryByText("工具采购清单")).not.toBeInTheDocument();
+  });
+
+  it("keeps the selected MCP view in the URL across reloads", async () => {
+    const firstRender = renderPage();
+
+    fireEvent.click(screen.getByRole("tab", { name: "MCP Hub" }));
+    expect(screen.getByRole("tab", { name: "MCP Hub" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("location-search")).toHaveTextContent("?view=hub");
+    expect(screen.getByTestId("mcp-hub-panel")).toBeVisible();
+
+    firstRender.unmount();
+    renderPage([], [], "/mcps?view=hub");
+    expect(screen.getByRole("tab", { name: "MCP Hub" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("mcp-hub-panel")).toBeVisible();
   });
 
   it("keeps the all filter visible and toggles wrapped secondary categories", () => {

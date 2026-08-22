@@ -971,6 +971,7 @@ class MCPHubService:
         self.reviewed_contracts = reviewed_contracts
         self.contract_registry = contract_registry or HubContractRegistry()
         self.review_service: Any | None = None
+        self.trusted_service: Any | None = None
         self._sync_lock = asyncio.Lock()
         self._sync_tasks: dict[str, asyncio.Task[None]] = {}
         self._refresh_task: asyncio.Task[None] | None = None
@@ -980,6 +981,9 @@ class MCPHubService:
 
     def set_review_service(self, service: Any) -> None:
         self.review_service = service
+
+    def set_trusted_service(self, service: Any) -> None:
+        self.trusted_service = service
 
     def _require_enabled(self) -> None:
         if not hub_enabled():
@@ -1153,6 +1157,8 @@ class MCPHubService:
                         )
                     if not_modified:
                         self.store.finish_sync(sync_id, status="not_modified", count=int(self.store.meta("snapshot_count", "0") or 0))
+                        if self.trusted_service is not None:
+                            self.trusted_service.on_registry_sync()
                         return
                     response_etag = current_etag or response_etag
                     raw_servers = payload.get("servers")
@@ -1191,6 +1197,8 @@ class MCPHubService:
                 self.store.replace_snapshot(sync_id, entries, response_etag)
                 if self.review_service is not None:
                     await self.review_service.reconcile_registry_drift()
+                if self.trusted_service is not None:
+                    self.trusted_service.on_registry_sync()
                 self.store.set_meta("last_sync_skipped_count", str(skipped_entries))
                 self.store.finish_sync(sync_id, status="completed", count=len(entries))
                 self._ensure_refresh()
@@ -1328,6 +1336,13 @@ class MCPHubService:
         allowed_tools = set(normalized.get("allowed_tools") or [])
         if not allowed_tools or not allowed_tools.issubset(actual_tools):
             return None, "hub_reviewed_contract_drift"
+        if self.trusted_service is not None:
+            available, availability_reason = self.trusted_service.activation_guard(
+                str(normalized.get("contract_id") or ""),
+                str(normalized.get("contract_fingerprint") or ""),
+            )
+            if not available:
+                return None, availability_reason
         return normalized, ""
 
     def _activation_review(self, candidate: dict[str, Any]) -> tuple[bool, str]:
@@ -1362,6 +1377,88 @@ class MCPHubService:
             raise HubError("远程工具 Schema 总量超过上限。", code="hub_tool_contract_denied", status_code=409)
         tools.sort(key=lambda item: item["name"])
         return tools, stable_digest(tools)
+
+    async def inspect_reviewed_contract(
+        self, contract: HubReviewedContractV1
+    ) -> dict[str, Any]:
+        """Inspect a reviewed identity without creating a persisted candidate."""
+
+        self._require_remote()
+        server = self.store.get_server(contract.server_name, contract.version)
+        remote = next(
+            (
+                item
+                for item in (server or {}).get("remotes", [])
+                if item.get("url") == contract.remote_url
+            ),
+            None,
+        )
+        if (
+            server is None
+            or server.get("status") not in {"active", "published"}
+            or remote is None
+            or remote.get("eligibility") != "eligible"
+            or (
+                contract.source_digest
+                and server.get("source_digest") != contract.source_digest
+            )
+        ):
+            raise HubError(
+                "可信契约与当前 Registry 身份不一致。",
+                code="hub_source_drift",
+                status_code=409,
+            )
+        probe_id = "mcphub_" + uuid.uuid4().hex
+        session_id = ""
+        capability = await self.bridge.authorize(probe_id, contract.remote_url)
+        try:
+            session_owner = (
+                "hub:"
+                + quote(self.tenant_id, safe="")
+                + ":"
+                + quote(self.owner_id, safe="")
+                + ":"
+                + probe_id
+            )
+            response = await self.bridge.open(
+                probe_id,
+                contract.remote_url,
+                capability,
+                session_owner,
+            )
+            session_id = str(response.get("session_id") or "")
+            if not session_id:
+                raise HubError(
+                    "MCP Hub 临时检查会话无效。",
+                    code="hub_sidecar_invalid",
+                    status_code=502,
+                )
+            tools, schema_digest = self._validate_tools(response.get("tools"))
+            actual_tools = {
+                str(tool["name"]): str(tool["schema_digest"]) for tool in tools
+            }
+            if (
+                schema_digest != contract.schema_digest
+                or actual_tools != dict(contract.tool_schema_digests)
+            ):
+                raise HubError(
+                    "远程工具 Schema 与可信契约不一致。",
+                    code="hub_schema_drift",
+                    status_code=409,
+                )
+            return {
+                "schema_digest": schema_digest,
+                "tools": tools,
+                "origin": contract.origin,
+                "source_digest": str(server.get("source_digest") or ""),
+                "remote_id": str(remote.get("remote_id") or ""),
+            }
+        finally:
+            await asyncio.gather(
+                self.bridge.close(session_id) if session_id else asyncio.sleep(0),
+                self.bridge.revoke(capability),
+                return_exceptions=True,
+            )
 
     async def _open_candidate(self, candidate: dict[str, Any]) -> LiveHubSession:
         capability = await self.bridge.authorize(candidate["candidate_id"], candidate["remote_url"])
@@ -1500,6 +1597,11 @@ class MCPHubService:
         async with self._candidate_locks.setdefault(candidate["candidate_id"], asyncio.Lock()):
             await self._disconnect_live(candidate["candidate_id"])
             candidate = self.store.update_candidate(candidate["candidate_id"], self.tenant_id, self.owner_id, state="disconnected")
+        if self.trusted_service is not None:
+            self.trusted_service.record_runtime_event(
+                "candidate_disconnected",
+                {"candidate_id": candidate["candidate_id"]},
+            )
         return self._decorate_candidate(candidate)
 
     async def delete_candidate(self, candidate_id: str) -> None:

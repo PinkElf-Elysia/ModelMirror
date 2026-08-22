@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any
+from typing import Any, Callable
 
 from .approval_store import RuntimeApprovalRequest, RuntimeApprovalStore
 from .core_middlewares import RuntimeMiddlewareSpec
@@ -15,6 +15,7 @@ from .models import MiddlewareContext, ToolCallRequest, ToolCallResponse
 def build_human_in_the_loop_middleware(
     spec: RuntimeMiddlewareSpec,
     store: RuntimeApprovalStore,
+    hub_event_recorder: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> AgentMiddleware:
     config = dict(spec.config or {})
     rules = _tool_rules(config.get("interrupt_on_tools"))
@@ -35,7 +36,12 @@ def build_human_in_the_loop_middleware(
 
         resolved = request.metadata.get("resolved_approval")
         if isinstance(resolved, dict):
-            return await _apply_resolution(request, handler, resolved)
+            return await _apply_resolution(
+                request,
+                handler,
+                resolved,
+                hub_event_recorder=hub_event_recorder,
+            )
 
         task_id = str(context.task_id or "").strip()
         run_id = str(context.metadata.get("run_id") or context.trace_id or "").strip()
@@ -127,6 +133,15 @@ def build_human_in_the_loop_middleware(
             raise RuntimeMiddlewareFatalError(
                 f"Unable to persist runtime approval: {str(exc)[:300]}"
             ) from exc
+        if isinstance(hub_approval, dict) and hub_event_recorder is not None:
+            hub_event_recorder(
+                "runtime_approval_shown",
+                {
+                    "contract_id": hub_approval.get("contract_id"),
+                    "candidate_id": hub_approval.get("candidate_id"),
+                    "tool_name": request.tool_name,
+                },
+            )
         raise RuntimeInterrupt(
             approval.approval_id,
             task_id=task_id,
@@ -188,9 +203,21 @@ async def _apply_resolution(
     request: ToolCallRequest,
     handler: Any,
     resolved: dict[str, Any],
+    *,
+    hub_event_recorder: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> ToolCallResponse:
     decision = str(resolved.get("decision") or "").strip()
     if decision == "approve":
+        hub_approval = request.metadata.get("hub_approval")
+        if isinstance(hub_approval, dict) and hub_event_recorder is not None:
+            hub_event_recorder(
+                "runtime_approval_approved",
+                {
+                    "contract_id": hub_approval.get("contract_id"),
+                    "candidate_id": hub_approval.get("candidate_id"),
+                    "tool_name": request.tool_name,
+                },
+            )
         return await handler(request)
     if decision == "edit":
         edited = resolved.get("edited_arguments")
@@ -222,10 +249,29 @@ async def _apply_resolution(
                 resolution_metadata["hub_approval"] = dict(updated_hub)
                 updated_resolution["metadata"] = resolution_metadata
                 metadata["resolved_approval"] = updated_resolution
+            if hub_event_recorder is not None:
+                hub_event_recorder(
+                    "runtime_approval_approved",
+                    {
+                        "contract_id": updated_hub.get("contract_id"),
+                        "candidate_id": updated_hub.get("candidate_id"),
+                        "tool_name": request.tool_name,
+                    },
+                )
         return await handler(
             request.with_updates(arguments=dict(edited), metadata=metadata)
         )
     if decision == "reject":
+        hub_approval = request.metadata.get("hub_approval")
+        if isinstance(hub_approval, dict) and hub_event_recorder is not None:
+            hub_event_recorder(
+                "runtime_approval_rejected",
+                {
+                    "contract_id": hub_approval.get("contract_id"),
+                    "candidate_id": hub_approval.get("candidate_id"),
+                    "tool_name": request.tool_name,
+                },
+            )
         message = str(
             resolved.get("message")
             or f"User rejected the tool call {request.tool_name}."

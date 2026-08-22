@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Search,
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import McpServerCard, {
   type McpSessionSummary,
 } from "../components/McpServerCard";
@@ -34,6 +35,11 @@ interface RegistryTool {
 }
 
 type CatalogCategory = "全部类别" | McpCategory;
+type McpView = "servers" | "registry" | "hub";
+
+function parseMcpView(value: string | null): McpView {
+  return value === "registry" || value === "hub" ? value : "servers";
+}
 
 export function prioritizeReadyProjects<T>(
   projects: readonly T[],
@@ -67,9 +73,10 @@ function matchesAvailability(
 }
 
 export default function McpBrowserPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [sessions, setSessions] = useState<McpSessionSummary[]>([]);
   const [registryTools, setRegistryTools] = useState<RegistryTool[]>([]);
-  const [activeView, setActiveView] = useState<"servers" | "registry" | "hub">("servers");
+  const activeView = parseMcpView(searchParams.get("view"));
   const [query, setQuery] = useState("");
   const [selectedCategory, setSelectedCategory] =
     useState<CatalogCategory>("全部类别");
@@ -82,6 +89,13 @@ export default function McpBrowserPage() {
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [isLoadingRuntime, setIsLoadingRuntime] = useState(false);
   const [runtimeError, setRuntimeError] = useState("");
+
+  const setActiveView = useCallback((view: McpView) => {
+    const next = new URLSearchParams(searchParams);
+    if (view === "servers") next.delete("view");
+    else next.set("view", view);
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     document.title = "模镜 - MCP 工具采购";

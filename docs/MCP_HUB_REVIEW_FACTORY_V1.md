@@ -22,6 +22,10 @@ MCP_HUB_LOCAL_CONTRACT_PUBLISH_ENABLED=false
 MCP_HUB_CONTRACT_SIGNING_KEY=
 ```
 
+已复核契约面向普通用户的可信列表、实时健康门禁、受控自动复核和本地产品证据见
+[`MCP_HUB_TRUSTED_CHANNEL_V1.md`](MCP_HUB_TRUSTED_CHANNEL_V1.md)。Trusted Channel
+不会放宽本页的代表调用审批与契约发布边界。
+
 - 三项默认关闭；Factory 开关只显示/运行复核，不隐式开启 Hub 或远程桥。
 - 未开启本机发布时仍可生成证据、决定和仓库契约导出。
 - 签名密钥缺失不会阻止主服务启动，但本地发布和已有本地契约全部 fail closed。

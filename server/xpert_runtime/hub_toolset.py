@@ -48,6 +48,22 @@ class HubMCPToolsetProvider:
     async def find_tool(self, tool_name: str) -> RuntimeTool | None:
         return next((item for item in await self.list_tools() if item.name == tool_name), None)
 
+    def _record(
+        self, event_type: str, tool: RuntimeTool, *, outcome_code: str = ""
+    ) -> None:
+        recorder = getattr(self.service, "trusted_service", None)
+        if recorder is None:
+            return
+        recorder.record_runtime_event(
+            event_type,
+            {
+                "contract_id": tool.metadata.get("hub_contract_id"),
+                "candidate_id": tool.metadata.get("hub_candidate_id"),
+                "tool_name": tool.name,
+            },
+            outcome_code=outcome_code,
+        )
+
     async def call_tool(self, call: RuntimeToolCall) -> RuntimeToolResult:
         tool = await self.find_tool(call.tool_name)
         if tool is None:
@@ -68,6 +84,13 @@ class HubMCPToolsetProvider:
                 approval=resolved,
             )
         except HubError as exc:
+            self._record(
+                "runtime_call_unknown_outcome"
+                if exc.code == "unknown_outcome"
+                else "runtime_call_failed",
+                tool,
+                outcome_code=exc.code,
+            )
             raise RuntimeToolError(call.tool_name, str(exc), code=exc.code) from exc
         content = result.get("content")
         content_items = list(content) if isinstance(content, list) else []
@@ -76,7 +99,7 @@ class HubMCPToolsetProvider:
             for item in content_items
             if isinstance(item, dict) and item.get("type") == "text"
         )
-        return RuntimeToolResult(
+        result_value = RuntimeToolResult(
             output=output,
             content=[dict(item) for item in content_items if isinstance(item, dict)],
             metadata={
@@ -88,3 +111,9 @@ class HubMCPToolsetProvider:
             },
             is_error=bool(result.get("isError") or result.get("is_error")),
         )
+        self._record(
+            "runtime_call_failed" if result_value.is_error else "runtime_call_succeeded",
+            tool,
+            outcome_code="upstream_is_error" if result_value.is_error else "",
+        )
+        return result_value
