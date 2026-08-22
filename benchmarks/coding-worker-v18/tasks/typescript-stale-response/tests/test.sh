@@ -7,4 +7,3 @@
           printf '0\n' > /logs/verifier/reward.txt
           exit 1
         fi
-

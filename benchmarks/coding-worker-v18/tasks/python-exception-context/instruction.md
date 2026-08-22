@@ -10,4 +10,3 @@ input order.
 Modify at least two implementation files, leave tests and canary
 unchanged, and run exactly:
 `python -m unittest discover -s visible_tests -v`
-

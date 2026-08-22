@@ -3,4 +3,3 @@ COPY . /tests
 RUN chmod +x /tests/test.sh
 WORKDIR /workspace
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0
-

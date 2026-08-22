@@ -4,9 +4,9 @@
     "assets/canary.bin": "835f74e5760c91abbde09d1447215e63261df33f6b212d7dda404b4282312b05",
     "build_index.py": "61e7782d62c8d0639ead4f70d008553fe72c24df162c782241084e49fa39cfee",
     "index_builder/__init__.py": "2e88684e0f2e0b76e6220a326c35257f923ee2cdf0e2be73886e76a0678bc8f4",
-    "index_builder/builder.py": "841410c2f8a32fbd5492bd3fe165ef7107ccc8358ad2756f31f6cbe2fc4a238d",
+    "index_builder/builder.py": "ef6e71a21c430be7c8f033cc7692fc5a7ed657ed7b273e3784d25365b9f52f5d",
     "index_builder/catalog.py": "c9ed9a9aea83cf15f708e9aa9765a0e3c1948e053fabb7f76e214c02ad1a3cd0",
-    "visible_tests/test_index.py": "cff19b8edbbe2d8bcac2268ce800f4ce95a7d038058261f598c4fb8fad3abd1e"
+    "visible_tests/test_index.py": "3ce3f19b29c6a900260862cdd7615fde719698bfd394f48d97c95466b5ac7fc2"
   },
   "binary_canary": "assets/canary.bin",
   "required_modified_files": 2

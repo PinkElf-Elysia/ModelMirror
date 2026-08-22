@@ -17,4 +17,3 @@ old = '''        value = await self._backend.fetch(normalized)\n        self._va
 new = '''        task = self._inflight.get(normalized)\n        if task is None:\n            task = asyncio.create_task(self._backend.fetch(normalized))\n            self._inflight[normalized] = task\n        try:\n            value = await asyncio.shield(task)\n        finally:\n            if task.done():\n                self._inflight.pop(normalized, None)\n        if normalized not in self._values:\n            self._values[normalized] = value\n            self._values.move_to_end(normalized)\n            while len(self._values) > self._capacity:\n                self._values.popitem(last=False)\n        return value\n'''
 cache.write_text(text.replace(old, new))
 PY
-

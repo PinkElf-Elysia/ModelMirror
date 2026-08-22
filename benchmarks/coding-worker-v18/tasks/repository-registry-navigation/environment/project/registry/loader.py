@@ -20,4 +20,3 @@ class Registry:
         if module is None:
             raise RegistryError(f'unknown entry: {name}')
         return Entry(canonical, module)
-

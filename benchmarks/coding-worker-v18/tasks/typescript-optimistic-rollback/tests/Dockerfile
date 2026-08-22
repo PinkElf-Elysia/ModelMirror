@@ -5,4 +5,3 @@ RUN npm ci --ignore-scripts
 COPY . /tests
 RUN chmod +x /tests/test.sh
 WORKDIR /workspace
-

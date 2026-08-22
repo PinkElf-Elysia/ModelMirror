@@ -10,4 +10,3 @@ implementation files, do not modify tests or `assets/canary.bin`,
 and run exactly:
 
 `python -m unittest discover -s visible_tests -v`
-

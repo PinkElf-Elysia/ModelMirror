@@ -1,8 +1,8 @@
 {
   "task_id": "repository-registry-navigation",
   "source_id": "v18-repository-registry-navigation",
-  "revision": "d81ee4b40f70bef99c7e454440c7c7151d6694bc2780ec80acbd6318addf292f",
-  "instruction_sha256": "2bf514c6b29df8e1d6a44f99372d8e439dc5ada638113ba22b978febe163d89c",
+  "revision": "c9d6bf5863da3e94f4c36e31529e23c460b0b0a29a0a00dfcb915646fc4c2f57",
+  "instruction_sha256": "d15f2e7a6ca122822d22114f129a6279ac0e812ec16e20643816ff572aed7e20",
   "scenario_sha256": null,
   "acceptance_sha256": "ea3578f5170a2eb30c4a6524991ba5d4437f71fd88f7d7447963dab5926caa5d",
   "acceptance": {

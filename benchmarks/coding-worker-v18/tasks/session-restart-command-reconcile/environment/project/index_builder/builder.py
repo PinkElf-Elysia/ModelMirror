@@ -10,4 +10,3 @@ def build_index(root: Path) -> None:
     output.write_text(json.dumps(existing))
     count = root / 'generated/build-count.txt'
     count.write_text(str(int(count.read_text()) + 1 if count.exists() else 1))
-

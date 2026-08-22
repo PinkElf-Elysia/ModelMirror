@@ -27,4 +27,3 @@ if len(changed) < policy['required_modified_files']:
 canary = policy['binary_canary']
 if current.get(canary) != baseline.get(canary):
     raise SystemExit('binary canary changed')
-

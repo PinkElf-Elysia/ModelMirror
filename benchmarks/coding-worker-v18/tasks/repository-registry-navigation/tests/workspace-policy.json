@@ -28,11 +28,11 @@
     "providers/provider_22.py": "1e7b15e9855c6ef6702ffacb19835feca87c6ba182e346a7f2620a6d5222a944",
     "providers/provider_23.py": "ac5d27d18c49dbdf62216312b585054754d92c4a1627222d6b8a632c2e9c99bc",
     "registry/__init__.py": "4753e1169eeab79a16dce66ad5e4f580a7a9b922be6374feb7fed6e9530879dc",
-    "registry/catalog.py": "019db031ff3cfb1f83d67f718beb2250795593270eef5c1846b58950452cced0",
-    "registry/graph.py": "1da2923f83edde21965825960cb41341b0ed19e3a31bd883b8513c920c699162",
-    "registry/loader.py": "e154594433e019d4113f8078035ea96ef147a76f425968143fc9efc978cb2682",
-    "registry/service.py": "ae07e20b0620b60718c7f2ab111987d0ae9b856539ef46d138437785f6df8193",
-    "visible_tests/test_registry.py": "93b8ec58115f23d081e1814ee425fb9ac2f9729a03243ef40b5baa1f4a553050"
+    "registry/catalog.py": "aa61ffe818bae6ef3bed9c80c608a692c2dd4cb09fd17e91cef23abc3a56d8e6",
+    "registry/graph.py": "73beae568e8627231def15986b91863618040cfe4b1a158dd5816e22cd9718ec",
+    "registry/loader.py": "91475f7ece9b401e290b789c828293bdd636a8519971a960150844d83c107c26",
+    "registry/service.py": "d3743934e4d23e628b20a5c44ef816e9d91f27d9c818d58239ea1a255d1a3f42",
+    "visible_tests/test_registry.py": "0915fee5eb461632004a51fd6a42471467cc940427569a197bd4c27e06f18a61"
   },
   "binary_canary": "assets/canary.bin",
   "required_modified_files": 2

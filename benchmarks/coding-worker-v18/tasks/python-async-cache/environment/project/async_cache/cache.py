@@ -23,4 +23,3 @@ class AsyncCache:
 
     def __len__(self) -> int:
         return len(self._values)
-

@@ -15,4 +15,3 @@ old = '''    def apply_batch(self, operations: list[dict[str, Any]]) -> None:\n 
 new = '''    def apply_batch(self, operations: list[dict[str, Any]]) -> None:\n        staged = deepcopy(self._data)\n        for index, raw in enumerate(operations):\n            path = str(raw.get('path', '<missing>'))\n            try:\n                action, path, value = validate_operation(raw)\n                self._apply_one(staged, action, path, value)\n            except (KeyError, TypeError, ValueError) as exc:\n                raise BatchConfigError(index, path) from exc\n        self._data = staged\n'''
 path.write_text(text.replace(old, new))
 PY
-

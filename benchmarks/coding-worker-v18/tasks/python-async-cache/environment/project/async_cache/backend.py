@@ -11,4 +11,3 @@ class RecordingBackend:
         self.calls.append(key)
         await asyncio.sleep(0)
         return await self._loader(key)
-

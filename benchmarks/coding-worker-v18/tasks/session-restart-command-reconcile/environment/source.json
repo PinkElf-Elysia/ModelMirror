@@ -1,8 +1,8 @@
 {
   "task_id": "session-restart-command-reconcile",
   "source_id": "v18-session-restart-command-reconcile",
-  "revision": "61a1cb41c05ace540e5acf2348e58e5dfec4ad72c09efd40407aa73f04c9d6f4",
-  "instruction_sha256": "71f6ca3def33d0cf6b1f2cbfbdf0d3493281a6d06758451a198f2d26c794b16d",
+  "revision": "a75b3fdf3e5f4fd76f38c5a0252d0e43d2297c52bdfbc239f930b98f5b0b3d89",
+  "instruction_sha256": "992b78f544d7e3c6cd5176b94ef66263d0199924ac76c2397a055b4a19c4c158",
   "scenario_sha256": "d9f4896e43300c4bc4704d9dcde171441b991edfdb903f24985a67e381320808",
   "acceptance_sha256": "3bb7b9797d9211e2184d7de063726784cdbdd08390062932aa947bad41bbaeb5",
   "acceptance": {

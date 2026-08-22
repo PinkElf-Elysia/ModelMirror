@@ -20,4 +20,3 @@ def process_records(source: str, records: list[str], *, continue_on_error: bool 
                 raise error
             failures.append(error)
     return BatchResult(tuple(values), tuple(failures))
-

@@ -1,8 +1,8 @@
 {
   "task_id": "session-steering-compaction",
   "source_id": "v18-session-steering-compaction",
-  "revision": "0626fb905b905bf234fd76e2de04e5c640b689499421a8372753285b68db3ae3",
-  "instruction_sha256": "badf778c7a7f8d0e10f6b1c8bd2f0268d5728fc44d01ff585de69bb501e50e34",
+  "revision": "bb66da26765ce6bf787ba7066ebb8f60794e1a830a810921651e45d3009b1614",
+  "instruction_sha256": "dce44576c21257c47b74a7b6c6f49e75bfcab4c1f3782e81683e292fd117dca6",
   "scenario_sha256": "a88608ce02b8f78882ef566f913d3ec50ea3deb671e26203f063dde3c02d3f3d",
   "acceptance_sha256": "6fcac9655f5b630c5a74a9ae822e1263cf18e6e266051d3a4fb6993ac30b5000",
   "acceptance": {

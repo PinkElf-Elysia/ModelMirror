@@ -1,7 +1,7 @@
 diff --git a/registry/loader.py b/registry/loader.py
 --- a/registry/loader.py
 +++ b/registry/loader.py
-@@ -1,23 +1,24 @@
+@@ -1,22 +1,23 @@
  from dataclasses import dataclass
  from .graph import AliasCycleError
 -
@@ -31,6 +31,4 @@ diff --git a/registry/loader.py b/registry/loader.py
          module = self.entries.get(canonical)
          if module is None:
              raise RegistryError(f'unknown entry: {name}')
-         return Entry(canonical, module)
--
-+
+        return Entry(canonical, module)

@@ -7,4 +7,3 @@ The harness will restart the executor after the command side effect
 but before its receipt; reconcile the original operation and do not
 issue a second command operation. Preserve the canary and update at
 least two implementation files.
-

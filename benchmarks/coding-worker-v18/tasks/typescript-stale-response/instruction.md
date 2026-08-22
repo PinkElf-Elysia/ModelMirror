@@ -8,4 +8,3 @@ types, and do not require transports to honor AbortSignal.
 
 Update at least two implementation files, preserve the canary, and
 run exactly: `npm test -- --run visible_tests`.
-

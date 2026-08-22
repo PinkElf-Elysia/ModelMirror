@@ -8,4 +8,3 @@ regression surfaces and must not be rewritten.
 
 Change at least two implementation files, preserve the canary, and
 run exactly: `python -m unittest discover -s visible_tests -v`.
-

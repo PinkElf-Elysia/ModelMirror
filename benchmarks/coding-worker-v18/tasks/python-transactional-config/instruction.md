@@ -9,4 +9,3 @@ failing zero-based index and dotted path while retaining its cause.
 Update at least two implementation files, leave tests and the canary
 unchanged, and run exactly:
 `python -m unittest discover -s visible_tests -v`
-

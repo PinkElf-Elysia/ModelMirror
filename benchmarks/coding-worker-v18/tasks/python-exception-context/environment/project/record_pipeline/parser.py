@@ -6,4 +6,3 @@ def parse_record(raw: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise TypeError('record must be an object')
     return value
-

@@ -1,8 +1,8 @@
 {
   "task_id": "typescript-command-palette-a11y",
   "source_id": "v18-typescript-command-palette-a11y",
-  "revision": "073cd7ed31f8c8c20ceccda530e46c3a57bf7cde7914fbd73bfa3aec89494b21",
-  "instruction_sha256": "d8c8b4074c6bfeed9c26b00a23eee030ad685be7f9a9d82690d2c31b15a21fe5",
+  "revision": "dd9778cf10abe0b1d564fc9b436015e93d017cf5ea06c422a0f0d70669f95eac",
+  "instruction_sha256": "4bd5d804b25eddee20898d085611f08156b06dfa1b87aa70174c2bc7479fded3",
   "scenario_sha256": null,
   "acceptance_sha256": "2b7b0615533ee371f7fca9ed0e14be6892998fc517b83cd6edc7205f167859a8",
   "acceptance": {

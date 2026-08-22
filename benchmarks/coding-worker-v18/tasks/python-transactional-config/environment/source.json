@@ -1,8 +1,8 @@
 {
   "task_id": "python-transactional-config",
   "source_id": "v18-python-transactional-config",
-  "revision": "f71308385a3d568d9c6ab13cc58415e5c593555001028e871d52363b35478c29",
-  "instruction_sha256": "d9f5cc957b1dca3027822b6b54d0116ff1ac9f9f322aeb884f6b1181f1f8e58f",
+  "revision": "ceb6398f9a2658337c466c262493a64f80049fb039170d945888c483860ed338",
+  "instruction_sha256": "db0ba2cd5cff5b16d9b88e3e0f7fb62edb47bd367fd476f3f22a13b825da64ec",
   "scenario_sha256": null,
   "acceptance_sha256": "293bcac58e30c47f2b9c5cf7f7a7cd230601c57655497e0e7f83dd8815f89afc",
   "acceptance": {

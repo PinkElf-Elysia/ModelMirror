@@ -10,4 +10,3 @@ def generate(schema: dict[str, Any]) -> str:
 PY
 cd /workspace
 python -m scripts.regenerate
-

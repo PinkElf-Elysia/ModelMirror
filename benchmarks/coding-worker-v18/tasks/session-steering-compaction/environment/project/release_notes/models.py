@@ -4,4 +4,3 @@ class Note:
     component: str
     severity: str
     title: str
-

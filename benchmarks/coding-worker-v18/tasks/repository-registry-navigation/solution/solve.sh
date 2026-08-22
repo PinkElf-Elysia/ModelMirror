@@ -24,4 +24,3 @@ text = path.read_text().replace('from .graph import AliasCycleError', 'from .gra
 text = text.replace('canonical = self.aliases.get(name, name)', 'canonical = follow_aliases(name, self.aliases)')
 path.write_text(text)
 PY
-

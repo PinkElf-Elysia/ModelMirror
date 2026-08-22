@@ -1,8 +1,8 @@
 {
   "task_id": "repository-schema-codegen",
   "source_id": "v18-repository-schema-codegen",
-  "revision": "7ad0e3f3dc0bd901cfbb4be9e0b982ec2395833b2ee433b9c5a2cd047422fda4",
-  "instruction_sha256": "f70e8f687a49931814f25f130ee252ea9334b18519f133d9b68947021974beeb",
+  "revision": "99228bde30d882e62df348bce513aeec3a849860f34796292bf8540ec66a6bbc",
+  "instruction_sha256": "8c8a4a11242e260e37ce0f894556df119ab8a9c15f280843837a2bda5b4a9de0",
   "scenario_sha256": null,
   "acceptance_sha256": "e8d6bd0ee060a307c8c0c9e9991016b2476fca7e541c035effefb097823b0e16",
   "acceptance": {

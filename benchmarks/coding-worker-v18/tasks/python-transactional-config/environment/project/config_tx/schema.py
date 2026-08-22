@@ -8,4 +8,3 @@ def validate_operation(operation: dict[str, Any]) -> tuple[str, str, Any]:
     if not isinstance(path, str) or not path or '..' in path:
         raise ValueError('invalid path')
     return action, path, operation.get('value')
-

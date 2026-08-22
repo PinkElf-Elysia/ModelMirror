@@ -8,4 +8,3 @@ ordering and the public hook API.
 
 Update at least two implementation files, preserve the canary, and
 run exactly: `npm test -- --run visible_tests`.
-

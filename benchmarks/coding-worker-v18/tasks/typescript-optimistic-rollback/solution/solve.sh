@@ -21,4 +21,3 @@ export function useOptimisticTodos(initial: Todo[], save: SaveTodo) {
   return { todos, update }
 }
 TS
-

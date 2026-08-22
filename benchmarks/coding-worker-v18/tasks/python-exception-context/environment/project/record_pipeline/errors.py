@@ -1,3 +1,2 @@
 class ProcessingError(RuntimeError):
     pass
-

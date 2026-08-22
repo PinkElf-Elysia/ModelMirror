@@ -7,4 +7,3 @@ must work, and unrelated billing imports must remain unchanged.
 
 Change at least two files, preserve the canary, and run exactly:
 `python -m unittest discover -s visible_tests -v`.
-

@@ -5,4 +5,3 @@ export type SearchState = {
   results: Profile[]
   error: string | null
 }
-

@@ -16,4 +16,3 @@ start = text.index('def process_records')
 replacement = '''def process_records(source: str, records: list[str], *, continue_on_error: bool = False) -> BatchResult:\n    values = []\n    failures = []\n    for index, raw in enumerate(records):\n        stage = 'parse'\n        try:\n            parsed = parse_record(raw)\n            stage = 'normalize'\n            values.append(normalize_record(parsed))\n        except (KeyError, TypeError, ValueError) as exc:\n            error = ProcessingError(source=source, index=index, stage=stage)\n            if not continue_on_error:\n                raise error from exc\n            try:\n                raise error from exc\n            except ProcessingError as captured:\n                failures.append(captured)\n    return BatchResult(tuple(values), tuple(failures))\n'''
 path.write_text(text[:start] + replacement)
 PY
-

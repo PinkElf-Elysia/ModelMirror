@@ -12,4 +12,3 @@ def round_money(value: Decimal) -> Decimal:
         raise RuntimeError('rounding policy mismatch')
     return value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 PY
-

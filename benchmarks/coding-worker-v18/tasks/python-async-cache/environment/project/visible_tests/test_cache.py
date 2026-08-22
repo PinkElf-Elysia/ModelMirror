@@ -25,4 +25,3 @@ class VisibleTests(unittest.IsolatedAsyncioTestCase):
         release.set()
         self.assertEqual(await asyncio.gather(*calls), ["value:n:1"] * 8)
         self.assertEqual(backend.calls, ["n:1"])
-

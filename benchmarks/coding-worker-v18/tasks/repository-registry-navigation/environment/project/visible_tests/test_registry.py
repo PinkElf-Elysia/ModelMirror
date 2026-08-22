@@ -7,4 +7,3 @@ class VisibleTests(unittest.TestCase):
 
     def test_transitive_alias(self) -> None:
         self.assertEqual(default_registry().resolve('fast').name, 'provider-07')
-

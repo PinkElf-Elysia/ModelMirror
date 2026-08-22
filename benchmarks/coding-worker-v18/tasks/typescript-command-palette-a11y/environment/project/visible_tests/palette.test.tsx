@@ -10,4 +10,3 @@ describe('palette', () => {
     expect(run).toHaveBeenCalledOnce()
   })
 })
-

@@ -9,4 +9,3 @@ class VisibleTests(unittest.TestCase):
     def test_currency_validation(self) -> None:
         with self.assertRaisesRegex(ValueError, 'unsupported currency'):
             invoice_total([Decimal('1')], 'JPY')
-

@@ -8,7 +8,7 @@
     "assets/canary.bin": "5b9a0b98b6e522ebdd11ffdfdfce75a8a41414ade17d0735ab9eca47bdab8137",
     "config/plugins.json": "8422d5885340d9c2ca699161af6008eaed2fe1d1ac0cf0e6e9161929267f0860",
     "plugin_registry.py": "e9945c82b2b15bfa07d6b54c4dd278e9a32a4a3e813af104559046f008ab90d6",
-    "visible_tests/test_app.py": "eef517c7303a276c0de185a1f51db092d272a918446ce1ffa2e489ce73ec2029"
+    "visible_tests/test_app.py": "e78ffbf63c1e806cc517828bbc0437af6b786da2154671b92d015ab64a924d9c"
   },
   "binary_canary": "assets/canary.bin",
   "required_modified_files": 2

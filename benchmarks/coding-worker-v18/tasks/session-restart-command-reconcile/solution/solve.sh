@@ -18,4 +18,3 @@ def build_index(root: Path) -> None:
 PY
 cd /workspace
 python -m build_index
-

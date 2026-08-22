@@ -10,4 +10,3 @@ class VisibleTests(unittest.TestCase):
     def test_fail_fast_uses_processing_error(self) -> None:
         with self.assertRaises(ProcessingError):
             process_records('upload-7', ['not-json'])
-

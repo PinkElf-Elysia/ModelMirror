@@ -23,4 +23,3 @@ const names = new Set([...Object.keys(policy.baseline), ...Object.keys(current)]
 const changed = [...names].filter(name => policy.baseline[name] !== current[name])
 if (changed.length < policy.required_modified_files) throw new Error('insufficient multi-file change')
 if (current[policy.binary_canary] !== policy.baseline[policy.binary_canary]) throw new Error('binary canary changed')
-

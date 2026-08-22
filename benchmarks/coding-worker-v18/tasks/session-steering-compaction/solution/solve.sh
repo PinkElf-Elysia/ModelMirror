@@ -17,4 +17,3 @@ def order_notes(notes: list[Note]) -> list[Note]:
         component_order.setdefault(item.component, len(component_order))
     return sorted(notes, key=lambda item: (component_order[item.component], SEVERITY_ORDER.get(item.severity, 3), item.title))
 PY
-

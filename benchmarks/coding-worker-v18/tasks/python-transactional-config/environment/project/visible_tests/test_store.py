@@ -19,4 +19,3 @@ class VisibleTests(unittest.TestCase):
                 {'action': 'set', 'path': 'service.port.value', 'value': 1},
             ])
         self.assertEqual(store.snapshot(), before)
-

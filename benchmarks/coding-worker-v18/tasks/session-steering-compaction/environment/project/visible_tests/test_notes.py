@@ -5,4 +5,3 @@ class VisibleTests(unittest.TestCase):
     def test_formats_every_note(self) -> None:
         result = format_notes([Note('api', 'normal', 'B'), Note('web', 'high', 'A')])
         self.assertIn('[api] normal: B', result); self.assertIn('[web] high: A', result)
-

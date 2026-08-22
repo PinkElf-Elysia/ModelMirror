@@ -7,4 +7,3 @@ class CacheKey:
 
     def normalized(self) -> str:
         return f"{self.namespace.strip().lower()}:{self.value.strip()}"
-

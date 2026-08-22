@@ -11,4 +11,3 @@ describe('ProfileSearch', () => {
     expect(screen.getByText('ADA')).toBeTruthy()
   })
 })
-

@@ -6,4 +6,3 @@ export function useCommandPalette(commands: Command[], query: string) {
   const [selected, setSelected] = useState(0)
   return { visible, selected, setSelected }
 }
-

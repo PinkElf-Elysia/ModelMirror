@@ -6,4 +6,3 @@ def generate(schema: dict[str, Any]) -> str:
     for name, spec in schema['properties'].items():
         lines.append(f'    {name}: {spec["type"]}')
     return '\n'.join(lines) + '\n'
-

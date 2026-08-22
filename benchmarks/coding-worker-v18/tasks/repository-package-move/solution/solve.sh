@@ -14,4 +14,3 @@ payload = json.loads(config.read_text())
 payload['report'] = payload['report'].replace('acme.reporting', 'acme.analytics')
 config.write_text(json.dumps(payload, sort_keys=True) + '\n')
 PY
-

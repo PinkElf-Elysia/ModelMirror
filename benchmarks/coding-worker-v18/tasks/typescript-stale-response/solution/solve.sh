@@ -34,4 +34,3 @@ export function useProfileSearch(query: string, fetchProfiles: FetchProfiles): S
   return state
 }
 TS
-

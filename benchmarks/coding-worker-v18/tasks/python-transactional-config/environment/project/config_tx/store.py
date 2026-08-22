@@ -37,4 +37,3 @@ class ConfigStore:
             node[parts[-1]] = deepcopy(value)
         else:
             del node[parts[-1]]
-

@@ -6,4 +6,3 @@ class VisibleTests(unittest.TestCase):
         path = Path('generated/index.json')
         if path.exists():
             self.assertIn('entries', json.loads(path.read_text()))
-

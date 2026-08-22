@@ -25,4 +25,3 @@ export function CommandPalette({ open, query, commands, onClose }: { open: boole
   return <div className="overlay"><div role="dialog" aria-modal="true" aria-labelledby="command-palette-title" onKeyDown={event => { if (event.key === 'Escape') onClose(); else if (event.key === 'ArrowDown') { event.preventDefault(); move(1) } else if (event.key === 'ArrowUp') { event.preventDefault(); move(-1) } else if (event.key === 'Enter') { event.preventDefault(); invoke() } }}><h2 id="command-palette-title">Commands</h2><ul>{visible.map((command, index) => <li key={command.id}><button ref={node => { buttons.current[index] = node }} disabled={command.disabled} aria-selected={index === selected} onMouseEnter={() => !command.disabled && setSelected(index)} onClick={invoke}>{command.label}</button></li>)}</ul></div></div>
 }
 TS
-
