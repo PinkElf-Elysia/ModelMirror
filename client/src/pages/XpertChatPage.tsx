@@ -9,6 +9,9 @@ import SandboxWorkspacePanel from "../components/runtime/SandboxWorkspacePanel";
 import DataXResultCard from "../components/datax/DataXResultCard";
 import FileOutputTray from "../components/FileOutputTray";
 import FileMemoryPanel from "../components/xpert/FileMemoryPanel";
+import SkillApplicationCard, {
+  requiredSkillIdsFromWorkflowNodes,
+} from "../components/skill-runtime/SkillApplicationCard";
 import SkillCreatorCaptureButton, {
   xpertMessageCaptureSource,
 } from "../components/skill-creator/SkillCreatorCaptureButton";
@@ -66,6 +69,14 @@ interface XpertRunEvent {
   status?: string;
   candidate_id?: string;
   activated_skill_id?: string;
+  skill_id?: string;
+  skill_version_id?: string;
+  requirement?: "required" | "available";
+  required_skill_ids?: string[];
+  available_skill_ids?: string[];
+  resource_count?: number;
+  resource_paths?: string[];
+  error_code?: string;
   source_ref?: string;
   result_count?: number;
   sequence?: number;
@@ -264,6 +275,14 @@ function eventSummary(event: XpertRunEvent) {
   if (event.event === "workflow_end") return "最终回答已生成";
   if (event.event === "error") return event.message || "运行失败";
   if (event.event === "skill_runtime_status") {
+    if (event.status === "required") return `必须应用：${event.skill_id ?? "Skill"}`;
+    if (event.status === "available") return `插件提供，可选：${event.skill_id ?? "Skill"}`;
+    if (event.status === "reading") return `已读取：${event.skill_id ?? "Skill"}`;
+    if (event.status === "staged") return `已暂存 ${event.resource_count ?? 0} 个 Skill 资源`;
+    if (event.status === "resource_accessed") return `实际读取 ${event.resource_count ?? 0} 个支持资源`;
+    if (event.status === "repair_requested") return "已请求模型补做 Skill 读取";
+    if (event.status === "verified") return "Skill 应用门已通过";
+    if (event.status === "failed") return `Skill 应用未通过：${event.error_code ?? "unknown"}`;
     if (event.status === "find") return `本地 Skill 检索完成：${event.result_count ?? 0} 项候选`;
     if (event.status === "enable") return `已为本轮激活 ${event.activated_skill_id ?? event.candidate_id ?? "Skill"}`;
     if (event.status === "install") return `已安装并仅授权本轮使用：${event.activated_skill_id ?? "Skill"}`;
@@ -271,6 +290,23 @@ function eventSummary(event: XpertRunEvent) {
     if (event.status === "reject") return `已拒绝候选：${event.candidate_id ?? "Skill"}`;
   }
   return event.output || event.message || event.node_title || event.event;
+}
+
+export function parseXpertWorkflowEvents(text: string): XpertRunEvent[] {
+  const parsed: XpertRunEvent[] = [];
+  text.split(/\r?\n\r?\n/).forEach((block) => {
+    block.split(/\r?\n/).forEach((line) => {
+      if (!line.startsWith("data:")) return;
+      const raw = line.slice(5).trim();
+      if (!raw || raw === "[DONE]") return;
+      try {
+        parsed.push(JSON.parse(raw) as XpertRunEvent);
+      } catch {
+        // A malformed historical event must not break conversation recovery.
+      }
+    });
+  });
+  return parsed;
 }
 
 function roleCopy(role: XpertConversationMessage["role"]) {
@@ -411,6 +447,10 @@ export default function XpertChatPage() {
     () => publishedVersions.find((item) => item.version === version) ?? null,
     [publishedVersions, version],
   );
+  const expectedRequiredSkillIds = useMemo(
+    () => requiredSkillIdsFromWorkflowNodes(activeVersion?.workflow.nodes ?? []),
+    [activeVersion],
+  );
   const versionFeatures = activeVersion?.features ?? null;
   const openingQuestions = versionFeatures
     ? (versionFeatures.opening.enabled ? versionFeatures.opening.questions : [])
@@ -478,6 +518,7 @@ export default function XpertChatPage() {
     setFiles([]);
     setFileOutputs([]);
     setSelectedFileIds([]);
+    setEvents([]);
     setContextLoading(true);
     setError("");
     try {
@@ -508,6 +549,29 @@ export default function XpertChatPage() {
       setMemoryCandidates(candidatePayload.items);
       setTodos(todoItems);
       setToolMemories(toolMemoryPayload.items);
+      const linkedMessage = [...(conversation.messages ?? [])]
+        .reverse()
+        .find((message) => message.role === "assistant" && message.source_task_id);
+      if (linkedMessage?.source_task_id) {
+        try {
+          const response = await fetch(
+            `/api/workflow/run/${encodeURIComponent(linkedMessage.source_task_id)}/stream?after_sequence=0`,
+          );
+          if (response.ok) {
+            const restored = parseXpertWorkflowEvents(await response.text())
+              .filter((event) => event.event === "skill_runtime_status")
+              .slice(-80);
+            if (isCurrentXpertConversationRequest(
+              requestToken,
+              conversationRequestTokenRef.current,
+              nextConversationId,
+              conversationIdRef.current,
+            )) setEvents(restored);
+          }
+        } catch {
+          // Historical Skill status is best-effort; the conversation stays usable.
+        }
+      }
     } catch (caught) {
       if (isCurrentXpertConversationRequest(
         requestToken,
@@ -1512,6 +1576,12 @@ export default function XpertChatPage() {
             <div className="rounded-lg border border-white/10 bg-white/[0.04] p-3"><dt className="text-slate-500">状态</dt><dd className="mt-1 font-semibold text-white">{running ? "运行中" : trace?.run?.status ?? "待运行"}</dd></div>
             <div className="col-span-2 rounded-lg border border-white/10 bg-white/[0.04] p-3"><dt className="text-slate-500">Run ID</dt><dd className="mt-1 break-all font-mono text-[11px] text-slate-300">{runId || "-"}</dd></div>
           </dl>
+
+          <SkillApplicationCard
+            className="mt-3"
+            events={events}
+            expectedRequiredSkillIds={expectedRequiredSkillIds}
+          />
 
           <button
             className="mt-3 w-full rounded-lg border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-100"

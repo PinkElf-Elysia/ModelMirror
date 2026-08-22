@@ -396,6 +396,13 @@ export interface WorkflowRunEvent {
   duration_ms?: number;
   candidate_id?: string;
   activated_skill_id?: string;
+  skill_id?: string;
+  skill_version_id?: string;
+  requirement?: "required" | "available";
+  required_skill_ids?: string[];
+  available_skill_ids?: string[];
+  resource_count?: number;
+  resource_paths?: string[];
   source_ref?: string;
   result_count?: number;
 }

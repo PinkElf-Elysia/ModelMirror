@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 
@@ -521,6 +521,13 @@ class WorkflowExecutionStore:
             "error_code",
             "tool_name",
             "status",
+            "skill_id",
+            "skill_version_id",
+            "requirement",
+            "required_skill_ids",
+            "available_skill_ids",
+            "resource_count",
+            "resource_paths",
             "candidate_id",
             "activated_skill_id",
             "source_ref",
@@ -557,6 +564,50 @@ class WorkflowExecutionStore:
         for key in ("session_id", "error_code"):
             if key in clean:
                 clean[key] = str(clean[key] or "")[:200]
+        for key in ("skill_id", "skill_version_id"):
+            if key in clean:
+                clean[key] = str(clean[key] or "")[:200]
+        if "requirement" in clean:
+            requirement = str(clean["requirement"] or "").strip()
+            clean["requirement"] = (
+                requirement if requirement in {"required", "available"} else ""
+            )
+        for key in ("required_skill_ids", "available_skill_ids"):
+            if key in clean:
+                values = clean[key] if isinstance(clean[key], list) else []
+                clean[key] = [str(value)[:200] for value in values[:200]]
+        if "resource_count" in clean:
+            value = clean["resource_count"]
+            clean["resource_count"] = (
+                min(2_000, max(0, int(value)))
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else 0
+            )
+        if "resource_paths" in clean:
+            values = (
+                clean["resource_paths"]
+                if isinstance(clean["resource_paths"], list)
+                else []
+            )
+            safe_paths: list[str] = []
+            for value in values[:100]:
+                raw_path = str(value or "").strip().replace("\\", "/")
+                path = PurePosixPath(raw_path)
+                if (
+                    not raw_path
+                    or "\x00" in raw_path
+                    or len(raw_path) > 240
+                    or path.is_absolute()
+                    or any(part in {"", ".", ".."} for part in path.parts)
+                    or (path.parts and ":" in path.parts[0])
+                ):
+                    continue
+                normalized = path.as_posix()
+                if normalized not in safe_paths:
+                    safe_paths.append(normalized)
+                if len(safe_paths) == 12:
+                    break
+            clean["resource_paths"] = safe_paths
         for key in ("message", "final_output"):
             if key in clean:
                 clean[key] = str(clean[key] or "")[:200_000]

@@ -6,6 +6,7 @@ import {
   consumeSelectedXpertFiles,
   fileOutputsForRun,
   isCurrentXpertConversationRequest,
+  parseXpertWorkflowEvents,
   selectedXpertFilesAfterConversationRestore,
   selectedXpertFilesAfterRefresh,
   unassociatedXpertFileOutputs,
@@ -17,6 +18,20 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+it("recovers structured Skill application events and ignores malformed history", () => {
+  const events = parseXpertWorkflowEvents([
+    'data: {"event":"skill_runtime_status","status":"required","skill_id":"pdf"}',
+    "",
+    "data: not-json",
+    "",
+    'data: {"event":"skill_runtime_status","status":"verified","required_skill_ids":["pdf"]}',
+    "",
+  ].join("\n"));
+
+  expect(events).toHaveLength(2);
+  expect(events[1]).toMatchObject({ status: "verified" });
 });
 
 function file(assetId: string): XpertFileAsset {

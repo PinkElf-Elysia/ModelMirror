@@ -272,7 +272,7 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 
 ### 4.1 Skill Runtime Guidance V2 基础门
 
-`SKILL_RUNTIME_GUIDANCE_V2_ENABLED=true` 可在经典 Workflow 及其发布后的私有 Xpert 中启用真实应用门。用户显式选择、或本轮通过 `skill_enable` / `skill_install` 激活的 Skill 属于 `required`；插件附带及 `auto_discover` 候选保持 `available`，不会因为可见就冻结全部已安装 Skill。
+`SKILL_RUNTIME_GUIDANCE_V2_ENABLED=true` 默认在经典 Workflow 及其发布后的私有 Xpert 中启用真实应用门。用户显式选择、或本轮通过 `skill_enable` / `skill_install` 激活的 Skill 属于 `required`；插件附带及 `auto_discover` 候选保持 `available`，不会因为可见就冻结全部已安装 Skill。
 
 服务端在模型调用前固定 Skill 版本、内容摘要与信任指纹，并在接受最终答案或执行副作用、敏感、审批及 terminal 工具前核验同一运行的 `SkillApplicationReceipt`。存在必用 Skill 时会跳过基于模型的 Tool Selector，保留完整已授权工具集合，避免选择器先消耗模型额度或移除 Skill 所需能力。首次缺少 `skill_read` 时只允许一次服务端纠偏；再次遗漏会以稳定错误终止 Workflow，不创建审批卡或放行工具。`SKILL_APPLICATION_RECEIPT_MODE=off` 时该门失败关闭。
 
@@ -280,7 +280,9 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 
 资源访问凭据只保存 Skill 相对路径、实际/预期摘要和工具名称，不保存搜索词、正文或工具参数。`skill_stage` 后的服务端映射绑定当前 Workspace、Skill 版本和内容合同，审批恢复继续使用同一映射；资源发生变化时 receipt 转为 `unverified`。
 
-本批次默认保持开关关闭，不改变旧节点数据。回退只需设回 `false` 并重启 Server；已有 Workflow、安装数据和 receipt 均保留。结构化运行卡将在后续批次交付。
+工作流配置面板以可删除标签维护必用 Skill；自动发现、目录检索和审批式安装收在高级选项中。WorkflowRun 与私有 Xpert Chat 使用同一张应用卡展示 `required / available / reading / staged / resource_accessed / repair_requested / verified / failed`，刷新后从持久化执行事件恢复。卡片只显示 Skill ID、版本标识、资源数量和有界相对路径；调用 `skill_read` 证明正文已交付给模型，但不等于输出语义质量已认证。
+
+旧节点无需迁移即可采用 V2，节点数据和既有 receipt 不会被重写。回退只需设置 `SKILL_RUNTIME_GUIDANCE_V2_ENABLED=false` 并重启 Server；已有 Workflow、安装数据和 receipt 均保留。
 
 ## 5. 测试指南
 

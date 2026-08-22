@@ -89,8 +89,27 @@ class SkillRuntimeGuidancePlanV2:
 
 def skill_runtime_guidance_enabled() -> bool:
     return os.getenv(
-        "SKILL_RUNTIME_GUIDANCE_V2_ENABLED", "false"
+        "SKILL_RUNTIME_GUIDANCE_V2_ENABLED", "true"
     ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def skill_guidance_plan_status_events(
+    plan: SkillRuntimeGuidancePlanV2,
+) -> tuple[dict[str, Any], ...]:
+    """Project a guidance plan into bounded, content-free runtime events."""
+
+    return tuple(
+        {
+            "event": "skill_runtime_status",
+            "status": entry.requirement,
+            "skill_id": entry.skill_id,
+            "requirement": entry.requirement,
+            "skill_version_id": entry.version_id,
+            "source_kind": entry.source_kind,
+            "run_id": plan.run_id,
+        }
+        for entry in plan.entries
+    )
 
 
 def build_skill_runtime_guidance_plan(

@@ -144,7 +144,7 @@ Todo 管理接口：
 
 ## Sandbox Files / Shell / Skills Runtime
 
-`sandbox_files`、`sandbox_shell` 与 `skills_runtime` 已进入真实执行。绑定后的 `workflow_agent` 会按运行来源创建隔离工作区，并注册文件、命令、Skill 和产物工具；只启用 Sandbox 时不会隐式暴露 MCP 工具。
+`sandbox_files`、`sandbox_shell` 与 `skills_runtime` 已进入真实执行。绑定后的 `workflow_agent` 会按运行来源创建隔离工作区，并注册文件、命令、Skill 和产物工具；只启用 Sandbox 时不会隐式暴露 MCP 工具。`skills_runtime` 中用户选定的 Skill 必须实际调用 `skill_read`，插件附带和自动发现候选默认可选；运行卡会区分选择、读取、资源消费、自动纠偏和最终核验。
 
 sidecar 完全断网且不挂载主服务源码、`.env` 或密钥。命令只接受 argv 数组和固定白名单，工作区路径拒绝绝对路径、`..` 与 symlink 逃逸。每个副作用工具调用使用稳定 operation ID，HITL 恢复不会重复执行已完成操作。
 

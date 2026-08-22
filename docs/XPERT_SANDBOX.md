@@ -60,7 +60,7 @@ Skill 工具：
 
 `sandbox_shell` 只接受 argv 数组，不解析 shell 字符串、管道、重定向或命令替换。允许命令由中间件配置与服务端固定上限共同约束，超时会终止整个进程组，输出最多保留 64 KB。每次调用携带稳定 operation ID；已经完成的副作用操作在 HITL 恢复或请求重放时返回原结果，不重复执行。
 
-Skill 必须先由用户安装。`skills_runtime` 固定 1 至 10 个 Skill ID，发布 Xpert 时验证其存在；`skill_stage` 排除 `.git`、symlink、超限文件和路径逃逸。Skill 不会自动执行，脚本仍须通过 `sandbox_shell` 并经过权限、HITL 与审计链路。
+Skill 必须先由用户安装。`skills_runtime` 可选择 1 至 10 个必用 Skill，发布 Xpert 时验证其存在；插件附带和自动发现候选保持可选，只有本轮主动启用后才升级为必用。Agent 必须实际调用 `skill_read`，需要支持资源时再调用 `skill_stage`；后者排除 `.git`、symlink、超限文件和路径逃逸。Skill 脚本不会自动执行，仍须通过 `sandbox_shell`、命令白名单、信任检查与 HITL 审批链路。
 
 ## HITL 与安全顺序
 

@@ -16,7 +16,7 @@ import {
   type OnConnectEnd,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Upload } from "lucide-react";
+import { Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DEFAULT_WORKFLOW_AGENT_MODEL_ID } from "../../data/modelOptions";
@@ -113,6 +113,29 @@ const nodeConfigResourceCache = new Map<
   { data: unknown; at: number }
 >();
 const NODE_CONFIG_CACHE_TTL_MS = 60_000;
+
+export function parseSkillRuntimeIds(value: unknown): string[] {
+  return [...new Set(
+    String(value ?? "")
+      .split(/[,\n]+/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+  )];
+}
+
+export function updateSkillRuntimeIds(
+  value: unknown,
+  skillId: string,
+  action: "add" | "remove",
+): string {
+  const cleanSkillId = skillId.trim();
+  const current = parseSkillRuntimeIds(value);
+  if (!cleanSkillId) return current.join(", ");
+  if (action === "remove") {
+    return current.filter((item) => item !== cleanSkillId).join(", ");
+  }
+  return [...new Set([...current, cleanSkillId])].join(", ");
+}
 
 async function cachedFetchResource<T>(
   key: string,
@@ -2054,6 +2077,11 @@ function AgentStudioPanel({
                             ? String(resource.data.toolsetId || "未选择 Toolset")
                             : String(resource.data.pluginId || "未选择 Plugin")}
                     </span>
+                    {resource.data.kind === "plugin_resource" ? (
+                      <span className="mt-1 block text-[10px] text-cyan-100/70">
+                        插件提供的 Skill 为可选，Agent 主动启用后才必须读取
+                      </span>
+                    ) : null}
                   </span>
                 </button>
               ))}
@@ -2682,6 +2710,7 @@ function NodeConfig({
   const [publishedXperts, setPublishedXperts] = useState<XpertSummary[]>([]);
   const [publishedXpertsError, setPublishedXpertsError] = useState("");
   const [installedSkills, setInstalledSkills] = useState<TrustSelectableSkill[]>([]);
+  const [showSkillAdvancedOptions, setShowSkillAdvancedOptions] = useState(false);
   const [visionModels, setVisionModels] = useState<
     Array<{ model_id: string; label: string }>
   >([]);
@@ -2864,8 +2893,16 @@ function NodeConfig({
     : undefined;
   const skillCreatorMiddleware = isSkillCreatorMiddleware(data);
   const legacySkillCreatorMiddleware = isLegacySkillCreatorMiddleware(data);
+  const skillRuntimeMiddleware =
+    data.kind === "runtime_middleware"
+    && data.runtimeMiddlewareId === "skills_runtime";
   const visibleRuntimeMiddlewareFields = (data.runtimeMiddlewareFields ?? []).filter(
     (field) => {
+      if (
+        skillRuntimeMiddleware
+        && field.name !== "skill_ids"
+        && !showSkillAdvancedOptions
+      ) return false;
       if (!skillCreatorMiddleware) return true;
       if (field.name === "authoring_mode") return false;
       if (legacySkillCreatorMiddleware) return true;
@@ -2876,13 +2913,15 @@ function NodeConfig({
   );
   const appendTrustedSkill = (skillId: string) => {
     if (!skillId || !runtimeMiddlewareConfig) return;
-    const current = String(runtimeMiddlewareConfig.skill_ids ?? "")
-      .split(/[,\n]+/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-    if (!current.includes(skillId)) current.push(skillId);
-    onRuntimeMiddlewareConfigChange(node.id, "skill_ids", current.join(", "));
+    onRuntimeMiddlewareConfigChange(
+      node.id,
+      "skill_ids",
+      updateSkillRuntimeIds(runtimeMiddlewareConfig.skill_ids, skillId, "add"),
+    );
   };
+  const selectedRuntimeSkillIds = parseSkillRuntimeIds(
+    runtimeMiddlewareConfig?.skill_ids,
+  );
   const boundMiddlewares =
     data.kind === "workflow_agent"
       ? edges
@@ -4049,7 +4088,9 @@ function NodeConfig({
             </p>
           ) : (
             <>
-              <p className="text-xs font-semibold text-slate-300">中间件配置</p>
+              <p className="text-xs font-semibold text-slate-300">
+                {skillRuntimeMiddleware ? "必须实际应用的 Skill" : "中间件配置"}
+              </p>
               {visibleRuntimeMiddlewareFields.map((field) => (
                 <Field
                   key={field.name}
@@ -4120,24 +4161,62 @@ function NodeConfig({
                         skills={installedSkills}
                         value=""
                       />
-                      <textarea
-                        className={`${textInputClass()} min-h-24 resize-none leading-6`}
-                        onChange={(event) =>
-                          updateRuntimeMiddlewareConfig(
-                            field.name,
-                            event.target.value,
-                          )
-                        }
-                        placeholder={field.placeholder}
-                        rows={field.rows ?? 3}
-                        value={runtimeMiddlewareStringValue(
-                          runtimeMiddlewareConfig,
-                          field,
-                        )}
-                      />
+                      {selectedRuntimeSkillIds.length > 0 ? (
+                        <div className="flex flex-wrap gap-2 rounded-lg border border-white/10 bg-white/[0.035] p-2.5">
+                          {selectedRuntimeSkillIds.map((skillId) => {
+                            const installed = installedSkills.find(
+                              (skill) => skill.skill_id === skillId,
+                            );
+                            return (
+                              <span
+                                className="inline-flex max-w-full items-center gap-2 rounded-full border border-cyan-300/25 bg-cyan-300/10 py-1 pl-2.5 pr-1.5 text-xs text-cyan-50"
+                                key={skillId}
+                              >
+                                <span className="min-w-0 truncate">
+                                  {installed?.name || skillId}
+                                </span>
+                                <button
+                                  aria-label={`移除必用 Skill：${installed?.name || skillId}`}
+                                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-cyan-100 transition hover:bg-cyan-200/15 focus-visible:outline-none"
+                                  onClick={() =>
+                                    updateRuntimeMiddlewareConfig(
+                                      field.name,
+                                      updateSkillRuntimeIds(
+                                        runtimeMiddlewareConfig?.skill_ids,
+                                        skillId,
+                                        "remove",
+                                      ),
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  <X aria-hidden="true" size={13} />
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="rounded-lg border border-dashed border-white/15 bg-white/[0.025] px-3 py-3 text-xs leading-5 text-slate-400">
+                          尚未选择必用 Skill。选择后，Agent 必须先调用 skill_read 才能提交答案或执行副作用工具。
+                        </p>
+                      )}
                       <p className="text-[11px] leading-5 text-slate-500">
-                        手工输入仍会在保存和运行时由 Server 重新校验；禁用项不能通过选择器加入。
+                        脚本不会自动运行。如 Skill 需要执行脚本，还要单独绑定 Sandbox Shell 和命令白名单。
                       </p>
+                      <button
+                        aria-expanded={showSkillAdvancedOptions}
+                        className="text-left text-xs font-semibold text-slate-300 underline decoration-white/20 underline-offset-4 transition hover:text-white"
+                        onClick={() => setShowSkillAdvancedOptions((current) => !current)}
+                        type="button"
+                      >
+                        {showSkillAdvancedOptions ? "收起高级选项" : "展开高级选项"}
+                      </button>
+                      {!showSkillAdvancedOptions ? (
+                        <p className="text-[11px] leading-5 text-slate-500">
+                          高级选项包含自动发现、目录检索和经审批安装。候选不会自动变成必用 Skill。
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
 

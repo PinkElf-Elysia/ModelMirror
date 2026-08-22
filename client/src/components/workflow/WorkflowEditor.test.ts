@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   createNodeData,
   normalizeWorkflowNodePositions,
+  parseSkillRuntimeIds,
+  updateSkillRuntimeIds,
 } from "./WorkflowEditor";
 import {
   knowledgePipelineItems,
@@ -10,6 +12,12 @@ import {
 } from "./workflowNodeRegistry";
 
 describe("WorkflowEditor palette defaults", () => {
+  it("normalizes the tag-based required Skill editor without duplicate IDs", () => {
+    expect(parseSkillRuntimeIds("pdf, tdd\npdf")).toEqual(["pdf", "tdd"]);
+    expect(updateSkillRuntimeIds("pdf", "tdd", "add")).toBe("pdf, tdd");
+    expect(updateSkillRuntimeIds("pdf, tdd", "pdf", "remove")).toBe("tdd");
+  });
+
   it("provides editable defaults for every local palette item", () => {
     const items = [
       ...workflowPaletteSections.flatMap((section) => section.items),

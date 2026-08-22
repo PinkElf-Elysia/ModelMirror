@@ -2090,6 +2090,24 @@ async def test_skill_router_install_resume_activates_only_current_agent_run(
         def __init__(self) -> None:
             self.items: list[InstalledSkill] = []
             self.read_count = 0
+            self.version_id = "skillversion_router_pdf"
+            self.package_dir = tmp_path / "router-pdf"
+            self.package_dir.mkdir()
+            (self.package_dir / "SKILL.md").write_text(
+                "# Router PDF\n\nRead the contract before extracting fields.",
+                encoding="utf-8",
+            )
+            self.content_digest = compute_skill_content_digest(
+                {"SKILL.md": (self.package_dir / "SKILL.md").read_bytes()}
+            )
+            self.lifecycle_store = SimpleNamespace(
+                require_version=lambda version_id: SimpleNamespace(
+                    skill_id="router-pdf",
+                    source_kind="git",
+                    package_digest=self.content_digest,
+                    trust_fingerprint="2" * 64,
+                )
+            )
 
         def list_installed_skills(self) -> list[InstalledSkill]:
             return list(self.items)
@@ -2107,17 +2125,36 @@ async def test_skill_router_install_resume_activates_only_current_agent_run(
                 sub_path=sub_path,
                 source_ref=source_ref,
                 installed_at=time.time(),
+                source_kind="git",
+                content_digest=self.content_digest,
+                trust_fingerprint="2" * 64,
             )
             self.items = [installed]
             return installed
+
+        def bind_skill_versions(self, skill_ids) -> dict[str, str]:
+            return {
+                "router-pdf": self.version_id
+                for skill_id in skill_ids
+                if skill_id == "router-pdf"
+            }
+
+        def require_activation(self, skill_id: str, **kwargs) -> InstalledSkill:
+            assert skill_id == "router-pdf"
+            assert kwargs.get("version_id") == self.version_id
+            return self.items[0]
 
         def get_skill_content(self, skill_id: str) -> str:
             assert skill_id == "router-pdf"
             self.read_count += 1
             return "# Router PDF\n\nRead the contract before extracting fields."
 
-        def get_skill_directory(self, skill_id: str) -> Path:
-            raise AssertionError(f"skill_stage was not expected: {skill_id}")
+        def get_skill_directory(
+            self, skill_id: str, *, version_id: str | None = None
+        ) -> Path:
+            assert skill_id == "router-pdf"
+            assert version_id in {None, self.version_id}
+            return self.package_dir
 
     class RouterSandboxClient:
         async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2178,6 +2215,14 @@ async def test_skill_router_install_resume_activates_only_current_agent_run(
     index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
 
     manager = RouterSkillManager()
+    receipt_store = SkillApplicationReceiptStore(tmp_path / "application-receipts")
+    monkeypatch.setattr(main_module, "get_skill_manager", lambda: manager)
+    monkeypatch.setattr(main_module, "skill_application_receipt_store", receipt_store)
+    monkeypatch.setattr(
+        main_module,
+        "skill_application_observer",
+        SkillApplicationObserver(receipt_store, lambda: manager),
+    )
     provider = SandboxToolsetProvider(
         SandboxWorkspaceStore(
             tmp_path / "router-runtime", workspace_root=tmp_path / "router-workspaces"
@@ -2309,7 +2354,24 @@ async def test_skill_router_install_resume_activates_only_current_agent_run(
     completed = executions.require(pending["task_id"])
     assert completed.status == "completed"
     assert completed.result == "used the activated skill"
-    assert manager.read_count == 1
+    receipt = receipt_store.list_receipts(skill_id="router-pdf")[0]
+    assert receipt.methods == ("skill_read",)
+    assert receipt.compliance_status == "verified"
+    assert any(
+        event.get("event") == "skill_runtime_status"
+        and event.get("status") == "required"
+        and event.get("skill_id") == "router-pdf"
+        for event in completed.events
+    ), [
+        (event.get("status"), event.get("skill_id"), event.get("required_skill_ids"))
+        for event in completed.events
+        if event.get("event") == "skill_runtime_status"
+    ]
+    assert any(
+        event.get("event") == "skill_runtime_status"
+        and event.get("status") == "verified"
+        for event in completed.events
+    )
     assert manager.items[0].source_ref == source_ref
     assert any(
         event.get("event") == "skill_runtime_status"
@@ -2621,6 +2683,19 @@ async def test_required_skill_repairs_direct_answer_once_before_completion(
     )
     assert any(
         event.get("event") == "skill_runtime_status"
+        and event.get("status") == "required"
+        and event.get("skill_id") == manager.skill_id
+        for event in events
+    )
+    assert any(
+        event.get("event") == "skill_runtime_status"
+        and event.get("status") == "reading"
+        and event.get("skill_id") == manager.skill_id
+        and event.get("resource_paths") == ["SKILL.md"]
+        for event in events
+    )
+    assert any(
+        event.get("event") == "skill_runtime_status"
         and event.get("status") == "verified"
         for event in events
     )
@@ -2708,6 +2783,23 @@ async def test_required_skill_can_stage_and_search_text_resource_with_receipt(
         and event.get("output") == "completed after consuming the reference"
         for event in events
     )
+    staged_event = next(
+        event
+        for event in events
+        if event.get("event") == "skill_runtime_status"
+        and event.get("status") == "staged"
+    )
+    assert staged_event["skill_id"] == manager.skill_id
+    assert staged_event["resource_count"] == 3
+    assert "references/guide.md" in staged_event["resource_paths"]
+    accessed_event = next(
+        event
+        for event in events
+        if event.get("event") == "skill_runtime_status"
+        and event.get("status") == "resource_accessed"
+    )
+    assert accessed_event["skill_id"] == manager.skill_id
+    assert accessed_event["resource_paths"] == ["references/guide.md"]
     receipt = receipt_store.list_receipts(skill_id=manager.skill_id)[0]
     assert "references/guide.md" in receipt.staged_resource_paths
     assert "references/guide.md" in receipt.read_resource_paths
@@ -3305,6 +3397,12 @@ async def test_required_skill_second_omission_fails_with_stable_code(
     events = _parse_sse_events(response.text)
     error = next(event for event in events if event.get("event") == "error")
     assert error["code"] == "skill_application_repair_exhausted"
+    assert any(
+        event.get("event") == "skill_runtime_status"
+        and event.get("status") == "failed"
+        and event.get("error_code") == "skill_application_repair_exhausted"
+        for event in events
+    )
     assert model_calls == 2
     assert manager.read_count == 0
     assert not any(
