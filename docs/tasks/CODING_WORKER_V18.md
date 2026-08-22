@@ -54,24 +54,35 @@ Session 故障场景使用仅 Harness profile 可用的受控注入端点。Cont
 
 来源大小采用分层策略而不是修改大型索引：部署控制、精确 revision 绑定的 `builtin` 单文件硬上限为 `16 MiB`；manifest Project Source 与 Host Snapshot 仍为 `8 MiB`。所有来源继续共享 `192 MiB` 总量和 20,000 文件上限。`builtin` 在任务持久化前枚举 tree 元数据并把 `builtin-16m-v1`、文件数和总字节数绑定进 admission receipt，Scheduler acquire 时再次复核；外部来源不会因内部 `SourceFile` 上限提高而获得额外权限。
 
-## 尚未执行与回退
+## 历史审计记录与最终收口
 
-当前交付状态仍为 `Experimental/阻断`：Source Admission 与确定性任务有效性基座可以独立验收；原生 OpenCode Session 控制硬门禁和当前 bundle 的外置密封 checker 绑定已经通过确定性验证。三项 Session 的授权定向真实探测为 `2 accepted / 1 rejected`，48 次真实校准仍未运行。
+2026-08-21 的中间候选曾处于 `Experimental/阻断`：Source Admission 与确定性任务有效性基座可独立验收，但 12 项离线 runtime 绑定和修后完整任务门禁尚未闭合。三项 Session 的授权定向真实探测为 `2 accepted / 1 rejected`，48 次真实校准未运行。
 
-截至 2026-08-21 的实测门禁：
+以下是 2026-08-21 中间候选的审计记录，不作为最终候选身份：
 
 - 当前公开 fixture bundle 规范摘要为 `09d447f1324f8382cc9cda5534595933167220ce5ce4067aca30160e5d9880d1`；密封摘要同时绑定完整 fixture bundle，以仓库外 checker 只读重跑 `validate` 已通过，当前配对摘要为 `00e147da45c2a557043d9bd8ee1913702a8b6b0a0c86457d411634e54a084fc6`。当前 bundle 的 Fake smoke 为 8 条记录、四类别齐全，记录摘要 `685a1c711cdad8559a3ec1b8fd8da7b21b87c984197cd4d0bdefab4c506e00ec`。
 - 12 项任务的 Oracle `60/60`、Nop `60/60`、near-miss `60/60`；共 180 个有效 trial，三阶段异常数均为零，reward 分别严格为 `1.000 / 0.000 / 0.000`。
-- 反证审计后的最小纠正专项为 `80 passed`，Workspace/Service 回归为 `48 passed`；修后 Oracle 再跑为 `60/60`、异常 `0`、均值 `1.000`。修后 Nop/near-miss 长批次因桌面会话异常两次中断，未取得可归档的最终汇总，不能用上条历史结果冒充修后完整重跑。
+- 反证审计后的最小纠正专项为 `80 passed`，Workspace/Service 回归为 `48 passed`；该阶段修后 Nop/near-miss 长批次曾因桌面会话异常中断，因此当时没有把历史结果冒充最终重跑。
 - Harness v3 单文件 `48 passed`；产品专项七文件 `154 passed`。Agent Workspace 与 Coding 合集首跑为 `1003 passed, 14 skipped, 11 failed`，11 项均因临时副本漏根目录文件；补齐后对应九个测试文件 `59 passed`，最后一项 `.dockerignore` 用例 `1 passed`，因此没有产品失败。
 - 后端全量 `3507 passed, 29 skipped, 21 failed`；21 项均是未构建 Agency Worker dist、既有 Skill Node matcher/索引依赖和模型路由 p95 基线，V18 新增路径无失败。前端未改动，既有本轮证据为 83 个测试文件、407 项通过及 production build 通过。
 - 102 个变更 Python 文件 `py_compile` 通过；V18 Compose 叠加拓扑 `config --quiet` 通过；Diff、未跟踪文本空白、敏感信息和禁止产物扫描通过。
-- 原生 Session 控制器、Shell 凭据/UID 隔离、精确副作用后/回执前 fault gate、runtime runner image attestation、bundle-bound checker 摘要及反证用例已实现；固定 Harbor 0.21.0 controller 内只读导入检查通过，Harness 专项最新为 `91 passed`，Parity 回归上一轮为 `24 passed`，Provider/Deployment 回归上一轮为 `10 passed`，来源准入专项上一轮为 `36 passed`。实际 Python 与 Node 任务基础镜像均证明子命令环境不含 Server/route secret、uid 为 65534、无法读取 root-only 密码文件且仍能写 Workspace；Python 镜像另验证 wrapper 在标记成功结果后保持阻塞、解除闸门后正常退出，以及兼容 `dash` 的完整进程组终止。只有三项 Session fixture 当前绑定 daemon-attested 离线 OpenCode runtime（镜像 ID `sha256:7c2a7f29867cbc35c236a0c0e62201af0ff0c3c6eb9749f8e5f7bbfb259eab39`），12 项覆盖未闭合时 `run-round` 失败关闭。
+- 原生 Session 控制器、Shell 凭据/UID 隔离、精确副作用后/回执前 fault gate、runtime runner image attestation、bundle-bound checker 摘要及反证用例已实现；固定 Harbor 0.21.0 controller 内只读导入检查通过。实际 Python 与 Node 任务基础镜像均证明子命令环境不含 Server/route secret、uid 为 65534、无法读取 root-only 密码文件且仍能写 Workspace。最终候选已把全部 12 项 fixture 统一绑定到 daemon-attested 离线 runtime，缺少任一绑定时继续失败关闭。
 - 另经明确额度授权执行了两项共享栈 Worker 针对性真实任务（Python/default 与 TypeScript/default），两者都在第二个顺序审批恢复时复现 `approval_operation_conflict`，且都在副作用重放前安全阻断。修复后同一 turn 的双审批回归与 Service/Shell 合集分别为 `1 passed`、`50 passed`。一次 `coding/quality` 探测因余额不足且 usage/cost 均为零，不计为模型运行。
 - 补充额度后的共享栈修后复测使用了两个全新任务。Python `task_1f140dfe658148cfbf54d2b14aa53635` 在同一 turn 依次结算 `pytest_init_3884` 与 `verify_allocator_fix`，两个 operation 各产生一次 `operation_reconciled`，无 `approval_operation_conflict`、重复终态或未结算 operation；终态为 `completed`，`python-pytest` 与 `python-compile` 均在最终 tree `3de209c08057dd6d92d0f8b76ba7de90de480387e4a0fb62f207c26708f63f6a` 通过。TypeScript `task_c4834e04dd6e42c19bcb209ae8bf4cd1` 的单次审批恢复、`react-test` 与 `react-build` 也通过，且无协调异常，但它暴露了独立的目标/夹具失配：输入目标要求焦点、Tab、Escape 和焦点恢复，来源项目与冻结检查只表达静态 ARIA 标记，最终 Diff 也只实现静态标记。因此该任务只证明审批传输与检查执行成功，不能计为语义任务成功；没有追加第三项真实任务。
 - 本轮反证修复新增真实 SSE usage 解析、完整事实源失败关闭、instruction/scenario/acceptance 绑定、场景结算，以及在线代码、实际 CLI 版本、route、模型和进程 generation attestation，并修复 question option 请求形状及 `TaskChildrenResponse` 字段回归。受影响集合（Harness、API、Provider RPC、OpenCode、Claude、Source Admission、Service、Deployment）上一轮为 `186 passed`；本次又修正了 OpenCode 启动期健康探测阻塞、Docker Desktop internal 网络阻断、结构化提问指令、Docker-host-visible jobs 路径要求，以及 reconcile 必须绑定完整工具参数（含 `workdir`）的 intent hash。
 - 明确授权的定向真实探测使用 `openrouter/deepseek/deepseek-v4-flash`，不是校准：`session-clarify-before-edit` accepted（sealed reward `1.0`，input/output tokens `43643/838`），`session-steering-compaction` accepted（`1.0`，`44513/1218`）；`session-restart-command-reconcile` rejected（reward `0`，`151518/2275`）。第三项在修复完整参数 hash 后四项协调诊断均为零，但模型仍尝试未批准 Shell（安全拒绝），且生成索引为 beta→alpha 而非稳定 alpha→beta，故归因为真实 `policy/agent outcome` 失败，不能人工改写为通过。
 
-下一步仍须先补齐全部 12 项的离线 runtime 覆盖，并在固定 Linux controller 中重新冻结候选与 runtime-attested runner image；是否执行 48 次真实校准必须另行决定。本轮没有启动 48 次校准或 288 次认证，也不宣称接近 OpenCode。共享栈、正式 Provider 与 v13 写回人工验收同样不能由上述定向探测推断。
+截至 2026-08-22，最终候选状态为 **真实任务校准基座可用**：
+
+- 公开 fixture bundle 摘要为 `a7ed06805c484a0ca2029c36766fc01663e2ca88482b4282f105112fa26800e2`；外置只读 checker 与完整 bundle 的配对摘要为 `5f402ccb67ad16f6059ce806b094692c4fc071f19b6b9473d704b9db2aede51a`。`validate` 返回 12 项、Harbor `0.21.0`、OpenCode `1.18.9` 和 `status=valid`。
+- Fake smoke 为 8 条记录、四类别齐全，记录摘要为 `66120e1de8e6bb21017e81d13dc22db45c55e9dda70cf9d53cde65f46e978506`。
+- 全部 12 项 fixture 均继承 daemon-attested runtime `modelmirror-coding-worker-v14:local@sha256:27302ee0527aff43e651d82148beb1c2562ffabc22606974499c13f831f417ed`。Session fixture 显式安装冻结 near-miss 所需的 `patch`。
+- 最终 bundle 从零重跑 Oracle `60/60`、Nop `60/60`、near-miss `60/60`；共 180 个有效 trial，异常数均为零，reward 分别严格为 `1.000 / 0.000 / 0.000`。该结果是确定性任务有效性证据，不是 48 次真实模型校准。
+- Harbor 0.21.0 的静态 Docker Desktop 门禁清理不再并发执行 `--rmi local`；仍删除 trial 容器、卷和 orphan，避免共享 runtime 派生镜像删除竞争。
+- 修后专项为 `128 passed`；全部 Coding Worker 为 `398 passed, 5 skipped`；Agent Workspace、Coding Runtime、Recovery 与 Publisher 兼容集为 `265 passed`。前端为 94 个文件、`488 passed`，production build 通过。
+- 依赖产物补齐后的后端最终空载全量为 `3753 passed, 29 skipped`。此前一次仅有的 PDF 资源顺序失败已单例复跑通过，最终全量未再出现。
+- V14、V15、V17 与 V18 Compose 组合均通过 `config --quiet`。共享栈 `/api/health`、`/coding` 与 `/api/coding-worker/v1` 均返回 HTTP 200，Server、双 Provider、双 Executor 及 v13 写回相关容器健康。
+
+本轮没有运行 48 次真实校准或 288 次认证，也不宣称接近或等效 OpenCode。后续若决定启动 48 次校准，仍须在固定 Linux controller 中冻结干净候选、完整 runtime、route 和 checker；不得从本轮确定性 180 次结果推导真实模型成功率。
 
 回退时停止 Harbor profile并恢复旧创建入口；nullable admission 表、已有任务、Workspace、Evidence、Recovery 与 v13 写回数据全部保留。旧任务不做破坏性迁移。
