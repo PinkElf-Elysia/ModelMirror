@@ -28,6 +28,8 @@ from urllib.parse import quote, urlsplit
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from .hub_contracts import HubContractRegistry, HubReviewedContractV1
+
 
 REGISTRY_BASE_URL = "https://registry.modelcontextprotocol.io"
 REGISTRY_HOST = "registry.modelcontextprotocol.io"
@@ -69,25 +71,6 @@ APPROVAL_ID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
     re.IGNORECASE,
 )
-
-
-# Registry discovery metadata is not an execution trust decision. Only exact
-# contracts that passed isolated review may cross the activation boundary.
-REVIEWED_HUB_REMOTE_CONTRACTS: dict[
-    tuple[str, str, str], dict[str, Any]
-] = {
-    (
-        "io.qt.qt-docs-mcp/qt-documentation",
-        "0.2.0",
-        "https://qt-docs-mcp.qt.io/mcp",
-    ): {
-        "schema_digest": "a701b04fd886e1ccd17999b55906484a622b74b9b2005085d0da2e695a81ae56",
-        "tool_schema_digests": {
-            "qt_documentation_read": "3d0c4edbc34f6d93c7f6580f40f0a3f631fe93088f6270082ff4358e13d67bf9",
-            "qt_documentation_search": "f31ab1c949778c8f00646c1d4c33768f5b56e55ba524b49217483a6d25516b35",
-        },
-    }
-}
 
 
 class HubError(RuntimeError):
@@ -978,23 +961,25 @@ class MCPHubService:
         registry_client: Any | None = None,
         bridge: HubBridgeProtocol | None = None,
         reviewed_contracts: dict[tuple[str, str, str], dict[str, Any]] | None = None,
+        contract_registry: HubContractRegistry | None = None,
     ) -> None:
         self.store = store
         self.tenant_id = str(tenant_id or "local")
         self.owner_id = str(owner_id or "local")
         self.registry_client = registry_client or PinnedRegistryClient()
         self.bridge = bridge or HubSocketBridge()
-        self.reviewed_contracts = (
-            REVIEWED_HUB_REMOTE_CONTRACTS
-            if reviewed_contracts is None
-            else reviewed_contracts
-        )
+        self.reviewed_contracts = reviewed_contracts
+        self.contract_registry = contract_registry or HubContractRegistry()
+        self.review_service: Any | None = None
         self._sync_lock = asyncio.Lock()
         self._sync_tasks: dict[str, asyncio.Task[None]] = {}
         self._refresh_task: asyncio.Task[None] | None = None
         self._session_cleanup_task: asyncio.Task[None] | None = None
         self._live: dict[str, LiveHubSession] = {}
         self._candidate_locks: dict[str, asyncio.Lock] = {}
+
+    def set_review_service(self, service: Any) -> None:
+        self.review_service = service
 
     def _require_enabled(self) -> None:
         if not hub_enabled():
@@ -1204,6 +1189,8 @@ class MCPHubService:
                 else:
                     raise HubError("Registry 分页超过上限。", code="hub_registry_page_limit")
                 self.store.replace_snapshot(sync_id, entries, response_etag)
+                if self.review_service is not None:
+                    await self.review_service.reconcile_registry_drift()
                 self.store.set_meta("last_sync_skipped_count", str(skipped_entries))
                 self.store.finish_sync(sync_id, status="completed", count=len(entries))
                 self._ensure_refresh()
@@ -1280,31 +1267,72 @@ class MCPHubService:
         output["activation_reason"] = reason
         return output
 
-    def _activation_review(self, candidate: dict[str, Any]) -> tuple[bool, str]:
-        contract = self.reviewed_contracts.get(
-            (
-                str(candidate.get("server_name") or ""),
-                str(candidate.get("version") or ""),
-                str(candidate.get("remote_url") or ""),
-            )
+    def _reviewed_contract(
+        self, candidate: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str]:
+        identity = (
+            str(candidate.get("server_name") or ""),
+            str(candidate.get("version") or ""),
+            str(candidate.get("remote_url") or ""),
         )
-        if contract is None:
-            return False, "hub_contract_unreviewed"
+        if self.reviewed_contracts is not None:
+            contract = self.reviewed_contracts.get(identity)
+            if contract is None:
+                return None, "hub_contract_unreviewed"
+            normalized = dict(contract)
+            normalized.setdefault(
+                "allowed_tools",
+                sorted(dict(normalized.get("tool_schema_digests") or {})),
+            )
+            normalized.setdefault("contract_id", "legacy-test-contract")
+            normalized.setdefault("contract_fingerprint", stable_digest(normalized))
+        else:
+            loaded, reason = self.contract_registry.lookup_identity(*identity)
+            if loaded is None:
+                return None, reason
+            normalized = loaded.model_dump(mode="json")
+        current_server = self.store.get_server(identity[0], identity[1])
+        current_remote = next(
+            (
+                item
+                for item in (current_server or {}).get("remotes", [])
+                if item.get("remote_id") == candidate.get("remote_id")
+            ),
+            None,
+        )
+        if (
+            current_server is None
+            or current_server.get("status") not in {"active", "published"}
+            or current_server.get("source_digest") != candidate.get("source_digest")
+            or current_remote is None
+            or current_remote.get("url") != identity[2]
+        ):
+            return None, "hub_source_drift"
+        frozen_source = str(normalized.get("source_digest") or "")
+        if frozen_source and frozen_source != str(candidate.get("source_digest") or ""):
+            return None, "hub_contract_source_drift"
         schema_digest = str(candidate.get("schema_digest") or "")
         if not schema_digest:
-            return False, "hub_preflight_required"
-        expected_tools = dict(contract.get("tool_schema_digests") or {})
+            return None, "hub_preflight_required"
+        expected_tools = dict(normalized.get("tool_schema_digests") or {})
         actual_tools = {
             str(tool.get("name") or ""): str(tool.get("schema_digest") or "")
             for tool in candidate.get("tools") or []
             if isinstance(tool, dict)
         }
         if (
-            schema_digest != str(contract.get("schema_digest") or "")
+            schema_digest != str(normalized.get("schema_digest") or "")
             or actual_tools != expected_tools
         ):
-            return False, "hub_reviewed_contract_drift"
-        return True, ""
+            return None, "hub_reviewed_contract_drift"
+        allowed_tools = set(normalized.get("allowed_tools") or [])
+        if not allowed_tools or not allowed_tools.issubset(actual_tools):
+            return None, "hub_reviewed_contract_drift"
+        return normalized, ""
+
+    def _activation_review(self, candidate: dict[str, Any]) -> tuple[bool, str]:
+        contract, reason = self._reviewed_contract(candidate)
+        return contract is not None, reason
 
     def _validate_tools(self, raw_tools: Any) -> tuple[list[dict[str, Any]], str]:
         if not isinstance(raw_tools, list) or not raw_tools or len(raw_tools) > MAX_TOOL_COUNT:
@@ -1431,6 +1459,14 @@ class MCPHubService:
                 )
             eligible, reason = self._activation_review(candidate)
             if not eligible:
+                if reason in {"hub_source_drift", "hub_contract_source_drift"}:
+                    self.store.update_candidate(
+                        clean,
+                        self.tenant_id,
+                        self.owner_id,
+                        state="drifted",
+                        taint_reason=reason,
+                    )
                 raise HubError(
                     "该候选尚未完成 ModelMirror 执行契约复核。",
                     code=reason,
@@ -1480,21 +1516,30 @@ class MCPHubService:
             return []
         output: list[dict[str, Any]] = []
         for candidate in self.store.list_candidates(self.tenant_id, self.owner_id):
-            if candidate["state"] != "active" or not self._activation_review(candidate)[0]:
+            contract, _reason = self._reviewed_contract(candidate)
+            if candidate["state"] != "active" or contract is None:
                 continue
-            output.extend(self._runtime_tools_for_candidate(candidate))
+            output.extend(self._runtime_tools_for_candidate(candidate, contract))
         return output
 
-    @staticmethod
     def _runtime_tools_for_candidate(
+        self,
         candidate: dict[str, Any],
+        contract: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
+        if contract is None:
+            contract, _reason = self._reviewed_contract(candidate)
+        if contract is None:
+            return []
+        allowed_tools = set(contract.get("allowed_tools") or [])
         prefix = hashlib.sha256(
             candidate["candidate_id"].encode("utf-8")
         ).hexdigest()[:10]
         result: list[dict[str, Any]] = []
         for tool in candidate["tools"]:
             upstream_name = str(tool["name"])
+            if upstream_name not in allowed_tools:
+                continue
             tool_slug = re.sub(
                 r"[^a-z0-9]+", "_", upstream_name.lower()
             ).strip("_")[:35] or "tool"
@@ -1510,6 +1555,8 @@ class MCPHubService:
                 "origin": candidate["origin"],
                 "server_name": candidate["server_name"],
                 "version": candidate["version"],
+                "contract_id": contract.get("contract_id", ""),
+                "contract_fingerprint": contract.get("contract_fingerprint", ""),
             })
         return result
 
@@ -1517,8 +1564,8 @@ class MCPHubService:
         self._require_remote()
         clean_id = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
         candidate = self.store.require_candidate(clean_id, self.tenant_id, self.owner_id)
-        eligible, reason = self._activation_review(candidate)
-        if not eligible:
+        contract, reason = self._reviewed_contract(candidate)
+        if contract is None:
             raise HubError(
                 "MCP Hub 执行契约未通过复核。",
                 code=reason,
@@ -1537,7 +1584,7 @@ class MCPHubService:
         runtime_entry = next(
             (
                 item
-                for item in self._runtime_tools_for_candidate(candidate)
+                for item in self._runtime_tools_for_candidate(candidate, contract)
                 if item["candidate_id"] == clean_id
                 and item["name"] == runtime_tool_name
             ),
@@ -1559,6 +1606,11 @@ class MCPHubService:
             or hub_meta.get("schema_digest") != candidate["schema_digest"]
             or hub_meta.get("tool_schema_digest")
             != runtime_entry["tool_schema_digest"]
+            or (
+                hub_meta.get("contract_fingerprint") is not None
+                and hub_meta.get("contract_fingerprint")
+                != runtime_entry["contract_fingerprint"]
+            )
         ):
             raise HubError("MCP Hub 审批凭据无效。", code="hub_approval_invalid", status_code=409)
         lock = self._candidate_locks.setdefault(clean_id, asyncio.Lock())

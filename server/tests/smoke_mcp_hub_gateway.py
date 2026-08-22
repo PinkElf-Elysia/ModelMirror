@@ -114,6 +114,7 @@ async def run(mode: str) -> None:
             return
 
         if mode == "timeout-call":
+            service.reviewed_contracts = {}
             service.reviewed_contracts[
                 (
                     candidate["server_name"],
