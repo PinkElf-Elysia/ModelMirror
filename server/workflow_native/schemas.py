@@ -45,6 +45,8 @@ NativeNodeKind = Literal[
     "list_operation",
     "data_aggregate",
     "dataset_compare",
+    "object_transform",
+    "file_output",
     "iteration",
     "json_serialize",
     "json_deserialize",

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import get_args
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from server.meta_agent.node_adapters import (
     META_PLANNER_COMPILABLE_NODE_KINDS,
@@ -60,13 +61,20 @@ BASELINE_213_COMPATIBILITY_KINDS = {
     "variable_aggregator",
     "variable_assign",
 }
-PROMOTED_COMPLETE_KINDS = {"condition", "http_request", "llm", "list_operation"}
+PROMOTED_COMPLETE_KINDS = {
+    "condition",
+    "document_extractor",
+    "http_request",
+    "llm",
+    "list_operation",
+    "time_tool",
+}
 
 
 def test_contract_registry_covers_every_native_kind_once() -> None:
     expected = set(get_args(NativeNodeKind))
 
-    assert len(expected) == 48
+    assert len(expected) == 50
     assert workflow_node_contract_registry.kinds() == expected
     assert len(workflow_node_contract_registry.list()) == len(expected)
     assert workflow_node_contract_registry.get("not-a-node") is None
@@ -172,7 +180,7 @@ def test_r16_control_data_contracts_are_complete_local_and_not_plannable() -> No
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-    ) == 16
+    ) == 14
 
 
 def test_r17_http_condition_and_dataset_contracts_are_complete_and_not_plannable() -> None:
@@ -195,6 +203,67 @@ def test_r17_http_condition_and_dataset_contracts_are_complete_and_not_plannable
     assert condition.edge.allowed_source_handles == ("true", "false")
     assert dataset.execution.deterministic is True
     assert dataset.execution.external_io is False
+
+
+def test_r18_file_data_contracts_are_complete_scoped_and_not_plannable() -> None:
+    for kind in {"document_extractor", "time_tool", "object_transform", "file_output"}:
+        contract = workflow_node_contract_registry.require(kind)
+        assert contract.contract_status == "complete"
+        assert contract.planner.enabled is False
+        assert node_policy_service.decision(kind, "workflow").allowed
+        assert node_policy_service.decision(kind, "xpert").allowed
+
+    for kind in {"document_extractor", "file_output"}:
+        assert not node_policy_service.decision(kind, "goal").allowed
+        assert not node_policy_service.decision(kind, "handoff").allowed
+        assert not node_policy_service.decision(kind, "app").allowed
+        assert not node_policy_service.decision(kind, "evaluation").allowed
+        assert not node_policy_service.decision(kind, "evolution").allowed
+
+    assert workflow_node_contract_registry.require("file_output").execution.side_effect == "write"
+    assert workflow_node_contract_registry.require("file_output").execution.deterministic is False
+    assert workflow_node_contract_registry.require("file_output").execution.idempotent is True
+    assert workflow_node_contract_registry.require("object_transform").execution.side_effect == "none"
+    assert sum(
+        contract.contract_status == "compatibility"
+        for contract in workflow_node_contract_registry.list()
+    ) == 14
+
+
+@pytest.mark.parametrize(
+    ("kind", "legacy_shaped_v2_config"),
+    [
+        (
+            "document_extractor",
+            {
+                "contractVersion": 2,
+                "sourcePathVariable": "source_path",
+                "outputVariable": "document_text",
+            },
+        ),
+        (
+            "time_tool",
+            {
+                "contractVersion": 2,
+                "operation": "now_iso",
+                "outputVariable": "time_result",
+            },
+        ),
+    ],
+)
+def test_r18_v2_configs_cannot_match_legacy_contract_branches(
+    kind: str,
+    legacy_shaped_v2_config: dict,
+) -> None:
+    contract = workflow_node_contract_registry.require(kind)
+
+    errors = list(
+        Draft202012Validator(contract.config_schema).iter_errors(
+            legacy_shaped_v2_config
+        )
+    )
+
+    assert errors
 
 
 def test_only_current_seven_nodes_have_valid_planner_contracts() -> None:
@@ -291,6 +360,8 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "suspend_wait",
         "http_event_reply",
         "http_request",
+        "document_extractor",
+        "file_output",
     }
     app_denied = {
         "external_xpert",
@@ -309,6 +380,8 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "suspend_wait",
         "http_event_reply",
         "http_request",
+        "document_extractor",
+        "file_output",
     }
 
     assert {
@@ -372,7 +445,7 @@ def test_registry_ui_projection_is_v4_and_contains_no_runtime_payloads() -> None
         for item in section["items"]
     ] + list(payload["knowledge_pipeline"]["items"])
 
-    assert len({item["kind"] for item in items}) == 46
+    assert len({item["kind"] for item in items}) == 48
     assert payload["version"] == "xpert-workflow-node-registry-v4"
     assert payload["contract_version"] == 3
     assert payload["contract_checksum"] == workflow_node_contract_registry.checksum

@@ -38,6 +38,8 @@ export type WorkflowNodeKind =
   | "list_operation"
   | "data_aggregate"
   | "dataset_compare"
+  | "object_transform"
+  | "file_output"
   | "iteration"
   | "json_serialize"
   | "json_deserialize"
@@ -141,7 +143,32 @@ export type ListOperationOperator =
   | "last"
   | "filter"
   | "sort"
-  | "deduplicate";
+  | "deduplicate"
+  | "take"
+  | "skip"
+  | "slice";
+
+export interface WorkflowObjectBinding {
+  source: "literal" | "variable";
+  variable?: string;
+  valueType?: WorkflowComparisonValueType;
+  value?: WorkflowValue;
+}
+
+export interface WorkflowObjectOperation {
+  id: string;
+  operation: "set" | "set_default" | "rename" | "remove" | "keep_only";
+  sourceField?: string;
+  targetField?: string;
+  fields?: string[];
+  binding?: WorkflowObjectBinding;
+}
+
+export interface WorkflowFileColumn {
+  id: string;
+  field: string;
+  label: string;
+}
 
 /** 画布节点运行态视觉状态（不持久化，运行时由 WorkflowRun 写回）。 */
 export type NodeRunStatus = "running" | "done" | "error";
@@ -271,6 +298,8 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   errorMode?: string;
   operation?: string;
   formatString?: string;
+  amount?: number | string;
+  unit?: string;
   url?: string;
   method?: HttpRequestMethod;
   headersJson?: string;
@@ -292,7 +321,19 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   message?: string;
   sourceProjectIds?: string[];
   inputVariable?: string;
-  format?: "compact" | "pretty";
+  format?:
+    | "compact"
+    | "pretty"
+    | "plain_text"
+    | "markdown"
+    | "json"
+    | "csv"
+    | "pdf"
+    | "docx"
+    | "xlsx";
+  filenameTemplate?: string;
+  titleTemplate?: string;
+  columns?: WorkflowFileColumn[];
   content?: string;
   operator?: ListOperationOperator | WorkflowComparisonOperator;
   joinSeparator?: string;
@@ -301,6 +342,10 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   filterRules?: WorkflowComparisonRule[];
   sortKeys?: WorkflowSortKey[];
   deduplicateFields?: string[];
+  count?: number | string;
+  startIndex?: number | string;
+  endIndex?: number | string;
+  operations?: WorkflowObjectOperation[];
   groupByFields?: string[];
   measures?: WorkflowAggregateMeasure[];
   leftVariable?: string;

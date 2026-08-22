@@ -364,6 +364,8 @@ class WorkflowDeploymentStore:
         failure_triggers_enabled: bool = False,
         subworkflows_enabled: bool = False,
         http_requests_enabled: bool = False,
+        workflow_file_assets_enabled: bool = False,
+        file_output_assets_enabled: bool = False,
         now: float | None = None,
     ) -> tuple[WorkflowDeployment, str | None]:
         current = time.time() if now is None else float(now)
@@ -399,6 +401,25 @@ class WorkflowDeploymentStore:
                     )
                 except WorkflowHttpRequestError as exc:
                     raise WorkflowDeploymentConflictError(exc.safe_message) from exc
+            nodes = [
+                node
+                for node in release.workflow.get("nodes", [])
+                if isinstance(node, dict)
+            ]
+            if any(_raw_node_kind(node) == "file_output" for node in nodes):
+                if not file_output_assets_enabled:
+                    raise WorkflowDeploymentConflictError(
+                        "Workflow file output is disabled."
+                    )
+            if any(
+                _raw_node_kind(node) == "document_extractor"
+                and bool(str(dict(node.get("data") or {}).get("assetIdVariable") or "").strip())
+                for node in nodes
+            ):
+                if not workflow_file_assets_enabled:
+                    raise WorkflowDeploymentConflictError(
+                        "Workflow file assets are disabled."
+                    )
             has_workflow_calls = any(
                 _raw_node_kind(node) == "invoke_workflow"
                 for node in release.workflow.get("nodes", [])

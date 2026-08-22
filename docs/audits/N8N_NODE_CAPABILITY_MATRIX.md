@@ -1,13 +1,14 @@
-# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7）
+# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8）
 
-- 审计日期：2026-08-21
+- 审计日期：2026-08-22
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
 - R0 基线事实：NodeContract V3、37 个 `NativeNodeKind`、35 个画布目录项、20 个冻结 compatibility 合同
 - R1 结果：新增 4 个完整合同，并将既有 `llm` 提升为完整合同；自研节点总数 41、画布目录项 39、当前 19 个冻结 compatibility 合同；四节点与 `llm` Planner 均关闭
 - R1.5 PR1 结果：新增完整合同 `failure_event_entry`；自研节点总数 42、画布目录项 40、compatibility 白名单不增长；Planner 关闭且 Xpert 内嵌入口禁止
 - R1.5 PR2 结果：新增完整合同 `workflow_call_entry` 与 `invoke_workflow`；自研节点总数 44、画布目录项 42、compatibility 白名单不增长；仅支持私有同步固定版本调用，Planner 关闭且 Xpert 内嵌入口禁止
-- R1.6 结果：新增完整合同 `terminate_error`、`multi_route`、`data_aggregate`，并将 `list_operation` 提升为完整合同；自研节点总数 48、画布目录项 46、当前 16 个冻结 compatibility 合同；四类均允许经典工作流和 Xpert 使用，Planner 关闭
+- R1.6 结果：新增完整合同 `terminate_error`、`multi_route`、`data_aggregate`，并将 `list_operation` 提升为完整合同；自研节点总数 47、画布目录项 45、当前 18 个冻结 compatibility 合同；四类均允许经典工作流和 Xpert 使用，Planner 关闭
 - R1.7 结果：新增完整合同 `dataset_compare`，并将 `http_request`、`condition` 提升为完整合同；自研节点总数 48、画布目录项 46、当前 16 个冻结 compatibility 合同；Planner 仍固定为 7 类
+- R1.8 结果：新增完整合同 `file_output`、`object_transform`，并将 `document_extractor`、`time_tool` 提升为完整合同，同时扩展 `list_operation`；自研节点总数 50、画布目录项 48、当前 14 个冻结 compatibility 合同；文件节点仅允许经典工作流和私有 Xpert，Planner 仍固定为 7 类
 - 参考清单：563 条节点名称/类型，其中 `.ee` 2 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -18,18 +19,18 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 
 ## 状态汇总
 
-- 已实现：21
-- 部分实现：93
+- 已实现：26
+- 部分实现：89
 - 通用节点可覆盖：276（不等于已有专用连接器）
 - 目录声明：0
-- 未实现：173
+- 未实现：172
 
 | 能力域 | 总数 | 已实现 | 部分实现 | 通用覆盖 | 目录声明 | 未实现 |
 |---|---:|---:|---:|---:|---:|---:|
 | 触发与事件 | 112 | 6 | 1 | 0 | 0 | 105 |
 | 流程控制与编排 | 8 | 5 | 2 | 0 | 0 | 1 |
-| 数据变换与计算 | 17 | 7 | 10 | 0 | 0 | 0 |
-| 文件与内容处理 | 20 | 0 | 5 | 10 | 0 | 5 |
+| 数据变换与计算 | 17 | 10 | 7 | 0 | 0 | 0 |
+| 文件与内容处理 | 20 | 2 | 4 | 10 | 0 | 4 |
 | 网络与接口 | 3 | 2 | 0 | 1 | 0 | 0 |
 | 数据库与存储 | 63 | 0 | 1 | 61 | 0 | 1 |
 | 消息与协作 | 33 | 0 | 0 | 33 | 0 | 0 |
@@ -58,12 +59,18 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 流程控制与编排 | 挂起等待 | suspend_wait | (Wait) | 已实现 |
 | 流程控制与编排 | 主动终止 | terminate_error | (Stop and Error) | 已实现 |
 | 流程控制与编排 | 子流程调用 | invoke_workflow | (Execute Sub-workflow) | 已实现 |
+| 数据变换与计算 | 列表处理（遗留） | list_operation | (Item Lists) | 已实现 |
+| 数据变换与计算 | 日期时间处理 | time_tool | (Date & Time) | 已实现 |
 | 数据变换与计算 | 数据汇总 | data_aggregate | (Summarize) | 已实现 |
 | 数据变换与计算 | 数据集对比 | dataset_compare | (Compare Datasets) | 已实现 |
 | 数据变换与计算 | 数据聚合 | data_aggregate | (Aggregate) | 已实现 |
 | 数据变换与计算 | 数据排序 | list_operation | (Sort) | 已实现 |
 | 数据变换与计算 | 数据去重 | list_operation | (Remove Duplicates) | 已实现 |
 | 数据变换与计算 | 数据筛选 | list_operation | (Filter) | 已实现 |
+| 数据变换与计算 | 数量限制 | list_operation | (Limit) | 已实现 |
+| 数据变换与计算 | 字段编辑 | object_transform | (Set) | 已实现 |
+| 文件与内容处理 | 内容转文件 | file_output | (Convert to File) | 已实现 |
+| 文件与内容处理 | 文件内容提取 | document_extractor | (Extract from File) | 已实现 |
 | 网络与接口 | HTTP 调用 | http_request | (HTTP Request) | 已实现 |
 | 网络与接口 | HTTP 事件回执 | http_event_reply | (Respond to Webhook) | 已实现 |
 | 数据库与存储 | 内置数据表 | data_table_query / data_table_insert / data_table_update / data_table_delete | (Data table) | 部分实现 |

@@ -29,6 +29,9 @@ LIST_OPERATORS = {
     "filter",
     "sort",
     "deduplicate",
+    "take",
+    "skip",
+    "slice",
 }
 AGGREGATE_OPERATIONS = {"count", "sum", "avg", "min", "max"}
 MAX_COLLECTION_ITEMS = 10_000
@@ -556,6 +559,9 @@ def execute_list_operation(
     filter_mode: str = "all",
     sort_keys: object = None,
     deduplicate_fields: object = None,
+    count: object = None,
+    start_index: object = None,
+    end_index: object = None,
 ) -> WorkflowValue:
     normalized = normalize_workflow_value(value, path="$.list_input")
     typed_input = isinstance(normalized, list)
@@ -594,7 +600,7 @@ def execute_list_operation(
     if not isinstance(normalized, list):
         _fail(
             "LIST_TYPED_ARRAY_REQUIRED",
-            "Filter, sort, and deduplicate require a JSON array input.",
+            "Filter, sort, deduplicate, take, skip, and slice require a JSON array input.",
         )
     if len(normalized) > MAX_COLLECTION_ITEMS:
         _fail(
@@ -610,6 +616,35 @@ def execute_list_operation(
             normalized,
             fields=deduplicate_fields if deduplicate_fields is not None else [],
         )
+    if operator in {"take", "skip"}:
+        if not isinstance(count, int) or isinstance(count, bool) or not 0 <= count <= MAX_COLLECTION_ITEMS:
+            _fail(
+                "INVALID_LIST_COUNT",
+                "Take and skip count must be a whole number between 0 and 10,000.",
+            )
+        return list(normalized[:count] if operator == "take" else normalized[count:])
+    if operator == "slice":
+        if (
+            not isinstance(start_index, int)
+            or isinstance(start_index, bool)
+            or not 0 <= start_index <= MAX_COLLECTION_ITEMS
+        ):
+            _fail(
+                "INVALID_LIST_SLICE_START",
+                "Slice start index must be a whole number between 0 and 10,000.",
+            )
+        if end_index is None:
+            return list(normalized[start_index:])
+        if (
+            not isinstance(end_index, int)
+            or isinstance(end_index, bool)
+            or not start_index <= end_index <= MAX_COLLECTION_ITEMS
+        ):
+            _fail(
+                "INVALID_LIST_SLICE_END",
+                "Slice end index must be a whole number from the start index through 10,000.",
+            )
+        return list(normalized[start_index:end_index])
     _fail("INVALID_LIST_OPERATOR", "List operation uses an unsupported operator.")
 
 

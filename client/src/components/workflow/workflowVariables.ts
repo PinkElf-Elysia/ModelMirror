@@ -219,7 +219,9 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("handoff_router", "resultVariable", "declaration", TEXT_TYPES),
   field("mcp_tool", "argumentsJson", "template", TEMPLATE_TYPES),
   field("mcp_tool", "outputVariable", "declaration", ANY_RENDERABLE_TYPES),
-  field("time_tool", "outputVariable", "declaration", TEXT_TYPES),
+  field("time_tool", "inputVariable", "binding", ANY_RENDERABLE_TYPES, "input"),
+  field("time_tool", "rightVariable", "binding", ANY_RENDERABLE_TYPES, "right"),
+  field("time_tool", "outputVariable", "declaration", ANY_RENDERABLE_TYPES),
   field("http_request", "url", "template", TEMPLATE_TYPES),
   field("http_request", "headersJson", "template", TEMPLATE_TYPES),
   field("http_request", "bodyVariable", "binding", ANY_RENDERABLE_TYPES, "body"),
@@ -232,6 +234,13 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("dataset_compare", "leftVariable", "binding", JSON_TYPES, "left"),
   field("dataset_compare", "rightVariable", "binding", JSON_TYPES, "right"),
   field("dataset_compare", "outputVariable", "declaration", JSON_TYPES),
+  field("object_transform", "inputVariable", "binding", JSON_TYPES, "object"),
+  field("object_transform", "bindingVariable", "binding", ANY_RENDERABLE_TYPES),
+  field("object_transform", "outputVariable", "declaration", JSON_TYPES),
+  field("file_output", "inputVariable", "binding", ANY_RENDERABLE_TYPES, "content"),
+  field("file_output", "filenameTemplate", "template", TEMPLATE_TYPES),
+  field("file_output", "titleTemplate", "template", TEMPLATE_TYPES),
+  field("file_output", "outputVariable", "declaration", JSON_TYPES),
   field("iteration", "inputVariable", "binding", ["json", "unknown"], "items"),
   field(
     "iteration",
@@ -415,7 +424,7 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
     },
   ],
   mcp_tool: [{ field: "outputVariable", fallback: "mcp_output", valueType: "unknown" }],
-  time_tool: [{ field: "outputVariable", fallback: "current_time", valueType: "text" }],
+  time_tool: [{ field: "outputVariable", fallback: "current_time", valueType: "unknown" }],
   http_request: [
     {
       field: "outputVariable",
@@ -438,6 +447,12 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
   ],
   dataset_compare: [
     { field: "outputVariable", fallback: "dataset_difference", valueType: "json" },
+  ],
+  object_transform: [
+    { field: "outputVariable", fallback: "transformed_object", valueType: "json" },
+  ],
+  file_output: [
+    { field: "outputVariable", fallback: "output_file", valueType: "json" },
   ],
   iteration: [
     { field: "outputVariable", fallback: "iteration_output", valueType: "text" },
@@ -785,6 +800,13 @@ function collectReferences(nodes: WorkflowNode[], knownNames: Set<string>) {
     collectNestedVariableReferences(
       node.data.filter,
       "filter",
+      node,
+      referencesByName,
+      seen,
+    );
+    collectNestedVariableReferences(
+      node.data.operations,
+      "operations",
       node,
       referencesByName,
       seen,
@@ -1209,12 +1231,16 @@ export function planWorkflowVariableRename(
           ? "valueBindings"
           : reference.field.startsWith("inputBindings")
             ? "inputBindings"
-            : "filter";
+            : reference.field.startsWith("operations")
+              ? "operations"
+              : "filter";
         const replaced = replaceStructuredVariable(node.data[root], oldName, normalized);
         if (root === "valueBindings") {
           node.data.valueBindings = replaced as typeof node.data.valueBindings;
         } else if (root === "inputBindings") {
           node.data.inputBindings = replaced as typeof node.data.inputBindings;
+        } else if (root === "operations") {
+          node.data.operations = replaced as typeof node.data.operations;
         } else {
           node.data.filter = replaced as typeof node.data.filter;
         }

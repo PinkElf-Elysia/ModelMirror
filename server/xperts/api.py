@@ -809,6 +809,53 @@ def preview_xpert_for_publish(
                         node_id=node.id,
                     )
                 )
+        if kind == "file_output" and os.getenv(
+            "FILE_OUTPUT_ASSETS_ENABLED", "false"
+        ).strip().lower() not in {"1", "true", "yes", "on"}:
+            feature_issues.append(
+                ValidationIssue(
+                    code="xpert_file_output_disabled",
+                    message="Workflow file output is disabled.",
+                    node_id=node.id,
+                )
+            )
+        if kind == "document_extractor" and str(
+            data.get("assetIdVariable") or ""
+        ).strip() and os.getenv(
+            "WORKFLOW_FILE_ASSETS_ENABLED", "false"
+        ).strip().lower() not in {"1", "true", "yes", "on"}:
+            feature_issues.append(
+                ValidationIssue(
+                    code="xpert_workflow_files_disabled",
+                    message="Workflow file assets are disabled.",
+                    node_id=node.id,
+                )
+            )
+        if kind == "document_extractor":
+            asset_id_variable = str(data.get("assetIdVariable") or "").strip()
+            legacy_path_variable = str(data.get("sourcePathVariable") or "").strip()
+            if legacy_path_variable:
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_document_asset_migration_required",
+                        message=(
+                            "Private Xperts cannot publish legacy path-based document "
+                            "nodes. Migrate the node to a scoped file asset first."
+                        ),
+                        node_id=node.id,
+                    )
+                )
+            elif asset_id_variable != "selected_file_asset_id":
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_document_asset_binding_required",
+                        message=(
+                            "Private Xpert document nodes must use the "
+                            "selected_file_asset_id run variable."
+                        ),
+                        node_id=node.id,
+                    )
+                )
     features = candidate.draft.features
     if (
         features.text_to_speech.enabled
