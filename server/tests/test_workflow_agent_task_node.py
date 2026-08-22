@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -11,6 +12,10 @@ import pytest_asyncio
 
 import server.main as main_module
 from server.main import app
+from server.skills.application_receipts import (
+    SkillApplicationObserver,
+    SkillApplicationReceiptStore,
+)
 from server.skills.finder import SkillFinder, _fingerprint
 from server.skills.skill_manager import InstalledSkill
 from server.xpert_runtime import (
@@ -2313,6 +2318,511 @@ async def test_skill_router_install_resume_activates_only_current_agent_run(
         ensure_ascii=False,
         indent=2,
     )
+
+
+class GuidanceSkillManager:
+    skill_id = "required-guidance"
+    version_id = "skillversion_required_guidance_v1"
+    content_digest = "5" * 64
+
+    def __init__(self, package_dir: Path) -> None:
+        self.package_dir = package_dir
+        self.read_count = 0
+        self.installed = InstalledSkill(
+            skill_id=self.skill_id,
+            name="Required Guidance",
+            description="Required runtime instructions.",
+            repo_url="workspace://required-guidance",
+            sub_path="",
+            source_ref=None,
+            installed_at=time.time(),
+            source_kind="workspace_draft",
+            content_digest=self.content_digest,
+        )
+        self.lifecycle_store = SimpleNamespace(
+            require_version=lambda version_id: SimpleNamespace(
+                skill_id=self.skill_id,
+                source_kind="workspace_draft",
+                package_digest=self.content_digest,
+                trust_fingerprint=None,
+            )
+        )
+
+    def list_installed_skills(self) -> list[InstalledSkill]:
+        return [self.installed]
+
+    def bind_skill_versions(self, skill_ids) -> dict[str, str]:
+        return {
+            self.skill_id: self.version_id
+            for skill_id in skill_ids
+            if skill_id == self.skill_id
+        }
+
+    def require_activation(self, skill_id: str, **kwargs) -> InstalledSkill:
+        assert skill_id == self.skill_id
+        assert kwargs.get("version_id") in {None, self.version_id}
+        return self.installed
+
+    def get_skill_content(
+        self, skill_id: str, *, version_id: str | None = None
+    ) -> str:
+        assert skill_id == self.skill_id
+        assert version_id in {None, self.version_id}
+        self.read_count += 1
+        return (self.package_dir / "SKILL.md").read_text(encoding="utf-8")
+
+    def get_skill_directory(
+        self, skill_id: str, *, version_id: str | None = None
+    ) -> Path:
+        assert skill_id == self.skill_id
+        assert version_id in {None, self.version_id}
+        return self.package_dir
+
+
+class GuidanceSandboxClient:
+    async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
+        assert payload.get("action") == "ensure_workspace"
+        return {"ok": True}
+
+
+def _install_guidance_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[GuidanceSkillManager, SkillApplicationReceiptStore]:
+    package_dir = tmp_path / "required-guidance"
+    package_dir.mkdir()
+    (package_dir / "SKILL.md").write_text(
+        "# Required Guidance\n\nRead this before acting.",
+        encoding="utf-8",
+    )
+    manager = GuidanceSkillManager(package_dir)
+    provider = SandboxToolsetProvider(
+        SandboxWorkspaceStore(
+            tmp_path / "sandbox-store",
+            workspace_root=tmp_path / "sandbox-workspaces",
+        ),
+        GuidanceSandboxClient(),
+        skill_manager=manager,
+    )
+    receipt_store = SkillApplicationReceiptStore(tmp_path / "application-receipts")
+    observer = SkillApplicationObserver(receipt_store, lambda: manager)
+    monkeypatch.setattr(main_module, "get_skill_manager", lambda: manager)
+    monkeypatch.setattr(main_module, "workflow_sandbox_provider", provider)
+    monkeypatch.setattr(
+        main_module.runtime_capabilities.require("sandbox_tools"),
+        "implementation",
+        provider,
+    )
+    monkeypatch.setattr(main_module, "skill_application_receipt_store", receipt_store)
+    monkeypatch.setattr(main_module, "skill_application_observer", observer)
+    monkeypatch.setenv("SKILL_RUNTIME_GUIDANCE_V2_ENABLED", "true")
+    monkeypatch.setenv("SKILL_APPLICATION_RECEIPT_MODE", "audit")
+    return manager, receipt_store
+
+
+def _bind_required_guidance(workflow: dict[str, Any]) -> None:
+    workflow["nodes"].append(
+        {
+            "id": "required-guidance-middleware",
+            "type": "runtime_middleware",
+            "data": {
+                "kind": "runtime_middleware",
+                "runtimeMiddlewareId": "skills_runtime",
+                "runtimeMiddlewareKind": "runtime_middleware.skills_runtime",
+                "middlewarePriority": "30",
+                "runtimeMiddlewareConfig": {
+                    "skill_ids": GuidanceSkillManager.skill_id,
+                    "auto_discover": False,
+                },
+            },
+        }
+    )
+    workflow["edges"].append(
+        {
+            "id": "bind-required-guidance",
+            "source": "required-guidance-middleware",
+            "target": "workflow_agent",
+            "sourceHandle": "middleware-binding",
+            "targetHandle": "middleware",
+        }
+    )
+
+
+def _bind_tool_selector(workflow: dict[str, Any]) -> None:
+    workflow["nodes"].append(
+        {
+            "id": "guidance-tool-selector",
+            "type": "runtime_middleware",
+            "data": {
+                "kind": "runtime_middleware",
+                "runtimeMiddlewareId": "llm_tool_selector",
+                "runtimeMiddlewareKind": (
+                    "runtime_middleware.llm_tool_selector"
+                ),
+                "middlewarePriority": "20",
+                "runtimeMiddlewareConfig": {"max_selected_tools": 8},
+            },
+        }
+    )
+    workflow["edges"].append(
+        {
+            "id": "bind-guidance-tool-selector",
+            "source": "guidance-tool-selector",
+            "target": "workflow_agent",
+            "sourceHandle": "middleware-binding",
+            "targetHandle": "middleware",
+        }
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "premature_response",
+    [
+        '{"answer":"claimed completion without reading"}',
+        "claimed completion without reading",
+    ],
+)
+async def test_required_skill_repairs_direct_answer_once_before_completion(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    premature_response: str,
+) -> None:
+    manager, receipt_store = _install_guidance_runtime(monkeypatch, tmp_path)
+    responses = iter(
+        [
+            premature_response,
+            '{"tool":"skill_read","arguments":{"skill_id":"required-guidance"}}',
+            '{"answer":"completed after applying guidance"}',
+        ]
+    )
+    model_calls = 0
+
+    async def fake_collect_chat_completion_text(*args, **kwargs):
+        nonlocal model_calls
+        model_calls += 1
+        return next(responses)
+
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "collect_chat_completion_text",
+        fake_collect_chat_completion_text,
+    )
+    workflow = _workflow_agent_strategy_workflow({"maxIterations": 5})
+    _bind_required_guidance(workflow)
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "follow the skill"}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    agent_end = next(
+        event
+        for event in events
+        if event.get("event") == "node_end"
+        and event.get("node_id") == "workflow_agent"
+    )
+    assert agent_end["output"] == "completed after applying guidance"
+    assert model_calls == 3
+    assert manager.read_count == 1
+    assert any(
+        event.get("event") == "skill_runtime_status"
+        and event.get("status") == "repair_requested"
+        for event in events
+    )
+    assert any(
+        event.get("event") == "skill_runtime_status"
+        and event.get("status") == "verified"
+        for event in events
+    )
+    receipt = receipt_store.list_receipts(skill_id=manager.skill_id)[0]
+    assert receipt.compliance_status == "verified"
+
+
+@pytest.mark.asyncio
+async def test_required_skill_blocks_mutating_tool_until_after_read(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manager, _receipt_store = _install_guidance_runtime(monkeypatch, tmp_path)
+
+    class MutatingProvider(FakeWorkflowToolProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.tools = [
+                RuntimeTool(
+                    name="mutate",
+                    description="Mutate test state",
+                    input_schema={"type": "object"},
+                    session_id="session-1",
+                    server_id="server-1",
+                    read_only=False,
+                )
+            ]
+            self.read_counts_at_call: list[int] = []
+
+        async def call_tool(self, call):
+            self.read_counts_at_call.append(manager.read_count)
+            return await super().call_tool(call)
+
+    provider = MutatingProvider()
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    monkeypatch.setattr(
+        main_module.runtime_capabilities.require("mcp_tools"),
+        "implementation",
+        provider,
+    )
+    responses = iter(
+        [
+            '{"tool":"mutate","arguments":{}}',
+            '{"tool":"skill_read","arguments":{"skill_id":"required-guidance"}}',
+            '{"tool":"mutate","arguments":{}}',
+            '{"answer":"mutation followed guidance"}',
+        ]
+    )
+
+    async def fake_collect_chat_completion_text(*args, **kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "collect_chat_completion_text",
+        fake_collect_chat_completion_text,
+    )
+    workflow = _workflow_agent_strategy_workflow(
+        {
+            "toolMode": "mcp_tools",
+            "toolNames": "mutate",
+            "maxIterations": 6,
+        }
+    )
+    _bind_required_guidance(workflow)
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "mutate safely"}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    agent_end = next(
+        event
+        for event in events
+        if event.get("event") == "node_end"
+        and event.get("node_id") == "workflow_agent"
+    )
+    assert agent_end["output"] == "mutation followed guidance"
+    assert provider.read_counts_at_call == [1]
+
+
+@pytest.mark.asyncio
+async def test_required_skill_second_omission_fails_with_stable_code(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manager, _receipt_store = _install_guidance_runtime(monkeypatch, tmp_path)
+    responses = iter(
+        [
+            '{"answer":"first unsupported claim"}',
+            '{"answer":"second unsupported claim"}',
+        ]
+    )
+    model_calls = 0
+
+    async def fake_collect_chat_completion_text(*args, **kwargs):
+        nonlocal model_calls
+        model_calls += 1
+        return next(responses)
+
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "collect_chat_completion_text",
+        fake_collect_chat_completion_text,
+    )
+    workflow = _workflow_agent_strategy_workflow({"maxIterations": 4})
+    _bind_required_guidance(workflow)
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "skip twice"}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    error = next(event for event in events if event.get("event") == "error")
+    assert error["code"] == "skill_application_repair_exhausted"
+    assert model_calls == 2
+    assert manager.read_count == 0
+    assert not any(
+        event.get("event") == "node_end"
+        and event.get("node_id") == "workflow_agent"
+        for event in events
+    )
+
+
+@pytest.mark.asyncio
+async def test_required_skill_preflight_stops_before_model_when_incompatible(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manager, _receipt_store = _install_guidance_runtime(monkeypatch, tmp_path)
+
+    class IncompatibleSkill(RuntimeError):
+        code = "skill_runtime_incompatible"
+
+    def reject_activation(skill_id: str, **kwargs):
+        raise IncompatibleSkill("required runtime capability is unavailable")
+
+    monkeypatch.setattr(manager, "require_activation", reject_activation)
+    model_calls = 0
+
+    async def forbidden_model_call(*args, **kwargs):
+        nonlocal model_calls
+        model_calls += 1
+        raise AssertionError("model must not run before required Skill preflight")
+
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "collect_chat_completion_text",
+        forbidden_model_call,
+    )
+    workflow = _workflow_agent_strategy_workflow()
+    _bind_required_guidance(workflow)
+    _bind_tool_selector(workflow)
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "preflight"}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    error = next(event for event in events if event.get("event") == "error")
+    assert error["code"] == "skill_runtime_incompatible"
+    assert model_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_required_skill_corrupt_evidence_store_stops_before_model(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _manager, _receipt_store = _install_guidance_runtime(monkeypatch, tmp_path)
+
+    class BrokenReceiptStore:
+        def record_selection(self, *args, **kwargs):
+            raise RuntimeError("corrupt receipt store")
+
+    monkeypatch.setattr(
+        main_module, "skill_application_receipt_store", BrokenReceiptStore()
+    )
+    model_calls = 0
+
+    async def forbidden_model_call(*args, **kwargs):
+        nonlocal model_calls
+        model_calls += 1
+        raise AssertionError("model must not run without a writable receipt store")
+
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "collect_chat_completion_text",
+        forbidden_model_call,
+    )
+    workflow = _workflow_agent_strategy_workflow()
+    _bind_required_guidance(workflow)
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "evidence"}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    error = next(event for event in events if event.get("event") == "error")
+    assert error["code"] == "skill_application_evidence_unavailable"
+    assert model_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_auto_discovered_skill_remains_optional_without_enumeration(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manager, receipt_store = _install_guidance_runtime(monkeypatch, tmp_path)
+
+    async def fake_collect_chat_completion_text(*args, **kwargs):
+        return '{"answer":"completed without optional Skill"}'
+
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "collect_chat_completion_text",
+        fake_collect_chat_completion_text,
+    )
+    workflow = _workflow_agent_strategy_workflow()
+    _bind_required_guidance(workflow)
+    middleware = next(
+        node
+        for node in workflow["nodes"]
+        if node["id"] == "required-guidance-middleware"
+    )
+    middleware["data"]["runtimeMiddlewareConfig"] = {
+        "auto_discover": True
+    }
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "optional"}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    agent_end = next(
+        event
+        for event in events
+        if event.get("event") == "node_end"
+        and event.get("node_id") == "workflow_agent"
+    )
+    assert agent_end["output"] == "completed without optional Skill"
+    assert manager.read_count == 0
+    assert receipt_store.list_receipts() == []
 
 
 @pytest.mark.asyncio
