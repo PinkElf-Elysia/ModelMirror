@@ -207,10 +207,20 @@ except ModuleNotFoundError:
 
 try:
     from server.skills.application_receipts import (
+        SkillApplicationScope,
         SkillApplicationObserver,
         SkillApplicationReceiptError,
         SkillApplicationReceiptStore,
         application_receipt_mode,
+    )
+    from server.skills.runtime_guidance import (
+        SkillRuntimeGuidanceError,
+        SkillRuntimeGuidancePlanV2,
+        build_skill_runtime_guidance_plan,
+        missing_required_skill_ids,
+        skill_application_repair_instruction,
+        skill_runtime_guidance_enabled,
+        tool_requires_skill_application,
     )
     from server.skills.api import (
         get_builtin_skill_library,
@@ -305,10 +315,20 @@ try:
     )
 except ModuleNotFoundError:
     from skills.application_receipts import (
+        SkillApplicationScope,
         SkillApplicationObserver,
         SkillApplicationReceiptError,
         SkillApplicationReceiptStore,
         application_receipt_mode,
+    )
+    from skills.runtime_guidance import (
+        SkillRuntimeGuidanceError,
+        SkillRuntimeGuidancePlanV2,
+        build_skill_runtime_guidance_plan,
+        missing_required_skill_ids,
+        skill_application_repair_instruction,
+        skill_runtime_guidance_enabled,
+        tool_requires_skill_application,
     )
     from skills.api import (
         get_builtin_skill_library,
@@ -8485,6 +8505,16 @@ async def _run_workflow_response(
                     node_id,
                 ),
             ]
+            explicit_skill_ids = {
+                item.strip()
+                for spec in specs
+                if spec.middleware_id == "skills_runtime"
+                and spec.binding == "agent"
+                for item in re.split(
+                    r"[,\n]+", str(spec.config.get("skill_ids") or "")
+                )
+                if item.strip()
+            }
             plugin_snapshots = bound_plugin_snapshots(node_id)
             configured_ids = {item.middleware_id for item in specs}
             plugin_skill_ids: list[str] = []
@@ -8570,6 +8600,20 @@ async def _run_workflow_response(
                             dict.fromkeys([*existing, *plugin_skill_ids])
                         ),
                     }
+            resolved_skills = middleware_spec(specs, "skills_runtime")
+            if resolved_skills is not None:
+                resolved_skills.config = {
+                    **resolved_skills.config,
+                    # Server-derived provenance always overwrites untrusted config.
+                    "_server_explicit_skill_ids": sorted(explicit_skill_ids),
+                    "_server_plugin_skill_ids": sorted(
+                        {
+                            str(item).strip()
+                            for item in plugin_skill_ids
+                            if str(item).strip()
+                        }
+                    ),
+                }
             node = nodes_by_id.get(node_id)
             node_data = node.data if node is not None and isinstance(node.data, dict) else {}
             if (
@@ -9991,6 +10035,269 @@ async def _run_workflow_response(
                 node_events.append(payload_event)
             return node_events
 
+        def skill_guidance_source_ids(
+            spec: RuntimeMiddlewareSpec | None,
+        ) -> tuple[set[str], set[str], bool]:
+            if spec is None:
+                return set(), set(), False
+            config = dict(spec.config or {})
+
+            def configured_ids(name: str) -> set[str]:
+                value = config.get(name)
+                if isinstance(value, list):
+                    return {
+                        str(item).strip()
+                        for item in value
+                        if str(item).strip()
+                    }
+                return {
+                    item.strip()
+                    for item in re.split(r"[,\n]+", str(value or ""))
+                    if item.strip()
+                }
+
+            if "_server_explicit_skill_ids" in config:
+                explicit_ids = configured_ids("_server_explicit_skill_ids")
+            elif spec.binding == "agent":
+                explicit_ids = configured_ids("skill_ids")
+            else:
+                explicit_ids = set()
+            plugin_ids = configured_ids("_server_plugin_skill_ids")
+            if spec.binding == "plugin" and not plugin_ids:
+                plugin_ids = configured_ids("skill_ids")
+            return (
+                explicit_ids,
+                plugin_ids,
+                workflow_truthy(config.get("auto_discover", False)),
+            )
+
+        def skill_guidance_environment(
+            available_tools: list[Any],
+            middleware_context: MiddlewareContext | None,
+        ) -> SkillRuntimeEnvironment:
+            return SkillRuntimeEnvironment.from_metadata(
+                {
+                    "skill_runtime_environment": {
+                        "tool_names": sorted(
+                            {
+                                str(tool.name)
+                                for tool in available_tools
+                                if str(tool.name).strip()
+                            }
+                        ),
+                        "tool_providers": sorted(
+                            {
+                                str(tool.provider)
+                                for tool in available_tools
+                                if str(tool.provider).strip()
+                            }
+                        ),
+                        "credentials_available": False,
+                        "host_filesystem_available": False,
+                        "desktop_control_available": False,
+                    },
+                    "sandbox_config": (
+                        dict(middleware_context.metadata.get("sandbox_config") or {})
+                        if middleware_context is not None
+                        else {}
+                    ),
+                }
+            )
+
+        async def prepare_skill_guidance_plan(
+            *,
+            node: WorkflowNodePayload,
+            include_skills: bool,
+            available_tools: list[Any],
+            middleware_specs: list[RuntimeMiddlewareSpec] | None,
+            middleware_context: MiddlewareContext | None,
+            activated_skill_ids: set[str],
+            skill_version_bindings: dict[str, str],
+            skill_trust_authorizations: dict[str, str],
+            stored_plan_fingerprint: str | None = None,
+        ) -> tuple[
+            SkillRuntimeGuidancePlanV2 | None,
+            dict[str, Any],
+            dict[str, str],
+        ]:
+            skills_spec = middleware_spec(
+                middleware_specs or [], "skills_runtime"
+            )
+            guidance_enabled = bool(
+                include_skills
+                and skills_spec is not None
+                and runtime_run_type in {"workflow", "xpert"}
+                and skill_runtime_guidance_enabled()
+            )
+            if not guidance_enabled:
+                return None, {}, skill_version_bindings
+            if application_receipt_mode() == "off":
+                raise SkillRuntimeGuidanceError(
+                    "Skill application evidence is disabled for a required guidance node.",
+                    code="skill_application_evidence_unavailable",
+                )
+            explicit_ids, plugin_ids, auto_discover = skill_guidance_source_ids(
+                skills_spec
+            )
+            required_ids = explicit_ids | activated_skill_ids
+            known_ids = required_ids | plugin_ids
+            manager = get_skill_manager()
+            installed_items = {
+                str(item.skill_id): item
+                for item in await asyncio.to_thread(
+                    manager.list_installed_skills
+                )
+                if str(item.skill_id).strip()
+            }
+            missing_bindings = known_ids - set(skill_version_bindings)
+            if missing_bindings:
+                resolved_bindings = await asyncio.to_thread(
+                    manager.bind_skill_versions,
+                    missing_bindings,
+                )
+                skill_version_bindings.update(
+                    {
+                        str(skill_id): str(version_id)
+                        for skill_id, version_id in resolved_bindings.items()
+                        if str(skill_id).strip() and str(version_id).strip()
+                    }
+                )
+            contracts: dict[str, Any] = {}
+            environment = skill_guidance_environment(
+                available_tools, middleware_context
+            )
+            for skill_id in sorted(known_ids):
+                installed = installed_items.get(skill_id)
+                if installed is None:
+                    if skill_id in required_ids:
+                        raise SkillRuntimeGuidanceError(
+                            "Required Skill is no longer installed.",
+                            code="skill_application_contract_stale",
+                        )
+                    continue
+                runtime_version_id = skill_version_bindings.get(skill_id)
+                if skill_id in required_ids:
+                    activation_kwargs: dict[str, Any] = {
+                        "runtime_environment": environment,
+                        "ephemeral_authorizations": skill_trust_authorizations,
+                    }
+                    if runtime_version_id:
+                        activation_kwargs["version_id"] = runtime_version_id
+                    try:
+                        await asyncio.to_thread(
+                            manager.require_activation,
+                            skill_id,
+                            **activation_kwargs,
+                        )
+                    except Exception as exc:
+                        raise SkillRuntimeGuidanceError(
+                            "Required Skill failed trust or runtime compatibility "
+                            "preflight.",
+                            code=str(
+                                getattr(exc, "code", "")
+                                or "skill_runtime_incompatible"
+                            ),
+                        ) from exc
+                source_kind = str(
+                    getattr(installed, "source_kind", "") or "unknown"
+                )
+                content_digest = str(
+                    getattr(installed, "content_digest", "") or ""
+                ).lower()
+                trust_fingerprint = str(
+                    getattr(installed, "trust_fingerprint", "") or ""
+                ).lower() or None
+                guidance_version_id = runtime_version_id
+                if not runtime_version_id:
+                    if skill_id in required_ids:
+                        raise SkillRuntimeGuidanceError(
+                            "Required Skill has no immutable runtime version.",
+                            code="skill_application_evidence_unavailable",
+                        )
+                    continue
+                if runtime_version_id:
+                    try:
+                        snapshot = await asyncio.to_thread(
+                            manager.lifecycle_store.require_version,
+                            runtime_version_id,
+                        )
+                        source_kind = str(
+                            getattr(snapshot, "source_kind", "") or source_kind
+                        )
+                        content_digest = str(
+                            getattr(snapshot, "package_digest", "")
+                            or content_digest
+                        ).lower()
+                        trust_fingerprint = str(
+                            getattr(snapshot, "trust_fingerprint", "")
+                            or trust_fingerprint
+                            or ""
+                        ).lower() or None
+                    except Exception as exc:
+                        if skill_id in required_ids:
+                            raise SkillRuntimeGuidanceError(
+                                "Frozen Skill version could not be resolved.",
+                                code="skill_application_contract_stale",
+                            ) from exc
+                        continue
+                try:
+                    contracts[skill_id] = skill_application_observer.resolve_contract(
+                        skill_id,
+                        version_id=guidance_version_id,
+                        source_kind=source_kind,
+                        content_digest=content_digest or None,
+                        trust_fingerprint=trust_fingerprint,
+                        policy="require_read",
+                    )
+                except Exception as exc:
+                    if skill_id in required_ids:
+                        raise SkillRuntimeGuidanceError(
+                            "Required Skill application contract is unavailable.",
+                            code="skill_application_evidence_unavailable",
+                        ) from exc
+            plan = build_skill_runtime_guidance_plan(
+                task_id=task_id,
+                run_id=workflow_run.run_id,
+                node_id=node.id,
+                explicit_skill_ids=explicit_ids,
+                plugin_skill_ids=plugin_ids,
+                activated_skill_ids=activated_skill_ids,
+                auto_discover=auto_discover,
+                contracts=contracts,
+            )
+            if (
+                stored_plan_fingerprint
+                and stored_plan_fingerprint != plan.fingerprint
+            ):
+                raise SkillRuntimeGuidanceError(
+                    "Skill application plan changed while the run was suspended.",
+                    code="skill_application_contract_stale",
+                )
+            scope = SkillApplicationScope(
+                run_id=workflow_run.run_id,
+                task_id=task_id,
+                node_id=node.id,
+                runtime_kind=runtime_run_type,
+            )
+            for entry in plan.entries:
+                if entry.requirement == "required":
+                    try:
+                        skill_application_receipt_store.record_selection(
+                            contracts[entry.skill_id], scope
+                        )
+                    except Exception as exc:
+                        raise SkillRuntimeGuidanceError(
+                            "Skill application evidence is unavailable.",
+                            code="skill_application_evidence_unavailable",
+                        ) from exc
+            if skill_version_bindings:
+                await asyncio.to_thread(
+                    workflow_execution_store.bind_skill_versions,
+                    task_id,
+                    bindings=skill_version_bindings,
+                )
+            return plan, contracts, skill_version_bindings
+
         async def run_agent_strategy_v2(
             *,
             node: WorkflowNodePayload,
@@ -10069,7 +10376,41 @@ async def _run_workflow_response(
                 middleware_specs=middleware_specs,
                 apply_policy_filter=selector_spec is not None,
             )
-            if selector_spec is not None and available_tools:
+            selector_skills_spec = middleware_spec(
+                middleware_specs or [], "skills_runtime"
+            )
+            selector_explicit_ids, _selector_plugin_ids, _selector_auto = (
+                skill_guidance_source_ids(selector_skills_spec)
+                if selector_skills_spec is not None
+                else (set(), set(), False)
+            )
+            selector_guidance_required = bool(
+                include_skills
+                and skill_runtime_guidance_enabled()
+                and runtime_run_type in {"workflow", "xpert"}
+                and (
+                    selector_explicit_ids
+                    or {
+                        str(item).strip()
+                        for item in dict(resume_state or {}).get(
+                            "active_skill_ids", []
+                        )
+                        if str(item).strip()
+                    }
+                )
+            )
+            if selector_guidance_required and "skill_read" not in {
+                tool.name for tool in available_tools
+            }:
+                raise SkillRuntimeGuidanceError(
+                    "Required Skill cannot be read in the current runtime.",
+                    code="skill_runtime_incompatible",
+                )
+            if (
+                selector_spec is not None
+                and available_tools
+                and not selector_guidance_required
+            ):
                 required_tools = set()
                 if include_todo:
                     required_tools.update({"todo_list", "todo_create", "todo_update"})
@@ -10541,6 +10882,26 @@ async def _run_workflow_response(
                             ),
                         },
                     )
+            elif selector_spec is not None and selector_guidance_required:
+                selector_metadata = {
+                    "mode": "bypassed_required_skill_guidance",
+                    "selected": sorted(
+                        tool.name for tool in available_tools if tool.name
+                    ),
+                    "warning": None,
+                }
+                if middleware_context is not None:
+                    middleware_context.metadata["tool_selection"] = (
+                        selector_metadata
+                    )
+                if run_id:
+                    await run_registry.record_checkpoint(
+                        run_id,
+                        event_type="middleware.tool_selector.skipped",
+                        title="Runtime tool selector skipped",
+                        summary="required_skill_guidance_preflight",
+                        metadata=selector_metadata,
+                    )
 
             async def invoke_agent_model(messages: list[ChatMessage]) -> str:
                 def capture_actual_model(reported_model_id: str) -> None:
@@ -10723,6 +11084,21 @@ async def _run_workflow_response(
                 ).items()
                 if str(skill_id).strip() and str(version_id).strip()
             }
+            skill_trust_authorizations = {
+                str(skill_id): str(fingerprint)
+                for skill_id, fingerprint in dict(
+                    pending_state.get("skill_trust_authorizations") or {}
+                ).items()
+                if str(skill_id).strip() and str(fingerprint).strip()
+            }
+            guidance_repair_nodes = dict(
+                task_state.get("skill_guidance_repair_used_by_node") or {}
+            )
+            skill_guidance_repair_used = bool(
+                pending_state.get("skill_guidance_repair_used", False)
+                or guidance_repair_nodes.get(node.id, False)
+            )
+            skill_guidance_verified_emitted = False
             skill_application_policy = str(
                 runtime_metadata.get("skill_application_policy") or "require_read"
             ).strip()
@@ -10744,7 +11120,9 @@ async def _run_workflow_response(
                 if isinstance(raw_application_paths, list)
                 else []
             )
-            if include_skills:
+            skill_guidance_plan: SkillRuntimeGuidancePlanV2 | None = None
+            skill_guidance_contracts: dict[str, Any] = {}
+            if include_skills and not skill_runtime_guidance_enabled():
                 skills_config_for_bindings = dict(
                     skills_spec.config if skills_spec is not None else {}
                 )
@@ -10797,17 +11175,50 @@ async def _run_workflow_response(
                             policy=skill_application_policy,
                             required_resource_paths=skill_application_required_paths,
                         )
+            elif include_skills:
+                (
+                    skill_guidance_plan,
+                    skill_guidance_contracts,
+                    skill_version_bindings,
+                ) = await prepare_skill_guidance_plan(
+                    node=node,
+                    include_skills=include_skills,
+                    available_tools=available_tools,
+                    middleware_specs=middleware_specs,
+                    middleware_context=middleware_context,
+                    activated_skill_ids=active_skill_ids,
+                    skill_version_bindings=skill_version_bindings,
+                    skill_trust_authorizations=skill_trust_authorizations,
+                    stored_plan_fingerprint=(
+                        str(pending_state.get("skill_guidance_plan_fingerprint") or "")
+                        or None
+                    ),
+                )
+                if (
+                    skill_guidance_plan is not None
+                    and skill_guidance_plan.required_skill_ids
+                ):
+                    required_list = ", ".join(
+                        skill_guidance_plan.required_skill_ids
+                    )
+                    react_system_prompt += (
+                        "\n\nRequired Skill application: before a final answer or "
+                        "any side-effecting, sensitive, approval, or terminal tool, "
+                        "call skill_read for every required Skill ID: "
+                        f"{required_list}. Plugin-provided and auto-discovered Skills "
+                        "remain optional until explicitly enabled. Never claim a Skill "
+                        "was read without the tool result."
+                    )
+                    messages[0] = ChatMessage(
+                        role="system", content=react_system_prompt
+                    )
+                    pending_state["skill_guidance_plan_fingerprint"] = (
+                        skill_guidance_plan.fingerprint
+                    )
             if middleware_context is not None:
                 middleware_context.metadata["skill_version_bindings"] = (
                     skill_version_bindings
                 )
-            skill_trust_authorizations = {
-                str(skill_id): str(fingerprint)
-                for skill_id, fingerprint in dict(
-                    pending_state.get("skill_trust_authorizations") or {}
-                ).items()
-                if str(skill_id).strip() and str(fingerprint).strip()
-            }
             denied_skill_candidate_ids = {
                 str(item)
                 for item in (pending_state.get("denied_skill_candidate_ids") or [])
@@ -10818,6 +11229,132 @@ async def _run_workflow_response(
                 int(pending_state.get("catalog_install_count") or 0),
             )
             run_tool_memory: list[str] = []
+
+            async def guidance_missing_skill_ids() -> tuple[str, ...]:
+                if skill_guidance_plan is None:
+                    return ()
+                try:
+                    receipts = await asyncio.to_thread(
+                        skill_application_receipt_store.list_receipts,
+                        run_id=workflow_run.run_id,
+                        task_id=task_id,
+                    )
+                except Exception as exc:
+                    raise SkillRuntimeGuidanceError(
+                        "Skill application evidence is unavailable.",
+                        code="skill_application_evidence_unavailable",
+                    ) from exc
+                return missing_required_skill_ids(
+                    skill_guidance_plan, receipts
+                )
+
+            async def emit_guidance_verified() -> None:
+                nonlocal skill_guidance_verified_emitted
+                if skill_guidance_plan is None or skill_guidance_verified_emitted:
+                    return
+                if await guidance_missing_skill_ids():
+                    return
+                skill_guidance_verified_emitted = True
+                events.append(
+                    {
+                        "event": "skill_runtime_status",
+                        "node_id": node.id,
+                        "node_title": title,
+                        "node_type": kind,
+                        "status": "verified",
+                        "required_skill_ids": list(
+                            skill_guidance_plan.required_skill_ids
+                        ),
+                        "run_id": run_id,
+                    }
+                )
+
+            async def request_skill_guidance_repair() -> str | None:
+                nonlocal skill_guidance_repair_used
+                missing = await guidance_missing_skill_ids()
+                if not missing:
+                    await emit_guidance_verified()
+                    return None
+                if skill_guidance_repair_used:
+                    raise SkillRuntimeGuidanceError(
+                        "Required Skill was not applied after one repair attempt.",
+                        code="skill_application_repair_exhausted",
+                    )
+                skill_guidance_repair_used = True
+                pending_state["skill_guidance_repair_used"] = True
+                guidance_repair_nodes[node.id] = True
+                task_state["skill_guidance_repair_used_by_node"] = (
+                    guidance_repair_nodes
+                )
+                events.append(
+                    {
+                        "event": "skill_runtime_status",
+                        "node_id": node.id,
+                        "node_title": title,
+                        "node_type": kind,
+                        "status": "repair_requested",
+                        "required_skill_ids": list(missing),
+                        "run_id": run_id,
+                    }
+                )
+                if run_id:
+                    await run_registry.record_checkpoint(
+                        run_id,
+                        event_type="workflow_agent.skill_application_repair",
+                        title="Required Skill application repair",
+                        summary=f"missing={len(missing)}",
+                        severity="warning",
+                        metadata={
+                            "required_skill_ids": list(missing),
+                            "plan_fingerprint": skill_guidance_plan.fingerprint,
+                        },
+                    )
+                return skill_application_repair_instruction(missing)
+
+            async def refresh_skill_guidance_plan() -> None:
+                nonlocal skill_guidance_plan, skill_guidance_contracts
+                if skill_guidance_plan is None:
+                    return
+                (
+                    skill_guidance_plan,
+                    skill_guidance_contracts,
+                    _updated_bindings,
+                ) = await prepare_skill_guidance_plan(
+                    node=node,
+                    include_skills=include_skills,
+                    available_tools=available_tools,
+                    middleware_specs=middleware_specs,
+                    middleware_context=middleware_context,
+                    activated_skill_ids=active_skill_ids,
+                    skill_version_bindings=skill_version_bindings,
+                    skill_trust_authorizations=skill_trust_authorizations,
+                )
+                if skill_guidance_plan is not None:
+                    pending_state["skill_guidance_plan_fingerprint"] = (
+                        skill_guidance_plan.fingerprint
+                    )
+
+            async def observe_skill_guidance_contract(
+                contract: Any,
+                **observation: Any,
+            ) -> None:
+                try:
+                    await asyncio.to_thread(
+                        skill_application_receipt_store.observe,
+                        contract,
+                        SkillApplicationScope(
+                            run_id=workflow_run.run_id,
+                            task_id=task_id,
+                            node_id=node.id,
+                            runtime_kind=runtime_run_type,
+                        ),
+                        **observation,
+                    )
+                except Exception as exc:
+                    raise SkillRuntimeGuidanceError(
+                        "Skill application evidence is unavailable.",
+                        code="skill_application_evidence_unavailable",
+                    ) from exc
 
             async def record_skill_runtime_failure(
                 tool_name: str,
@@ -10832,21 +11369,32 @@ async def _run_workflow_response(
                 ).strip()
                 if not application_skill_id:
                     return
-                await asyncio.to_thread(
-                    record_skill_application,
-                    skill_id=application_skill_id,
-                    run_id=workflow_run.run_id,
-                    task_id=task_id,
-                    node_id=node.id,
-                    runtime_kind=runtime_run_type,
-                    version_id=(
-                        skill_version_bindings.get(application_skill_id) or None
-                    ),
-                    policy=skill_application_policy,
-                    required_resource_paths=skill_application_required_paths,
-                    tool_name=tool_name,
-                    error_code=error_code,
-                )
+                contract = skill_guidance_contracts.get(application_skill_id)
+                if skill_guidance_plan is not None and contract is not None:
+                    await observe_skill_guidance_contract(
+                        contract,
+                        tool_name=tool_name,
+                        error_code=error_code,
+                    )
+                else:
+                    await asyncio.to_thread(
+                        record_skill_application,
+                        skill_id=application_skill_id,
+                        run_id=workflow_run.run_id,
+                        task_id=task_id,
+                        node_id=node.id,
+                        runtime_kind=runtime_run_type,
+                        version_id=(
+                            skill_version_bindings.get(application_skill_id)
+                            or None
+                        ),
+                        policy=skill_application_policy,
+                        required_resource_paths=(
+                            skill_application_required_paths
+                        ),
+                        tool_name=tool_name,
+                        error_code=error_code,
+                    )
 
             async def apply_skill_runtime_result(
                 tool_name: str,
@@ -10857,6 +11405,18 @@ async def _run_workflow_response(
                 if not tool_name.startswith("skill_"):
                     return
                 metadata = dict(result.metadata or {})
+                trust_authorization = metadata.get("trust_authorization")
+                if isinstance(trust_authorization, dict):
+                    authorized_skill_id = str(
+                        trust_authorization.get("skill_id") or ""
+                    ).strip()
+                    trust_fingerprint = str(
+                        trust_authorization.get("trust_fingerprint") or ""
+                    ).strip()
+                    if authorized_skill_id and trust_fingerprint:
+                        skill_trust_authorizations[
+                            authorized_skill_id
+                        ] = trust_fingerprint
                 candidate_id = str(arguments.get("candidate_id") or "").strip()
                 if metadata.get("approval_rejected") and candidate_id:
                     denied_skill_candidate_ids.add(candidate_id)
@@ -10890,7 +11450,7 @@ async def _run_workflow_response(
                     activated_version_id = skill_version_bindings.get(
                         activated_skill_id
                     )
-                    if activated_version_id:
+                    if activated_version_id and skill_guidance_plan is None:
                         await asyncio.to_thread(
                             record_skill_application,
                             skill_id=activated_skill_id,
@@ -10902,6 +11462,8 @@ async def _run_workflow_response(
                             policy=skill_application_policy,
                             required_resource_paths=skill_application_required_paths,
                         )
+                    if skill_guidance_plan is not None:
+                        await refresh_skill_guidance_plan()
                 application_method = str(
                     metadata.get("application_method") or ""
                 ).strip()
@@ -10927,61 +11489,30 @@ async def _run_workflow_response(
                     )
                     if application_skill_id:
                         application_failed = bool(result.is_error)
-                        await asyncio.to_thread(
-                            record_skill_application,
-                            skill_id=application_skill_id,
-                            run_id=workflow_run.run_id,
-                            task_id=task_id,
-                            node_id=node.id,
-                            runtime_kind=runtime_run_type,
-                            version_id=(
-                                str(
-                                    metadata.get("application_version_id")
-                                    or metadata.get("skill_version_id")
-                                    or skill_version_bindings.get(
-                                        application_skill_id
-                                    )
-                                    or ""
-                                ).strip()
-                                or None
+                        observe_kwargs = {
+                            "method": (
+                                None if application_failed else application_method
                             ),
-                            source_kind=(
-                                str(
-                                    metadata.get("application_source_kind")
-                                    or ""
-                                ).strip()
-                                or None
-                            ),
-                            content_digest=(
-                                str(
-                                    metadata.get("application_content_digest")
-                                    or ""
-                                ).strip()
-                                or None
-                            ),
-                            policy=skill_application_policy,
-                            required_resource_paths=skill_application_required_paths,
-                            method=(None if application_failed else application_method),
-                            resource_paths=(
+                            "resource_paths": (
                                 application_paths
                                 if not application_failed
                                 and isinstance(application_paths, list)
                                 else ()
                             ),
-                            resource_digests=(
+                            "resource_digests": (
                                 dict(application_digests)
                                 if not application_failed
                                 and isinstance(application_digests, dict)
                                 else None
                             ),
-                            expected_resource_digests=(
+                            "expected_resource_digests": (
                                 dict(expected_application_digests)
                                 if not application_failed
                                 and isinstance(expected_application_digests, dict)
                                 else None
                             ),
-                            tool_name=tool_name,
-                            error_code=(
+                            "tool_name": tool_name,
+                            "error_code": (
                                 str(
                                     metadata.get("error_code")
                                     or "skill_application_tool_failed"
@@ -10989,19 +11520,54 @@ async def _run_workflow_response(
                                 if application_failed
                                 else None
                             ),
+                        }
+                        contract = skill_guidance_contracts.get(
+                            application_skill_id
                         )
-                trust_authorization = metadata.get("trust_authorization")
-                if isinstance(trust_authorization, dict):
-                    authorized_skill_id = str(
-                        trust_authorization.get("skill_id") or ""
-                    ).strip()
-                    trust_fingerprint = str(
-                        trust_authorization.get("trust_fingerprint") or ""
-                    ).strip()
-                    if authorized_skill_id and trust_fingerprint:
-                        skill_trust_authorizations[
-                            authorized_skill_id
-                        ] = trust_fingerprint
+                        if skill_guidance_plan is not None and contract is not None:
+                            await observe_skill_guidance_contract(
+                                contract,
+                                **observe_kwargs,
+                            )
+                        else:
+                            await asyncio.to_thread(
+                                record_skill_application,
+                                skill_id=application_skill_id,
+                                run_id=workflow_run.run_id,
+                                task_id=task_id,
+                                node_id=node.id,
+                                runtime_kind=runtime_run_type,
+                                version_id=(
+                                    str(
+                                        metadata.get("application_version_id")
+                                        or metadata.get("skill_version_id")
+                                        or skill_version_bindings.get(
+                                            application_skill_id
+                                        )
+                                        or ""
+                                    ).strip()
+                                    or None
+                                ),
+                                source_kind=(
+                                    str(
+                                        metadata.get("application_source_kind")
+                                        or ""
+                                    ).strip()
+                                    or None
+                                ),
+                                content_digest=(
+                                    str(
+                                        metadata.get("application_content_digest")
+                                        or ""
+                                    ).strip()
+                                    or None
+                                ),
+                                policy=skill_application_policy,
+                                required_resource_paths=(
+                                    skill_application_required_paths
+                                ),
+                                **observe_kwargs,
+                            )
                 increment = int(metadata.get("catalog_install_increment") or 0)
                 if increment > 0:
                     catalog_install_count += increment
@@ -11040,6 +11606,8 @@ async def _run_workflow_response(
                 if not tool_name.startswith("skill_"):
                     return
                 await apply_skill_runtime_result(tool_name, arguments, result)
+                if skill_guidance_plan is not None and not result.is_error:
+                    await emit_guidance_verified()
                 metadata = dict(result.metadata or {})
                 event_name = str(metadata.get("skill_runtime_event") or "").strip()
                 if metadata.get("approval_rejected"):
@@ -11228,6 +11796,17 @@ async def _run_workflow_response(
                     raise RuntimeMiddlewareFatalError(
                         f"Pending tool is no longer available: {pending_tool_name}"
                     )
+                if tool_requires_skill_application(
+                    tool_name=pending_tool_name,
+                    read_only=bool(pending_tool.read_only),
+                    sensitive=bool(pending_tool.sensitive),
+                    requires_approval=bool(pending_tool.requires_approval),
+                    terminal=bool(pending_tool.terminal),
+                ) and await guidance_missing_skill_ids():
+                    raise SkillRuntimeGuidanceError(
+                        "Required Skill evidence changed while approval was pending.",
+                        code="skill_application_contract_stale",
+                    )
                 ensure_tool_call_budget(1)
                 approval_payload = task_state.get("resolved_approval")
                 client_payload = task_state.get("resolved_client_tool")
@@ -11365,6 +11944,17 @@ async def _run_workflow_response(
                             ]
                         )
                         continue
+                    repair_instruction = await request_skill_guidance_repair()
+                    if repair_instruction:
+                        messages.extend(
+                            [
+                                ChatMessage(role="assistant", content=raw_response),
+                                ChatMessage(
+                                    role="user", content=repair_instruction
+                                ),
+                            ]
+                        )
+                        continue
                     output_text = raw_response
                     if run_id:
                         await run_registry.record_checkpoint(
@@ -11396,6 +11986,17 @@ async def _run_workflow_response(
                             ]
                         )
                         continue
+                    repair_instruction = await request_skill_guidance_repair()
+                    if repair_instruction:
+                        messages.extend(
+                            [
+                                ChatMessage(role="assistant", content=raw_response),
+                                ChatMessage(
+                                    role="user", content=repair_instruction
+                                ),
+                            ]
+                        )
+                        continue
                     output_text = raw_response
                     if run_id:
                         await run_registry.record_checkpoint(
@@ -11423,6 +12024,22 @@ async def _run_workflow_response(
                                         "Call the allowed Skill proposal tool with the "
                                         "complete package and design contract."
                                     ),
+                                ),
+                            ]
+                        )
+                        continue
+                    repair_instruction = await request_skill_guidance_repair()
+                    if repair_instruction:
+                        messages.extend(
+                            [
+                                ChatMessage(
+                                    role="assistant",
+                                    content=json.dumps(
+                                        decision, ensure_ascii=False
+                                    ),
+                                ),
+                                ChatMessage(
+                                    role="user", content=repair_instruction
                                 ),
                             ]
                         )
@@ -11524,6 +12141,34 @@ async def _run_workflow_response(
                             ChatMessage(role="user", content=batch_error)
                         )
                         continue
+
+                    batch_requires_guidance = any(
+                        tool_requires_skill_application(
+                            tool_name=batch_tool_name,
+                            read_only=bool(batch_tool.read_only),
+                            sensitive=bool(batch_tool.sensitive),
+                            requires_approval=bool(batch_tool.requires_approval),
+                            terminal=bool(batch_tool.terminal),
+                        )
+                        for batch_tool_name, _arguments, batch_tool in parsed_batch
+                    )
+                    if batch_requires_guidance:
+                        repair_instruction = await request_skill_guidance_repair()
+                        if repair_instruction:
+                            messages.extend(
+                                [
+                                    ChatMessage(
+                                        role="assistant",
+                                        content=json.dumps(
+                                            decision, ensure_ascii=False
+                                        ),
+                                    ),
+                                    ChatMessage(
+                                        role="user", content=repair_instruction
+                                    ),
+                                ]
+                            )
+                            continue
 
                     ensure_tool_call_budget(len(parsed_batch))
                     batch_id = f"batch_{uuid.uuid4().hex}"
@@ -11690,6 +12335,17 @@ async def _run_workflow_response(
                             )
                         )
                         continue
+                    repair_instruction = await request_skill_guidance_repair()
+                    if repair_instruction:
+                        messages.extend(
+                            [
+                                ChatMessage(role="assistant", content=raw_response),
+                                ChatMessage(
+                                    role="user", content=repair_instruction
+                                ),
+                            ]
+                        )
+                        continue
                     output_text = raw_response
                     if run_id:
                         await run_registry.record_checkpoint(
@@ -11716,6 +12372,29 @@ async def _run_workflow_response(
                             metadata={"iteration": iteration_index + 1},
                         )
                 else:
+                    if tool_requires_skill_application(
+                        tool_name=tool_name,
+                        read_only=bool(matched_tool.read_only),
+                        sensitive=bool(matched_tool.sensitive),
+                        requires_approval=bool(matched_tool.requires_approval),
+                        terminal=bool(matched_tool.terminal),
+                    ):
+                        repair_instruction = await request_skill_guidance_repair()
+                        if repair_instruction:
+                            messages.extend(
+                                [
+                                    ChatMessage(
+                                        role="assistant",
+                                        content=json.dumps(
+                                            decision, ensure_ascii=False
+                                        ),
+                                    ),
+                                    ChatMessage(
+                                        role="user", content=repair_instruction
+                                    ),
+                                ]
+                            )
+                            continue
                     ensure_tool_call_budget(1)
                     try:
                         call_result = await call_workflow_runtime_tool_observed(
@@ -11745,6 +12424,14 @@ async def _run_workflow_response(
                             ),
                             "skill_version_bindings": dict(
                                 sorted(skill_version_bindings.items())
+                            ),
+                            "skill_guidance_plan_fingerprint": (
+                                skill_guidance_plan.fingerprint
+                                if skill_guidance_plan is not None
+                                else None
+                            ),
+                            "skill_guidance_repair_used": (
+                                skill_guidance_repair_used
                             ),
                         }
                         raise
@@ -11979,6 +12666,17 @@ async def _run_workflow_response(
                     )
                 )
             else:
+                missing_after_iterations = await guidance_missing_skill_ids()
+                if missing_after_iterations:
+                    raise SkillRuntimeGuidanceError(
+                        "Required Skill application did not complete before the "
+                        "Agent iteration limit.",
+                        code=(
+                            "skill_application_repair_exhausted"
+                            if skill_guidance_repair_used
+                            else "skill_application_required"
+                        ),
+                    )
                 event = {
                     "event": "node_delta",
                     "node_id": node.id,
@@ -15591,7 +16289,10 @@ async def _run_workflow_response(
                                             attempt_exc.code
                                             if isinstance(
                                                 attempt_exc,
-                                                AgentStrategyError,
+                                                (
+                                                    AgentStrategyError,
+                                                    SkillRuntimeGuidanceError,
+                                                ),
                                             )
                                             else attempt_exc.__class__.__name__
                                         ),
@@ -15924,6 +16625,22 @@ async def _run_workflow_response(
                                     "Failed to update workflow_agent run status",
                                     exc_info=True,
                                 )
+                        guidance_error_code = str(
+                            getattr(exc, "code", "") or ""
+                        )
+                        if isinstance(exc, SkillRuntimeGuidanceError):
+                            raise WorkflowTerminationError(
+                                guidance_error_code,
+                                (
+                                    "Required Skill is incompatible with the "
+                                    "current runtime."
+                                    if guidance_error_code
+                                    == "skill_runtime_incompatible"
+                                    else "Required Skill application could not be "
+                                    "verified."
+                                ),
+                                node_id=node.id,
+                            ) from exc
                         yield sse_payload(
                             {
                                 "event": "error",

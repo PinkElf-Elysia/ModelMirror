@@ -270,6 +270,14 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 
 私有 Xpert、工作流、Goal 与 Handoff 可选择启用本地目录发现和审批式固定 SHA 安装；完整运行时边界见 [私有 Agent Skill 按需路由](./SKILL_RUNTIME_ROUTER.md)。
 
+### 4.1 Skill Runtime Guidance V2 基础门
+
+`SKILL_RUNTIME_GUIDANCE_V2_ENABLED=true` 可在经典 Workflow 及其发布后的私有 Xpert 中启用真实应用门。用户显式选择、或本轮通过 `skill_enable` / `skill_install` 激活的 Skill 属于 `required`；插件附带及 `auto_discover` 候选保持 `available`，不会因为可见就冻结全部已安装 Skill。
+
+服务端在模型调用前固定 Skill 版本、内容摘要与信任指纹，并在接受最终答案或执行副作用、敏感、审批及 terminal 工具前核验同一运行的 `SkillApplicationReceipt`。存在必用 Skill 时会跳过基于模型的 Tool Selector，保留完整已授权工具集合，避免选择器先消耗模型额度或移除 Skill 所需能力。首次缺少 `skill_read` 时只允许一次服务端纠偏；再次遗漏会以稳定错误终止 Workflow，不创建审批卡或放行工具。`SKILL_APPLICATION_RECEIPT_MODE=off` 时该门失败关闭。
+
+本批次默认保持开关关闭，不改变旧节点数据。回退只需设回 `false` 并重启 Server；已有 Workflow、安装数据和 receipt 均保留。多文件资源的自动只读工具与运行卡将在后续批次交付。
+
 ## 5. 测试指南
 
 后端测试不依赖外网，会在临时目录创建本地 git 仓库作为 mock Skill 源：
