@@ -111,6 +111,18 @@ def workflow_http_requests_enabled() -> bool:
     }
 
 
+def workflow_file_assets_enabled() -> bool:
+    return os.getenv("WORKFLOW_FILE_ASSETS_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
+def file_output_assets_enabled() -> bool:
+    return os.getenv("FILE_OUTPUT_ASSETS_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 def _map_error(exc: Exception) -> HTTPException:
     if isinstance(exc, WorkflowDeploymentNotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
@@ -268,6 +280,8 @@ async def activate_workflow(project_id: str, version: int) -> dict[str, Any]:
             failure_triggers_enabled=workflow_failure_triggers_enabled(),
             subworkflows_enabled=workflow_subworkflows_enabled(),
             http_requests_enabled=workflow_http_requests_enabled(),
+            workflow_file_assets_enabled=workflow_file_assets_enabled(),
+            file_output_assets_enabled=file_output_assets_enabled(),
         )
         payload = store.serialize_deployment(deployment)
         if plaintext_key:

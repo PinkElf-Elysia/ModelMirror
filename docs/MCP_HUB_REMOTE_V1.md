@@ -93,6 +93,9 @@ Hub 不提供通用工具调用 API。工具只以
 [`MCP_HUB_REVIEW_FACTORY_V1.md`](MCP_HUB_REVIEW_FACTORY_V1.md)。Review Factory
 默认关闭，不改变本页第一轮连接边界。
 
+已复核契约的普通用户入口、实时健康状态和自动复核停止点见
+[`MCP_HUB_TRUSTED_CHANNEL_V1.md`](MCP_HUB_TRUSTED_CHANNEL_V1.md)。
+
 Registry 快照、候选和 execution ledger 存在现有 MCP catalog storage 下的
 `hub.sqlite3`，以部署时固定的本地 tenant/owner 隔离。当前仍不是可切换的
 多租户主体模型，因此第一轮不开放共享 SaaS 部署或 OAuth/Token 服务。

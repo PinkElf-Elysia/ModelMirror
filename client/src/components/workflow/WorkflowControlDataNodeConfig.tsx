@@ -8,6 +8,7 @@ import type {
   WorkflowEdge,
   WorkflowNode,
   WorkflowNodeData,
+  WorkflowObjectOperation,
   WorkflowSortKey,
   WorkflowValue,
   WorkflowVariableDeclaration,
@@ -524,6 +525,9 @@ export default function WorkflowControlDataNodeConfig({
             <option className="bg-slate-950" value="filter">筛选</option>
             <option className="bg-slate-950" value="sort">排序</option>
             <option className="bg-slate-950" value="deduplicate">去重</option>
+            <option className="bg-slate-950" value="take">保留前几项</option>
+            <option className="bg-slate-950" value="skip">跳过前几项</option>
+            <option className="bg-slate-950" value="slice">按位置截取</option>
           </select>
         </ConfigField>
         {data.operator === "join" ? (
@@ -577,9 +581,153 @@ export default function WorkflowControlDataNodeConfig({
             <SmallButton disabled={deduplicateFields.length >= 5} onClick={() => onChange({ deduplicateFields: [...deduplicateFields, ""] })}>添加字段</SmallButton>
           </div>
         ) : null}
+        {data.operator === "take" || data.operator === "skip" ? (
+          <ConfigField
+            hint="从 0 到 10,000。该操作只接受真正的 JSON 数组。"
+            label={data.operator === "take" ? "保留数量" : "跳过数量"}
+          >
+            <input
+              className={inputClass}
+              max={10000}
+              min={0}
+              onChange={(event) => onChange({ count: Number(event.target.value) })}
+              type="number"
+              value={data.count ?? 10}
+            />
+          </ConfigField>
+        ) : null}
+        {data.operator === "slice" ? (
+          <div className="grid grid-cols-2 gap-3">
+            <ConfigField hint="从 0 开始计数。" label="起始位置">
+              <input className={inputClass} max={10000} min={0} onChange={(event) => onChange({ startIndex: Number(event.target.value) })} type="number" value={data.startIndex ?? 0} />
+            </ConfigField>
+            <ConfigField hint="不包含此位置。" label="结束位置">
+              <input className={inputClass} max={10000} min={0} onChange={(event) => onChange({ endIndex: Number(event.target.value) })} type="number" value={data.endIndex ?? 10} />
+            </ConfigField>
+          </div>
+        ) : null}
         <ConfigField label="输出变量">
           <WorkflowVariableField contract={contract} declarations={declarations} edges={edges} fieldName="outputVariable" node={node} nodes={nodes} onChange={(value) => onChange({ outputVariable: value })} value={data.outputVariable ?? ""} />
         </ConfigField>
+      </div>
+    );
+  }
+
+  if (data.kind === "object_transform") {
+    const operations = data.operations ?? [];
+    const updateOperation = (
+      index: number,
+      patch: Partial<WorkflowObjectOperation>,
+    ) =>
+      onChange({
+        operations: operations.map((operation, operationIndex) =>
+          operationIndex === index ? { ...operation, ...patch } : operation,
+        ),
+      });
+    const moveOperation = (from: number, to: number) => {
+      const next = [...operations];
+      [next[from], next[to]] = [next[to], next[from]];
+      onChange({ operations: next });
+    };
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.07] px-3 py-2 text-xs leading-5 text-cyan-50">
+          操作会从上到下依次执行，只处理顶层字段。删除、重命名或保留不存在的字段会明确报错，不会静默丢数据。
+        </div>
+        <ConfigField label="输入对象变量">
+          <WorkflowVariableField contract={contract} declarations={declarations} edges={edges} fieldName="inputVariable" node={node} nodes={nodes} onChange={(value) => onChange({ inputVariable: value })} value={data.inputVariable ?? ""} />
+        </ConfigField>
+        <ConfigField label="输出对象变量">
+          <WorkflowVariableField contract={contract} declarations={declarations} edges={edges} fieldName="outputVariable" node={node} nodes={nodes} onChange={(value) => onChange({ outputVariable: value })} value={data.outputVariable ?? ""} />
+        </ConfigField>
+        <div className="flex justify-end"><VariableCenterShortcut onOpen={onOpenVariableCenter} /></div>
+        <div className="space-y-3">
+          <SectionHeader detail="最多 20 步；调整顺序不会改变步骤 ID。" title="转换步骤" />
+          <div className="divide-y divide-white/10 rounded-lg border border-white/10 bg-black/10">
+            {operations.map((operation, index) => {
+              const binding = operation.binding ?? {
+                source: "literal" as const,
+                valueType: "text" as const,
+                value: "",
+              };
+              return (
+                <div className="space-y-3 p-3" key={operation.id}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-slate-200">步骤 {index + 1}</p>
+                    <div className="flex gap-1">
+                      <SmallButton disabled={index === 0} onClick={() => moveOperation(index, index - 1)}>上移</SmallButton>
+                      <SmallButton disabled={index === operations.length - 1} onClick={() => moveOperation(index, index + 1)}>下移</SmallButton>
+                      <SmallButton disabled={operations.length <= 1} onClick={() => onChange({ operations: operations.filter((_, operationIndex) => operationIndex !== index) })}>删除</SmallButton>
+                    </div>
+                  </div>
+                  <select
+                    aria-label={`转换步骤 ${index + 1} 操作`}
+                    className={compactInputClass}
+                    onChange={(event) => {
+                      const next = event.target.value as WorkflowObjectOperation["operation"];
+                      updateOperation(index, {
+                        operation: next,
+                        sourceField: next === "rename" ? operation.sourceField ?? "" : undefined,
+                        targetField: ["set", "set_default", "rename", "remove"].includes(next) ? operation.targetField ?? "" : undefined,
+                        fields: next === "keep_only" ? operation.fields ?? [""] : undefined,
+                        binding: ["set", "set_default"].includes(next) ? binding : undefined,
+                      });
+                    }}
+                    value={operation.operation}
+                  >
+                    <option className="bg-slate-950" value="set">设置字段</option>
+                    <option className="bg-slate-950" value="set_default">缺失时设置默认值</option>
+                    <option className="bg-slate-950" value="rename">重命名字段</option>
+                    <option className="bg-slate-950" value="remove">删除字段</option>
+                    <option className="bg-slate-950" value="keep_only">只保留所选字段</option>
+                  </select>
+                  {operation.operation === "rename" ? (
+                    <input aria-label={`转换步骤 ${index + 1} 来源字段`} className={compactInputClass} onChange={(event) => updateOperation(index, { sourceField: event.target.value })} placeholder="原字段名" value={operation.sourceField ?? ""} />
+                  ) : null}
+                  {["set", "set_default", "rename", "remove"].includes(operation.operation) ? (
+                    <input aria-label={`转换步骤 ${index + 1} 目标字段`} className={compactInputClass} onChange={(event) => updateOperation(index, { targetField: event.target.value })} placeholder={operation.operation === "rename" ? "新字段名" : "字段名"} value={operation.targetField ?? ""} />
+                  ) : null}
+                  {["set", "set_default"].includes(operation.operation) ? (
+                    <div className="space-y-2 rounded-lg border border-white/10 bg-white/[0.025] p-2.5">
+                      <select aria-label={`转换步骤 ${index + 1} 值来源`} className={compactInputClass} onChange={(event) => updateOperation(index, { binding: event.target.value === "variable" ? { source: "variable", variable: "" } : { source: "literal", valueType: "text", value: "" } })} value={binding.source}>
+                        <option className="bg-slate-950" value="literal">固定值</option>
+                        <option className="bg-slate-950" value="variable">工作流变量</option>
+                      </select>
+                      {binding.source === "variable" ? (
+                        <WorkflowVariableField declarations={declarations} edges={edges} fieldName="bindingVariable" node={node} nodes={nodes} onChange={(value) => updateOperation(index, { binding: { source: "variable", variable: value } })} value={binding.variable ?? ""} />
+                      ) : (
+                        <TypedValueEditor
+                          ariaPrefix={`转换步骤 ${index + 1}`}
+                          onChange={(patch) => updateOperation(index, { binding: { source: "literal", valueType: patch.valueType ?? binding.valueType ?? "text", value: patch.value } })}
+                          rule={{ operator: "equals", valueType: binding.valueType ?? "text", value: binding.value }}
+                        />
+                      )}
+                    </div>
+                  ) : null}
+                  {operation.operation === "keep_only" ? (
+                    <div className="space-y-2">
+                      {(operation.fields ?? [""]).map((field, fieldIndex) => (
+                        <div className="flex gap-2" key={`${operation.id}-field-${fieldIndex}`}>
+                          <input aria-label={`转换步骤 ${index + 1} 保留字段 ${fieldIndex + 1}`} className={compactInputClass} onChange={(event) => updateOperation(index, { fields: (operation.fields ?? [""]).map((item, itemIndex) => itemIndex === fieldIndex ? event.target.value : item) })} placeholder="顶层字段" value={field} />
+                          <SmallButton disabled={(operation.fields ?? []).length <= 1} onClick={() => updateOperation(index, { fields: (operation.fields ?? []).filter((_, itemIndex) => itemIndex !== fieldIndex) })}>删除</SmallButton>
+                        </div>
+                      ))}
+                      <SmallButton disabled={(operation.fields ?? []).length >= 50} onClick={() => updateOperation(index, { fields: [...(operation.fields ?? []), ""] })}>添加字段</SmallButton>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+          <SmallButton
+            disabled={operations.length >= 20}
+            onClick={() => {
+              const used = new Set(operations.map((operation) => operation.id));
+              const id = Array.from({ length: 20 }, (_, index) => `operation_${index + 1}`).find((candidate) => !used.has(candidate)) ?? "operation_20";
+              onChange({ operations: [...operations, { id, operation: "set", targetField: "", binding: { source: "literal", valueType: "text", value: "" } }] });
+            }}
+          >添加步骤</SmallButton>
+        </div>
       </div>
     );
   }

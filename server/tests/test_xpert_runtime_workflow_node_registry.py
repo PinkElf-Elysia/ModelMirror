@@ -99,7 +99,7 @@ def test_document_extractor_palette_follows_file_asset_gate(monkeypatch) -> None
     assert item.enabled is True
     assert item.metadata == {}
     projection = item.to_payload()
-    assert projection["contract"]["contract_status"] == "compatibility"
+    assert projection["contract"]["contract_status"] == "complete"
     assert projection["planner"]["enabled"] is False
 
 

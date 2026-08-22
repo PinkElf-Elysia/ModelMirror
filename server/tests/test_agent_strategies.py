@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from server.xpert_runtime import RuntimeTool, RuntimeToolError, RuntimeToolResult
+from server.xpert_runtime.interrupts import RuntimeMiddlewareFatalError
 from server.xpert_runtime.agent_strategy import (
     AgentModelError,
     AgentModelTurn,
@@ -396,6 +397,52 @@ async def test_parallel_tool_calls_execute_concurrently_but_keep_message_order()
         message for message in model.requests[1]["messages"] if message["role"] == "tool"
     ]
     assert [message["tool_call_id"] for message in tool_messages] == ["call_1", "call_2"]
+
+
+@pytest.mark.asyncio
+async def test_parallel_batch_preflight_blocks_every_tool_before_execution() -> None:
+    model = FakeModelClient(
+        [
+            tool_turn(
+                ("call_1", "first", '{"query":"one"}'),
+                ("call_2", "second", '{"query":"two"}'),
+            )
+        ]
+    )
+    executed: list[str] = []
+    preflight_calls: list[list[tuple[str, dict[str, Any], str]]] = []
+
+    async def execute(name: str, arguments: dict[str, Any], call_id: str, iteration: int):
+        executed.append(name)
+        return RuntimeToolResult(output=name)
+
+    failure = RuntimeMiddlewareFatalError("batch rejected")
+
+    async def preflight(
+        calls: list[tuple[str, dict[str, Any], str]], iteration: int
+    ) -> None:
+        assert iteration == 1
+        preflight_calls.append(calls)
+        raise failure
+
+    with pytest.raises(RuntimeMiddlewareFatalError) as exc_info:
+        await make_runner(
+            model,
+            execute,
+            strategy="function_calling",
+            parallel_tool_calls=True,
+            tool_batch_preflight=preflight,
+            tools=[runtime_tool("first"), runtime_tool("second")],
+        ).run()
+
+    assert exc_info.value is failure
+    assert executed == []
+    assert preflight_calls == [
+        [
+            ("first", {"query": "one"}, "call_1"),
+            ("second", {"query": "two"}, "call_2"),
+        ]
+    ]
 
 
 @pytest.mark.asyncio

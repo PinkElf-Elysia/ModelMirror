@@ -15,6 +15,7 @@ from .control_data import (
     LIST_OPERATORS,
     WorkflowControlDataError,
     deduplicate_array,
+    execute_list_operation,
     filter_array,
     sort_array,
     validate_aggregate_config,
@@ -23,6 +24,15 @@ from .control_data import (
     validate_terminate_error_config,
 )
 from .node_contracts import workflow_node_contract_registry
+from .file_data import (
+    WorkflowFileDataError,
+    is_time_v2,
+    object_transform_variable_references,
+    time_v2_variable_references,
+    validate_file_output_config,
+    validate_object_transform_config,
+    validate_time_v2_config,
+)
 from .secure_http import (
     WorkflowHttpRequestError,
     http_request_variable_references,
@@ -114,6 +124,10 @@ NODE_KIND_ALIASES = {
     "data-aggregate": "data_aggregate",
     "dataset_compare": "dataset_compare",
     "dataset-compare": "dataset_compare",
+    "object_transform": "object_transform",
+    "object-transform": "object_transform",
+    "file_output": "file_output",
+    "file-output": "file_output",
     "iteration": "iteration",
     "json_serialize": "json_serialize",
     "json-serialize": "json_serialize",
@@ -2639,40 +2653,52 @@ def validate_node_configuration(
             )
 
     if kind == "time_tool":
-        operation = str(data.get("operation") or "").strip()
-        if not operation:
-            issues.append(
-                ValidationIssue(
-                    code="missing_time_operation",
-                    message="Time tool node needs data.operation.",
-                    node_id=node.id,
+        if is_time_v2(data):
+            try:
+                validate_time_v2_config(data)
+            except WorkflowFileDataError as exc:
+                issues.append(
+                    ValidationIssue(
+                        code=exc.code.lower(),
+                        message=exc.safe_message,
+                        node_id=node.id,
+                    )
                 )
-            )
-        elif operation not in {"now_iso", "now_epoch", "format"}:
-            issues.append(
-                ValidationIssue(
-                    code="invalid_time_operation",
-                    message="Time tool operation must be now_iso, now_epoch, or format.",
-                    node_id=node.id,
+        else:
+            operation = str(data.get("operation") or "").strip()
+            if not operation:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_time_operation",
+                        message="Time tool node needs data.operation.",
+                        node_id=node.id,
+                    )
                 )
-            )
-        output_variable = str(data.get("outputVariable") or "").strip()
-        if not output_variable:
-            issues.append(
-                ValidationIssue(
-                    code="missing_output_variable",
-                    message="Time tool node needs data.outputVariable.",
-                    node_id=node.id,
+            elif operation not in {"now_iso", "now_epoch", "format"}:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_time_operation",
+                        message="Time tool operation must be now_iso, now_epoch, or format.",
+                        node_id=node.id,
+                    )
                 )
-            )
-        elif not is_variable_name(output_variable):
-            issues.append(
-                ValidationIssue(
-                    code="invalid_output_variable",
-                    message="Time tool outputVariable must be an identifier.",
-                    node_id=node.id,
+            output_variable = str(data.get("outputVariable") or "").strip()
+            if not output_variable:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_output_variable",
+                        message="Time tool node needs data.outputVariable.",
+                        node_id=node.id,
+                    )
                 )
-            )
+            elif not is_variable_name(output_variable):
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_output_variable",
+                        message="Time tool outputVariable must be an identifier.",
+                        node_id=node.id,
+                    )
+                )
 
     if kind == "http_request" and is_http_request_v2(data):
         try:
@@ -2807,6 +2833,7 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
+
         elif not is_variable_name(input_variable):
             issues.append(
                 ValidationIssue(
@@ -2837,6 +2864,14 @@ def validate_node_configuration(
                 deduplicate_array(
                     [],
                     fields=data.get("deduplicateFields", []),
+                )
+            elif operator in {"take", "skip", "slice"}:
+                execute_list_operation(
+                    [],
+                    operator=operator,
+                    count=data.get("count"),
+                    start_index=data.get("startIndex"),
+                    end_index=data.get("endIndex"),
                 )
         except WorkflowControlDataError as exc:
             issues.append(
@@ -2897,6 +2932,30 @@ def validate_node_configuration(
                 measures=data.get("measures"),
             )
         except WorkflowControlDataError as exc:
+            issues.append(
+                ValidationIssue(
+                    code=exc.code.lower(),
+                    message=exc.safe_message,
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "object_transform":
+        try:
+            validate_object_transform_config(data)
+        except WorkflowFileDataError as exc:
+            issues.append(
+                ValidationIssue(
+                    code=exc.code.lower(),
+                    message=exc.safe_message,
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "file_output":
+        try:
+            validate_file_output_config(data)
+        except WorkflowFileDataError as exc:
             issues.append(
                 ValidationIssue(
                     code=exc.code.lower(),
@@ -3407,6 +3466,35 @@ def validate_node_configuration(
                     )
                 )
         if middleware_id == "plugin_hooks":
+            hook_mode = str(config.get("hook_mode") or "").strip()
+            if hook_mode and hook_mode not in {"legacy_argv", "typed_v2"}:
+                issues.append(
+                    ValidationIssue(
+                        code="skill_hook_mode_invalid",
+                        message="plugin_hooks hook_mode must be legacy_argv or typed_v2.",
+                        node_id=node.id,
+                    )
+                )
+            if hook_mode == "typed_v2" and "fail_closed" in config:
+                issues.append(
+                    ValidationIssue(
+                        code="skill_hook_v2_fail_closed_unsupported",
+                        message=(
+                            "typed_v2 derives failure policy from each Hook mode; "
+                            "remove the legacy fail_closed setting."
+                        ),
+                        node_id=node.id,
+                    )
+                )
+            if hook_mode != "typed_v2":
+                issues.append(
+                    ValidationIssue(
+                        code="skill_hook_legacy_middleware",
+                        message="This Skill Hook middleware uses the legacy argv contract.",
+                        severity="warning",
+                        node_id=node.id,
+                    )
+                )
             skill_ids = [
                 value.strip()
                 for value in re.split(
@@ -3528,6 +3616,8 @@ def collect_declared_variables(
             "list_operation",
             "data_aggregate",
             "dataset_compare",
+            "object_transform",
+            "file_output",
             "iteration",
             "json_serialize",
             "json_deserialize",
@@ -3589,6 +3679,8 @@ def collect_node_variable_producers(
         "list_operation": ("outputVariable",),
         "data_aggregate": ("outputVariable",),
         "dataset_compare": ("outputVariable",),
+        "object_transform": ("outputVariable",),
+        "file_output": ("outputVariable",),
         "iteration": ("outputVariable",),
         "json_serialize": ("outputVariable",),
         "json_deserialize": ("outputVariable",),
@@ -4051,6 +4143,60 @@ def validate_variable_references(
                     node_id=node.id,
                 )
             )
+
+    if kind == "time_tool" and is_time_v2(data):
+        try:
+            time_references = time_v2_variable_references(data)
+        except WorkflowFileDataError:
+            time_references = set()
+        for variable in sorted(time_references - available_variables):
+            issues.append(
+                ValidationIssue(
+                    code="missing_time_variable_reference",
+                    message=f"Time tool references undefined variable '{variable}'.",
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "object_transform":
+        try:
+            object_references = object_transform_variable_references(data)
+        except WorkflowFileDataError:
+            object_references = set()
+        for variable in sorted(object_references - available_variables):
+            issues.append(
+                ValidationIssue(
+                    code="missing_object_transform_variable_reference",
+                    message=f"Object transform references undefined variable '{variable}'.",
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "file_output":
+        input_variable = str(data.get("inputVariable") or "").strip()
+        if input_variable and input_variable not in available_variables:
+            issues.append(
+                ValidationIssue(
+                    code="missing_file_output_input_variable_reference",
+                    message=f"File output references undefined variable '{input_variable}'.",
+                    node_id=node.id,
+                )
+            )
+        for field_name in ("filenameTemplate", "titleTemplate"):
+            for variable in sorted(
+                extract_template_variables(str(data.get(field_name) or ""))
+            ):
+                if variable not in available_variables:
+                    issues.append(
+                        ValidationIssue(
+                            code="missing_file_output_template_variable",
+                            message=(
+                                f"File output {field_name} references undefined variable "
+                                f"'{variable}'."
+                            ),
+                            node_id=node.id,
+                        )
+                    )
 
     if kind == "data_aggregate":
         input_variable = str(data.get("inputVariable") or "").strip()

@@ -89,7 +89,7 @@ export const difyNodeMappings: DifyNodeMapping[] = [
   {
     native: "document_extractor",
     dify: "document-extractor",
-    note: "Native document extraction reads only sandboxed local files.",
+    note: "Native document extraction reads scope-owned workflow assets or explicitly shared private Xpert attachments.",
   },
   {
     native: "human_intervention",
@@ -114,7 +114,7 @@ export const difyNodeMappings: DifyNodeMapping[] = [
   {
     native: "time_tool",
     dify: "time",
-    note: "Native time tool provides current time without external dependencies.",
+    note: "Native time tool provides strict timezone-aware conversion, arithmetic, difference, and period boundaries.",
   },
   {
     native: "http_request",
@@ -124,7 +124,7 @@ export const difyNodeMappings: DifyNodeMapping[] = [
   {
     native: "list_operation",
     dify: "list-operator",
-    note: "Native list operation works on comma-separated strings before a richer array type exists.",
+    note: "Native list operation supports typed JSON arrays, including filter, sort, deduplicate, take, skip, and slice.",
   },
   {
     native: "iteration",

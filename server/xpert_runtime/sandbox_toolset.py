@@ -101,6 +101,10 @@ class SandboxToolsetProvider:
         self._evaluation_guard = threading.RLock()
         self._evaluation_workspaces: dict[str, dict[str, str]] = {}
         self._evaluation_usage: dict[str, dict[str, Any]] = {}
+        self._skill_hook_token = object()
+        self._skill_hook_guard = threading.RLock()
+        self._skill_hook_provision_lock = asyncio.Lock()
+        self._skill_hook_workspaces: dict[str, dict[str, str]] = {}
 
     def configure_skill_evaluation(
         self, overlay_resolver: Callable[[str], Any] | None
@@ -259,6 +263,250 @@ class SandboxToolsetProvider:
             "tool_names": sorted(str(item) for item in raw.get("tool_names", set())),
         }
 
+    async def provision_skill_hook_workspace(
+        self,
+        *,
+        skill_id: str,
+        version_id: str,
+        package_root: str | Path,
+        task_id: str,
+        run_id: str,
+        node_id: str,
+    ) -> dict[str, str]:
+        """Seed one immutable Hook Skill into the protected authoring profile."""
+
+        health = await self.client.health(required_profile="skill_authoring_v1")
+        self.require_skill_hook_attestation(health)
+        clean_skill_id = str(skill_id or "").strip()
+        clean_version_id = str(version_id or "").strip()
+        root = Path(package_root).resolve(strict=True)
+        if not clean_skill_id or not clean_version_id or not root.is_dir():
+            raise RuntimeToolError(
+                "skill_hook",
+                "Skill Hook package binding is invalid.",
+                code="skill_hook_contract_stale",
+            )
+        package_files: list[tuple[Path, bytes]] = []
+        total_bytes = 0
+        for path in sorted(root.rglob("*")):
+            if path.is_symlink():
+                raise RuntimeToolError(
+                    "skill_hook",
+                    "Skill Hook package contains an unsafe link.",
+                    code="skill_hook_contract_stale",
+                )
+            if not path.is_file() or ".git" in path.parts:
+                continue
+            relative = path.relative_to(root)
+            content = path.read_bytes()
+            if len(content) > SKILL_STAGE_MAX_FILE_BYTES:
+                raise RuntimeToolError(
+                    "skill_hook",
+                    "Skill Hook package file exceeds the runtime limit.",
+                    code="skill_hook_contract_stale",
+                )
+            total_bytes += len(content)
+            package_files.append((relative, content))
+        if (
+            not package_files
+            or len(package_files) > SKILL_STAGE_MAX_FILES
+            or total_bytes > SKILL_STAGE_MAX_TOTAL_BYTES
+        ):
+            raise RuntimeToolError(
+                "skill_hook",
+                "Skill Hook package exceeds the runtime limits.",
+                code="skill_hook_contract_stale",
+            )
+        try:
+            snapshot = self.skill_manager.lifecycle_store.require_version(
+                clean_version_id
+            )
+            expected_digest = str(snapshot.package_digest or "").strip().lower()
+        except Exception as exc:
+            raise RuntimeToolError(
+                "skill_hook",
+                "Frozen Skill Hook version is unavailable.",
+                code="skill_hook_contract_stale",
+            ) from exc
+        actual_digest = compute_skill_content_digest(
+            {relative.as_posix(): content for relative, content in package_files}
+        )
+        if (
+            str(getattr(snapshot, "skill_id", "") or "").strip()
+            != clean_skill_id
+            or actual_digest != expected_digest
+        ):
+            raise RuntimeToolError(
+                "skill_hook",
+                "Frozen Skill Hook package no longer matches its version.",
+                code="skill_hook_contract_stale",
+            )
+        binding_key = hashlib.sha256(
+            json.dumps(
+                [
+                    str(task_id or ""),
+                    str(run_id or ""),
+                    str(node_id or ""),
+                    clean_skill_id,
+                    clean_version_id,
+                    actual_digest,
+                ],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        async with self._skill_hook_provision_lock:
+            with self._skill_hook_guard:
+                existing = next(
+                    (
+                        dict(item)
+                        for item in self._skill_hook_workspaces.values()
+                        if item.get("binding_key") == binding_key
+                    ),
+                    None,
+                )
+            if existing is not None:
+                return {
+                    "workspace_id": existing["workspace_id"],
+                    "skill_alias": existing["skill_alias"],
+                    "package_digest": actual_digest,
+                }
+            return await self._create_skill_hook_workspace(
+                task_id=str(task_id or ""),
+                run_id=str(run_id or ""),
+                node_id=str(node_id or ""),
+                skill_id=clean_skill_id,
+                version_id=clean_version_id,
+                actual_digest=actual_digest,
+                binding_key=binding_key,
+                package_files=package_files,
+            )
+
+    async def _create_skill_hook_workspace(
+        self,
+        *,
+        task_id: str,
+        run_id: str,
+        node_id: str,
+        skill_id: str,
+        version_id: str,
+        actual_digest: str,
+        binding_key: str,
+        package_files: list[tuple[Path, bytes]],
+    ) -> dict[str, str]:
+        workspace = self.store.get_or_create_workspace(
+            scope_type="skill_hook",
+            scope_id=(
+                f"{task_id}:{run_id}:{node_id}:{skill_id}:"
+                f"{version_id}:{uuid.uuid4().hex}"
+            ),
+            node_id=node_id,
+            quota_bytes=64 * 1024 * 1024,
+            expires_at=time.time() + 24 * 60 * 60,
+            metadata={
+                "skill_id": skill_id,
+                "version_id": version_id,
+                "package_digest": actual_digest,
+                "profile": "skill_authoring_v1",
+            },
+        )
+        response = await self.client.request(
+            {
+                "action": "ensure_workspace",
+                "workspace_id": workspace.workspace_id,
+                "profile": "skill_authoring_v1",
+            }
+        )
+        capability = str(response.get("provisioning_capability") or "")
+        if not capability:
+            raise RuntimeToolError(
+                "skill_hook",
+                "Sandbox sidecar did not return a Hook provisioning capability.",
+                code="skill_hook_execution_failed",
+            )
+        with self._skill_hook_guard:
+            self._skill_hook_workspaces[workspace.workspace_id] = {
+                "workspace_id": workspace.workspace_id,
+                "capability": capability,
+                "skill_id": skill_id,
+                "version_id": version_id,
+                "skill_alias": "authoring-resource",
+                "binding_key": binding_key,
+            }
+        try:
+            for index, (relative, content) in enumerate(package_files):
+                await self.client.request(
+                    {
+                        "action": "seed_file",
+                        "workspace_id": workspace.workspace_id,
+                        "profile": "skill_authoring_v1",
+                        "provisioning_capability": capability,
+                        "path": f"skills/authoring-resource/{relative.as_posix()}",
+                        "content_base64": base64.b64encode(content).decode("ascii"),
+                        "quota_bytes": workspace.quota_bytes,
+                        "operation_id": (
+                            f"hook-seed:{hashlib.sha256(f'{actual_digest}:{index}'.encode()).hexdigest()[:40]}"
+                        ),
+                    }
+                )
+            await self.client.request(
+                {
+                    "action": "seal_workspace",
+                    "workspace_id": workspace.workspace_id,
+                    "profile": "skill_authoring_v1",
+                    "provisioning_capability": capability,
+                }
+            )
+            return {
+                "workspace_id": workspace.workspace_id,
+                "skill_alias": "authoring-resource",
+                "package_digest": actual_digest,
+            }
+        except BaseException:
+            with self._skill_hook_guard:
+                self._skill_hook_workspaces.pop(workspace.workspace_id, None)
+            try:
+                await self.client.request(
+                    {
+                        "action": "cleanup_workspace",
+                        "workspace_id": workspace.workspace_id,
+                        "profile": "skill_authoring_v1",
+                        "provisioning_capability": capability,
+                    }
+                )
+            finally:
+                raise
+
+    async def call_skill_hook_tool(
+        self, workspace_id: str, call: RuntimeToolCall
+    ) -> RuntimeToolResult:
+        self._skill_hook_binding(workspace_id)
+        metadata = dict(call.metadata or {})
+        metadata["skill_hook_workspace_id"] = workspace_id
+        metadata["_skill_hook_internal_token"] = self._skill_hook_token
+        return await self.call_tool(
+            RuntimeToolCall(
+                tool_name=call.tool_name,
+                arguments=dict(call.arguments or {}),
+                metadata=metadata,
+            )
+        )
+
+    async def cleanup_skill_hook_workspace(self, workspace_id: str) -> None:
+        binding = self._skill_hook_binding(workspace_id)
+        try:
+            await self.client.request(
+                {
+                    "action": "cleanup_workspace",
+                    "workspace_id": workspace_id,
+                    "profile": "skill_authoring_v1",
+                    "provisioning_capability": binding["capability"],
+                }
+            )
+        finally:
+            with self._skill_hook_guard:
+                self._skill_hook_workspaces.pop(workspace_id, None)
+
     async def list_tools(self) -> list[RuntimeTool]:
         return [
             RuntimeTool("sandbox_list_files", "List files in the current isolated workspace.", {"type": "object", "properties": {"path": {"type": "string"}}}, "sandbox"),
@@ -353,6 +601,17 @@ class SandboxToolsetProvider:
         tool = await self.find_tool(call.tool_name)
         if tool is None:
             raise RuntimeToolError(call.tool_name, "Sandbox tool not found.", code="tool_not_found")
+        is_skill_hook = self._is_skill_hook_call(call)
+        if is_skill_hook and call.tool_name not in {
+            "sandbox_read_file",
+            "sandbox_write_file",
+            "sandbox_shell",
+        }:
+            raise RuntimeToolError(
+                call.tool_name,
+                "Tool is outside the fixed Skill Hook runtime allowlist.",
+                code="skill_hook_execution_failed",
+            )
         workspace = self._workspace(call)
         is_evaluation = self._is_skill_evaluation(call)
         if is_evaluation:
@@ -371,10 +630,10 @@ class SandboxToolsetProvider:
                     {"skill_read": False, "skill_stage": False, "tool_names": set()},
                 )
                 usage.setdefault("tool_names", set()).add(call.tool_name)
-        else:
+        elif not is_skill_hook:
             await self.client.request({"action": "ensure_workspace", "workspace_id": workspace.workspace_id})
         try:
-            if not is_evaluation:
+            if not is_evaluation and not is_skill_hook:
                 await self._stage_context_attachments(workspace, call)
             if call.tool_name == "skill_list":
                 return self._skill_list(call)
@@ -398,6 +657,20 @@ class SandboxToolsetProvider:
 
     def _workspace(self, call: RuntimeToolCall) -> SandboxWorkspace:
         metadata = call.metadata
+        if self._is_skill_hook_call(call):
+            workspace_id = str(metadata.get("skill_hook_workspace_id") or "").strip()
+            binding = self._skill_hook_binding(workspace_id)
+            workspace = self.store.get_workspace(workspace_id)
+            if (
+                workspace.scope_type != "skill_hook"
+                or binding.get("workspace_id") != workspace.workspace_id
+            ):
+                raise RuntimeToolError(
+                    call.tool_name,
+                    "Skill Hook workspace binding changed.",
+                    code="skill_hook_contract_stale",
+                )
+            return workspace
         if self._is_skill_evaluation(call):
             workspace_id = str(metadata.get("skill_evaluation_workspace_id") or "").strip()
             item_id = str(metadata.get("skill_evaluation_item_id") or "").strip()
@@ -469,6 +742,14 @@ class SandboxToolsetProvider:
             request.update(
                 {
                     "profile": "skill_evaluation_v1",
+                    "provisioning_capability": binding["capability"],
+                }
+            )
+        elif self._is_skill_hook_call(call):
+            binding = self._skill_hook_binding(workspace.workspace_id)
+            request.update(
+                {
+                    "profile": "skill_authoring_v1",
                     "provisioning_capability": binding["capability"],
                 }
             )
@@ -1553,6 +1834,21 @@ class SandboxToolsetProvider:
     def _is_skill_evaluation(call: RuntimeToolCall) -> bool:
         return str(call.metadata.get("runtime_run_type") or "") == "skill_evaluation"
 
+    def _is_skill_hook_call(self, call: RuntimeToolCall) -> bool:
+        return call.metadata.get("_skill_hook_internal_token") is self._skill_hook_token
+
+    def _skill_hook_binding(self, workspace_id: str) -> dict[str, str]:
+        clean = str(workspace_id or "").strip()
+        with self._skill_hook_guard:
+            binding = self._skill_hook_workspaces.get(clean)
+            if binding is None:
+                raise RuntimeToolError(
+                    "skill_hook",
+                    "Skill Hook workspace capability is unavailable.",
+                    code="skill_hook_execution_failed",
+                )
+            return dict(binding)
+
     @staticmethod
     def _require_skill_evaluation_tool(call: RuntimeToolCall) -> None:
         allowed = {
@@ -1599,6 +1895,35 @@ class SandboxToolsetProvider:
             raise RuntimeToolError(
                 "skill_evaluation",
                 "Sandbox sidecar cannot prove the required Skill evaluation isolation profile.",
+                code="sandbox_profile_attestation_failed",
+            )
+
+    @staticmethod
+    def require_skill_hook_attestation(health: dict[str, Any]) -> None:
+        profiles = health.get("profiles")
+        profile = (
+            profiles.get("skill_authoring_v1")
+            if isinstance(profiles, dict)
+            else None
+        )
+        allowed = (
+            set(profile.get("allowed_commands") or [])
+            if isinstance(profile, dict)
+            else set()
+        )
+        if (
+            health.get("engine") != "modelmirror-sandbox-v1"
+            or health.get("landlock_required") is not True
+            or not isinstance(profile, dict)
+            or profile.get("network_policy") != "container_network_none_required"
+            or set(profile.get("read_only_roots") or []) != {"inputs", "skills"}
+            or set(profile.get("writable_roots") or []) != {"work", ".tmp"}
+            or set(profile.get("write_file_roots") or []) != {"work"}
+            or allowed != {"python", "python3", "node", "rg"}
+        ):
+            raise RuntimeToolError(
+                "skill_hook",
+                "Sandbox sidecar cannot prove the required Skill Hook isolation profile.",
                 code="sandbox_profile_attestation_failed",
             )
 
@@ -1667,6 +1992,11 @@ class SandboxToolsetProvider:
             "tool_name": call.tool_name,
             "arguments": call.arguments,
         }
+        hook_workspace_id = str(
+            call.metadata.get("skill_hook_workspace_id") or ""
+        ).strip()
+        if hook_workspace_id:
+            payload["skill_hook_workspace_id"] = hook_workspace_id
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
         return f"op:{digest[:40]}"
 

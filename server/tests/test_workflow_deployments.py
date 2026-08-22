@@ -232,6 +232,42 @@ def secure_http_workflow(*, auth_type: str = "none") -> dict:
     }
 
 
+def r18_file_workflow(kind: str) -> dict:
+    workflow = manual_workflow()
+    if kind == "file_output":
+        node = {
+            "id": "file",
+            "type": "file_output",
+            "data": {
+                "kind": "file_output",
+                "inputVariable": "user_input",
+                "outputVariable": "generated_file",
+                "format": "markdown",
+                "filenameTemplate": "report",
+                "titleTemplate": "",
+                "columns": [],
+            },
+        }
+        workflow["nodes"][1]["data"]["outputVariable"] = "generated_file"
+    else:
+        node = {
+            "id": "document",
+            "type": "document_extractor",
+            "data": {
+                "kind": "document_extractor",
+                "assetIdVariable": "user_input",
+                "outputVariable": "document_text",
+            },
+        }
+        workflow["nodes"][1]["data"]["outputVariable"] = "document_text"
+    workflow["nodes"].insert(1, node)
+    workflow["edges"] = [
+        {"id": "e1", "source": "start", "target": node["id"]},
+        {"id": "e2", "source": node["id"], "target": "end"},
+    ]
+    return workflow
+
+
 def failure_workflow(source_project_ids: list[str]) -> dict:
     return {
         "id": "draft",
@@ -366,6 +402,67 @@ def test_secure_http_publish_activation_and_credential_lifecycle(tmp_path) -> No
             webhooks_enabled=False,
             http_requests_enabled=True,
         )
+
+
+@pytest.mark.parametrize(
+    ("kind", "activation_flags"),
+    [
+        ("file_output", {"file_output_assets_enabled": True}),
+        ("document_extractor", {"workflow_file_assets_enabled": True}),
+    ],
+)
+def test_r18_file_nodes_are_fail_closed_at_deployment_activation(
+    tmp_path,
+    kind: str,
+    activation_flags: dict[str, bool],
+) -> None:
+    store = WorkflowDeploymentStore(tmp_path / kind)
+    project = store.create_project(r18_file_workflow(kind))
+    release = store.publish(project.project_id)
+
+    with pytest.raises(WorkflowDeploymentConflictError, match="disabled"):
+        store.activate(
+            project.project_id,
+            release.version,
+            webhooks_enabled=False,
+        )
+
+    deployment, plaintext = store.activate(
+        project.project_id,
+        release.version,
+        webhooks_enabled=False,
+        **activation_flags,
+    )
+    assert deployment.active is True
+    assert plaintext is None
+
+
+def test_r18_document_v2_cannot_fall_through_to_legacy_schema(tmp_path) -> None:
+    node = {
+        "id": "document",
+        "type": "document_extractor",
+        "data": {
+            "kind": "document_extractor",
+            "contractVersion": 2,
+            "sourcePathVariable": "user_input",
+            "outputVariable": "document_text",
+        },
+    }
+    workflow = manual_workflow()
+    workflow["nodes"].insert(1, node)
+    workflow["nodes"][2]["data"]["outputVariable"] = node["data"]["outputVariable"]
+    workflow["edges"] = [
+        {"id": "e1", "source": "start", "target": node["id"]},
+        {"id": "e2", "source": node["id"], "target": "end"},
+    ]
+    store = WorkflowDeploymentStore(tmp_path / node["id"])
+    project = store.create_project(workflow)
+
+    with pytest.raises(
+        WorkflowDeploymentValidationError,
+        match="does not satisfy its NodeContract",
+    ):
+        store.publish(project.project_id)
 
 
 def test_secure_http_publish_rejects_legacy_and_missing_credentials(tmp_path) -> None:

@@ -3,18 +3,19 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any
+from typing import Any, Callable
 
 from .approval_store import RuntimeApprovalRequest, RuntimeApprovalStore
 from .core_middlewares import RuntimeMiddlewareSpec
 from .interrupts import RuntimeInterrupt, RuntimeMiddlewareFatalError
-from .middleware import AgentMiddleware
+from .middleware import AgentMiddleware, TOOL_REVALIDATE_METADATA_KEY
 from .models import MiddlewareContext, ToolCallRequest, ToolCallResponse
 
 
 def build_human_in_the_loop_middleware(
     spec: RuntimeMiddlewareSpec,
     store: RuntimeApprovalStore,
+    hub_event_recorder: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> AgentMiddleware:
     config = dict(spec.config or {})
     rules = _tool_rules(config.get("interrupt_on_tools"))
@@ -31,11 +32,16 @@ def build_human_in_the_loop_middleware(
         context: MiddlewareContext,
     ) -> ToolCallResponse:
         if not _requires_review(request.tool_name, rules):
-            return await handler(request)
+            return await handler(_without_server_revalidator(request))
 
         resolved = request.metadata.get("resolved_approval")
         if isinstance(resolved, dict):
-            return await _apply_resolution(request, handler, resolved)
+            return await _apply_resolution(
+                request,
+                handler,
+                resolved,
+                hub_event_recorder=hub_event_recorder,
+            )
 
         task_id = str(context.task_id or "").strip()
         run_id = str(context.metadata.get("run_id") or context.trace_id or "").strip()
@@ -127,6 +133,15 @@ def build_human_in_the_loop_middleware(
             raise RuntimeMiddlewareFatalError(
                 f"Unable to persist runtime approval: {str(exc)[:300]}"
             ) from exc
+        if isinstance(hub_approval, dict) and hub_event_recorder is not None:
+            hub_event_recorder(
+                "runtime_approval_shown",
+                {
+                    "contract_id": hub_approval.get("contract_id"),
+                    "candidate_id": hub_approval.get("candidate_id"),
+                    "tool_name": request.tool_name,
+                },
+            )
         raise RuntimeInterrupt(
             approval.approval_id,
             task_id=task_id,
@@ -188,10 +203,22 @@ async def _apply_resolution(
     request: ToolCallRequest,
     handler: Any,
     resolved: dict[str, Any],
+    *,
+    hub_event_recorder: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> ToolCallResponse:
     decision = str(resolved.get("decision") or "").strip()
     if decision == "approve":
-        return await handler(request)
+        hub_approval = request.metadata.get("hub_approval")
+        if isinstance(hub_approval, dict) and hub_event_recorder is not None:
+            hub_event_recorder(
+                "runtime_approval_approved",
+                {
+                    "contract_id": hub_approval.get("contract_id"),
+                    "candidate_id": hub_approval.get("candidate_id"),
+                    "tool_name": request.tool_name,
+                },
+            )
+        return await handler(_without_server_revalidator(request))
     if decision == "edit":
         edited = resolved.get("edited_arguments")
         if not isinstance(edited, dict):
@@ -222,10 +249,33 @@ async def _apply_resolution(
                 resolution_metadata["hub_approval"] = dict(updated_hub)
                 updated_resolution["metadata"] = resolution_metadata
                 metadata["resolved_approval"] = updated_resolution
-        return await handler(
-            request.with_updates(arguments=dict(edited), metadata=metadata)
+            if hub_event_recorder is not None:
+                hub_event_recorder(
+                    "runtime_approval_approved",
+                    {
+                        "contract_id": updated_hub.get("contract_id"),
+                        "candidate_id": updated_hub.get("candidate_id"),
+                        "tool_name": request.tool_name,
+                    },
+                )
+        edited_request = request.with_updates(
+            arguments=dict(edited), metadata=metadata
         )
+        revalidate = metadata.get(TOOL_REVALIDATE_METADATA_KEY)
+        if callable(revalidate):
+            await revalidate(edited_request)
+        return await handler(_without_server_revalidator(edited_request))
     if decision == "reject":
+        hub_approval = request.metadata.get("hub_approval")
+        if isinstance(hub_approval, dict) and hub_event_recorder is not None:
+            hub_event_recorder(
+                "runtime_approval_rejected",
+                {
+                    "contract_id": hub_approval.get("contract_id"),
+                    "candidate_id": hub_approval.get("candidate_id"),
+                    "tool_name": request.tool_name,
+                },
+            )
         message = str(
             resolved.get("message")
             or f"User rejected the tool call {request.tool_name}."
@@ -240,6 +290,14 @@ async def _apply_resolution(
             },
         )
     raise RuntimeMiddlewareFatalError(f"Unsupported approval decision: {decision}.")
+
+
+def _without_server_revalidator(request: ToolCallRequest) -> ToolCallRequest:
+    if TOOL_REVALIDATE_METADATA_KEY not in request.metadata:
+        return request
+    metadata = dict(request.metadata)
+    metadata.pop(TOOL_REVALIDATE_METADATA_KEY, None)
+    return request.with_updates(metadata=metadata)
 
 
 def _tool_rules(value: Any) -> dict[str, bool]:

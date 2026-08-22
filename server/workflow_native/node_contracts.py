@@ -441,6 +441,27 @@ def _complete_contracts() -> dict[str, NodeContract]:
     array_object_value = WorkflowValueSchema(type="array", items=object_value)
     planner_adapter_version = "node-contract-v3"
     contracts: dict[str, NodeContract] = {}
+    private_file_availability = NodeAvailabilityPolicy(
+        workflow=_rule("allow"),
+        xpert=_rule("allow"),
+        goal=_rule("deny"),
+        handoff=_rule("deny"),
+        app=_rule(
+            "deny",
+            code="public_file_node_forbidden",
+            message="Public Xpert Apps cannot deploy workflow file nodes.",
+        ),
+        evaluation=_rule(
+            "deny",
+            code="evaluation_file_node_forbidden",
+            message="Evaluation does not allow workflow file nodes.",
+        ),
+        evolution=_rule(
+            "deny",
+            code="evolution_file_node_forbidden",
+            message="Evolution does not allow workflow file nodes.",
+        ),
+    )
 
     contracts["input"] = NodeContract(
         kind="input",
@@ -963,6 +984,235 @@ def _complete_contracts() -> dict[str, NodeContract]:
         ),
         planner=_planner(),
     )
+    document_asset_schema = _object_schema(
+        {
+            "assetIdVariable": {"type": "string"},
+            "outputVariable": {"type": "string"},
+        },
+        required=["assetIdVariable", "outputVariable"],
+    )
+    document_asset_schema["not"] = {"required": ["contractVersion"]}
+    document_legacy_schema = _object_schema(
+        {
+            "sourcePathVariable": {"type": "string"},
+            "outputVariable": {"type": "string"},
+        },
+        required=["sourcePathVariable", "outputVariable"],
+    )
+    document_legacy_schema["not"] = {"required": ["contractVersion"]}
+    document_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "assetIdVariable": {"type": "string"},
+            "outputVariable": {"type": "string"},
+        },
+        required=["contractVersion", "assetIdVariable", "outputVariable"],
+    )
+    contracts["document_extractor"] = NodeContract(
+        kind="document_extractor",
+        contract_status="complete",
+        config_schema={
+            "type": "object",
+            "anyOf": [document_asset_schema, document_legacy_schema, document_v2_schema],
+        },
+        ports=(
+            NodePortContract(name="asset", direction="input", value_schema=string_value),
+            NodePortContract(name="text", direction="output", value_schema=string_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="read",
+            deterministic=True,
+            idempotent=True,
+            external_io=False,
+            error_semantics="fail_closed",
+            security_category="file_read",
+        ),
+        availability=private_file_availability,
+        resources=(
+            NodeResourceContract(
+                kind="file_asset", id_field="assetIdVariable", dynamic_schema=True
+            ),
+        ),
+        planner=_planner(),
+    )
+    time_v1_schema = _object_schema(
+        {
+            "operation": {"type": "string", "enum": ["now_iso", "now_epoch", "format"]},
+            "formatString": {"type": "string", "maxLength": 200},
+            "outputVariable": {"type": "string"},
+        },
+        required=["operation", "outputVariable"],
+    )
+    time_v1_schema["not"] = {"required": ["contractVersion"]}
+    time_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "operation": {
+                "type": "string",
+                "enum": [
+                    "now",
+                    "to_iso",
+                    "format",
+                    "add",
+                    "subtract",
+                    "difference",
+                    "start_of",
+                    "end_of",
+                ],
+            },
+            "inputVariable": {"type": "string"},
+            "rightVariable": {"type": "string"},
+            "outputVariable": {"type": "string"},
+            "timezone": {"type": "string", "minLength": 1, "maxLength": 128},
+            "formatString": {"type": "string", "minLength": 1, "maxLength": 200},
+            "amount": {"type": "number", "minimum": -1_000_000, "maximum": 1_000_000},
+            "unit": {
+                "type": "string",
+                "enum": [
+                    "second",
+                    "minute",
+                    "hour",
+                    "day",
+                    "week",
+                    "month",
+                    "year",
+                    "seconds",
+                    "minutes",
+                    "hours",
+                    "days",
+                    "weeks",
+                    "months",
+                    "years",
+                ],
+            },
+        },
+        required=["contractVersion", "operation", "outputVariable", "timezone"],
+    )
+    contracts["time_tool"] = NodeContract(
+        kind="time_tool",
+        contract_status="complete",
+        config_schema={"type": "object", "anyOf": [time_v1_schema, time_v2_schema]},
+        ports=(
+            NodePortContract(name="time", direction="input", value_schema=any_value),
+            NodePortContract(name="result", direction="output", value_schema=any_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=False,
+            idempotent=False,
+            error_semantics="fail_closed",
+            security_category="transform",
+        ),
+        planner=_planner(),
+    )
+    object_binding_schema = _object_schema(
+        {
+            "source": {"type": "string", "enum": ["literal", "variable"]},
+            "variable": {"type": "string"},
+            "valueType": {
+                "type": "string",
+                "enum": ["text", "number", "boolean", "null", "json"],
+            },
+            "value": {},
+        },
+        required=["source"],
+        additional_properties=False,
+    )
+    object_operation_schema = _object_schema(
+        {
+            "id": {"type": "string", "minLength": 1, "maxLength": 64},
+            "operation": {
+                "type": "string",
+                "enum": ["set", "set_default", "rename", "remove", "keep_only"],
+            },
+            "sourceField": {"type": "string", "maxLength": 128},
+            "targetField": {"type": "string", "maxLength": 128},
+            "fields": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1, "maxLength": 128},
+                "minItems": 1,
+                "maxItems": 50,
+                "uniqueItems": True,
+            },
+            "binding": object_binding_schema,
+        },
+        required=["id", "operation"],
+        additional_properties=False,
+    )
+    contracts["object_transform"] = NodeContract(
+        kind="object_transform",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "inputVariable": {"type": "string"},
+                "outputVariable": {"type": "string"},
+                "operations": {
+                    "type": "array",
+                    "items": object_operation_schema,
+                    "minItems": 1,
+                    "maxItems": 20,
+                },
+            },
+            required=["inputVariable", "outputVariable", "operations"],
+        ),
+        ports=(
+            NodePortContract(name="object", direction="input", value_schema=object_value),
+            NodePortContract(name="result", direction="output", value_schema=object_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=True,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="transform",
+        ),
+        planner=_planner(),
+    )
+    file_column_schema = _object_schema(
+        {
+            "id": {"type": "string", "minLength": 1, "maxLength": 64},
+            "field": {"type": "string", "minLength": 1, "maxLength": 128},
+            "label": {"type": "string", "minLength": 1, "maxLength": 128},
+        },
+        required=["id", "field", "label"],
+        additional_properties=False,
+    )
+    contracts["file_output"] = NodeContract(
+        kind="file_output",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "inputVariable": {"type": "string"},
+                "outputVariable": {"type": "string"},
+                "format": {
+                    "type": "string",
+                    "enum": ["plain_text", "markdown", "json", "csv", "pdf", "docx", "xlsx"],
+                },
+                "filenameTemplate": {"type": "string", "minLength": 1, "maxLength": 150},
+                "titleTemplate": {"type": "string", "maxLength": 500},
+                "columns": {
+                    "type": "array",
+                    "items": file_column_schema,
+                    "maxItems": 200,
+                },
+            },
+            required=["inputVariable", "outputVariable", "format", "filenameTemplate"],
+        ),
+        ports=(
+            NodePortContract(name="content", direction="input", value_schema=any_value),
+            NodePortContract(name="file", direction="output", value_schema=object_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="write",
+            deterministic=False,
+            idempotent=True,
+            external_io=False,
+            error_semantics="fail_closed",
+            security_category="file_write",
+        ),
+        availability=private_file_availability,
+        planner=_planner(),
+    )
     contracts["list_operation"] = NodeContract(
         kind="list_operation",
         contract_status="complete",
@@ -980,6 +1230,9 @@ def _complete_contracts() -> dict[str, NodeContract]:
                         "filter",
                         "sort",
                         "deduplicate",
+                        "take",
+                        "skip",
+                        "slice",
                     ],
                 },
                 "joinSeparator": {"type": "string", "maxLength": 1_000},
@@ -1010,6 +1263,9 @@ def _complete_contracts() -> dict[str, NodeContract]:
                     "maxItems": 5,
                     "uniqueItems": True,
                 },
+                "count": {"type": "integer", "minimum": 0, "maximum": 10_000},
+                "startIndex": {"type": "integer", "minimum": 0, "maximum": 10_000},
+                "endIndex": {"type": "integer", "minimum": 0, "maximum": 10_000},
             },
             required=["inputVariable", "operator", "outputVariable"],
         ),

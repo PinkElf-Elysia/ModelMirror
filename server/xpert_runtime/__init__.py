@@ -255,6 +255,14 @@ from .automation_api import (
 )
 from .ralph_loop import RalphLoopResult, run_ralph_loop
 from .plugin_hooks import build_plugin_hooks_middleware
+from .plugin_hooks_v2 import (
+    HOOK_RUNTIME_MODE,
+    SkillHookRuntimeError,
+    build_plugin_hooks_v2_middleware,
+    drain_skill_hook_status_events,
+    plugin_hook_runtime_mode,
+    typed_hook_skill_ids,
+)
 from .authoring_store import (
     AuthoringProposal,
     AuthoringProposalConflictError,
@@ -476,6 +484,12 @@ __all__ = [
     "RalphLoopResult",
     "run_ralph_loop",
     "build_plugin_hooks_middleware",
+    "HOOK_RUNTIME_MODE",
+    "SkillHookRuntimeError",
+    "build_plugin_hooks_v2_middleware",
+    "drain_skill_hook_status_events",
+    "plugin_hook_runtime_mode",
+    "typed_hook_skill_ids",
     "AuthoringProposal",
     "AuthoringProposalConflictError",
     "AuthoringProposalError",

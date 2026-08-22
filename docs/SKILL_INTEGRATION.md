@@ -290,7 +290,9 @@ Hook V2 的唯一标准入口是 `hooks/manifest.json`，版本固定为 `modelm
 
 `SkillApplicationReceiptV2` 在保留 V1 receipt ID 和普通应用合同的同时增加 `hook_execute` 及有界 Hook evidence；旧 V1 记录读取时得到空 evidence，不补造执行事实。Evidence 只保存 Hook/事件/模式、manifest/script/context/result 摘要、脱敏 code、结果类型和 verified 状态，不保存参数、正文、stdout/stderr 或模型输出。涉及 Hook 的后续评测必须另外取得 verified V2 evidence。
 
-当前 `SKILL_PLUGIN_HOOK_V2_ENABLED=false`：服务端会校验包、扫描信任风险并投影脱敏 `hookCapability`，但不会改变旧 Hook 的执行行为。类型化执行顺序、Creator 创作和新工作流体验在后续批次完成；将开关保持为 false 即可回退本合同尚未接管的运行路径。
+当前 `SKILL_PLUGIN_HOOK_V2_ENABLED=false`，旧节点仍走 `legacy_argv`。独立预览或测试环境开启后，`typed_v2` 会在固定版本的受保护 `skill_authoring_v1` Sidecar profile 中运行：PreToolUse 先于 HITL，`guard + deny` 不创建审批卡；PostToolUse validation 失败会明确标记副作用已经发生且不会自动回滚。Annotation 技术故障告警后继续，validation/guard 的超时、损坏结果或 Sidecar 故障失败关闭。
+
+类型化 Hook 只接收有界脱敏 context，并把严格 JSON 写入服务端冻结的 result 路径。脚本不能选择 executable、argv、cwd 或权限，也不能改写工具参数、输出或审批结果。每次执行结束会以 `{}` 覆盖 context/result；Application Receipt 和 `skill_hook_status` 只保留摘要、稳定 code 与状态。并行工具在任何 provider 调用前完成整批 PreToolUse 检查，同一中间件的 Hook 脚本串行执行以隔离临时 context；工具本身仍可按原策略并行。审批恢复会在同一 Server 进程内复用已 sealed 的 Skill workspace，服务重启只复用 verified evidence，不持久化 Sidecar capability。Creator 创作和新工作流体验留给下一批次；保持开关为 false 即可完整回退类型化执行。
 
 ## 5. 测试指南
 

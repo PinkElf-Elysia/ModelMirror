@@ -132,7 +132,8 @@ class MCPHubReviewStore:
                     cancel_requested INTEGER NOT NULL DEFAULT 0,
                     error_code TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
+                    updated_at REAL NOT NULL,
+                    trigger TEXT NOT NULL DEFAULT 'manual'
                 );
                 CREATE INDEX IF NOT EXISTS idx_hub_review_runs_owner
                     ON hub_review_runs(tenant_id, owner_id, updated_at DESC);
@@ -229,6 +230,14 @@ class MCPHubReviewStore:
                     ON hub_contract_revocations(tenant_id, owner_id, contract_id, created_at DESC);
                 """
             )
+            columns = {
+                str(row[1])
+                for row in db.execute("PRAGMA table_info(hub_review_runs)").fetchall()
+            }
+            if "trigger" not in columns:
+                db.execute(
+                    "ALTER TABLE hub_review_runs ADD COLUMN trigger TEXT NOT NULL DEFAULT 'manual'"
+                )
 
     @staticmethod
     def _item(row: sqlite3.Row) -> dict[str, Any]:
@@ -245,6 +254,7 @@ class MCPHubReviewStore:
         identities: list[dict[str, str]],
         *,
         allow_queued_when_busy: bool = False,
+        trigger: str = "manual",
     ) -> dict[str, Any]:
         if not 1 <= len(identities) <= MAX_REVIEW_ITEMS:
             raise HubError(
@@ -268,8 +278,9 @@ class MCPHubReviewStore:
                     status_code=409,
                 )
             db.execute(
-                "INSERT INTO hub_review_runs VALUES(?,?,?,?,0,'',?,?)",
-                (run_id, tenant_id, owner_id, "queued", now, now),
+                "INSERT INTO hub_review_runs(run_id,tenant_id,owner_id,status,cancel_requested,error_code,created_at,updated_at,trigger) "
+                "VALUES(?,?,?,?,0,'',?,?,?)",
+                (run_id, tenant_id, owner_id, "queued", now, now, trigger[:40]),
             )
             for identity in identities:
                 db.execute(
@@ -316,7 +327,8 @@ class MCPHubReviewStore:
         with self._lock, self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             db.execute(
-                "INSERT INTO hub_review_runs VALUES(?,?,?,?,0,?,?,?)",
+                "INSERT INTO hub_review_runs(run_id,tenant_id,owner_id,status,cancel_requested,error_code,created_at,updated_at,trigger) "
+                "VALUES(?,?,?,?,0,?,?,?,'drift')",
                 (run_id, tenant_id, owner_id, "completed", error_code, now, now),
             )
             db.execute(
@@ -913,7 +925,13 @@ class MCPHubReviewService:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    def create_run(self, identities: list[dict[str, str]]) -> dict[str, Any]:
+    def create_run(
+        self,
+        identities: list[dict[str, str]],
+        *,
+        trigger: str = "manual",
+        allow_queued_when_busy: bool = False,
+    ) -> dict[str, Any]:
         self._require_enabled()
         normalized: list[dict[str, str]] = []
         seen: set[tuple[str, str, str]] = set()
@@ -940,7 +958,13 @@ class MCPHubReviewService:
             normalized.append(
                 {"server_name": key[0], "version": key[1], "remote_id": key[2]}
             )
-        run = self.store.create_run(self.tenant_id, self.owner_id, normalized)
+        run = self.store.create_run(
+            self.tenant_id,
+            self.owner_id,
+            normalized,
+            trigger=trigger,
+            allow_queued_when_busy=allow_queued_when_busy,
+        )
         self._schedule(run["run_id"])
         return self.store.require_run(run["run_id"], self.tenant_id, self.owner_id)
 
@@ -1522,6 +1546,11 @@ class MCPHubReviewService:
             ) == contract.identity:
                 await self.hub.disconnect(candidate["candidate_id"])
                 disconnected += 1
+        if self.hub.trusted_service is not None:
+            self.hub.trusted_service.record_runtime_event(
+                "contract_revoked",
+                {"contract_id": contract.contract_id},
+            )
         return {
             "contract_id": contract.contract_id,
             "revoked": True,
@@ -1657,6 +1686,16 @@ class MCPHubReviewService:
                             state="drifted",
                             taint_reason="hub_source_drift",
                         )
+                        await self.hub._disconnect_live(candidate["candidate_id"])
+                        if self.hub.trusted_service is not None:
+                            self.hub.trusted_service.record_runtime_event(
+                                "contract_drifted",
+                                {
+                                    "contract_id": contract["contract_id"],
+                                    "candidate_id": candidate["candidate_id"],
+                                },
+                                outcome_code="hub_source_drift",
+                            )
                 if self.store.has_review_identity(
                     self.tenant_id,
                     self.owner_id,

@@ -4,6 +4,7 @@ import McpHubReviewWorkbench, {
   type HubReviewSelection,
   type HubReviewStatus,
 } from "./McpHubReviewWorkbench";
+import McpHubTrustedChannel from "./McpHubTrustedChannel";
 
 type Eligibility =
   | "eligible"
@@ -70,7 +71,24 @@ const activationReasonLabels: Record<string, string> = {
   hub_contract_revoked: "该执行契约已由本地运维者撤销。",
   hub_contract_source_drift: "Registry 来源摘要与冻结契约不一致，需要重新复核。",
   hub_source_drift: "Registry 版本或远程端点已变化，需要重新复核。",
+  hub_trusted_revalidation_required: "可信契约需要重新完成实时隔离检查。",
+  hub_trusted_environment_blocked: "当前本机 DNS 或隔离出口阻断了远程检查。",
+  hub_trusted_degraded: "远程服务当前不可达，请稍后重新检查。",
 };
+
+const safetyReasonLabels: Record<string, string> = {
+  hub_dns_private_or_synthetic_denied: "目标解析到了私网或合成地址，隔离出口已拒绝连接。",
+  hub_dns_rebinding_denied: "目标地址在连接期间发生变化，隔离出口已拒绝连接。",
+  hub_upstream_auth_required: "远程服务要求认证，不符合本轮匿名连接范围。",
+  hub_upstream_rate_limited: "远程服务当前限流，请稍后再进行新的预检。",
+  hub_upstream_timeout: "远程服务未在限制时间内响应。",
+  hub_upstream_redirect_denied: "远程服务发生重定向，不符合固定 Origin 门禁。",
+  hub_schema_drift: "远程工具 Schema 已变化，需要重新复核。",
+};
+
+function describeSafetyReason(code: string): string {
+  return safetyReasonLabels[code] || "隔离预检未通过，该候选不会被激活。";
+}
 
 const eligibilityLabels: Record<Eligibility, string> = {
   eligible: "可试连",
@@ -113,6 +131,8 @@ export default function McpHubPanel() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [candidateErrors, setCandidateErrors] = useState<Record<string, string>>({});
+  const [trustedRefreshToken, setTrustedRefreshToken] = useState(0);
   const candidateSectionRef = useRef<HTMLElement>(null);
 
   const refresh = useCallback(async () => {
@@ -153,23 +173,55 @@ export default function McpHubPanel() {
     void refresh();
   }, [refresh]);
 
+  const refreshHubViews = useCallback(async () => {
+    await refresh();
+    setTrustedRefreshToken((current) => current + 1);
+  }, [refresh]);
+
   const run = async <T,>(
     key: string,
     operation: () => Promise<T>,
     onSuccess?: (result: T) => void,
+    candidateId?: string,
   ) => {
     setBusy(key);
     setError("");
     setNotice("");
+    if (candidateId) {
+      setCandidateErrors((current) => {
+        const next = { ...current };
+        delete next[candidateId];
+        return next;
+      });
+    }
     try {
       const result = await operation();
-      await refresh();
+      await refreshHubViews();
       onSuccess?.(result);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "MCP Hub 操作失败");
+      const message = reason instanceof Error ? reason.message : "MCP Hub 操作失败";
+      if (candidateId) {
+        await refreshHubViews().catch(() => undefined);
+        setCandidateErrors((current) => ({ ...current, [candidateId]: message }));
+      } else {
+        setError(message);
+      }
     } finally {
       setBusy("");
     }
+  };
+
+  const deleteCandidate = (candidate: HubCandidate) => {
+    const confirmed = window.confirm(
+      `删除 ${candidate.server_name}？这会断开当前会话并从“我的 Hub 连接”移除该候选。`,
+    );
+    if (!confirmed) return;
+    void run(
+      `delete:${candidate.candidate_id}`,
+      () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}`, { method: "DELETE" }),
+      () => setNotice(`${candidate.server_name} 已从“我的 Hub 连接”删除。`),
+      candidate.candidate_id,
+    );
   };
 
   const showAddedCandidate = (title: string) => {
@@ -252,7 +304,16 @@ export default function McpHubPanel() {
         </div>
       ) : (
         <>
+          <McpHubTrustedChannel
+            onChanged={refreshHubViews}
+            refreshToken={trustedRefreshToken}
+          />
+
           <section className="rounded-xl border border-white/10 bg-white/[0.025] p-4">
+            <div className="mb-4">
+              <h3 className="font-semibold text-white">Registry 发现</h3>
+              <p className="mt-1 text-sm text-slate-400">浏览官方元数据并选择候选。未经复核的条目只能进入隔离预检，不能直接用于 Runtime。</p>
+            </div>
             <div className="grid gap-3 lg:grid-cols-[1fr_200px_220px]">
               <label className="relative">
                 <span className="sr-only">搜索官方 Registry</span>
@@ -396,7 +457,7 @@ export default function McpHubPanel() {
           {reviewStatus?.enabled ? (
             <McpHubReviewWorkbench
               onClearSelection={() => setReviewSelection([])}
-              onHubChanged={refresh}
+              onHubChanged={refreshHubViews}
               selected={reviewSelection}
               status={reviewStatus}
             />
@@ -416,7 +477,9 @@ export default function McpHubPanel() {
               </div>
             ) : null}
             <div className="mt-3 space-y-3">
-              {candidates.map((candidate) => (
+              {candidates.map((candidate) => {
+                const revoked = candidate.activation_reason === "hub_contract_revoked";
+                return (
                 <article className="rounded-lg border border-white/10 bg-ink-950/45 p-4" key={candidate.candidate_id}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -425,37 +488,49 @@ export default function McpHubPanel() {
                         {candidate.state === "active" ? <CheckCircle2 aria-label="已激活" className="text-emerald-200" size={16} /> : null}
                       </div>
                       <p className="mt-1 text-xs text-slate-500">{candidate.version} · {candidate.origin}</p>
-                      <p className="mt-2 text-sm text-slate-300">状态：{candidate.state} · {candidate.connected ? "已连接" : "未连接"}</p>
+                      <p className="mt-2 text-sm text-slate-300">状态：{revoked ? "已撤销" : candidate.state} · {candidate.connected ? "已连接" : "未连接"}</p>
                     </div>
                     <button
-                      aria-label="删除 Hub 候选"
+                      aria-label={`删除 Hub 候选 ${candidate.server_name}`}
                       className="rounded-md border border-rose-300/20 p-2 text-rose-100 disabled:opacity-40"
                       disabled={Boolean(busy)}
-                      onClick={() => void run(`delete:${candidate.candidate_id}`, () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}`, { method: "DELETE" }))}
+                      onClick={() => deleteCandidate(candidate)}
                       type="button"
                     >
                       <Trash2 aria-hidden="true" size={16} />
                     </button>
                   </div>
-                  {candidate.tools.length ? (
+                  {candidate.tools.length && !revoked ? (
                     <div className="mt-3 rounded-md border border-white/10 bg-white/[0.025] p-3 text-xs text-slate-400">
                       <p>Schema：<span className="font-mono">{candidate.schema_digest.slice(0, 16)}…</span></p>
                       <p className="mt-1">工具：{candidate.tools.map((tool) => tool.name).join("、")}</p>
                     </div>
                   ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button className="min-h-9 rounded-md border border-cyan-300/25 px-3 text-sm font-semibold text-cyan-100 disabled:opacity-40" disabled={!status.remote_enabled || Boolean(busy)} onClick={() => void run(`preflight:${candidate.candidate_id}`, () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/preflight`, { method: "POST" }))} type="button">安全预检</button>
-                    <button className="min-h-9 rounded-md bg-emerald-300 px-3 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={candidate.state !== "verified" || !candidate.schema_digest || !candidate.activation_eligible || Boolean(busy)} onClick={() => void run(`activate:${candidate.candidate_id}`, () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/activate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_schema_digest: candidate.schema_digest }) }))} type="button">激活</button>
-                    <button className="min-h-9 rounded-md border border-white/10 px-3 text-sm font-semibold text-slate-300 disabled:opacity-40" disabled={!candidate.connected || Boolean(busy)} onClick={() => void run(`disconnect:${candidate.candidate_id}`, () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/session`, { method: "DELETE" }))} type="button">断开</button>
+                    <button className="min-h-9 rounded-md border border-cyan-300/25 px-3 text-sm font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={!status.remote_enabled || revoked || Boolean(busy)} onClick={() => void run(`preflight:${candidate.candidate_id}`, () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/preflight`, { method: "POST" }), undefined, candidate.candidate_id)} type="button">安全预检</button>
+                    <button className="min-h-9 rounded-md bg-emerald-300 px-3 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400" disabled={candidate.state !== "verified" || !candidate.schema_digest || !candidate.activation_eligible || Boolean(busy)} onClick={() => void run(`activate:${candidate.candidate_id}`, () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/activate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_schema_digest: candidate.schema_digest }) }), undefined, candidate.candidate_id)} type="button">激活</button>
+                    <button className="min-h-9 rounded-md border border-white/10 px-3 text-sm font-semibold text-slate-300 disabled:cursor-not-allowed disabled:opacity-40" disabled={!candidate.connected || Boolean(busy)} onClick={() => void run(`disconnect:${candidate.candidate_id}`, () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/session`, { method: "DELETE" }), undefined, candidate.candidate_id)} type="button">断开</button>
                   </div>
-                  {candidate.taint_reason ? <p className="mt-2 text-xs text-rose-200">安全状态：{candidate.taint_reason}</p> : null}
+                  {candidateErrors[candidate.candidate_id] ? (
+                    <div className="mt-3 flex items-start gap-2 rounded-lg border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm text-rose-100" role="alert">
+                      <AlertTriangle aria-hidden="true" className="mt-0.5 shrink-0" size={16} />
+                      <span>本次操作未完成：{candidateErrors[candidate.candidate_id]}</span>
+                    </div>
+                  ) : null}
+                  {candidate.taint_reason ? (
+                    <div className="mt-2 text-xs leading-5 text-rose-200">
+                      <p>安全状态：{describeSafetyReason(candidate.taint_reason)}</p>
+                      <p className="font-mono text-slate-500">错误码：{candidate.taint_reason}</p>
+                    </div>
+                  ) : null}
                   {!candidate.activation_eligible && candidate.activation_reason ? (
                     <p className="mt-2 text-xs text-amber-100">
                       {activationReasonLabels[candidate.activation_reason] || "该候选当前不可激活。"}
                     </p>
                   ) : null}
                 </article>
-              ))}
+                );
+              })}
               {candidates.length === 0 ? <p className="py-6 text-sm text-slate-400">尚未添加 Hub 候选。</p> : null}
             </div>
           </section>

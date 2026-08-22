@@ -58,6 +58,7 @@ _PRODUCER_KINDS = {
     "sandbox",
     "browser",
     "mcp",
+    "workflow_node",
 }
 _DANGEROUS_SUFFIXES = {
     ".exe", ".dll", ".msi", ".com", ".scr", ".bat", ".cmd", ".ps1",
