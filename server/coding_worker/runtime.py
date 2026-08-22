@@ -7,10 +7,17 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from .broker_rpc import BrokerRPCServer
+from .adapters import (
+    LegacyExecutionBackend,
+    LegacyHarnessDriver,
+    LegacyTaskControlPlane,
+    StoreInteractionProjection,
+)
 from .evidence import HarnessRunner
 from .executor import ExecutorSidecarClientPool
 from .network_policy import EgressPolicy
 from .provider_rpc import ProviderSidecarClientPool
+from .ports import CodingSubstrateHandle
 from .service import CodingWorkerService
 from .store import CodingWorkerStore, DEFAULT_RETENTION_SECONDS
 from .tool_broker import FrozenCheck, ToolBroker
@@ -115,6 +122,7 @@ class CodingWorkerRuntime:
                 controller_id=controller_id,
                 controller_generation=controller_generation,
             )
+        self.executor_pool = executor_pool
         self.provider = ProviderSidecarClientPool(
             endpoints=provider_endpoints,
             tokens=provider_tokens,
@@ -124,7 +132,9 @@ class CodingWorkerRuntime:
             controller_id=controller_id,
             controller_generation=controller_generation,
         )
-        self.tool_broker.executor = executor_pool or self.provider
+        self.harness_driver = LegacyHarnessDriver(self.provider)
+        self.execution_backend = LegacyExecutionBackend(executor_pool or self.provider)
+        self.tool_broker.executor = self.execution_backend
         self.harness = HarnessRunner(
             store=self.store,
             workspace_broker=self.workspace_broker,
@@ -133,7 +143,7 @@ class CodingWorkerRuntime:
         self.service = CodingWorkerService(
             store=self.store,
             workspace_broker=self.workspace_broker,
-            provider=self.provider,
+            provider=self.harness_driver,
             harness_runner=self.harness,
             max_active_tasks=max_active_tasks,
             tool_broker=self.tool_broker,
@@ -142,6 +152,14 @@ class CodingWorkerRuntime:
         )
         self.tool_broker.subtask_handler = self.service.create_subtask
         self.tool_broker.subtask_merge_handler = self.service.merge_subtask
+        self.control_plane = LegacyTaskControlPlane(self.service)
+        self.projection = StoreInteractionProjection(self.service)
+        self.substrate = CodingSubstrateHandle(
+            control_plane=self.control_plane,
+            projection=self.projection,
+            harness_driver=self.harness_driver,
+            execution_backend=self.execution_backend,
+        )
         self.broker_socket_path = broker_socket_path
         self.sidecar_gid = sidecar_gid
         self.network_enabled = network_enabled

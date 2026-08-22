@@ -45,7 +45,6 @@ from .contracts import (
 )
 from .evidence import HarnessRunner
 from .provider import (
-    CodingAgentProvider,
     ProviderCapabilities,
     ProviderCheckpoint,
     ProviderEvent,
@@ -54,6 +53,7 @@ from .provider import (
     ProviderSession,
     provider_tools_for_policy,
 )
+from .ports import HarnessDriver
 from .store import CodingWorkerStore, WorkerConflictError
 from .changeset import ChangesetError
 from .tool_broker import ToolBroker, ToolBrokerError
@@ -80,7 +80,7 @@ class CodingWorkerService:
         *,
         store: CodingWorkerStore,
         workspace_broker: WorkspaceBroker,
-        provider: CodingAgentProvider,
+        provider: HarnessDriver,
         harness_runner: HarnessRunner | None = None,
         max_active_tasks: int = 2,
         tool_broker: ToolBroker | None = None,
@@ -400,9 +400,16 @@ class CodingWorkerService:
             ):
                 return
             observations: dict[str, ProviderCapabilityObservation] = {}
-            slot_reader = getattr(self.provider, "slot_capabilities", None)
-            if self._route_slots is not None and callable(slot_reader):
-                slot_values = await slot_reader()
+            if self._route_slots is not None:
+                slot_values = await self.provider.capabilities_for_slots(
+                    tuple(
+                        dict.fromkeys(
+                            slot_id
+                            for slot_ids in self._route_slots.values()
+                            for slot_id in slot_ids
+                        )
+                    )
+                )
                 for route_id, slot_ids in self._route_slots.items():
                     values = [slot_values.get(slot_id) for slot_id in slot_ids]
                     capabilities = (
@@ -448,7 +455,7 @@ class CodingWorkerService:
     def _capability_binding(
         self, route_id: str, slot_ids: Sequence[str]
     ) -> str:
-        generation = getattr(self.provider, "controller_generation", 0)
+        generation = self.provider.controller_generation
         encoded = json.dumps(
             {
                 "route": route_id,

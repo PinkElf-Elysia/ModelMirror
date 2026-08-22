@@ -59,7 +59,10 @@ async def test_runtime_connects_two_dedicated_provider_slots(tmp_path: Path) -> 
         sidecar_uid=-1,
         sidecar_gid=-1,
     )
-    assert runtime.tool_broker.executor is runtime.provider
+    assert runtime.tool_broker.executor is runtime.execution_backend
+    assert runtime.substrate.harness_driver is runtime.harness_driver
+    assert runtime.substrate.execution_backend is runtime.execution_backend
+    assert runtime.harness_driver is not runtime.execution_backend
     await runtime.start()
     source = WorkspaceSource(kind="manifest", source_id="source", revision="h0")
     tasks = [
@@ -117,7 +120,8 @@ def test_runtime_routes_v15_tools_to_dedicated_executor_pool(
         sidecar_gid=-1,
     )
 
-    assert isinstance(runtime.tool_broker.executor, ExecutorSidecarClientPool)
+    assert isinstance(runtime.executor_pool, ExecutorSidecarClientPool)
+    assert runtime.tool_broker.executor is runtime.execution_backend
 
 
 def test_route_slot_catalog_is_strict_and_provider_neutral(
