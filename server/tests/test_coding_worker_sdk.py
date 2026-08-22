@@ -14,14 +14,22 @@ from server.coding_worker.provider import FakeCodingAgentProvider
 from server.coding_worker.sdk import CodingWorkerModuleClient, CodingWorkerSDKError
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.store import CodingWorkerStore
-from server.coding_worker.workspace import WorkspaceBroker
+from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 
 
 def _client(tmp_path: Path) -> CodingWorkerModuleClient:
     store = CodingWorkerStore(tmp_path / "store", master_key=Fernet.generate_key())
     service = CodingWorkerService(
         store=store,
-        workspace_broker=WorkspaceBroker(tmp_path / "work", {}, id_key=b"m" * 32),
+        workspace_broker=WorkspaceBroker(
+            tmp_path / "work",
+            {
+                "manifest": InMemoryWorkspaceSourceAdapter(
+                    {("source_01", "revision_01"): {"README.md": b"fixture\n"}}
+                )
+            },
+            id_key=b"m" * 32,
+        ),
         provider=FakeCodingAgentProvider(),
     )
     return CodingWorkerModuleClient(

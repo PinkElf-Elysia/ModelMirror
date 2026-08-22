@@ -15,11 +15,16 @@ from server.coding_worker.source_adapters import (
 )
 from server.coding_worker.workspace import (
     InMemoryWorkspaceSourceAdapter,
+    MAX_EXTERNAL_SOURCE_FILE_BYTES,
+    MAX_SOURCE_FILE_BYTES,
+    WorkspaceBroker,
     WorkspaceError,
+    WorkspaceSourceUnavailableError,
 )
 from server.coding_worker.runtime import (
     CodingWorkerRuntimeError,
     build_runtime_from_environment,
+    register_workspace_source_adapter,
 )
 
 
@@ -30,6 +35,16 @@ class FakeProjectSource:
         self.released: list[tuple[str, str]] = []
         self.release_result = True
         self.imports: list[dict[str, str]] = []
+        self.checked: list[tuple[str, str]] = []
+
+    async def check(self, project_id: str, expected_head: str) -> dict[str, object]:
+        self.checked.append((project_id, expected_head))
+        return {
+            "id": self.lease["project_id"],
+            "kind": "local_clone",
+            "state": "available",
+            "head": self.lease["head"],
+        }
 
     async def acquire(
         self, project_id: str, *, expected_head: str | None = None
@@ -51,6 +66,18 @@ class FakeProjectHost:
         self.project = project
         self.requests: list[tuple[str, str | None]] = []
         self.finished: list[str] = []
+        self.checked: list[tuple[str, str, str | None]] = []
+
+    def check_project(
+        self, project_id: str, head: str, branch: str | None
+    ) -> dict[str, object]:
+        self.checked.append((project_id, head, branch))
+        return {
+            "id": self.project.get("project_id"),
+            "kind": "host_git",
+            "state": "available",
+            "head": self.project.get("head"),
+        }
 
     async def request_snapshot(
         self,
@@ -70,6 +97,85 @@ class FakeProjectHost:
     def finish_transfer(self, transfer_id: str) -> None:
         self.finished.append(transfer_id)
 
+
+class RejectingAdmissionAdapter:
+    def __init__(self, code: str) -> None:
+        self.code = code
+
+    async def admit(self, source: WorkspaceSource) -> object:
+        raise WorkspaceError("private adapter failure", code=self.code)
+
+    async def acquire(self, source: WorkspaceSource) -> object:
+        raise AssertionError("admission must not acquire a source")
+
+
+class AcquireOnlyAdapter:
+    def __init__(self) -> None:
+        self.acquired = False
+
+    async def acquire(self, source: WorkspaceSource) -> object:
+        self.acquired = True
+        raise AssertionError("admission must not acquire a legacy adapter")
+
+
+def test_runtime_rejects_source_adapter_without_admission_contract() -> None:
+    with pytest.raises(CodingWorkerRuntimeError) as caught:
+        register_workspace_source_adapter(
+            "test-acquire-only", AcquireOnlyAdapter()  # type: ignore[arg-type]
+        )
+
+    assert caught.value.code == "coding_worker_adapter_invalid"
+
+
+@pytest.mark.asyncio
+async def test_source_admission_rejects_adapter_without_preflight_contract(
+    tmp_path: Path,
+) -> None:
+    adapter = AcquireOnlyAdapter()
+    broker = WorkspaceBroker(
+        tmp_path,
+        {"manifest": adapter},  # type: ignore[dict-item]
+        id_key=b"a" * 32,
+    )
+
+    with pytest.raises(WorkspaceSourceUnavailableError) as caught:
+        await broker.admit(
+            WorkspaceSource(
+                kind="manifest", source_id="opaque-source", revision="exact-revision"
+            )
+        )
+
+    assert caught.value.reason == "not_registered"
+    assert adapter.acquired is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("private_code", "public_reason"),
+    (
+        ("source_not_found", "not_registered"),
+        ("source_revision_changed", "revision_changed"),
+        ("project_host_offline", "temporarily_unavailable"),
+        ("source_snapshot_unsafe", "unsafe"),
+        ("source_limit_exceeded", "limit_exceeded"),
+    ),
+)
+async def test_source_admission_maps_private_failures_to_safe_reasons(
+    tmp_path: Path, private_code: str, public_reason: str
+) -> None:
+    broker = WorkspaceBroker(
+        tmp_path,
+        {"manifest": RejectingAdmissionAdapter(private_code)},
+        id_key=b"a" * 32,
+    )
+    source = WorkspaceSource(
+        kind="manifest", source_id="opaque-source", revision="exact-revision"
+    )
+
+    with pytest.raises(WorkspaceSourceUnavailableError) as caught:
+        await broker.admit(source)
+
+    assert caught.value.reason == public_reason
 
 def _fingerprint(files: dict[str, bytes]) -> str:
     digest = hashlib.sha256()
@@ -127,6 +233,70 @@ async def test_project_snapshot_adapter_copies_exact_lease_and_releases(
 
 
 @pytest.mark.asyncio
+async def test_project_source_admission_checks_without_acquiring_snapshot(
+    tmp_path: Path,
+) -> None:
+    files = {"README.md": b"hello\n"}
+    lease = _lease("local_clone", files)
+    client = FakeProjectSource(lease)
+    source = WorkspaceSource(
+        kind="manifest",
+        source_id=str(lease["project_id"]),
+        revision=str(lease["head"]),
+    )
+
+    receipt = await ProjectSnapshotWorkspaceSourceAdapter(
+        client, _source_root(tmp_path, files)
+    ).admit(source)
+
+    assert receipt.source == source
+    assert receipt.facts["adapter"] == "project_source"
+    assert client.checked == [(source.source_id, source.revision)]
+    assert client.acquired == []
+
+
+@pytest.mark.asyncio
+async def test_project_source_admission_accepts_checked_public_head_prefix(
+    tmp_path: Path,
+) -> None:
+    lease = _lease("local_clone", {"README.md": b"hello\n"})
+    source = WorkspaceSource(
+        kind="manifest",
+        source_id=str(lease["project_id"]),
+        revision=str(lease["head"]),
+    )
+    client = FakeProjectSource({**lease, "head": source.revision[:12]})
+
+    receipt = await ProjectSnapshotWorkspaceSourceAdapter(
+        client, _source_root(tmp_path, {"README.md": b"hello\n"})
+    ).admit(source)
+
+    assert receipt.source == source
+    assert client.checked == [(source.source_id, source.revision)]
+
+
+@pytest.mark.asyncio
+async def test_project_source_admission_rejects_returned_head_mismatch(
+    tmp_path: Path,
+) -> None:
+    lease = _lease("local_clone", {"README.md": b"hello\n"})
+    source = WorkspaceSource(
+        kind="manifest",
+        source_id=str(lease["project_id"]),
+        revision=str(lease["head"]),
+    )
+    client = FakeProjectSource({**lease, "head": "b" * 40})
+
+    with pytest.raises(WorkspaceError) as caught:
+        await ProjectSnapshotWorkspaceSourceAdapter(
+            client, _source_root(tmp_path, {"README.md": b"hello\n"})
+        ).admit(source)
+
+    assert caught.value.code == "source_revision_changed"
+    assert client.acquired == []
+
+
+@pytest.mark.asyncio
 async def test_host_snapshot_adapter_requests_imports_and_releases_exact_transfer(
     tmp_path: Path,
 ) -> None:
@@ -165,6 +335,96 @@ async def test_host_snapshot_adapter_requests_imports_and_releases_exact_transfe
     ]
     assert client.released == [(source.source_id, "lease_1")]
     assert host.finished == ["1" * 32]
+
+
+@pytest.mark.asyncio
+async def test_host_source_admission_checks_catalog_without_snapshot_transfer(
+    tmp_path: Path,
+) -> None:
+    files = {"README.md": b"hello\n"}
+    lease = _lease("host_git", files)
+    project = {
+        "project_id": lease["project_id"],
+        "name": "Host Project",
+        "branch": "main",
+        "head": lease["head"],
+    }
+    client = FakeProjectSource(lease)
+    host = FakeProjectHost(project)
+    source = WorkspaceSource(
+        kind="host_snapshot",
+        source_id=str(lease["project_id"]),
+        revision=str(lease["head"]),
+    )
+
+    receipt = await HostSnapshotWorkspaceSourceAdapter(
+        host, client, _source_root(tmp_path, files)
+    ).admit(source)
+
+    assert receipt.source == source
+    assert receipt.facts["adapter"] == "project_host"
+    assert host.checked == [(source.source_id, source.revision, None)]
+    assert host.requests == []
+    assert client.imports == []
+
+
+@pytest.mark.asyncio
+async def test_host_source_admission_accepts_checked_public_head_prefix(
+    tmp_path: Path,
+) -> None:
+    lease = _lease("host_git", {"README.md": b"hello\n"})
+    source = WorkspaceSource(
+        kind="host_snapshot",
+        source_id=str(lease["project_id"]),
+        revision=str(lease["head"]),
+    )
+    host = FakeProjectHost(
+        {
+            "project_id": lease["project_id"],
+            "name": "Host Project",
+            "branch": "main",
+            "head": source.revision[:12],
+        }
+    )
+
+    receipt = await HostSnapshotWorkspaceSourceAdapter(
+        host,
+        FakeProjectSource(lease),
+        _source_root(tmp_path, {"README.md": b"hello\n"}),
+    ).admit(source)
+
+    assert receipt.source == source
+    assert host.checked == [(source.source_id, source.revision, None)]
+
+
+@pytest.mark.asyncio
+async def test_host_source_admission_rejects_returned_head_mismatch(
+    tmp_path: Path,
+) -> None:
+    lease = _lease("host_git", {"README.md": b"hello\n"})
+    source = WorkspaceSource(
+        kind="host_snapshot",
+        source_id=str(lease["project_id"]),
+        revision=str(lease["head"]),
+    )
+    host = FakeProjectHost(
+        {
+            "project_id": lease["project_id"],
+            "name": "Host Project",
+            "branch": "main",
+            "head": "b" * 40,
+        }
+    )
+
+    with pytest.raises(WorkspaceError) as caught:
+        await HostSnapshotWorkspaceSourceAdapter(
+            host,
+            FakeProjectSource(lease),
+            _source_root(tmp_path, {"README.md": b"hello\n"}),
+        ).admit(source)
+
+    assert caught.value.code == "source_revision_changed"
+    assert host.requests == []
 
 
 def test_runtime_wires_host_snapshot_to_live_project_host(
@@ -241,6 +501,87 @@ def test_runtime_parity_profile_registers_only_public_fixtures(
         InMemoryWorkspaceSourceAdapter,
     )
     assert {"pytest", "npm_test"}.issubset(runtime.tool_broker.frozen_checks)
+
+
+def test_runtime_harness_v3_profile_registers_only_compiled_h0(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assets = (
+        Path(__file__).parents[2]
+        / "benchmarks"
+        / "coding-worker-v18"
+        / "fixture-bundle.json"
+    )
+    environment = {
+        "CODING_WORKER_STATE_ROOT": str(tmp_path / "state"),
+        "CODING_WORKER_SLOT_A_ROOT": str(tmp_path / "slot-a"),
+        "CODING_WORKER_SLOT_B_ROOT": str(tmp_path / "slot-b"),
+        "CODING_WORKER_SLOT_A_TOKEN": "a" * 32,
+        "CODING_WORKER_SLOT_B_TOKEN": "b" * 32,
+        "CODING_WORKER_EXECUTOR_A_TOKEN": "c" * 32,
+        "CODING_WORKER_EXECUTOR_B_TOKEN": "d" * 32,
+        "CODING_WORKER_BROKER_SOCKET": str(tmp_path / "broker.sock"),
+        "CODING_WORKER_HARNESS_V3_ENABLED": "true",
+        "CODING_WORKER_HARNESS_V3_FIXTURES": str(assets),
+    }
+    for key, value in environment.items():
+        monkeypatch.setenv(key, value)
+    for key in (
+        "CODING_WORKER_PARITY_ENABLED",
+        "CODING_WORKER_PARITY_PUBLIC_FIXTURES",
+        "CODING_WORKER_BUILTIN_SOURCE_ROOT",
+        "CODING_WORKER_BUILTIN_REVISION",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    runtime = build_runtime_from_environment()
+
+    adapter = runtime.workspace_broker._adapters["builtin"]
+    assert isinstance(adapter, InMemoryWorkspaceSourceAdapter)
+    assert len(adapter._snapshots) == 12
+    assert len(runtime.tool_broker.frozen_checks) >= 12
+
+
+def test_runtime_harness_v3_rejects_registered_builtin_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import server.coding_worker.runtime as runtime_module
+
+    assets = (
+        Path(__file__).parents[2]
+        / "benchmarks"
+        / "coding-worker-v18"
+        / "fixture-bundle.json"
+    )
+    environment = {
+        "CODING_WORKER_STATE_ROOT": str(tmp_path / "state"),
+        "CODING_WORKER_SLOT_A_ROOT": str(tmp_path / "slot-a"),
+        "CODING_WORKER_SLOT_B_ROOT": str(tmp_path / "slot-b"),
+        "CODING_WORKER_SLOT_A_TOKEN": "a" * 32,
+        "CODING_WORKER_SLOT_B_TOKEN": "b" * 32,
+        "CODING_WORKER_EXECUTOR_A_TOKEN": "c" * 32,
+        "CODING_WORKER_EXECUTOR_B_TOKEN": "d" * 32,
+        "CODING_WORKER_BROKER_SOCKET": str(tmp_path / "broker.sock"),
+        "CODING_WORKER_HARNESS_V3_ENABLED": "true",
+        "CODING_WORKER_HARNESS_V3_FIXTURES": str(assets),
+    }
+    for key, value in environment.items():
+        monkeypatch.setenv(key, value)
+    for key in (
+        "CODING_WORKER_PARITY_ENABLED",
+        "CODING_WORKER_PARITY_PUBLIC_FIXTURES",
+        "CODING_WORKER_BUILTIN_SOURCE_ROOT",
+        "CODING_WORKER_BUILTIN_REVISION",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setitem(
+        runtime_module._SOURCE_ADAPTERS,
+        "builtin",
+        InMemoryWorkspaceSourceAdapter({("other", "revision"): {"x.py": b""}}),
+    )
+
+    with pytest.raises(CodingWorkerRuntimeError, match="registered builtin"):
+        build_runtime_from_environment()
 
 
 def test_runtime_rejects_parity_profile_mixed_with_builtin_source(
@@ -371,3 +712,102 @@ async def test_builtin_adapter_rejects_unregistered_revision_before_reading(
         await adapter.acquire(source)
 
     assert caught.value.code == "source_not_found"
+
+
+@pytest.mark.asyncio
+async def test_builtin_admission_accepts_trusted_file_above_external_limit(
+    tmp_path: Path,
+) -> None:
+    _git(tmp_path, "init")
+    _git(tmp_path, "config", "user.name", "ModelMirror Test")
+    _git(tmp_path, "config", "user.email", "test@modelmirror.local")
+    content = b"x" * (MAX_EXTERNAL_SOURCE_FILE_BYTES + 1)
+    (tmp_path / "trusted-index.json").write_bytes(content)
+    _git(tmp_path, "add", "trusted-index.json")
+    _git(tmp_path, "commit", "-m", "large trusted index")
+    revision = _git(tmp_path, "rev-parse", "HEAD")
+    source = WorkspaceSource(
+        kind="builtin", source_id="modelmirror", revision=revision
+    )
+    adapter = BuiltinGitWorkspaceSourceAdapter(
+        tmp_path, source_id="modelmirror", revision=revision
+    )
+
+    receipt = await adapter.admit(source)
+    snapshot = await adapter.acquire(source)
+
+    assert receipt.facts["limit_policy"] == "builtin-16m-v1"
+    assert receipt.facts["total_bytes"] == len(content)
+    assert snapshot.files[0].content == content
+
+
+@pytest.mark.asyncio
+async def test_builtin_admission_rejects_file_above_trusted_limit(
+    tmp_path: Path,
+) -> None:
+    _git(tmp_path, "init")
+    _git(tmp_path, "config", "user.name", "ModelMirror Test")
+    _git(tmp_path, "config", "user.email", "test@modelmirror.local")
+    (tmp_path / "oversized.bin").write_bytes(b"x" * (MAX_SOURCE_FILE_BYTES + 1))
+    _git(tmp_path, "add", "oversized.bin")
+    _git(tmp_path, "commit", "-m", "oversized")
+    revision = _git(tmp_path, "rev-parse", "HEAD")
+    source = WorkspaceSource(
+        kind="builtin", source_id="modelmirror", revision=revision
+    )
+
+    with pytest.raises(WorkspaceError) as caught:
+        await BuiltinGitWorkspaceSourceAdapter(
+            tmp_path, source_id="modelmirror", revision=revision
+        ).admit(source)
+
+    assert caught.value.code == "source_limit_exceeded"
+
+
+@pytest.mark.asyncio
+async def test_external_project_snapshot_keeps_eight_mib_file_limit(
+    tmp_path: Path,
+) -> None:
+    files = {"large.bin": b"x" * (MAX_EXTERNAL_SOURCE_FILE_BYTES + 1)}
+    lease = _lease("local_clone", files)
+    client = FakeProjectSource(lease)
+    source = WorkspaceSource(
+        kind="manifest",
+        source_id=str(lease["project_id"]),
+        revision=str(lease["head"]),
+    )
+
+    with pytest.raises(WorkspaceError) as caught:
+        await ProjectSnapshotWorkspaceSourceAdapter(
+            client, _source_root(tmp_path, files)
+        ).acquire(source)
+
+    assert caught.value.code == "source_file_limit_exceeded"
+    assert client.released == [(source.source_id, "lease_1")]
+
+
+@pytest.mark.asyncio
+async def test_host_snapshot_keeps_eight_mib_file_limit(tmp_path: Path) -> None:
+    files = {"large.bin": b"x" * (MAX_EXTERNAL_SOURCE_FILE_BYTES + 1)}
+    lease = _lease("host_git", files)
+    project = {
+        "project_id": lease["project_id"],
+        "name": "Host Project",
+        "branch": "main",
+        "head": lease["head"],
+    }
+    client = FakeProjectSource(lease)
+    host = FakeProjectHost(project)
+    source = WorkspaceSource(
+        kind="host_snapshot",
+        source_id=str(lease["project_id"]),
+        revision=str(lease["head"]),
+    )
+
+    with pytest.raises(WorkspaceError) as caught:
+        await HostSnapshotWorkspaceSourceAdapter(
+            host, client, _source_root(tmp_path, files)
+        ).acquire(source)
+
+    assert caught.value.code == "source_file_limit_exceeded"
+    assert host.finished == ["1" * 32]

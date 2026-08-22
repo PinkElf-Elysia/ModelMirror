@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 import httpx
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -332,6 +332,23 @@ def test_task_capabilities_reject_stale_binding_and_global_flags_follow_health(
         assert capabilities["professional_file_tools"] is False
 
 
+def test_task_children_response_preserves_the_subtask_index_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _service = _client(tmp_path, blocked=True)
+    monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_SESSION_CONTROLS_ENABLED", "true")
+    with client:
+        created = client.post(
+            "/api/coding-worker/v1/tasks", json=_payload("children-contract-task")
+        ).json()
+        response = client.get(
+            f"/api/coding-worker/v1/tasks/{created['task_id']}/children"
+        )
+    assert response.status_code == 200
+    assert response.json() == {"tasks": [], "subtasks": []}
+
+
 def test_v16_plan_and_question_resume_once_from_encrypted_waiting_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -443,11 +460,14 @@ def test_enabled_runtime_fails_closed_when_sidecar_tokens_are_missing(
         assert unavailable.json()["detail"]["reason"] == "coding_worker_config_invalid"
 
 
-def test_create_is_idempotent_and_server_owns_origin(tmp_path: Path) -> None:
+def test_create_is_idempotent_and_server_owns_origin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client, _service = _client(tmp_path)
     with client:
         assert client.get("/api/coding-worker/v1").json()["acceptance_checks"] == []
         first = client.post("/api/coding-worker/v1/tasks", json=_payload())
+        monkeypatch.setenv("CODING_WORKER_MODEL_ROUTES", "coding/other")
         second = client.post("/api/coding-worker/v1/tasks", json=_payload())
     assert first.status_code == 202
     assert second.status_code == 202
@@ -460,6 +480,23 @@ def test_create_is_idempotent_and_server_owns_origin(tmp_path: Path) -> None:
     forged = _payload("forged")
     forged["origin"] = {"module": "evil", "object_id": "evil"}
     assert client.post("/api/coding-worker/v1/tasks", json=forged).status_code == 422
+
+
+def test_source_admission_returns_only_safe_conflict_reason(tmp_path: Path) -> None:
+    client, service = _client(tmp_path)
+    payload = _payload("missing-revision")
+    payload["workspace_source"]["revision"] = "revision-missing"  # type: ignore[index]
+
+    with client:
+        response = client.post("/api/coding-worker/v1/tasks", json=payload)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "workspace_source_unavailable",
+        "message": "Workspace source is unavailable.",
+        "reason": "revision_changed",
+    }
+    assert service.store.list_tasks() == []
 
 
 def test_model_route_is_catalog_controlled(tmp_path: Path) -> None:
@@ -532,7 +569,96 @@ def test_pin_unpin_and_delete_keep_active_task_safe(tmp_path: Path) -> None:
         assert not client.delete(f"/api/coding-worker/v1/tasks/{task_id}/pin").json()["pinned"]
         assert client.delete(f"/api/coding-worker/v1/tasks/{task_id}").status_code == 409
         assert client.post(f"/api/coding-worker/v1/tasks/{task_id}/cancel").status_code == 200
-        assert client.delete(f"/api/coding-worker/v1/tasks/{task_id}").status_code == 204
+        deleted = client.delete(f"/api/coding-worker/v1/tasks/{task_id}")
+        assert deleted.status_code == 204, deleted.text
+
+
+def test_harness_fault_endpoint_is_flag_and_token_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, service = _client(tmp_path, blocked=True)
+    harness_broker = Mock()
+    service.tool_broker = harness_broker
+    token = "harness-controller-token-0123456789abcdef"
+    payload = {
+        "task_id": "task_" + "a" * 32,
+        "component": "executor",
+        "point": "after_side_effect_before_receipt",
+    }
+    with client:
+        assert (
+            client.post("/api/coding-worker/v1/harness/faults", json=payload).status_code
+            == 404
+        )
+        monkeypatch.setenv("CODING_WORKER_HARNESS_V3_ENABLED", "true")
+        monkeypatch.setenv("CODING_WORKER_HARNESS_CONTROLLER_TOKEN", token)
+        assert (
+            client.post("/api/coding-worker/v1/harness/faults", json=payload).status_code
+            == 401
+        )
+        accepted = client.post(
+            "/api/coding-worker/v1/harness/faults",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert accepted.status_code == 202
+    assert accepted.json() == {"status": "armed"}
+    harness_broker.arm_harness_fault.assert_called_once_with(
+        payload["task_id"], payload["component"], payload["point"]
+    )
+
+
+def test_harness_attestation_is_flag_token_and_two_provider_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, service = _client(tmp_path, blocked=True)
+    token = "harness-controller-token-0123456789abcdef"
+    service.provider.controller_generation = 9
+    service.provider.harness_attestations = AsyncMock(
+        return_value={
+            "slot-a": {"route_id": "coding/default"},
+            "slot-b": {"route_id": "coding/default"},
+        }
+    )
+    with client:
+        endpoint = "/api/coding-worker/v1/harness/attestation"
+        assert client.get(endpoint).status_code == 404
+        monkeypatch.setenv("CODING_WORKER_HARNESS_V3_ENABLED", "true")
+        monkeypatch.setenv("CODING_WORKER_HARNESS_CONTROLLER_TOKEN", token)
+        assert client.get(endpoint).status_code == 401
+        response = client.get(
+            endpoint,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 200
+    assert response.json()["protocol"] == (
+        "modelmirror-coding-harness-attestation/v1"
+    )
+    assert response.json()["controller_generation"] == 9
+    assert len(response.json()["server_generation"]) == 32
+    assert set(response.json()["providers"]) == {"slot-a", "slot-b"}
+    assert len(response.json()["server_code_bundle_sha256"]) == 64
+
+
+def test_harness_attestation_rejects_incomplete_provider_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, service = _client(tmp_path, blocked=True)
+    token = "harness-controller-token-0123456789abcdef"
+    monkeypatch.setenv("CODING_WORKER_HARNESS_V3_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_HARNESS_CONTROLLER_TOKEN", token)
+    service.provider.harness_attestations = AsyncMock(
+        return_value={"slot-a": {"route_id": "coding/default"}}
+    )
+    with client:
+        response = client.get(
+            "/api/coding-worker/v1/harness/attestation",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == (
+        "harness_attestation_unavailable"
+    )
 
 
 def test_approval_endpoints_are_task_bound_and_single_decision(tmp_path: Path) -> None:

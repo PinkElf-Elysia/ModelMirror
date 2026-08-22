@@ -44,6 +44,8 @@ from server.coding_worker.tool_broker import FrozenCheck, ToolBroker, ToolBroker
 from server.coding_worker.workspace import (
     InMemoryWorkspaceSourceAdapter,
     WorkspaceBroker,
+    WorkspaceError,
+    WorkspaceSourceUnavailableError,
 )
 
 
@@ -486,6 +488,141 @@ def _service_with_harness(
 
 
 @pytest.mark.asyncio
+async def test_new_task_requires_source_admission_before_persistence(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path, FakeCodingAgentProvider())
+    request = _request("source-revision-changed").model_copy(
+        update={
+            "workspace_source": WorkspaceSource(
+                kind="manifest",
+                source_id="source-01",
+                revision="revision-missing",
+            )
+        }
+    )
+
+    with pytest.raises(WorkspaceSourceUnavailableError) as rejected:
+        await service.create_task(
+            Origin(module="test", object_id="source-admission"), request
+        )
+
+    assert rejected.value.code == "workspace_source_unavailable"
+    assert rejected.value.reason == "revision_changed"
+    assert service.store.list_tasks() == []
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_exact_idempotent_retry_ignores_current_source_and_provider_outage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = FakeCodingAgentProvider()
+    service = _service(tmp_path, provider)
+    origin = Origin(module="test", object_id="idempotent-admission")
+    request = _request("idempotent-admission")
+    created = await service.create_task(origin, request)
+
+    async def unavailable_capabilities() -> ProviderCapabilities:
+        raise RuntimeError("provider offline")
+
+    monkeypatch.setattr(provider, "capabilities", unavailable_capabilities)
+    service.workspace_broker._adapters.clear()
+
+    same = await service.create_task(origin, request)
+
+    assert same.task_id == created.task_id
+    required, receipt = service.store.source_admission(created.task_id)
+    assert required is True
+    assert receipt is not None
+    assert receipt.source == request.workspace_source
+    assert [event.type for event in service.store.list_events(created.task_id)][:2] == [
+        "task_created",
+        "source_admitted",
+    ]
+    database = (tmp_path / "worker" / "coding-worker.sqlite3").read_bytes()
+    assert request.workspace_source.source_id.encode("utf-8") not in database
+    assert request.workspace_source.revision.encode("utf-8") not in database
+    assert receipt.binding_sha256.encode("ascii") not in database
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_idempotent_commit_wins_over_source_admission_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = _service(tmp_path, FakeCodingAgentProvider())
+    origin = Origin(module="test", object_id="idempotent-race")
+    request = _request("idempotent-race")
+    spec = TaskSpec(**request.model_dump(), origin=origin)
+    receipt = await service.workspace_broker.admit(request.workspace_source)
+
+    async def lose_admission_race(_source: WorkspaceSource) -> object:
+        service.store.create_task(spec, source_admission=receipt)
+        raise WorkspaceSourceUnavailableError("temporarily_unavailable")
+
+    monkeypatch.setattr(service.workspace_broker, "admit", lose_admission_race)
+
+    task = await service.create_task(origin, request)
+
+    assert task.spec == spec
+    assert len(service.store.list_tasks()) == 1
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_store_rejects_noncanonical_source_admission_binding(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path, FakeCodingAgentProvider())
+    origin = Origin(module="test", object_id="admission-binding")
+    request = _request("admission-binding")
+    receipt = await service.workspace_broker.admit(request.workspace_source)
+
+    with pytest.raises(ValueError, match="binding is invalid"):
+        service.store.create_task(
+            TaskSpec(**request.model_dump(), origin=origin),
+            source_admission=receipt.model_copy(
+                update={"binding_sha256": "0" * 64}
+            ),
+        )
+
+    assert service.store.list_tasks() == []
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_rechecks_exact_source_after_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = _service(tmp_path, FakeCodingAgentProvider())
+    adapter = service.workspace_broker._adapters["manifest"]
+    acquire_started = asyncio.Event()
+    release_acquire = asyncio.Event()
+
+    async def revision_changed(_source: WorkspaceSource) -> object:
+        acquire_started.set()
+        await release_acquire.wait()
+        raise WorkspaceError("source changed after admission", code="source_revision_changed")
+
+    monkeypatch.setattr(adapter, "acquire", revision_changed)
+    task = await service.create_task(
+        Origin(module="test", object_id="source-recheck"),
+        _request("source-recheck"),
+    )
+    await asyncio.wait_for(acquire_started.wait(), timeout=2)
+    release_acquire.set()
+
+    failed = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.FAILED
+    )
+
+    assert failed.reason == "source_revision_changed"
+    assert failed.workspace_id is None
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_provider_stream_parks_while_exact_approval_is_pending(
     tmp_path: Path,
 ) -> None:
@@ -915,6 +1052,53 @@ async def test_v17_approved_operation_executes_once_before_provider_resume(
         for item in service.store.list_events(task.task_id)
         if item.type == "operation_reconciled"
     ] == ["operation_reconciled"]
+
+    service.store.transition(task.task_id, TaskState.PREPARING)
+    service.store.transition(task.task_id, TaskState.RUNNING)
+    with pytest.raises(ToolBrokerError) as second_pending:
+        await broker.execute(
+            task_id=task.task_id,
+            operation_id="operation_v17_approved_resume_second",
+            tool_name="run_command",
+            arguments={"argv": ["python", "-m", "pytest"], "timeout_seconds": 30},
+        )
+    assert second_pending.value.code == "approval_required"
+    second_checkpoint = service.store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash=workspace.baseline_tree_hash,
+        payload={"phase": "waiting_approval"},
+    )
+    service.store.park_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=second_checkpoint.checkpoint_id,
+    )
+    service.store.transition(
+        task.task_id,
+        TaskState.WAITING_APPROVAL,
+        expected_state=TaskState.RUNNING,
+    )
+    second_approval = service.store.list_approvals(task.task_id)[-1]
+    service.store.decide_approval(second_approval.approval_id, approved=True)
+
+    second_summary = await service._resume_approved_operation(
+        task.task_id, turn_id=turn.turn_id
+    )
+
+    assert "operation_v17_approved_resume_second completed once" in second_summary
+    assert executor.calls == [
+        ("python", "-V"),
+        ("python", "-m", "pytest"),
+    ]
+    reconciled = [
+        item.payload["operation_id"]
+        for item in service.store.list_events(task.task_id)
+        if item.type == "operation_reconciled"
+    ]
+    assert reconciled == [
+        "operation_v17_approved_resume",
+        "operation_v17_approved_resume_second",
+    ]
     await service.shutdown()
 
 
