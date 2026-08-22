@@ -27,6 +27,7 @@ from .contracts import (
 from .ports import WritebackCandidate
 from .ports import (
     CodingSubstrateHandle,
+    CodingSubstrateError,
     CodingSubstrateStatus,
     HarnessCapabilityObservation,
     PreviewServiceStatus,
@@ -85,6 +86,11 @@ class LegacyHarnessDriver:
     ) -> AsyncIterator[ProviderEvent]:
         return self._provider.message(session, text)
 
+    async def steer(self, session: ProviderSession, text: str) -> bool:
+        # Provider v4 queues steering through the control plane at a durable
+        # tool boundary; it has no independent in-flight steer primitive.
+        return False
+
     async def cancel(self, session: ProviderSession) -> bool:
         return await self._provider.cancel(session)
 
@@ -109,26 +115,36 @@ class LegacyExecutionBackend:
     def __init__(self, backend: Any) -> None:
         self._backend = backend
 
+    async def _invoke(self, method_name: str, **kwargs: Any) -> dict[str, Any]:
+        method = getattr(self._backend, method_name, None)
+        if not callable(method):
+            raise CodingSubstrateError(
+                "Execution backend capability is unavailable.",
+                code="execution_backend_unavailable",
+                status=503,
+            )
+        return await method(**kwargs)
+
     async def run_process(self, **kwargs: Any) -> dict[str, Any]:
-        return await self._backend.run_process(**kwargs)
+        return await self._invoke("run_process", **kwargs)
 
     async def run_shell(self, **kwargs: Any) -> dict[str, Any]:
-        return await self._backend.run_shell(**kwargs)
+        return await self._invoke("run_shell", **kwargs)
 
     async def start_service(self, **kwargs: Any) -> dict[str, Any]:
-        return await self._backend.start_service(**kwargs)
+        return await self._invoke("start_service", **kwargs)
 
     async def service_status(self, **kwargs: Any) -> dict[str, Any]:
-        return await self._backend.service_status(**kwargs)
+        return await self._invoke("service_status", **kwargs)
 
     async def service_input(self, **kwargs: Any) -> dict[str, Any]:
-        return await self._backend.service_input(**kwargs)
+        return await self._invoke("service_input", **kwargs)
 
     async def stop_service(self, **kwargs: Any) -> dict[str, Any]:
-        return await self._backend.stop_service(**kwargs)
+        return await self._invoke("stop_service", **kwargs)
 
     async def code_intelligence(self, **kwargs: Any) -> dict[str, Any]:
-        return await self._backend.code_intelligence(**kwargs)
+        return await self._invoke("code_intelligence", **kwargs)
 
     async def bind_task(self, task_id: str, workspace_id: str) -> None:
         binder = getattr(self._backend, "bind_task", None)

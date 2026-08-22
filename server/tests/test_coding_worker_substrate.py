@@ -8,10 +8,12 @@ import pytest
 from cryptography.fernet import Fernet
 
 from server.coding_worker.adapters import (
+    LegacyExecutionBackend,
     LegacyHarnessDriver,
     LegacyTaskControlPlane,
     StoreInteractionProjection,
 )
+from server.coding_worker.ports import CodingSubstrateError
 from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
@@ -20,7 +22,7 @@ from server.coding_worker.contracts import (
     TaskState,
     WorkspaceSource,
 )
-from server.coding_worker.provider import FakeCodingAgentProvider
+from server.coding_worker.provider import FakeCodingAgentProvider, ProviderSession
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.store import CodingWorkerStore, WorkerConflictError
 from server.coding_worker.workspace import (
@@ -47,6 +49,29 @@ def _service(tmp_path: Path) -> CodingWorkerService:
         workspace_broker=workspace,
         provider=LegacyHarnessDriver(FakeCodingAgentProvider()),
     )
+
+
+@pytest.mark.asyncio
+async def test_legacy_execution_backend_fails_closed_when_capability_is_absent() -> None:
+    backend = LegacyExecutionBackend(SimpleNamespace())
+
+    with pytest.raises(CodingSubstrateError) as caught:
+        await backend.run_shell(task_id="task", workspace_id="workspace")
+
+    assert caught.value.code == "execution_backend_unavailable"
+    assert caught.value.status == 503
+
+
+@pytest.mark.asyncio
+async def test_legacy_harness_driver_does_not_claim_native_steering() -> None:
+    driver = LegacyHarnessDriver(FakeCodingAgentProvider())
+    session = ProviderSession(
+        session_id="fake_session",
+        task_id="task",
+        provider_capabilities=await driver.capabilities(),
+    )
+
+    assert await driver.steer(session, "change direction") is False
 
 
 @pytest.mark.asyncio
@@ -99,6 +124,16 @@ async def test_shadow_projection_matches_legacy_store_without_double_command(
     assert projection.list_events(created.task_id) == service.store.list_events(
         created.task_id
     )
+    assert projection.get_task(created.task_id).model_dump(mode="json") == (
+        service.store.get_task(created.task_id).model_dump(mode="json")
+    )
+    assert [
+        item.model_dump(mode="json")
+        for item in projection.list_events(created.task_id)
+    ] == [
+        item.model_dump(mode="json")
+        for item in service.store.list_events(created.task_id)
+    ]
 
     approval = service.store.create_approval(
         task_id=created.task_id,
@@ -122,6 +157,9 @@ async def test_shadow_projection_matches_legacy_store_without_double_command(
         ttl_seconds=900,
     )
     assert projection.list_approvals(created.task_id) == [decided]
+    assert projection.get_approval(approval.approval_id).model_dump(mode="json") == (
+        service.store.get_approval(approval.approval_id).model_dump(mode="json")
+    )
     assert projection.get_operation(operation.operation_id) == operation
     assert projection.list_events(created.task_id) == service.store.list_events(
         created.task_id
@@ -136,6 +174,24 @@ async def test_shadow_projection_matches_legacy_store_without_double_command(
     assert projection.turn_history(created.task_id) == service.store.turn_history(
         created.task_id
     )
+    approval_events = [
+        item
+        for item in projection.list_events(created.task_id)
+        if item.type == "approval_decided"
+    ]
+    assert len(approval_events) == 1
+
+    for state in (
+        TaskState.PREPARING,
+        TaskState.RUNNING,
+        TaskState.TESTING,
+        TaskState.COMPLETED,
+    ):
+        service.store.transition(created.task_id, state, reason="shadow-terminal")
+    assert projection.get_task(created.task_id).model_dump(mode="json") == (
+        service.store.get_task(created.task_id).model_dump(mode="json")
+    )
+    assert projection.get_task(created.task_id).state is TaskState.COMPLETED
 
 
 @pytest.mark.asyncio
