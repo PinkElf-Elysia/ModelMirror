@@ -821,6 +821,8 @@ try:
         RuntimeMiddlewareFatalError,
         RuntimeMiddlewareSpec,
         RuntimeTodoStore,
+        SkillHookRuntimeError,
+        ToolCallRequest,
         SandboxSidecarClient,
         SandboxToolsetProvider,
         SandboxWorkspaceStore,
@@ -847,6 +849,10 @@ try:
         build_xpert_file_memory_middleware,
         build_human_in_the_loop_middleware,
         build_plugin_hooks_middleware,
+        build_plugin_hooks_v2_middleware,
+        drain_skill_hook_status_events,
+        plugin_hook_runtime_mode,
+        typed_hook_skill_ids,
         configure_approval_coordinator,
         configure_approval_decision_validator,
         configure_approval_reopen_validator,
@@ -940,6 +946,8 @@ except ModuleNotFoundError:
         RuntimeMiddlewareFatalError,
         RuntimeMiddlewareSpec,
         RuntimeTodoStore,
+        SkillHookRuntimeError,
+        ToolCallRequest,
         SandboxSidecarClient,
         SandboxToolsetProvider,
         SandboxWorkspaceStore,
@@ -966,6 +974,10 @@ except ModuleNotFoundError:
         build_xpert_file_memory_middleware,
         build_human_in_the_loop_middleware,
         build_plugin_hooks_middleware,
+        build_plugin_hooks_v2_middleware,
+        drain_skill_hook_status_events,
+        plugin_hook_runtime_mode,
+        typed_hook_skill_ids,
         configure_approval_coordinator,
         configure_approval_decision_validator,
         configure_approval_reopen_validator,
@@ -8961,6 +8973,58 @@ async def _run_workflow_response(
                     )
                 )
             hitl = middleware_spec(specs, "human_in_the_loop")
+            plugin_hooks = middleware_spec(specs, "plugin_hooks")
+            hook_mode = (
+                plugin_hook_runtime_mode(plugin_hooks)
+                if plugin_hooks is not None
+                else None
+            )
+            typed_hook_ids = typed_hook_skill_ids(plugin_hooks)
+            if plugin_hooks is not None and hook_mode == "typed_v2":
+                if runtime_run_type == "xpert_app":
+                    raise RuntimeMiddlewareFatalError(
+                        "Public Xpert Apps cannot use typed Skill Hooks."
+                    )
+                typed_hook_middleware = build_plugin_hooks_v2_middleware(
+                    plugin_hooks,
+                    skill_manager=get_skill_manager(),
+                    sandbox_provider=workflow_sandbox_provider,
+                    application_observer=skill_application_observer,
+                )
+                runtime_metadata = task_state.setdefault("runtime_metadata", {})
+                current_bindings = {
+                    str(skill_id): str(version_id)
+                    for skill_id, version_id in dict(
+                        runtime_metadata.get("skill_version_bindings") or {}
+                    ).items()
+                    if str(skill_id).strip() and str(version_id).strip()
+                }
+                missing_hook_ids = set(typed_hook_ids) - set(current_bindings)
+                if missing_hook_ids:
+                    resolved = await asyncio.to_thread(
+                        get_skill_manager().bind_skill_versions,
+                        missing_hook_ids,
+                    )
+                    current_bindings.update(
+                        {
+                            str(skill_id): str(version_id)
+                            for skill_id, version_id in resolved.items()
+                            if str(skill_id).strip() and str(version_id).strip()
+                        }
+                    )
+                if any(skill_id not in current_bindings for skill_id in typed_hook_ids):
+                    raise RuntimeMiddlewareFatalError(
+                        "Typed Skill Hook has no immutable runtime version."
+                    )
+                runtime_metadata["skill_version_bindings"] = dict(
+                    sorted(current_bindings.items())
+                )
+                await asyncio.to_thread(
+                    workflow_execution_store.bind_skill_versions,
+                    task_id,
+                    bindings=current_bindings,
+                )
+                middlewares.append(typed_hook_middleware)
             if hitl is not None:
                 middlewares.append(
                     build_human_in_the_loop_middleware(
@@ -8969,14 +9033,17 @@ async def _run_workflow_response(
                         mcp_hub_trusted_service.record_runtime_event,
                     )
                 )
-            plugin_hooks = middleware_spec(specs, "plugin_hooks")
-            if plugin_hooks is not None:
+            if plugin_hooks is not None and hook_mode == "legacy_argv":
                 middlewares.append(
                     build_plugin_hooks_middleware(
                         plugin_hooks,
-                        get_skill_manager(),
-                        workflow_sandbox_provider,
+                        skill_manager=get_skill_manager(),
+                        sandbox_provider=workflow_sandbox_provider,
                     )
+                )
+            elif plugin_hooks is not None and hook_mode != "typed_v2":
+                raise RuntimeMiddlewareFatalError(
+                    "Skill Hook middleware mode is unsupported."
                 )
             pipeline = MiddlewarePipeline(middlewares)
             scope_type, scope_id = runtime_todo_scope(node.id)
@@ -9231,6 +9298,9 @@ async def _run_workflow_response(
                 workflow_runtime_context.get("app_policy") or {}
             )
             run_context = task_state.get("runtime_metadata") or {}
+            context_metadata["skill_version_bindings"] = dict(
+                run_context.get("skill_version_bindings") or {}
+            )
             for metadata_key in (
                 "xpert_id",
                 "conversation_id",
@@ -10830,6 +10900,43 @@ async def _run_workflow_response(
 
             tool_calls_used = 0
 
+            def strategy_tool_metadata(
+                *, tool_call_id: str, iteration: int
+            ) -> dict[str, Any]:
+                return {
+                    "agent_kind": kind,
+                    "agent_node_id": node.id,
+                    "tool_call_id": tool_call_id,
+                    "iteration": iteration,
+                    "agent_strategy_v2": True,
+                    "knowledge_read_enabled": include_knowledge_read,
+                    "knowledge_write_enabled": include_knowledge_write,
+                    "knowledge_base_ids": list(knowledge_base_ids or []),
+                    "external_xpert_tools": list(external_xpert_tools or []),
+                    "toolset_resources": list(toolset_resources or []),
+                    "max_tool_depth": max_tool_depth,
+                }
+
+            async def preflight_tool_batch(
+                calls: list[tuple[str, dict[str, Any], str]], iteration: int
+            ) -> None:
+                if pipeline is None or middleware_context is None:
+                    return
+                await pipeline.before_tool_batch(
+                    [
+                        ToolCallRequest(
+                            tool_name=tool_name,
+                            arguments=arguments,
+                            metadata=strategy_tool_metadata(
+                                tool_call_id=tool_call_id,
+                                iteration=iteration,
+                            ),
+                        )
+                        for tool_name, arguments, tool_call_id in calls
+                    ],
+                    middleware_context,
+                )
+
             async def execute_tool(
                 tool_name: str,
                 arguments: dict[str, Any],
@@ -10850,19 +10957,10 @@ async def _run_workflow_response(
                         arguments=arguments,
                         node=node,
                         title=title,
-                        metadata={
-                            "agent_kind": kind,
-                            "agent_node_id": node.id,
-                            "tool_call_id": tool_call_id,
-                            "iteration": iteration,
-                            "agent_strategy_v2": True,
-                            "knowledge_read_enabled": include_knowledge_read,
-                            "knowledge_write_enabled": include_knowledge_write,
-                            "knowledge_base_ids": list(knowledge_base_ids or []),
-                            "external_xpert_tools": list(external_xpert_tools or []),
-                            "toolset_resources": list(toolset_resources or []),
-                            "max_tool_depth": max_tool_depth,
-                        },
+                        metadata=strategy_tool_metadata(
+                            tool_call_id=tool_call_id,
+                            iteration=iteration,
+                        ),
                         pipeline=pipeline,
                         middleware_context=middleware_context,
                         middleware_specs=middleware_specs,
@@ -10875,6 +10973,8 @@ async def _run_workflow_response(
                     raise RuntimeToolError(
                         tool_name, str(exc), code="tool_denied"
                     ) from exc
+                except SkillHookRuntimeError:
+                    raise
                 except RuntimeMiddlewareFatalError as exc:
                     raise RuntimeToolError(
                         tool_name, str(exc), code="tool_denied"
@@ -10903,6 +11003,7 @@ async def _run_workflow_response(
                     temperature=temperature,
                     max_tokens=agent_max_tokens,
                     parallel_tool_calls=parallel_tool_calls,
+                    tool_batch_preflight=preflight_tool_batch,
                     history_messages=history_messages,
                 )
                 result = await runner.run()
@@ -12254,6 +12355,11 @@ async def _run_workflow_response(
                 if skill_guidance_plan is not None and not result.is_error:
                     await emit_guidance_verified()
 
+            def append_skill_hook_runtime_events() -> None:
+                if middleware_context is None:
+                    return
+                events.extend(drain_skill_hook_status_events(middleware_context))
+
             async def call_workflow_runtime_tool_observed(
                 *,
                 tool_name: str,
@@ -12265,7 +12371,7 @@ async def _run_workflow_response(
                         tool_name,
                         arguments,
                     )
-                    return await call_workflow_runtime_tool(
+                    result = await call_workflow_runtime_tool(
                         tool_name=tool_name,
                         arguments=arguments,
                         node=node,
@@ -12316,6 +12422,8 @@ async def _run_workflow_response(
                             code="skill_application_contract_stale",
                         ) from exc
                     raise
+                append_skill_hook_runtime_events()
+                return result
 
             async def remember_tool_result(
                 tool: Any,
@@ -12496,6 +12604,7 @@ async def _run_workflow_response(
                     pending_arguments,
                     call_result,
                 )
+                append_skill_hook_runtime_events()
                 pending_result_text = runtime_tool_result_text(call_result)
                 await remember_tool_result(
                     pending_tool,
@@ -12833,6 +12942,27 @@ async def _run_workflow_response(
 
                     ensure_tool_call_budget(len(parsed_batch))
                     batch_id = f"batch_{uuid.uuid4().hex}"
+                    if pipeline is not None and middleware_context is not None:
+                        await pipeline.before_tool_batch(
+                            [
+                                ToolCallRequest(
+                                    tool_name=batch_tool_name,
+                                    arguments=batch_arguments,
+                                    metadata=tool_call_metadata(
+                                        iteration=iteration_index + 1,
+                                        batch_id=batch_id,
+                                        batch_index=batch_index,
+                                    ),
+                                )
+                                for batch_index, (
+                                    batch_tool_name,
+                                    batch_arguments,
+                                    _batch_tool,
+                                ) in enumerate(parsed_batch)
+                            ],
+                            middleware_context,
+                        )
+                        append_skill_hook_runtime_events()
                     tool_calls_used += len(parsed_batch)
 
                     async def execute_parallel_tool(
@@ -12897,6 +13027,8 @@ async def _run_workflow_response(
                             raise
                         except SkillRuntimeGuidanceError:
                             raise
+                        except SkillHookRuntimeError:
+                            raise
                         except Exception as exc:
                             error_summary = workflow_error_summary(exc)
                             if run_id:
@@ -12926,6 +13058,7 @@ async def _run_workflow_response(
                             for index, item in enumerate(parsed_batch)
                         ]
                     )
+                    append_skill_hook_runtime_events()
                     event = {
                         "event": "node_delta",
                         "node_id": node.id,
@@ -13107,6 +13240,7 @@ async def _run_workflow_response(
                         arguments,
                         call_result,
                     )
+                    append_skill_hook_runtime_events()
                     tool_result_text = runtime_tool_result_text(call_result)
                     await remember_tool_result(
                         matched_tool,
@@ -16196,17 +16330,24 @@ async def _run_workflow_response(
                                 raw_history,
                                 "[Conversation history is supplied as prior messages.]",
                             )
-                        await agent_pipeline.before_agent(
-                            {
-                                "model_id": model_id,
-                                "messages": history_messages,
-                                "node_id": node.id,
-                                "middleware_ids": [
-                                    item.middleware_id for item in agent_specs
-                                ],
-                            },
-                            agent_context,
-                        )
+                        agent_context.metadata["hook_task_input"] = task_input
+                        try:
+                            await agent_pipeline.before_agent(
+                                {
+                                    "model_id": model_id,
+                                    "messages": history_messages,
+                                    "node_id": node.id,
+                                    "middleware_ids": [
+                                        item.middleware_id for item in agent_specs
+                                    ],
+                                },
+                                agent_context,
+                            )
+                        finally:
+                            for hook_event in drain_skill_hook_status_events(
+                                agent_context
+                            ):
+                                yield sse_payload(hook_event)
                         await run_registry.record_checkpoint(
                             workflow_agent_run.run_id,
                             event_type="workflow_agent.started",
@@ -17144,6 +17285,7 @@ async def _run_workflow_response(
                                                 attempt_exc,
                                                 (
                                                     AgentStrategyError,
+                                                    SkillHookRuntimeError,
                                                     SkillRuntimeGuidanceError,
                                                 ),
                                             )
@@ -17308,15 +17450,24 @@ async def _run_workflow_response(
                                     "content_length": len(output[:20_000]),
                                 },
                             )
-                        await agent_pipeline.after_agent(
-                            {
-                                "model_id": model_id,
-                                "node_id": node.id,
-                                "status": "completed",
-                                "output_length": len(output or ""),
-                            },
-                            agent_context,
-                        )
+                        try:
+                            await agent_pipeline.after_agent(
+                                {
+                                    "model_id": model_id,
+                                    "node_id": node.id,
+                                    "status": "completed",
+                                    "output_length": len(output or ""),
+                                    "output_digest": hashlib.sha256(
+                                        (output or "").encode("utf-8")
+                                    ).hexdigest(),
+                                },
+                                agent_context,
+                            )
+                        finally:
+                            for hook_event in drain_skill_hook_status_events(
+                                agent_context
+                            ):
+                                yield sse_payload(hook_event)
                         compression_stats = agent_context.metadata.get(
                             "context_compression"
                         )
@@ -17442,6 +17593,11 @@ async def _run_workflow_response(
                             },
                         )
                     except RuntimeInterrupt:
+                        if agent_context is not None:
+                            for hook_event in drain_skill_hook_status_events(
+                                agent_context
+                            ):
+                                yield sse_payload(hook_event)
                         raise
                     except Exception as exc:
                         if runtime_run_type == "skill_evaluation":
@@ -17472,6 +17628,11 @@ async def _run_workflow_response(
                                     "Failed to finalize workflow_agent middleware",
                                     exc_info=True,
                                 )
+                            finally:
+                                for hook_event in drain_skill_hook_status_events(
+                                    agent_context
+                                ):
+                                    yield sse_payload(hook_event)
                         if workflow_agent_run is not None:
                             try:
                                 await run_registry.update_run(

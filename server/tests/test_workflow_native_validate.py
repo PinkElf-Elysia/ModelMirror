@@ -1956,6 +1956,21 @@ async def test_automation_middleware_configuration_is_validated(
     )
     invalid_hooks = await validate(client, workflow)
     assert "plugin_hooks_skills_required" in issue_codes(invalid_hooks)
+    assert "skill_hook_legacy_middleware" in issue_codes(invalid_hooks)
+
+    middleware["data"]["runtimeMiddlewareConfig"] = {
+        "hook_mode": "typed_v2",
+        "skill_ids": "release-hook",
+    }
+    valid_typed_hooks = await validate(client, workflow)
+    assert "skill_hook_legacy_middleware" not in issue_codes(valid_typed_hooks)
+    assert "skill_hook_mode_invalid" not in issue_codes(valid_typed_hooks)
+
+    middleware["data"]["runtimeMiddlewareConfig"]["fail_closed"] = False
+    invalid_typed_policy = await validate(client, workflow)
+    assert "skill_hook_v2_fail_closed_unsupported" in issue_codes(
+        invalid_typed_policy
+    )
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@ from typing import Any, Callable
 from .approval_store import RuntimeApprovalRequest, RuntimeApprovalStore
 from .core_middlewares import RuntimeMiddlewareSpec
 from .interrupts import RuntimeInterrupt, RuntimeMiddlewareFatalError
-from .middleware import AgentMiddleware
+from .middleware import AgentMiddleware, TOOL_REVALIDATE_METADATA_KEY
 from .models import MiddlewareContext, ToolCallRequest, ToolCallResponse
 
 
@@ -32,7 +32,7 @@ def build_human_in_the_loop_middleware(
         context: MiddlewareContext,
     ) -> ToolCallResponse:
         if not _requires_review(request.tool_name, rules):
-            return await handler(request)
+            return await handler(_without_server_revalidator(request))
 
         resolved = request.metadata.get("resolved_approval")
         if isinstance(resolved, dict):
@@ -218,7 +218,7 @@ async def _apply_resolution(
                     "tool_name": request.tool_name,
                 },
             )
-        return await handler(request)
+        return await handler(_without_server_revalidator(request))
     if decision == "edit":
         edited = resolved.get("edited_arguments")
         if not isinstance(edited, dict):
@@ -258,9 +258,13 @@ async def _apply_resolution(
                         "tool_name": request.tool_name,
                     },
                 )
-        return await handler(
-            request.with_updates(arguments=dict(edited), metadata=metadata)
+        edited_request = request.with_updates(
+            arguments=dict(edited), metadata=metadata
         )
+        revalidate = metadata.get(TOOL_REVALIDATE_METADATA_KEY)
+        if callable(revalidate):
+            await revalidate(edited_request)
+        return await handler(_without_server_revalidator(edited_request))
     if decision == "reject":
         hub_approval = request.metadata.get("hub_approval")
         if isinstance(hub_approval, dict) and hub_event_recorder is not None:
@@ -286,6 +290,14 @@ async def _apply_resolution(
             },
         )
     raise RuntimeMiddlewareFatalError(f"Unsupported approval decision: {decision}.")
+
+
+def _without_server_revalidator(request: ToolCallRequest) -> ToolCallRequest:
+    if TOOL_REVALIDATE_METADATA_KEY not in request.metadata:
+        return request
+    metadata = dict(request.metadata)
+    metadata.pop(TOOL_REVALIDATE_METADATA_KEY, None)
+    return request.with_updates(metadata=metadata)
 
 
 def _tool_rules(value: Any) -> dict[str, bool]:

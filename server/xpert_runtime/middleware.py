@@ -35,6 +35,13 @@ ToolWrapper = Callable[
     [ToolCallRequest, ToolCallHandler, MiddlewareContext],
     MaybeAwaitable[ToolCallResponse],
 ]
+ToolBatchHook = Callable[
+    [list[ToolCallRequest], MiddlewareContext],
+    MaybeAwaitable[None],
+]
+
+
+TOOL_REVALIDATE_METADATA_KEY = "_server_pre_tool_revalidate"
 
 
 @dataclass(slots=True)
@@ -48,6 +55,7 @@ class AgentMiddleware:
     after_agent: AgentStateHook | None = None
     wrap_model_call: ModelWrapper | None = None
     wrap_tool_call: ToolWrapper | None = None
+    before_tool_batch: ToolBatchHook | None = None
     enabled: bool = True
 
 
@@ -178,6 +186,25 @@ class MiddlewarePipeline:
 
             wrapped = call
         return await wrapped(request)
+
+    async def before_tool_batch(
+        self,
+        requests: list[ToolCallRequest],
+        context: MiddlewareContext,
+    ) -> None:
+        """Preflight a parallel batch before any provider call starts."""
+
+        frozen = [
+            request.with_updates(
+                arguments=dict(request.arguments or {}),
+                metadata=dict(request.metadata or {}),
+            )
+            for request in requests
+        ]
+        for middleware in self._enabled():
+            if middleware.before_tool_batch is None:
+                continue
+            await _maybe_await(middleware.before_tool_batch(frozen, context))
 
     def _enabled(self) -> list[AgentMiddleware]:
         return [middleware for middleware in self._middlewares if middleware.enabled]

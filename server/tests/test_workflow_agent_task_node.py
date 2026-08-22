@@ -34,6 +34,8 @@ from server.xpert_runtime.agent_strategy import (
     AgentModelTurn,
     AgentToolCall,
 )
+from server.xpert_runtime.middleware import AgentMiddleware
+from server.xpert_runtime.plugin_hooks_v2 import SkillHookRuntimeError
 from server.xpert_runtime.todo_store import RuntimeTodoStore
 
 
@@ -1042,6 +1044,368 @@ async def test_workflow_agent_executes_safe_parallel_tool_batch_in_decision_orde
     )
     assert agent_end["output"] == "parallel complete"
     assert [call.tool_name for call in provider.calls] == ["fetch", "lookup"]
+
+
+@pytest.mark.asyncio
+async def test_parallel_post_hook_failure_terminates_the_agent_node(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    provider, restore_provider = _install_fake_tool_provider()
+    provider.tools[0].parallel_safe = True
+    provider.tools.append(
+        RuntimeTool(
+            name="lookup",
+            description="Look up test content",
+            input_schema={"type": "object"},
+            read_only=True,
+            parallel_safe=True,
+        )
+    )
+    package_dir = tmp_path / "hook-skill"
+    package_dir.mkdir()
+    (package_dir / "SKILL.md").write_text("# Hook Skill\n", encoding="utf-8")
+    manager = GuidanceSkillManager(package_dir)
+    executions = WorkflowExecutionStore(tmp_path / "executions")
+    model_calls = 0
+
+    async def fake_collect_chat_completion_text(*args, **kwargs):
+        nonlocal model_calls
+        model_calls += 1
+        return json.dumps(
+            {
+                "tools": [
+                    {"tool": "fetch", "arguments": {"query": "first"}},
+                    {"tool": "lookup", "arguments": {"query": "second"}},
+                ]
+            }
+        )
+
+    async def wrap_tool(request, handler, _context):
+        response = await handler(request)
+        if request.tool_name == "fetch":
+            raise SkillHookRuntimeError(
+                "PostToolUse validation failed after execution.",
+                code="skill_hook_validation_failed",
+            )
+        return response
+
+    monkeypatch.setattr(
+        main_module,
+        "build_plugin_hooks_v2_middleware",
+        lambda *args, **kwargs: AgentMiddleware(
+            name="typed-hook-test", wrap_tool_call=wrap_tool
+        ),
+    )
+    monkeypatch.setattr(main_module, "get_skill_manager", lambda: manager)
+    monkeypatch.setattr(main_module, "workflow_execution_store", executions)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "collect_chat_completion_text",
+        fake_collect_chat_completion_text,
+    )
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    workflow = _workflow_agent_strategy_workflow(
+        {
+            "toolMode": "mcp_tools",
+            "toolNames": "fetch,lookup",
+            "maxIterations": "3",
+            "parallelToolCalls": "true",
+            "maxToolConcurrency": "2",
+            "maxToolCalls": "4",
+        }
+    )
+    workflow["nodes"].append(
+        {
+            "id": "typed-hooks",
+            "type": "runtime_middleware",
+            "data": {
+                "kind": "runtime_middleware",
+                "runtimeMiddlewareId": "plugin_hooks",
+                "runtimeMiddlewareKind": "runtime_middleware.plugin_hooks",
+                "middlewarePriority": "60",
+                "runtimeMiddlewareConfig": {
+                    "hook_mode": "typed_v2",
+                    "skill_ids": manager.skill_id,
+                },
+            },
+        }
+    )
+    workflow["edges"].append(
+        {
+            "id": "bind-typed-hooks",
+            "source": "typed-hooks",
+            "target": "workflow_agent",
+            "sourceHandle": "middleware-binding",
+            "targetHandle": "middleware",
+        }
+    )
+
+    try:
+        response = await client.post(
+            "/api/workflow/run",
+            json={"workflow": workflow, "inputs": {"user_input": "parallel"}},
+        )
+    finally:
+        restore_provider()
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    assert any(
+        event.get("event") == "error"
+        and event.get("node_id") == "workflow_agent"
+        and "PostToolUse validation failed" in str(event.get("message") or "")
+        for event in events
+    ), response.text
+    assert model_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_function_calling_strategy_does_not_downgrade_hook_failure(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    provider, restore_provider = _install_fake_tool_provider()
+    package_dir = tmp_path / "hook-skill-v2"
+    package_dir.mkdir()
+    (package_dir / "SKILL.md").write_text("# Hook Skill\n", encoding="utf-8")
+    manager = GuidanceSkillManager(package_dir)
+    executions = WorkflowExecutionStore(tmp_path / "executions-v2")
+    model_calls = 0
+
+    class FakeAgentModelClient:
+        def __init__(self, **kwargs: Any) -> None:
+            return None
+
+        async def complete(self, **kwargs: Any) -> AgentModelTurn:
+            nonlocal model_calls
+            model_calls += 1
+            if model_calls == 1:
+                return AgentModelTurn(
+                    tool_calls=[
+                        AgentToolCall(
+                            call_id="hook_call",
+                            name="fetch",
+                            raw_arguments='{"query":"hook"}',
+                        )
+                    ],
+                    finish_reason="tool_calls",
+                )
+            return AgentModelTurn(content="must not continue", finish_reason="stop")
+
+    async def wrap_tool(request, handler, _context):
+        await handler(request)
+        raise SkillHookRuntimeError(
+            "PostToolUse validation failed after execution.",
+            code="skill_hook_validation_failed",
+        )
+
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", True)
+    monkeypatch.setattr(
+        main_module, "OpenAICompatibleAgentModelClient", FakeAgentModelClient
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_plugin_hooks_v2_middleware",
+        lambda *args, **kwargs: AgentMiddleware(
+            name="typed-hook-test", wrap_tool_call=wrap_tool
+        ),
+    )
+    monkeypatch.setattr(main_module, "get_skill_manager", lambda: manager)
+    monkeypatch.setattr(main_module, "workflow_execution_store", executions)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    workflow = _workflow_agent_strategy_workflow(
+        {
+            "toolMode": "mcp_tools",
+            "toolNames": "fetch",
+            "agentStrategy": "function_calling",
+            "maxIterations": "3",
+        }
+    )
+    workflow["nodes"].append(
+        {
+            "id": "typed-hooks-v2",
+            "type": "runtime_middleware",
+            "data": {
+                "kind": "runtime_middleware",
+                "runtimeMiddlewareId": "plugin_hooks",
+                "runtimeMiddlewareKind": "runtime_middleware.plugin_hooks",
+                "middlewarePriority": "60",
+                "runtimeMiddlewareConfig": {
+                    "hook_mode": "typed_v2",
+                    "skill_ids": manager.skill_id,
+                },
+            },
+        }
+    )
+    workflow["edges"].append(
+        {
+            "id": "bind-typed-hooks-v2",
+            "source": "typed-hooks-v2",
+            "target": "workflow_agent",
+            "sourceHandle": "middleware-binding",
+            "targetHandle": "middleware",
+        }
+    )
+
+    try:
+        response = await client.post(
+            "/api/workflow/run",
+            json={"workflow": workflow, "inputs": {"user_input": "hook"}},
+        )
+    finally:
+        restore_provider()
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    assert any(
+        event.get("event") == "error"
+        and "PostToolUse validation failed" in str(event.get("message") or "")
+        for event in events
+    ), response.text
+    assert model_calls == 1
+    assert len(provider.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_function_calling_parallel_hook_preflight_blocks_the_entire_batch(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    provider, restore_provider = _install_fake_tool_provider()
+    provider.tools[0].parallel_safe = True
+    provider.tools.append(
+        RuntimeTool(
+            name="lookup",
+            description="Look up test content",
+            input_schema={"type": "object"},
+            read_only=True,
+            parallel_safe=True,
+        )
+    )
+    package_dir = tmp_path / "hook-skill-v2-batch"
+    package_dir.mkdir()
+    (package_dir / "SKILL.md").write_text("# Hook Skill\n", encoding="utf-8")
+    manager = GuidanceSkillManager(package_dir)
+    executions = WorkflowExecutionStore(tmp_path / "executions-v2-batch")
+    model_calls = 0
+    preflight_tools: list[list[str]] = []
+
+    class FakeAgentModelClient:
+        def __init__(self, **kwargs: Any) -> None:
+            return None
+
+        async def complete(self, **kwargs: Any) -> AgentModelTurn:
+            nonlocal model_calls
+            model_calls += 1
+            return AgentModelTurn(
+                tool_calls=[
+                    AgentToolCall(
+                        call_id="hook_call_1",
+                        name="fetch",
+                        raw_arguments='{"query":"first"}',
+                    ),
+                    AgentToolCall(
+                        call_id="hook_call_2",
+                        name="lookup",
+                        raw_arguments='{"query":"second"}',
+                    ),
+                ],
+                finish_reason="tool_calls",
+            )
+
+    async def before_tool_batch(requests, _context):
+        preflight_tools.append([request.tool_name for request in requests])
+        raise SkillHookRuntimeError(
+            "PreToolUse guard denied the parallel batch.",
+            code="skill_hook_denied",
+        )
+
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", True)
+    monkeypatch.setattr(
+        main_module, "OpenAICompatibleAgentModelClient", FakeAgentModelClient
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_plugin_hooks_v2_middleware",
+        lambda *args, **kwargs: AgentMiddleware(
+            name="typed-hook-batch-test", before_tool_batch=before_tool_batch
+        ),
+    )
+    monkeypatch.setattr(main_module, "get_skill_manager", lambda: manager)
+    monkeypatch.setattr(main_module, "workflow_execution_store", executions)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    workflow = _workflow_agent_strategy_workflow(
+        {
+            "toolMode": "mcp_tools",
+            "toolNames": "fetch,lookup",
+            "agentStrategy": "function_calling",
+            "parallelToolCalls": "true",
+            "maxIterations": "3",
+        }
+    )
+    workflow["nodes"].append(
+        {
+            "id": "typed-hooks-v2-batch",
+            "type": "runtime_middleware",
+            "data": {
+                "kind": "runtime_middleware",
+                "runtimeMiddlewareId": "plugin_hooks",
+                "runtimeMiddlewareKind": "runtime_middleware.plugin_hooks",
+                "middlewarePriority": "60",
+                "runtimeMiddlewareConfig": {
+                    "hook_mode": "typed_v2",
+                    "skill_ids": manager.skill_id,
+                },
+            },
+        }
+    )
+    workflow["edges"].append(
+        {
+            "id": "bind-typed-hooks-v2-batch",
+            "source": "typed-hooks-v2-batch",
+            "target": "workflow_agent",
+            "sourceHandle": "middleware-binding",
+            "targetHandle": "middleware",
+        }
+    )
+
+    try:
+        response = await client.post(
+            "/api/workflow/run",
+            json={"workflow": workflow, "inputs": {"user_input": "parallel hook"}},
+        )
+    finally:
+        restore_provider()
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    assert any(
+        event.get("event") == "error"
+        and "PreToolUse guard denied" in str(event.get("message") or "")
+        for event in events
+    ), response.text
+    assert preflight_tools == [["fetch", "lookup"]]
+    assert provider.calls == []
+    assert model_calls == 1
 
 
 @pytest.mark.asyncio

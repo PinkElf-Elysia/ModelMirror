@@ -16,7 +16,12 @@ def main() -> int:
 
     with open(args.context, encoding="utf-8") as handle:
         context = json.load(handle)
-    arguments = context.get("arguments")
+    tool_context = context.get("tool")
+    arguments = (
+        tool_context.get("arguments") if isinstance(tool_context, dict) else None
+    )
+    if not isinstance(arguments, dict):
+        arguments = context.get("arguments")
     path_value = arguments.get("path", "") if isinstance(arguments, dict) else ""
     suffix = PurePosixPath(str(path_value).replace("\\", "/")).suffix.casefold()
     denied = suffix in DENIED_SUFFIXES
