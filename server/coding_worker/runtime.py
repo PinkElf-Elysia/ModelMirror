@@ -58,6 +58,7 @@ class CodingWorkerRuntime:
         route_slots: Mapping[str, Sequence[str]] | None = None,
         route_context_tokens: Mapping[str, int] | None = None,
         documentation_resources: Mapping[str, str] | None = None,
+        harness_faults_enabled: bool = False,
     ) -> None:
         if (
             set(slot_roots) != set(provider_endpoints)
@@ -89,6 +90,7 @@ class CodingWorkerRuntime:
             ),
             egress_proxy_url=egress_proxy_url,
             documentation_resources=documentation_resources,
+            harness_faults_enabled=harness_faults_enabled,
         )
         self.broker_rpc = BrokerRPCServer(self.tool_broker)
         controller_id = f"controller_{uuid.uuid4().hex}"
@@ -212,6 +214,13 @@ _DEFAULT_FROZEN_CHECKS = {
 def register_workspace_source_adapter(
     kind: str, adapter: WorkspaceSourceAdapter
 ) -> None:
+    if not callable(getattr(adapter, "admit", None)) or not callable(
+        getattr(adapter, "acquire", None)
+    ):
+        raise CodingWorkerRuntimeError(
+            "Workspace source adapter contract is incomplete.",
+            code="coding_worker_adapter_invalid",
+        )
     if kind in _SOURCE_ADAPTERS and _SOURCE_ADAPTERS[kind] is not adapter:
         raise CodingWorkerRuntimeError(
             "Workspace source adapter is already registered.",
@@ -307,9 +316,23 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
             "Parity fixture configuration is incomplete.",
             code="coding_worker_config_invalid",
         )
-    if parity_enabled and (builtin_root or builtin_revision):
+    harness_v3_enabled = os.getenv(
+        "CODING_WORKER_HARNESS_V3_ENABLED", "false"
+    ).lower() in {"1", "true", "yes", "on"}
+    harness_v3_assets = os.getenv("CODING_WORKER_HARNESS_V3_FIXTURES")
+    if harness_v3_enabled != bool(harness_v3_assets):
         raise CodingWorkerRuntimeError(
-            "Parity fixtures cannot replace a configured builtin source.",
+            "Harness v3 fixture configuration is incomplete.",
+            code="coding_worker_config_invalid",
+        )
+    if parity_enabled and harness_v3_enabled:
+        raise CodingWorkerRuntimeError(
+            "Parity v2 and Harness v3 profiles are mutually exclusive.",
+            code="coding_worker_config_invalid",
+        )
+    if (parity_enabled or harness_v3_enabled) and (builtin_root or builtin_revision):
+        raise CodingWorkerRuntimeError(
+            "Evaluation fixtures cannot replace a configured builtin source.",
             code="coding_worker_config_invalid",
         )
     if parity_enabled and parity_assets:
@@ -322,6 +345,24 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
             if existing is not None and existing != check:
                 raise CodingWorkerRuntimeError(
                     "Parity check conflicts with a frozen check.",
+                    code="coding_worker_config_invalid",
+                )
+            frozen_checks[check_id] = check
+    elif harness_v3_enabled and harness_v3_assets:
+        harness_adapter, harness_checks = _load_harness_v3_fixtures(
+            Path(harness_v3_assets)
+        )
+        if "builtin" in source_adapters:
+            raise CodingWorkerRuntimeError(
+                "Harness v3 fixtures conflict with a registered builtin source.",
+                code="coding_worker_config_invalid",
+            )
+        source_adapters["builtin"] = harness_adapter
+        for check_id, check in harness_checks.items():
+            existing = frozen_checks.get(check_id)
+            if existing is not None and existing != check:
+                raise CodingWorkerRuntimeError(
+                    "Harness v3 check conflicts with a frozen check.",
                     code="coding_worker_config_invalid",
                 )
             frozen_checks[check_id] = check
@@ -395,6 +436,7 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         route_slots=route_slots,
         route_context_tokens=_route_context_tokens_from_environment(),
         documentation_resources=_documentation_resources_from_environment(),
+        harness_faults_enabled=harness_v3_enabled,
     )
 
 
@@ -431,6 +473,36 @@ def _load_parity_public_fixtures(
                 )
             checks[check.check_id] = check
     return InMemoryWorkspaceSourceAdapter(snapshots), checks
+
+
+def _load_harness_v3_fixtures(
+    path: Path,
+) -> tuple[InMemoryWorkspaceSourceAdapter, dict[str, FrozenCheck]]:
+    try:
+        from .harness_v3 import load_harness_fixture_bundle
+
+        bundle = load_harness_fixture_bundle(path)
+    except (OSError, ValueError) as exc:
+        raise CodingWorkerRuntimeError(
+            "Harness v3 fixture bundle is invalid.",
+            code="coding_worker_config_invalid",
+        ) from exc
+    checks: dict[str, FrozenCheck] = {}
+    for fixture in bundle.fixtures:
+        for visible in fixture.visible_checks:
+            check = FrozenCheck(
+                check_id=visible.check_id,
+                argv=visible.argv,
+                timeout_seconds=visible.timeout_seconds,
+            )
+            existing = checks.get(check.check_id)
+            if existing is not None and existing != check:
+                raise CodingWorkerRuntimeError(
+                    "Harness v3 check definitions conflict.",
+                    code="coding_worker_config_invalid",
+                )
+            checks[check.check_id] = check
+    return InMemoryWorkspaceSourceAdapter(bundle.source_snapshots()), checks
 
 
 def _documentation_resources_from_environment() -> dict[str, str]:

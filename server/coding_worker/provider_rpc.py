@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
+import os
+import re
 import secrets
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from pathlib import Path
@@ -21,6 +24,7 @@ from .provider import (
     ProviderSession,
 )
 from .executor import ExecutorSidecarClientPool, SidecarExecutor
+from .harness_v3 import PROVIDER_HARNESS_CODE_FILES, harness_code_bundle_sha256
 
 
 MAX_PROVIDER_RPC_BYTES = 8 * 1024 * 1024
@@ -50,6 +54,7 @@ class ProviderRPCServer:
         bind_broker: Callable[[str, str, str], None] | None = None,
         unbind_broker: Callable[[str], None] | None = None,
         executor: SidecarExecutor | None = None,
+        harness_identity: tuple[str, str, str] | None = None,
     ) -> None:
         if len(token) < 32:
             raise ValueError("provider RPC token is too short")
@@ -58,6 +63,19 @@ class ProviderRPCServer:
         self._bind_broker = bind_broker
         self._unbind_broker = unbind_broker
         self._executor = executor
+        if harness_identity is not None:
+            route_id, model_id, engine = harness_identity
+            if (
+                re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}", route_id)
+                is None
+                or not model_id.strip()
+                or engine not in {"opencode-1.18.9", "claude-code-2.1.89"}
+            ):
+                raise ValueError("provider Harness identity is invalid")
+            self._harness_identity = (route_id, model_id, engine)
+        else:
+            self._harness_identity = None
+        self._harness_generation = secrets.token_hex(16)
         self._server: asyncio.AbstractServer | None = None
         self.endpoint: str | None = None
         self._active_task_id: str | None = None
@@ -165,6 +183,30 @@ class ProviderRPCServer:
                 self._connections.pop(current, None)
 
     async def _dispatch(self, request: ProviderRPCRequest) -> dict[str, Any]:
+        if request.action == "harness_attestation":
+            if os.getenv("CODING_WORKER_HARNESS_V3_ENABLED", "").lower() != "true":
+                raise ProviderRPCError(
+                    "Provider Harness attestation is disabled.",
+                    code="harness_attestation_disabled",
+                )
+            if self._harness_identity is None:
+                raise ProviderRPCError(
+                    "Provider Harness attestation is unavailable.",
+                    code="harness_attestation_unavailable",
+                )
+            route_id, model_id, engine = self._harness_identity
+            return {
+                "route_id": route_id,
+                "model_identity_sha256": hashlib.sha256(
+                    model_id.encode("utf-8")
+                ).hexdigest(),
+                "engine": engine,
+                "sidecar_generation": self._harness_generation,
+                "code_bundle_sha256": harness_code_bundle_sha256(
+                    Path(__file__).resolve().parent,
+                    PROVIDER_HARNESS_CODE_FILES,
+                ),
+            }
         if request.action == "capabilities":
             return (await self.provider.capabilities()).model_dump(mode="json")
         if request.action == "execute_process":
@@ -476,6 +518,12 @@ class ProviderSidecarClientPool(CodingAgentProvider):
             except (OSError, ValueError, ProviderRPCError, asyncio.TimeoutError):
                 observations[slot_id] = None
         return observations
+
+    async def harness_attestations(self) -> dict[str, dict[str, Any]]:
+        return {
+            slot_id: await self._call(slot_id, "harness_attestation", {})
+            for slot_id in sorted(self._endpoints)
+        }
 
     async def open(self, request: ProviderOpenRequest) -> ProviderSession:
         return await self._open_or_restore(request, None)

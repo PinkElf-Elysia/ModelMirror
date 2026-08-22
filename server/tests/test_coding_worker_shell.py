@@ -22,8 +22,34 @@ from server.coding_worker.tool_broker import ToolBroker, ToolBrokerError
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 
 
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "side_effecting"),
+    (
+        ("run_command", {"argv": ["pytest"]}, False),
+        ("run_check", {"check_id": "pytest"}, False),
+        ("run_shell", {"mode": "inspect"}, False),
+        ("run_shell", {"mode": "mutate"}, True),
+        ("write_file", {"path": "app.py"}, True),
+        ("update_plan", {"items": []}, False),
+    ),
+)
+def test_operation_side_effect_fact_uses_tool_semantics(
+    tool_name: str, arguments: dict[str, object], side_effecting: bool
+) -> None:
+    assert (
+        ToolBroker.operation_side_effecting(
+            tool_name, {"arguments": arguments, "workspace_id": "workspace"}
+        )
+        is side_effecting
+    )
+
+
 async def _broker(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, profile: PolicyProfile
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    profile: PolicyProfile,
+    harness_faults_enabled: bool = False,
 ) -> tuple[ToolBroker, CodingWorkerStore, str, Path, AsyncMock]:
     monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
     monkeypatch.setenv("CODING_WORKER_SHELL_ENABLED", "true")
@@ -66,6 +92,7 @@ async def _broker(
         store=store,
         workspace_broker=workspace,
         executor=executor,
+        harness_faults_enabled=harness_faults_enabled,
     )
     return (
         broker,
@@ -83,6 +110,7 @@ async def _approve(
     task_id: str,
     operation_id: str,
     arguments: dict[str, object],
+    arm_harness_fault: bool = False,
 ) -> str:
     with pytest.raises(ToolBrokerError) as required:
         await broker.execute(
@@ -105,6 +133,10 @@ async def _approve(
         "timeout_seconds": arguments["timeout_seconds"],
         "network_scope_sha256": None,
     }
+    if arm_harness_fault:
+        broker.arm_harness_fault(
+            task_id, "executor", "after_side_effect_before_receipt"
+        )
     lease = store.decide_approval(
         approval.approval_id, approved=True, task_scope=False
     ).lease
@@ -395,6 +427,72 @@ async def test_shell_applied_unknown_reconciles_without_rerunning_executor(
     assert repository.joinpath("app.py").read_bytes() == changed
 
     reconciled = broker.reconcile("shell_unknown")
+    assert reconciled.state is OperationState.COMPLETED
+    assert reconciled.data["changeset"]["state"] == "applied"
+    assert executor.run_shell.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_harness_executor_reset_after_changeset_requires_exact_reconcile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broker, store, task_id, repository, executor = await _broker(
+        tmp_path,
+        monkeypatch,
+        profile=PolicyProfile.DEVELOP,
+        harness_faults_enabled=True,
+    )
+    arguments: dict[str, object] = {
+        "script": "python fix.py",
+        "cwd": ".",
+        "mode": "mutate",
+        "timeout_seconds": 60,
+    }
+    lease_id = await _approve(
+        broker,
+        store,
+        task_id=task_id,
+        operation_id="shell_harness_reset",
+        arguments=arguments,
+        arm_harness_fault=True,
+    )
+    old = repository.joinpath("app.py").read_bytes()
+    changed = b"print('fault-once')\n"
+
+    async def execute(**kwargs: object) -> dict[str, object]:
+        return _shell_result(
+            broker,
+            store,
+            task_id,
+            mode="mutate",
+            output="",
+            changes=[
+                {
+                    "kind": "write",
+                    "path": "app.py",
+                    "expected_sha256": hashlib.sha256(old).hexdigest(),
+                    "content": changed.decode(),
+                    "content_sha256": hashlib.sha256(changed).hexdigest(),
+                }
+            ],
+        )
+
+    executor.run_shell.side_effect = execute
+    with pytest.raises(ToolBrokerError) as unknown:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="shell_harness_reset",
+            tool_name="run_shell",
+            arguments=arguments,
+            lease_id=lease_id,
+        )
+
+    assert unknown.value.code == "operation_result_unknown"
+    assert store.get_operation("shell_harness_reset").state is OperationState.UNKNOWN
+    assert repository.joinpath("app.py").read_bytes() == changed
+    executor.close_task.assert_awaited_once()
+
+    reconciled = broker.reconcile("shell_harness_reset")
     assert reconciled.state is OperationState.COMPLETED
     assert reconciled.data["changeset"]["state"] == "applied"
     assert executor.run_shell.await_count == 1

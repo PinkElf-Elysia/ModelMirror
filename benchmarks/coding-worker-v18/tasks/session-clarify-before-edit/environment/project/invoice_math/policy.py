@@ -1,0 +1,2 @@
+ROUNDING_POLICY = 'unspecified'
+SUPPORTED_CURRENCIES = {'USD', 'EUR'}

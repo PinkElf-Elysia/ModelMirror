@@ -1,0 +1,20 @@
+{
+  "task_id": "session-clarify-before-edit",
+  "source_id": "v18-session-clarify-before-edit",
+  "revision": "fa129e6cb78dd7457333651f40ce77847286b72ab12db74a058ac225ddbca4e0",
+  "instruction_sha256": "946aba97c2b0aed3cc8720999836a56de324352e4f4a939638721779e814b430",
+  "scenario_sha256": "c215ce886cb5b6fb45adaa9cd4746e4bec16e05674c402d19bda825b23674ae8",
+  "acceptance_sha256": "9667799f33ff9ede3be741be62989ac5583c43fbb3f8bbe072ae57b80e2e7062",
+  "acceptance": {
+    "contract_id": "v18-session-clarify-before-edit",
+    "required_checks": [
+      {
+        "check_id": "v18-session-clarify-before-edit-visible",
+        "label": "v18-session-clarify-before-edit-visible",
+        "kind": "command",
+        "required": true
+      }
+    ],
+    "required_artifacts": []
+  }
+}

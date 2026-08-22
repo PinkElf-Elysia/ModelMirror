@@ -90,7 +90,7 @@ def test_runtime_accepts_only_the_exact_active_snapshot_lease(tmp_path: Path) ->
     assert resolved.project_id == source["project_id"]
     assert resolved.snapshot_path == slot / "current" / "workspace"
     assert "lease" not in resolved.to_public_dict()
-    assert resolved.to_public_dict()["head"] == "a" * 12
+    assert resolved.to_public_dict()["head"] == "a" * 40
 
     wrong_project = dict(source)
     wrong_project["project_id"] = "local-fedcba0987654321fedcba09"
@@ -167,7 +167,7 @@ async def test_local_project_session_uses_only_selected_snapshot_and_blocks_veri
         "name": "随机 Alpha 项目",
         "kind": "local_clone",
         "branch": "main",
-        "head": "a" * 12,
+        "head": "a" * 40,
     }
     assert response["event"]["data"]["project"] == response["project"]
     assert (tmp_path / "workspace" / "README.md").read_text(encoding="utf-8") == "marker: SELECTED-b8R4\n"

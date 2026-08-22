@@ -1,0 +1,14 @@
+{
+  "baseline": {
+    "README.md": "580a734995f963958e5037d2534122fa087248c8541d8862a0d926b23da7b808",
+    "assets/canary.bin": "d755e060d2634c329e511c0dcb5d524a05e9aff2deddb1655545adf206e6af67",
+    "codegen/__init__.py": "d03569c9cbd65d5c1ebbcea2930263f8702fe3fe392ab87b66c2a743b8bfdb67",
+    "codegen/generator.py": "a295f12a61c0ab62df676a156038373812f377949d77c35ceb0a723bf0266dad",
+    "generated/client.py": "cf37181f4dab8144bb377b3132988573044294572f7ac5206a6ce0e68a6bc2e6",
+    "schemas/client.json": "d0c9326bc6f1086299ccb369322cbe01cce3e4134bb85588edeadda3c8134491",
+    "scripts/regenerate.py": "84f2d57eb8ea937751ffdb6df28080f7da110f0c1c0890262670eb701205efe5",
+    "visible_tests/test_codegen.py": "a15ddae60c447a49e3bc599871a9fb7737967a16382b0349f2c3d47c5d478be6"
+  },
+  "binary_canary": "assets/canary.bin",
+  "required_modified_files": 2
+}

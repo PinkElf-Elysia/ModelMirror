@@ -1,0 +1,16 @@
+{
+  "baseline": {
+    "assets/canary.bin": "a374a1f58acdc0ba47b87142360706942e1c802d0b7aaba621beceeb8eb05aa5",
+    "package-lock.json": "f526f0a3d6ef9d0936355711455754abbde3051c3fff0d50928c8db5d942f963",
+    "package.json": "18031a05d7961c27b67315c5a386beb6a4a7af98187578b69efeadf1ecce2af9",
+    "src/ProfileSearch.tsx": "1d6fda260607b59c2fdf874584c8c96dda25fdd915ea0addeed7192f8936d526",
+    "src/api.ts": "f479be1115f76a1bfe642c97dcbf7cfc9b085fdbe5cf76f98b0aadee93fb41e7",
+    "src/index.ts": "f0cc56c84d9008fc96cdf9a9c056032734bf6898ed1011bd1723ddee009d5207",
+    "src/types.ts": "5a97cc5ecb8ef89cca59462eff20bfe9468b3257f003921a1b4dcdea0c58d458",
+    "src/useProfileSearch.tsx": "7eb28810a744f5250ca4ef125717249746aeb1932e6aff44d51fc968a66b02a9",
+    "tsconfig.json": "9a3e7f1042d389ee8a27d3e513821da10d38642664c4f0ae12cc4075155d57a7",
+    "visible_tests/search.test.tsx": "93c4c3ba5996c32a4e7a0b9abbd2f3f315a484c07d0b8a43712d6c6a827719b7"
+  },
+  "binary_canary": "assets/canary.bin",
+  "required_modified_files": 2
+}

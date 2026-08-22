@@ -1,0 +1,20 @@
+{
+  "task_id": "python-transactional-config",
+  "source_id": "v18-python-transactional-config",
+  "revision": "ceb6398f9a2658337c466c262493a64f80049fb039170d945888c483860ed338",
+  "instruction_sha256": "db0ba2cd5cff5b16d9b88e3e0f7fb62edb47bd367fd476f3f22a13b825da64ec",
+  "scenario_sha256": null,
+  "acceptance_sha256": "293bcac58e30c47f2b9c5cf7f7a7cd230601c57655497e0e7f83dd8815f89afc",
+  "acceptance": {
+    "contract_id": "v18-python-transactional-config",
+    "required_checks": [
+      {
+        "check_id": "v18-python-transactional-config-visible",
+        "label": "v18-python-transactional-config-visible",
+        "kind": "command",
+        "required": true
+      }
+    ],
+    "required_artifacts": []
+  }
+}

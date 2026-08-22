@@ -109,15 +109,22 @@ class SidecarExecutor:
                 execution_root.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copytree(repository, execution_root, ignore=shutil.ignore_patterns(".git"))
                 execution_repository = execution_root
-            process = await asyncio.create_subprocess_exec(
-                *argv,
-                cwd=execution_repository,
-                env=self._environment(execution_repository, environment_overrides),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                start_new_session=os.name != "nt",
-            )
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *argv,
+                    cwd=execution_repository,
+                    env=self._environment(execution_repository, environment_overrides),
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    start_new_session=os.name != "nt",
+                )
+            except FileNotFoundError:
+                return {
+                    "argv": list(argv),
+                    "exit_code": 127,
+                    "output": f"{argv[0]}: command not found\n",
+                }
             async with self._lock:
                 self._processes.setdefault(task_id, set()).add(process)
             try:

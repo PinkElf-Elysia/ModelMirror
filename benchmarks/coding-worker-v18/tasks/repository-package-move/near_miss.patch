@@ -1,0 +1,18 @@
+diff --git a/acme/reporting/__init__.py b/acme/reporting/__init__.py
+--- a/acme/reporting/__init__.py
++++ b/acme/reporting/__init__.py
+@@ -1,3 +1 @@
+-from .formatters import format_total
+-
+-__all__ = ['format_total']
++# moved incompletely; stale package remains
+diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -1,5 +1,5 @@
+ from acme.billing import invoice_id
+-from acme.reporting import format_total
++from acme.analytics import format_total
+ 
+ def render(number: int, total: int) -> str:
+     return f'{invoice_id(number)} {format_total(total)}'

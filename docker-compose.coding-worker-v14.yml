@@ -51,11 +51,9 @@ services:
       context: .
       dockerfile: server/coding_worker/Dockerfile.v14
     container_name: modelmirror-coding-worker-provider-a
-    depends_on:
-      new-api:
-        condition: service_healthy
     networks:
       - coding_internal
+      - coding_provider
     user: "65532:65532"
     read_only: true
     cap_drop:
@@ -74,7 +72,7 @@ services:
       CODING_WORKER_SIDECAR_TOKEN: ${CODING_WORKER_SLOT_A_TOKEN:?set a random V14 slot A token}
       CODING_WORKER_ROUTE_ID: coding/default
       CODING_WORKER_MODEL_ID: ${CODING_WORKER_MODEL_ID:?set the controlled V14 model id}
-      CODING_WORKER_MODEL_BASE_URL: ${CODING_WORKER_MODEL_BASE_URL:-http://new-api:3000/v1}
+      CODING_WORKER_MODEL_BASE_URL: ${CODING_WORKER_MODEL_BASE_URL:?set the explicit V14 model base URL}
       CODING_WORKER_ROUTE_KEY: ${CODING_WORKER_ROUTE_KEY:?set a dedicated V14 route key}
     volumes:
       - coding_worker_slot_a:/worker-data:ro
@@ -98,7 +96,7 @@ services:
       CODING_WORKER_SIDECAR_TOKEN: ${CODING_WORKER_SLOT_B_TOKEN:?set a random V14 slot B token}
       CODING_WORKER_ROUTE_ID: coding/default
       CODING_WORKER_MODEL_ID: ${CODING_WORKER_MODEL_ID:?set the controlled V14 model id}
-      CODING_WORKER_MODEL_BASE_URL: ${CODING_WORKER_MODEL_BASE_URL:-http://new-api:3000/v1}
+      CODING_WORKER_MODEL_BASE_URL: ${CODING_WORKER_MODEL_BASE_URL:?set the explicit V14 model base URL}
       CODING_WORKER_ROUTE_KEY: ${CODING_WORKER_ROUTE_KEY:?set a dedicated V14 route key}
     volumes:
       - coding_worker_slot_b:/worker-data:ro

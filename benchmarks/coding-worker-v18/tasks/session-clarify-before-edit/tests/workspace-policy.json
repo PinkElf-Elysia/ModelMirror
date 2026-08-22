@@ -1,0 +1,13 @@
+{
+  "baseline": {
+    "README.md": "5bfc31c309d8c3e157401e50c2133e1056d10495f3d1bfc4eb698461f66d6728",
+    "assets/canary.bin": "70737d7cfed54bef2585abf2fcc04458ed0d1479ed423fd89f662d1dd9997f94",
+    "invoice_math/__init__.py": "f32a67a8982a2f39d25df1b38d43b6fe35804d2d5d0e108e5ed550667ee647b4",
+    "invoice_math/invoice.py": "6f5379af6fc96b6b57de42eacd257204146261d5ed3bf6b47406a98d0a19490f",
+    "invoice_math/policy.py": "98e09307a23cdd386571feeb1686b897443d5a71cd1bb88c735e48182c1cb4e3",
+    "invoice_math/rounding.py": "929d1ef911effa0af11179464e926c1ca465125d765e622f4d1eb099094d619f",
+    "visible_tests/test_invoice.py": "7c94a17a474dbd9e51578ef0e18cc08f4a0d7a77a8107a8b928afc20dcc25512"
+  },
+  "binary_canary": "assets/canary.bin",
+  "required_modified_files": 2
+}

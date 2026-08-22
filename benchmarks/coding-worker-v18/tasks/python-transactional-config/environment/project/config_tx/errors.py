@@ -1,0 +1,2 @@
+class BatchConfigError(ValueError):
+    pass

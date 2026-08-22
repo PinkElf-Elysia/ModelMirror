@@ -451,3 +451,19 @@ curl http://localhost:5173/models
 65. **两轮认证必须拥有不同运行身份。** 每个 round 的 run ID 纳入 round ID、engine、task 与 attempt；跨 round
     复用幂等任务是无效认证。两轮必须绑定同一候选、manifest、route、bundle 与 runner image，并连续完成共 288 次
     真实运行。未运行、部分运行或人工修复过的矩阵不得写成绿色。
+66. **真实任务先证明任务有效。** Harbor 任务必须分离 H0、Oracle solution 与独立 verifier；Oracle 重复通过、Nop
+    与 near-miss 重复失败后才可进入真实模型校准。公开任务只能保存 verifier 包装与策略检查，隐藏正文必须位于仓库外
+    只读密封目录；CLI 核对逐任务及整体哈希后才可注入一次性 task 副本。Provider 不得读取 solution、verifier 或密封
+    checker，checker 无网络且只消费绑定终态 Workspace Artifact。结构性微型夹具不得冒充能力认证集。
+67. **协调指标必须由原始证据派生。** 平台协调失败、重复副作用、未结算 operation 与孤立 interaction 必须从
+    Harbor ATIF 和 Worker ledger 重建并携带 evidence ID。调用方填写的零值、缺失轨迹、摘要不符或不可证明的
+    “无异常”一律不能通过报告门禁。
+68. **任务准入先于持久化和排队。** 新任务先验证 opaque source 注册、精确 revision、当前可用与适配器支持，
+    再原子写入任务、加密 receipt 与 `source_admitted`。精确幂等查询必须更早执行，已有任务不因来源临时离线消失；
+    Scheduler acquire 仍复核来源，receipt 不能绕过 TOCTOU 检查。
+69. **故障注入必须绑定一个已持久意图。** 评测 Controller 不得取得 Docker socket 或任意执行端点。Harness profile 的
+    故障只可绑定当前任务唯一待批准的 mutate shell operation；副作用后的回执丢失进入 unknown，关闭 Executor task
+    binding 后仅按原 operation ID reconcile。任务或 operation 不唯一、开关关闭、token 缺失或重复 arm 均失败关闭。
+70. **对照 runner 的能力缺口不能伪装成模型失败。** 原生 Agent 必须使用默认拒绝权限，并只运行任务冻结的精确命令；
+    inspect 命令允许失败后复测，mutate 命令必须保持唯一。若 runner 不能在相同条件下完成 question、steering、compaction
+    或故障恢复，完整矩阵必须在启动前失败关闭，不能删除任务、事后补答案或把适配器失败计入成功率差值。

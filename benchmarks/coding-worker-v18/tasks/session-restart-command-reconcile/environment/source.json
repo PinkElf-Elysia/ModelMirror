@@ -1,0 +1,20 @@
+{
+  "task_id": "session-restart-command-reconcile",
+  "source_id": "v18-session-restart-command-reconcile",
+  "revision": "a75b3fdf3e5f4fd76f38c5a0252d0e43d2297c52bdfbc239f930b98f5b0b3d89",
+  "instruction_sha256": "992b78f544d7e3c6cd5176b94ef66263d0199924ac76c2397a055b4a19c4c158",
+  "scenario_sha256": "d9f4896e43300c4bc4704d9dcde171441b991edfdb903f24985a67e381320808",
+  "acceptance_sha256": "3bb7b9797d9211e2184d7de063726784cdbdd08390062932aa947bad41bbaeb5",
+  "acceptance": {
+    "contract_id": "v18-session-restart-command-reconcile",
+    "required_checks": [
+      {
+        "check_id": "v18-session-restart-command-reconcile-visible",
+        "label": "v18-session-restart-command-reconcile-visible",
+        "kind": "command",
+        "required": true
+      }
+    ],
+    "required_artifacts": []
+  }
+}

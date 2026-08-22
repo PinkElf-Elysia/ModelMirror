@@ -1,0 +1,20 @@
+{
+  "task_id": "repository-package-move",
+  "source_id": "v18-repository-package-move",
+  "revision": "b3746b2640e6f0d535e82b759500cdba6966b36d02af47ba3a03b41073f80cd1",
+  "instruction_sha256": "fac196463ec77aad4c1c1c66be551fb7231745566dceac8c2af953147d448410",
+  "scenario_sha256": null,
+  "acceptance_sha256": "fce96a1f75066afa3fedfd74799a245ae767b115ce11514e955529666731c82a",
+  "acceptance": {
+    "contract_id": "v18-repository-package-move",
+    "required_checks": [
+      {
+        "check_id": "v18-repository-package-move-visible",
+        "label": "v18-repository-package-move-visible",
+        "kind": "command",
+        "required": true
+      }
+    ],
+    "required_artifacts": []
+  }
+}

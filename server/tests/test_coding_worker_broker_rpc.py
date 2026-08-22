@@ -229,6 +229,36 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
     service = next(tool for tool in tools if tool.name == "start_service")
     assert set(service.inputSchema["required"]) == {"operation_id", "argv"}
     assert "lease_id" not in service.inputSchema["properties"]
+    plan = next(tool for tool in tools if tool.name == "update_plan")
+    plan_item_ref = plan.inputSchema["properties"]["items"]["items"]["$ref"]
+    plan_item = plan.inputSchema["$defs"][plan_item_ref.rsplit("/", 1)[-1]]
+    assert set(plan_item["properties"]) == {"step", "status"}
+    assert plan_item["required"] == ["step"]
+    assert plan_item["properties"]["status"]["default"] == "pending"
+    assert set(plan_item["properties"]["status"]["enum"]) == {
+        "pending",
+        "in_progress",
+        "completed",
+    }
+
+
+@pytest.mark.asyncio
+async def test_mcp_defaults_omitted_plan_status_before_rpc() -> None:
+    calls: list[dict[str, object]] = []
+
+    class RecordingClient:
+        async def call(self, **kwargs: object) -> dict[str, object]:
+            calls.append(kwargs)
+            return {"ok": True}
+
+    await build_server(RecordingClient()).call_tool(
+        "update_plan",
+        {"operation_id": "plan-default", "items": [{"step": "inspect"}]},
+    )
+    assert calls[0]["arguments"] == {
+        "items": [{"step": "inspect", "status": "pending"}],
+        "explanation": None,
+    }
 
 
 @pytest.mark.asyncio

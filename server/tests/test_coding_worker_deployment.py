@@ -19,6 +19,17 @@ def test_v14_sidecar_is_non_root_and_has_no_host_control_mounts() -> None:
     assert "coding-worker-provider-b:" in compose
     assert "coding-worker-slot-a:" in compose
     assert "coding-worker-slot-b:" in compose
+    provider = compose.split("coding-worker-provider-a:", 1)[1].split(
+        "coding-worker-provider-b:", 1
+    )[0]
+    assert "coding_internal" in provider
+    assert "coding_provider" in provider
+    assert "depends_on:" not in provider
+    assert "http://new-api:3000/v1" not in provider
+    assert (
+        "CODING_WORKER_MODEL_BASE_URL: "
+        "${CODING_WORKER_MODEL_BASE_URL:?set the explicit V14 model base URL}"
+    ) in provider
     assert "CODING_WORKER_V14_ENABLED: ${CODING_WORKER_V14_ENABLED:-false}" in compose
     assert "CODING_WORKER_V15_ENABLED: ${CODING_WORKER_V15_ENABLED:-false}" in compose
     assert "CODING_WORKER_SHELL_ENABLED: ${CODING_WORKER_SHELL_ENABLED:-false}" in compose
@@ -93,3 +104,21 @@ def test_v15_claude_provider_has_a_pinned_private_image_and_secret_only_mount() 
     )[0]
     assert "modelmirror_claude_api_key" not in proxy
     assert "coding_worker_provider_b" not in proxy
+
+
+def test_v18_harness_overlay_mounts_only_the_public_fixture_bundle() -> None:
+    root = Path(__file__).parents[2]
+    compose = (root / "docker-compose.coding-worker-v18-harness.yml").read_text()
+
+    assert 'CODING_WORKER_HARNESS_V3_ENABLED: "true"' in compose
+    assert "CODING_WORKER_HARNESS_V3_FIXTURES: /harness-v3/fixture-bundle.json" in compose
+    assert "CODING_WORKER_HARNESS_CONTROLLER_TOKEN" in compose
+    assert 'CODING_WORKER_PARITY_ENABLED: "false"' in compose
+    assert 'CODING_WORKER_BUILTIN_SOURCE_ROOT: ""' in compose
+    assert 'CODING_WORKER_BUILTIN_REVISION: ""' in compose
+    assert "CODING_WORKER_HARNESS_V3_FIXTURE_FILE" in compose
+    assert "target: /harness-v3/fixture-bundle.json" in compose
+    assert "read_only: true" in compose
+    assert "sealed" not in compose.lower()
+    assert "checker" not in compose.lower()
+    assert "docker.sock" not in compose

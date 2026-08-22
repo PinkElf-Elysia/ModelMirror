@@ -1,0 +1,19 @@
+{
+  "name": "modelmirror-coding-worker-v18-task",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest --environment jsdom"
+  },
+  "dependencies": {
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.3",
+    "@types/react": "19.1.8",
+    "@types/react-dom": "19.1.6",
+    "jsdom": "30.0.1",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "typescript": "5.8.3",
+    "vitest": "4.1.6"
+  }
+}

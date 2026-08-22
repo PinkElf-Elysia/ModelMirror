@@ -1,0 +1,14 @@
+diff --git a/src/CommandPalette.tsx b/src/CommandPalette.tsx
+--- a/src/CommandPalette.tsx
++++ b/src/CommandPalette.tsx
+@@ -1,9 +1,8 @@
+ import type { Command } from './types'
+ import { useCommandPalette } from './useCommandPalette'
+-
+ export function CommandPalette({ open, query, commands, onClose }: { open: boolean; query: string; commands: Command[]; onClose(): void }) {
+   const { visible, selected, setSelected } = useCommandPalette(commands, query)
+   if (!open) return null
+-  return <div className="overlay"><div><h2>Commands</h2><ul>{visible.map((command, index) => <li key={command.id}><button disabled={command.disabled} data-selected={index === selected} onMouseEnter={() => setSelected(index)} onClick={() => { command.run(); onClose() }}>{command.label}</button></li>)}</ul></div></div>
++  return <div className="overlay"><div role="dialog" aria-modal="true" aria-label="Commands" onKeyDown={event => event.key === 'Escape' && onClose()}><h2>Commands</h2><ul>{visible.map((command, index) => <li key={command.id}><button disabled={command.disabled} data-selected={index === selected} onMouseEnter={() => setSelected(index)} onClick={() => { command.run(); onClose() }}>{command.label}</button></li>)}</ul></div></div>
+ }
+ 

@@ -1,0 +1,20 @@
+{
+  "task_id": "typescript-stale-response",
+  "source_id": "v18-typescript-stale-response",
+  "revision": "53e1c314eeb5c7332c2a4b0406117d920c60e45cbb67d685515de290ceb6355c",
+  "instruction_sha256": "77b389c1465c54bf12240eb67631bc5c30281bdb92141161b8578d46f2dffa47",
+  "scenario_sha256": null,
+  "acceptance_sha256": "5eb639b165aa8a82b911dfc73dde01fdd38fe425c2d19393722ba5e1f3886f3f",
+  "acceptance": {
+    "contract_id": "v18-typescript-stale-response",
+    "required_checks": [
+      {
+        "check_id": "v18-typescript-stale-response-visible",
+        "label": "v18-typescript-stale-response-visible",
+        "kind": "command",
+        "required": true
+      }
+    ],
+    "required_artifacts": []
+  }
+}

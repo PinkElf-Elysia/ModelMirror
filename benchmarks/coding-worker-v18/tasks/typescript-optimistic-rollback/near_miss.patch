@@ -1,0 +1,26 @@
+diff --git a/src/useOptimisticTodos.ts b/src/useOptimisticTodos.ts
+--- a/src/useOptimisticTodos.ts
++++ b/src/useOptimisticTodos.ts
+@@ -1,19 +1,13 @@
+ import { useState } from 'react'
+ import type { SaveTodo, Todo } from './types'
+-
+ export function useOptimisticTodos(initial: Todo[], save: SaveTodo) {
+   const [todos, setTodos] = useState(initial)
+   const update = async (id: string, patch: Partial<Omit<Todo, 'id'>>) => {
+-    const before = todos
++    const before = todos.find(item => item.id === id)!
+     const optimistic = todos.map(item => item.id === id ? { ...item, ...patch } : item)
+     setTodos(optimistic)
+-    try {
+-      const saved = await save(optimistic.find(item => item.id === id)!)
+-      setTodos(current => current.map(item => item.id === id ? saved : item))
+-    } catch (error) {
+-      setTodos(before)
+-      throw error
+-    }
++    try { const saved = await save(optimistic.find(item => item.id === id)!); setTodos(current => current.map(item => item.id === id ? saved : item)) }
++    catch (error) { setTodos(current => current.map(item => item.id === id ? before : item)); throw error }
+   }
+   return { todos, update }
+ }

@@ -174,6 +174,37 @@ async def test_shell_rpc_replays_stream_frames_before_terminal_result(
 
 
 @pytest.mark.asyncio
+async def test_missing_executable_is_a_recoverable_command_result_across_rpc(
+    tmp_path: Path,
+) -> None:
+    executor, _, _ = _executor(tmp_path)
+    server = ExecutorRPCServer(executor, token="x" * 48)
+    endpoint = await server.start_tcp_for_tests()
+    pool = ExecutorSidecarClientPool(
+        endpoints={"slot-a": endpoint},
+        tokens={"slot-a": "x" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+    )
+
+    await pool.bind_task("task_one", "workspace_one")
+    result = await pool.run_process(
+        task_id="task_one",
+        workspace_id="workspace_one",
+        argv=("modelmirror-command-that-does-not-exist",),
+        timeout_seconds=10,
+        isolated=True,
+    )
+
+    assert result == {
+        "argv": ["modelmirror-command-that-does-not-exist"],
+        "exit_code": 127,
+        "output": "modelmirror-command-that-does-not-exist: command not found\n",
+    }
+    await pool.close_task("task_one", "workspace_one")
+    await server.close()
+
+
+@pytest.mark.asyncio
 async def test_executor_health_probe_is_stateless_while_slot_is_bound(
     tmp_path: Path,
 ) -> None:

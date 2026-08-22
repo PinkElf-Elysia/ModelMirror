@@ -9,11 +9,12 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 import uuid
 import zlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import Field
 
@@ -22,7 +23,10 @@ from .contracts import RepositoryInstruction, StrictModel, WorkspaceSource
 
 SAFE_WORKSPACE_ID = re.compile(r"^workspace_[a-f0-9]{32}$")
 MAX_SOURCE_FILES = 20_000
-MAX_SOURCE_FILE_BYTES = 8 * 1024 * 1024
+# SourceFile is the internal hard ceiling. Untrusted Project Source and Host
+# snapshots keep their narrower adapter-specific limit below.
+MAX_SOURCE_FILE_BYTES = 16 * 1024 * 1024
+MAX_EXTERNAL_SOURCE_FILE_BYTES = 8 * 1024 * 1024
 MAX_SOURCE_BYTES = 192 * 1024 * 1024
 MAX_REPOSITORY_INSTRUCTIONS = 16
 MAX_REPOSITORY_INSTRUCTION_DEPTH = 8
@@ -34,6 +38,65 @@ class WorkspaceError(RuntimeError):
     def __init__(self, message: str, *, code: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+SOURCE_ADMISSION_REASONS = frozenset(
+    {
+        "not_registered",
+        "revision_changed",
+        "temporarily_unavailable",
+        "unsafe",
+        "limit_exceeded",
+    }
+)
+
+
+class WorkspaceSourceUnavailableError(WorkspaceError):
+    """Public, path-free source admission failure."""
+
+    def __init__(self, reason: str) -> None:
+        if reason not in SOURCE_ADMISSION_REASONS:
+            raise ValueError("workspace source admission reason is invalid")
+        super().__init__(
+            "Workspace source is unavailable.",
+            code="workspace_source_unavailable",
+        )
+        self.reason = reason
+
+
+class SourceAdmissionReceipt(StrictModel):
+    protocol: Literal["modelmirror-workspace-source-admission/v1"] = (
+        "modelmirror-workspace-source-admission/v1"
+    )
+    source: WorkspaceSource
+    binding_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    observed_at: float = Field(ge=0)
+    facts: dict[str, str | int | bool | None] = Field(default_factory=dict, max_length=32)
+
+
+def source_admission_receipt(
+    source: WorkspaceSource,
+    *,
+    facts: Mapping[str, str | int | bool | None],
+    observed_at: float | None = None,
+) -> SourceAdmissionReceipt:
+    normalized = dict(sorted(facts.items()))
+    encoded = json.dumps(
+        {
+            "protocol": "modelmirror-workspace-source-admission/v1",
+            "source": source.model_dump(mode="json"),
+            "facts": normalized,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return SourceAdmissionReceipt(
+        source=source,
+        binding_sha256=hashlib.sha256(encoded).hexdigest(),
+        observed_at=time.time() if observed_at is None else observed_at,
+        facts=normalized,
+    )
 
 
 class SourceFile(StrictModel):
@@ -72,12 +135,43 @@ class WorkspaceEntry(StrictModel):
 
 
 class WorkspaceSourceAdapter(Protocol):
+    async def admit(self, source: WorkspaceSource) -> SourceAdmissionReceipt: ...
+
     async def acquire(self, source: WorkspaceSource) -> SourceSnapshot: ...
 
 
 class InMemoryWorkspaceSourceAdapter:
     def __init__(self, snapshots: Mapping[tuple[str, str], Mapping[str, bytes]]) -> None:
         self._snapshots = snapshots
+
+    async def admit(self, source: WorkspaceSource) -> SourceAdmissionReceipt:
+        files = self._snapshots.get((source.source_id, source.revision))
+        if files is None:
+            code = (
+                "source_revision_changed"
+                if any(source_id == source.source_id for source_id, _revision in self._snapshots)
+                else "source_not_found"
+            )
+            raise WorkspaceError("Workspace source was not found.", code=code)
+        total_bytes = sum(len(content) for content in files.values())
+        if (
+            len(files) > MAX_SOURCE_FILES
+            or total_bytes > MAX_SOURCE_BYTES
+            or any(len(content) > MAX_SOURCE_FILE_BYTES for content in files.values())
+        ):
+            raise WorkspaceError(
+                "Workspace source exceeds Worker limits.",
+                code="source_limit_exceeded",
+            )
+        return source_admission_receipt(
+            source,
+            facts={
+                "adapter": "memory",
+                "file_count": len(files),
+                "total_bytes": total_bytes,
+                "limit_policy": "trusted-16m-v1",
+            },
+        )
 
     async def acquire(self, source: WorkspaceSource) -> SourceSnapshot:
         files = self._snapshots.get((source.source_id, source.revision))
@@ -128,6 +222,25 @@ class WorkspaceBroker:
     def slot_ids(self) -> tuple[str, ...]:
         return tuple(self._slot_roots)
 
+    async def admit(self, source: WorkspaceSource) -> SourceAdmissionReceipt:
+        adapter = self._adapters.get(source.kind)
+        if adapter is None:
+            raise WorkspaceSourceUnavailableError("not_registered")
+        try:
+            admit = getattr(adapter, "admit", None)
+            if not callable(admit):
+                raise WorkspaceSourceUnavailableError("not_registered")
+            receipt = await admit(source)
+        except WorkspaceSourceUnavailableError:
+            raise
+        except Exception as exc:
+            raise WorkspaceSourceUnavailableError(
+                self._safe_admission_reason(getattr(exc, "code", None))
+            ) from exc
+        if receipt.source != source:
+            raise WorkspaceSourceUnavailableError("revision_changed")
+        return receipt
+
     async def prepare(
         self, source: WorkspaceSource, *, slot_id: str | None = None
     ) -> WorkspaceRecord:
@@ -138,6 +251,28 @@ class WorkspaceBroker:
         if snapshot.source != source:
             raise WorkspaceError("Workspace source binding changed.", code="source_changed")
         return self._materialize(source, snapshot.files, slot_id=slot_id)
+
+    @staticmethod
+    def _safe_admission_reason(code: object) -> str:
+        normalized = str(code or "").lower()
+        if "limit" in normalized or "too_large" in normalized:
+            return "limit_exceeded"
+        if any(
+            marker in normalized
+            for marker in ("unsafe", "symlink", "reparse", "hardlink", "config")
+        ):
+            return "unsafe"
+        if any(
+            marker in normalized
+            for marker in ("revision", "changed", "mismatch", "head_not_current")
+        ):
+            return "revision_changed"
+        if any(
+            marker in normalized
+            for marker in ("not_found", "not_registered", "unknown_project")
+        ):
+            return "not_registered"
+        return "temporarily_unavailable"
 
     def fork(
         self,

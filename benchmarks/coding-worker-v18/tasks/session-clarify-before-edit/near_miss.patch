@@ -1,0 +1,11 @@
+diff --git a/invoice_math/rounding.py b/invoice_math/rounding.py
+--- a/invoice_math/rounding.py
++++ b/invoice_math/rounding.py
+@@ -1,5 +1,4 @@
+-from decimal import Decimal, ROUND_HALF_EVEN
+-
++from decimal import Decimal, ROUND_HALF_UP
+ def round_money(value: Decimal) -> Decimal:
+-    return value.quantize(Decimal('0.01'), rounding=ROUND_HALF_EVEN)
++    return value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+ 

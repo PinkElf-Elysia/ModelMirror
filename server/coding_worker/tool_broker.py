@@ -142,6 +142,7 @@ class ToolBroker:
             [str, str, str], Awaitable[SubtaskRecord]
         ]
         | None = None,
+        harness_faults_enabled: bool = False,
     ) -> None:
         if not 1024 <= max_output_bytes <= 16 * 1024 * 1024:
             raise ValueError("tool output limit is invalid")
@@ -159,6 +160,105 @@ class ToolBroker:
         self.subtask_handler = subtask_handler
         self.subtask_merge_handler = subtask_merge_handler
         self.changesets = ChangesetEngine(workspace_broker)
+        self._harness_faults_enabled = harness_faults_enabled
+        self._harness_faults: set[tuple[str, str, str, str]] = set()
+
+    @staticmethod
+    def operation_side_effecting(
+        tool_name: str, request: Mapping[str, Any]
+    ) -> bool:
+        arguments = request.get("arguments")
+        if tool_name == "run_shell":
+            return (
+                isinstance(arguments, Mapping)
+                and arguments.get("mode") == ShellMode.MUTATE.value
+            )
+        return tool_name in {
+            "write_file",
+            "delete_file",
+            "apply_changeset",
+            "start_service",
+            "service_input",
+            "stop_service",
+            "install_dependencies",
+            "create_subtask",
+            "merge_subtask",
+        }
+
+    def arm_harness_fault(self, task_id: str, component: str, point: str) -> None:
+        if not self._harness_faults_enabled:
+            raise ToolBrokerError(
+                "Harness fault injection is disabled.", code="harness_fault_disabled"
+            )
+        if component != "executor" or point != "after_side_effect_before_receipt":
+            raise ToolBrokerError(
+                "Harness fault injection is invalid.", code="harness_fault_invalid"
+            )
+        task = self.store.get_task(task_id)
+        approvals = tuple(
+            approval
+            for approval in self.store.list_approvals(task_id)
+            if approval.status is ApprovalStatus.PENDING
+        )
+        if task.state is not TaskState.WAITING_APPROVAL or len(approvals) != 1:
+            raise ToolBrokerError(
+                "Harness fault requires one exact pending operation.",
+                code="harness_fault_conflict",
+            )
+        operation = self.store.get_operation(approvals[0].operation_id)
+        arguments = operation.request.get("arguments", {})
+        if (
+            operation.task_id != task_id
+            or operation.state is not OperationState.PREPARED
+            or operation.tool_name != "run_shell"
+            or not isinstance(arguments, Mapping)
+            or arguments.get("mode") != ShellMode.MUTATE.value
+        ):
+            raise ToolBrokerError(
+                "Harness fault requires one exact pending mutate shell operation.",
+                code="harness_fault_conflict",
+            )
+        if not callable(getattr(self.executor, "close_task", None)):
+            raise ToolBrokerError(
+                "Harness executor reset is unavailable.",
+                code="harness_fault_unavailable",
+            )
+        key = (task_id, operation.operation_id, component, point)
+        if key in self._harness_faults:
+            raise ToolBrokerError(
+                "Harness fault is already armed.", code="harness_fault_conflict"
+            )
+        self._harness_faults.add(key)
+
+    async def _consume_harness_fault(
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        operation_id: str,
+        tool_name: str,
+    ) -> None:
+        key = (
+            task_id,
+            operation_id,
+            "executor",
+            "after_side_effect_before_receipt",
+        )
+        if tool_name != "run_shell" or key not in self._harness_faults:
+            return
+        self._harness_faults.remove(key)
+        close_task = getattr(self.executor, "close_task", None)
+        try:
+            await close_task(task_id, workspace_id)
+        except Exception as exc:
+            raise ToolBrokerError(
+                "Harness executor result must be reconciled.",
+                code="operation_result_unknown",
+            ) from exc
+        raise ToolBrokerError(
+            "Harness executor result must be reconciled.",
+            code="operation_result_unknown",
+        )
 
     async def execute(
         self,
@@ -310,6 +410,12 @@ class ToolBroker:
                 tool_name,
                 request["arguments"],
                 network_lease=network_lease,
+            )
+            await self._consume_harness_fault(
+                task_id=task_id,
+                workspace_id=task.workspace_id,
+                operation_id=operation_id,
+                tool_name=tool_name,
             )
             try:
                 completed = self.store.transition_operation(

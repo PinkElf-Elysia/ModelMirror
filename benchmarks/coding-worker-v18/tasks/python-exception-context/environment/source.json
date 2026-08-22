@@ -1,0 +1,20 @@
+{
+  "task_id": "python-exception-context",
+  "source_id": "v18-python-exception-context",
+  "revision": "6b94d25b3c788b2814d0e667440538662ecde22614c1d04ed0081e4ba2c4fd70",
+  "instruction_sha256": "0092ca5a3ee551652f7f0d338d368678f810265e42b881deb0dad29551869b34",
+  "scenario_sha256": null,
+  "acceptance_sha256": "db829fa747b0e9cb75ad330a10ff401966a6b82889140e025fee72dcc408dce3",
+  "acceptance": {
+    "contract_id": "v18-python-exception-context",
+    "required_checks": [
+      {
+        "check_id": "v18-python-exception-context-visible",
+        "label": "v18-python-exception-context-visible",
+        "kind": "command",
+        "required": true
+      }
+    ],
+    "required_artifacts": []
+  }
+}

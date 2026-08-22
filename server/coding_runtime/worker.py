@@ -485,7 +485,7 @@ class WorkspaceSource:
             "name": self.name,
             "kind": self.kind.value,
             "branch": self.branch,
-            "head": self.head[:12] if self.head else None,
+            "head": self.head,
         }
 
 

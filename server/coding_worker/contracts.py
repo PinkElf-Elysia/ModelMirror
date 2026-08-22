@@ -1238,6 +1238,8 @@ class WorkerTaskExport(StrictModel):
     turn_history: WorkerTurnHistory
     evidence: tuple[WorkerEvidence, ...]
     artifact_index: tuple[dict[str, Any], ...]
+    operation_index: tuple[dict[str, Any], ...] = ()
+    subtask_index: tuple[dict[str, Any], ...] = ()
     workspace_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     workspace_diff_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     workspace_diff_base64: str = Field(max_length=3 * 1024 * 1024)

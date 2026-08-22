@@ -805,3 +805,22 @@ V17 公共事件新增 `turn_started`、`turn_parking`、`turn_parked`、`turn_r
 Turn Transaction 每个任务最多一个未完成 turn。审批、输入、子任务、压缩或未知结果出现时，Tool Broker 原子创建对应对象并关闭本轮新 operation 接收；后续同批工具调用只得到稳定 `turn_parked` 控制结果。用户只能在 checkpoint 已持久化后的 `parked` 状态结算；任务随后重新排队，从原 checkpoint 和 tree 恢复。acceptance testing 前不得存在运行、待批准或未知 operation。
 
 Parity v2 的公开 fixture、目标和可见检查可进入 runner；隐藏检查正文只能由 checker 的只读密封 bundle 读取。Native OpenCode runner 与 Worker runner 都使用全新 Workspace/session，并把终态 tree 导出为 Artifact；checker 在无网络环境复核 digest 和绑定后执行隐藏检查。Claude 只参与六项真实交互兼容门禁，不进入 OpenCode 成功率差值。
+
+## V18 Source Admission 与 Harbor Worker Agent
+
+`POST /api/coding-worker/v1/tasks` 对新任务增加持久化前的来源准入。精确幂等重试先返回已有任务；全新请求才验证 builtin、manifest 或 host snapshot 的 opaque source ID 与 revision。失败统一返回 409：
+
+```json
+{
+  "detail": {
+    "code": "workspace_source_unavailable",
+    "reason": "revision_changed"
+  }
+}
+```
+
+`reason` 仅允许 `not_registered`、`revision_changed`、`temporarily_unavailable`、`unsafe`、`limit_exceeded`。响应不含路径、Helper 身份、catalog 内容或物理来源。Manifest 准入只做 Project Source `check`；host 准入只比 Helper catalog exact HEAD，快照仍在调度 acquire 后按既有安全链取得。
+
+外置 `ModelMirrorWorkerAgent` 只使用正式 API 创建/驱动任务，按 scenario 结算精确审批、问题、steering、暂停、恢复和故障注入，并导出绑定 tree hash 的 Workspace Artifact。故障注入只在 Harness profile 内以独立 Bearer 绑定当前唯一待批准的 mutate shell operation；副作用后的 Executor task binding reset 必须留下 unknown operation，并按原 ID reconcile 一次。ATIF 只含公开消息、工具摘要、operation、turn、approval、question、subtask 与 Evidence；不含隐藏思维链、供应商帧、端口、物理路径或凭据。它是 Harbor 评测适配器，不是产品 Provider。
+
+原生 OpenCode 对照继承 Harbor 固定安装生命周期，但不再使用不可控的阻塞式 CLI `run`。评测专用 `NativeOpenCodeHarnessAgent` 启动随机认证、仅回环的 OpenCode 1.18.9 Session Server；默认拒绝工作区外读取、Web、task、Skill/MCP、LSP 与未冻结 Bash，仅问题夹具开放 question。LSP 在原生侧失败关闭，是因为固定 1.18.9 的语言服务器进程继承 Server 环境且可能加载仓库插件；Worker 现有隔离 LSP 不受影响，该限制随完整原生工具配置进入 route binding。Server 的认证与模型 route 环境只保留在 root 进程和 root-only 私有目录；全部冻结 Shell 经平台固定 wrapper 使用 `env -i` 最小环境、uid/gid 65534 与独立 HOME 执行，任务代码不能读取控制目录。question、steering、显式 compaction、故障注入和原 operation reconcile 必须同时在脱敏 Session 事件、控制动作、公开消息哈希和 ATIF 中闭合。restart 场景还要求该监督 wrapper 在唯一冻结命令成功后留下结果标记并阻塞回执，控制器终止完整 OpenCode 进程组后，以同一 call ID、intent hash 和 result hash 对账；重复命令仍按第二个副作用 operation 拒绝。缺少 `native_ledger` 或任一绑定的成功结果无效。该实现仍须经过授权的真实 Session 小规模验证，不能仅凭单元测试解除校准审慎门禁。

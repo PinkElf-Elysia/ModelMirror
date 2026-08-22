@@ -121,6 +121,7 @@ class CodingWorkerService:
             for route_id, tokens in self._route_context_tokens.items()
         ):
             raise ValueError("provider route context configuration is invalid")
+
         self._active: dict[str, asyncio.Task[None]] = {}
         self._task_slots: dict[str, str] = {}
         self._sessions: dict[str, ProviderSession] = {}
@@ -131,6 +132,19 @@ class CodingWorkerService:
         self._route_capabilities: dict[str, ProviderCapabilityObservation] = {}
         self._started = False
         self._closing = False
+
+    def arm_harness_fault(self, task_id: str, component: str, point: str) -> None:
+        if self.tool_broker is None:
+            raise WorkerConflictError(
+                "Harness fault injection is unavailable.",
+                code="harness_fault_unavailable",
+            )
+        try:
+            self.tool_broker.arm_harness_fault(task_id, component, point)
+        except ToolBrokerError as exc:
+            raise WorkerConflictError(
+                "Harness fault injection was rejected.", code=exc.code
+            ) from exc
 
     @property
     def active_task_ids(self) -> frozenset[str]:
@@ -230,6 +244,10 @@ class CodingWorkerService:
         self._started = False
 
     async def create_task(self, origin: Origin, request: TaskCreateRequest) -> TaskRecord:
+        spec = TaskSpec(**request.model_dump(), origin=origin)
+        existing = self._idempotent_task(origin, request.client_task_id, spec)
+        if existing is not None:
+            return existing
         if self._route_slots is not None and request.model_route not in self._route_slots:
             raise WorkerConflictError(
                 "Model route is unavailable.", code="model_route_unavailable"
@@ -247,36 +265,62 @@ class CodingWorkerService:
                     "Acceptance check is not registered.",
                     code="worker_acceptance_not_registered",
                 )
-        await self.start()
-        spec = TaskSpec(**request.model_dump(), origin=origin)
-        observation = await self.provider_capability_observation(
-            request.model_route, force=True
-        )
-        runtime_protocol = self._runtime_protocol()
-        if runtime_protocol is RuntimeProtocol.V17 and not self._v17_route_ready(
-            observation.capabilities
-        ):
-            raise WorkerConflictError(
-                "Model route does not support the V17 interaction contract.",
-                code="v17_route_unavailable",
+        try:
+            source_admission = await self.workspace_broker.admit(
+                request.workspace_source
             )
-        task = self.store.create_task(
-            spec,
-            runtime_protocol=runtime_protocol,
-            capability_binding_sha256=observation.binding_sha256,
-            capability_snapshot={
-                "available": observation.capabilities is not None,
-                "capabilities": (
-                    observation.capabilities.model_dump(mode="json")
-                    if observation.capabilities is not None
-                    else None
-                ),
-            },
-            capability_observed_at=observation.observed_at,
-            capability_expires_at=observation.expires_at,
-        )
+            await self.start()
+            observation = await self.provider_capability_observation(
+                request.model_route, force=True
+            )
+            runtime_protocol = self._runtime_protocol()
+            if runtime_protocol is RuntimeProtocol.V17 and not self._v17_route_ready(
+                observation.capabilities
+            ):
+                raise WorkerConflictError(
+                    "Model route does not support the V17 interaction contract.",
+                    code="v17_route_unavailable",
+                )
+            task = self.store.create_task(
+                spec,
+                source_admission=source_admission,
+                runtime_protocol=runtime_protocol,
+                capability_binding_sha256=observation.binding_sha256,
+                capability_snapshot={
+                    "available": observation.capabilities is not None,
+                    "capabilities": (
+                        observation.capabilities.model_dump(mode="json")
+                        if observation.capabilities is not None
+                        else None
+                    ),
+                },
+                capability_observed_at=observation.observed_at,
+                capability_expires_at=observation.expires_at,
+            )
+        except Exception:
+            # A concurrent creator may have durably committed the same intent
+            # while this request was checking a now-offline source or route.
+            existing = self._idempotent_task(
+                origin, request.client_task_id, spec
+            )
+            if existing is not None:
+                return existing
+            raise
         self._wake.set()
         return task
+
+    def _idempotent_task(
+        self, origin: Origin, client_task_id: str, spec: TaskSpec
+    ) -> TaskRecord | None:
+        existing = self.store.find_task_by_idempotency(origin, client_task_id)
+        if existing is None:
+            return None
+        if existing.spec != spec:
+            raise WorkerConflictError(
+                "The idempotency key is already bound to another task.",
+                code="task_intent_conflict",
+            )
+        return existing
 
     @staticmethod
     def _v17_route_ready(capabilities: ProviderCapabilities | None) -> bool:
@@ -1021,6 +1065,34 @@ class CodingWorkerService:
                 )
             ),
             artifact_index=artifacts,
+            operation_index=tuple(
+                {
+                    "operation_id": item.operation_id,
+                    "tool_name": item.tool_name,
+                    "intent_sha256": item.intent_sha256,
+                    "state": item.state.value,
+                    "side_effecting": ToolBroker.operation_side_effecting(
+                        item.tool_name, item.request
+                    ),
+                    "turn_id": item.turn_id,
+                    "created_at": item.created_at,
+                    "updated_at": item.updated_at,
+                }
+                for item in self.store.list_operations(task_id)
+            ),
+            subtask_index=tuple(
+                {
+                    "child_task_id": item.child_task_id,
+                    "client_subtask_id": item.client_subtask_id,
+                    "kind": item.kind.value,
+                    "merge_state": item.merge_state.value,
+                    "result_tree_hash": item.result_tree_hash,
+                    "merge_operation_id": item.merge_operation_id,
+                    "created_at": item.created_at,
+                    "updated_at": item.updated_at,
+                }
+                for item in self.store.list_subtasks(task_id)
+            ),
             workspace_tree_hash=self.workspace_broker.current_tree_hash(
                 task.workspace_id
             ),
@@ -1351,6 +1423,15 @@ class CodingWorkerService:
         session: ProviderSession | None = None
         try:
             task = self.store.get_task(task_id)
+            admission_required, admission = self.store.source_admission(task_id)
+            if admission_required and (
+                admission is None
+                or admission.source != task.spec.workspace_source
+            ):
+                raise WorkspaceError(
+                    "Workspace source admission is unavailable.",
+                    code="source_admission_unavailable",
+                )
             workspace = (
                 self.workspace_broker.get(task.workspace_id)
                 if task.workspace_id is not None
@@ -2358,12 +2439,44 @@ class CodingWorkerService:
             for approval in self.store.list_approvals(task_id)
             if approval.operation_id in operations
         ]
-        if len(approvals) != 1:
+        pending = [
+            approval
+            for approval in approvals
+            if approval.status is ApprovalStatus.PENDING
+        ]
+        active = [
+            approval
+            for approval in approvals
+            if operations[approval.operation_id].state
+            in {OperationState.PREPARED, OperationState.RUNNING, OperationState.UNKNOWN}
+            and approval.status is not ApprovalStatus.PENDING
+        ]
+        if pending or len(active) > 1 or (not active and not approvals):
             raise ToolBrokerError(
                 "Approval does not bind one exact operation.",
                 code="approval_operation_conflict",
             )
-        approval = approvals[0]
+        if active:
+            approval = active[0]
+        else:
+            decided = [
+                approval
+                for approval in approvals
+                if approval.status is not ApprovalStatus.PENDING
+            ]
+            if not decided:
+                raise ToolBrokerError(
+                    "Approval does not bind one exact operation.",
+                    code="approval_operation_conflict",
+                )
+            approval = max(
+                decided,
+                key=lambda item: (
+                    item.decided_at if item.decided_at is not None else item.created_at,
+                    item.created_at,
+                    item.approval_id,
+                ),
+            )
         operation = operations[approval.operation_id]
         if approval.status in {
             ApprovalStatus.REJECTED,
@@ -2387,7 +2500,7 @@ class CodingWorkerService:
                 "Do not execute it again."
             )
         if (
-            operation.state is not OperationState.PREPARED
+            operation.state not in {OperationState.PREPARED, OperationState.UNKNOWN}
             or approval.status is not ApprovalStatus.APPROVED
             or approval.lease is None
         ):

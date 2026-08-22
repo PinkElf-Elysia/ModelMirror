@@ -1,0 +1,15 @@
+{
+  "baseline": {
+    "assets/canary.bin": "cfa80b53289d153f6ece7b8569c06cfbfd9625991d4e5b3e7abfd8c0b4ca030d",
+    "package-lock.json": "f526f0a3d6ef9d0936355711455754abbde3051c3fff0d50928c8db5d942f963",
+    "package.json": "18031a05d7961c27b67315c5a386beb6a4a7af98187578b69efeadf1ecce2af9",
+    "src/TodoList.tsx": "53a25d0f175c80ce0aae0f08bb793e4ddbfa1c99c724aa1cbf007a4ee4692bc0",
+    "src/index.ts": "23a0b7f2cfeee407c74cac9b8c698ff97b5bd063b10ec105b78aefc15da57cd1",
+    "src/types.ts": "8c06560b7757a4dda841113f8a4980b6a5f936d769a479dde35efc6d51956de5",
+    "src/useOptimisticTodos.ts": "59434238a61934f27a12335d5816be79782db2ad47e522f49ab5836c46012c29",
+    "tsconfig.json": "9a3e7f1042d389ee8a27d3e513821da10d38642664c4f0ae12cc4075155d57a7",
+    "visible_tests/todos.test.tsx": "3c5f0a00a22f97dacd151fcacc5632122deccef9f833225d629214d689b1bc70"
+  },
+  "binary_canary": "assets/canary.bin",
+  "required_modified_files": 2
+}

@@ -208,6 +208,7 @@ class OpenCodeProvider(CodingAgentProvider):
         route = self._require_route(request.model_route)
         provider_prompt = provider_message_with_repository_instructions(request, text)
         event_response: httpx.Response | None = None
+        last_usage: dict[str, Any] | None = None
         try:
             event_request = handle.client.build_request(
                 "GET", self._url("/event", handle.workspace)
@@ -236,6 +237,21 @@ class OpenCodeProvider(CodingAgentProvider):
                 mapped = self._map_event(payload, session.session_id)
                 if mapped is None:
                     continue
+                if mapped.kind is ProviderEventKind.USAGE:
+                    usage = mapped.data.get("usage")
+                    if not isinstance(usage, dict) or not any(
+                        isinstance(value, int)
+                        and not isinstance(value, bool)
+                        and value > 0
+                        for value in usage.values()
+                    ):
+                        last_usage = None
+                        continue
+                    if usage == last_usage:
+                        continue
+                    last_usage = dict(usage)
+                else:
+                    last_usage = None
                 if mapped.kind is ProviderEventKind.MESSAGE:
                     text_part = mapped.data.get("text")
                     if isinstance(text_part, str) and text_part:

@@ -1,0 +1,40 @@
+schema_version = "1.4"
+artifacts = ["/workspace"]
+
+[task]
+name = "modelmirror-coding-v18/typescript-optimistic-rollback"
+version = "1.0.0"
+
+[metadata.modelmirror]
+category = "typescript"
+binary_canary = "assets/canary.bin"
+required_modified_files = 2
+long_context = false
+sealed_checker_file = "hidden.test.tsx"
+sealed_checker_sha256 = "d8e51e360afcd0de4a0646bd89411061b48ca6835b48c39cb52df51619dcbeb2"
+
+[[metadata.modelmirror.visible_checks]]
+check_id = "v18-typescript-optimistic-rollback-visible"
+argv = ["npm", "test", "--", "--run", "visible_tests"]
+timeout_seconds = 180
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+network_mode = "no-network"
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 3072
+storage_mb = 4096
+
+[verifier]
+timeout_sec = 240.0
+environment_mode = "separate"
+
+[verifier.environment]
+network_mode = "no-network"
+build_timeout_sec = 600.0
+cpus = 1
+memory_mb = 2048
+storage_mb = 2048

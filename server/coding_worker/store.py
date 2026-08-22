@@ -55,6 +55,7 @@ from .contracts import (
     require_transition,
 )
 from .crypto import WorkerCryptoError, WorkerEncryptedCodec
+from .workspace import SourceAdmissionReceipt, source_admission_receipt
 
 
 DEFAULT_RETENTION_SECONDS = 7 * 24 * 60 * 60
@@ -145,12 +146,23 @@ class CodingWorkerStore:
         self,
         spec: TaskSpec,
         *,
+        source_admission: SourceAdmissionReceipt | None = None,
         capability_binding_sha256: str | None = None,
         capability_snapshot: dict[str, Any] | None = None,
         capability_observed_at: float | None = None,
         capability_expires_at: float | None = None,
         runtime_protocol: RuntimeProtocol = RuntimeProtocol.V16,
     ) -> TaskRecord:
+        if source_admission is not None and source_admission.source != spec.workspace_source:
+            raise ValueError("source admission is not bound to the task source")
+        if source_admission is not None and source_admission.binding_sha256 != (
+            source_admission_receipt(
+                source_admission.source,
+                facts=source_admission.facts,
+                observed_at=source_admission.observed_at,
+            ).binding_sha256
+        ):
+            raise ValueError("source admission binding is invalid")
         capability_values = (
             capability_binding_sha256,
             capability_snapshot,
@@ -197,8 +209,8 @@ class CodingWorkerStore:
                 INSERT INTO worker_tasks (
                     task_id, origin_module, origin_object_id, client_task_id,
                     state, spec_ciphertext, created_at, updated_at, expires_at, pinned,
-                    runtime_protocol
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+                    runtime_protocol, source_admission_required
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
                 """,
                 (
                     task_id,
@@ -211,8 +223,24 @@ class CodingWorkerStore:
                     now,
                     expires_at,
                     runtime_protocol.value,
+                    1 if source_admission is not None else 0,
                 ),
             )
+            if source_admission is not None:
+                connection.execute(
+                    """
+                    INSERT INTO worker_source_admissions (
+                        task_id, binding_ciphertext, receipt_ciphertext,
+                        observed_ciphertext
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        task_id,
+                        self._codec.encrypt(source_admission.binding_sha256),
+                        self._codec.encrypt(source_admission.model_dump(mode="json")),
+                        self._codec.encrypt(source_admission.observed_at),
+                    ),
+                )
             if capability_snapshot is not None:
                 connection.execute(
                     """
@@ -236,7 +264,69 @@ class CodingWorkerStore:
                 payload={"state": TaskState.QUEUED.value},
                 created_at=now,
             )
+            if source_admission is not None:
+                self._append_event_locked(
+                    connection,
+                    task_id=task_id,
+                    event_type="source_admitted",
+                    payload={
+                        "binding_sha256": source_admission.binding_sha256,
+                        "observed_at": source_admission.observed_at,
+                    },
+                    created_at=now,
+                )
         return self.get_task(task_id)
+
+    def find_task_by_idempotency(
+        self, origin: Origin, client_task_id: str
+    ) -> TaskRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM worker_tasks
+                WHERE origin_module = ? AND origin_object_id = ? AND client_task_id = ?
+                """,
+                (origin.module, origin.object_id, client_task_id),
+            ).fetchone()
+            return self._task(row, connection) if row is not None else None
+
+    def source_admission(
+        self, task_id: str
+    ) -> tuple[bool, SourceAdmissionReceipt | None]:
+        with self._connect() as connection:
+            task = self._require_task_row(connection, task_id)
+            row = connection.execute(
+                "SELECT * FROM worker_source_admissions WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                return bool(task["source_admission_required"]), None
+            try:
+                binding_sha256 = self._codec.decrypt(str(row["binding_ciphertext"]))
+                observed_at = self._codec.decrypt(str(row["observed_ciphertext"]))
+                receipt = SourceAdmissionReceipt.model_validate(
+                    self._codec.decrypt(str(row["receipt_ciphertext"]))
+                )
+            except (WorkerCryptoError, ValueError, TypeError) as exc:
+                raise WorkerStoreError(
+                    "Worker source admission is unavailable.",
+                    code="source_admission_unavailable",
+                ) from exc
+            if (
+                receipt.binding_sha256 != binding_sha256
+                or receipt.observed_at != observed_at
+                or receipt.binding_sha256
+                != source_admission_receipt(
+                    receipt.source,
+                    facts=receipt.facts,
+                    observed_at=receipt.observed_at,
+                ).binding_sha256
+            ):
+                raise WorkerStoreError(
+                    "Worker source admission is inconsistent.",
+                    code="source_admission_unavailable",
+                )
+            return bool(task["source_admission_required"]), receipt
 
     def get_task_capability_snapshot(
         self, task_id: str
@@ -700,7 +790,10 @@ class CodingWorkerStore:
         encrypted_spec = self._codec.encrypt(spec.model_dump(mode="json"))
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            self._require_task_row(connection, parent_task_id)
+            parent_row = self._require_task_row(connection, parent_task_id)
+            parent_runtime_protocol = RuntimeProtocol(
+                str(parent_row["runtime_protocol"])
+            )
             existing = connection.execute(
                 """
                 SELECT child.* FROM worker_task_forks AS fork
@@ -722,8 +815,8 @@ class CodingWorkerStore:
                 INSERT INTO worker_tasks (
                     task_id, origin_module, origin_object_id, client_task_id,
                     state, spec_ciphertext, workspace_id, created_at,
-                    updated_at, expires_at, pinned
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    updated_at, expires_at, pinned, runtime_protocol
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
                 """,
                 (
                     task_id,
@@ -736,6 +829,7 @@ class CodingWorkerStore:
                     now,
                     now,
                     expires_at,
+                    parent_runtime_protocol.value,
                 ),
             )
             connection.execute(
@@ -3369,6 +3463,8 @@ class CodingWorkerStore:
                     expires_at REAL NOT NULL,
                     pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
                     runtime_protocol TEXT NOT NULL DEFAULT 'v16',
+                    source_admission_required INTEGER NOT NULL DEFAULT 0
+                        CHECK (source_admission_required IN (0, 1)),
                     UNIQUE(origin_module, origin_object_id, client_task_id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_worker_tasks_state
@@ -3379,6 +3475,13 @@ class CodingWorkerStore:
                     snapshot_ciphertext TEXT NOT NULL,
                     observed_at REAL NOT NULL,
                     expires_at REAL NOT NULL,
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS worker_source_admissions (
+                    task_id TEXT PRIMARY KEY,
+                    binding_ciphertext TEXT NOT NULL,
+                    receipt_ciphertext TEXT NOT NULL,
+                    observed_ciphertext TEXT NOT NULL,
                     FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
                 );
                 CREATE TABLE IF NOT EXISTS worker_events (
@@ -3619,6 +3722,11 @@ class CodingWorkerStore:
             if "runtime_protocol" not in task_columns:
                 connection.execute(
                     "ALTER TABLE worker_tasks ADD COLUMN runtime_protocol TEXT NOT NULL DEFAULT 'v16'"
+                )
+            if "source_admission_required" not in task_columns:
+                connection.execute(
+                    "ALTER TABLE worker_tasks ADD COLUMN source_admission_required "
+                    "INTEGER NOT NULL DEFAULT 0 CHECK (source_admission_required IN (0, 1))"
                 )
             operation_columns = {
                 str(row["name"])
