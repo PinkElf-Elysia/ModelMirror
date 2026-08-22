@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import ast
 import inspect
+import json
 import subprocess
 import sys
+from importlib.util import resolve_name
 from pathlib import Path
 
 from server.coding_worker.ports import (
@@ -19,16 +21,48 @@ from server.coding_worker.ports import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _imports(relative_path: str) -> set[str]:
-    tree = ast.parse((ROOT / relative_path).read_text(encoding="utf-8"))
+def _imports_from_source(source: str, relative_path: str) -> set[str]:
+    tree = ast.parse(source)
+    module = Path(relative_path).with_suffix("").as_posix().replace("/", ".")
+    package = module.rsplit(".", 1)[0]
     result: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             result.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            prefix = "." * node.level
-            result.add(prefix + node.module)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                reference = "." * node.level + (node.module or "")
+                imported = resolve_name(reference, package)
+            else:
+                imported = node.module or ""
+            if imported:
+                result.add(imported)
+                result.update(f"{imported}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.Call) and node.args:
+            name = node.func.id if isinstance(node.func, ast.Name) else None
+            if isinstance(node.func, ast.Attribute) and isinstance(
+                node.func.value, ast.Name
+            ):
+                name = f"{node.func.value.id}.{node.func.attr}"
+            if name in {"__import__", "importlib.import_module"}:
+                target = node.args[0]
+                if isinstance(target, ast.Constant) and isinstance(target.value, str):
+                    result.add(target.value)
     return result
+
+
+def _imports(relative_path: str) -> set[str]:
+    return _imports_from_source(
+        (ROOT / relative_path).read_text(encoding="utf-8"), relative_path
+    )
+
+
+def _matches_forbidden(imported: set[str], forbidden: set[str]) -> list[str]:
+    return sorted(
+        name
+        for name in imported
+        if any(name == item or name.startswith(item + ".") for item in forbidden)
+    )
 
 
 def test_v19_ports_cover_control_harness_execution_projection_and_evaluation() -> None:
@@ -48,47 +82,54 @@ def test_v19_ports_cover_control_harness_execution_projection_and_evaluation() -
 
 def test_reference_lifecycles_fit_the_neutral_harness_driver() -> None:
     methods = set(HarnessDriver.__dict__)
-    reference_mapping = {
-        "acp-v2": {
-            "initialize": "capabilities",
-            "session/new": "open",
-            "session/load": "restore",
-            "session/prompt": "message",
-            "session/cancel": "interrupt_turn",
-        },
-        "codex-app-server": {
-            "initialize": "capabilities",
-            "thread/start": "open",
-            "thread/resume": "restore",
-            "turn/start": "message",
-            "turn/steer": "message",
-            "turn/interrupt": "interrupt_turn",
-        },
-    }
-    for mapping in reference_mapping.values():
-        assert set(mapping.values()).issubset(methods)
-    assert {"checkpoint", "close", "cancel"}.issubset(methods)
+    fixture = json.loads(
+        (ROOT / "server/tests/fixtures/coding_worker_v19_harness_lifecycles.json")
+        .read_text(encoding="utf-8")
+    )
+    assert fixture["protocol"] == "modelmirror-harness-lifecycle-traces/v1"
+    for trace in fixture["traces"]:
+        steps = trace["steps"]
+        assert [step["sequence"] for step in steps] == list(
+            range(1, len(steps) + 1)
+        )
+        assert len({step["correlation_id"] for step in steps}) == len(steps)
+        for step in steps:
+            assert step["session_id"]
+            assert step["neutral"] == "event" or step["neutral"] in methods
+    assert {"message", "steer", "interrupt_turn", "checkpoint", "close"}.issubset(
+        methods
+    )
 
 
 def test_pr_a_freezes_existing_boundary_debt_without_allowing_expansion() -> None:
     """PR B/C must shrink these exact exceptions to an empty set."""
 
     forbidden = {
-        ".service",
-        ".store",
-        ".workspace",
-        ".evidence",
-        ".provider",
-        ".executor",
-        ".provider_rpc",
-        ".opencode_provider",
-        ".claude_provider",
-        ".harness_v3",
+        "server.coding_worker.service",
+        "server.coding_worker.store",
+        "server.coding_worker.workspace",
+        "server.coding_worker.evidence",
+        "server.coding_worker.provider",
+        "server.coding_worker.executor",
+        "server.coding_worker.provider_rpc",
+        "server.coding_worker.opencode_provider",
+        "server.coding_worker.claude_provider",
+        "server.coding_worker.harness_v3",
+        "coding_worker.service",
+        "coding_worker.store",
+        "coding_worker.workspace",
+        "coding_worker.evidence",
+        "coding_worker.provider",
+        "coding_worker.executor",
+        "coding_worker.provider_rpc",
+        "coding_worker.opencode_provider",
+        "coding_worker.claude_provider",
+        "coding_worker.harness_v3",
         "server.coding_worker.api",
         "coding_worker.api",
     }
     actual = {
-        path: sorted(_imports(path) & forbidden)
+        path: _matches_forbidden(_imports(path), forbidden)
         for path in (
             "server/coding_worker/api.py",
             "server/coding_worker/sdk.py",
@@ -100,6 +141,20 @@ def test_pr_a_freezes_existing_boundary_debt_without_allowing_expansion() -> Non
         "server/coding_worker/sdk.py": [],
         "server/coding_runtime/api.py": [],
     }
+
+
+def test_dependency_gate_detects_absolute_relative_and_dynamic_bypasses() -> None:
+    forbidden = {"server.coding_worker.store"}
+    sources = (
+        "from server.coding_worker.store import CodingWorkerStore\n",
+        "from . import store\n",
+        "import importlib\nimportlib.import_module('server.coding_worker.store')\n",
+        "__import__('server.coding_worker.store')\n",
+    )
+
+    for source in sources:
+        imported = _imports_from_source(source, "server/coding_worker/api.py")
+        assert _matches_forbidden(imported, forbidden)
 
 
 def test_production_api_imports_when_evaluation_modules_are_unavailable() -> None:
@@ -133,9 +188,9 @@ import server.coding_worker.api
 def test_scheduler_has_no_concrete_supplier_or_sidecar_imports() -> None:
     imports = _imports("server/coding_worker/service.py")
     forbidden = {
-        ".opencode_provider",
-        ".claude_provider",
-        ".provider_rpc",
-        ".executor",
+        "server.coding_worker.opencode_provider",
+        "server.coding_worker.claude_provider",
+        "server.coding_worker.provider_rpc",
+        "server.coding_worker.executor",
     }
-    assert imports.isdisjoint(forbidden)
+    assert _matches_forbidden(imports, forbidden) == []
