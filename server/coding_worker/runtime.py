@@ -183,9 +183,9 @@ class CodingWorkerRuntime:
         self.network_enabled = network_enabled
         self._started = False
 
-    async def start(self) -> CodingWorkerService:
+    async def start(self) -> CodingSubstrateHandle:
         if self._started:
-            return self.service
+            return self.substrate
         if self.broker_socket_path is None:
             await self.broker_rpc.start_tcp_for_tests()
         else:
@@ -194,7 +194,7 @@ class CodingWorkerRuntime:
             )
         await self.service.start()
         self._started = True
-        return self.service
+        return self.substrate
 
     async def close(self) -> None:
         if not self._started:

@@ -35,6 +35,18 @@ from .provider import (
 )
 
 
+HarnessCapabilities = ProviderCapabilities
+
+
+class CodingSubstrateError(RuntimeError):
+    """Provider-neutral boundary error with a stable HTTP category."""
+
+    def __init__(self, message: str, *, code: str, status: int) -> None:
+        super().__init__(message)
+        self.code = code
+        self.status = status
+
+
 class WritebackCandidate(StrictModel):
     """Immutable internal handoff from the Worker to the v13 writeback plane."""
 

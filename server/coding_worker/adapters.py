@@ -42,7 +42,7 @@ from .provider import (
     ProviderSession,
 )
 from .service import CodingWorkerService
-from .store import WorkerConflictError
+from .store import WorkerConflictError, WorkerNotFoundError
 
 
 class LegacyHarnessDriver:
@@ -333,7 +333,7 @@ class LegacyTaskControlPlane:
     ) -> WorkerApproval:
         approval = self._service.store.get_approval(approval_id)
         if approval.task_id != task_id:
-            raise WorkerConflictError(
+            raise WorkerNotFoundError(
                 "Approval was not found.", code="approval_not_found"
             )
         if approval.capability == "shell" and task_scope:
