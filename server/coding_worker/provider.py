@@ -407,6 +407,16 @@ class FakeCodingAgentProvider:
         self._closed: set[str] = set()
         self._requests: dict[str, ProviderOpenRequest] = {}
 
+    @property
+    def controller_generation(self) -> int:
+        return 0
+
+    async def capabilities_for_slots(
+        self, slot_ids: Sequence[str]
+    ) -> dict[str, ProviderCapabilities]:
+        capabilities = await self.capabilities()
+        return {slot_id: capabilities for slot_id in slot_ids}
+
     async def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             supports_streaming=True,
