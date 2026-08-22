@@ -10,6 +10,7 @@ from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
     Origin,
+    RuntimeProtocol,
     SessionLedgerKind,
     TaskSpec,
     TaskState,
@@ -201,7 +202,7 @@ def test_service_undo_redo_restores_exact_turn_tree(tmp_path: Path) -> None:
             provider=provider,
             tool_broker=tool_broker,
         )
-        task = store.create_task(_spec())
+        task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
         workspace = await broker.prepare(task.spec.workspace_source)
         store.transition(
             task.task_id, TaskState.PREPARING, expected_state=TaskState.QUEUED
@@ -283,6 +284,7 @@ def test_service_undo_redo_restores_exact_turn_tree(tmp_path: Path) -> None:
 
         child = await service.fork_task(task.task_id, "fork-one")
         assert child.state is TaskState.PAUSED
+        assert child.runtime_protocol is RuntimeProtocol.V17
         assert child.workspace_id != task.workspace_id
         assert child.spec.acceptance == task.spec.acceptance
         assert child.provider_session_id is None
