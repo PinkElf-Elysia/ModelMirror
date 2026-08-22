@@ -5350,13 +5350,31 @@ async def create_coding_session(
 async def handoff_coding_worker_task(task_id: str) -> dict[str, Any]:
     try:
         try:
-            from server.coding_worker.runtime import get_coding_substrate_handle
+            from server.coding_worker.runtime import (
+                get_coding_substrate_unavailability_reason,
+                get_coding_substrate_handle,
+                is_coding_substrate_enabled,
+            )
         except ModuleNotFoundError:
-            from coding_worker.runtime import get_coding_substrate_handle
+            from coding_worker.runtime import (
+                get_coding_substrate_unavailability_reason,
+                get_coding_substrate_handle,
+                is_coding_substrate_enabled,
+            )
+
+        if not is_coding_substrate_enabled():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Coding Worker V14 is disabled",
+            )
 
         candidate = await get_coding_substrate_handle().control_plane.prepare_writeback_candidate(
             task_id
         )
+        if candidate.task_id != task_id:
+            raise _http_error(
+                status.HTTP_409_CONFLICT, "worker_writeback_candidate_invalid"
+            )
         if hashlib.sha256(candidate.patch).hexdigest() != candidate.patch_sha256:
             raise _http_error(
                 status.HTTP_409_CONFLICT, "worker_writeback_patch_invalid"
@@ -5390,11 +5408,20 @@ async def handoff_coding_worker_task(task_id: str) -> dict[str, Any]:
         raise
     except Exception as exc:
         code = getattr(exc, "code", "worker_handoff_failed")
-        http_status = (
-            status.HTTP_404_NOT_FOUND
-            if code in {"task_not_found", "workspace_not_found"}
-            else status.HTTP_409_CONFLICT
-        )
+        if code in {"task_not_found", "workspace_not_found"}:
+            http_status = status.HTTP_404_NOT_FOUND
+        elif code == "coding_worker_provider_unavailable":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "coding_worker_provider_unavailable",
+                    "message": "The V14 Worker provider is unavailable.",
+                    "reason": get_coding_substrate_unavailability_reason(),
+                },
+                headers={"Cache-Control": "no-store"},
+            ) from exc
+        else:
+            http_status = status.HTTP_409_CONFLICT
         raise _http_error(http_status, _safe_code(code)) from exc
 
 

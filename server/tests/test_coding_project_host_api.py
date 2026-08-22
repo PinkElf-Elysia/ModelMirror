@@ -612,8 +612,9 @@ async def test_worker_handoff_rejects_binary_patch_before_host_snapshot(
 
 @pytest.mark.asyncio
 async def test_completed_worker_task_handoff_route_uses_v13_recovery(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("CODING_WORKER_V14_ENABLED", "true")
     store = CodingRecoveryStore(tmp_path / "worker-route-recovery")
     service, worker, _source, _host = _service(
         store,
@@ -663,6 +664,39 @@ async def test_completed_worker_task_handoff_route_uses_v13_recovery(
     recovery = store.load()
     assert recovery is not None
     assert recovery.payload.patch == worker._diff_content()
+
+
+@pytest.mark.asyncio
+async def test_worker_handoff_preserves_disabled_and_unavailable_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, _worker, _source, _host = _service(
+        CodingRecoveryStore(tmp_path / "worker-unavailable-recovery")
+    )
+    configure_coding_substrate_for_tests(None)
+    try:
+        monkeypatch.setenv("CODING_WORKER_V14_ENABLED", "false")
+        async with _client(service) as client:
+            disabled = await client.post(
+                "/api/coding/worker-tasks/task_" + "a" * 32 + "/handoff"
+            )
+        assert disabled.status_code == 404
+        assert disabled.json()["detail"] == "Coding Worker V14 is disabled"
+
+        monkeypatch.setenv("CODING_WORKER_V14_ENABLED", "true")
+        async with _client(service) as client:
+            unavailable = await client.post(
+                "/api/coding/worker-tasks/task_" + "a" * 32 + "/handoff"
+            )
+        assert unavailable.status_code == 503
+        assert unavailable.json()["detail"] == {
+            "code": "coding_worker_provider_unavailable",
+            "message": "The V14 Worker provider is unavailable.",
+            "reason": None,
+        }
+    finally:
+        configure_coding_substrate_for_tests(None)
+        configure_coding_service(None)
 
 
 def test_worker_handoff_restores_added_empty_file_without_git_object_ids(

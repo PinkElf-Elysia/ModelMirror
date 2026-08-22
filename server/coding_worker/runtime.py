@@ -40,6 +40,18 @@ class CodingWorkerRuntimeError(RuntimeError):
 
 
 _ACTIVE_SUBSTRATE: CodingSubstrateHandle | None = None
+_SUBSTRATE_UNAVAILABLE_REASON: str | None = None
+
+
+def is_coding_substrate_enabled() -> bool:
+    """Return the production feature gate without importing the HTTP adapter."""
+
+    return os.getenv("CODING_WORKER_V14_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def get_coding_substrate_handle() -> CodingSubstrateHandle:
@@ -51,11 +63,21 @@ def get_coding_substrate_handle() -> CodingSubstrateHandle:
     return _ACTIVE_SUBSTRATE
 
 
+def get_coding_substrate_unavailability_reason() -> str | None:
+    return _SUBSTRATE_UNAVAILABLE_REASON
+
+
+def record_coding_substrate_unavailability(reason: str | None) -> None:
+    global _SUBSTRATE_UNAVAILABLE_REASON
+    _SUBSTRATE_UNAVAILABLE_REASON = reason
+
+
 def configure_coding_substrate_for_tests(
     substrate: CodingSubstrateHandle | None,
 ) -> None:
-    global _ACTIVE_SUBSTRATE
+    global _ACTIVE_SUBSTRATE, _SUBSTRATE_UNAVAILABLE_REASON
     _ACTIVE_SUBSTRATE = substrate
+    _SUBSTRATE_UNAVAILABLE_REASON = None
 
 
 class CodingWorkerRuntime:
