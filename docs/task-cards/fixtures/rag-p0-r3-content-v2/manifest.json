@@ -1,0 +1,45 @@
+{
+  "schema_version": "rag-corpus-fixture-v1",
+  "fixture_id": "rag-p0-r3-content-v2",
+  "parent_fixture": "rag-p0-r2-preview",
+  "purpose": "Provide enough non-heading source blocks for rag-gold-v2 without weakening the two-use cap.",
+  "qualification": {
+    "document_count": 4,
+    "content_source_block_count": 18,
+    "content_source_block_distribution": [5, 4, 4, 5],
+    "required_positive_reference_count": 35,
+    "maximum_reference_capacity": 36,
+    "required_unique_negative_contexts": 12,
+    "evidence_policy_version": "content-source-block-v1"
+  },
+  "changes": [
+    {
+      "file": "orion-release-policy.md",
+      "added_section": "Change freeze closeout",
+      "added_content_source_blocks": 1
+    },
+    {
+      "file": "lighthouse-support-operations.md",
+      "added_section": "Evidence retention",
+      "added_content_source_blocks": 1
+    }
+  ],
+  "files": [
+    {
+      "file": "lighthouse-support-operations.md",
+      "sha256": "ec6f22c68c0fee670790646a8e6e11f65988ee58daddddcc0bf10991b3127050"
+    },
+    {
+      "file": "meridian-retention-standard.md",
+      "sha256": "3de88b7819b404e3672ea42d3fc73d5369a8f9e9c7645e4906eedd82ed278e9e"
+    },
+    {
+      "file": "nimbus-vendor-handbook.md",
+      "sha256": "c4a7509dd848b3524ea35aa2d294896477f6717f9ed40334d28fa6c7ee48c660"
+    },
+    {
+      "file": "orion-release-policy.md",
+      "sha256": "818e32b26412a44dc42dece57c3f206ed12e73e600c5be36dd74e17353f8f0c9"
+    }
+  ]
+}

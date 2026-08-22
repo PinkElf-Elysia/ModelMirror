@@ -2,7 +2,7 @@
   "schema_version": "modelmirror-rag-p0-round3-implementation-v1",
   "status": "formal_evaluation_completed_gate_failed",
   "created_at": "2026-08-20T17:35:18.2764123Z",
-  "updated_at": "2026-08-21T05:32:36.5019707Z",
+  "updated_at": "2026-08-22T07:41:34.6391488Z",
   "base": {
     "branch": "origin/main",
     "commit": "0e0202b313b2378d13d899cf53166665baac6bee",
@@ -225,6 +225,595 @@
         "do not lower thresholds, retry the real evaluation, activate the candidate, or start follow-up repair without a new scoped decision"
       ]
     }
+  },
+  "latest_authorized_sequence": {
+    "status": "formal_completed_gate_failed_no_retry",
+    "knowledge_base_id": "kb_ea8c4a4acc6c4e84aeaabc696eedbcb3",
+    "preview_url": "http://127.0.0.1:15127/rag/kb_ea8c4a4acc6c4e84aeaabc696eedbcb3/evaluation",
+    "bounded_evidence_probes": {
+      "call_count": 2,
+      "positive": {
+        "evidence_verdict": "answerable",
+        "source_count": 1,
+        "external_call_count": 1,
+        "embedding_external_call_count": 0,
+        "rerank_external_call_count": 1,
+        "answer_external_call_count": 0
+      },
+      "hard_negative": {
+        "evidence_verdict": "abstain",
+        "source_count": 0,
+        "external_call_count": 1,
+        "embedding_external_call_count": 0,
+        "rerank_external_call_count": 1,
+        "answer_external_call_count": 0
+      }
+    },
+    "published_gold": {
+      "eval_set_id": "evalset_596fabb4aaba4881b3f017f20bc2c0c0",
+      "version_id": "evalsetver_1e7e2448f0da4cde99dcd2f7437d0ea4",
+      "version": 1,
+      "source_revision": 44,
+      "benchmark_contract_version": "rag-gold-v2",
+      "case_count": 42,
+      "positive_count": 30,
+      "hard_negative_count": 12,
+      "reviewed_count": 42,
+      "qualified": true,
+      "checksum": "87f5fde9e7cbc8faec267661afa47e3e6315834ce7a22bb6b429ec32a3e3191a",
+      "corpus_snapshot_hash": "d3099652c7de1a99f229753b4657c39720ce23c083f2c1b90f80d405c45cd983"
+    },
+    "real_embedding_candidate": {
+      "job_id": "kpjob_6e3588cd4ed44f788ef660b4a5ced215",
+      "job_attempt": 1,
+      "job_status": "succeeded",
+      "candidate_version_id": "kpv_6bf15ec566534c00bccf5b262c3afdaa",
+      "candidate_version": 2,
+      "provider": "openai_compatible",
+      "model": "openai/text-embedding-3-small",
+      "dimension": 384,
+      "document_count": 4,
+      "chunk_count": 40,
+      "vector_index_ready": true,
+      "lexical_index_ready": true,
+      "warning_count": 0,
+      "active": false,
+      "promotion_required": true,
+      "automatic_retry": false
+    },
+    "formal_evaluation": {
+      "run_id": "evalrun_bfce2f7154394f3581a923b12605b4bd",
+      "status": "succeeded",
+      "run_mode": "formal",
+      "metric_contract_version": "rag-eval-v2",
+      "execution_seed": 42,
+      "schedule_count": 84,
+      "comparable": true,
+      "retry_policy": "none",
+      "warmup_policy": "none",
+      "evidence_usage_status": "consumed",
+      "positive_quality_denominator": 30,
+      "no_result_quality_denominator": 12,
+      "candidate_external_call_receipt": {
+        "case_count": 42,
+        "embedding_external_call_count": 42,
+        "rerank_external_call_count": 42,
+        "answer_external_call_count": 0,
+        "total_external_call_count": 84
+      },
+      "baseline": {
+        "version_id": "kpv_2d98a89f160a4084b5df4e7b8c99bae9",
+        "recall_at_5": 0.533333,
+        "mrr_at_10": 0.511045,
+        "citation_precision_at_5": 0.106667,
+        "no_result_accuracy": 0.0,
+        "p95_latency_ms": 310.903,
+        "execution_error_count": 0
+      },
+      "candidate": {
+        "version_id": "kpv_6bf15ec566534c00bccf5b262c3afdaa",
+        "recall_at_5": 0.983333,
+        "mrr_at_10": 1.0,
+        "citation_precision_at_5": 0.226667,
+        "no_result_accuracy": 0.916667,
+        "paired_primary_point_estimate": 0.583333,
+        "paired_primary_ci_lower": 0.488095,
+        "paired_primary_ci_upper": 0.666667,
+        "p95_latency_ms": 6206.491,
+        "completed_case_count": 41,
+        "failed_case_count": 1,
+        "execution_error_count": 1,
+        "promotion_gate_passed": false,
+        "blocking_checks": [
+          "zero_errors",
+          "max_p95_latency_ratio"
+        ],
+        "active": false,
+        "promotion_required": true
+      },
+      "root_cause_evidence": {
+        "failed_case_id": "evalcase_de0bd0c188704e48863badafbbcc84e7",
+        "failed_case_reason": "Evidence verifier exhausted its fixed 5000 ms total timeout budget; the fail-closed unavailable verdict correctly failed the Formal manifest and zero-error gate.",
+        "maximum_observed_embedding_elapsed_ms": 10264.305,
+        "maximum_successful_verifier_elapsed_ms": 3446.123,
+        "timeout_verifier_elapsed_ms": 5002.384,
+        "classification": "external embedding and verifier latency variance, not a retrieval-weight or score-threshold defect",
+        "post_failure_action": "No retry, no threshold reduction, no candidate activation, and no additional provider call."
+      }
+    },
+    "local_validation": {
+      "dimension_contract_tdd": {
+        "red": "outgoing OpenAI-compatible embedding request omitted dimensions",
+        "green": "58 affected embedding, pipeline, and retrieval tests passed"
+      },
+      "pipeline_only_preflight_tdd": {
+        "red": "first pipeline_only build returned ready=false despite a processable Artifact",
+        "green": "3 narrow preflight and dimension tests passed"
+      },
+      "backend_targeted": "159 passed, 4 warnings",
+      "frontend_full": "85 files passed, 414 tests passed",
+      "frontend_build": "passed with the existing large-chunk warning",
+      "backend_full": {
+        "result": "3500 passed, 29 skipped, 20 failed, 6 warnings",
+        "classification": "unrelated baseline or validation-image failures",
+        "failure_clusters": [
+          "17 Agency worker tests could not find worker build output",
+          "3 Skill parity tests could not execute the container Node TypeScript subprocess",
+          "no RAG, Knowledge, or Benchmark failure"
+        ]
+      }
+    }
+  },
+  "latency_optimization_batch": {
+    "batch": "3D-2A",
+    "status": "real_probe_passed_formal_not_run",
+    "scope": "external connection reuse and evidence-verifier request-envelope reduction only",
+    "root_cause_basis": {
+      "formal_run_id": "evalrun_bfce2f7154394f3581a923b12605b4bd",
+      "observed_candidate_p95_latency_ms": 6206.491,
+      "observed_max_embedding_elapsed_ms": 10264.305,
+      "observed_verifier_timeout_ms": 5002.384,
+      "implementation_findings": [
+        "EmbeddingClient created and closed a new httpx client for every provider request.",
+        "RerankService created and closed a new httpx client for every API or LLM request.",
+        "Evidence Verifier inherited the generic 20-candidate, 24000-character, 1200-output-token request envelope.",
+        "A query profile with the same model but a different pinned dimension reused the default embedder incorrectly."
+      ]
+    },
+    "tdd_red": [
+      "two embedding requests created two HTTP clients instead of one reusable pool",
+      "two rerank requests created two HTTP clients instead of one reusable pool",
+      "evidence verification sent 20 candidates instead of the dedicated maximum of 10",
+      "a same-model query with a different pinned dimension reused the dimension-mismatched default embedder"
+    ],
+    "implemented_contract": {
+      "connection_pooling": "Embedding and Rerank/Verifier reuse bounded httpx connection pools for the RAG service lifetime and close them after background executors stop.",
+      "result_cache_added": false,
+      "hidden_warmup_added": false,
+      "automatic_retry_added": false,
+      "evidence_verifier_max_candidates": 10,
+      "evidence_verifier_max_input_chars": 12000,
+      "evidence_verifier_max_output_tokens": 300,
+      "evidence_verifier_output_scaling": "Top-5 uses 300 tokens; larger Top-N scales deterministically with a 1200-token ceiling.",
+      "existing_total_timeout_budget_changed": false,
+      "receipt_field_added": "rerank_max_output_tokens",
+      "dimension_reuse_guard": "default embedder is reused only when both model and pinned dimension match"
+    },
+    "validation": {
+      "red_test_result": "3 connection/request-envelope tests and 1 dimension-contract test failed before their respective fixes",
+      "narrow_green": "51 focused embedding and retrieval tests passed after the final bounded Top-N output guard",
+      "affected_green": "193 passed, 4 warnings after the final bounded Top-N output guard",
+      "rag_knowledge_benchmark_regression": "363 passed, 3189 deselected, 6 warnings before the final dimension-contract guard; the affected 192-test suite was rerun after that guard",
+      "backend_full": {
+        "result": "3504 passed, 29 skipped, 20 failed, 6 warnings before the final pure output-budget scaling guard; the 193-test affected suite was rerun after that guard",
+        "classification": "same unrelated validation-image baseline clusters; no RAG, Knowledge, Benchmark, connection-lifecycle, or shutdown-order failure",
+        "failure_clusters": [
+          "17 Agency worker tests could not find worker build output",
+          "3 Skill parity tests could not execute the container Node TypeScript subprocess"
+        ]
+      },
+      "real_external_call_count": 2,
+      "post_restart_bounded_evidence_probes": {
+        "preview_backend_container": "modelmirror-rag-r3-preview-server-v3",
+        "frontend_url": "http://127.0.0.1:15127/rag/kb_ea8c4a4acc6c4e84aeaabc696eedbcb3/pipeline",
+        "backend_health_http_status": 200,
+        "candidate_version_id": "kpv_6bf15ec566534c00bccf5b262c3afdaa",
+        "candidate_active_before_and_after": false,
+        "probe_mode": "bounded_evidence",
+        "provider_model": "openai/gpt-4.1-mini",
+        "provider_external_call_count": 2,
+        "embedding_external_call_count": 0,
+        "rerank_external_call_count": 2,
+        "answer_external_call_count": 0,
+        "automatic_retry": false,
+        "positive": {
+          "attempt_count": 1,
+          "evidence_verdict": "answerable",
+          "evidence_reason_code": "supported",
+          "evidence_support_score": 0.9,
+          "external_call_count": 1,
+          "external_call_limit": 1,
+          "browser_wall_ms": 2269
+        },
+        "hard_negative": {
+          "attempt_count": 1,
+          "evidence_verdict": "abstain",
+          "evidence_reason_code": "requested_fact_absent",
+          "evidence_support_score": 0,
+          "external_call_count": 1,
+          "external_call_limit": 1,
+          "browser_wall_ms": 1658
+        },
+        "result": "passed diagnostic probe contract; no answer generation, activation, formal run, or retry"
+      },
+      "formal_run_count": 0
+    },
+    "remaining_gate": {
+      "promotion_gate_status": "not_retested_and_not_passed",
+      "old_gold_usage_status": "consumed_and_not_reusable",
+      "required_next_evidence": "a newly authorized immutable Gold and exactly one new Formal; these bounded probes are diagnostic evidence only and do not satisfy the promotion gate"
+    }
+  },
+  "formal_credibility_closure_batch": {
+    "batch": "3D-2B",
+    "status": "offline_validated_no_real_calls",
+    "scope": "sealed Gold checksum replay lock, immutable RAG runtime identity, and sanitized probe timing receipts",
+    "tdd_red": [
+      "an identical sealed rag-gold-v2 checksum could be republished under a new version and obtain a second Formal usage slot",
+      "a Formal execution manifest without a runtime identity was accepted",
+      "pipeline version evidence did not identify the RAG source and non-secret execution settings that produced the result",
+      "the pipeline UI had no safe timing/envelope summary helper and therefore could not prove that sensitive probe fields were excluded",
+      "the first runtime-identity implementation incorrectly included target-specific rerank_top_n/evidence-mode inputs and rejected a legitimate baseline/candidate strategy comparison"
+    ],
+    "implemented_contract": {
+      "gold_usage_identity": "checksum:<sha256>; duplicate publication and legacy-version replay are rejected by sealed checksum",
+      "runtime_identity_version": "rag-runtime-v1",
+      "runtime_identity_inputs": "sorted SHA-256 hashes of production server/rag Python sources plus sanitized embedding, rerank, verifier, timeout, and pool settings",
+      "formal_queue_guard": "manifest, target fingerprint, and persisted pipeline evidence runtime identities must match before reservation",
+      "formal_execution_guard": "queued identity must match the live process before the first case or Provider call",
+      "promotion_guard": "the completed Formal identity must match the current live pipeline runtime",
+      "legacy_compatibility": "historical runs and version-keyed usage receipts remain readable but missing runtime evidence cannot authorize a new activation",
+      "ui_probe_receipt": "shows only rounded total retrieval, embedding, verifier timings and bounded verifier counts/characters/output tokens/timeout",
+      "secret_or_content_fields_added": false
+    },
+    "validation": {
+      "red_test_result": "3 initial backend contract failures, 1 frontend sanitizer-contract failure, and 1 adversarial target-strategy/runtime-scope failure reproduced before their fixes",
+      "focused_green": "49 RAG evaluation tests passed before the adversarial runtime-scope check; the new scope regression and two adjacent runtime/API checks then passed 3/3; the pipeline probe sanitizer test passed",
+      "affected_green": "367 RAG, Knowledge, and Benchmark tests passed after the final runtime-scope fix; the complete frontend suite passed 415/415 and the production build succeeded",
+      "backend_full": {
+        "result": "3506 passed, 29 skipped, 21 failed, 6 warnings",
+        "classification": "20 known validation-image baseline failures plus one transient PDF worker timeout; no RAG, Knowledge, or Benchmark failure",
+        "failure_clusters": [
+          "17 Agency worker tests could not find worker build output",
+          "3 Skill parity tests could not execute the container Node TypeScript subprocess",
+          "1 PDF safety-worker timeout passed immediately when rerun in isolation"
+        ]
+      },
+      "real_external_call_count": 0,
+      "formal_run_count": 0,
+      "candidate_activation_count": 0
+    },
+    "remaining_gate": {
+      "promotion_gate_status": "not_retested_and_not_passed",
+      "required_next_evidence": "restart onto the sealed runtime, run a separately authorized full-chain diagnostic, then create a fresh approved immutable Gold and run exactly one separately authorized Formal; 3D-2B offline evidence alone does not satisfy the promotion gate"
+    }
+  },
+  "full_chain_diagnostic_batch": {
+    "batch": "3D-2C",
+    "status": "real_operational_diagnostic_passed_input_integrity_unqualified",
+    "scope": "restart onto the sealed runtime and add one immutable two-call full-chain diagnostic path before any new Gold or Formal",
+    "preview_readiness": {
+      "backend_container": "modelmirror-rag-r3-preview-server-v3",
+      "backend_http_status_after_restart": 200,
+      "frontend_http_status": 200,
+      "knowledge_base_id": "kb_ea8c4a4acc6c4e84aeaabc696eedbcb3",
+      "baseline_version_id": "kpv_2d98a89f160a4084b5df4e7b8c99bae9",
+      "candidate_version_id": "kpv_6bf15ec566534c00bccf5b262c3afdaa",
+      "candidate_status": "ready_inactive_promotion_required",
+      "old_formal_and_gold_reusable": false
+    },
+    "tdd_red": [
+      "the API schema rejected a full-chain diagnostic mode before enforcing any budget",
+      "the service accepted only a one-call probe and could not budget one embedding plus one verifier",
+      "the UI had no immutable full-chain request constructor",
+      "an active version was not rejected as a diagnostic candidate before verifier validation"
+    ],
+    "implemented_contract": {
+      "probe_contract_version": "rag-full-chain-diagnostic-v1",
+      "candidate_contract": "ready, inactive, external embedding, immutable Vector/Hybrid Top-1..5, pinned LLM evidence verifier",
+      "client_retrieval_override_allowed": false,
+      "embedding_external_call_limit": 1,
+      "verifier_external_call_limit": 1,
+      "provider_attempts_per_stage": 1,
+      "vector_fallback_enabled": false,
+      "answer_generation_enabled": false,
+      "automatic_retry_enabled": false,
+      "success_receipt": "exactly 2 total calls: 1 embedding, 1 verifier, 0 answer",
+      "promotion_evidence": false
+    },
+    "validation": {
+      "red_test_result": "3 backend full-chain contract failures, 1 frontend request-contract failure, and 1 active-version guard failure reproduced before their fixes",
+      "focused_green": "4 backend full-chain tests and 2 pipeline-page receipt/request tests passed",
+      "affected_green": "114 pipeline execution, retrieval, and evaluation tests passed; final RAG, Knowledge, and Benchmark regression passed 371 tests; complete frontend suite passed 416/416; production build succeeded",
+      "post_restart_no_call_preflight": "backend health 200; a full-chain request with answer generation enabled returned HTTP 400 before version lookup or any Provider call",
+      "real_external_call_count": 2,
+      "real_full_chain_diagnostic": {
+        "operation_count": 1,
+        "probe_contract_version": "rag-full-chain-diagnostic-v1",
+        "embedding_model": "openai/text-embedding-3-small",
+        "verifier_model": "openai/gpt-4.1-mini",
+        "external_call_limit": 2,
+        "external_call_count": 2,
+        "embedding_external_call_count": 1,
+        "rerank_external_call_count": 1,
+        "answer_external_call_count": 0,
+        "automatic_retry": false,
+        "vector_fallback_enabled": false,
+        "evidence_verdict": "answerable",
+        "evidence_reason_code": "supported",
+        "evidence_support_score": 0.9,
+        "retrieval_elapsed_ms": 2342.39,
+        "embedding_elapsed_ms": 743.405,
+        "verifier_elapsed_ms": 1437.347,
+        "verifier_input_count": 10,
+        "verifier_input_chars": 3041,
+        "verifier_max_output_tokens": 300,
+        "verifier_timeout_budget_ms": 5000,
+        "candidate_active_before_and_after": false,
+        "input_integrity": {
+          "status": "unqualified_for_semantic_quality",
+          "intended_character_count": 99,
+          "visible_post_run_character_count": 113,
+          "intended_prefix_preserved": true,
+          "unexpected_trailing_character_count": 14,
+          "classification": "the operational budget and provider path are proven, but the browser-driven sample cannot be used as clean semantic-quality evidence"
+        }
+      },
+      "formal_run_count": 0,
+      "candidate_activation_count": 0
+    },
+    "remaining_gate": {
+      "diagnostic_status": "operational_contract_passed_semantic_sample_not_qualified",
+      "required_next_evidence": "do not rerun this diagnostic; use the server-sealed reviewed cases rather than browser-entered text for the next fresh immutable Gold and exactly one separately authorized Formal"
+    }
+  },
+  "fresh_gold_refresh_batch": {
+    "batch": "3D-2D",
+    "status": "formal_completed_gate_failed_no_retry",
+    "scope": "close checksum-mutation and stale-leakage-receipt loopholes, then rewrite all 42 server-sealed cases without a Provider call",
+    "tdd_red": [
+      "after a same-corpus Gold was consumed, changing only one of 42 queries produced a new checksum and could be published",
+      "editing a rag-gold-v2 query cleared review state but retained the previous query's leakage receipt"
+    ],
+    "implemented_contract": {
+      "consumed_gold_freshness": "a new same-corpus publication requires every query to remain below Token Jaccard 0.8 against every consumed Gold query",
+      "freshness_receipt": "records prior consumed checksums, fresh/stale counts, pair count, and threshold without query text",
+      "leakage_receipt_binding": "positive-case leakage receipts are bound to the normalized query hash and server-resolved fixed source-block text",
+      "stale_edit_behavior": "a store-level query edit without a matching receipt becomes stale and blocks manual-review admission",
+      "api_edit_behavior": "the API re-resolves fixed evidence, recomputes leakage from full server text, and then clears the prior review",
+      "query_revision_provenance": "42 server-case-update-v1 receipts record old/new query hashes, server time, case ID, and dataset revision without user identity or query text",
+      "historical_compatibility": "published versions without bound leakage receipts remain readable and retain their original qualification-manifest shape"
+    },
+    "draft": {
+      "knowledge_base_id": "kb_ea8c4a4acc6c4e84aeaabc696eedbcb3",
+      "evaluation_set_id": "evalset_596fabb4aaba4881b3f017f20bc2c0c0",
+      "source_published_version": 1,
+      "draft_revision": 128,
+      "positive_count": 30,
+      "hard_negative_count": 12,
+      "pending_review_count": 0,
+      "approved_count": 42,
+      "query_revision_receipt_count": 42,
+      "fresh_leakage_receipt_count": 42,
+      "failed_qualification_checks": [],
+      "published_new_version": true
+    },
+    "adversarial_validation": {
+      "consumed_gold_max_token_jaccard": 0.411765,
+      "consumed_gold_near_duplicate_pair_count": 0,
+      "draft_internal_max_token_jaccard": 0.25,
+      "draft_internal_near_duplicate_pair_count": 0,
+      "max_normalized_source_copy": 14,
+      "leakage_warning_count": 0,
+      "blocking_leakage_count": 0,
+      "backend_targeted": "78 evaluation and benchmark-generator tests passed with 4 existing FastAPI deprecation warnings",
+      "browser_review_preflight": "revision 86, Gold review 0/42, 42 pending, publication blocked; first positive displays the new query, the fixed ORION-417 Emergency exception source block, and approve/reject controls"
+    },
+    "external_effects": {
+      "generation_calls": 0,
+      "embedding_calls": 42,
+      "rerank_or_verifier_calls": 42,
+      "answer_calls": 0,
+      "new_formal_runs": 1,
+      "candidate_activations": 0,
+      "gold_publications": 1
+    },
+    "published_gold": {
+      "version": 2,
+      "version_id": "evalsetver_97636b30454c40b5bf1b47bf256a7aa3",
+      "checksum": "a2c18916923bb7212d0934b864bc35fdb47f06008bf720a9de9117f9dda8e86c",
+      "corpus_snapshot_hash": "d3099652c7de1a99f229753b4657c39720ce23c083f2c1b90f80d405c45cd983",
+      "qualified": true,
+      "freshness_qualified": true,
+      "approved_count": 42,
+      "evidence_usage_status": "consumed"
+    },
+    "formal_evaluation": {
+      "run_id": "evalrun_32be370066ba4d468b6a890fbb93ae94",
+      "status": "succeeded",
+      "run_mode": "formal",
+      "metric_contract_version": "rag-eval-v2",
+      "gate_mode": "required",
+      "promotion_gate_passed": false,
+      "comparable": true,
+      "execution_seed": 42,
+      "schedule_count": 84,
+      "retry_policy": "none",
+      "warmup_policy": "none",
+      "expected_case_count_per_target": 42,
+      "completed_case_count_per_target": 42,
+      "failed_case_count_per_target": 0,
+      "positive_quality_denominator": 30,
+      "no_result_quality_denominator": 12,
+      "candidate_embedding_calls": 42,
+      "candidate_rerank_calls": 42,
+      "answer_generation_calls": 0,
+      "execution_error_count": 0,
+      "baseline": {
+        "version_id": "kpv_2d98a89f160a4084b5df4e7b8c99bae9",
+        "recall_at_5": 0.683333,
+        "mrr_at_10": 0.681746,
+        "citation_precision_at_5": 0.153333,
+        "no_result_accuracy": 0.0,
+        "positive_no_result_rate": 0.0,
+        "p95_latency_ms": 259.948
+      },
+      "candidate": {
+        "version_id": "kpv_6bf15ec566534c00bccf5b262c3afdaa",
+        "recall_at_5": 0.916667,
+        "mrr_at_10": 0.933333,
+        "citation_precision_at_5": 0.2,
+        "no_result_accuracy": 1.0,
+        "positive_no_result_rate": 0.066667,
+        "p95_latency_ms": 3424.19,
+        "paired_primary_point_estimate": 0.452381,
+        "paired_primary_ci_lower": 0.357143,
+        "paired_primary_ci_upper": 0.559524,
+        "blocking_checks": [
+          "max_no_result_increase",
+          "max_p95_latency_ratio"
+        ],
+        "status": "ready",
+        "active": false,
+        "promotion_required": true
+      }
+    },
+    "review_url": "http://127.0.0.1:15127/rag/kb_ea8c4a4acc6c4e84aeaabc696eedbcb3/evaluation",
+    "remaining_gate": "the one authorized fresh-Gold Formal is consumed and must not be retried; candidate repair must address two positive false abstentions and P95 latency before producing separately authorized fresh evidence"
+  },
+  "targeted_gate_repair_batch": {
+    "batch": "3D-2E",
+    "status": "real_targeted_diagnostic_semantic_pass_latency_unqualified",
+    "source_formal_run_id": "evalrun_32be370066ba4d468b6a890fbb93ae94",
+    "scope": "remove deterministic multi-evidence truncation and overlap independent Hybrid retrieval stages without changing Gold, metrics, thresholds, prompts, Provider identity, or promotion state",
+    "root_cause_evidence": {
+      "false_abstention_case_count": 2,
+      "false_abstention_case_ids": [
+        "evalcase_133627749cfc4121bf420217abb515b6",
+        "evalcase_114cbc3003eb4f8c95172bc4826a5e94"
+      ],
+      "query_type": "multi_evidence",
+      "expected_documents_per_case": 2,
+      "formal_requested_candidate_counts": [
+        23,
+        26
+      ],
+      "formal_verifier_input_count": 10,
+      "formal_serialized_input_chars": [
+        2027,
+        3409
+      ],
+      "verifier_input_char_budget": 12000,
+      "offline_gold_block_ranks_beyond_old_limit": [
+        12,
+        15,
+        19
+      ],
+      "latency_receipt": {
+        "candidate_p95_ms": 3424.19,
+        "embedding_p95_ms": 953.785,
+        "fulltext_p95_ms": 152.182,
+        "rerank_p95_ms": 2430.997,
+        "hybrid_execution_before_fix": "query embedding and vector search completed before local fulltext lookup started"
+      }
+    },
+    "implemented_contract": {
+      "evidence_candidate_limit": 20,
+      "evidence_input_char_limit": 12000,
+      "evidence_output_token_limit_top_5": 300,
+      "external_call_budget_changed": false,
+      "candidate_packing": "retain up to the existing global 20-candidate budget and fairly truncate text inside the unchanged serialized character limit",
+      "hybrid_overlap": "start local lexical lookup while query embedding is in flight, then await both before deterministic fusion",
+      "stage_receipts_preserved": true,
+      "threshold_or_prompt_change": false
+    },
+    "validation": {
+      "tdd_red": "2 failed: Hybrid embedding waited before lexical start; verifier retained only 10 of 20 budget-fitting candidates",
+      "tdd_green": "2 passed",
+      "retrieval_v2": "51 passed",
+      "affected_rag_regression": "169 passed with 4 existing FastAPI deprecation warnings",
+      "offline_fulltext_probe_external_calls": 0,
+      "real_provider_calls": 4
+    },
+    "real_provider_diagnostic": {
+      "authorization": "explicit authorization to send the two queries and up to 12000 characters of retrieved private corpus context per verifier request to the configured OpenAI-compatible gateway",
+      "scope": {
+        "case_count": 2,
+        "embedding_calls": 2,
+        "verifier_calls": 2,
+        "answer_generation_calls": 0,
+        "provider_fallbacks": 0,
+        "automatic_retries": 0,
+        "formal_runs_created": 0
+      },
+      "runtime_contract": {
+        "evidence_candidate_limit": 20,
+        "evidence_input_char_limit": 12000,
+        "rerank_timeout_budget_ms": 5000,
+        "external_call_limit_per_case": 2
+      },
+      "cases": [
+        {
+          "case_id": "evalcase_133627749cfc4121bf420217abb515b6",
+          "contract_ok": true,
+          "evidence_verdict": "answerable",
+          "abstained": false,
+          "expected_gold_block_count": 2,
+          "matched_gold_block_count": 2,
+          "rerank_requested_input_count": 23,
+          "rerank_input_count": 20,
+          "rerank_input_char_count": 4731,
+          "rerank_output_count": 4,
+          "embedding_elapsed_ms": 836.864,
+          "fulltext_search_elapsed_ms": 273.603,
+          "vector_search_elapsed_ms": 301.051,
+          "rerank_elapsed_ms": 1919.79,
+          "retrieval_elapsed_ms": 3132.427
+        },
+        {
+          "case_id": "evalcase_114cbc3003eb4f8c95172bc4826a5e94",
+          "contract_ok": true,
+          "evidence_verdict": "answerable",
+          "abstained": false,
+          "expected_gold_block_count": 2,
+          "matched_gold_block_count": 2,
+          "rerank_requested_input_count": 22,
+          "rerank_input_count": 20,
+          "rerank_input_char_count": 4716,
+          "rerank_output_count": 2,
+          "embedding_elapsed_ms": 643.925,
+          "fulltext_search_elapsed_ms": 176.8,
+          "vector_search_elapsed_ms": 152.805,
+          "rerank_elapsed_ms": 1272.884,
+          "retrieval_elapsed_ms": 2123.642
+        }
+      ],
+      "semantic_result": "2 of 2 formerly false-abstained positive cases became answerable and returned both expected Gold blocks",
+      "latency_result": "targeted samples remained above the 1500 ms absolute gate at 3132.427 ms and 2123.642 ms; this is diagnostic evidence only and cannot establish a 42-case P95",
+      "postconditions": {
+        "evaluation_run_count": 2,
+        "candidate_status": "ready",
+        "candidate_active": false,
+        "promotion_required": true
+      }
+    },
+    "candidate_state": {
+      "version_id": "kpv_6bf15ec566534c00bccf5b262c3afdaa",
+      "status": "ready",
+      "active": false,
+      "promotion_required": true
+    },
+    "remaining_gate": "the bounded real diagnostic closes the two known semantic false-abstentions but does not satisfy the latency gate or replace the consumed Formal receipt; further latency root-cause repair and separately authorized fresh immutable Formal evidence are required"
   },
   "isolated_preview": {
     "url": "http://127.0.0.1:15127/rag/kb_4d81724e8eb44aca9ee8c8fafc124d3a/evaluation",
@@ -451,6 +1040,239 @@
       "result": "run evalrun_bc90cff9fb0b4b648d3c6edb4365ca14 succeeded with comparable=true, 84 paired schedule items, fixed 30 positive and 12 negative denominators, 42 completed and 0 failed cases per target, 42 candidate OpenRouter embedding calls, 0 rerank calls, 0 answer-generation calls, and 0 execution errors; candidate promotion gate failed because Recall@5 was 0.783333 below 0.8 and No-result Accuracy was 0.0 below 0.8; Citation Precision@5 improved to 0.173333, paired primary 95% CI was [0.25, 0.488095], and P95 1493.03 ms passed only through the 1500 ms absolute gate; candidate remains ready and inactive"
     }
   },
+  "latency_calibration_repair": {
+    "status": "calibration_published_real_tuning_no_improvement",
+    "root_cause": "The bounded nano probe reduced verifier HTTP time but returned an incorrect abstention and still took 2488.109 ms end to end; one sequential remote embedding plus one remote verifier cannot reliably satisfy the 1500 ms absolute gate. A vector-score abstention candidate therefore requires independent target-bound calibration evidence rather than further model or prompt guessing.",
+    "rejected_probe": {
+      "calls": "1 embedding + 1 gpt-4.1-nano verifier + 0 answer generation; no retry and no Formal",
+      "result": "semantic failure: abstain/requested_fact_absent with 0/2 Gold blocks; total 2488.109 ms, embedding 1044.591 ms, verifier 1300.315 ms; candidate remained inactive"
+    },
+    "implementation": [
+      "all strategy_tuning and calibration evidence must declare the exact fixed target pipeline version",
+      "immutable rag-gold-v2 can be forked only onto a ready or active same-corpus target as rag-calibration-v1",
+      "forking creates new case IDs and clears every inherited review status and review receipt",
+      "12 corpus-near negatives require fresh manual_ui approvals and stable source-block context before publish",
+      "published calibration checksum covers target binding, source Gold lineage, corpus snapshot, cases, coverage, calibration and qualification",
+      "Strategy Tuner verifies the published calibration checksum before selection",
+      "pre-freshness immutable rag-gold-v2 remains a valid calibration source only when its exact legacy checksum shape verifies",
+      "negative review evidence resolves the stable source block inside the bound target version rather than following an active pointer or stale source chunk ID",
+      "enable_rerank=false removes Rerank and evidence-verifier settings from the complete fixed baseline snapshot and records disabled_entire_run"
+    ],
+    "validation": {
+      "red": "3 targeted tests failed before implementation: missing target-version check and missing calibration-fork store path",
+      "backend_affected": "208 passed, 4 existing FastAPI on_event deprecation warnings",
+      "frontend_targeted": "KnowledgeEvaluationPage 6 passed",
+      "frontend_build": "passed, 3121 modules transformed; existing large-chunk warning retained",
+      "python_syntax": "passed",
+      "live_blocker_red_green": "legacy Gold checksum fork, cross-version hard-negative context, and zero-rerank baseline snapshot each failed before their surgical fix and passed afterward",
+      "post_fix_tuner_and_calibration": "36 passed, 52 deselected, 4 existing FastAPI on_event deprecation warnings",
+      "post_fix_evaluation_pipeline": "82 passed, 4 existing FastAPI on_event deprecation warnings",
+      "diff_and_syntax": "git diff --check and py_compile passed"
+    },
+    "live_calibration_receipt": {
+      "source": "old immutable Gold v1 evalsetver_1e7e2448f0da4cde99dcd2f7437d0ea4 with checksum 87f5fde9e7cbc8faec267661afa47e3e6315834ce7a22bb6b429ec32a3e3191a",
+      "target": "ready inactive candidate kpv_6bf15ec566534c00bccf5b262c3afdaa on the same corpus snapshot",
+      "published": "rag-calibration-v1 evalset_90fa90d1325b4594a5566981cdb23bc2 version 1 / evalsetver_842c90d86e224416b2346f515a78fbb5, checksum 98fd9363ba161c2b7b9ed118f9ef31f9b80b165c96cc85a17823c5846331b73b",
+      "review": "12 of 12 corpus-near hard negatives were reopened against the bound v2 source blocks, approved with explicit reasons, with 0 pending and 0 rejected; selection_eligible=true"
+    },
+    "real_no_rerank_tuner_receipt": {
+      "run": "ragtune_0c148721ad8349bc9ee94ce305c844ac, one attempt, low_latency, seed 42, max_chunk_indexes=1, max_retrieval_trials=1, max_finalists=1",
+      "execution": "53.318 seconds; 28 optimization cases executed once for the candidate and once for the sanitized baseline, totaling 56 query embedding executions; 0 Rerank, 0 evidence-verifier, 0 answer-generation, 0 case errors, and no retry",
+      "result": "no_improvement at optimization_gate; Recall@5 0.925 passed, but the vector-score Pareto front offered either no-result accuracy 0.25 at Recall@5 0.925 or no-result accuracy 1.0 at Recall@5 0.65, so the simultaneous 0.8/0.8 targets were promotion_targets_unachievable",
+      "effects": "no Holdout execution, no evaluation run, no trial index, no materialized candidate, no activation; the knowledge base still has exactly the prior three inactive versions"
+    },
+    "external_effects": "Only isolated preview evaluation data and the explicitly authorized single no-rerank Strategy Tuner run changed. No shared data, activation, migration, deployment, commit, push or PR occurred.",
+    "remaining_gate": "The scalar vector-score abstention hypothesis is falsified for this retrieval profile and Gold: it cannot meet Recall@5 and No-result Accuracy at 0.8 simultaneously. Do not retry or tune from the consumed Formal evidence. A new explicitly authorized design batch must change the answerability signal or retrieval candidate family, then use independent calibration and a fresh Formal Gold before any promotion claim."
+  },
+  "optimization_evidence_efficiency_batch": {
+    "batch": "3D-3A",
+    "status": "offline_validated_no_real_calls",
+    "scope": "exact optimization-baseline execution reuse and promotion-target diagnostics only; no retrieval weights, thresholds, gates, candidate materialization, index activation, or provider configuration changed",
+    "root_cause_basis": {
+      "tuner_run_id": "ragtune_0c148721ad8349bc9ee94ce305c844ac",
+      "observed_waste": "the exact same v2 hybrid 0.7/0.3 Top-5 no-rerank profile executed all 28 optimization cases once as a candidate and again as baseline, producing 56 query embedding executions",
+      "quality_finding": "the saved scalar vector-score Pareto front could not jointly satisfy Recall@5 and No-result Accuracy at 0.8; adding an unproven score formula would be parameter guessing"
+    },
+    "tdd_red": [
+      "the project-owned no-improvement fixture executed 56 retrieval queries for 28 optimization cases because the exact base candidate was queried again as baseline",
+      "unreachable threshold calibration omitted the maximum quality attainable under each opposite promotion floor"
+    ],
+    "implemented_contract": {
+      "reuse_guard": "reuse is allowed only when version_id plus retrieval_semantic_payload checksum exactly matches the fixed baseline and safe search_metrics exist",
+      "fallback": "semantic mismatch or legacy candidate evidence without search_metrics executes a dedicated baseline query",
+      "candidate_receipt": "stores only aggregate search metrics, semantic checksum, query execution count, offline threshold replay count, and ranking fingerprint; no query text, source text, embedding, path, or key",
+      "run_receipt": "reports candidate, baseline and total retrieval query executions, baseline evidence source, exact reused candidate ID, and avoided query count",
+      "diagnostics": "reports maximum No-result Accuracy at the required Recall floor and maximum Recall at the required No-result Accuracy floor without changing selection or promotion gates"
+    },
+    "validation": {
+      "red_result": "the exact-base regression failed with query_calls=56 versus 28, and the threshold diagnostic regression failed with a missing promotion_target_diagnostics field",
+      "narrow_green": "2 focused regressions and 1 hybrid exact-reuse adversarial check passed",
+      "strategy_tuner_green": "32 passed with 4 existing FastAPI on_event deprecation warnings",
+      "affected_green": "114 Strategy Tuner, Evaluation, and Pipeline tests passed with the same 4 existing FastAPI on_event deprecation warnings after correcting one invalid fulltext-abstention test fixture",
+      "real_external_call_count": 0,
+      "formal_run_count": 0,
+      "candidate_activation_count": 0
+    },
+    "remaining_gate": "This batch removes duplicate evidence cost and makes the scalar-threshold failure explicit; it does not establish a new answerability signal or satisfy the third-round Formal promotion gate."
+  },
+  "answerability_feature_lineage_batch": {
+    "batch": "3D-3B",
+    "status": "real_calibration_manifest_collected_no_signal_selected",
+    "scope": "content-free per-case answerability feature lineage plus one explicitly authorized bounded no-rerank calibration run; no new score formula, retrieval parameter, gate, Formal, candidate materialization, index, or activation",
+    "evidence_audit": {
+      "formal_run_id": "evalrun_32be370066ba4d468b6a890fbb93ae94",
+      "formal_candidate_observation": "28 of 42 candidate case rankings were retained; all 12 no-result cases and 2 positive cases had empty final rankings after evidence verification, so the consumed Formal cannot reconstruct pre-verifier negative score features",
+      "tuner_run_id": "ragtune_0c148721ad8349bc9ee94ce305c844ac",
+      "tuner_observation": "the no-rerank run retained aggregate metrics, a ranking fingerprint, and the threshold Pareto front but not content-free per-case Top-1, Top-2, margin, or multi-domain score features",
+      "decision": "the earlier persisted evidence could not justify a new answerability formula; the authorized replacement run below collected the missing sealed calibration features"
+    },
+    "tdd_red": [
+      "the content-free feature manifest and checksum validator did not exist",
+      "candidate execution receipts did not bind the answerability feature checksum",
+      "incomplete or non-finite score evidence had no explicit fail-closed signal-design qualification"
+    ],
+    "implemented_contract": {
+      "manifest_version": "rag-answerability-features-v1",
+      "case_identity": "full SHA-256 of the case ID; original case IDs are not persisted in the manifest",
+      "features": "per-domain available count, maximum, second-highest, Top-1 margin and Top-3 mean for vector_score, fused_score and fulltext_score",
+      "outcomes": "only Recall@5, nDCG@10, No-result Accuracy and the no-result boolean",
+      "excluded": "query, preview, document and chunk identities, source refs, names, paths, text, ranking entries, embeddings, provider payloads and secrets",
+      "fail_closed": "missing or duplicate case identities, missing executions, failed cases, non-finite values, or any case without a finite vector score prevents signal-design qualification",
+      "lineage": "the candidate execution receipt stores the sealed feature-manifest checksum"
+    },
+    "validation": {
+      "red_result": "manifest import failed before implementation; receipt checksum binding failed with a missing field; incomplete/non-finite evidence failed with a missing fail-closed identity field",
+      "focused_green": "3 answerability feature lineage tests plus the fulltext missing-vector fail-closed path passed with 4 existing FastAPI on_event deprecation warnings",
+      "affected_green": "116 Strategy Tuner, Evaluation, and Pipeline tests passed with the same 4 existing warnings",
+      "real_external_call_count": 28,
+      "formal_run_count": 0,
+      "candidate_activation_count": 0
+    },
+    "live_calibration_feature_receipt": {
+      "run_id": "ragtune_f9d779201b4746e68b9965ca0f0d7c4b",
+      "request": "one attempt; low_latency; seed 42; max_chunk_indexes=1; max_retrieval_trials=1; max_finalists=1; enable_rerank=false",
+      "target": "ready inactive promotion-required kpv_6bf15ec566534c00bccf5b262c3afdaa",
+      "evidence": "published target-bound rag-calibration-v1 evalset_90fa90d1325b4594a5566981cdb23bc2 version 1 with 42 cases and unchanged checksum 98fd9363ba161c2b7b9ed118f9ef31f9b80b165c96cc85a17823c5846331b73b",
+      "result": "no_improvement at optimization_gate in 23.607 seconds; 1 candidate, 28 optimization cases, 14 untouched Holdout cases, 0 finalists, 0 evaluation runs, 0 trial indexes, and 0 materialized versions",
+      "execution": "28 hybrid retrieval query executions under the fixed one-query-one-embedding contract; exact baseline reuse added 0 baseline queries and avoided 28 duplicate queries; 6 offline threshold replays; 0 Rerank, 0 answer generation, 0 case errors, and no retry",
+      "features": "rag-answerability-features-v1 is checksum-valid, receipt-bound, eligible_for_signal_design=true, and complete for 20 positives plus 8 hard negatives; vector, fused, and fulltext score coverage are each 28/28",
+      "threshold_diagnostics": "maximum No-result Accuracy at Recall@5 >= 0.8 is 0.25; maximum Recall@5 at No-result Accuracy >= 0.8 is 0.65; the scalar maximum-vector threshold remains jointly infeasible"
+    },
+    "offline_signal_audit": {
+      "holdout_used": false,
+      "univariate_result": "none of 12 predeclared single features across maximum, second-highest, Top-1 margin, and Top-3 mean in the vector, fused, or fulltext domains reached Recall and No-result Accuracy of 0.8 together",
+      "bounded_two_feature_result": "the predeclared answerable-if vector maximum >= x AND vector margin >= y family also had no 0.8/0.8 solution; its best balanced calibration point was Recall 0.8 and No-result Accuracy 0.75",
+      "decision": "do not implement or promote a new scalar or two-threshold answerability rule from this calibration evidence"
+    },
+    "remaining_gate": "The feature collection objective passed, but every bounded signal family tested still misses the quality gate. The 14-case Holdout remains untouched. A new design batch must add a predeclared orthogonal signal or change the retrieval candidate family before any Holdout, candidate materialization, or fresh Formal is authorized."
+  },
+  "eligible_retrieval_search_space_batch": {
+    "batch": "3D-3C",
+    "status": "offline_validated_no_real_calls",
+    "scope": "threshold-tuning retrieval candidate eligibility and search-space receipts only; no Provider call, Holdout, Formula, Formal, candidate materialization, index, or activation",
+    "root_cause_basis": {
+      "code_order": "the non-degraded generator ordered the fixed base profile before two fulltext-only profiles, then vector and hybrid alternatives",
+      "budget_impact": "with max_retrieval_trials=3, the first three slots were base plus fulltext Top-5 plus fulltext Top-10 even though fulltext calibration is fail-closed as answerability_score_unavailable",
+      "live_evidence": "the authorized 3D-3B run proved that all tested scalar and vector-max-plus-margin signals on the base hybrid profile remain below the joint 0.8/0.8 target, so the next bounded evidence must compare a different eligible retrieval family rather than spend calls on known-ineligible fulltext profiles"
+    },
+    "tdd_red": [
+      "retrieval_candidates did not accept an answerability eligibility contract and returned fulltext-only profiles ahead of vector alternatives",
+      "the tuning run had no persisted receipt explaining which profiles were excluded before applying max_retrieval_trials"
+    ],
+    "implemented_contract": {
+      "base_retention": "the exact fixed base profile is always retained for baseline evidence and 3D-3A query reuse",
+      "threshold_search": "when vector answerability is required, generated fulltext-only profiles are excluded and non-degraded alternatives are ordered vector then hybrid",
+      "degraded_embedding": "the fixed base remains observable but no synthetic vector candidate is generated when Embedding is degraded",
+      "compatibility": "when threshold tuning is unavailable, the previous fulltext/vector/hybrid candidate space is unchanged",
+      "receipt_version": "rag-strategy-search-space-v1",
+      "receipt_fields": "answerability requirement, base retention, unfiltered and eligible counts, excluded fulltext count, and eligible modes only"
+    },
+    "validation": {
+      "red_result": "the new candidate eligibility test failed because require_vector_answerability did not exist",
+      "focused_green": "the pure search-space contract and hybrid end-to-end receipt tests passed",
+      "affected_green": "117 Strategy Tuner, Evaluation, and Pipeline tests passed with 4 existing FastAPI on_event deprecation warnings",
+      "real_external_call_count": 0,
+      "formal_run_count": 0,
+      "candidate_activation_count": 0
+    },
+    "remaining_gate": "Do not run a broader real search yet: an eligible optimization candidate could automatically enter repeated Holdout and materialization. The next offline batch should add an explicit optimization-only execution scope before separately authorizing a bounded multi-profile run."
+  },
+  "optimization_only_execution_scope_batch": {
+    "batch": "3D-3D",
+    "status": "real_optimization_only_validated_no_holdout",
+    "scope": "explicit Strategy Tuner execution boundary plus one authorized bounded three-profile real Embedding run; no retrieval formula, threshold, gate, Rerank, Holdout, candidate materialization, evaluation run, index activation, or shared-data change",
+    "root_cause_basis": {
+      "unsafe_transition": "after any optimization candidate passed, the coordinator unconditionally entered repeated Holdout and could continue into candidate materialization and full evaluation",
+      "visibility_gap": "the prior UI exposed objective and Rerank authorization but no explicit choice between evidence-only optimization and the full mutation-capable workflow"
+    },
+    "tdd_red": [
+      "the request contract had no run_scope and silently ignored an unknown scope",
+      "an optimization-only request with a forced eligible candidate entered repeated Holdout instead of terminating after the optimization gate",
+      "the UI had no accessible execution-scope control and could not prove the submitted boundary"
+    ],
+    "implemented_contract": {
+      "compatibility": "the API default remains full for old clients while the interactive panel defaults visibly to optimization_only",
+      "server_boundary": "optimization_only returns from search immediately after the optimization gate receipt, and execute completes without Holdout, finalists, materialization, or evaluation creation",
+      "rerank_guard": "optimization_only plus enable_rerank is rejected because that scope never evaluates finalists",
+      "lineage": "run_scope is bound into the preflight snapshot and persisted request; rag-strategy-run-scope-v1 records zero Holdout calls and the absence of materialization and evaluation creation",
+      "ui": "accessible radio choices explain both effects, Rerank is disabled in optimization-only mode, request bodies include run_scope, and completed evidence-only runs have a distinct receipt summary"
+    },
+    "validation": {
+      "red_result": "3 backend regressions failed on missing contract, missing Rerank guard, and missing stop boundary; the frontend regression failed because no run-scope radio existed",
+      "backend_green": "38 Strategy Tuner tests passed with 4 existing FastAPI on_event deprecation warnings",
+      "affected_green": "135 Strategy Tuner, Evaluation, Pipeline, and Pipeline Execute tests passed with the same 4 existing warnings",
+      "frontend_green": "RagStrategyTunerPanel plus RagPage targeted regression passed 17 tests; TypeScript typecheck passed after allowing its existing incremental cache directory write",
+      "real_external_call_count": 84,
+      "holdout_query_count": 0,
+      "formal_run_count": 0,
+      "candidate_materialization_count": 0,
+      "candidate_activation_count": 0
+    },
+    "live_validation": {
+      "run_id": "ragtune_ca5c164d3be1462baa7eda8a823ecc4f",
+      "request": "one attempt; run_scope=optimization_only; low_latency; seed 42; max_chunk_indexes=1; max_retrieval_trials=3; max_finalists=1; enable_rerank=false",
+      "duration_seconds": 56.798,
+      "execution": "28 optimization cases across 3 profiles produced 84 real openai/text-embedding-3-small query executions; exact baseline reuse added 0 queries and avoided 28 duplicates; 18 threshold variants were replayed offline; container logs independently recorded 84 Embedding HTTP 200 responses and 0 Rerank requests",
+      "profiles": [
+        "hybrid Top-5: Recall@5=0.925, nDCG@10=0.765522, No-result Accuracy=0.0, P95=1010.017ms; maximum No-result Accuracy at Recall@5>=0.8 was 0.25",
+        "vector Top-5: Recall@5=0.95, nDCG@10=0.900298, No-result Accuracy=0.0, P95=769.799ms; maximum No-result Accuracy at Recall@5>=0.8 was 0.375",
+        "vector Top-10: Recall@5=0.95, nDCG@10=0.906307, No-result Accuracy=0.0, P95=983.383ms; maximum No-result Accuracy at Recall@5>=0.8 was 0.375"
+      ],
+      "result": "completed at optimization_completed; all 3 profiles failed the Optimization Gate on min_no_result_accuracy and reported promotion_targets_unachievable; no eligible candidate or winner",
+      "boundary_receipt": "rag-strategy-run-scope-v1 recorded effective_stop=after_optimization_gate, holdout_query_executions=0, finalist_count=0, materialization_attempted=false, and evaluation_run_created=false",
+      "state_effects": "0 Holdout queries, 0 finalists, 0 trial versions, 0 pipeline jobs, 0 candidate versions, 0 evaluation runs, and 0 activations; the knowledge base retained exactly the prior three ready inactive versions"
+    },
+    "remaining_gate": "The explicit boundary is now proven with a real multi-profile run. Retrieval-mode expansion improved positive ranking quality, but none of the three profiles made the scalar answerability target jointly feasible and all retained No-result Accuracy=0.0 before abstention. The next design batch must add a predeclared orthogonal answerability signal or another justified candidate family using these sealed manifests; no Holdout or Formal is justified yet."
+  },
+  "closure_credibility_batch": {
+    "batch": "3D-F0-F2",
+    "status": "engineering_credibility_ready_promotion_gate_not_met",
+    "decision": "Close the third-round engineering credibility scope without claiming candidate promotion. The existing real Formal failed quality and latency gates; no additional real Provider call, Formal run, candidate materialization, activation, shared-data write, migration or deployment was performed in this closure batch.",
+    "frozen_evidence": {
+      "latest_optimization_only_run": "ragtune_ca5c164d3be1462baa7eda8a823ecc4: 84 real query embeddings, 3 profiles, 28 optimization cases, 14 untouched Holdout cases, 0 eligible candidates, 0 Rerank, 0 materialization and 0 Formal",
+      "latest_formal_run": "evalrun_32be370066ba4d468b6a890fbb93ae94 remains non-passing: candidate positive no-result rate exceeded 0.05 and P95 latency exceeded both relative and 1500 ms gates",
+      "independence_audit": "The current Formal predates the latest calibration, but 13 of 42 Formal queries are Token-Jaccard near-duplicates of later calibration queries, including 4 of 12 negatives. Neither evidence set may be reused as future independent validation after tuning.",
+      "real_external_call_count": 0
+    },
+    "implementation": {
+      "budget_contract": "Preflight binds the normalized request and rag-strategy-execution-budget-v1 into its checksum; the UI defaults to 1 chunk index, 3 retrieval candidates and 1 finalist, exposes all three controls, displays projected Optimization/Holdout/Formal/Rerank bounds and submits expected_snapshot_hash.",
+      "rerank_boundary": "Search and baseline profiles are always stripped of Rerank and Evidence Verifier settings; an explicit full-run authorization can spend Rerank budget only after finalists exist.",
+      "failure_semantics": "A completed optimization-only run with zero eligible candidates is rendered as an amber failed-quality-gate outcome with failed checks and per-candidate diagnostics, not as green success evidence.",
+      "development_lineage": "Materialized Strategy Tuner candidates carry checksum-protected rag-development-evidence-v1 query and token hashes without query text. Formal rejects exact or Token-Jaccard >= 0.8 overlap, tampered or missing Tuner lineage, and records the independence receipt in rag-eval-v2.",
+      "mutation_order": "Formal candidate promotion_required state is written only after all validations and evaluation-run creation succeed, removing validation-failure residue.",
+      "history": "Historical runs remain readable; a pre-independence Formal receipt cannot authorize a new activation."
+    },
+    "validation": {
+      "f1a_red": "Frontend failed on hidden 4/24/3 defaults and missing budget/failure state; backend failed on missing request_contract and execution_budget.",
+      "f1a_green": "RagStrategyTunerPanel 2 passed; budget/preflight backend focus 2 passed.",
+      "f1b_green": "Evidence independence, no-residue Formal creation, materialized lineage and historical-promotion regressions passed; final Evaluation plus Strategy Tuner run was 100 passed.",
+      "affected_backend": "220 RAG, Knowledge Pipeline, Benchmark, Retrieval, Strategy Tuner and Evaluation tests passed with 4 existing FastAPI on_event deprecation warnings.",
+      "frontend": "87 files and 420 tests passed; TypeScript typecheck passed; production build passed with 3121 modules and the existing large-chunk warning.",
+      "backend_full": "3534 passed, 29 skipped and 20 unrelated environment failures. Seventeen failures require the absent Agency Worker build output; three Skill cross-language tests also lack server/orchestration_worker/node_modules TypeScript loader dependencies. Existing repository documentation records the same prerequisite class; no failing file intersects the RAG closure Diff.",
+      "provider_calls": 0
+    },
+    "remaining_gate": "No candidate meets the third-round promotion gate. A future round must predeclare a materially different answerability or retrieval design, use development evidence that does not consume its final validation questions, publish a fresh independent rag-gold-v2, and run one separately authorized Formal."
+  },
   "prohibited_claims": [
     "Passing third-round Formal promotion evidence exists.",
     "The qualified published rag-gold-v2 version alone constitutes Formal promotion evidence.",
@@ -460,6 +1282,8 @@
     "The published Gold proves that the real embedding route, candidate, or Formal evaluation has passed.",
     "The successful one-vector embedding preflight proves that a full candidate index build or Formal evaluation has passed.",
     "The ready unactivated real embedding candidate constitutes Formal promotion evidence or has passed the paired evaluation gates.",
+    "The latest content-v2 quality metrics alone mean the third-round promotion gate passed; zero-error and latency checks failed.",
+    "The offline 3D-2A connection and request-envelope tests prove that the latency or zero-error Formal gates now pass.",
     "A candidate passed or was authorized for promotion.",
     "The repository-wide backend or frontend test suite is fully green."
   ],

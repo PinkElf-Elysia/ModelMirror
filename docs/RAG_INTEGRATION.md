@@ -33,26 +33,42 @@ Strategy Router 的规则推荐现在可以进入第二阶段的固定证据调�
 `RAG Strategy Tuning Readiness V1`：标准 Catalog Pack 标记为 `regression_guard`，
 只能做引擎回归，不能单独选择调优胜者；正式检索调优至少需要 30 条正样例。
 
-Threshold 调优额外要求至少 12 条已审核的语料近邻困难负例；证据不足时阈值固定为
-基线值。跨分块比较必须有稳定 `source_block` Gold，并覆盖稀疏、单块密集和多块密集
+显式拒答调优额外要求至少 12 条已审核的语料近邻困难负例，并且每条回执必须包含
+原始 `vector_score`；全文检索或缺失该分数域时不得用 `fused_score` 代替。若不存在同时
+满足 Recall@5 与 No-result Accuracy 绝对晋级下限的阈值，候选以
+`promotion_targets_unachievable` 失败关闭，不得物化版本。跨分块比较必须有稳定 `source_block` Gold，并覆盖稀疏、单块密集和多块密集
 问题。多个名义分块方案若产生相同真实索引统计和排序指纹，会自动降级为仅检索调优，
 避免把等价分块误判为改进。
 
 默认均衡预算最多构建 4 个分块索引、比较 24 组检索参数并保留 3 个 finalist。搜索
-覆盖 Full-text、Vector、Hybrid、Top-K、Hybrid 权重和从优化集分数确定性产生的 threshold；
+覆盖 Full-text、Vector、Hybrid、Top-K、Hybrid 权重和从优化集原始向量分数确定性产生的拒答阈值；
 Hash Embedding 下 Vector/Hybrid 不得自动胜出。Rerank 默认关闭，只有用户明确授权且
-Provider 就绪时才对最多两个 finalist 实测。
+Provider 就绪时才对最多两个 finalist 实测。`enable_rerank=false` 会把固定基线快照中的
+Rerank、Evidence Verifier 及其 verdict 拒答域一并清除，并记录
+`rerank_execution_policy=disabled_entire_run`；因此关闭状态不允许基线查询继续产生隐含调用。
 
-`RAG Strategy Tuner V4` 保留 V3 的阈值 Pareto 与语义去重，并增加重复统计验证。V3
-不再以 Recall 的词典序独占阈值选择：它在优化集上构建
-Recall@5、nDCG@10 与困难负例 false-positive rate 的非支配前沿；只有在 Recall 和
-nDCG 各自最多回退 0.02 时，才允许用更高阈值换取至少 0.01 的误召回改善，否则保留
-基线阈值。不同模式下不生效的权重和已关闭 Rerank 字段不再形成重复配置；实际索引、
+`RAG Strategy Tuner V4` 保留 V3 的拒答 Pareto 与语义去重，并增加重复统计验证。它在
+优化集上构建 Recall@5、nDCG@10 与困难负例 false-positive rate 的非支配前沿；只有
+达到绝对晋级下限，并在 Recall 和 nDCG 各自允许的回退内改善误召回，拒答阈值才具备
+选择资格。不同模式下不生效的权重和已关闭 Rerank 字段不再形成重复配置；实际索引、
 排序和有效检索语义均相同时，重复候选不能占用 finalist 或胜者名额。
 
 知识库定向生成器新增“策略调优证据”模式，允许 30–60 条用例。检索调优至少保留
 30 条正样例；需要 threshold 调优时，默认生成 42 条，其中 12 条是语料近邻无答案题。
 这些负样例仍为 `pending`，必须逐题确认并重新校准后才能满足调优资格。
+
+已封存的独立 `rag-gold-v2` 可以通过
+`POST /api/rag/evaluation-sets/{eval_set_id}/versions/{version}/fork-calibration`
+派生为 `rag-calibration-v1` 草案。服务端只接受与目标知识版本
+`corpus_snapshot_hash` 完全一致且 checksum 完整的 Gold；派生时重建 case ID，并清空所有
+审核结论。新草案必须重新人工确认 12 条带稳定 corpus-near context block 的困难负例，
+发布 checksum 覆盖目标版本、来源 Gold、语料快照、cases、coverage 与 qualification。
+在 freshness manifest 引入前已封存的首个 `rag-gold-v2` 只接受其原始旧 checksum 形状，
+不会重写 checksum，也不会放宽其他字段的篡改校验。跨版本审核按目标版本中的稳定
+source block 解析，不跟随 active 指针，也不复用来源版本的 chunk ID。
+Strategy Tuner 预检对任何 `strategy_tuning` / `calibration` 证据都要求目标版本精确匹配，
+并验证已发布 `rag-calibration-v1` checksum；手工数据不再能绕过目标绑定。派生本身不调用
+Embedding、Rerank 或生成模型，也不构建、激活或迁移索引。
 
 中间 trial 使用隔离 namespace，不可激活，也不会出现在普通版本列表。搜索通过当前
 Evaluation Gate、Pareto 排名及质量/延迟/索引规模有效改善门槛后，才按胜者精确配置重建
@@ -62,6 +78,43 @@ Evaluation Gate、Pareto 排名及质量/延迟/索引规模有效改善门槛�
 运行由文件型 Store 与后台 Coordinator 持久化；进程恢复复用已完成 trial、Holdout 和
 Rerank 结果，显式 Retry 则清空失效搜索进度后重新开始。RunRegistry 仅记录版本、候选
 数量、阶段、耗时与错误摘要，不保存问题、正文、路径、embedding 或密钥。
+
+优化搜索会把每个候选实际执行时的安全聚合指标和执行回执持久化。若固定 baseline 的
+版本与有效检索语义 checksum 和某个已执行候选完全一致，baseline 直接复用该次结果，
+不会再次查询 Provider；语义不一致或旧记录缺少执行证据时仍执行独立 baseline，禁止
+近似复用。运行回执分别报告候选、baseline、合计检索次数、离线阈值重放数和节省次数。
+阈值校准还报告在 Recall 门槛下可达到的最大 No-result Accuracy，以及在 No-result 门槛
+下可保留的最大 Recall，作为“单一分数阈值是否足够”的诊断证据；这些诊断不改变门禁。
+
+每个优化候选还生成 `rag-answerability-features-v1` 清单，用于后续离线设计新的
+answerability 信号。清单按匿名 case hash 保存 vector、fused 和 fulltext 三个分数域的
+最大值、次高值、Top-1 margin、Top-3 均值及最小质量结果，不保存 case ID、query、文档、
+chunk、路径、正文或 Provider payload。清单 checksum 同候选执行回执绑定；用例缺失、
+身份重复、执行失败、非有限数值或任一用例缺少 vector 分数时，清单不得用于信号设计。
+该清单只补足证据谱系，不会自动产生公式、修改在线拒答逻辑或授权晋级。
+
+当固定 Gold 允许 threshold 调优时，自动搜索必须具备 vector answerability 分数。Tuner
+仍保留固定 base profile 作为基线证据，但会在生成候选中排除必然缺少该分数域的
+fulltext-only profile，避免它们占用 `max_retrieval_trials`。若固定 base 本身是 fulltext，
+只保留这一项用于精确基线比较，后续生成候选仍从 vector/hybrid 开始；Embedding 已降级
+时不会伪造 vector 候选。`rag-strategy-search-space-v1` 回执记录过滤前后数量、排除数量和
+候选模式，不包含 query、正文或密钥。threshold 不可调时保持历史候选空间不变。
+
+Strategy Tuner 请求支持显式 `run_scope=optimization_only|full`。后端为兼容旧调用默认
+`full`，但调优面板默认选择更安全的 `optimization_only`，并在预检、运行请求和固定快照
+中同时绑定该选择。`optimization_only` 在 Optimization Gate 及候选回执持久化后强制终止，
+不会执行 Holdout、finalist 验证、候选物化或完整评测，也不允许授权 Rerank。终止回执
+`rag-strategy-run-scope-v1` 明确记录候选与合格候选数量、Holdout 查询为零，以及未发生
+物化和评测创建。只有用户显式选择 `full` 后，调优器才可继续原有 Holdout 与物化链路；
+两种范围都不会自动激活版本或修改 Draft。
+
+调优面板默认把优化集预算收窄为 1 个分块索引、3 个检索候选和 1 个 finalist；完整调优
+仍可显式选择最高 4/24/3。预检返回 `rag-strategy-execution-budget-v1`，按当前 Gold 划分、
+可执行搜索空间和所选范围列出优化集、Holdout、Formal、Rerank 查询及 Trial 索引构建上限。
+预检 checksum 同请求合同和预算绑定，交互式运行会回传 `expected_snapshot_hash`；任何参数或
+固定证据漂移都要求重新预检。搜索与 baseline 始终移除 Rerank/Evidence Verifier，只有完整
+范围中获得 finalist 后才可使用单独授权的 Rerank 预算。运行完成但 0 个候选通过
+Optimization Gate 时，UI 显示警告及失败检查和候选诊断，不再呈现绿色成功结论。
 
 03C 将 finalist 验证升级为固定 Holdout 内的重复统计：每题查询 3 次，先取每题中位延迟，
 再聚合平均值和 P95；同时进行 3 组固定 seed 的分层重采样与 1,000 次确定性配对
@@ -77,6 +130,7 @@ GET  /api/rag/strategy-tuner/capabilities
 POST /api/rag/strategy-tuner/preflight
 GET  /api/rag/strategy-tuner/runs?kb_id=&status=
 POST /api/rag/strategy-tuner/runs
+POST /api/rag/evaluation-sets/{eval_set_id}/versions/{version}/fork-calibration
 GET  /api/rag/strategy-tuner/runs/{run_id}
 POST /api/rag/strategy-tuner/runs/{run_id}/cancel
 POST /api/rag/strategy-tuner/runs/{run_id}/retry
@@ -302,11 +356,26 @@ POST /api/rag/pipeline/versions/{version_id}/query
 }
 ```
 
-混合检索使用加权归一化 RRF；`score_threshold` 始终过滤 Rerank 前的 `fused_score`。Rerank 成功时，Provider 返回的 Top-N 是最终候选上限，不会重新补回未重排尾部；只有 Provider 失败、超时、非法 JSON 或空结果时才完整回退融合排序并返回 warning。
+混合检索使用加权归一化 RRF；`score_threshold` 始终过滤 Rerank 前的 `fused_score`，不承担无答案判断。可选的显式拒答只使用原始 `vector_score` 与 `abstention_threshold`，全文检索不能启用该门禁。父块去重后保持融合或成功 Rerank 已建立的全局顺序，不再为了文档多样性把低分异文档结果插到高分结果之前。Rerank 成功时，Provider 返回的 Top-N 是最终候选上限，不会重新补回未重排尾部；只有 Provider 失败、超时、非法 JSON 或空结果时才完整回退融合排序并返回 warning。
 
-RAG Rerank 默认最多发送 20 个候选，单次序列化 Provider 请求最多 24,000 个字符；裁剪按当前可执行 Provider 中最坏的请求结构计算，专用 API 与 OpenAI-compatible LLM fallback 共用一次 5 秒总预算。可通过服务端 `RAG_RERANK_MAX_CANDIDATES`、`RAG_RERANK_MAX_INPUT_CHARS`、`RAG_RERANK_TIMEOUT_SECONDS` 调整；专用端点使用完整 `RERANK_API_URL`，或使用会自动追加 `/rerank` 的 `RERANK_API_BASE`，并配置 `RERANK_API_KEY`、`RERANK_MODEL`；LLM fallback 模型使用 `RAG_RERANK_LLM_MODEL`。Compose 会将这些变量传入服务容器。不要将任何密钥写入前端或版本库。
+RAG Rerank 默认最多发送 20 个候选，单次序列化 Provider 请求最多 24,000 个字符；裁剪按当前可执行 Provider 中最坏的请求结构计算，专用 API 与 OpenAI-compatible LLM fallback 共用一次 5 秒总预算。可通过服务端 `RAG_RERANK_MAX_CANDIDATES`、`RAG_RERANK_MAX_INPUT_CHARS`、`RAG_RERANK_TIMEOUT_SECONDS` 调整；专用端点使用完整 `RERANK_API_URL`，或使用会自动追加 `/rerank` 的 `RERANK_API_BASE`，并配置 `RERANK_API_KEY`、`RERANK_MODEL`；普通 LLM fallback 使用 `RAG_RERANK_LLM_MODEL`。单调用证据探针必须另行配置 `RAG_EVIDENCE_VERIFIER_LLM_MODEL`，服务端会强制使用该模型并忽略客户端携带的普通 Rerank/生成模型；未配置时探针在任何外部调用前失败关闭。Evidence Verifier 使用独立请求包络，默认在同一 12,000 字符总预算内保留最多 20 个候选，并将可用字符公平分配给所有入选候选，避免在字符预算尚充足时机械丢弃第 11–20 条跨文档证据；Top-5 默认最多输出 300 token，输出预算会随 Top-N 有界增长且不超过 1,200。可通过 `RAG_EVIDENCE_VERIFIER_MAX_CANDIDATES`、`RAG_EVIDENCE_VERIFIER_MAX_INPUT_CHARS`、`RAG_EVIDENCE_VERIFIER_MAX_OUTPUT_TOKENS` 调整边界。Hybrid 检索会并行执行互不依赖的查询 embedding 与本地全文召回，随后再融合和 Rerank；阶段耗时仍分别记录，端到端耗时不再机械累计两段等待。Embedding 与 Rerank/Verifier 在同一 RAG 服务生命周期内复用连接池，并在服务关闭时显式释放；这不会缓存查询结果或隐藏 Formal warm-up。Compose 会将这些变量传入服务容器。不要将任何密钥写入前端或版本库。
 
-响应会增加可选的 `vector_score`、`fulltext_score`、`fused_score`、`rerank_score`、`parent_lifted` 与安全 warnings，原有 CitationAnchor 字段保持兼容。检索回执只记录 Provider/模型、成功 target、已尝试 target、候选数、实际尝试中的最大序列化输入字符、耗时、预算和脱敏降级原因，不记录查询、候选正文、端点或密钥。
+`probe_mode=full_chain_diagnostic` 只用于新 Formal 前的完整链路诊断。它不接受客户端 `retrieval` 或 `top_k` 覆盖，只运行 ready 且未激活候选中封存的 Vector/Hybrid Top-1..5、外部 Embedding 与专用 Evidence Verifier 合同；固定预算为一次 query embedding 和一次 verifier 调用。Provider 不可串行回退或重试，向量失败不能降级为全文，答案生成始终关闭。只有回执精确记录 `1 embedding + 1 rerank + 0 answer` 才返回成功；结果始终为 `diagnostic_only`，不能作为 Formal 或晋级证据。
+
+响应会增加可选的 `vector_score`、`fulltext_score`、`fused_score`、`rerank_score`、`parent_lifted` 与安全 warnings，原有 CitationAnchor 字段保持兼容。检索回执只记录 Provider/模型、成功 target、已尝试 target、候选数、实际尝试中的最大序列化输入字符、最大输出 token、耗时、预算和脱敏降级原因，不记录查询、候选正文、端点或密钥。
+
+回执中的 `abstention_enabled` 只表示已配置的向量分数拒答门禁；Evidence Verifier 的启用、执行和结论分别由 `evidence_verification_enabled`、`evidence_verification_applied` 与 `evidence_verdict` 表达，不覆盖前者。检索阶段没有任何候选时直接记录 `no_candidates`，不为制造 verifier 回执而调用外部模型；Formal 校验仅在输入数和结果数都为零时接受该分支。
+
+封存的 `rag-gold-v2` 以不可变 checksum 作为一次性使用身份，而不是以可变的版本 ID 作为身份。相同 checksum 不能通过重新发布获得新的 Formal 次数；Formal 入队时把该 checksum 的一次性使用回执标记为 `reserved`，运行进入成功、失败或取消任一终态时原子更新为 `consumed` 并记录 `terminal_status`。失败或取消不会释放该 Gold 供重试，只有 `terminal_status=succeeded` 且全部门禁通过的运行可用于晋级。历史按版本 ID 记录的回执继续可读，并会按其已封存 checksum 参与重复使用检查。
+
+Formal 执行清单还封存 `rag-runtime-v1` 运行身份：生产 `server/rag/*.py` 文件的逐文件 SHA-256，以及不含端点、查询、正文或密钥的 Embedding、Rerank/Verifier 超时和连接池设置。入队目标、已保存 pipeline 证据和执行进程必须具有完全相同的运行身份；进程重启后若代码或这些设置漂移，执行器会在首个 case 和首个 Provider 调用前失败关闭。晋级时还会把 Formal 运行身份与当前服务身份重新比对，旧记录可以展示但缺少该合同就不能授权新的激活。Pipeline 页的证据探针只展示脱敏后的总检索、Embedding、Verifier 耗时和有界输入/输出预算，不回显 query、命中文本、端点或密钥。
+
+Strategy Tuner 物化的候选还封存 `rag-development-evidence-v1`：Gold 版本/checksum、语料
+snapshot，以及每条开发查询的归一化 hash 和 token hash；不保存 query 原文。创建 Formal
+运行时会验证该清单 checksum，并将 Formal 问题与所有开发问题做完全匹配和 Token Jaccard
+`>=0.8` 检查。任一重合、清单篡改或 Tuner 候选缺失谱系都会在评测入队和候选状态写入前
+失败关闭；独立性回执进入 `rag-eval-v2` 执行清单。普通历史候选继续可读，已有 Formal
+记录不改写。
 
 父子分段只索引子段。召回后回答上下文使用父段，引用仍指向命中子段。向量与全文索引必须同时成功，候选版本才可 ready；任一失败会同时清理两个候选索引，不切换 active version。旧索引不自动迁移，继续使用 vector-only legacy 路径。
 
@@ -640,7 +709,8 @@ EMBEDDING_MODEL=text-embedding-3-small
 `hash / deterministic-hash-v1`，便于本地开发和 CI 测试。用户选择真实语义模型后，
 系统会保存 `requested` 配置，但将 `effective` 标记为 `unavailable`，并阻止预检通过和
 索引 Job 创建；不会再自动回退到 hash。生产索引应配置真实 Embedding API，并在执行前
-确认 `embedding_profile.effective.ready=true`。
+确认 `embedding_profile.effective.ready=true`。OpenAI-compatible 请求会显式发送草案锁定的
+`dimensions`，避免 Provider 按模型默认维度返回向量而与本地索引合同错位。
 
 RAG 回答生成使用 OpenRouter：
 
@@ -720,6 +790,10 @@ The local RAG pipeline now exposes a safe editable draft layer:
 - `GET /api/rag/pipeline/draft?kb_id=...` returns `draft_id`, `version`, `updated_at`, `editable`, stages, counts, and safe stage config.
 - `PATCH /api/rag/pipeline/draft/{kb_id}` persists safe draft fields only: uploaded file source mode, local parser, local recursive character chunking, `chunk_size`, and `chunk_overlap`.
 - `POST /api/rag/pipeline/draft/{kb_id}/preflight` returns readiness, warnings, per-stage checks, and document/artifact/chunk counts.
+
+For a first `pipeline_only` build, zero existing chunks is not a preflight blocker when
+the uploaded documents and parsed Artifacts are present: the candidate job is responsible
+for creating those chunks. An empty document/Artifact set remains blocked.
 
 Validation boundaries: `chunk_size` must stay between 100 and 4000, and `chunk_overlap` must be non-negative and smaller than `chunk_size`. Image understanding is optional, but enabling it requires an explicit vision model and the renderer/model-gateway preflight. Draft changes alone do not rebuild indexes or change chat/workflow retrieval until a candidate version is executed and activated. Responses must not expose local stored paths, full chunk text, images, embeddings, prompts, tool outputs, or secrets.
 
