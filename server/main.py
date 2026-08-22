@@ -1039,6 +1039,7 @@ try:
         NoEligibleCandidateError,
         ProviderChatCanaryService,
         ProviderChatCanaryStreamEvidence,
+        ProviderChatStableService,
         ProviderChatTarget,
         ProviderChatTransport,
         RouterServiceError,
@@ -1054,6 +1055,7 @@ except ModuleNotFoundError:
         NoEligibleCandidateError,
         ProviderChatCanaryService,
         ProviderChatCanaryStreamEvidence,
+        ProviderChatStableService,
         ProviderChatTarget,
         ProviderChatTransport,
         RouterServiceError,
@@ -23125,6 +23127,7 @@ async def chat(payload: ChatRequest, request: Request):
         native_router_engine.service.egress_policy
     )
     chat_canary_service = ProviderChatCanaryService(router_service)
+    stable_chat_service = ProviderChatStableService(router_service)
     native_router_policy = router_service.get_policy()
     direct_audio_requested = any(
         message_has_audio(message.content) for message in payload.messages
@@ -23144,6 +23147,31 @@ async def chat(payload: ChatRequest, request: Request):
         direct_audio_requested or response_audio_requested
     )
     chat_canary_requested = payload.gateway == "newapi_canary"
+    stable_chat_shape_requested = bool(
+        stable_chat_service.control.feature_enabled()
+        and payload.gateway == "default"
+        and not is_omniroute_auto_model(payload.model_id)
+        and payload.tool_mode == "none"
+        and payload.output_mode == "none"
+        and payload.response_audio is None
+        and payload.skill_application is None
+        and payload.routing is None
+        and all(
+            isinstance(message.content, str)
+            or (
+                isinstance(message.content, list)
+                and all(
+                    isinstance(part, TextContentPart)
+                    or (
+                        isinstance(part, InputFileContentPart)
+                        and part.handling == "extract"
+                    )
+                    for part in message.content
+                )
+            )
+            for message in payload.messages
+        )
+    )
     chat_canary_session_id = (
         payload.routing.session_id
         if payload.routing is not None and payload.routing.session_id
@@ -23264,6 +23292,7 @@ async def chat(payload: ChatRequest, request: Request):
         and not use_native_router
         and not native_audio_requested
         and not direct_video_requested
+        and not stable_chat_shape_requested
     ):
         return JSONResponse(
             status_code=500,
@@ -23474,6 +23503,55 @@ async def chat(payload: ChatRequest, request: Request):
         return JSONResponse(
             status_code=500,
             content={"error": "后端校验请求时出错，请查看服务日志。"},
+        )
+
+    stable_chat_preflight = None
+    stable_chat_dispatch = None
+    use_stable_chat = False
+    if stable_chat_shape_requested:
+        try:
+            stable_chat_preflight = await stable_chat_service.begin(
+                payload.model_id, "chat_text"
+            )
+        except RouterServiceError as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"error": exc.hint, "code": exc.code},
+            )
+        except Exception:
+            logger.exception("Managed Chat preflight failed")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "Managed Chat 路由预检失败，请检查控制面状态。",
+                    "code": "provider_chat_preflight_failed",
+                },
+            )
+        if stable_chat_preflight.intercepted:
+            stable_chat_dispatch = stable_chat_preflight.dispatch
+            if stable_chat_dispatch is None:
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "error": "当前稳定模型没有通过预检的 Managed Provider 路径。",
+                        "code": stable_chat_preflight.error_code
+                        or "provider_chat_no_qualified_route",
+                        "route_receipt": stable_chat_preflight.route_receipt,
+                    },
+                )
+            use_stable_chat = True
+            url = stable_chat_dispatch.target.chat_completions_url
+            key = stable_chat_dispatch.target.api_key
+
+    if (
+        not url
+        and not use_native_router
+        and not native_audio_requested
+        and not direct_video_requested
+    ):
+        return JSONResponse(
+            status_code=500,
+            content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
         )
 
     async def record_chat_skill_application_once() -> None:
@@ -24089,6 +24167,9 @@ async def chat(payload: ChatRequest, request: Request):
     chat_canary_post_started = False
     chat_canary_run_finalized = False
     chat_canary_started_at: float | None = None
+    stable_chat_post_started = False
+    stable_chat_run_finalized = False
+    stable_chat_started_at: float | None = None
     if chat_canary_requested:
         if use_chat_canary:
             try:
@@ -24177,7 +24258,7 @@ async def chat(payload: ChatRequest, request: Request):
         else httpx.AsyncClient(
             **(
                 ProviderChatTransport.client_kwargs()
-                if use_chat_canary
+                if use_chat_canary or use_stable_chat
                 else llm_client_kwargs()
             )
         )
@@ -24521,12 +24602,22 @@ async def chat(payload: ChatRequest, request: Request):
     ) -> httpx.Response:
         nonlocal chat_canary_post_started
         nonlocal chat_canary_started_at
+        nonlocal stable_chat_post_started
+        nonlocal stable_chat_started_at
         if direct_file_requested:
             logger.info("Sending file chat request model=%s code=upstream_send", model_id)
         elif use_chat_canary:
             logger.info(
                 "Sending managed chat canary request model=%s code=canary_upstream_send",
                 model_id,
+            )
+        elif use_stable_chat:
+            logger.info(
+                "Sending stable managed chat request model=%s provider_kind=%s code=managed_upstream_send",
+                model_id,
+                stable_chat_dispatch.target.provider_kind
+                if stable_chat_dispatch is not None
+                else "unknown",
             )
         else:
             logger.info("Sending chat request to model=%s gateway=%s", model_id, gateway_url)
@@ -24541,6 +24632,26 @@ async def chat(payload: ChatRequest, request: Request):
                 for target in native_plan.targets
             )
         )
+        if use_stable_chat:
+            if stable_chat_dispatch is None:
+                raise RuntimeError("provider_chat_stable_dispatch_missing")
+            if stable_chat_post_started:
+                raise RuntimeError("provider_chat_stable_duplicate_post_blocked")
+            prepared_request = (
+                provider_chat_transport.build_authorized_stream_request(
+                    client,
+                    stable_chat_dispatch.target,
+                    stable_chat_dispatch.authorized,
+                    request_payload,
+                    headers=request_headers,
+                )
+            )
+            stable_chat_service.mark_dispatched(stable_chat_dispatch)
+            stable_chat_post_started = True
+            stable_chat_started_at = time.perf_counter()
+            return await provider_chat_transport.send_authorized_stream(
+                client, prepared_request
+            )
         use_provider_chat_contract = bool(
             not native_audio_requested
             and not direct_video_requested
@@ -24844,15 +24955,75 @@ async def chat(payload: ChatRequest, request: Request):
         )
         chat_canary_run_finalized = True
 
+    def finalize_stable_chat_failure(
+        result_class: str,
+        error_code: str,
+        *,
+        status: str = "failed",
+        hard_failure: bool = False,
+    ) -> dict[str, object] | None:
+        nonlocal stable_chat_run_finalized
+        if (
+            not use_stable_chat
+            or stable_chat_dispatch is None
+            or stable_chat_run_finalized
+        ):
+            return None
+        e2e_ms = (
+            (time.perf_counter() - stable_chat_started_at) * 1000
+            if stable_chat_started_at is not None
+            else None
+        )
+        stable_chat_service.complete(
+            stable_chat_dispatch,
+            status=status,
+            result_class=result_class,
+            error_code=error_code,
+            actual_model=actual_model_id,
+            hard_failure=hard_failure,
+            e2e_ms=e2e_ms,
+        )
+        stable_chat_run_finalized = True
+        return stable_chat_service.route_receipt(
+            stable_chat_dispatch,
+            requested_model=payload.model_id,
+            actual_model=actual_model_id,
+            reason_codes=[error_code],
+            e2e_ms=e2e_ms,
+        )
+
     try:
         response = await send_initial_response()
+    except RouterServiceError as exc:
+        await finalize_runtime("error", actual_model_id, error=exc.code)
+        await close_request_client()
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": exc.hint,
+                "code": exc.code,
+                "route_receipt": stable_chat_service.route_receipt(
+                    stable_chat_dispatch,
+                    requested_model=payload.model_id,
+                    reason_codes=[exc.code],
+                ),
+            },
+        )
     except httpx.TimeoutException:
         finalize_chat_canary_failure(
+            "transient_failure", "provider_chat_timeout"
+        )
+        stable_receipt = finalize_stable_chat_failure(
             "transient_failure", "provider_chat_timeout"
         )
         if use_chat_canary:
             logger.warning(
                 "Managed chat canary timed out model=%s code=timeout",
+                actual_model_id,
+            )
+        elif use_stable_chat:
+            logger.warning(
+                "Managed Chat timed out model=%s code=timeout",
                 actual_model_id,
             )
         elif direct_file_requested:
@@ -24865,14 +25036,29 @@ async def chat(payload: ChatRequest, request: Request):
         finalize_native_audio_failure("timeout")
         await finalize_runtime("error", actual_model_id, error="timeout")
         await close_request_client()
-        return JSONResponse(status_code=504, content={"error": "模型响应超时，请稍后重试。"})
+        timeout_content: dict[str, object] = {
+            "error": "模型响应超时，请稍后重试。"
+        }
+        if stable_receipt is not None:
+            timeout_content.update(
+                code="provider_chat_timeout", route_receipt=stable_receipt
+            )
+        return JSONResponse(status_code=504, content=timeout_content)
     except httpx.HTTPError as exc:
         finalize_chat_canary_failure(
+            "transient_failure", "provider_chat_transport_error"
+        )
+        stable_receipt = finalize_stable_chat_failure(
             "transient_failure", "provider_chat_transport_error"
         )
         if use_chat_canary:
             logger.warning(
                 "Managed chat canary transport failed model=%s code=transport_error",
+                actual_model_id,
+            )
+        elif use_stable_chat:
+            logger.warning(
+                "Managed Chat transport failed model=%s code=transport_error",
                 actual_model_id,
             )
         elif direct_file_requested:
@@ -24897,12 +25083,30 @@ async def chat(payload: ChatRequest, request: Request):
             ),
         )
         await close_request_client()
-        return JSONResponse(status_code=502, content={"error": "模型服务暂时无法连接，请检查网络或代理配置。"})
+        transport_content: dict[str, object] = {
+            "error": "模型服务暂时无法连接，请检查网络或代理配置。"
+        }
+        if stable_receipt is not None:
+            transport_content.update(
+                code="provider_chat_transport_error",
+                route_receipt=stable_receipt,
+            )
+        return JSONResponse(status_code=502, content=transport_content)
     except Exception:
         finalize_chat_canary_failure(
             "uncertain", "provider_chat_unexpected_error", status="uncertain"
         )
-        if direct_file_requested:
+        stable_receipt = finalize_stable_chat_failure(
+            "uncertain",
+            "provider_chat_unexpected_error",
+            status="uncertain",
+        )
+        if use_stable_chat:
+            logger.warning(
+                "Managed Chat failed before stream model=%s code=upstream_error",
+                actual_model_id,
+            )
+        elif direct_file_requested:
             logger.warning(
                 "File chat upstream failed model=%s code=upstream_error",
                 actual_model_id,
@@ -24915,11 +25119,21 @@ async def chat(payload: ChatRequest, request: Request):
         finalize_native_audio_failure("upstream_error")
         await finalize_runtime("error", actual_model_id, error="unexpected upstream error")
         await close_request_client()
-        return JSONResponse(status_code=500, content={"error": "后端代理请求时出错，请查看服务日志。"})
+        unexpected_content: dict[str, object] = {
+            "error": "后端代理请求时出错，请查看服务日志。"
+        }
+        if stable_receipt is not None:
+            unexpected_content.update(
+                code="provider_chat_unexpected_error",
+                route_receipt=stable_receipt,
+            )
+        return JSONResponse(status_code=500, content=unexpected_content)
 
     if response.status_code >= 400:
         body = await response.aread()
         await response.aclose()
+        stable_http_receipt = None
+        stable_http_error_code = None
         if use_chat_canary:
             result_class, canary_error_code = (
                 chat_canary_service.classify_http_failure(response.status_code)
@@ -24932,6 +25146,29 @@ async def chat(payload: ChatRequest, request: Request):
                 response.status_code,
                 actual_model_id,
                 canary_error_code,
+            )
+        elif use_stable_chat:
+            (
+                stable_result_class,
+                stable_http_error_code,
+                stable_hard_failure,
+            ) = stable_chat_service.classify_http_failure(response.status_code)
+            stable_http_receipt = finalize_stable_chat_failure(
+                stable_result_class,
+                stable_http_error_code,
+                hard_failure=stable_hard_failure,
+            )
+            message = (
+                chat_file_upstream_error(response.status_code)[0]
+                if direct_file_requested
+                else "Managed Chat 请求失败；本次请求未重放到其他 Provider。"
+            )
+            data = None
+            logger.warning(
+                "Managed Chat failed status=%s model=%s code=%s",
+                response.status_code,
+                actual_model_id,
+                stable_http_error_code,
             )
         elif direct_file_requested:
             message, file_error_code = chat_file_upstream_error(
@@ -24956,7 +25193,7 @@ async def chat(payload: ChatRequest, request: Request):
                 response.status_code,
                 actual_model_id,
             )
-        elif not direct_file_requested and not use_chat_canary:
+        elif not direct_file_requested and not use_chat_canary and not use_stable_chat:
             logger.warning(
                 "OpenRouter error status=%s model=%s message=%s body=%s",
                 response.status_code,
@@ -24969,6 +25206,7 @@ async def chat(payload: ChatRequest, request: Request):
             not use_omniroute
             and not use_native_router
             and not use_chat_canary
+            and not use_stable_chat
             and not native_audio_requested
             and should_fallback_gateway_to_openrouter(
             response.status_code,
@@ -25064,6 +25302,7 @@ async def chat(payload: ChatRequest, request: Request):
             not use_omniroute
             and not use_native_router
             and not use_chat_canary
+            and not use_stable_chat
             and not native_audio_requested
             and response.status_code >= 400
             and should_fallback_model(
@@ -25186,9 +25425,15 @@ async def chat(payload: ChatRequest, request: Request):
             await finalize_runtime("error", actual_model_id, error=message)
             finalize_native_audio_failure(f"http_{response.status_code}")
             await close_request_client()
+            error_content: dict[str, object] = {"error": message}
+            if stable_http_receipt is not None:
+                error_content.update(
+                    code=stable_http_error_code,
+                    route_receipt=stable_http_receipt,
+                )
             return JSONResponse(
                 status_code=response.status_code,
-                content={"error": message},
+                content=error_content,
             )
 
     omniroute_header_state = (
@@ -25203,6 +25448,13 @@ async def chat(payload: ChatRequest, request: Request):
             started_at=chat_canary_started_at or chat_request_started_at
         )
         if use_chat_canary
+        else None
+    )
+    stable_chat_stream_evidence = (
+        ProviderChatCanaryStreamEvidence(
+            started_at=stable_chat_started_at or chat_request_started_at
+        )
+        if use_stable_chat
         else None
     )
     capture_chat_media = bool(
@@ -25616,6 +25868,7 @@ async def chat(payload: ChatRequest, request: Request):
 
     async def stream_response():
         nonlocal chat_canary_run_finalized
+        nonlocal stable_chat_run_finalized
         buffer = ""
         accumulated_chunks: list[str] = []
         file_stream_state: dict[str, Any] = {}
@@ -25624,9 +25877,13 @@ async def chat(payload: ChatRequest, request: Request):
         stream_completed = False
         deferred_done = False
         file_terminal_receipt: dict[str, Any] | None = None
+        stable_file_summary: dict[str, object] | None = None
+        stable_terminal_receipt: dict[str, object] | None = None
         sidecar_ttft_ms: float | None = None
         chat_canary_transport_error: str | None = None
         chat_canary_client_cancelled = False
+        stable_chat_transport_error: str | None = None
+        stable_chat_client_cancelled = False
         try:
             if fallback_notice:
                 payload_json = json.dumps(
@@ -25652,6 +25909,8 @@ async def chat(payload: ChatRequest, request: Request):
                 for line in complete_lines:
                     if chat_canary_stream_evidence is not None:
                         chat_canary_stream_evidence.feed(line)
+                    if stable_chat_stream_evidence is not None:
+                        stable_chat_stream_evidence.feed(line)
                     if use_omniroute:
                         update_stream_state(line, omniroute_stream_state)
                         if (
@@ -25671,13 +25930,13 @@ async def chat(payload: ChatRequest, request: Request):
                     if line.lstrip().startswith(":"):
                         continue
                     if (
-                        (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested)
+                        (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested or use_stable_chat)
                         and line.strip() == "data: [DONE]"
                     ):
                         deferred_done = True
                         continue
                     if (
-                        (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested)
+                        (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested or use_stable_chat)
                         and deferred_done
                         and not line.strip()
                     ):
@@ -25687,20 +25946,30 @@ async def chat(payload: ChatRequest, request: Request):
                 await asyncio.sleep(0)
             stream_completed = True
         except asyncio.CancelledError:
-            if not use_chat_canary:
+            if not use_chat_canary and not use_stable_chat:
                 raise
             runtime_status = "error"
             runtime_error = "client cancelled"
             chat_canary_transport_error = "provider_chat_client_cancelled"
             chat_canary_client_cancelled = True
+            if use_stable_chat:
+                stable_chat_transport_error = "provider_chat_client_cancelled"
+                stable_chat_client_cancelled = True
         except httpx.HTTPError:
             runtime_status = "error"
             runtime_error = "stream interrupted"
             if use_chat_canary:
                 chat_canary_transport_error = "provider_chat_stream_interrupted"
+            if use_stable_chat:
+                stable_chat_transport_error = "provider_chat_stream_interrupted"
             if direct_file_requested:
                 logger.warning(
                     "File chat stream failed model=%s code=stream_interrupted",
+                    actual_model_id,
+                )
+            elif use_stable_chat:
+                logger.warning(
+                    "Managed Chat stream failed model=%s code=stream_interrupted",
                     actual_model_id,
                 )
             else:
@@ -25716,9 +25985,16 @@ async def chat(payload: ChatRequest, request: Request):
             runtime_error = "stream proxy failed"
             if use_chat_canary:
                 chat_canary_transport_error = "provider_chat_stream_interrupted"
+            if use_stable_chat:
+                stable_chat_transport_error = "provider_chat_stream_interrupted"
             if direct_file_requested:
                 logger.warning(
                     "File chat stream failed model=%s code=stream_proxy_failed",
+                    actual_model_id,
+                )
+            elif use_stable_chat:
+                logger.warning(
+                    "Managed Chat stream failed model=%s code=stream_proxy_failed",
                     actual_model_id,
                 )
             else:
@@ -25767,9 +26043,45 @@ async def chat(payload: ChatRequest, request: Request):
                     "error", actual_model_id, error="client cancelled"
                 )
                 return
+            if (
+                stable_chat_client_cancelled
+                and stable_chat_stream_evidence is not None
+                and stable_chat_dispatch is not None
+                and not stable_chat_run_finalized
+            ):
+                e2e_ms = (
+                    (time.perf_counter() - stable_chat_started_at) * 1000
+                    if stable_chat_started_at is not None
+                    else None
+                )
+                stable_chat_service.complete(
+                    stable_chat_dispatch,
+                    status="cancelled",
+                    result_class="client_cancelled",
+                    error_code="provider_chat_client_cancelled",
+                    actual_model=(
+                        stable_chat_stream_evidence.actual_model
+                        or actual_model_id
+                    ),
+                    client_cancelled=True,
+                    ttft_ms=stable_chat_stream_evidence.ttft_ms,
+                    e2e_ms=e2e_ms,
+                    prompt_tokens=stable_chat_stream_evidence.prompt_tokens,
+                    completion_tokens=stable_chat_stream_evidence.completion_tokens,
+                    total_tokens=stable_chat_stream_evidence.total_tokens,
+                )
+                stable_chat_run_finalized = True
+                await response.aclose()
+                await close_request_client()
+                await finalize_runtime(
+                    "error", actual_model_id, error="client cancelled"
+                )
+                return
             if buffer:
                 if chat_canary_stream_evidence is not None:
                     chat_canary_stream_evidence.feed(buffer)
+                if stable_chat_stream_evidence is not None:
+                    stable_chat_stream_evidence.feed(buffer)
                 if use_omniroute:
                     update_stream_state(buffer, omniroute_stream_state)
                     if (
@@ -25789,7 +26101,7 @@ async def chat(payload: ChatRequest, request: Request):
                 if buffer.lstrip().startswith(":"):
                     pass
                 elif (
-                    (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested)
+                    (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested or use_stable_chat)
                     and buffer.strip() == "data: [DONE]"
                 ):
                     deferred_done = True
@@ -25870,7 +26182,10 @@ async def chat(payload: ChatRequest, request: Request):
                         resolved_chat_files,
                         originals_retained=originals_retained,
                     )
-                    file_terminal_receipt = receipt
+                    if use_stable_chat:
+                        stable_file_summary = receipt["files"]
+                    else:
+                        file_terminal_receipt = receipt
                 elif runtime_status in {"completed", "output_limit"}:
                     runtime_status = "error"
                     runtime_error = (
@@ -26260,6 +26575,71 @@ async def chat(payload: ChatRequest, request: Request):
                         "version": "2",
                     }
                 )
+            if use_stable_chat and stable_chat_stream_evidence is not None:
+                (
+                    stable_status,
+                    stable_result_class,
+                    stable_error_code,
+                    _stable_checks,
+                    _stable_warnings,
+                ) = stable_chat_stream_evidence.finish(
+                    transport_completed=stream_completed,
+                    transport_error_code=stable_chat_transport_error,
+                )
+                observed_model = (
+                    stable_chat_stream_evidence.actual_model or actual_model_id
+                )
+                if (
+                    stable_status == "succeeded"
+                    and stable_chat_stream_evidence.actual_model is not None
+                    and stable_chat_stream_evidence.actual_model != payload.model_id
+                ):
+                    stable_status = "failed"
+                    stable_result_class = "hard_failure"
+                    stable_error_code = "provider_chat_model_mismatch"
+                e2e_ms = (
+                    (time.perf_counter() - stable_chat_started_at) * 1000
+                    if stable_chat_started_at is not None
+                    else None
+                )
+                if stable_chat_dispatch is not None and not stable_chat_run_finalized:
+                    stable_chat_service.complete(
+                        stable_chat_dispatch,
+                        status=stable_status,
+                        result_class=stable_result_class,
+                        error_code=stable_error_code,
+                        actual_model=observed_model,
+                        client_cancelled=stable_result_class == "client_cancelled",
+                        hard_failure=stable_result_class == "hard_failure",
+                        ttft_ms=stable_chat_stream_evidence.ttft_ms,
+                        e2e_ms=e2e_ms,
+                        prompt_tokens=stable_chat_stream_evidence.prompt_tokens,
+                        completion_tokens=stable_chat_stream_evidence.completion_tokens,
+                        total_tokens=stable_chat_stream_evidence.total_tokens,
+                    )
+                    stable_chat_run_finalized = True
+                if stable_status != "succeeded":
+                    runtime_status = "error"
+                    runtime_error = stable_error_code or "provider_chat_stream_failed"
+                stable_terminal_receipt = stable_chat_service.route_receipt(
+                    stable_chat_dispatch,
+                    requested_model=payload.model_id,
+                    actual_model=observed_model,
+                    reason_codes=(
+                        [stable_error_code] if stable_error_code else ["qualified"]
+                    ),
+                    request_id=response.headers.get("x-request-id"),
+                    ttft_ms=stable_chat_stream_evidence.ttft_ms,
+                    e2e_ms=e2e_ms,
+                    prompt_tokens=stable_chat_stream_evidence.prompt_tokens,
+                    completion_tokens=stable_chat_stream_evidence.completion_tokens,
+                    total_tokens=stable_chat_stream_evidence.total_tokens,
+                )
+                if stable_file_summary is not None:
+                    stable_terminal_receipt["files"] = stable_file_summary
+                if not direct_file_requested:
+                    yield route_receipt_sse(stable_terminal_receipt)
+
             if use_chat_canary and chat_canary_stream_evidence is not None:
                 (
                     canary_status,
@@ -26375,6 +26755,17 @@ async def chat(payload: ChatRequest, request: Request):
                     }
                 )
             if direct_file_requested:
+                if use_stable_chat:
+                    file_terminal_receipt = (
+                        stable_terminal_receipt
+                        if runtime_status in {"completed", "output_limit"}
+                        else None
+                    )
+                    if (
+                        file_terminal_receipt is None
+                        and stable_terminal_receipt is not None
+                    ):
+                        yield route_receipt_sse(stable_terminal_receipt)
                 for event in chat_file_terminal_events(
                     file_terminal_receipt,
                     failure_error_emitted=runtime_status == "error",
@@ -26387,6 +26778,7 @@ async def chat(payload: ChatRequest, request: Request):
                 or native_audio_succeeded
                 or captured_outputs
                 or chat_canary_requested
+                or use_stable_chat
             ):
                 yield b"data: [DONE]\n\n"
             if runtime_status in {"completed", "output_limit"}:

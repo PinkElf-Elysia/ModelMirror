@@ -7,7 +7,7 @@ from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 import httpx
 
-from .egress import ProviderEgressPolicy
+from .egress import AuthorizedProviderTarget, ProviderEgressPolicy
 
 
 PROVIDER_CHAT_CONTRACT_VERSION = "modelmirror-provider-chat-v1"
@@ -179,6 +179,45 @@ class ProviderChatTransport:
         return await client.send(
             request,
             stream=True,
+        )
+
+    async def authorize_managed_target(
+        self, target: ProviderChatTarget
+    ) -> AuthorizedProviderTarget:
+        if target.source != "managed":
+            raise ValueError("provider_chat_managed_target_required")
+        return await self.egress_policy.authorize(target.chat_completions_url)
+
+    @staticmethod
+    def build_authorized_stream_request(
+        client: httpx.AsyncClient,
+        target: ProviderChatTarget,
+        authorized: AuthorizedProviderTarget,
+        payload: Mapping[str, object],
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> httpx.Request:
+        """Build one pinned request so dispatch can be recorded before send."""
+
+        if target.source != "managed":
+            raise ValueError("provider_chat_managed_target_required")
+        request_headers = target.authorization_headers(headers)
+        return client.build_request(
+            "POST",
+            authorized.pinned_urls[0],
+            headers=authorized.request_headers(request_headers),
+            extensions=authorized.extensions,
+            json=dict(payload),
+        )
+
+    @staticmethod
+    async def send_authorized_stream(
+        client: httpx.AsyncClient, request: httpx.Request
+    ) -> httpx.Response:
+        return await client.send(
+            request,
+            stream=True,
+            follow_redirects=False,
         )
 
     @asynccontextmanager

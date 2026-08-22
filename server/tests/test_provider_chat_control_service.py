@@ -105,7 +105,7 @@ def _service(tmp_path: Path) -> tuple[ProviderChatControlService, SQLiteRouterRe
     return ProviderChatControlService(ModelRouterService(repository)), repository
 
 
-def test_default_policy_is_legacy_and_r5a_public_status_never_blocks(
+def test_default_policy_is_legacy_and_r5b_public_status_never_blocks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -118,7 +118,7 @@ def test_default_policy_is_legacy_and_r5a_public_status_never_blocks(
     assert policy.configured_mode == "legacy"
     assert policy.effective_mode == "legacy"
     assert policy.feature_enabled is False
-    assert policy.data_plane_integrated is False
+    assert policy.data_plane_integrated is True
     assert public.available is False
     assert public.would_block is False
     assert public.reason_code == "provider_chat_control_feature_disabled"
@@ -151,9 +151,14 @@ def test_atomic_policy_accepts_qualified_newapi_primary_and_managed_fallback(
 
     assert policy.revision == 1
     assert policy.effective_mode == "newapi_preferred"
-    assert policy.data_plane_integrated is False
+    assert policy.data_plane_integrated is True
     assert len(policy.qualifications) == 2
     assert all(item.valid for item in policy.qualifications)
+    public = service.public_status(MODEL_ID, "chat_text")
+    assert public.data_plane_integrated is True
+    assert public.available is True
+    assert public.would_block is False
+    assert public.reason_code == "qualified"
     serialized = policy.model_dump_json()
     assert "newAPI-secret" not in serialized
     assert "OpenRouter-secret" not in serialized

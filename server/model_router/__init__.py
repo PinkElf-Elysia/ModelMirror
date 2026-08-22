@@ -50,6 +50,11 @@ from .chat_canary import (
     ProviderChatCanaryService,
     ProviderChatCanaryStreamEvidence,
 )
+from .chat_stable import (
+    ProviderChatStableDispatch,
+    ProviderChatStablePreflight,
+    ProviderChatStableService,
+)
 
 __all__ = [
     "CompressionMode",
@@ -69,6 +74,9 @@ __all__ = [
     "ProviderChatCanaryDispatch",
     "ProviderChatCanaryService",
     "ProviderChatCanaryStreamEvidence",
+    "ProviderChatStableDispatch",
+    "ProviderChatStablePreflight",
+    "ProviderChatStableService",
     "ProviderChatEndpointResolver",
     "ProviderChatTarget",
     "ProviderChatTransport",

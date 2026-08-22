@@ -156,7 +156,7 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - R4 受管 Provider 不会自动配置或接管普通 `/api/chat`。当前 default Chat 仍读取
   `LLM_GATEWAY_URL/KEY` 或 `OPENROUTER_API_KEY`；迁移和 newAPI 默认门禁属于 Round 5。
 
-## Managed Chat 策略与资格基础（Round 5A）
+## Managed Chat 策略与普通文本稳定路由（Round 5A—5B）
 
 - 内部契约版本为 `modelmirror-provider-chat-routing-v1`，将 `chat_text`、
   `chat_tools` 和 `chat_file_output` 分别认证和配置；普通文本认证不能证明工具或受控
@@ -167,10 +167,16 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   Gate 纪元与脱敏验收证据。记录不包含 Prompt、消息、模型输出、Base URL 或凭据；遗留
   `running` 在重启后标为 `uncertain` 且不重放。
 - `GET/PUT /api/router/chat-control/policy` 使用 `expected_revision` 原子更新，避免覆盖并发
-  管理修改。`GET /api/router/chat-control/gate` 和 receipts 接口在 R5A 只提供只读门禁与
-  审计基础；required 激活尚不可用。
-- `MODEL_CONTROL_CHAT_ENABLED` 默认 `false`。即使显式打开，R5A 仍报告
-  `data_plane_integrated=false`，不会改变 default、Auto、Canary、SSE 或 legacy 网关。
+  管理修改。`GET /api/router/chat-control/gate` 和 receipts 接口提供只读门禁与脱敏运行
+  证据；required 激活仍不可用。
+- R5B 只接管 `gateway=default`、稳定模型白名单内的普通文本和已提取文本附件。
+  `MODEL_CONTROL_CHAT_ENABLED` 默认 `false`；关闭开关、选择 `legacy` 或使用白名单外模型
+  时继续走原有静态路径。
+- `newapi_preferred` 的首选 newAPI 只有在 POST 派发前的资格、目录、凭据或 DNS/SSRF
+  预检失败时才可选择显式 Managed 备用。POST 派发后不重试第二 IP，不切换备用、模型或
+  legacy Provider；逻辑运行和逐 Provider 尝试均写入不含请求/回答正文的 Receipt。
+- Auto、工具、受控文件输出、多模态与 Canary 不在 R5B 接管范围；
+  `newapi_required_default` 仍等待 R5E 的证据门禁与人工批准。
 - 清理命令 `python -m server.model_router.cleanup_chat_receipts --storage-dir <path>` 默认
   dry-run；只有显式增加 `--apply` 才会删除超过保留期的运行和尝试记录，默认保留 90 天。
 

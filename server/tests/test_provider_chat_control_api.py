@@ -33,7 +33,7 @@ def _app(tmp_path: Path) -> FastAPI:
 
 
 @pytest.mark.asyncio
-async def test_public_status_is_redacted_no_store_and_does_not_gate_data_plane(
+async def test_public_status_is_redacted_no_store_and_reports_r5b_integration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -49,7 +49,7 @@ async def test_public_status_is_redacted_no_store_and_does_not_gate_data_plane(
     assert response.headers["cache-control"] == "no-store"
     payload = response.json()
     assert payload["contract_version"] == "modelmirror-provider-chat-routing-v1"
-    assert payload["data_plane_integrated"] is False
+    assert payload["data_plane_integrated"] is True
     assert payload["available"] is False
     assert payload["would_block"] is False
     assert "tenant" not in response.text
@@ -102,7 +102,11 @@ async def test_admin_policy_gate_and_receipts_require_session_and_csrf(
         gate = await client.get("/api/router/chat-control/gate")
         assert gate.status_code == 200
         assert gate.json()["required_activation_available"] is False
-        assert "provider_chat_control_data_plane_pending_r5b" in gate.json()[
+        assert gate.json()["data_plane_integrated"] is True
+        assert "provider_chat_control_data_plane_pending_r5b" not in gate.json()[
+            "blocking_reason_codes"
+        ]
+        assert "provider_chat_required_gate_pending_r5e" in gate.json()[
             "blocking_reason_codes"
         ]
         receipts = await client.get("/api/router/chat-control/receipts")

@@ -6,7 +6,7 @@ import ProviderChatControlSettings from "./ProviderChatControlSettings";
 const policy = {
   contract_version: "modelmirror-provider-chat-routing-v1",
   feature_enabled: false,
-  data_plane_integrated: false,
+  data_plane_integrated: true,
   configured_mode: "legacy",
   effective_mode: "legacy",
   auto_enabled: false,
@@ -24,7 +24,7 @@ const policy = {
 describe("ProviderChatControlSettings", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("keeps R5A data plane pending and saves an atomic revisioned policy", async () => {
+  it("describes the bounded R5B data plane and saves an atomic revisioned policy", async () => {
     const calls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       calls.push([input, init]);
@@ -37,9 +37,7 @@ describe("ProviderChatControlSettings", () => {
             request_count: 0,
             observed_days: 0,
             success_rate: null,
-            blocking_reason_codes: [
-              "provider_chat_control_data_plane_pending_r5b",
-            ],
+            blocking_reason_codes: ["provider_chat_required_gate_pending_r5e"],
           }),
         );
       }
@@ -76,8 +74,8 @@ describe("ProviderChatControlSettings", () => {
     });
 
     render(<ProviderChatControlSettings csrfToken="csrf-test" />);
-    expect(await screen.findByText("R5A 管理与资格基础")).toBeInTheDocument();
-    expect(screen.getByText(/不会改变普通 Chat/)).toBeInTheDocument();
+    expect(await screen.findByText("R5B 普通文本稳定路由")).toBeInTheDocument();
+    expect(screen.getByText(/只接管白名单内的 default 普通文本/)).toBeInTheDocument();
     expect(
       (screen.getByRole("option", { name: /newapi_required_default/ }) as HTMLOptionElement)
         .disabled,
