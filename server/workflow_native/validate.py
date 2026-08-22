@@ -3466,6 +3466,35 @@ def validate_node_configuration(
                     )
                 )
         if middleware_id == "plugin_hooks":
+            hook_mode = str(config.get("hook_mode") or "").strip()
+            if hook_mode and hook_mode not in {"legacy_argv", "typed_v2"}:
+                issues.append(
+                    ValidationIssue(
+                        code="skill_hook_mode_invalid",
+                        message="plugin_hooks hook_mode must be legacy_argv or typed_v2.",
+                        node_id=node.id,
+                    )
+                )
+            if hook_mode == "typed_v2" and "fail_closed" in config:
+                issues.append(
+                    ValidationIssue(
+                        code="skill_hook_v2_fail_closed_unsupported",
+                        message=(
+                            "typed_v2 derives failure policy from each Hook mode; "
+                            "remove the legacy fail_closed setting."
+                        ),
+                        node_id=node.id,
+                    )
+                )
+            if hook_mode != "typed_v2":
+                issues.append(
+                    ValidationIssue(
+                        code="skill_hook_legacy_middleware",
+                        message="This Skill Hook middleware uses the legacy argv contract.",
+                        severity="warning",
+                        node_id=node.id,
+                    )
+                )
             skill_ids = [
                 value.strip()
                 for value in re.split(

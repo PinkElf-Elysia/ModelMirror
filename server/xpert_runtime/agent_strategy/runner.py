@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
+from ..interrupts import RuntimeMiddlewareFatalError
 from ..toolset import RuntimeTool, RuntimeToolError, RuntimeToolResult
 from .models import (
     AgentModelClient,
@@ -27,6 +28,9 @@ from .react import build_react_prompt, parse_react_decision
 
 
 ToolExecutor = Callable[[str, dict[str, Any], str, int], Awaitable[RuntimeToolResult]]
+ToolBatchPreflight = Callable[
+    [list[tuple[str, dict[str, Any], str]], int], Awaitable[None]
+]
 
 MAX_TOOL_CALLS_PER_ROUND = 8
 MAX_OBSERVATION_CHARS = 16_000
@@ -71,6 +75,7 @@ class AgentStrategyRunner:
         temperature: float = 0.7,
         max_tokens: int = 1024,
         parallel_tool_calls: bool = False,
+        tool_batch_preflight: ToolBatchPreflight | None = None,
         history_messages: list[dict[str, Any]] | None = None,
     ) -> None:
         if strategy not in {"auto", "function_calling", "react"}:
@@ -85,6 +90,7 @@ class AgentStrategyRunner:
         self.temperature = min(max(float(temperature), 0.0), 2.0)
         self.max_tokens = max(int(max_tokens), 1)
         self.parallel_tool_calls = bool(parallel_tool_calls)
+        self.tool_batch_preflight = tool_batch_preflight
         self.history_messages = [
             deepcopy(message)
             for message in list(history_messages or [])
@@ -121,6 +127,8 @@ class AgentStrategyRunner:
                 )
                 return await self._run_react()
         except AgentStrategyError:
+            raise
+        except RuntimeMiddlewareFatalError:
             raise
         except AgentModelError as exc:
             raise self._error(exc.message, code="model_error") from exc
@@ -376,6 +384,23 @@ class AgentStrategyRunner:
         limited_calls = calls[:MAX_TOOL_CALLS_PER_ROUND]
         overflow = calls[MAX_TOOL_CALLS_PER_ROUND:]
         if self.parallel_tool_calls and len(limited_calls) > 1:
+            if self.tool_batch_preflight is not None:
+                valid_calls: list[tuple[str, dict[str, Any], str]] = []
+                for call in limited_calls:
+                    binding = self.binding_by_alias.get(call.name)
+                    if binding is None:
+                        continue
+                    try:
+                        arguments = json.loads(call.raw_arguments or "{}")
+                    except ValueError:
+                        continue
+                    if not isinstance(arguments, dict) or any(
+                        binding.validator.iter_errors(arguments)
+                    ):
+                        continue
+                    valid_calls.append((binding.tool.name, arguments, call.call_id))
+                if valid_calls:
+                    await self.tool_batch_preflight(valid_calls, iteration)
             outcomes = list(
                 await asyncio.gather(
                     *(self._execute_tool_call(call, iteration) for call in limited_calls)
@@ -502,6 +527,8 @@ class AgentStrategyRunner:
             )
         except Exception as exc:
             if hasattr(exc, "continuation") and hasattr(exc, "approval_id"):
+                raise
+            if isinstance(exc, RuntimeMiddlewareFatalError):
                 raise
             raise self._error(
                 str(exc) or exc.__class__.__name__,
