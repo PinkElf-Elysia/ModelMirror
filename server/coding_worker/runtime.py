@@ -39,6 +39,25 @@ class CodingWorkerRuntimeError(RuntimeError):
         self.code = code
 
 
+_ACTIVE_SUBSTRATE: CodingSubstrateHandle | None = None
+
+
+def get_coding_substrate_handle() -> CodingSubstrateHandle:
+    if _ACTIVE_SUBSTRATE is None:
+        raise CodingWorkerRuntimeError(
+            "Coding substrate is unavailable.",
+            code="coding_worker_provider_unavailable",
+        )
+    return _ACTIVE_SUBSTRATE
+
+
+def configure_coding_substrate_for_tests(
+    substrate: CodingSubstrateHandle | None,
+) -> None:
+    global _ACTIVE_SUBSTRATE
+    _ACTIVE_SUBSTRATE = substrate
+
+
 class CodingWorkerRuntime:
     """Production lifecycle for the store, broker and two fixed sidecars."""
 
@@ -184,6 +203,7 @@ class CodingWorkerRuntime:
         self._started = False
 
     async def start(self) -> CodingSubstrateHandle:
+        global _ACTIVE_SUBSTRATE
         if self._started:
             return self.substrate
         if self.broker_socket_path is None:
@@ -194,14 +214,18 @@ class CodingWorkerRuntime:
             )
         await self.service.start()
         self._started = True
+        _ACTIVE_SUBSTRATE = self.substrate
         return self.substrate
 
     async def close(self) -> None:
+        global _ACTIVE_SUBSTRATE
         if not self._started:
             return
         await self.service.shutdown()
         await self.broker_rpc.close()
         self._started = False
+        if _ACTIVE_SUBSTRATE is self.substrate:
+            _ACTIVE_SUBSTRATE = None
 
     @staticmethod
     def _workspace_key(storage_root: Path) -> bytes:

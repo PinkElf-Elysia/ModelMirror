@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import math
 import os
@@ -5349,55 +5350,31 @@ async def create_coding_session(
 async def handoff_coding_worker_task(task_id: str) -> dict[str, Any]:
     try:
         try:
-            from server.coding_worker.api import get_coding_worker_service
-            from server.coding_worker.contracts import TaskState
+            from server.coding_worker.runtime import get_coding_substrate_handle
         except ModuleNotFoundError:
-            from coding_worker.api import get_coding_worker_service
-            from coding_worker.contracts import TaskState
+            from coding_worker.runtime import get_coding_substrate_handle
 
-        worker_service = get_coding_worker_service()
-        task = worker_service.store.get_task(task_id)
-        if (
-            task.state is not TaskState.COMPLETED
-            or task.workspace_id is None
-            or task.spec.workspace_source.kind != "host_snapshot"
-        ):
-            raise _http_error(
-                status.HTTP_409_CONFLICT, "worker_task_not_writeback_ready"
-            )
-        if (
-            worker_service.harness_runner is None
-            or not worker_service.harness_runner.acceptance_satisfied(task_id)
-        ):
-            raise _http_error(
-                status.HTTP_409_CONFLICT, "worker_acceptance_invalidated"
-            )
-        # v13 applies path-bound create/delete patches and deliberately rejects
-        # cross-path Git rename headers.  Export the same tree change without
-        # rename detection for this handoff only; the public Worker diff keeps
-        # its normal rename-aware presentation.
-        patch_bytes = worker_service.workspace_broker.diff(
-            task.workspace_id,
-            detect_renames=False,
+        candidate = await get_coding_substrate_handle().control_plane.prepare_writeback_candidate(
+            task_id
         )
+        if hashlib.sha256(candidate.patch).hexdigest() != candidate.patch_sha256:
+            raise _http_error(
+                status.HTTP_409_CONFLICT, "worker_writeback_patch_invalid"
+            )
         try:
             patch = _normalize_worker_handoff_diff(
-                patch_bytes.decode("utf-8", errors="strict")
+                candidate.patch.decode("utf-8", errors="strict")
             )
         except UnicodeDecodeError as exc:
             raise _http_error(
                 status.HTTP_409_CONFLICT, "worker_writeback_patch_unsupported"
             ) from exc
-        if not worker_service.harness_runner.acceptance_satisfied(task_id):
-            raise _http_error(
-                status.HTTP_409_CONFLICT, "worker_acceptance_invalidated"
-            )
         paths = _diff_paths(patch)
         if not paths:
             raise _http_error(status.HTTP_409_CONFLICT, "draft_is_empty")
         record = await get_coding_service().adopt_worker_patch(
-            project_id=task.spec.workspace_source.source_id,
-            expected_head=task.spec.workspace_source.revision,
+            project_id=candidate.source_id,
+            expected_head=candidate.revision,
             patch=patch,
             paths=paths,
         )

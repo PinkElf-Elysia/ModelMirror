@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from cryptography.fernet import Fernet
@@ -15,11 +17,12 @@ from server.coding_worker.contracts import (
     AcceptanceContract,
     Origin,
     TaskCreateRequest,
+    TaskState,
     WorkspaceSource,
 )
 from server.coding_worker.provider import FakeCodingAgentProvider
 from server.coding_worker.service import CodingWorkerService
-from server.coding_worker.store import CodingWorkerStore
+from server.coding_worker.store import CodingWorkerStore, WorkerConflictError
 from server.coding_worker.workspace import (
     InMemoryWorkspaceSourceAdapter,
     WorkspaceBroker,
@@ -133,3 +136,130 @@ async def test_shadow_projection_matches_legacy_store_without_double_command(
     assert projection.turn_history(created.task_id) == service.store.turn_history(
         created.task_id
     )
+
+
+@pytest.mark.asyncio
+async def test_writeback_candidate_is_acceptance_tree_and_patch_hash_bound(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    created = await service.create_task(
+        Origin(module="shadow", object_id="writeback"),
+        TaskCreateRequest(
+            client_task_id="writeback-candidate",
+            objective="Prepare host writeback.",
+            workspace_source=WorkspaceSource(
+                kind="manifest", source_id="source", revision="h0"
+            ),
+            acceptance=AcceptanceContract(
+                contract_id="writeback",
+                required_checks=(
+                    AcceptanceCheck(
+                        check_id="pytest", label="pytest", kind="command"
+                    ),
+                ),
+            ),
+            model_route="coding/default",
+        ),
+    )
+    task = created.model_copy(
+        update={
+            "state": TaskState.COMPLETED,
+            "workspace_id": "workspace_" + "a" * 32,
+            "spec": created.spec.model_copy(
+                update={
+                    "workspace_source": WorkspaceSource(
+                        kind="host_snapshot",
+                        source_id="project-1",
+                        revision="f" * 40,
+                    )
+                }
+            ),
+        }
+    )
+    patch = b"diff --git a/main.py b/main.py\n"
+
+    class Workspace:
+        def __init__(self) -> None:
+            self.hashes = iter(("b" * 64, "b" * 64))
+            self.rename_flags: list[bool] = []
+
+        def current_tree_hash(self, workspace_id: str) -> str:
+            assert workspace_id == task.workspace_id
+            return next(self.hashes)
+
+        def diff(self, workspace_id: str, *, detect_renames: bool) -> bytes:
+            assert workspace_id == task.workspace_id
+            self.rename_flags.append(detect_renames)
+            return patch
+
+    workspace = Workspace()
+    control = LegacyTaskControlPlane(
+        SimpleNamespace(
+            store=SimpleNamespace(get_task=lambda task_id: task),
+            harness_runner=SimpleNamespace(
+                acceptance_satisfied=lambda task_id: True
+            ),
+            workspace_broker=workspace,
+        )
+    )
+    candidate = await control.prepare_writeback_candidate(task.task_id)
+    assert candidate.patch == patch
+    assert candidate.patch_sha256 == hashlib.sha256(patch).hexdigest()
+    assert candidate.workspace_tree_hash == "b" * 64
+    assert workspace.rename_flags == [False]
+
+
+@pytest.mark.asyncio
+async def test_writeback_candidate_rejects_tree_race(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    created = await service.create_task(
+        Origin(module="shadow", object_id="writeback-race"),
+        TaskCreateRequest(
+            client_task_id="writeback-race",
+            objective="Reject a raced writeback.",
+            workspace_source=WorkspaceSource(
+                kind="manifest", source_id="source", revision="h0"
+            ),
+            acceptance=AcceptanceContract(
+                contract_id="writeback-race",
+                required_checks=(
+                    AcceptanceCheck(
+                        check_id="pytest", label="pytest", kind="command"
+                    ),
+                ),
+            ),
+            model_route="coding/default",
+        ),
+    )
+    task = created.model_copy(
+        update={
+            "state": TaskState.COMPLETED,
+            "workspace_id": "workspace_" + "c" * 32,
+            "spec": created.spec.model_copy(
+                update={
+                    "workspace_source": WorkspaceSource(
+                        kind="host_snapshot",
+                        source_id="project-1",
+                        revision="f" * 40,
+                    )
+                }
+            ),
+        }
+    )
+    hashes = iter(("b" * 64, "c" * 64))
+    control = LegacyTaskControlPlane(
+        SimpleNamespace(
+            store=SimpleNamespace(get_task=lambda task_id: task),
+            harness_runner=SimpleNamespace(
+                acceptance_satisfied=lambda task_id: True
+            ),
+            workspace_broker=SimpleNamespace(
+                current_tree_hash=lambda workspace_id: next(hashes),
+                diff=lambda workspace_id, *, detect_renames: b"patch",
+            ),
+        )
+    )
+    with pytest.raises(WorkerConflictError) as caught:
+        await control.prepare_writeback_candidate(task.task_id)
+    assert caught.value.code == "worker_acceptance_invalidated"
