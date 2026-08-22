@@ -406,10 +406,7 @@ class FakeCodingAgentProvider:
         self._cancelled: set[str] = set()
         self._closed: set[str] = set()
         self._requests: dict[str, ProviderOpenRequest] = {}
-
-    @property
-    def controller_generation(self) -> int:
-        return 0
+        self.controller_generation = 0
 
     async def capabilities_for_slots(
         self, slot_ids: Sequence[str]
