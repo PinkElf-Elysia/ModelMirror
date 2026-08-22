@@ -152,6 +152,22 @@ test("only the isolated R14 verifier may read and write its Node-owned temporary
   assert.equal(codes(auditGodotBoundary({ root })).includes("GODOT_FIRST_PARTY_FILESYSTEM_WRITE"), true);
 });
 
+test("only the isolated R15 evidence runner may read and write fixed resources in the temporary project", (context) => {
+  const root = fixture("extends Node\n");
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const evidenceRoot = path.join(root, "runtime_evidence");
+  fs.mkdirSync(evidenceRoot, { recursive: true });
+  fs.writeFileSync(path.join(evidenceRoot, "runtime_evidence_runner.gd"), [
+    "extends Node", "const OUTPUT_PATH := \"res://runtime_evidence/runtime-evidence-raw.json\"",
+    "func transfer(path):", "\tvar input = FileAccess.open(path, FileAccess.READ)",
+    "\treturn FileAccess.open(OUTPUT_PATH, FileAccess.WRITE)",
+  ].join("\n"), "utf8");
+  assert.equal(auditGodotBoundary({ root }).ok, true);
+  fs.writeFileSync(path.join(root, "scripts", "case.gd"),
+    "extends Node\nfunc write(path):\n\treturn FileAccess.open(path, FileAccess.WRITE)\n", "utf8");
+  assert.equal(codes(auditGodotBoundary({ root })).includes("GODOT_FIRST_PARTY_FILESYSTEM_WRITE"), true);
+});
+
 const cases = [
   ["network", ["HTTP", "Request.new()"].join(""), "GODOT_FIRST_PARTY_NETWORK"],
   ["socket", ["StreamPeer", "TCP.new()"].join(""), "GODOT_FIRST_PARTY_NETWORK"],

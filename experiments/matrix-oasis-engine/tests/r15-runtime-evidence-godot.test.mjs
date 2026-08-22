@@ -1,0 +1,8 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+
+const sourceUrl=new URL("../apps/runtime-godot/runtime_evidence/runtime_evidence_runner.gd",import.meta.url);
+test("R15 replays through the frozen R14 product scene and real InputMap events",async()=>{const source=await readFile(sourceUrl,"utf8");assert.match(source,/preload\("res:\/\/solved_spatial_prototype\/solved_spatial_lab\.tscn"\)/);assert.match(source,/Input\.parse_input_event\(event\)/);assert.match(source,/_input_key\(KEY_W, true\)/);assert.match(source,/_input_key\(KEY_E, true\)/);assert.match(source,/_input_key\(KEY_R, true\)/);assert.doesNotMatch(source,/apply_terminal_action_for_trace|apply_terminal_action_for_test|try_interact\(|set_synthetic_move_input|global_position\s*=|global_transform\s*=/);});
+test("R15 collects physical, navigation, ray focus and visibility checkpoints",async()=>{const source=await readFile(sourceUrl,"utf8");for(const pattern of [/intersect_ray\(/,/intersect_shape\(/,/NavigationServer3D\.map_get_path\(/,/get_focused_terminal\(/,/visiblePlacementIds/,/frameMicros/])assert.match(source,pattern);assert.match(source,/MAX_MOVE_FRAMES := 1800/);assert.match(source,/MAX_STARTUP_FRAMES := 7200/);});
+test("R15 raw output is fixed to the disposable project and exposes stable markers",async()=>{const source=await readFile(sourceUrl,"utf8");assert.match(source,/OUTPUT_PATH := "res:\/\/runtime_evidence\/runtime-evidence-raw\.json"/);assert.match(source,/MATRIX_OASIS_R15_RUNTIME_EVIDENCE_READY/);assert.match(source,/MATRIX_OASIS_R15_RUNTIME_EVIDENCE_JSON:/);assert.doesNotMatch(source,/OS\.(?:execute|get_environment)|HTTPClient|HTTPRequest|WebSocket/);});

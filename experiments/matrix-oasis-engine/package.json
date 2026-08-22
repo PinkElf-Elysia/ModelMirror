@@ -145,12 +145,13 @@
     "verify:r14": "npm run verify:spatial-contracts && npm run verify:spatial-solution && npm run test:r14-preview && npm run test:r14-qualification",
     "test:r15-runtime-evidence-contracts": "node --test packages/prototype-runtime-evidence-contracts/tests/contracts.test.mjs",
     "test:r15-runtime-evidence": "node --test packages/prototype-runtime-evidence/tests/planner.test.mjs tests/r15-runtime-evidence.test.mjs",
+    "test:r15-runtime-evidence-godot": "node --test tests/r15-runtime-evidence-godot.test.mjs tests/godot-boundary.test.mjs",
     "plan:r15-replay": "node scripts/plan-r15-replay.mjs",
     "collect:r15-runtime-evidence": "node scripts/collect-r15-runtime-evidence.mjs",
     "qualify:r15-runtime-evidence": "node scripts/qualify-r15-runtime-evidence.mjs",
     "preview:r15": "node scripts/preview-r15.mjs",
     "capture:r15": "node scripts/capture-r15.mjs",
-    "verify:r15-runtime-evidence": "npm run test:r15-runtime-evidence-contracts && npm run test:r15-runtime-evidence",
+    "verify:r15-runtime-evidence": "npm run test:r15-runtime-evidence-contracts && npm run test:r15-runtime-evidence && npm run test:r15-runtime-evidence-godot && npm run verify:godot:import",
     "verify:r15": "npm run verify:r15-runtime-evidence"
   }
 }
