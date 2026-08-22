@@ -13,17 +13,30 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Literal, Mapping
 
 
-APPLICATION_RECEIPT_VERSION = "skill-application-receipt-v1"
+APPLICATION_CONTRACT_VERSION = "skill-application-receipt-v1"
+APPLICATION_RECEIPT_V1_VERSION = "skill-application-receipt-v1"
+APPLICATION_RECEIPT_VERSION = "skill-application-receipt-v2"
+APPLICATION_RECEIPT_IDENTITY_VERSION = APPLICATION_RECEIPT_V1_VERSION
 ApplicationPolicy = Literal["advisory", "require_read", "require_stage"]
-ApplicationMethod = Literal["prompt_injected", "skill_read", "skill_stage"]
+ApplicationMethod = Literal[
+    "prompt_injected", "skill_read", "skill_stage", "hook_execute"
+]
 ApplicationStatus = Literal["selected", "applied", "failed"]
 ComplianceStatus = Literal["verified", "incomplete", "unverified"]
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,239}$")
-_METHOD_ORDER = {"prompt_injected": 0, "skill_read": 1, "skill_stage": 2}
+_HOOK_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,79}$")
+_HOOK_CODE_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,119}$")
+_METHOD_ORDER = {
+    "prompt_injected": 0,
+    "skill_read": 1,
+    "skill_stage": 2,
+    "hook_execute": 3,
+}
 _MAX_RESOURCE_PATHS = 500
 _MAX_REFERENCES = 64
+_MAX_HOOK_EVIDENCE = 64
 _MAX_RECEIPTS = 2_000
 _RETENTION_SECONDS = 30 * 24 * 60 * 60
 _MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024
@@ -61,6 +74,24 @@ class SkillApplicationScope:
     runtime_kind: str
 
 
+@dataclass(frozen=True, slots=True)
+class SkillHookApplicationEvidenceV2:
+    hook_id: str
+    hook_event: Literal[
+        "session_start", "pre_tool_use", "post_tool_use", "session_end"
+    ]
+    hook_mode: Literal["annotation", "validation", "guard"]
+    manifest_digest: str
+    script_digest: str
+    context_digest: str
+    result_digest: str
+    code: str
+    result_type: Literal[
+        "annotation", "validation_passed", "validation_failed", "denied", "failed"
+    ]
+    verified: bool
+
+
 @dataclass(slots=True)
 class SkillApplicationReceiptV1:
     receipt_id: str
@@ -90,11 +121,16 @@ class SkillApplicationReceiptV1:
     resource_paths_truncated: bool = False
     tool_names: tuple[str, ...] = ()
     error_codes: tuple[str, ...] = ()
+    hook_evidence: tuple[SkillHookApplicationEvidenceV2, ...] = ()
     references: tuple[str, ...] = ()
     application_status: ApplicationStatus = "selected"
     compliance_status: ComplianceStatus = "incomplete"
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+
+
+# Existing imports keep working while new callers can name the current schema.
+SkillApplicationReceiptV2 = SkillApplicationReceiptV1
 
 
 def application_receipt_mode() -> Literal["off", "audit", "enforce"]:
@@ -128,7 +164,7 @@ def build_application_contract(
             code="skill_application_contract_limit",
         )
     identity = {
-        "version": APPLICATION_RECEIPT_VERSION,
+        "version": APPLICATION_CONTRACT_VERSION,
         "skill_id": clean_skill_id,
         "source_kind": clean_source,
         "version_id": clean_version,
@@ -140,7 +176,7 @@ def build_application_contract(
     fingerprint = _sha256_json(identity)
     return SkillApplicationContractV1(
         contract_id=f"skillappcontract_{fingerprint[:32]}",
-        version=APPLICATION_RECEIPT_VERSION,
+        version=APPLICATION_CONTRACT_VERSION,
         skill_id=clean_skill_id,
         source_kind=clean_source,
         version_id=clean_version,
@@ -202,6 +238,7 @@ class SkillApplicationReceiptStore:
         expected_resource_digests: Mapping[str, str] | None = None,
         tool_name: str | None = None,
         error_code: str | None = None,
+        hook_evidence: Iterable[SkillHookApplicationEvidenceV2] = (),
     ) -> SkillApplicationReceiptV1 | None:
         if application_receipt_mode() == "off":
             return None
@@ -225,6 +262,25 @@ class SkillApplicationReceiptStore:
         )
         clean_tool = _optional_identifier(tool_name, "tool name")
         clean_error = _optional_identifier(error_code, "error code")
+        clean_hook_evidence = self._hook_evidence(hook_evidence)
+        if clean_hook_evidence and method != "hook_execute":
+            raise SkillApplicationReceiptError(
+                "Hook evidence requires the hook_execute application method.",
+                code="skill_application_receipt_invalid",
+            )
+        if method == "hook_execute" and clean_error is None and not clean_hook_evidence:
+            raise SkillApplicationReceiptError(
+                "A successful Hook execution requires verified evidence.",
+                code="skill_application_receipt_invalid",
+            )
+        if (
+            any(evidence.result_type == "failed" for evidence in clean_hook_evidence)
+            and clean_error is None
+        ):
+            raise SkillApplicationReceiptError(
+                "Failed Hook evidence requires an execution error.",
+                code="skill_application_receipt_invalid",
+            )
         receipt_id = self._receipt_id(contract, clean_scope)
         with self._lock:
             self._ensure_writable_unlocked()
@@ -292,6 +348,7 @@ class SkillApplicationReceiptStore:
             if clean_error:
                 errors.add(clean_error)
             updated = copy.deepcopy(item)
+            updated.version = APPLICATION_RECEIPT_VERSION
             updated.node_ids = tuple(
                 sorted(
                     {
@@ -356,6 +413,27 @@ class SkillApplicationReceiptStore:
             )
             updated.tool_names = tuple(sorted(tools))[:64]
             updated.error_codes = tuple(sorted(errors))[:64]
+            merged_hook_evidence = {
+                self._hook_evidence_key(evidence): evidence
+                for evidence in item.hook_evidence
+            }
+            for evidence in clean_hook_evidence:
+                evidence_key = self._hook_evidence_key(evidence)
+                previous_evidence = merged_hook_evidence.get(evidence_key)
+                if previous_evidence is not None and previous_evidence != evidence:
+                    raise SkillApplicationReceiptError(
+                        "Hook evidence verification state changed.",
+                        code="skill_application_receipt_conflict",
+                    )
+                merged_hook_evidence[evidence_key] = evidence
+            if len(merged_hook_evidence) > _MAX_HOOK_EVIDENCE:
+                raise SkillApplicationReceiptError(
+                    "Skill application receipt has too much Hook evidence.",
+                    code="skill_application_receipt_limit",
+                )
+            updated.hook_evidence = tuple(
+                merged_hook_evidence[key] for key in sorted(merged_hook_evidence)
+            )
             updated.application_status = (
                 "applied"
                 if updated.methods
@@ -427,6 +505,28 @@ class SkillApplicationReceiptStore:
             raise SkillApplicationReceiptError(
                 "Skill application receipt is incomplete.",
                 code="skill_application_receipt_incomplete",
+            )
+        return item
+
+    def require_verified_hook_evidence(
+        self,
+        receipt_id: str,
+        *,
+        hook_ids: Iterable[str] = (),
+    ) -> SkillApplicationReceiptV1:
+        item = self.require_verified(receipt_id)
+        required_hook_ids = {
+            _safe_identifier(hook_id, "Hook ID") for hook_id in hook_ids
+        }
+        verified_hook_ids = {evidence.hook_id for evidence in item.hook_evidence}
+        if (
+            not item.hook_evidence
+            or any(not evidence.verified for evidence in item.hook_evidence)
+            or not required_hook_ids.issubset(verified_hook_ids)
+        ):
+            raise SkillApplicationReceiptError(
+                "Verified Hook application evidence is unavailable.",
+                code="skill_hook_evidence_unavailable",
             )
         return item
 
@@ -558,7 +658,11 @@ class SkillApplicationReceiptStore:
             policy=raw.get("policy"),
             required_resource_paths=raw.get("required_resource_paths") or (),
         )
-        if raw.get("version") != APPLICATION_RECEIPT_VERSION:
+        raw_version = raw.get("version")
+        if raw_version not in {
+            APPLICATION_RECEIPT_V1_VERSION,
+            APPLICATION_RECEIPT_VERSION,
+        }:
             raise ValueError("invalid version")
         if raw.get("contract_id") != contract.contract_id or raw.get("contract_fingerprint") != contract.fingerprint:
             raise ValueError("invalid contract identity")
@@ -607,6 +711,24 @@ class SkillApplicationReceiptStore:
             raise ValueError("invalid application status")
         if compliance_status not in {"verified", "incomplete", "unverified"}:
             raise ValueError("invalid compliance status")
+        hook_evidence = (
+            ()
+            if raw_version == APPLICATION_RECEIPT_V1_VERSION
+            else cls._decode_hook_evidence(raw.get("hook_evidence"))
+        )
+        error_codes = _decode_identifier_list(
+            raw.get("error_codes"), field_name="error code", limit=64
+        )
+        if raw_version == APPLICATION_RECEIPT_V1_VERSION and "hook_execute" in methods:
+            raise ValueError("V1 receipt cannot contain Hook execution evidence")
+        if "hook_execute" in methods and not hook_evidence:
+            raise ValueError("Hook execution method requires evidence")
+        if hook_evidence and "hook_execute" not in methods and not error_codes:
+            raise ValueError("Hook evidence is not bound to an execution or failure")
+        if any(evidence.result_type == "failed" for evidence in hook_evidence) and (
+            "hook_execute" in methods or not error_codes
+        ):
+            raise ValueError("Failed Hook evidence is recorded as a successful execution")
         item = SkillApplicationReceiptV1(
             receipt_id=receipt_id,
             version=APPLICATION_RECEIPT_VERSION,
@@ -638,9 +760,8 @@ class SkillApplicationReceiptStore:
             tool_names=_decode_identifier_list(
                 raw.get("tool_names"), field_name="tool name", limit=64
             ),
-            error_codes=_decode_identifier_list(
-                raw.get("error_codes"), field_name="error code", limit=64
-            ),
+            error_codes=error_codes,
+            hook_evidence=hook_evidence,
             references=_decode_identifier_list(
                 raw.get("references"), field_name="reference ID", limit=64
             ),
@@ -675,7 +796,7 @@ class SkillApplicationReceiptStore:
     ) -> str:
         fingerprint = _sha256_json(
             {
-                "version": APPLICATION_RECEIPT_VERSION,
+                "version": APPLICATION_RECEIPT_IDENTITY_VERSION,
                 "contract_fingerprint": contract.fingerprint,
                 "run_id": scope.run_id,
                 "task_id": scope.task_id,
@@ -696,6 +817,157 @@ class SkillApplicationReceiptStore:
             if path in allowed and digest:
                 result[path] = digest
         return dict(sorted(result.items()))
+
+    @classmethod
+    def _hook_evidence(
+        cls, values: Iterable[SkillHookApplicationEvidenceV2]
+    ) -> tuple[SkillHookApplicationEvidenceV2, ...]:
+        result: dict[tuple[str, ...], SkillHookApplicationEvidenceV2] = {}
+        for value in values:
+            if not isinstance(value, SkillHookApplicationEvidenceV2):
+                raise SkillApplicationReceiptError(
+                    "Invalid Hook application evidence.",
+                    code="skill_application_receipt_invalid",
+                )
+            evidence = cls._validate_hook_evidence(value)
+            evidence_key = cls._hook_evidence_key(evidence)
+            previous = result.get(evidence_key)
+            if previous is not None and previous != evidence:
+                raise SkillApplicationReceiptError(
+                    "Hook evidence verification state changed.",
+                    code="skill_application_receipt_conflict",
+                )
+            result[evidence_key] = evidence
+        if len(result) > _MAX_HOOK_EVIDENCE:
+            raise SkillApplicationReceiptError(
+                "Skill application receipt has too much Hook evidence.",
+                code="skill_application_receipt_limit",
+            )
+        return tuple(result[key] for key in sorted(result))
+
+    @classmethod
+    def _decode_hook_evidence(
+        cls, value: Any
+    ) -> tuple[SkillHookApplicationEvidenceV2, ...]:
+        raw_items = value or []
+        if not isinstance(raw_items, list) or len(raw_items) > _MAX_HOOK_EVIDENCE:
+            raise ValueError("invalid Hook evidence")
+        items: list[SkillHookApplicationEvidenceV2] = []
+        for raw in raw_items:
+            if not isinstance(raw, dict) or set(raw) != {
+                "hook_id",
+                "hook_event",
+                "hook_mode",
+                "manifest_digest",
+                "script_digest",
+                "context_digest",
+                "result_digest",
+                "code",
+                "result_type",
+                "verified",
+            }:
+                raise ValueError("invalid Hook evidence")
+            try:
+                item = SkillHookApplicationEvidenceV2(**raw)
+                items.append(cls._validate_hook_evidence(item))
+            except (TypeError, SkillApplicationReceiptError) as exc:
+                raise ValueError("invalid Hook evidence") from exc
+        normalized = cls._hook_evidence(items)
+        if len(normalized) != len(items):
+            raise ValueError("duplicate Hook evidence")
+        return normalized
+
+    @staticmethod
+    def _validate_hook_evidence(
+        value: SkillHookApplicationEvidenceV2,
+    ) -> SkillHookApplicationEvidenceV2:
+        hook_id = _safe_identifier(value.hook_id, "Hook ID")
+        code = _safe_identifier(value.code, "Hook result code")
+        if not _HOOK_ID_RE.fullmatch(hook_id) or not _HOOK_CODE_RE.fullmatch(code):
+            raise SkillApplicationReceiptError(
+                "Invalid Hook evidence identifier.",
+                code="skill_application_receipt_invalid",
+            )
+        if value.hook_event not in {
+            "session_start",
+            "pre_tool_use",
+            "post_tool_use",
+            "session_end",
+        }:
+            raise SkillApplicationReceiptError(
+                "Invalid Hook event.", code="skill_application_receipt_invalid"
+            )
+        if value.hook_mode not in {"annotation", "validation", "guard"}:
+            raise SkillApplicationReceiptError(
+                "Invalid Hook mode.", code="skill_application_receipt_invalid"
+            )
+        if value.result_type not in {
+            "annotation",
+            "validation_passed",
+            "validation_failed",
+            "denied",
+            "failed",
+        }:
+            raise SkillApplicationReceiptError(
+                "Invalid Hook result type.",
+                code="skill_application_receipt_invalid",
+            )
+        if value.result_type == "annotation" and value.hook_mode != "annotation":
+            raise SkillApplicationReceiptError(
+                "Annotation evidence requires an annotation Hook.",
+                code="skill_application_receipt_invalid",
+            )
+        if value.result_type in {"validation_passed", "validation_failed"} and (
+            value.hook_mode not in {"validation", "guard"}
+        ):
+            raise SkillApplicationReceiptError(
+                "Validation evidence requires a validation or guard Hook.",
+                code="skill_application_receipt_invalid",
+            )
+        if value.result_type == "denied" and (
+            value.hook_mode != "guard" or value.hook_event != "pre_tool_use"
+        ):
+            raise SkillApplicationReceiptError(
+                "Deny evidence requires a guard pre_tool_use Hook.",
+                code="skill_application_receipt_invalid",
+            )
+        if not isinstance(value.verified, bool):
+            raise SkillApplicationReceiptError(
+                "Invalid Hook verification state.",
+                code="skill_application_receipt_invalid",
+            )
+        return SkillHookApplicationEvidenceV2(
+            hook_id=hook_id,
+            hook_event=value.hook_event,
+            hook_mode=value.hook_mode,
+            manifest_digest=_required_digest(
+                value.manifest_digest, "Hook manifest digest"
+            ),
+            script_digest=_required_digest(value.script_digest, "Hook script digest"),
+            context_digest=_required_digest(
+                value.context_digest, "Hook context digest"
+            ),
+            result_digest=_required_digest(value.result_digest, "Hook result digest"),
+            code=code,
+            result_type=value.result_type,
+            verified=value.verified,
+        )
+
+    @staticmethod
+    def _hook_evidence_key(
+        value: SkillHookApplicationEvidenceV2,
+    ) -> tuple[str, ...]:
+        return (
+            value.hook_id,
+            value.hook_event,
+            value.hook_mode,
+            value.manifest_digest,
+            value.script_digest,
+            value.context_digest,
+            value.result_digest,
+            value.code,
+            value.result_type,
+        )
 
     @staticmethod
     def _compliance_status(item: SkillApplicationReceiptV1) -> ComplianceStatus:
@@ -721,6 +993,12 @@ class SkillApplicationReceiptStore:
         ):
             return "unverified"
         methods = set(item.methods)
+        if item.hook_evidence and any(
+            not evidence.verified for evidence in item.hook_evidence
+        ):
+            return "unverified"
+        if "hook_execute" in methods and not item.hook_evidence:
+            return "unverified"
         if item.policy == "advisory":
             satisfied = bool(methods)
         elif item.policy == "require_read":
@@ -846,6 +1124,7 @@ class SkillApplicationObserver:
         expected_resource_digests: Mapping[str, str] | None = None,
         tool_name: str | None = None,
         error_code: str | None = None,
+        hook_evidence: Iterable[SkillHookApplicationEvidenceV2] = (),
     ) -> SkillApplicationReceiptV1 | None:
         contract = self.resolve_contract(
             skill_id,
@@ -871,6 +1150,7 @@ class SkillApplicationObserver:
             expected_resource_digests=expected_resource_digests,
             tool_name=tool_name,
             error_code=error_code,
+            hook_evidence=hook_evidence,
         )
 
 
@@ -901,6 +1181,15 @@ def _optional_digest(value: Any, field_name: str) -> str | None:
         return None
     clean = str(value).strip().lower()
     if not _DIGEST_RE.fullmatch(clean):
+        raise SkillApplicationReceiptError(
+            f"Invalid {field_name}.", code="skill_application_receipt_invalid"
+        )
+    return clean
+
+
+def _required_digest(value: Any, field_name: str) -> str:
+    clean = _optional_digest(value, field_name)
+    if clean is None:
         raise SkillApplicationReceiptError(
             f"Invalid {field_name}.", code="skill_application_receipt_invalid"
         )
@@ -965,14 +1254,18 @@ def _decode_quarantine_record(value: Any) -> dict[str, Any] | None:
 
 
 __all__ = [
+    "APPLICATION_CONTRACT_VERSION",
     "APPLICATION_RECEIPT_VERSION",
+    "APPLICATION_RECEIPT_V1_VERSION",
     "SkillApplicationContractV1",
     "SkillApplicationReceiptError",
     "SkillApplicationObserver",
     "SkillApplicationReceiptStorageError",
     "SkillApplicationReceiptStore",
     "SkillApplicationReceiptV1",
+    "SkillApplicationReceiptV2",
     "SkillApplicationScope",
+    "SkillHookApplicationEvidenceV2",
     "application_receipt_mode",
     "build_application_contract",
 ]

@@ -17,6 +17,7 @@ from typing import Any, Literal, Mapping
 from urllib.parse import urlparse
 
 from .draft_store import SkillDraftValidationError, WorkspaceSkillDraftStore
+from .hook_contract import HOOK_MANIFEST_PATH, hook_capability_projection
 from .local_import import LocalSkillImport, SkillLocalImportError, SkillLocalImportStore
 from .package_validation import compute_package_digest
 from .trust_scanner import SkillTrustTreeEntry, scan_skill_trust_receipt
@@ -1394,6 +1395,51 @@ class SkillManager:
                 installed.get(normalized_skill_id, {}),
                 version_id=version_id,
             )
+
+    def get_hook_capability(
+        self, skill_id: str, *, version_id: str | None = None
+    ) -> dict[str, Any]:
+        """Project bounded Hook metadata without exposing manifest rules or code."""
+
+        root = self.get_skill_directory(skill_id, version_id=version_id)
+        manifest_path = root / HOOK_MANIFEST_PATH
+        try:
+            if manifest_path.is_symlink():
+                raise OSError("unsafe Hook manifest")
+            if not manifest_path.exists():
+                return hook_capability_projection(None)
+            if not manifest_path.is_file():
+                raise OSError("unsafe Hook manifest")
+            content = manifest_path.read_bytes()
+            available_paths = [
+                path.relative_to(root).as_posix()
+                for path in root.rglob("*")
+                if path.is_file() and not path.is_symlink()
+            ]
+            projection = hook_capability_projection(
+                content,
+                available_paths=available_paths,
+            )
+            if version_id is None:
+                installed = self.get_installed_skill(skill_id)
+                if (
+                    installed.source_kind in {"git", "local_import"}
+                    and not installed.trust_router_eligible
+                ):
+                    projection["runnable"] = False
+            return projection
+        except OSError:
+            return {
+                "available": True,
+                "manifestVersion": None,
+                "manifestFingerprint": None,
+                "hookCount": 0,
+                "events": [],
+                "modes": [],
+                "contractValid": False,
+                "runnable": False,
+                "errorCode": "skill_hook_manifest_invalid",
+            }
 
     def bind_skill_versions(self, skill_ids: list[str] | set[str] | tuple[str, ...]) -> dict[str, str]:
         """Freeze active lifecycle versions for one newly-started run."""

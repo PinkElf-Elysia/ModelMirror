@@ -11,6 +11,11 @@ from pathlib import PurePosixPath
 from typing import Any, Iterable, Literal, Mapping, Sequence
 from urllib.parse import urlsplit
 
+from .hook_contract import (
+    HOOK_MANIFEST_PATH,
+    SkillHookContractError,
+    parse_hook_manifest,
+)
 from .package_validation import (
     SkillPackageIssue,
     _check_file_directory_conflicts,
@@ -64,6 +69,8 @@ _HARD_BLOCK_FINDING_CODES = {
     "package_files_type",
     "package_size_exceeded",
     "skill_markdown_empty",
+    "skill_hook_manifest_invalid",
+    "skill_hook_path_unsupported",
     "trust_directory_tree_missing",
     "trust_file_count_exceeded",
     "trust_file_size_exceeded",
@@ -606,6 +613,60 @@ def scan_skill_trust_receipt(
     if "SKILL.md" not in text_files:
         state.add("trust_skill_markdown_missing", "critical", "The package does not contain a readable UTF-8 SKILL.md at its root.", risk="critical", path="SKILL.md")
 
+    hook_capability: dict[str, Any] | None = None
+    hook_manifest = text_files.get(HOOK_MANIFEST_PATH)
+    if hook_manifest is not None:
+        unsupported_hook_paths = sorted(
+            path
+            for path in raw_files
+            if path.startswith("hooks/") and path != HOOK_MANIFEST_PATH
+        )
+        for path in unsupported_hook_paths:
+            state.add(
+                "skill_hook_path_unsupported",
+                "critical",
+                "A V2 Hook package may only contain hooks/manifest.json under hooks/.",
+                risk="critical",
+                path=path,
+            )
+        try:
+            manifest = parse_hook_manifest(
+                hook_manifest,
+                available_paths=text_files,
+            )
+        except SkillHookContractError as exc:
+            state.add(
+                exc.code,
+                "critical",
+                str(exc),
+                risk="critical",
+                path=exc.path,
+            )
+            hook_capability = {
+                "manifestVersion": None,
+                "manifestFingerprint": None,
+                "hookCount": 0,
+                "events": [],
+                "contractValid": False,
+                "v2Runnable": False,
+            }
+        else:
+            state.add(
+                "trust_plugin_hook",
+                "warning",
+                "The Skill declares deterministic offline plugin Hooks and requires explicit confirmation.",
+                risk="medium",
+                path=HOOK_MANIFEST_PATH,
+            )
+            hook_capability = {
+                "manifestVersion": manifest.version,
+                "manifestFingerprint": manifest.fingerprint,
+                "hookCount": len(manifest.hooks),
+                "events": sorted({hook.event for hook in manifest.hooks}),
+                "contractValid": True,
+                "v2Runnable": True,
+            }
+
     package_issues: list[SkillPackageIssue] = []
     frontmatter: dict[str, Any] | None = None
     parsed: dict[str, Any] | None = None
@@ -683,6 +744,8 @@ def scan_skill_trust_receipt(
         "destructive": bool(_DESTRUCTIVE_RE.search(all_text)),
         "securitySensitive": bool(_SECURITY_SENSITIVE_RE.search(all_text)),
     }
+    if hook_capability is not None:
+        capabilities["pluginHook"] = bool(hook_capability.get("contractValid"))
     capability_messages = {
         "network": ("trust_network_required", "The Skill declares network access."),
         "credentials": ("trust_credentials_required", "The Skill declares credential or token requirements."),
@@ -755,6 +818,10 @@ def scan_skill_trust_receipt(
         not blocked
         and not finding_codes.intersection(_ROUTER_EXCLUDED_FINDING_CODES)
     )
+    if hook_capability is not None:
+        hook_capability["v2Runnable"] = bool(
+            hook_capability.get("contractValid") and router_eligible
+        )
     trust_status: TrustStatus = "blocked" if blocked else "verified" if state.risk_level == "low" else "conditional"
     install_policy: InstallPolicy = "block" if blocked else "allow" if state.risk_level == "low" else "confirm"
     compatibility: CompatibilityStatus = "unsupported" if blocked else "portable" if state.risk_level == "low" else "conditional"
@@ -790,6 +857,8 @@ def scan_skill_trust_receipt(
         "capabilities": capabilities,
         "findings": [finding.to_dict() for finding in findings],
     }
+    if hook_capability is not None:
+        receipt_payload["hookCapability"] = hook_capability
     receipt_payload["trustFingerprint"] = sha256_json(receipt_payload)
     return receipt_payload
 

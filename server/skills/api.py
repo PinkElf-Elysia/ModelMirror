@@ -129,6 +129,7 @@ class SkillPayload(BaseModel):
     trust_acknowledgement_required: bool = False
     trust_acknowledgement_satisfied: bool = True
     trust_reason_codes: list[str] = Field(default_factory=list)
+    hook_capability: dict[str, object] = Field(default_factory=dict)
 
 
 class SkillTrustAcknowledgementRequest(BaseModel):
@@ -467,6 +468,34 @@ async def materialize_skillset(
 
 def _payload_from_skill(skill: InstalledSkill) -> SkillPayload:
     trust_projection = _trust_projection(skill)
+    manager = get_skill_manager()
+    projector = getattr(manager, "get_hook_capability", None)
+    try:
+        hook_capability = projector(skill.skill_id) if callable(projector) else None
+    except SkillManagerError:
+        hook_capability = {
+            "available": True,
+            "manifestVersion": None,
+            "manifestFingerprint": None,
+            "hookCount": 0,
+            "events": [],
+            "modes": [],
+            "contractValid": False,
+            "runnable": False,
+            "errorCode": "skill_hook_manifest_invalid",
+        }
+    if hook_capability is None:
+        hook_capability = {
+            "available": False,
+            "manifestVersion": None,
+            "manifestFingerprint": None,
+            "hookCount": 0,
+            "events": [],
+            "modes": [],
+            "contractValid": False,
+            "runnable": False,
+            "errorCode": None,
+        }
     return SkillPayload(
         skill_id=skill.skill_id,
         name=skill.name,
@@ -490,6 +519,7 @@ def _payload_from_skill(skill: InstalledSkill) -> SkillPayload:
         trust_package_digest=skill.trust_package_digest,
         trust_directory_tree_sha=skill.trust_directory_tree_sha,
         trust_verified_at=skill.trust_verified_at,
+        hook_capability=hook_capability,
         **trust_projection,
     )
 

@@ -125,7 +125,7 @@ class WorkspaceSkillDraftStore:
     MAX_FILES = 40
     MAX_FILE_BYTES = 1024 * 1024
     MAX_TOTAL_BYTES = 5 * 1024 * 1024
-    ALLOWED_ROOTS = {"scripts", "references", "assets", "agents"}
+    ALLOWED_ROOTS = {"scripts", "references", "assets", "agents", "hooks"}
 
     def __init__(self, storage_dir: str | Path | None = None) -> None:
         package_dir = Path(__file__).resolve().parent
@@ -1155,6 +1155,10 @@ class WorkspaceSkillDraftStore:
         if path.parts[0] == "agents" and normalized != "agents/openai.yaml":
             raise SkillDraftValidationError(
                 "Only agents/openai.yaml is supported under agents/."
+            )
+        if path.parts[0] == "hooks" and normalized != "hooks/manifest.json":
+            raise SkillDraftValidationError(
+                "Only hooks/manifest.json is supported under hooks/."
             )
         return normalized
 

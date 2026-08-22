@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 import pytest
 
@@ -71,6 +72,8 @@ def test_pure_text_skill_is_low_risk_and_directly_installable() -> None:
     assert receipt["packageDigest"]
     assert receipt["scannerVersion"] == SKILL_TRUST_SCANNER_VERSION
     assert receipt["findings"] == []
+    assert "pluginHook" not in receipt["capabilities"]
+    assert "hookCapability" not in receipt
 
 
 def test_local_python_and_file_write_are_medium_risk() -> None:
@@ -85,6 +88,114 @@ def test_local_python_and_file_write_are_medium_risk() -> None:
     assert receipt["routerEligible"] is True
     assert receipt["summary"]["scriptCount"] == 1
     assert {"trust_local_script", "trust_sandbox_write_required"} <= _codes(receipt)
+
+
+def test_valid_v2_hook_requires_confirmation_and_projects_capability() -> None:
+    manifest = json.dumps(
+        {
+            "version": "modelmirror-hook-manifest-v2",
+            "hooks": [
+                {
+                    "hook_id": "check-release-name",
+                    "event": "pre_tool_use",
+                    "mode": "guard",
+                    "tool_names": ["sandbox_write_file"],
+                    "script_path": "scripts/check_release.py",
+                    "purpose": "Reject unsafe release file names before a write.",
+                    "acceptance_checks": ["Allow safe names.", "Deny executable extensions."],
+                    "timeout_seconds": 15,
+                }
+            ],
+        }
+    ).encode()
+    receipt = _scan(
+        _entry("SKILL.md", _markdown()),
+        _entry("scripts/check_release.py", b"raise SystemExit(0)\n"),
+        _entry("hooks/manifest.json", manifest),
+    )
+
+    assert receipt["installPolicy"] == "confirm"
+    assert receipt["capabilities"]["pluginHook"] is True
+    assert receipt["hookCapability"] == {
+        "manifestVersion": "modelmirror-hook-manifest-v2",
+        "manifestFingerprint": receipt["hookCapability"]["manifestFingerprint"],
+        "hookCount": 1,
+        "events": ["pre_tool_use"],
+        "contractValid": True,
+        "v2Runnable": True,
+    }
+    assert len(receipt["hookCapability"]["manifestFingerprint"]) == 64
+    assert "trust_plugin_hook" in _codes(receipt)
+
+
+def test_v2_hook_with_invalid_script_is_not_runtime_eligible() -> None:
+    manifest = json.dumps(
+        {
+            "version": "modelmirror-hook-manifest-v2",
+            "hooks": [
+                {
+                    "hook_id": "check-release-name",
+                    "event": "pre_tool_use",
+                    "mode": "guard",
+                    "tool_names": ["sandbox_write_file"],
+                    "script_path": "scripts/check_release.py",
+                    "purpose": "Reject unsafe release file names before a write.",
+                    "acceptance_checks": ["Allow safe names.", "Deny executable extensions."],
+                    "timeout_seconds": 15,
+                }
+            ],
+        }
+    ).encode()
+    receipt = _scan(
+        _entry("SKILL.md", _markdown()),
+        _entry("scripts/check_release.py", b"def broken(:\n"),
+        _entry("hooks/manifest.json", manifest),
+    )
+
+    assert receipt["installPolicy"] == "confirm"
+    assert receipt["routerEligible"] is False
+    assert receipt["hookCapability"]["contractValid"] is True
+    assert receipt["hookCapability"]["v2Runnable"] is False
+    assert "python_syntax_invalid" in _codes(receipt)
+
+
+@pytest.mark.parametrize(
+    ("manifest", "extra_entries"),
+    [
+        (b"{}", ()),
+        (
+            json.dumps(
+                {
+                    "version": "modelmirror-hook-manifest-v2",
+                    "hooks": [
+                        {
+                            "hook_id": "unsafe-runtime",
+                            "event": "pre_tool_use",
+                            "mode": "guard",
+                            "tool_names": ["sandbox_write_file"],
+                            "script_path": "scripts/check.sh",
+                            "purpose": "Reject unsafe writes.",
+                            "acceptance_checks": ["Deny an unsafe write."],
+                            "timeout_seconds": 15,
+                        }
+                    ],
+                }
+            ).encode(),
+            (_entry("scripts/check.sh", b"exit 0\n"),),
+        ),
+    ],
+)
+def test_invalid_v2_hook_manifest_is_blocked(manifest: bytes, extra_entries: tuple) -> None:
+    receipt = _scan(
+        _entry("SKILL.md", _markdown()),
+        _entry("hooks/manifest.json", manifest),
+        *extra_entries,
+    )
+
+    assert receipt["trustStatus"] == "blocked"
+    assert receipt["installPolicy"] == "block"
+    assert receipt["routerEligible"] is False
+    assert "skill_hook_manifest_invalid" in _codes(receipt)
 
 
 def test_python_subprocess_is_high_risk_shell_capability() -> None:

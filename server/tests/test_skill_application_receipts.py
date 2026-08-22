@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -11,11 +12,13 @@ import pytest
 
 from server.skills.application_receipts import (
     APPLICATION_RECEIPT_VERSION,
+    APPLICATION_RECEIPT_V1_VERSION,
     SkillApplicationObserver,
     SkillApplicationReceiptError,
     SkillApplicationReceiptStorageError,
     SkillApplicationReceiptStore,
     SkillApplicationScope,
+    SkillHookApplicationEvidenceV2,
     build_application_contract,
 )
 from server.skills.creator_evaluation import SkillEvaluationStore, SkillEvaluationValidationError
@@ -102,6 +105,196 @@ def test_contract_and_receipt_distinguish_selection_from_application(tmp_path):
     assert second_node is not None
     assert second_node.receipt_id == applied.receipt_id
     assert second_node.node_ids == ("second-agent", "workflow-agent")
+
+
+def test_v2_persists_bounded_hook_evidence_and_requires_verified_execution(tmp_path):
+    store = SkillApplicationReceiptStore(tmp_path)
+    contract = _contract(policy="advisory")
+    evidence = SkillHookApplicationEvidenceV2(
+        hook_id="check-release-name",
+        hook_event="pre_tool_use",
+        hook_mode="guard",
+        manifest_digest=_digest("manifest"),
+        script_digest=_digest("script"),
+        context_digest=_digest("redacted-context"),
+        result_digest=_digest("typed-result"),
+        code="release_name_allowed",
+        result_type="validation_passed",
+        verified=True,
+    )
+
+    receipt = store.observe(
+        contract,
+        _scope(),
+        method="hook_execute",
+        tool_name="skill_hook_execute",
+        hook_evidence=(evidence,),
+    )
+
+    assert receipt is not None
+    assert receipt.version == APPLICATION_RECEIPT_VERSION
+    assert receipt.methods == ("hook_execute",)
+    assert receipt.compliance_status == "verified"
+    assert receipt.hook_evidence == (evidence,)
+    assert store.require_verified_hook_evidence(
+        receipt.receipt_id, hook_ids=("check-release-name",)
+    ).receipt_id == receipt.receipt_id
+    persisted = store.snapshot_path.read_text(encoding="utf-8")
+    assert "redacted-context" not in persisted
+    assert "typed-result" not in persisted
+
+
+def test_v1_receipt_migrates_without_fabricating_hook_evidence(tmp_path):
+    store = SkillApplicationReceiptStore(tmp_path)
+    selected = store.record_selection(_contract(), _scope())
+    assert selected is not None
+    payload = json.loads(store.snapshot_path.read_text(encoding="utf-8"))
+    payload["version"] = APPLICATION_RECEIPT_V1_VERSION
+    payload["receipts"][0]["version"] = APPLICATION_RECEIPT_V1_VERSION
+    payload["receipts"][0].pop("hook_evidence", None)
+    store.snapshot_path.write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+    )
+
+    migrated = SkillApplicationReceiptStore(tmp_path).require(selected.receipt_id)
+
+    assert migrated.version == APPLICATION_RECEIPT_VERSION
+    assert migrated.hook_evidence == ()
+    assert migrated.receipt_id == selected.receipt_id
+
+
+def test_hook_evidence_rejects_impossible_deny_boundary(tmp_path):
+    store = SkillApplicationReceiptStore(tmp_path)
+    evidence = SkillHookApplicationEvidenceV2(
+        hook_id="late-deny",
+        hook_event="post_tool_use",
+        hook_mode="guard",
+        manifest_digest=_digest("manifest"),
+        script_digest=_digest("script"),
+        context_digest=_digest("context"),
+        result_digest=_digest("result"),
+        code="late_deny",
+        result_type="denied",
+        verified=True,
+    )
+
+    with pytest.raises(SkillApplicationReceiptError):
+        store.observe(
+            _contract(policy="advisory"),
+            _scope(),
+            method="hook_execute",
+            hook_evidence=(evidence,),
+        )
+
+
+def test_unverified_hook_evidence_cannot_satisfy_verified_gate(tmp_path):
+    store = SkillApplicationReceiptStore(tmp_path)
+    evidence = SkillHookApplicationEvidenceV2(
+        hook_id="check-release-name",
+        hook_event="pre_tool_use",
+        hook_mode="guard",
+        manifest_digest=_digest("manifest"),
+        script_digest=_digest("script"),
+        context_digest=_digest("context"),
+        result_digest=_digest("result"),
+        code="release_name_allowed",
+        result_type="validation_passed",
+        verified=False,
+    )
+
+    receipt = store.observe(
+        _contract(policy="advisory"),
+        _scope(),
+        method="hook_execute",
+        hook_evidence=(evidence,),
+    )
+
+    assert receipt is not None
+    assert receipt.compliance_status == "unverified"
+    with pytest.raises(SkillApplicationReceiptError) as error:
+        store.require_verified_hook_evidence(receipt.receipt_id)
+    assert error.value.code == "skill_application_receipt_incomplete"
+
+
+@pytest.mark.parametrize(
+    "invalid_evidence",
+    [
+        SkillHookApplicationEvidenceV2(
+            hook_id="check-release-name",
+            hook_event="pre_tool_use",
+            hook_mode="guard",
+            manifest_digest="",
+            script_digest=_digest("script"),
+            context_digest=_digest("context"),
+            result_digest=_digest("result"),
+            code="release_name_allowed",
+            result_type="validation_passed",
+            verified=True,
+        ),
+        SkillHookApplicationEvidenceV2(
+            hook_id="check-release-name",
+            hook_event="pre_tool_use",
+            hook_mode="guard",
+            manifest_digest=_digest("manifest"),
+            script_digest=_digest("script"),
+            context_digest=_digest("context"),
+            result_digest=_digest("result"),
+            code="wrong_result_type",
+            result_type="annotation",
+            verified=True,
+        ),
+    ],
+)
+def test_hook_evidence_requires_all_digests_and_matching_mode(
+    tmp_path, invalid_evidence
+):
+    store = SkillApplicationReceiptStore(tmp_path)
+
+    with pytest.raises(SkillApplicationReceiptError) as error:
+        store.observe(
+            _contract(policy="advisory"),
+            _scope(),
+            method="hook_execute",
+            hook_evidence=(invalid_evidence,),
+        )
+
+    assert error.value.code == "skill_application_receipt_invalid"
+
+
+def test_failed_hook_evidence_cannot_be_recorded_as_success(tmp_path):
+    store = SkillApplicationReceiptStore(tmp_path)
+    evidence = SkillHookApplicationEvidenceV2(
+        hook_id="check-release-name",
+        hook_event="pre_tool_use",
+        hook_mode="guard",
+        manifest_digest=_digest("manifest"),
+        script_digest=_digest("script"),
+        context_digest=_digest("context"),
+        result_digest=_digest("result"),
+        code="hook_process_failed",
+        result_type="failed",
+        verified=True,
+    )
+    with pytest.raises(SkillApplicationReceiptError):
+        store.observe(
+            _contract(policy="advisory"),
+            _scope(),
+            method="hook_execute",
+            hook_evidence=(evidence,),
+        )
+
+    failed = store.observe(
+        _contract(policy="advisory"),
+        _scope(),
+        method="hook_execute",
+        error_code="skill_hook_execution_failed",
+        hook_evidence=(replace(evidence, verified=False),),
+    )
+
+    assert failed is not None
+    assert failed.methods == ()
+    assert failed.application_status == "failed"
+    assert failed.compliance_status == "unverified"
 
 
 def test_resource_read_evidence_does_not_forge_skill_read_method(tmp_path):
