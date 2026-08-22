@@ -1,0 +1,6 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+
+test("R15 exposes the two private evidence workspaces and bounded commands",async()=>{const root=JSON.parse(await readFile(new URL("../package.json",import.meta.url),"utf8"));assert.match(root.scripts["plan:r15-replay"],/plan-r15-replay\.mjs/);assert.match(root.scripts["verify:r15-runtime-evidence"],/test:r15-runtime-evidence-contracts/);const contracts=JSON.parse(await readFile(new URL("../packages/prototype-runtime-evidence-contracts/package.json",import.meta.url),"utf8"));const evidence=JSON.parse(await readFile(new URL("../packages/prototype-runtime-evidence/package.json",import.meta.url),"utf8"));assert.equal(contracts.name,"@matrix-oasis/prototype-runtime-evidence-contracts");assert.equal(evidence.name,"@matrix-oasis/prototype-runtime-evidence");});
+test("R15 replay CLI has no network, provider or direct runtime mutation surface",async()=>{const text=await readFile(new URL("../scripts/plan-r15-replay.mjs",import.meta.url),"utf8");assert.doesNotMatch(text,/fetch\(|https?:|Marble|Meshy|OpenAI|_apply_action|try_interact|set_synthetic_move_input/);assert.match(text,/planPrototypeRuntimeReplay/);});
