@@ -434,3 +434,15 @@ flowchart LR
 ```
 
 Controller 只能读取公开 manifest、fixture 与三个 Unix socket，不挂载 checker bundle、模型密钥或 Docker socket。Native runner 与 Worker runner 使用不同全新 Workspace/session；checker 是唯一读取隐藏检查正文的进程。公开报告只保存 digest、分类与脱敏 Artifact 清单。确定性 Fake smoke、Compose 展开、CLI 版本探针和本仓库自动测试只能证明协议与隔离结构，不能证明成功率等效。
+
+## V18 真实任务与来源准入边界
+
+V18 将评测任务迁移到独立 Harbor 0.21.0 Task 1.4 包。生产 Server 不导入 Harbor；外置 `ModelMirrorWorkerAgent` 只经正式 Worker API 驱动任务并把公开 ledger 映射为 ATIF。H0、Oracle solution 与 verifier 在文件和运行角色上分离，最终 Workspace Artifact 由独立无网络 verifier 检查。公开仓库只保存 verifier 启动包装和策略检查；隐藏检查正文位于仓库外只读密封目录，CLI 校验逐任务及整体哈希后仅注入临时 Harbor task 副本。Provider、Executor 和产品 API 不挂载公开 verifier 或密封正文。
+
+新任务进入 Store 前必须通过 `WorkspaceSourceAdapter.admit()`。幂等查找先于来源检查，因此已创建任务在来源暂时离线时仍能被原调用方取得；全新 builtin、manifest 或 host snapshot 来源则必须证明注册、精确 revision、当前可用与适配器支持。加密 admission receipt 与任务、`source_admitted` 事件原子写入，Scheduler acquire 仍做 exact revision 复核，receipt 不能替代使用时检查。
+
+Harness v3 报告只接受 Harbor 结果、ATIF/Worker ledger、终态 Workspace 与绑定摘要派生的事实。协调失败、重复副作用、未结算 operation 和孤立交互都携带 evidence ID；缺失或无法重建即失败关闭。V18 的 12×2×2 只用于校准，不进入认证，也不支持任何等效宣传。
+
+校准 Controller 通过仅本机回环可达的私有端点，在整轮前后核验在线 Server 与两个 Provider 的代码包、Controller generation、固定 OpenCode 引擎、通用 route 和模型身份哈希。证明内容不包含原始模型 ID、Provider 凭据或端点；任一在线组件与候选 checkout 不一致时，已有 run 不得汇总为报告。
+
+原生 OpenCode 评测采用默认拒绝的权限图，只开放 H0 内文件工具及 manifest/scenario 冻结的精确命令；inspect 命令可复测，mutate 命令才参与副作用唯一性计算。Harbor 内置非交互 OpenCode runner 目前不能对等编排 question、steering 与故障恢复，因此包含 Session scenario 的完整矩阵在入口处失败关闭。这个 runner 缺口属于 Harness 阻断，不能归因于模型，也不能通过删除交互任务掩盖。

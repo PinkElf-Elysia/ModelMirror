@@ -803,3 +803,22 @@ docker compose `
 Native runner 是唯一同时持有受控模型 route key 和原版 OpenCode 1.18.9 的对照进程；Worker runner 只调用正式 Worker API；checker `network_mode:none` 且唯一挂载密封隐藏检查；controller `network_mode:none`，不挂载 hidden bundle、route key、Docker socket 或 Workspace。两个 runner 都只能导出终态不透明 Artifact，checker 复核 run/task/tree/artifact/check 绑定后才执行隐藏检查。
 
 CLI 的 `validate`、Fake `smoke`、`report` 和 `certify` 可以在自动门禁中使用；真实 `run-round` 必须处于发布认证窗口。不同 round 的 run ID 必须不同，两个 round 必须绑定相同 candidate、manifest、route、bundle 和 runner image。当前实现交付时尚未运行两轮共 288 次真实模型认证，也未完成无 P0/P1 的 Console 人工门禁，因此 V17 只能保持 Experimental，禁止使用任何“接近 OpenCode”表述。
+
+## Coding Worker V18 Harbor 校准环境
+
+Harbor `0.21.0` 是评测工具，不是 Server 依赖，也不得加入共享产品栈。任务包位于 `benchmarks/coding-worker-v18/`，原生对照固定 OpenCode `1.18.9`。公开任务包不得保存隐藏 checker 正文；发布窗口另行提供仓库外只读绝对目录，并通过 `--sealed-checker-root` 交给 `validate`、`task-gate` 与 `run-round`。CLI 在临时任务副本中注入正文并绑定实际 bundle digest。先用专用 Python 环境安装固定 Harbor，再运行 `compile --write`、`validate` 和确定性任务门禁；不得修改 Server 的生产 requirements。
+
+评测 Server 只有在独立校准环境中才加载 `docker-compose.coding-worker-v18-harness.yml`；默认保持关闭，并且不能与 parity v2 同时启用。宿主变量只提供公开 fixture bundle 的绝对路径，overlay 把它只读挂到固定容器路径：
+
+```dotenv
+CODING_WORKER_HARNESS_V3_FIXTURE_FILE=C:\absolute\evaluation\fixture-bundle.json
+CODING_WORKER_HARNESS_CONTROLLER_TOKEN=<random-at-least-32-bytes>
+```
+
+overlay 内固定 `CODING_WORKER_HARNESS_V3_ENABLED=true`、`CODING_WORKER_PARITY_ENABLED=false` 与容器路径 `/harness-v3/fixture-bundle.json`，并清空 V14 overlay 的单一 builtin source root/revision，让 Server 只注册公开的 12 项 fixture。Controller token 只进入评测 Server 与本次 Harbor Worker Agent 环境，不进入 route binding、日志或 Artifact。受控故障接口只在该 profile 可见，只能绑定唯一待批准的 mutate shell operation。overlay 不挂载 solution、公开 verifier 或密封 checker，不能加入共享产品栈。
+
+Docker Desktop 无法满足 Harbor 标准动态出站控制时，确定性 Oracle/Nop/near-miss 仍只能使用仓库提供的 `StaticNoNetworkDockerEnvironment`；该环境对所有阶段强制 `network_mode:none`。评测专用 `DockerDesktopAllowlistProbeEnvironment` 可让少量明确选择的场景经 exact-host sidecar 做真实模型探测，但 `run-round` 会硬拒绝该适配器，因此结果不是校准证据。探测 overlay 使用显式可路由子网；将其标成 `internal:true` 会在到达 sidecar 前阻断 DNS/egress，真正的边界是任务网络中只允许访问 exact-host sidecar，直连仍拒绝。真实 `run-round` 必须迁移到 Linux、使用 Harbor 标准 Docker environment，并先验证动态 egress preflight。容器化 controller 的仓库和 jobs 参数必须使用 Docker host 看到的真实绝对路径；把 controller 内 `/jobs` 直接交给 Docker API 会导致 verifier 产物对宿主不可见，必须传入 Docker host 可解析的同一绝对路径。
+
+`run-round` 固定 48 次并要求显式 Worker URL、公共 model route、随机 seed、当前候选 SHA、独立 jobs/runs 目录、外置密封 checker 目录，以及至少一个冻结模型网关的精确 `--allow-agent-host`；通配符、IP 字面量和 localhost 均失败关闭。它只能在固定 Linux controller 容器内运行，通过 Docker daemon 把当前 container ID 对账到不可变 image ID，拒绝宿主直接运行、零值和调用方填写的 runner digest。Worker URL 必须是带显式端口的本机回环 HTTP `/api/coding-worker/v1` 基址，禁止 userinfo、query 与 fragment。候选 SHA 必须等于当前 HEAD，且整个评测 checkout 必须干净。Harbor 仅在 `agent.run()` 阶段开放模型网关，Verifier 继续无网络。两侧 Agent 超时固定为 900 秒。原生 OpenCode 使用默认拒绝权限和经过认证的仅回环 Session API；只有问题任务开放 question，文件/Todo 与任务冻结命令按精确规则开放。OpenCode 1.18.9 的内置 LSP 会继承 Server 环境且可能加载仓库插件，本轮原生对照因此失败关闭 LSP；Worker 侧已有隔离 LSP 不变，这项非对称限制必须进入工具配置摘要并在校准报告中保留，不能用于等效结论。OpenCode Server 固定以 root 持有认证与模型 route 环境，全部冻结 Shell 则强制经平台 wrapper 使用 `env -i` 最小环境及 uid/gid 65534 执行，Workspace 只向该 UID 开放写入，任务代码不能读取 root-only 控制目录。控制器按真实状态执行回答、steering、显式 compaction 和故障后 reconcile，并保存不含隐藏思维链的 `native_ledger`。冻结的 restart 场景由同一监督 wrapper 在命令成功后写入结果标记并阻塞工具回执，随后终止整个 OpenCode 进程组；只有原 call ID、intent hash、成功结果 hash、故障事件和 resume 全部一一闭合，原 operation 才能由 unknown 转为 completed。缺台账、消息哈希、实际 question/compaction 事件或该闭环时，即使 checker 通过也不能 accepted。每条 run 仍对账模型、checker bundle、candidate、实际 controller image，以及在线 Server/Provider/route/代码包 attestation。
+
+原生 Session 控制硬门禁已经实现，当前 fixture bundle 与外置密封 checker 的只读 `validate` 也已重新闭合。明确授权的小规模真实探测完成三项 Session：结构化提问与 steering/compaction 两项 accepted；restart/reconcile 一项按事实 rejected。后者的 unknown/reconcile 台账已闭合且四项协调诊断为零，但模型尝试了未批准 Shell，并生成错误的稳定索引顺序，所以仍是有效的 `policy/agent outcome` 失败。该 `2/3` 结果不等于 runner 可认证；48 次校准未运行，12 项离线 runtime 覆盖也未闭合。真实校准不应在普通构建或共享栈重建中自动启动；下一步仍须在固定 Linux controller 中冻结完整 runtime 与候选。回退只停止评测 profile；admission receipt 与已有产品数据保留。
