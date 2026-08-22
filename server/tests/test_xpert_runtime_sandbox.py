@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from server.sandbox_sidecar.engine import SandboxEngine, SandboxEngineError
+from server.skills.package_validation import compute_skill_content_digest
 from server.xpert_runtime import (
     LocalSandboxClient,
     RuntimeToolCall,
@@ -43,6 +45,19 @@ class VersionedFakeSkillManager(FakeSkillManager):
     def __init__(self, current_root: Path, version_root: Path) -> None:
         super().__init__(current_root)
         self.version_root = version_root
+        package_digest = compute_skill_content_digest(
+            {
+                path.relative_to(version_root).as_posix(): path.read_bytes()
+                for path in version_root.rglob("*")
+                if path.is_file()
+            }
+        )
+        self.lifecycle_store = SimpleNamespace(
+            require_version=lambda version_id: SimpleNamespace(
+                skill_id=self.skill.skill_id,
+                package_digest=package_digest,
+            )
+        )
 
     def get_skill_content(
         self, skill_id: str, *, version_id: str | None = None

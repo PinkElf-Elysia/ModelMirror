@@ -8,11 +8,12 @@ import re
 import threading
 import time
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 try:
     from server.skills.finder import SkillFinder, SkillFinderError
+    from server.skills.package_validation import compute_skill_content_digest
     from server.skills.semantic_rerank_service import SkillSemanticRerankService
     from server.skills.trust_service import (
         SkillRuntimeEnvironment,
@@ -23,6 +24,7 @@ except ModuleNotFoundError as exc:  # Docker image copies server/* directly into
     if exc.name != "server":
         raise
     from skills.finder import SkillFinder, SkillFinderError
+    from skills.package_validation import compute_skill_content_digest
     from skills.semantic_rerank_service import SkillSemanticRerankService
     from skills.trust_service import (
         SkillRuntimeEnvironment,
@@ -55,6 +57,21 @@ SKILL_TOOL_NAMES = {
 SKILL_STAGE_MAX_FILES = 500
 SKILL_STAGE_MAX_FILE_BYTES = 10 * 1024 * 1024
 SKILL_STAGE_MAX_TOTAL_BYTES = 50 * 1024 * 1024
+_OPAQUE_SKILL_RESOURCE_SUFFIXES = frozenset(
+    {
+        ".gif",
+        ".jpeg",
+        ".jpg",
+        ".mp3",
+        ".mp4",
+        ".pdf",
+        ".png",
+        ".wav",
+        ".webp",
+        ".woff",
+        ".woff2",
+    }
+)
 
 
 class SandboxToolsetProvider:
@@ -488,6 +505,11 @@ class SandboxToolsetProvider:
         )
         try:
             response = await self.client.request(request)
+            if action == "search_files":
+                response = self._filter_binary_skill_search_matches(
+                    workspace,
+                    response,
+                )
             output = json.dumps(response, ensure_ascii=False)
             self.store.complete_operation(
                 operation_id,
@@ -501,6 +523,13 @@ class SandboxToolsetProvider:
                 "operation_id": operation_id,
                 "replayed": bool(response.get("replayed")),
             }
+            metadata.update(
+                self._sandbox_access_metadata(
+                    workspace,
+                    action=action,
+                    response=response,
+                )
+            )
             if artifact_id:
                 artifact = self.store.register_artifact(
                     artifact_id=artifact_id,
@@ -547,6 +576,164 @@ class SandboxToolsetProvider:
             self.store.fail_operation(operation_id, error=str(exc))
             raise
 
+    @staticmethod
+    def _is_utf8_text(content: bytes, *, path: str | Path | None = None) -> bool:
+        if path is not None:
+            suffix = PurePosixPath(str(path).replace("\\", "/")).suffix.lower()
+            if suffix in _OPAQUE_SKILL_RESOURCE_SUFFIXES:
+                return False
+        if content.startswith(b"%PDF-"):
+            return False
+        if b"\x00" in content[:4096]:
+            return False
+        try:
+            content.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            return False
+        return True
+
+    def _filter_binary_skill_search_matches(
+        self,
+        workspace: SandboxWorkspace,
+        response: dict[str, Any],
+    ) -> dict[str, Any]:
+        matches = response.get("matches")
+        if not isinstance(matches, list):
+            return response
+        workspace_root = (
+            self.store.workspace_root / workspace.workspace_id
+        ).resolve()
+        filtered: list[dict[str, Any]] = []
+        for item in matches[:100]:
+            if not isinstance(item, dict):
+                continue
+            normalized = str(item.get("path") or "").strip().replace("\\", "/")
+            if not normalized.startswith("skills/"):
+                filtered.append(item)
+                continue
+            relative = PurePosixPath(normalized)
+            if (
+                relative.is_absolute()
+                or any(part in {"", ".", ".."} for part in relative.parts)
+            ):
+                continue
+            target = workspace_root.joinpath(*relative.parts)
+            try:
+                resolved = target.resolve(strict=True)
+                resolved.relative_to(workspace_root)
+                content = resolved.read_bytes()
+            except (OSError, ValueError):
+                continue
+            if not target.is_symlink() and self._is_utf8_text(
+                content,
+                path=relative.as_posix(),
+            ):
+                filtered.append(item)
+        return {**response, "matches": filtered}
+
+    def _sandbox_access_metadata(
+        self,
+        workspace: SandboxWorkspace,
+        *,
+        action: str,
+        response: dict[str, Any],
+    ) -> dict[str, Any]:
+        if action not in {"read_file", "search_files"}:
+            return {}
+        raw_paths: list[Any] = []
+        if action == "read_file":
+            raw_paths.append(response.get("path"))
+        else:
+            matches = response.get("matches")
+            if isinstance(matches, list):
+                raw_paths.extend(
+                    item.get("path")
+                    for item in matches[:100]
+                    if isinstance(item, dict)
+                )
+        workspace_root = (
+            self.store.workspace_root / workspace.workspace_id
+        ).resolve()
+        paths: list[str] = []
+        digests: dict[str, str] = {}
+        text_paths: list[str] = []
+        for raw_path in raw_paths:
+            normalized = str(raw_path or "").strip().replace("\\", "/")
+            relative = PurePosixPath(normalized)
+            if (
+                not normalized
+                or relative.is_absolute()
+                or any(part in {"", ".", ".."} for part in relative.parts)
+            ):
+                continue
+            clean_path = relative.as_posix()
+            if not clean_path.startswith("skills/"):
+                continue
+            target = workspace_root.joinpath(*relative.parts)
+            try:
+                resolved = target.resolve(strict=True)
+                resolved.relative_to(workspace_root)
+            except (OSError, ValueError):
+                continue
+            if target.is_symlink() or not resolved.is_file():
+                continue
+            try:
+                content = resolved.read_bytes()
+            except OSError:
+                continue
+            if clean_path in digests:
+                continue
+            paths.append(clean_path)
+            digests[clean_path] = hashlib.sha256(content).hexdigest()
+            if self._is_utf8_text(content, path=clean_path):
+                text_paths.append(clean_path)
+        return {
+            "sandbox_accessed_paths": paths,
+            "sandbox_accessed_digests": dict(sorted(digests.items())),
+            "sandbox_accessed_text_paths": text_paths,
+        }
+
+    def _verify_frozen_skill_package(
+        self,
+        call: RuntimeToolCall,
+        *,
+        skill_id: str,
+        version_id: str | None,
+        package_files: list[tuple[Path, Path, bytes]],
+    ) -> None:
+        if not version_id:
+            return
+        try:
+            snapshot = self.skill_manager.lifecycle_store.require_version(version_id)
+            expected_digest = str(snapshot.package_digest or "").strip().lower()
+        except Exception as exc:
+            raise RuntimeToolError(
+                call.tool_name,
+                "Frozen Skill version evidence is unavailable.",
+                code="skill_application_contract_stale",
+            ) from exc
+        if (
+            str(getattr(snapshot, "skill_id", "") or "").strip() != skill_id
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)
+        ):
+            raise RuntimeToolError(
+                call.tool_name,
+                "Frozen Skill version evidence is invalid.",
+                code="skill_application_contract_stale",
+            )
+        actual_digest = compute_skill_content_digest(
+            {
+                relative.as_posix(): content
+                for _source, relative, content in package_files
+            }
+        )
+        if actual_digest != expected_digest:
+            raise RuntimeToolError(
+                call.tool_name,
+                "Frozen Skill package content no longer matches its version.",
+                code="skill_application_contract_stale",
+            )
+
     def _skill_list(self, call: RuntimeToolCall) -> RuntimeToolResult:
         enabled = self._enabled_skills(call)
         items = [
@@ -580,6 +767,7 @@ class SandboxToolsetProvider:
                         "application_method": "skill_read",
                         "application_source_kind": "evaluation_baseline_empty",
                         "application_resource_paths": [],
+                        "application_text_resource_paths": [],
                         "application_resource_digests": {},
                         "application_expected_resource_digests": {},
                     },
@@ -618,22 +806,52 @@ class SandboxToolsetProvider:
             )
         self._require_enabled_skill(call, skill_id)
         version_id = self._skill_version_id(call, skill_id)
-        content = (
-            self.skill_manager.get_skill_content(skill_id, version_id=version_id)
-            if version_id
-            else self.skill_manager.get_skill_content(skill_id)
-        )
-        try:
-            package_root = (
-                self.skill_manager.get_skill_directory(
-                    skill_id, version_id=version_id
-                )
-                if version_id
-                else self.skill_manager.get_skill_directory(skill_id)
+        if version_id:
+            package_root = self.skill_manager.get_skill_directory(
+                skill_id,
+                version_id=version_id,
             )
-            skill_markdown_bytes = (package_root / "SKILL.md").read_bytes()
-        except Exception:
-            skill_markdown_bytes = content.encode("utf-8")
+            package_files: list[tuple[Path, Path, bytes]] = []
+            for path in sorted(package_root.rglob("*")):
+                if path.is_symlink():
+                    raise RuntimeToolError(
+                        call.tool_name,
+                        "Skill package contains an unsafe link.",
+                        code="skill_runtime_incompatible",
+                    )
+                if not path.is_file() or ".git" in path.parts:
+                    continue
+                package_files.append(
+                    (path, path.relative_to(package_root), path.read_bytes())
+                )
+            self._verify_frozen_skill_package(
+                call,
+                skill_id=skill_id,
+                version_id=version_id,
+                package_files=package_files,
+            )
+            skill_markdown_bytes = next(
+                (
+                    content
+                    for _source, relative, content in package_files
+                    if relative.as_posix() == "SKILL.md"
+                ),
+                None,
+            )
+            if skill_markdown_bytes is None:
+                raise RuntimeToolError(
+                    call.tool_name,
+                    "Frozen Skill package is missing SKILL.md.",
+                    code="skill_application_contract_stale",
+                )
+            content = skill_markdown_bytes.decode("utf-8", errors="replace")
+        else:
+            content = self.skill_manager.get_skill_content(skill_id)
+            try:
+                package_root = self.skill_manager.get_skill_directory(skill_id)
+                skill_markdown_bytes = (package_root / "SKILL.md").read_bytes()
+            except Exception:
+                skill_markdown_bytes = content.encode("utf-8")
         return RuntimeToolResult(
             output=content[:50_000],
             metadata={
@@ -964,6 +1182,7 @@ class SandboxToolsetProvider:
                         overlay, "content_digest", None
                     ),
                     "application_resource_paths": application_resource_paths,
+                    "application_text_resource_paths": application_resource_paths,
                     "application_resource_digests": application_resource_digests,
                     "application_expected_resource_digests": (
                         application_resource_digests
@@ -1008,6 +1227,12 @@ class SandboxToolsetProvider:
                     "Skill package exceeds the 500-file or 50 MiB staging limit.",
                     code="skill_runtime_incompatible",
                 )
+        self._verify_frozen_skill_package(
+            call,
+            skill_id=skill_id,
+            version_id=version_id,
+            package_files=package_files,
+        )
         workspace_root = (self.store.workspace_root / workspace.workspace_id).resolve()
         store_root = self.store.workspace_root.resolve()
         if workspace_root.parent != store_root:
@@ -1041,6 +1266,7 @@ class SandboxToolsetProvider:
             )
         files: list[str] = []
         application_resource_paths: list[str] = []
+        application_text_resource_paths: list[str] = []
         application_resource_digests: dict[str, str] = {}
         for _source, relative, content in package_files:
             destination = f"skills/{skill_id}/{relative.as_posix()}"
@@ -1057,6 +1283,8 @@ class SandboxToolsetProvider:
             files.append(destination)
             relative_path = relative.as_posix()
             application_resource_paths.append(relative_path)
+            if self._is_utf8_text(content, path=relative_path):
+                application_text_resource_paths.append(relative_path)
             application_resource_digests[relative_path] = hashlib.sha256(
                 content
             ).hexdigest()
@@ -1071,6 +1299,7 @@ class SandboxToolsetProvider:
                 "application_method": "skill_stage",
                 "application_version_id": version_id,
                 "application_resource_paths": application_resource_paths,
+                "application_text_resource_paths": application_text_resource_paths,
                 "application_resource_digests": application_resource_digests,
                 "application_expected_resource_digests": (
                     application_resource_digests
