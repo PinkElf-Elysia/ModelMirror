@@ -160,12 +160,15 @@ Chat certification、显式 newAPI Canary 和多模态专用目录的已有证�
 Round 5A 在控制面增加 `modelmirror-provider-chat-routing-v1`：`chat_text`、
 `chat_tools` 与 `chat_file_output` 各自具有独立认证、稳定模型资格和有序 Managed
 Provider 路由。SQLite v15 保存租户隔离的策略、资格、Gate 纪元以及不含用户正文的
-父运行/尝试 Receipt。该层当前只生成可审核的 Route Plan 基础，明确返回
-`data_plane_integrated=false`；`/api/chat`、Auto、SSE 和默认网关尚未接入。
+父运行/尝试 Receipt。
 
-`MODEL_CONTROL_CHAT_ENABLED` 默认关闭，且在 R5A 中即使开启也不会改变真实调度。
-后续 R5B 必须在独立 PR 中把普通文本 default 路径接入并验证“派发前可备用、派发后不
-重放”的边界，不能把 R5A 的管理绿测解释为数据面迁移完成。
+Round 5B 将 `gateway=default` 的白名单普通文本和已提取文本附件接入该契约。仅当
+`MODEL_CONTROL_CHAT_ENABLED=true` 且租户策略为 `newapi_preferred` 时接管；开关关闭、
+策略为 `legacy` 或模型不在稳定白名单时原样使用旧路径。首选 newAPI 只允许在资格、
+目录、凭据或 DNS/SSRF 预检失败且尚未派发 POST 时选择显式 Managed 备用。一旦 POST
+标记派发，HTTP 错误、超时、断流和不确定结果都不得调用第二 IP、Provider、模型或
+legacy 网关。Auto、工具、受控文件输出、多模态、Canary、SSE 成功字节和默认部署值
+保持不变；`newapi_required_default` 仍等待 R5E 门禁与人工批准。
 
 `/settings?section=overview|providers|routing` 共用一份 Provider 管理会话。Marble 等其他
 集成位于该门禁之外；newAPI 管理 UI 继续只通过安全外链访问，不嵌入或代理。

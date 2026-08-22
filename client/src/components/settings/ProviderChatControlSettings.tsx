@@ -260,7 +260,9 @@ export default function ProviderChatControlSettings({
         }),
       });
       if (!response.ok) throw new Error(await readError(response));
-      setMessage("Chat 控制策略已原子保存；R5A 不会改变 /api/chat 数据面。");
+      setMessage(
+        "Chat 控制策略已原子保存；newapi_preferred 仅在部署总开关开启时接管白名单普通文本。",
+      );
       await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存策略失败。");
@@ -275,10 +277,10 @@ export default function ProviderChatControlSettings({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-cyan-100">Managed Chat 控制策略</p>
-            <h2 className="mt-2 text-xl font-semibold text-white">R5A 管理与资格基础</h2>
+            <h2 className="mt-2 text-xl font-semibold text-white">R5B 普通文本稳定路由</h2>
             <p className="mt-2 max-w-[78ch] text-sm leading-6 text-slate-300">
-              本页只保存租户策略、逐能力路由和稳定模型资格。当前数据面尚未接入，
-              不会改变普通 Chat、Auto、Canary 或现有默认网关。
+              newapi_preferred 只接管白名单内的 default 普通文本与已提取文本附件。
+              Auto、工具、文件输出、多模态和 Canary 仍保持各自现有路径。
             </p>
           </div>
           <button
@@ -312,7 +314,7 @@ export default function ProviderChatControlSettings({
                 value={mode}
               >
                 <option value="legacy">legacy（保持现有静态路径）</option>
-                <option value="newapi_preferred">newapi_preferred（R5B 后生效）</option>
+                <option value="newapi_preferred">newapi_preferred（受部署总开关控制）</option>
                 <option disabled value="newapi_required_default">
                   newapi_required_default（等待 R5E）
                 </option>

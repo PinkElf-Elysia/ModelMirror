@@ -40,10 +40,7 @@ CHAT_CONTROL_CAPABILITIES: tuple[ProviderChatCapability, ...] = (
 
 
 class ProviderChatControlService:
-    """R5A management-plane policy, qualification, and receipt foundation.
-
-    The service deliberately does not participate in /api/chat dispatch until R5B.
-    """
+    """Managed Chat policy, qualification, gate, and receipt foundation."""
 
     def __init__(self, router_service: ModelRouterService) -> None:
         self.router_service = router_service
@@ -68,7 +65,7 @@ class ProviderChatControlService:
         if payload.mode == "newapi_required_default":
             raise RouterServiceError(
                 "provider_chat_required_activation_not_available",
-                "R5A 仅建设管理基础；强制默认必须等待 R5E 门禁和人工批准。",
+                "强制默认必须等待 R5E 门禁和人工批准。",
                 status_code=409,
             )
 
@@ -190,11 +187,11 @@ class ProviderChatControlService:
             blockers.append("provider_chat_control_text_route_required")
         if any(not item.valid for item in policy.qualifications):
             blockers.append("provider_chat_control_qualification_stale")
-        blockers.append("provider_chat_control_data_plane_pending_r5b")
         blockers.append("provider_chat_required_gate_pending_r5e")
         return ProviderChatControlGateResponse(
             contract_version=PROVIDER_CHAT_ROUTING_CONTRACT_VERSION,
             feature_enabled=policy.feature_enabled,
+            data_plane_integrated=True,
             policy_fingerprint=policy.policy_fingerprint,
             configured_mode=policy.configured_mode,
             blocking_reason_codes=list(dict.fromkeys(blockers)),
@@ -218,19 +215,53 @@ class ProviderChatControlService:
             else "legacy"
         )
         enabled = self.feature_enabled()
-        reason = (
-            "provider_chat_control_feature_disabled"
-            if not enabled
-            else "provider_chat_control_data_plane_pending_r5b"
-        )
+        if not enabled:
+            reason = "provider_chat_control_feature_disabled"
+            available = False
+            would_block = False
+        elif configured_mode == "legacy":
+            reason = "provider_chat_control_legacy_mode"
+            available = False
+            would_block = False
+        else:
+            policy = self._policy_response(bundle)
+            if clean_model not in policy.stable_model_ids:
+                reason = "provider_chat_model_not_stable"
+                available = False
+                would_block = False
+            else:
+                text_route = next(
+                    (
+                        route
+                        for route in policy.routes
+                        if route.capability == capability
+                    ),
+                    None,
+                )
+                route_ids = text_route.connection_ids if text_route else []
+                valid_ids = {
+                    item.connection_id
+                    for item in policy.qualifications
+                    if item.capability == capability
+                    and item.model_id == clean_model
+                    and item.valid
+                }
+                available = any(item in valid_ids for item in route_ids)
+                would_block = not available
+                reason = (
+                    "qualified"
+                    if available
+                    else "provider_chat_no_qualified_route"
+                )
         return ProviderChatControlPublicStatus(
             contract_version=PROVIDER_CHAT_ROUTING_CONTRACT_VERSION,
             feature_enabled=enabled,
+            data_plane_integrated=True,
             model_id=clean_model,
             capability=capability,
             effective_mode=configured_mode if enabled else "legacy",
-            available=False,
-            would_block=False,
+            available=available,
+            would_block=would_block,
             reason_code=reason,
         )
 
@@ -350,6 +381,7 @@ class ProviderChatControlService:
             return ProviderChatControlPolicyResponse(
                 contract_version=PROVIDER_CHAT_ROUTING_CONTRACT_VERSION,
                 feature_enabled=self.feature_enabled(),
+                data_plane_integrated=True,
                 configured_mode="legacy",
                 effective_mode="legacy",
                 auto_enabled=False,
@@ -377,6 +409,7 @@ class ProviderChatControlService:
         return ProviderChatControlPolicyResponse(
             contract_version=PROVIDER_CHAT_ROUTING_CONTRACT_VERSION,
             feature_enabled=enabled,
+            data_plane_integrated=True,
             configured_mode=configured_mode,
             effective_mode=configured_mode if enabled else "legacy",
             auto_enabled=bool(policy["auto_enabled"]),

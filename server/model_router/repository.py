@@ -2223,6 +2223,23 @@ class SQLiteRouterRepository:
             ).fetchone()
         return dict(row)
 
+    def get_open_chat_control_gate_epoch(
+        self, tenant_id: str, policy_fingerprint: str
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM provider_chat_gate_epochs
+                WHERE tenant_id = ? AND policy_fingerprint = ?
+                  AND status = 'open' AND closed_at IS NULL
+                ORDER BY started_at DESC, id DESC
+                LIMIT 1
+                """,
+                (clean_tenant, policy_fingerprint),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
     def claim_chat_canary_run(
         self,
         tenant_id: str,

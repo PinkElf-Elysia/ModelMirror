@@ -140,15 +140,19 @@ curl -H "Cache-Control: no-cache" "http://localhost:8000/api/models/control-plan
 代码时保留 v14 表；旧版本可忽略这些加法表，无需降级或重写数据库。
 
 R5A 升级至 SQLite v15 前仍需先停止 Server 写入并创建一致性备份。新增表只保存
-Managed Chat 的逐能力策略、资格、Gate 和脱敏 Receipt，不接管 `/api/chat`。部署变量：
+Managed Chat 的逐能力策略、资格、Gate 和脱敏 Receipt。R5B 可选择接管稳定白名单内的
+`gateway=default` 普通文本和已提取文本附件；部署变量：
 
 ```bash
 MODEL_CONTROL_CHAT_ENABLED=false
 ```
 
-默认值必须保持 `false`。R5A 管理接口即使在该变量开启时也会返回
-`data_plane_integrated=false`；不要据此宣称普通 Chat 已迁移。超过 90 天的运行与尝试
-记录可先 dry-run 检查：
+默认值必须保持 `false`。只有管理员已保存 `newapi_preferred`、稳定模型白名单和合格的
+有序 Managed 路由后，显式开启该变量才会接管对应普通文本。开关关闭、策略为 `legacy`
+或模型不在白名单时继续使用旧静态网关。Managed 首选目标只允许在 POST 前的资格、目录、
+凭据或出口预检失败时选择显式备用；POST 派发后不会调用第二 IP、Provider、模型或 legacy
+网关。Auto、工具、受控文件输出和多模态仍未迁移。超过 90 天的运行与尝试记录可先
+dry-run 检查：
 
 ```bash
 python -m server.model_router.cleanup_chat_receipts --storage-dir /app/model_router
