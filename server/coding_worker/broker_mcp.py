@@ -19,6 +19,11 @@ from .contracts import StrictModel
 _DIGEST = r"^[a-f0-9]{64}$"
 
 
+class BrokerPlanItem(StrictModel):
+    step: str = Field(min_length=1, max_length=4096)
+    status: Literal["pending", "in_progress", "completed"] = "pending"
+
+
 class BrokerWriteChange(StrictModel):
     kind: Literal["write"]
     path: str = Field(min_length=1, max_length=1024)
@@ -479,13 +484,16 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
     @mcp.tool()
     async def update_plan(
         operation_id: str,
-        items: list[dict[str, str]],
+        items: list[BrokerPlanItem],
         explanation: str | None = None,
     ) -> dict[str, Any]:
         """Replace the platform-owned structured plan for the current turn."""
         return await call(
             "update_plan",
-            {"items": items, "explanation": explanation},
+            {
+                "items": [item.model_dump(mode="json") for item in items],
+                "explanation": explanation,
+            },
             operation_id=operation_id,
         )
 
