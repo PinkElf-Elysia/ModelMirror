@@ -96,12 +96,7 @@ def test_pr_a_freezes_existing_boundary_debt_without_allowing_expansion() -> Non
         )
     }
     assert actual == {
-        "server/coding_worker/api.py": [
-            ".provider",
-            ".service",
-            ".store",
-            ".workspace",
-        ],
+        "server/coding_worker/api.py": [],
         "server/coding_worker/sdk.py": [".service", ".workspace"],
         "server/coding_runtime/api.py": [
             "coding_worker.api",

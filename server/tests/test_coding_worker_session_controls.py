@@ -21,6 +21,7 @@ from server.coding_worker.api import (
     coding_worker_capabilities,
     configure_coding_worker_for_tests,
 )
+from server.coding_worker.adapters import legacy_substrate_from_service
 from server.coding_worker.provider import FakeCodingAgentProvider, ProviderEvent, ProviderEventKind
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.tool_broker import ToolBroker
@@ -322,7 +323,9 @@ def test_session_control_capability_is_independently_gated(
         provider=FakeCodingAgentProvider(),
         tool_broker=ToolBroker(store=store, workspace_broker=broker),
     )
-    configure_coding_worker_for_tests(service, enabled=True)
+    configure_coding_worker_for_tests(
+        legacy_substrate_from_service(service), enabled=True
+    )
     monkeypatch.setenv("CODING_WORKER_V16_ENABLED", "true")
     monkeypatch.setenv("CODING_WORKER_SESSION_CONTROLS_ENABLED", "true")
     try:

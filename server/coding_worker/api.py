@@ -228,7 +228,7 @@ def coding_worker_capabilities() -> WorkerCapabilities:
         if not _feature_flag_enabled(feature):
             return False
         if feature is WorkerFeatureName.TURN_HISTORY:
-            return bool(provider_capabilities)
+            return bool(harness_capabilities)
         return any(
             _provider_supports_feature(capabilities, feature)
             for capabilities in harness_capabilities
