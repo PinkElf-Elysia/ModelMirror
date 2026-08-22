@@ -74,13 +74,14 @@ Session 故障场景使用仅 Harness profile 可用的受控注入端点。Cont
 
 截至 2026-08-22，最终候选状态为 **真实任务校准基座可用**：
 
-- 公开 fixture bundle 摘要为 `a7ed06805c484a0ca2029c36766fc01663e2ca88482b4282f105112fa26800e2`；外置只读 checker 与完整 bundle 的配对摘要为 `5f402ccb67ad16f6059ce806b094692c4fc071f19b6b9473d704b9db2aede51a`。`validate` 返回 12 项、Harbor `0.21.0`、OpenCode `1.18.9` 和 `status=valid`。
-- Fake smoke 为 8 条记录、四类别齐全，记录摘要为 `66120e1de8e6bb21017e81d13dc22db45c55e9dda70cf9d53cde65f46e978506`。
+- 公开 fixture bundle 摘要为 `866c29944c84efdf1371ea90fc085a8949b3d5d53aaa9d558e6813aec536c11d`；外置只读 checker 与完整 bundle 的配对摘要为 `a019e421dcfd95ac6619e973f233bbcaf38343115b21c64c13fd73fedd5acc80`。`validate` 返回 12 项、Harbor `0.21.0`、OpenCode `1.18.9` 和 `status=valid`。
+- Fake smoke 为 8 条记录、四类别齐全，记录摘要为 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。
 - 全部 12 项 fixture 均继承 daemon-attested runtime `modelmirror-coding-worker-v14:local@sha256:27302ee0527aff43e651d82148beb1c2562ffabc22606974499c13f831f417ed`。Session fixture 显式安装冻结 near-miss 所需的 `patch`。
 - 最终 bundle 从零重跑 Oracle `60/60`、Nop `60/60`、near-miss `60/60`；共 180 个有效 trial，异常数均为零，reward 分别严格为 `1.000 / 0.000 / 0.000`。该结果是确定性任务有效性证据，不是 48 次真实模型校准。
+- PR 发布预检还统一移除了任务文本末尾的多余空行，并同步修正两份依赖尾部上下文的 near-miss patch hunk；完整 PR Diff 的 `git diff --check` 因此通过。哈希变化后没有复用旧证据，而是重新执行了上述 180 次门禁。
 - Harbor 0.21.0 的静态 Docker Desktop 门禁清理不再并发执行 `--rmi local`；仍删除 trial 容器、卷和 orphan，避免共享 runtime 派生镜像删除竞争。
-- 修后专项为 `128 passed`；全部 Coding Worker 为 `398 passed, 5 skipped`；Agent Workspace、Coding Runtime、Recovery 与 Publisher 兼容集为 `265 passed`。前端为 94 个文件、`488 passed`，production build 通过。
-- 依赖产物补齐后的后端最终空载全量为 `3753 passed, 29 skipped`。此前一次仅有的 PDF 资源顺序失败已单例复跑通过，最终全量未再出现。
+- 修后专项为 `128 passed`；重放至最新 `origin/main` 后，全部 Coding Worker 为 `398 passed, 5 skipped`；Agent Workspace、Coding Runtime、Recovery 与 Publisher 兼容集为 `265 passed`。最终前端为 96 个文件、`506 passed`，production build 通过。
+- 主线重放前的后端空载全量为 `3753 passed, 29 skipped`；重放时产品代码路径无交叉，只有两份文档自动合并，并在重放后重新运行了全部 Coding Worker、前端测试和 build。此前一次仅有的 PDF 资源顺序失败已单例复跑通过，后续全量未再出现。
 - V14、V15、V17 与 V18 Compose 组合均通过 `config --quiet`。共享栈 `/api/health`、`/coding` 与 `/api/coding-worker/v1` 均返回 HTTP 200，Server、双 Provider、双 Executor 及 v13 写回相关容器健康。
 
 本轮没有运行 48 次真实校准或 288 次认证，也不宣称接近或等效 OpenCode。后续若决定启动 48 次校准，仍须在固定 Linux controller 中冻结干净候选、完整 runtime、route 和 checker；不得从本轮确定性 180 次结果推导真实模型成功率。
