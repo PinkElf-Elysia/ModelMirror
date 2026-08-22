@@ -202,6 +202,96 @@ async def test_native_tool_round_trip_is_exact_single_and_no_fallback(
 
 
 @pytest.mark.asyncio
+async def test_injected_sender_keeps_both_file_output_steps_on_one_target() -> None:
+    model_id = "provider/tool-model"
+    arguments = json.dumps(
+        {"format_id": "plain_text", "filename": "report.txt", "content": "hello"},
+        separators=(",", ":"),
+    )
+    observed_urls: list[str] = []
+    sent_payloads: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed_urls.append(str(request.url))
+        if len(observed_urls) == 1:
+            return _sse(
+                [
+                    {
+                        "model": model_id,
+                        "choices": [
+                            {
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": 0,
+                                            "id": "call_1",
+                                            "function": {
+                                                "name": "modelmirror_create_file",
+                                                "arguments": arguments,
+                                            },
+                                        }
+                                    ]
+                                },
+                                "finish_reason": "tool_calls",
+                            }
+                        ],
+                    }
+                ],
+                request_id="req-first",
+            )
+        return _sse(
+            [
+                {
+                    "model": model_id,
+                    "choices": [
+                        {"delta": {"content": "Created."}, "finish_reason": "stop"}
+                    ],
+                }
+            ],
+            request_id="req-second",
+        )
+
+    async def send_pinned(
+        client: httpx.AsyncClient, payload: dict
+    ) -> httpx.Response:
+        sent_payloads.append(payload)
+        request = client.build_request(
+            "POST",
+            "https://8.8.8.8/v1/chat/completions",
+            headers={"Host": "provider.example"},
+            json=payload,
+        )
+        return await client.send(request, stream=True, follow_redirects=False)
+
+    service = _OutputService()
+    result = await run_chat_output_turn(
+        url="https://provider.example/v1/chat/completions",
+        key="test-key",
+        headers={},
+        client_kwargs={"transport": httpx.MockTransport(handler)},
+        model_id=model_id,
+        messages=[{"role": "user", "content": "Create a text report."}],
+        temperature=0.2,
+        max_tokens=1000,
+        top_p=None,
+        seed=None,
+        stop=None,
+        output_service=service,  # type: ignore[arg-type]
+        scope_id="chat-output-scope",
+        output_context_id="chat-output-scope",
+        response_sender=send_pinned,
+    )
+
+    assert len(sent_payloads) == 2
+    assert observed_urls == [
+        "https://8.8.8.8/v1/chat/completions",
+        "https://8.8.8.8/v1/chat/completions",
+    ]
+    assert all("provider" not in payload for payload in sent_payloads)
+    assert result.output is not None and result.output.status == "completed"
+
+
+@pytest.mark.asyncio
 async def test_model_replacement_is_rejected_before_any_file_render() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return _sse(
@@ -294,6 +384,7 @@ async def test_output_request_is_fail_closed_before_upstream(
 
     monkeypatch.setenv("FILE_OUTPUT_ASSETS_ENABLED", "true")
     monkeypatch.setenv("CHAT_FILE_OUTPUT_TOOL_ENABLED", "true")
+    monkeypatch.setenv("FILE_ASSET_STORE_MODE", "native")
     monkeypatch.setattr(main_module, "get_catalog_coordinator", lambda: _Catalog())
     with pytest.raises(Exception) as smart:
         await validate_chat_output_request(
@@ -320,6 +411,7 @@ async def test_output_gate_accepts_only_real_provider_verified_target(
 ) -> None:
     monkeypatch.setenv("FILE_OUTPUT_ASSETS_ENABLED", "true")
     monkeypatch.setenv("CHAT_FILE_OUTPUT_TOOL_ENABLED", "true")
+    monkeypatch.setenv("FILE_ASSET_STORE_MODE", "native")
     monkeypatch.setattr(
         main_module,
         "get_catalog_coordinator",
@@ -365,6 +457,7 @@ async def test_output_capabilities_expose_only_luna_on_exact_openrouter_connecti
 ) -> None:
     monkeypatch.setenv("FILE_OUTPUT_ASSETS_ENABLED", "true")
     monkeypatch.setenv("CHAT_FILE_OUTPUT_TOOL_ENABLED", "true")
+    monkeypatch.setenv("FILE_ASSET_STORE_MODE", "native")
     monkeypatch.setenv(
         "LLM_GATEWAY_URL",
         "https://openrouter.ai/api/v1/chat/completions",
@@ -402,6 +495,55 @@ async def test_output_capabilities_expose_only_luna_on_exact_openrouter_connecti
     assert qwen.json()["interaction_status"] == "planned"
     assert wrong_connection.status_code == 200
     assert wrong_connection.json()["interaction_status"] == "planned"
+
+
+@pytest.mark.asyncio
+async def test_output_capabilities_follow_managed_file_qualification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FILE_OUTPUT_ASSETS_ENABLED", "true")
+    monkeypatch.setenv("CHAT_FILE_OUTPUT_TOOL_ENABLED", "true")
+    monkeypatch.setenv("FILE_ASSET_STORE_MODE", "native")
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+
+    class _ManagedControl:
+        available = True
+
+        def __init__(self, _service: object) -> None:
+            pass
+
+        @staticmethod
+        def feature_enabled() -> bool:
+            return True
+
+        def public_status(self, model_id: str, capability: str) -> SimpleNamespace:
+            assert model_id in {"openai/gpt-4o-mini", "openai/gpt-5.6-luna"}
+            assert capability == "chat_file_output"
+            return SimpleNamespace(
+                effective_mode="newapi_preferred",
+                available=self.available,
+            )
+
+    monkeypatch.setattr(file_api_module, "ProviderChatControlService", _ManagedControl)
+    monkeypatch.setattr(file_api_module, "get_model_router_service", object)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        managed = await client.get(
+            "/api/files/output-capabilities",
+            params={"purpose": "chat", "model_id": "openai/gpt-4o-mini"},
+        )
+        _ManagedControl.available = False
+        fail_closed = await client.get(
+            "/api/files/output-capabilities",
+            params={"purpose": "chat", "model_id": "openai/gpt-5.6-luna"},
+        )
+
+    assert managed.status_code == 200
+    assert managed.json()["interaction_status"] == "ready"
+    assert fail_closed.status_code == 200
+    assert fail_closed.json()["interaction_status"] == "planned"
 
 
 def test_output_reuse_binding_is_all_or_none_and_uses_exact_model(

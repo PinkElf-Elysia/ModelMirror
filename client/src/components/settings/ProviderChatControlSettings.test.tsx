@@ -24,7 +24,7 @@ const policy = {
 describe("ProviderChatControlSettings", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("describes the bounded R5C data plane and saves an atomic revisioned policy", async () => {
+  it("describes the bounded R5D data plane and saves an atomic revisioned policy", async () => {
     const calls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       calls.push([input, init]);
@@ -74,8 +74,9 @@ describe("ProviderChatControlSettings", () => {
     });
 
     render(<ProviderChatControlSettings csrfToken="csrf-test" />);
-    expect(await screen.findByText("R5C 稳定路由与 Auto 证据")).toBeInTheDocument();
-    expect(screen.getByText(/只接管白名单内的 default 普通文本/)).toBeInTheDocument();
+    expect(await screen.findByText("R5D 稳定路由与逐能力执行")).toBeInTheDocument();
+    expect(screen.getByText(/default 普通文本、MCP 工具与受控文件输出/)).toBeInTheDocument();
+    expect(screen.getByText(/能力之间不能互借认证/)).toBeInTheDocument();
     expect(screen.getByText(/Auto 继续沿用 Native 或 OmniRoute/)).toBeInTheDocument();
     expect(
       (screen.getByRole("option", { name: /newapi_required_default/ }) as HTMLOptionElement)

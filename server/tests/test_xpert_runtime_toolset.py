@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from server.xpert_runtime import (
+    CatalogMCPToolsetProvider,
     CapabilityRegistry,
     MCPToolsetProvider,
     RuntimeTool,
@@ -141,3 +142,115 @@ def test_register_mcp_toolset_capability() -> None:
     capability = registry.require("mcp_tools")
     assert capability.implementation is provider
     assert capability.metadata["provider"] == "mcp"
+
+
+@pytest.mark.asyncio
+async def test_catalog_toolset_exposes_only_connected_chat_safe_tools() -> None:
+    service = SimpleNamespace(
+        list_adapters=lambda: {
+            "adapters": [
+                {
+                    "project_id": "time-mcp",
+                    "connected": True,
+                    "executable": True,
+                    "tool_policies": {
+                        "get_current_time": {
+                            "read_only": True,
+                            "requires_approval": False,
+                            "sensitive": False,
+                            "terminal": False,
+                            "effect": "read",
+                        },
+                        "write_time": {
+                            "read_only": False,
+                            "requires_approval": True,
+                            "sensitive": False,
+                            "terminal": False,
+                            "effect": "state-write",
+                        },
+                    },
+                },
+                {
+                    "project_id": "offline-mcp",
+                    "connected": False,
+                    "executable": True,
+                    "tool_policies": {},
+                },
+            ]
+        },
+        list_tools=AsyncMock(
+            return_value={
+                "tools": [
+                    {
+                        "name": "get_current_time",
+                        "description": "Current time",
+                        "inputSchema": {"type": "object"},
+                    },
+                    {"name": "write_time", "inputSchema": {"type": "object"}},
+                ]
+            }
+        ),
+    )
+
+    tools = await CatalogMCPToolsetProvider(service).list_tools()
+
+    assert [tool.name for tool in tools] == ["get_current_time"]
+    assert tools[0].provider == "mcp_catalog"
+    assert tools[0].server_id == "catalog:time-mcp"
+    assert tools[0].read_only is True
+    assert tools[0].requires_approval is False
+    service.list_tools.assert_awaited_once_with("time-mcp")
+
+
+@pytest.mark.asyncio
+async def test_catalog_toolset_calls_through_catalog_policy_service() -> None:
+    policy = {
+        "read_only": True,
+        "requires_approval": False,
+        "sensitive": False,
+        "terminal": False,
+        "effect": "read",
+    }
+    service = SimpleNamespace(
+        list_adapters=lambda: {
+            "adapters": [
+                {
+                    "project_id": "time-mcp",
+                    "connected": True,
+                    "executable": True,
+                    "tool_policies": {"get_current_time": policy},
+                }
+            ]
+        },
+        list_tools=AsyncMock(
+            return_value={
+                "tools": [
+                    {
+                        "name": "get_current_time",
+                        "inputSchema": {"type": "object"},
+                    }
+                ]
+            }
+        ),
+        call_tool=AsyncMock(
+            return_value={
+                "content": [{"type": "text", "text": "12:00 UTC"}],
+                "is_error": False,
+            }
+        ),
+    )
+    provider = CatalogMCPToolsetProvider(service)
+
+    result = await provider.call_tool(
+        RuntimeToolCall(
+            tool_name="get_current_time",
+            arguments={"timezone": "UTC"},
+        )
+    )
+
+    assert result.output == "12:00 UTC"
+    assert result.metadata["catalog_project_id"] == "time-mcp"
+    assert result.metadata["content_types"] == ["text"]
+    service.call_tool.assert_awaited_once_with(
+        "time-mcp", "get_current_time", {"timezone": "UTC"}
+    )
