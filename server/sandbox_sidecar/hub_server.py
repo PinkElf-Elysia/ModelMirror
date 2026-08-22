@@ -58,6 +58,62 @@ class HubSidecarError(RuntimeError):
         self.code = code
 
 
+def _fixed_preflight_error(error: BaseException) -> str:
+    """Reduce SDK/HTTP failures to bounded codes without retaining content."""
+
+    pending: list[BaseException] = [error]
+    seen: set[int] = set()
+    flattened: list[BaseException] = []
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        flattened.append(current)
+        nested = getattr(current, "exceptions", None)
+        if isinstance(nested, tuple):
+            pending.extend(item for item in nested if isinstance(item, BaseException))
+        cause = current.__cause__
+        context = current.__context__
+        if isinstance(cause, BaseException):
+            pending.append(cause)
+        if isinstance(context, BaseException):
+            pending.append(context)
+
+    for current in flattened:
+        if isinstance(current, HubSidecarError):
+            return current.code
+    for current in flattened:
+        if not isinstance(current, httpx.HTTPStatusError):
+            continue
+        status = int(current.response.status_code)
+        if status in {401, 403}:
+            return "hub_upstream_auth_required"
+        if status == 404:
+            return "hub_upstream_endpoint_not_found"
+        if status == 405:
+            return "hub_upstream_method_denied"
+        if status == 429:
+            return "hub_upstream_rate_limited"
+        if 300 <= status < 400:
+            return "hub_upstream_redirect_denied"
+        if status in {400, 406, 415, 422}:
+            return "hub_upstream_protocol_rejected"
+        if 500 <= status < 600:
+            return "hub_upstream_unavailable"
+        return "hub_upstream_http_failed"
+    if any(
+        isinstance(current, (asyncio.TimeoutError, httpx.TimeoutException))
+        for current in flattened
+    ):
+        return "hub_upstream_timeout"
+    if any(isinstance(current, httpx.ConnectError) for current in flattened):
+        return "hub_upstream_connect_failed"
+    if any(isinstance(current, httpx.TransportError) for current in flattened):
+        return "hub_upstream_transport_failed"
+    return "hub_upstream_preflight_failed"
+
+
 def _load_mcp_http() -> tuple[Any, Any]:
     """Load the official SDK only in the isolated remote execution path."""
 
@@ -601,7 +657,7 @@ class HubRemoteService:
         async with self.lock:
             if len(self.sessions) >= MAX_SESSIONS:
                 raise HubSidecarError("hub_session_limit")
-        last_error: Exception | None = None
+        last_error: HubSidecarError | None = None
         for _attempt in range(2):
             try:
                 tools, _result = await self._exchange(
@@ -629,7 +685,12 @@ class HubRemoteService:
                 return {"session_id": session_id, "tools": tools}
             except HubSidecarError as exc:
                 last_error = exc
-        raise HubSidecarError("hub_upstream_preflight_failed") from last_error
+        # Keep the final bounded sidecar error code so Review Factory evidence
+        # can distinguish policy, schema and transport failures.  No upstream
+        # response body or exception text crosses the sidecar boundary.
+        if last_error is not None:
+            raise HubSidecarError(last_error.code) from last_error
+        raise HubSidecarError("hub_upstream_preflight_failed")
 
     @staticmethod
     def _clear_sdk_cancellation() -> None:
@@ -727,7 +788,7 @@ class HubRemoteService:
             code = (
                 "hub_upstream_unknown_outcome"
                 if tool_name is not None
-                else "hub_upstream_preflight_failed"
+                else _fixed_preflight_error(failure)
             )
             raise HubSidecarError(code) from failure
         if output is None:

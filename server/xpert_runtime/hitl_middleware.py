@@ -65,6 +65,8 @@ def build_human_in_the_loop_middleware(
                 f"Origin: {hub_approval.get('origin') or '-'}\n"
                 f"Schema: {hub_approval.get('schema_digest') or '-'}\n"
                 f"工具 Schema: {hub_approval.get('tool_schema_digest') or '-'}\n"
+                f"执行契约: {hub_approval.get('contract_id') or '-'}\n"
+                f"契约指纹: {hub_approval.get('contract_fingerprint') or '-'}\n"
                 f"工具: {request.tool_name}\n\n"
                 "Registry 收录不代表安全认证；请核对来源、工具和完整脱敏参数。"
             )

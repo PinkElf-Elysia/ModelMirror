@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 
 from server.sandbox_sidecar import hub_server
@@ -97,6 +98,43 @@ def test_only_static_tools_capability_is_accepted() -> None:
             hub_server.HubRemoteService._validate_capabilities(Initialized(denied))
 
 
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (
+            httpx.HTTPStatusError(
+                "not used",
+                request=httpx.Request("POST", "https://mcp.example.com/mcp"),
+                response=httpx.Response(401),
+            ),
+            "hub_upstream_auth_required",
+        ),
+        (
+            ExceptionGroup(
+                "not used",
+                [
+                    httpx.HTTPStatusError(
+                        "not used",
+                        request=httpx.Request("POST", "https://mcp.example.com/mcp"),
+                        response=httpx.Response(429),
+                    )
+                ],
+            ),
+            "hub_upstream_rate_limited",
+        ),
+        (httpx.ReadTimeout("not used"), "hub_upstream_timeout"),
+        (
+            hub_server.HubSidecarError("hub_non_tool_capability_denied"),
+            "hub_non_tool_capability_denied",
+        ),
+    ],
+)
+def test_preflight_errors_are_reduced_to_fixed_codes(
+    error: BaseException, expected: str
+) -> None:
+    assert hub_server._fixed_preflight_error(error) == expected
+
+
 @pytest.mark.asyncio
 async def test_sidecar_rejects_tool_names_outside_the_mcp_contract() -> None:
     class Client:
@@ -115,6 +153,31 @@ async def test_sidecar_rejects_tool_names_outside_the_mcp_contract() -> None:
     with pytest.raises(hub_server.HubSidecarError) as captured:
         await hub_server.HubRemoteService()._list_tools(Client())
     assert str(captured.value) == "hub_tool_contract_denied"
+
+
+@pytest.mark.asyncio
+async def test_remote_open_preserves_final_fixed_preflight_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = hub_server.HubRemoteService()
+    attempts = 0
+
+    async def denied(*_args: Any, **_kwargs: Any) -> Any:
+        nonlocal attempts
+        attempts += 1
+        raise hub_server.HubSidecarError("hub_non_tool_capability_denied")
+
+    monkeypatch.setattr(service, "_exchange", denied)
+    with pytest.raises(hub_server.HubSidecarError) as captured:
+        await service.open(
+            "mcphub_" + "1" * 32,
+            "https://mcp.example.com/mcp",
+            "a" * 64,
+            "hub:local:owner:mcphub_" + "1" * 32,
+        )
+
+    assert attempts == 2
+    assert captured.value.code == "hub_non_tool_capability_denied"
 
 
 @pytest.mark.asyncio

@@ -264,4 +264,81 @@ describe("McpHubPanel", () => {
     expect(screen.getByText("io.example/public")).toBeVisible();
     expect(screen.getByRole("button", { name: "安全预检" })).toBeEnabled();
   });
+
+  it("creates a local-operator review batch with Registry identifiers only", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/mcp/hub/status")) {
+        return json({ enabled: true, remote_enabled: true, source: "registry", snapshot_at: 1, snapshot_count: 1 });
+      }
+      if (url.endsWith("/api/mcp/hub/reviews/status")) {
+        return json({
+          enabled: true,
+          local_publish_enabled: false,
+          signing_key_configured: false,
+          sop_version: "anonymous_https_tools_v1",
+          max_batch_size: 20,
+          max_concurrency: 2,
+          active_run_id: null,
+          operator_scope: "trusted-local-operator",
+          multi_tenant_admin: false,
+        });
+      }
+      if (url.includes("/api/mcp/hub/servers?")) {
+        return json({
+          items: [{
+            server_name: "io.example/review",
+            version: "1.0.0",
+            title: "Review Example",
+            description: "Public metadata",
+            status: "active",
+            eligibility: "eligible",
+            remotes: [{
+              remote_id: "remote_1111111111111111",
+              transport: "streamable-http",
+              origin: "https://review.example.com",
+              eligibility: "eligible",
+              reason: "eligible",
+            }],
+          }],
+          total: 1,
+          next_cursor: null,
+          categories: [],
+        });
+      }
+      if (url.endsWith("/api/mcp/hub/candidates")) return json({ items: [] });
+      if (url.endsWith("/api/mcp/hub/review-runs") && init?.method === "POST") {
+        return json({ run_id: "hubreview_" + "1".repeat(32), status: "queued", items: [], counts: {} }, 201);
+      }
+      if (url.endsWith("/api/mcp/hub/review-runs")) return json({ items: [] });
+      if (url.endsWith("/api/mcp/hub/contracts")) return json({ items: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<McpHubPanel />);
+
+    expect(await screen.findByText("复核工作台")).toBeVisible();
+    fireEvent.click(screen.getByRole("checkbox", { name: "加入受控复核批次" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建受控复核批次" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url, init]) => (
+        String(url).endsWith("/api/mcp/hub/review-runs") &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ));
+      expect(call).toBeTruthy();
+      const body = JSON.parse(String((call?.[1] as RequestInit).body));
+      expect(body).toEqual({
+        items: [{
+          server_name: "io.example/review",
+          version: "1.0.0",
+          remote_id: "remote_1111111111111111",
+        }],
+      });
+      expect(JSON.stringify(body)).not.toContain("https://");
+      expect(JSON.stringify(body)).not.toContain("arguments");
+    });
+    expect(screen.getByText(/本地运维者功能/)).toBeVisible();
+    expect(screen.getByText(/不是多租户管理员权限/)).toBeVisible();
+  });
 });

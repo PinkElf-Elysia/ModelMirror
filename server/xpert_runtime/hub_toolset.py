@@ -32,6 +32,8 @@ class HubMCPToolsetProvider:
                     "hub_origin": item["origin"],
                     "hub_server_name": item["server_name"],
                     "hub_version": item["version"],
+                    "hub_contract_id": item["contract_id"],
+                    "hub_contract_fingerprint": item["contract_fingerprint"],
                     "retry_on_failure": False,
                 },
                 read_only=False,

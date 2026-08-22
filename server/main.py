@@ -645,6 +645,13 @@ try:
         configure_mcp_hub,
         router as mcp_hub_router,
     )
+    from server.mcp.hub_review import (
+        MCPHubReviewService,
+        MCPHubReviewStore,
+        configure_mcp_hub_review,
+        contract_signing_key,
+        router as mcp_hub_review_router,
+    )
     from server.mcp.workspace import MCPCatalogWorkspaceStore
     from server.registry.tool_registry import ToolRegistry
 except ModuleNotFoundError:
@@ -667,6 +674,13 @@ except ModuleNotFoundError:
         arguments_digest as hub_arguments_digest,
         configure_mcp_hub,
         router as mcp_hub_router,
+    )
+    from mcp.hub_review import (
+        MCPHubReviewService,
+        MCPHubReviewStore,
+        configure_mcp_hub_review,
+        contract_signing_key,
+        router as mcp_hub_review_router,
     )
     from mcp.workspace import MCPCatalogWorkspaceStore
     from registry.tool_registry import ToolRegistry
@@ -1300,6 +1314,7 @@ app.include_router(multimodal_router)
 app.include_router(coding_router)
 app.include_router(mcp_catalog_router)
 app.include_router(mcp_hub_router)
+app.include_router(mcp_hub_review_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -1312,7 +1327,16 @@ mcp_hub_service = MCPHubService(
     tenant_id=os.getenv("MODELMIRROR_DEFAULT_TENANT_ID", "local"),
     owner_id=os.getenv("MODELMIRROR_DEFAULT_OWNER_ID", "local"),
 )
+mcp_hub_review_store = MCPHubReviewStore(mcp_hub_store)
+mcp_hub_review_service = MCPHubReviewService(
+    mcp_hub_service,
+    mcp_hub_review_store,
+    signing_key=contract_signing_key(),
+)
+mcp_hub_service.contract_registry = mcp_hub_review_service.contracts
+mcp_hub_service.set_review_service(mcp_hub_review_service)
 configure_mcp_hub(mcp_hub_service)
+configure_mcp_hub_review(mcp_hub_review_service)
 workflow_curated_mcp_provider = MCPToolsetProvider(tool_registry, mcp_manager)
 workflow_hub_mcp_provider = HubMCPToolsetProvider(mcp_hub_service)
 workflow_mcp_provider = CompositeMCPToolsetProvider(
@@ -9446,6 +9470,12 @@ async def _run_workflow_response(
                                 ),
                                 "tool_schema_digest": matched_tool.metadata.get(
                                     "hub_tool_schema_digest"
+                                ),
+                                "contract_id": matched_tool.metadata.get(
+                                    "hub_contract_id"
+                                ),
+                                "contract_fingerprint": matched_tool.metadata.get(
+                                    "hub_contract_fingerprint"
                                 ),
                                 "arguments_digest": hub_arguments_digest(arguments),
                             }
@@ -20704,6 +20734,7 @@ async def start_mcp_ttl_cleanup() -> None:
         )
     mcp_manager.start_ttl_cleanup(on_cleanup=cleanup_mcp_session_state)
     await mcp_hub_service.start()
+    await mcp_hub_review_service.start()
     builtin_warnings = await toolset_service.ensure_builtin_toolsets()
     for warning in builtin_warnings:
         logger.warning("Builtin Provider Toolset initialization failed: %s", warning)
@@ -20752,6 +20783,7 @@ async def shutdown_mcp_sessions() -> None:
     if automation_coordinator is not None:
         await automation_coordinator.stop()
     await workflow_trigger_coordinator.stop()
+    await mcp_hub_review_service.close()
     await mcp_hub_service.close()
     await mcp_catalog_service.clear_sessions()
     await toolset_service.close()

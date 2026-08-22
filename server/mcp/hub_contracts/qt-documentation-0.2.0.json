@@ -1,0 +1,33 @@
+{
+  "allowed_tools": [
+    "qt_documentation_read",
+    "qt_documentation_search"
+  ],
+  "contract_fingerprint": "de48df2ada3081f1ebccdd9e4f219ef9d4aac818d5850ff30be8ad34edaa8611",
+  "contract_id": "hubct_2089868f192f6b7dbabee0ef3be3366d",
+  "display_note": "Migrated from the MCP Hub Remote V1 reviewed allowlist without changing the frozen tool behavior or digests.",
+  "evidence_digest": "01f6972669f45f30288c7882fd0ce67c448828518809e9408577bcf348718b82",
+  "limits": {
+    "call_timeout_seconds": 20,
+    "max_arguments_bytes": 32768,
+    "max_concurrency": 1,
+    "max_result_bytes": 262144
+  },
+  "origin": "https://qt-docs-mcp.qt.io",
+  "published_at": 0.0,
+  "remote_url": "https://qt-docs-mcp.qt.io/mcp",
+  "schema_digest": "a701b04fd886e1ccd17999b55906484a622b74b9b2005085d0da2e695a81ae56",
+  "schema_version": "hub-reviewed-contract-v1",
+  "server_name": "io.qt.qt-docs-mcp/qt-documentation",
+  "sop_version": "anonymous_https_tools_v1",
+  "source_digest": "",
+  "tool_effects": {
+    "qt_documentation_read": "read",
+    "qt_documentation_search": "read"
+  },
+  "tool_schema_digests": {
+    "qt_documentation_read": "3d0c4edbc34f6d93c7f6580f40f0a3f631fe93088f6270082ff4358e13d67bf9",
+    "qt_documentation_search": "f31ab1c949778c8f00646c1d4c33768f5b56e55ba524b49217483a6d25516b35"
+  },
+  "version": "0.2.0"
+}

@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw, Search, Shield, Trash2 } from "lucide-react";
+import McpHubReviewWorkbench, {
+  type HubReviewSelection,
+  type HubReviewStatus,
+} from "./McpHubReviewWorkbench";
 
 type Eligibility =
   | "eligible"
@@ -62,6 +66,10 @@ const activationReasonLabels: Record<string, string> = {
   hub_contract_unreviewed: "该候选尚未完成 ModelMirror 执行契约复核，只可预检。",
   hub_preflight_required: "请先完成安全预检。",
   hub_reviewed_contract_drift: "远程 Schema 与已复核契约不一致，禁止激活。",
+  hub_contract_collision: "同一 Hub 身份存在不同执行契约，已关闭激活。",
+  hub_contract_revoked: "该执行契约已由本地运维者撤销。",
+  hub_contract_source_drift: "Registry 来源摘要与冻结契约不一致，需要重新复核。",
+  hub_source_drift: "Registry 版本或远程端点已变化，需要重新复核。",
 };
 
 const eligibilityLabels: Record<Eligibility, string> = {
@@ -91,6 +99,8 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export default function McpHubPanel() {
   const [status, setStatus] = useState<HubStatus | null>(null);
+  const [reviewStatus, setReviewStatus] = useState<HubReviewStatus | null>(null);
+  const [reviewSelection, setReviewSelection] = useState<HubReviewSelection[]>([]);
   const [servers, setServers] = useState<HubServer[]>([]);
   const [candidates, setCandidates] = useState<HubCandidate[]>([]);
   const [query, setQuery] = useState("");
@@ -111,10 +121,15 @@ export default function McpHubPanel() {
       const current = await requestJson<HubStatus>("/api/mcp/hub/status");
       setStatus(current);
       if (!current.enabled) {
+        setReviewStatus(null);
         setServers([]);
         setCandidates([]);
         return;
       }
+      const currentReview = await requestJson<HubReviewStatus>(
+        "/api/mcp/hub/reviews/status",
+      ).catch(() => null);
+      setReviewStatus(currentReview);
       const params = new URLSearchParams({ limit: "50" });
       params.set("cursor", String(page * 50));
       if (query.trim()) params.set("q", query.trim());
@@ -285,6 +300,12 @@ export default function McpHubPanel() {
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
               {servers.map((server) => {
                 const eligible = server.remotes.find((remote) => remote.eligibility === "eligible");
+                const reviewKey = eligible ? `${server.server_name}:${server.version}:${eligible.remote_id}` : "";
+                const reviewSelected = Boolean(
+                  reviewKey && reviewSelection.some((item) => (
+                    `${item.server_name}:${item.version}:${item.remote_id}` === reviewKey
+                  )),
+                );
                 const alreadyAdded = Boolean(
                   eligible && candidates.some((candidate) => (
                     candidate.server_name === server.server_name &&
@@ -307,6 +328,29 @@ export default function McpHubPanel() {
                     <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-400">{server.description || "暂无描述"}</p>
                     {server.categories?.length ? <p className="mt-2 text-xs text-slate-500">分类：{server.categories.join("、")}</p> : null}
                     {eligible ? <p className="mt-2 break-all text-xs text-cyan-100">Origin：{eligible.origin}</p> : null}
+                    {eligible && reviewStatus?.enabled ? (
+                      <label className="mt-3 flex min-h-9 cursor-pointer items-center gap-2 rounded-md border border-cyan-300/20 bg-cyan-300/5 px-3 text-xs text-cyan-100">
+                        <input
+                          checked={reviewSelected}
+                          disabled={!reviewSelected && reviewSelection.length >= reviewStatus.max_batch_size}
+                          onChange={() => setReviewSelection((current) => {
+                            if (reviewSelected) {
+                              return current.filter((item) => `${item.server_name}:${item.version}:${item.remote_id}` !== reviewKey);
+                            }
+                            if (current.length >= reviewStatus.max_batch_size) return current;
+                            return [...current, {
+                              server_name: server.server_name,
+                              version: server.version,
+                              remote_id: eligible.remote_id,
+                              title: server.title || server.server_name,
+                              origin: eligible.origin,
+                            }];
+                          })}
+                          type="checkbox"
+                        />
+                        加入受控复核批次
+                      </label>
+                    ) : null}
                     <button
                       className="mt-3 min-h-10 rounded-lg bg-hire-300 px-3 py-2 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40"
                       disabled={!eligible || !status.remote_enabled || alreadyAdded || Boolean(busy)}
@@ -348,6 +392,15 @@ export default function McpHubPanel() {
               </div>
             ) : null}
           </section>
+
+          {reviewStatus?.enabled ? (
+            <McpHubReviewWorkbench
+              onClearSelection={() => setReviewSelection([])}
+              onHubChanged={refresh}
+              selected={reviewSelection}
+              status={reviewStatus}
+            />
+          ) : null}
 
           <section
             aria-labelledby="hub-candidates-heading"
