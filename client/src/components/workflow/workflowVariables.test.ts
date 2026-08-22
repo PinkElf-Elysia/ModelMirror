@@ -303,6 +303,19 @@ describe("analyzeWorkflowVariables", () => {
     ).toContain("名称与节点输出变量冲突。");
     expect(
       validateWorkflowVariableDeclaration(
+        { id: "file-collision", name: "selected_asset", kind: "input", valueType: "text" },
+        existing,
+        [
+          ...nodes,
+          node("document", "document_extractor", {
+            assetIdVariable: "selected_asset",
+            outputVariable: "document_text",
+          }),
+        ],
+      ),
+    ).toContain("名称与节点输出变量冲突。");
+    expect(
+      validateWorkflowVariableDeclaration(
         {
           id: "unsafe-value",
           name: "service_value",
@@ -431,6 +444,14 @@ describe("analyzeWorkflowVariables", () => {
     ["dataset_compare", "leftVariable", "binding"],
     ["dataset_compare", "rightVariable", "binding"],
     ["dataset_compare", "outputVariable", "declaration"],
+    ["time_tool", "inputVariable", "binding"],
+    ["time_tool", "rightVariable", "binding"],
+    ["object_transform", "inputVariable", "binding"],
+    ["object_transform", "outputVariable", "declaration"],
+    ["file_output", "inputVariable", "binding"],
+    ["file_output", "filenameTemplate", "template"],
+    ["file_output", "titleTemplate", "template"],
+    ["file_output", "outputVariable", "declaration"],
     ["iteration", "itemTemplate", "template"],
     ["document_extractor", "assetIdVariable", "declaration"],
     ["workflow_agent", "taskInput", "template"],

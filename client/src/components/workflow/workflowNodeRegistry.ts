@@ -262,6 +262,13 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["dataset", "compare", "diff", "typed-value"],
       },
       {
+        kind: "object_transform",
+        icon: "OBJ",
+        title: "对象整理",
+        description: "按顺序设置、重命名、删除或保留对象顶层字段。",
+        tags: ["object", "transform", "set", "rename", "typed-value"],
+      },
+      {
         kind: "json_serialize",
         icon: "JSON",
         title: "JSON 序列化",
@@ -279,12 +286,8 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         kind: "document_extractor",
         icon: "□",
         title: "文档提取器",
-        description: "从当前工作流作用域的文件资产提取文本。",
+        description: "提取经典工作流文件或私有智能体明确共享附件中的文本。",
         tags: ["document", "file"],
-        enabled: false,
-        metadata: {
-          status_reason: "节点能力无法确认，已按默认关闭处理。",
-        },
       },
       {
         kind: "llm",
@@ -389,8 +392,15 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         kind: "time_tool",
         icon: "⌚",
         title: "时间工具",
-        description: "获取当前时间、时间戳或格式化日期文本。",
-        tags: ["time", "date"],
+        description: "获取、转换、运算和归整带时区的时间。",
+        tags: ["time", "date", "timezone", "difference"],
+      },
+      {
+        kind: "file_output",
+        icon: "FILE",
+        title: "生成文件",
+        description: "把变量安全生成 TXT、Markdown、JSON、CSV、PDF、DOCX 或 XLSX。",
+        tags: ["file", "document", "pdf", "docx", "xlsx", "csv"],
       },
       {
         kind: "human_intervention",

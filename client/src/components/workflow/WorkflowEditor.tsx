@@ -76,6 +76,7 @@ import {
 import WorkflowTypedDataNodeConfig from "./WorkflowTypedDataNodeConfig";
 import WorkflowControlDataNodeConfig from "./WorkflowControlDataNodeConfig";
 import WorkflowHttpRequestNodeConfig from "./WorkflowHttpRequestNodeConfig";
+import WorkflowFileDataNodeConfig from "./WorkflowFileDataNodeConfig";
 import WorkflowDeploymentNodeConfig from "./WorkflowDeploymentNodeConfig";
 import WorkflowNodeCard from "./WorkflowNodeCard";
 import WorkflowRun from "./WorkflowRun";
@@ -651,8 +652,9 @@ export function createNodeData(
     return {
       kind,
       title: "文档提取器",
-      description: "从当前工作流作用域的文件资产中提取纯文本。",
-      assetIdVariable: "document_asset_id",
+      description: "从当前工作流或私有智能体明确共享的文件资产中提取纯文本。",
+      contractVersion: 2,
+      assetIdVariable: "selected_file_asset_id",
       outputVariable: "document_text",
     };
   }
@@ -878,8 +880,14 @@ export function createNodeData(
     return {
       kind,
       title: "时间工具",
-      description: "获取当前时间或格式化日期",
-      operation: "now_iso",
+      description: "按时区获取、转换和计算日期时间。",
+      contractVersion: 2,
+      operation: "now",
+      timezone: "UTC",
+      inputVariable: "source_time",
+      rightVariable: "compare_time",
+      amount: 1,
+      unit: "days",
       formatString: "%Y-%m-%d %H:%M:%S",
       outputVariable: "current_time",
     };
@@ -929,6 +937,9 @@ export function createNodeData(
       ],
       sortKeys: [{ field: "", direction: "asc", nulls: "last" }],
       deduplicateFields: [],
+      count: 10,
+      startIndex: 0,
+      endIndex: 10,
       outputVariable: "list_output",
     };
   }
@@ -955,6 +966,38 @@ export function createNodeData(
       keyFields: ["id"],
       includeUnchanged: false,
       outputVariable: "dataset_difference",
+    };
+  }
+
+  if (kind === "object_transform") {
+    return {
+      kind,
+      title: "对象转换",
+      description: "按顺序整理 JSON 对象的顶层字段。",
+      inputVariable: "source_object",
+      outputVariable: "transformed_object",
+      operations: [
+        {
+          id: "operation_1",
+          operation: "set_default",
+          targetField: "status",
+          binding: { source: "literal", valueType: "text", value: "pending" },
+        },
+      ],
+    };
+  }
+
+  if (kind === "file_output") {
+    return {
+      kind,
+      title: "生成文件",
+      description: "把变量安全生成可预览、下载和复用的文件。",
+      inputVariable: "report_content",
+      outputVariable: "generated_file",
+      format: "markdown",
+      filenameTemplate: "workflow-report",
+      titleTemplate: "工作流报告",
+      columns: [{ id: "column_1", field: "id", label: "ID" }],
     };
   }
 
@@ -1406,6 +1449,7 @@ function AgentStudioPanel({
   node,
   nodes,
   edges,
+  declarations,
   variableContract,
   data,
   update,
@@ -1418,6 +1462,7 @@ function AgentStudioPanel({
   node: WorkflowNode;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+  declarations: WorkflowVariableDeclaration[];
   variableContract: WorkflowNodeContractProjection | null;
   data: WorkflowNodeData;
   update: (patch: Partial<WorkflowNodeData>) => void;
@@ -1610,6 +1655,7 @@ function AgentStudioPanel({
               <WorkflowVariableField
                 className="min-h-32 resize-none leading-6"
                 contract={variableContract}
+                declarations={declarations}
                 edges={edges}
                 fieldName="rolePrompt"
                 multiline
@@ -1623,6 +1669,7 @@ function AgentStudioPanel({
               <WorkflowVariableField
                 className="min-h-32 resize-none leading-6"
                 contract={variableContract}
+                declarations={declarations}
                 edges={edges}
                 fieldName="taskInput"
                 multiline
@@ -1639,6 +1686,7 @@ function AgentStudioPanel({
               <WorkflowVariableField
                 className="min-h-36 resize-none leading-6"
                 contract={variableContract}
+                declarations={declarations}
                 edges={edges}
                 fieldName="instruction"
                 multiline
@@ -1897,6 +1945,7 @@ function AgentStudioPanel({
           <WorkflowVariableField
             className="min-h-24 resize-none leading-6"
             contract={variableContract}
+            declarations={declarations}
             edges={edges}
             fieldName="promptSuffix"
             multiline
@@ -1963,6 +2012,7 @@ function AgentStudioPanel({
         <Field label="输出变量">
           <WorkflowVariableField
             contract={variableContract}
+            declarations={declarations}
             edges={edges}
             fieldName="outputVariable"
             node={node}
@@ -3031,8 +3081,21 @@ function NodeConfig({
         />
       ) : null}
 
-      {["condition", "terminate_error", "multi_route", "list_operation", "data_aggregate", "dataset_compare"].includes(data.kind) ? (
+      {["condition", "terminate_error", "multi_route", "list_operation", "data_aggregate", "dataset_compare", "object_transform"].includes(data.kind) ? (
         <WorkflowControlDataNodeConfig
+          contract={variableContract}
+          data={data}
+          declarations={declarations}
+          edges={edges}
+          node={node}
+          nodes={nodes}
+          onChange={update}
+          onOpenVariableCenter={onOpenVariableCenter}
+        />
+      ) : null}
+
+      {["time_tool", "file_output"].includes(data.kind) ? (
+        <WorkflowFileDataNodeConfig
           contract={variableContract}
           data={data}
           declarations={declarations}
@@ -3369,7 +3432,7 @@ function NodeConfig({
           ) : (
             <>
               <div className="rounded-lg border border-sky-300/25 bg-sky-300/10 px-3 py-2 text-xs leading-5 text-sky-50">
-                运行前在试运行面板选择文件。后端只接受当前工作流作用域内的 asset_id，不接受服务器路径。
+                经典工作流可在试运行面板选择文件；私有智能体请保留 selected_file_asset_id，它会指向本次会话明确选择的第一个附件。后端始终校验所属作用域，只接受 asset_id，不接受服务器路径。
               </div>
               <Field label="文件资产变量">
                 <WorkflowVariableField
@@ -3689,6 +3752,7 @@ function NodeConfig({
           boundMiddlewares={boundMiddlewares}
           boundResources={boundResources}
           data={data}
+          declarations={declarations}
           edges={edges}
           node={node}
           nodes={nodes}
@@ -3933,7 +3997,7 @@ function NodeConfig({
         </>
       ) : null}
 
-      {data.kind === "time_tool" ? (
+      {data.kind === "time_tool" && String(data.contractVersion ?? "1") !== "2" ? (
         <>
           <Field label="时间操作">
             <select

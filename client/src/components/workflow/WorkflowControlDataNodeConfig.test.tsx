@@ -262,4 +262,103 @@ describe("WorkflowControlDataNodeConfig", () => {
     fireEvent.click(screen.getByRole("button", { name: "添加匹配键" }));
     expect(onChange).toHaveBeenLastCalledWith({ keyFields: ["id", ""] });
   });
+
+  it("configures list slicing without handwritten JSON", () => {
+    const listNode = node("list_operation");
+    listNode.data.operator = "slice";
+    const onChange = vi.fn();
+    render(
+      <WorkflowControlDataNodeConfig
+        data={listNode.data}
+        edges={[]}
+        node={listNode}
+        nodes={[listNode]}
+        onChange={onChange}
+        onOpenVariableCenter={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("spinbutton", { name: /起始位置/ }), {
+      target: { value: "2" },
+    });
+    expect(onChange).toHaveBeenLastCalledWith({ startIndex: 2 });
+    fireEvent.change(screen.getByRole("spinbutton", { name: /结束位置/ }), {
+      target: { value: "5" },
+    });
+    expect(onChange).toHaveBeenLastCalledWith({ endIndex: 5 });
+  });
+
+  it("keeps object transform step ids stable while editing and reordering", () => {
+    const objectNode = node("object_transform");
+    objectNode.data.operations = [
+      {
+        id: "operation_1",
+        operation: "set",
+        targetField: "status",
+        binding: { source: "literal", valueType: "text", value: "ready" },
+      },
+      { id: "operation_2", operation: "remove", targetField: "legacy" },
+    ];
+    const onChange = vi.fn();
+    const declarations: WorkflowVariableDeclaration[] = [
+      {
+        id: "constant-team",
+        name: "selected_team",
+        kind: "constant",
+        valueType: "text",
+        defaultValue: "platform",
+      },
+    ];
+    const view = render(
+      <WorkflowControlDataNodeConfig
+        data={objectNode.data}
+        declarations={declarations}
+        edges={[]}
+        node={objectNode}
+        nodes={[objectNode]}
+        onChange={onChange}
+        onOpenVariableCenter={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "上移" })[1]);
+    expect(onChange).toHaveBeenLastCalledWith({
+      operations: [
+        expect.objectContaining({ id: "operation_2" }),
+        expect.objectContaining({ id: "operation_1" }),
+      ],
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "转换步骤 1 值来源" }), {
+      target: { value: "variable" },
+    });
+    expect(onChange).toHaveBeenLastCalledWith({
+      operations: [
+        expect.objectContaining({
+          id: "operation_1",
+          binding: { source: "variable", variable: "" },
+        }),
+        expect.objectContaining({ id: "operation_2" }),
+      ],
+    });
+    objectNode.data.operations[0].binding = {
+      source: "variable",
+      variable: "",
+    };
+    view.rerender(
+      <WorkflowControlDataNodeConfig
+        data={objectNode.data}
+        declarations={declarations}
+        edges={[]}
+        node={objectNode}
+        nodes={[objectNode]}
+        onChange={onChange}
+        onOpenVariableCenter={vi.fn()}
+      />,
+    );
+    const bindingButtons = screen.getAllByRole("button", { name: /绑定变量/ });
+    expect(bindingButtons).toHaveLength(2);
+    fireEvent.click(bindingButtons[1]);
+    expect(screen.getByRole("dialog", { name: "变量选择器" })).toBeInTheDocument();
+    expect(screen.getByText("selected_team")).toBeInTheDocument();
+  });
 });

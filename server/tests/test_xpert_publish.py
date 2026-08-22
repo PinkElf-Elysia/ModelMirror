@@ -581,6 +581,137 @@ async def test_r17_secure_http_xpert_publish_is_fail_closed_by_feature_flag(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "feature_flag", "issue_code"),
+    [
+        ("file_output", "FILE_OUTPUT_ASSETS_ENABLED", "xpert_file_output_disabled"),
+        (
+            "document_extractor",
+            "WORKFLOW_FILE_ASSETS_ENABLED",
+            "xpert_workflow_files_disabled",
+        ),
+    ],
+)
+async def test_r18_private_xpert_file_nodes_are_fail_closed_by_feature_flag(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    feature_flag: str,
+    issue_code: str,
+) -> None:
+    created_response = await client.post("/api/xperts", json={"name": f"R1.8 {kind}"})
+    assert created_response.status_code == 200, created_response.text
+    xpert = created_response.json()
+    draft = xpert["draft"]
+    workflow = draft["workflow"]
+    base_nodes = {node["id"]: node for node in workflow["nodes"]}
+    if kind == "file_output":
+        data = {
+            "kind": "file_output",
+            "inputVariable": "user_input",
+            "outputVariable": "generated_file",
+            "format": "markdown",
+            "filenameTemplate": "report",
+            "titleTemplate": "",
+            "columns": [],
+        }
+    else:
+        data = {
+            "kind": "document_extractor",
+            "assetIdVariable": "selected_file_asset_id",
+            "outputVariable": "document_text",
+        }
+    workflow["nodes"] = [
+        base_nodes["input-1"],
+        {
+            "id": "r18-file-node",
+            "type": kind,
+            "position": {"x": 220, "y": 140},
+            "data": data,
+        },
+        base_nodes["workflow-agent-1"],
+        base_nodes["output-1"],
+    ]
+    workflow["edges"] = [
+        {"id": "input-file", "source": "input-1", "target": "r18-file-node"},
+        {"id": "file-agent", "source": "r18-file-node", "target": "workflow-agent-1"},
+        {"id": "agent-output", "source": "workflow-agent-1", "target": "output-1"},
+    ]
+    updated = await client.patch(f"/api/xperts/{xpert['id']}", json={"draft": draft})
+    assert updated.status_code == 200, updated.text
+
+    monkeypatch.setenv(feature_flag, "false")
+    blocked = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+    assert blocked.status_code == 422
+    assert any(
+        issue["code"] == issue_code for issue in blocked.json()["detail"]["issues"]
+    )
+
+    monkeypatch.setenv(feature_flag, "true")
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+    assert published.status_code == 200, published.text
+
+
+@pytest.mark.asyncio
+async def test_r18_xpert_document_publish_rejects_unbound_or_legacy_file_sources(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORKFLOW_FILE_ASSETS_ENABLED", "true")
+    for source, expected_code in (
+        (
+            {"assetIdVariable": "user_input"},
+            "xpert_document_asset_binding_required",
+        ),
+        (
+            {"sourcePathVariable": "user_input"},
+            "xpert_document_asset_migration_required",
+        ),
+    ):
+        created_response = await client.post(
+            "/api/xperts", json={"name": f"R1.8 invalid document {expected_code}"}
+        )
+        xpert = created_response.json()
+        draft = xpert["draft"]
+        workflow = draft["workflow"]
+        base_nodes = {node["id"]: node for node in workflow["nodes"]}
+        workflow["nodes"] = [
+            base_nodes["input-1"],
+            {
+                "id": "document-1",
+                "type": "document_extractor",
+                "position": {"x": 220, "y": 140},
+                "data": {
+                    "kind": "document_extractor",
+                    "outputVariable": "document_text",
+                    **source,
+                },
+            },
+            base_nodes["workflow-agent-1"],
+            base_nodes["output-1"],
+        ]
+        workflow["edges"] = [
+            {"id": "input-document", "source": "input-1", "target": "document-1"},
+            {
+                "id": "document-agent",
+                "source": "document-1",
+                "target": "workflow-agent-1",
+            },
+            {"id": "agent-output", "source": "workflow-agent-1", "target": "output-1"},
+        ]
+        updated = await client.patch(
+            f"/api/xperts/{xpert['id']}", json={"draft": draft}
+        )
+        assert updated.status_code == 200, updated.text
+        blocked = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+        assert blocked.status_code == 422
+        assert any(
+            issue["code"] == expected_code
+            for issue in blocked.json()["detail"]["issues"]
+        )
+
+
+@pytest.mark.asyncio
 async def test_published_xpert_runs_immutable_snapshot_and_registers_trace(
     client: httpx.AsyncClient,
     xpert_store: XpertStore,

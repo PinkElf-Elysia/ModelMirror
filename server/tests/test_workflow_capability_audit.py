@@ -67,18 +67,26 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert mapped["httpRequest"]["模镜对应节点"] == "http_request"
     assert mapped["if"]["模镜对应节点"] == "condition"
     assert mapped["compareDatasets"]["模镜对应节点"] == "dataset_compare"
+    assert mapped["set"]["模镜当前状态"] == "已实现"
+    assert mapped["set"]["模镜对应节点"] == "object_transform"
+    assert mapped["convertToFile"]["模镜对应节点"] == "file_output"
+    assert mapped["dateTime"]["模镜对应节点"] == "time_tool"
+    assert mapped["limit"]["模镜对应节点"] == "list_operation"
+    assert mapped["extractFromFile"]["模镜对应节点"] == "document_extractor"
+    assert "区间截取" in mapped["itemLists"]["判断说明"]
     assert all(mapped[key]["模镜当前状态"] == "已实现" for key in (
         "scheduleTrigger", "webhook", "wait", "respondToWebhook", "errorTrigger",
         "executeWorkflowTrigger", "executeWorkflow", "stopAndError", "switch",
         "filter", "sort", "removeDuplicates", "aggregate", "summarize",
-        "httpRequest", "if", "compareDatasets",
+        "httpRequest", "if", "compareDatasets", "set", "convertToFile",
+        "dateTime", "limit", "itemLists", "extractFromFile",
     ))
     assert all("不复制代码" in row["许可证边界"] or "企业条目" in row["许可证边界"] for row in rows)
     assert Counter(row["模镜当前状态"] for row in rows) == {
-        "已实现": 21,
-        "部分实现": 93,
+        "已实现": 26,
+        "部分实现": 89,
         "通用节点可覆盖": 276,
-        "未实现": 173,
+        "未实现": 172,
     }
     native_kinds = set(get_args(NativeNodeKind))
     assert {
@@ -108,13 +116,16 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         for contract in workflow_node_contract_registry.list()
     )
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
-    assert "R0/R1/R1.5/R1.6/R1.7" in markdown
+    assert "R0/R1/R1.5/R1.6/R1.7/R1.8" in markdown
     assert "44、画布目录项 42" in markdown
+    assert "R1.6 结果" in markdown
+    assert "自研节点总数 47、画布目录项 45、当前 18 个" in markdown
     assert f"{compatibility_count} 个冻结 compatibility 合同" in markdown
     assert f"自研节点总数 {native_count}" in markdown
     assert f"画布目录项 {palette_count}" in markdown
     assert f"Planner 可生成类型仍固定为 {planner_count} 类" in markdown
-    assert native_count == 48
-    assert palette_count == 46
-    assert compatibility_count == 16
+    assert "R1.8 结果" in markdown
+    assert native_count == 50
+    assert palette_count == 48
+    assert compatibility_count == 14
     assert planner_count == 7

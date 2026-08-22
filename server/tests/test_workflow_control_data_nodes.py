@@ -489,6 +489,27 @@ def test_list_new_operations_reject_legacy_text_mixed_sort_and_limits() -> None:
     assert execute_list_operation(["a", "b"], operator="length") == 2
 
 
+def test_list_take_skip_and_slice_are_bounded_non_mutating_array_operations() -> None:
+    source = [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}]
+
+    assert execute_list_operation(source, operator="take", count=2) == source[:2]
+    assert execute_list_operation(source, operator="skip", count=2) == source[2:]
+    assert execute_list_operation(
+        source,
+        operator="slice",
+        start_index=1,
+        end_index=3,
+    ) == source[1:3]
+    assert source == [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}]
+
+    with pytest.raises(WorkflowControlDataError, match="INVALID_LIST_COUNT"):
+        execute_list_operation(source, operator="take", count=-1)
+    with pytest.raises(WorkflowControlDataError, match="INVALID_LIST_SLICE_END"):
+        execute_list_operation(source, operator="slice", start_index=3, end_index=2)
+    with pytest.raises(WorkflowControlDataError, match="TYPED_ARRAY_REQUIRED"):
+        execute_list_operation("a,b,c", operator="skip", count=1)
+
+
 def test_data_aggregate_preserves_group_order_and_measure_contracts() -> None:
     rows = [
         {"team": "blue", "score": 2},

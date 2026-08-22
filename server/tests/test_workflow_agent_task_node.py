@@ -302,7 +302,22 @@ async def test_workflow_agent_node_streams_output_and_registers_run(
 ) -> None:
     captured: dict[str, str | None] = {}
 
-    async def fake_stream_workflow_llm_text(
+    class FakeWorkflowLlmStream:
+        token_usage = {
+            "prompt_tokens": 12,
+            "completion_tokens": 4,
+            "total_tokens": 16,
+            "cost_usd": 0.004,
+        }
+
+        def __aiter__(self):
+            async def iterate():
+                yield "agent "
+                yield "result"
+
+            return iterate()
+
+    def fake_stream_workflow_llm_text(
         model_id: str,
         prompt: str,
         *,
@@ -311,8 +326,7 @@ async def test_workflow_agent_node_streams_output_and_registers_run(
         captured["model_id"] = model_id
         captured["prompt"] = prompt
         captured["system_prompt"] = system_prompt
-        yield "agent "
-        yield "result"
+        return FakeWorkflowLlmStream()
 
     monkeypatch.setattr(
         "server.main.get_llm_gateway_config",
@@ -403,6 +417,14 @@ async def test_workflow_agent_node_streams_output_and_registers_run(
     assert agent_run["metadata"]["agent_name"] == "research-agent"
     assert agent_run["metadata"]["model_id"] == "deepseek/deepseek-chat"
     assert agent_run["metadata"]["output_variable"] == "agent_output"
+    assert agent_run["metadata"]["token_usage"] == {
+        "prompt_tokens": 12,
+        "completion_tokens": 4,
+        "total_tokens": 16,
+        "input_tokens": 12,
+        "output_tokens": 4,
+    }
+    assert "cost_usd" not in agent_run["metadata"]
 
     workflow_checkpoints_response = await client.get(
         f"/api/runtime/runs/{workflow_run_id}/checkpoints",
@@ -424,6 +446,13 @@ async def test_workflow_agent_node_streams_output_and_registers_run(
     assert "workflow_agent.started" in agent_checkpoint_types
     assert "workflow_agent.model_call" in agent_checkpoint_types
     assert "workflow_agent.completed" in agent_checkpoint_types
+    completed_checkpoint = next(
+        item
+        for item in agent_checkpoints_response.json()
+        if item["event_type"] == "workflow_agent.completed"
+    )
+    assert completed_checkpoint["metadata"]["token_usage"]["total_tokens"] == 16
+    assert "cost_usd" not in completed_checkpoint["metadata"]["token_usage"]
 
 
 @pytest.mark.asyncio

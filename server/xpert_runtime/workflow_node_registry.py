@@ -209,6 +209,10 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
         and os.getenv("FILE_ASSET_STORE_MODE", "legacy").strip().lower()
         in {"shadow", "native"}
     )
+    file_output_assets_enabled = (
+        os.getenv("FILE_OUTPUT_ASSETS_ENABLED", "false").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
 
     registry.set_tabs(
         [
@@ -333,7 +337,7 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     kind="list_operation",
                     icon="LIST",
                     title="列表操作",
-                    description="对数组做筛选、排序和去重，并保留旧列表操作。",
+                    description="对数组做筛选、排序、去重、截取和跳过，并保留旧列表操作。",
                     category="logic",
                     tags=["list", "filter", "sort", "deduplicate", "typed-value"],
                     metadata={"planner_enabled": False},
@@ -416,6 +420,15 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     metadata={"planner_enabled": False},
                 ),
                 WorkflowPaletteItem(
+                    kind="object_transform",
+                    icon="OBJ",
+                    title="对象转换",
+                    description="按顺序设置默认值、重命名、删除或保留 JSON 对象的顶层字段。",
+                    category="transform",
+                    tags=["object", "set", "rename", "typed-value"],
+                    metadata={"planner_enabled": False},
+                ),
+                WorkflowPaletteItem(
                     kind="json_serialize",
                     icon="JSON",
                     title="JSON 序列化",
@@ -435,7 +448,7 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     kind="document_extractor",
                     icon="DOC",
                     title="文档提取器",
-                    description="从当前工作流作用域的文件资产提取文本。",
+                    description="从当前工作流或私有 Xpert 明确共享的文件资产提取文本。",
                     category="transform",
                     tags=["document", "file"],
                     enabled=workflow_file_assets_enabled,
@@ -444,6 +457,24 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                         if workflow_file_assets_enabled
                         else {
                             "status_reason": "Workflow 文件资产变量当前未启用。"
+                        }
+                    ),
+                ),
+                WorkflowPaletteItem(
+                    kind="file_output",
+                    icon="FILE",
+                    title="生成文件",
+                    description="把类型化变量安全生成 TXT、Markdown、JSON、CSV、PDF、DOCX 或 XLSX 文件。",
+                    category="transform",
+                    tags=["file", "export", "document", "spreadsheet"],
+                    enabled=file_output_assets_enabled,
+                    metadata=(
+                        {"private_only": True, "planner_enabled": False}
+                        if file_output_assets_enabled
+                        else {
+                            "private_only": True,
+                            "planner_enabled": False,
+                            "status_reason": "统一文件输出当前未启用。",
                         }
                     ),
                 ),
@@ -576,7 +607,7 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     kind="time_tool",
                     icon="TIME",
                     title="时间工具",
-                    description="获取当前时间、时间戳或格式化日期文本。",
+                    description="按 IANA 时区获取、格式化、增减、对照和归整日期时间。",
                     category="tool",
                     tags=["time", "date"],
                 ),

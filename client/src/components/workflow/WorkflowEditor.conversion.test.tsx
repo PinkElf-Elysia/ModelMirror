@@ -355,6 +355,44 @@ describe("WorkflowEditor Xpert entry repair", () => {
     ).toBe(false);
   });
 
+  it("recognizes global declarations in workflow agent templates without hiding unknown references", async () => {
+    const definition = ordinaryWorkflow();
+    definition.variables = [
+      {
+        id: "user-input",
+        name: "user_input",
+        kind: "input",
+        valueType: "text",
+      },
+    ];
+    definition.nodes[1] = {
+      ...definition.nodes[1],
+      data: {
+        ...definition.nodes[1].data,
+        taskInput: "{{user_input}}",
+        promptSuffix: "Use {{missing_context}} when available.",
+      },
+    };
+
+    render(
+      <MemoryRouter>
+        <WorkflowEditor
+          initialDefinition={definition}
+          workflowId="classic-global-variable"
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByTestId("rf__node-agent"));
+
+    expect(
+      await screen.findByText(/missing_context：未找到变量生产者/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/user_input：未找到变量生产者/),
+    ).not.toBeInTheDocument();
+  });
+
   it("edits required Skills as removable tags and keeps discovery advanced", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(

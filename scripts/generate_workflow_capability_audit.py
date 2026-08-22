@@ -13,6 +13,36 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 DIRECT_UPDATES = {
+    "convertToFile": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "file_output",
+        "判断说明": "自研生成文件把类型化变量写成作用域内的 TXT、Markdown、JSON、CSV、PDF、DOCX 或 XLSX 资产；不提供任意服务器路径写入、PPTX 或二进制透传。",
+    },
+    "set": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "object_transform",
+        "判断说明": "自研对象整理按稳定步骤 ID 顺序执行顶层字段设置、默认值、重命名、删除和保留；严格处理缺失字段与命名冲突。",
+    },
+    "dateTime": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "time_tool",
+        "判断说明": "自研时间工具支持 IANA 时区、ISO 转换、格式化、日历运算、差值和周期边界，并拒绝 DST 不存在或歧义的本地时间。",
+    },
+    "limit": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "list_operation",
+        "判断说明": "自研列表操作可按数量保留、跳过或按半开区间截取最多 10,000 项的类型化数组。",
+    },
+    "itemLists": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "list_operation",
+        "判断说明": "自研列表操作统一提供长度、拼接、首末项、筛选、稳定排序、去重、保留、跳过与区间截取；新操作只接受真正的 JSON 数组。",
+    },
+    "extractFromFile": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "document_extractor",
+        "判断说明": "自研文档提取器只读取当前经典工作流资产或私有智能体明确共享的附件并输出受限文本；不宣称结构化表格提取或任意磁盘读取。",
+    },
     "httpRequest": {
         "模镜当前状态": "已实现",
         "模镜对应节点": "http_request",
@@ -110,6 +140,19 @@ DIRECT_UPDATES = {
     },
 }
 
+BASELINE_CORRECTIONS = {
+    "set": {
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "variable_assign / template_transform",
+        "判断说明": "现有变量赋值与模板变换只生成文本，尚未提供类型化对象字段新增、删除、重命名与默认值合同。",
+    },
+    "itemLists": {
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "list_operation",
+        "判断说明": "现有列表节点已支持长度、拼接、首末项、类型化筛选、稳定排序与去重；遗留参考项不作为独立节点实现。",
+    },
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -163,6 +206,9 @@ def main() -> None:
     if len(rows) != 563:
         raise SystemExit(f"Expected 563 reference rows, found {len(rows)}")
     for row in rows:
+        correction = BASELINE_CORRECTIONS.get(row.get("n8n内部标识", ""))
+        if correction:
+            row.update(correction)
         update = DIRECT_UPDATES.get(row.get("n8n内部标识", ""))
         if update:
             row.update(update)
@@ -201,16 +247,17 @@ def main() -> None:
         f"{row['n8n原名参考']} | {row['模镜当前状态']} |"
         for row in direct_rows
     ]
-    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7）
+    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8）
 
-- 审计日期：2026-08-21
+- 审计日期：2026-08-22
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
 - R0 基线事实：NodeContract V3、37 个 `NativeNodeKind`、35 个画布目录项、20 个冻结 compatibility 合同
 - R1 结果：新增 4 个完整合同，并将既有 `llm` 提升为完整合同；自研节点总数 41、画布目录项 39、当前 19 个冻结 compatibility 合同；四节点与 `llm` Planner 均关闭
 - R1.5 PR1 结果：新增完整合同 `failure_event_entry`；自研节点总数 42、画布目录项 40、compatibility 白名单不增长；Planner 关闭且 Xpert 内嵌入口禁止
 - R1.5 PR2 结果：新增完整合同 `workflow_call_entry` 与 `invoke_workflow`；自研节点总数 44、画布目录项 42、compatibility 白名单不增长；仅支持私有同步固定版本调用，Planner 关闭且 Xpert 内嵌入口禁止
-- R1.6 结果：新增完整合同 `terminate_error`、`multi_route`、`data_aggregate`，并将 `list_operation` 提升为完整合同；自研节点总数 {native_count}、画布目录项 {palette_count}、当前 {compatibility_count} 个冻结 compatibility 合同；四类均允许经典工作流和 Xpert 使用，Planner 关闭
-- R1.7 结果：新增完整合同 `dataset_compare`，并将 `http_request`、`condition` 提升为完整合同；自研节点总数 {native_count}、画布目录项 {palette_count}、当前 {compatibility_count} 个冻结 compatibility 合同；Planner 仍固定为 {planner_count} 类
+- R1.6 结果：新增完整合同 `terminate_error`、`multi_route`、`data_aggregate`，并将 `list_operation` 提升为完整合同；自研节点总数 47、画布目录项 45、当前 18 个冻结 compatibility 合同；四类均允许经典工作流和 Xpert 使用，Planner 关闭
+- R1.7 结果：新增完整合同 `dataset_compare`，并将 `http_request`、`condition` 提升为完整合同；自研节点总数 48、画布目录项 46、当前 16 个冻结 compatibility 合同；Planner 仍固定为 7 类
+- R1.8 结果：新增完整合同 `file_output`、`object_transform`，并将 `document_extractor`、`time_tool` 提升为完整合同，同时扩展 `list_operation`；自研节点总数 {native_count}、画布目录项 {palette_count}、当前 {compatibility_count} 个冻结 compatibility 合同；文件节点仅允许经典工作流和私有 Xpert，Planner 仍固定为 {planner_count} 类
 - 参考清单：563 条节点名称/类型，其中 `.ee` {ee_count} 条仅保留名称审计
 
 ## 结论与许可证边界

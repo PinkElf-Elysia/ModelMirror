@@ -15,7 +15,9 @@ from server.main import (
     completion_json_text_from_payload,
     parse_upstream_error,
     sse_delta_text,
+    sse_workflow_token_usage,
     stream_chat_text,
+    stream_workflow_llm_messages,
 )
 from server.xpert_runtime import (
     MiddlewareContext,
@@ -140,6 +142,67 @@ async def test_sse_text_stream_passthrough(monkeypatch: pytest.MonkeyPatch) -> N
     ]
 
     assert "".join(chunks) == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_workflow_stream_exposes_provider_token_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        status_code = 200
+
+        async def aiter_text(self):
+            yield 'data: {"choices":[{"delta":{"content":"done"}}]}\n\n'
+            yield (
+                'data: {"choices":[],"usage":{"prompt_tokens":9,'
+                '"completion_tokens":3,"total_tokens":12,"cost":0.001}}\n\n'
+            )
+            yield "data: [DONE]\n\n"
+
+        async def aclose(self) -> None:
+            return None
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _tb) -> None:
+            return None
+
+        def build_request(self, method, url, headers, json):
+            return {
+                "method": method,
+                "url": url,
+                "headers": headers,
+                "json": json,
+            }
+
+        async def send(self, request, stream):
+            assert stream is True
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://mock", "key"),
+    )
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", FakeClient)
+
+    model_stream = stream_workflow_llm_messages(
+        "mock-model",
+        [ChatMessage(role="user", content="hi")],
+    )
+    chunks = [chunk async for chunk in model_stream]
+
+    assert chunks == ["done"]
+    assert model_stream.token_usage == {
+        "prompt_tokens": 9,
+        "completion_tokens": 3,
+        "total_tokens": 12,
+    }
 
 
 @pytest.mark.asyncio
@@ -364,6 +427,30 @@ def test_sse_image_url_is_converted_to_markdown() -> None:
     )
 
     assert sse_delta_text(event) == ["\n![图片](https://example.com/cat.png)\n"]
+
+
+def test_sse_workflow_token_usage_keeps_only_bounded_token_counters() -> None:
+    event = (
+        'data: {"usage":{"prompt_tokens":12,"completion_tokens":4,'
+        '"total_tokens":16,"cost":0.004,"api_key":"not-telemetry"}}\n\n'
+    )
+
+    assert sse_workflow_token_usage(event) == {
+        "prompt_tokens": 12,
+        "completion_tokens": 4,
+        "total_tokens": 16,
+    }
+    assert sse_workflow_token_usage(
+        'data: {"usage":{"input_tokens":5,"output_tokens":2}}\n\n'
+    ) == {
+        "prompt_tokens": 5,
+        "completion_tokens": 2,
+        "total_tokens": 7,
+    }
+    assert sse_workflow_token_usage(
+        'data: {"usage":{"prompt_tokens":true,"completion_tokens":-1,'
+        '"total_tokens":1000000001}}\n\n'
+    ) == {}
 
 
 def test_user_not_found_error_is_mapped_to_actionable_message() -> None:

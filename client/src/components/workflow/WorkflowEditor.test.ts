@@ -158,6 +158,44 @@ describe("WorkflowEditor palette defaults", () => {
     });
   });
 
+  it("provides safe structured defaults for R1.8 file and deterministic data nodes", () => {
+    expect(createNodeData("document_extractor")).toMatchObject({
+      contractVersion: 2,
+      assetIdVariable: "selected_file_asset_id",
+      outputVariable: "document_text",
+    });
+    expect(createNodeData("time_tool")).toMatchObject({
+      contractVersion: 2,
+      operation: "now",
+      timezone: "UTC",
+      amount: 1,
+      unit: "days",
+      outputVariable: "current_time",
+    });
+    expect(createNodeData("object_transform")).toMatchObject({
+      inputVariable: "source_object",
+      outputVariable: "transformed_object",
+      operations: [
+        expect.objectContaining({
+          id: "operation_1",
+          operation: "set_default",
+          targetField: "status",
+        }),
+      ],
+    });
+    expect(createNodeData("file_output")).toMatchObject({
+      inputVariable: "report_content",
+      outputVariable: "generated_file",
+      format: "markdown",
+      filenameTemplate: "workflow-report",
+    });
+    expect(createNodeData("list_operation")).toMatchObject({
+      count: 10,
+      startIndex: 0,
+      endIndex: 10,
+    });
+  });
+
   it("repairs missing or non-finite positions from server and legacy drafts", () => {
     const nodes = [
       {

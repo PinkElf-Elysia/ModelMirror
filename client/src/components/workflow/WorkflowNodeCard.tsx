@@ -270,6 +270,20 @@ const nodeMeta = {
     bg: "bg-brand-300/10",
     text: "text-brand-100",
   },
+  object_transform: {
+    icon: "OBJ",
+    label: "对象整理",
+    border: "border-brand-300/40",
+    bg: "bg-brand-300/10",
+    text: "text-brand-100",
+  },
+  file_output: {
+    icon: "FILE",
+    label: "生成文件",
+    border: "border-cyan-300/40",
+    bg: "bg-cyan-300/10",
+    text: "text-cyan-100",
+  },
   iteration: {
     icon: "🔁",
     label: "迭代工位",
