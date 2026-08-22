@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -9,6 +10,14 @@ import pytest_asyncio
 
 from server import main as main_module
 from server.main import ChatRoutingOptions, app, omniroute_model_for_request
+from server.model_router import configure_model_router, get_model_router_service
+from server.model_router.chat_control import ProviderChatControlService
+from server.model_router.repository import SQLiteRouterRepository
+from server.model_router.schemas import (
+    ProviderChatControlPolicyUpdate,
+    RouterPolicy,
+)
+from server.model_router.service import ModelRouterService
 from server.omniroute.catalog import OmniRouteCatalogService, normalize_models
 from server.omniroute.client import OmniRouteClientError
 from server.omniroute.config import OmniRouteSettings
@@ -478,6 +487,118 @@ async def test_omniroute_chat_forwards_headers_and_emits_one_receipt(
     assert receipt["tokens"]["total"] == 7
     assert receipt["response_cost_usd"] == 0.00125
     assert receipt["request_id"] == "req-123"
+
+
+@pytest.mark.asyncio
+async def test_auto_sidecar_records_one_boundary_attempt_without_internal_claims(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.save_policy(
+        "local", RouterPolicy(tenant_id="local", engine="sidecar")
+    )
+    service = ModelRouterService(repository)
+    ProviderChatControlService(service).update_policy(
+        ProviderChatControlPolicyUpdate(
+            expected_revision=0,
+            mode="legacy",
+            auto_enabled=True,
+        )
+    )
+    configure_model_router(service)
+    sent_requests: list[dict[str, Any]] = []
+
+    class FakeResponse:
+        status_code = 200
+        headers = {
+            "X-OmniRoute-Model": "openai/gpt-4o",
+            "X-OmniRoute-Provider": "openai",
+            "X-OmniRoute-Request-Id": "req-auto-audit",
+        }
+        content = b""
+
+        async def aiter_text(self):
+            yield 'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'
+            yield (
+                'data: {"model":"openai/gpt-4o","choices":[],'
+                '"usage":{"prompt_tokens":5,"completion_tokens":2,'
+                '"total_tokens":7}}\n\n'
+            )
+            yield "data: [DONE]\n\n"
+
+        async def aread(self):
+            return self.content
+
+        async def aclose(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def build_request(self, method, url, headers, json):
+            request = {
+                "method": method,
+                "url": url,
+                "headers": headers,
+                "json": json,
+            }
+            sent_requests.append(request)
+            return request
+
+        async def send(self, request, stream):
+            assert stream is True
+            return FakeResponse()
+
+        async def aclose(self):
+            return None
+
+    try:
+        monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+        monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+        monkeypatch.setattr(
+            main_module,
+            "create_default_runtime",
+            lambda: (_ for _ in ()).throw(RuntimeError("runtime disabled")),
+        )
+        monkeypatch.setattr(
+            main_module,
+            "get_omniroute_settings",
+            lambda: enabled_settings(),
+        )
+        monkeypatch.setattr(main_module.httpx, "AsyncClient", FakeClient)
+        response = await client.post(
+            "/api/chat",
+            json={
+                "model_id": "auto",
+                "gateway": "auto",
+                "messages": [{"role": "user", "content": "private text"}],
+                "routing": {"mode": "balanced"},
+            },
+        )
+    finally:
+        configure_model_router(original_service)
+
+    assert response.status_code == 200, response.text
+    assert len(sent_requests) == 1
+    receipt_event = next(
+        event
+        for event in response.text.split("\n\n")
+        if event.startswith("event: route_receipt")
+    )
+    receipt = json.loads(receipt_event.split("data:", 1)[1].strip())
+    assert "provider_attempts_not_observed" in receipt["reason_codes"]
+    stored = repository.list_chat_control_receipts("local")
+    assert len(stored["runs"]) == 1
+    assert stored["runs"][0]["strategy"] == "auto_sidecar"
+    assert stored["runs"][0]["primary_newapi"] == 0
+    assert len(stored["attempts"]) == 1
+    assert stored["attempts"][0]["provider_kind"] == "omniroute"
+    assert stored["attempts"][0]["connection_id"] is None
+    assert stored["attempts"][0]["dispatched"] == 1
 
 
 @pytest.mark.asyncio

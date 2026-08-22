@@ -506,6 +506,7 @@ class ProviderChatControlRunSummary(BaseModel):
     capability: ProviderChatCapability
     requested_model: str
     actual_model: str | None = None
+    gateway: str
     strategy: str
     status: str
     result_class: str | None = None

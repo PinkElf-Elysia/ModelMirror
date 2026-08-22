@@ -156,7 +156,7 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - R4 受管 Provider 不会自动配置或接管普通 `/api/chat`。当前 default Chat 仍读取
   `LLM_GATEWAY_URL/KEY` 或 `OPENROUTER_API_KEY`；迁移和 newAPI 默认门禁属于 Round 5。
 
-## Managed Chat 策略与普通文本稳定路由（Round 5A—5B）
+## Managed Chat 策略、稳定路由与 Auto 证据（Round 5A—5C）
 
 - 内部契约版本为 `modelmirror-provider-chat-routing-v1`，将 `chat_text`、
   `chat_tools` 和 `chat_file_output` 分别认证和配置；普通文本认证不能证明工具或受控
@@ -175,7 +175,12 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - `newapi_preferred` 的首选 newAPI 只有在 POST 派发前的资格、目录、凭据或 DNS/SSRF
   预检失败时才可选择显式 Managed 备用。POST 派发后不重试第二 IP，不切换备用、模型或
   legacy Provider；逻辑运行和逐 Provider 尝试均写入不含请求/回答正文的 Receipt。
-- Auto、工具、受控文件输出、多模态与 Canary 不在 R5B 接管范围；
+- R5C 不改变 Auto 的实际选路和重试语义，只在 `MODEL_CONTROL_CHAT_ENABLED=true` 且
+  租户策略 `auto_enabled=true` 时为普通文本 Auto 写入统一 Receipt。Native 每个真实
+  Provider 目标独立记录 attempt；OmniRoute 只记录 ModelMirror 可见的一次 sidecar
+  attempt，内部重试标记 `provider_attempts_not_observed`。Auto 记录始终设置
+  `primary_newapi=false`，不计入 R5E required 门禁。
+- 工具、受控文件输出、多模态与 Canary 不在 R5C 证据接入范围；
   `newapi_required_default` 仍等待 R5E 的证据门禁与人工批准。
 - 清理命令 `python -m server.model_router.cleanup_chat_receipts --storage-dir <path>` 默认
   dry-run；只有显式增加 `--apply` 才会删除超过保留期的运行和尝试记录，默认保留 90 天。
@@ -185,5 +190,6 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 关闭管理面或回退路由不得删除 Provider SQLite、newAPI 数据目录、旧主密钥或迁移
 备份。将 `MODEL_MIRROR_PROVIDER_CHAT_CANARY_ENABLED=false` 可立即关闭 Round 3 入口；
 将 `MODEL_CONTROL_CHAT_ENABLED=false` 保持 R5 数据面关闭。代码回退保留 v15 表和
-脱敏证据，旧版本可忽略新表继续运行。部署回退通过恢复上一版本
+脱敏证据；只需将策略 `auto_enabled=false` 即可停止新增 Auto 证据而不改变 Auto 调度。
+旧版本可忽略新表继续运行。部署回退通过恢复上一版本
 Compose 与对应显式环境配置完成。

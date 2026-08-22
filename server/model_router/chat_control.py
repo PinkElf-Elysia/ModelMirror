@@ -338,6 +338,7 @@ class ProviderChatControlService:
                         if row.get("actual_model")
                         else None
                     ),
+                    gateway=str(row["gateway"]),
                     strategy=str(row["strategy"]),
                     status=str(row["status"]),
                     result_class=(

@@ -277,10 +277,11 @@ export default function ProviderChatControlSettings({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-cyan-100">Managed Chat 控制策略</p>
-            <h2 className="mt-2 text-xl font-semibold text-white">R5B 普通文本稳定路由</h2>
+            <h2 className="mt-2 text-xl font-semibold text-white">R5C 稳定路由与 Auto 证据</h2>
             <p className="mt-2 max-w-[78ch] text-sm leading-6 text-slate-300">
               newapi_preferred 只接管白名单内的 default 普通文本与已提取文本附件。
-              Auto、工具、文件输出、多模态和 Canary 仍保持各自现有路径。
+              Auto 继续沿用 Native 或 OmniRoute 的现有选路，仅在独立门禁开启时写入脱敏运行与尝试证据。
+              工具、文件输出、多模态和 Canary 仍保持各自现有路径。
             </p>
           </div>
           <button
@@ -327,7 +328,7 @@ export default function ProviderChatControlSettings({
                 onChange={(event) => setAutoEnabled(event.target.checked)}
                 type="checkbox"
               />
-              保存 Auto 独立迁移门禁（R5C 前不生效）
+              启用 Auto 独立证据管道（不改变选路）
             </label>
           </div>
 

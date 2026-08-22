@@ -1038,7 +1038,9 @@ except ModuleNotFoundError:
 
 try:
     from server.model_router import (
+        AUTO_SIDECAR_ATTEMPTS_NOT_OBSERVED,
         NoEligibleCandidateError,
+        ProviderChatAutoAuditService,
         ProviderChatCanaryService,
         ProviderChatCanaryStreamEvidence,
         ProviderChatStableService,
@@ -1054,7 +1056,9 @@ try:
     )
 except ModuleNotFoundError:
     from model_router import (
+        AUTO_SIDECAR_ATTEMPTS_NOT_OBSERVED,
         NoEligibleCandidateError,
+        ProviderChatAutoAuditService,
         ProviderChatCanaryService,
         ProviderChatCanaryStreamEvidence,
         ProviderChatStableService,
@@ -23272,6 +23276,7 @@ async def chat(payload: ChatRequest, request: Request):
         native_router_engine.service.egress_policy
     )
     chat_canary_service = ProviderChatCanaryService(router_service)
+    auto_audit_service = ProviderChatAutoAuditService(router_service)
     stable_chat_service = ProviderChatStableService(router_service)
     native_router_policy = router_service.get_policy()
     direct_audio_requested = any(
@@ -23292,6 +23297,27 @@ async def chat(payload: ChatRequest, request: Request):
         direct_audio_requested or response_audio_requested
     )
     chat_canary_requested = payload.gateway == "newapi_canary"
+    auto_audit_shape_requested = bool(
+        payload.gateway == "auto"
+        and payload.tool_mode == "none"
+        and payload.output_mode == "none"
+        and payload.response_audio is None
+        and payload.skill_application is None
+        and not direct_audio_requested
+        and not direct_video_requested
+        and not direct_file_requested
+        and all(
+            isinstance(message.content, str)
+            or (
+                isinstance(message.content, list)
+                and all(
+                    isinstance(part, TextContentPart)
+                    for part in message.content
+                )
+            )
+            for message in payload.messages
+        )
+    )
     stable_chat_shape_requested = bool(
         stable_chat_service.control.feature_enabled()
         and payload.gateway == "default"
@@ -24361,6 +24387,31 @@ async def chat(payload: ChatRequest, request: Request):
                     eligibility=chat_canary_eligibility,
                 )
 
+    auto_audit_run = None
+    if auto_audit_shape_requested:
+        try:
+            auto_audit_run = auto_audit_service.begin(
+                payload.model_id,
+                strategy=(
+                    "auto_native" if use_native_router else "auto_sidecar"
+                ),
+                sidecar_boundary=use_omniroute,
+            )
+        except RouterServiceError as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"error": exc.hint, "code": exc.code},
+            )
+        except Exception:
+            logger.exception("Auto Chat audit preflight failed")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "Auto 调用审计暂时不可用，本次请求未派发。",
+                    "code": "provider_chat_auto_audit_unavailable",
+                },
+            )
+
     runtime_pipeline = None
     runtime_context = None
     if (
@@ -24423,6 +24474,29 @@ async def chat(payload: ChatRequest, request: Request):
     )
     fallback_notice = ""
     audio_finalized = False
+    auto_current_attempt = None
+    auto_audit_run_finalized = False
+
+    def auto_attempt_for_dispatch():
+        nonlocal auto_current_attempt
+        if auto_audit_run is None:
+            return None
+        if use_native_router and native_plan is not None:
+            target = native_plan.targets[native_target_index]
+            position = native_target_index
+            connection_id = target.connection_id
+            provider_kind = target.provider_chat_target.provider_kind
+        else:
+            position = 0
+            connection_id = None
+            provider_kind = "omniroute"
+        auto_current_attempt = auto_audit_service.claim_attempt(
+            auto_audit_run,
+            position=position,
+            connection_id=connection_id,
+            provider_kind=provider_kind,
+        )
+        return auto_current_attempt
 
     def finalize_native_audio_failure(outcome: str) -> None:
         nonlocal audio_finalized
@@ -24749,6 +24823,7 @@ async def chat(payload: ChatRequest, request: Request):
         nonlocal chat_canary_started_at
         nonlocal stable_chat_post_started
         nonlocal stable_chat_started_at
+        nonlocal auto_current_attempt
         if direct_file_requested:
             logger.info("Sending file chat request model=%s code=upstream_send", model_id)
         elif use_chat_canary:
@@ -24796,6 +24871,14 @@ async def chat(payload: ChatRequest, request: Request):
             stable_chat_started_at = time.perf_counter()
             return await provider_chat_transport.send_authorized_stream(
                 client, prepared_request
+            )
+        if auto_audit_run is not None:
+            auto_current_attempt = auto_attempt_for_dispatch()
+            if auto_current_attempt is None:
+                raise RuntimeError("provider_chat_auto_attempt_missing")
+            auto_audit_service.mark_dispatched(
+                auto_audit_run,
+                auto_current_attempt,
             )
         use_provider_chat_contract = bool(
             not native_audio_requested
@@ -25029,6 +25112,12 @@ async def chat(payload: ChatRequest, request: Request):
                 )
             except (httpx.TimeoutException, httpx.HTTPError) as exc:
                 last_error = exc
+                complete_auto_attempt(
+                    status="failed",
+                    result_class="transient_failure",
+                    error_code="provider_chat_transport_error",
+                    actual_model=target.model_id,
+                )
                 native_router_engine.record_outcome(
                     native_plan,
                     target,
@@ -25052,6 +25141,17 @@ async def chat(payload: ChatRequest, request: Request):
                 429,
             } or candidate_response.status_code >= 500
             if retryable_status:
+                auto_result_class, auto_error_code, _auto_hard_failure = (
+                    auto_audit_service.classify_http_failure(
+                        candidate_response.status_code
+                    )
+                )
+                complete_auto_attempt(
+                    status="failed",
+                    result_class=auto_result_class,
+                    error_code=auto_error_code,
+                    actual_model=target.model_id,
+                )
                 native_router_engine.record_outcome(
                     native_plan,
                     target,
@@ -25071,6 +25171,104 @@ async def chat(payload: ChatRequest, request: Request):
         raise httpx.ConnectError("No native dispatch target was available.")
 
     chat_request_started_at = time.perf_counter()
+
+    def complete_auto_attempt(
+        *,
+        status: str,
+        result_class: str,
+        error_code: str | None = None,
+        actual_model: str | None = None,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> None:
+        if auto_audit_run is None or auto_current_attempt is None:
+            return
+        elapsed_ms = (
+            e2e_ms
+            if e2e_ms is not None
+            else (time.perf_counter() - auto_current_attempt.started_at) * 1000
+        )
+        auto_audit_service.complete_attempt(
+            auto_audit_run,
+            auto_current_attempt,
+            status=status,
+            result_class=result_class,
+            error_code=error_code,
+            actual_model=actual_model,
+            ttft_ms=ttft_ms,
+            e2e_ms=elapsed_ms,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+        )
+
+    def finalize_auto_run(
+        *,
+        status: str,
+        result_class: str,
+        error_code: str | None = None,
+        actual_model: str | None = None,
+        client_cancelled: bool = False,
+        hard_failure: bool = False,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> None:
+        nonlocal auto_audit_run_finalized
+        if auto_audit_run is None or auto_audit_run_finalized:
+            return
+        reason_codes = []
+        if len(auto_audit_run.attempts) > 1:
+            reason_codes.append("provider_chat_auto_fallback_used")
+        if error_code:
+            reason_codes.append(error_code)
+        auto_audit_service.complete_run(
+            auto_audit_run,
+            status=status,
+            result_class=result_class,
+            reason_codes=reason_codes,
+            actual_model=actual_model,
+            client_cancelled=client_cancelled,
+            hard_failure=hard_failure,
+            ttft_ms=ttft_ms,
+            e2e_ms=(
+                e2e_ms
+                if e2e_ms is not None
+                else (time.perf_counter() - auto_audit_run.started_at) * 1000
+            ),
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+        )
+        auto_audit_run_finalized = True
+
+    def finalize_auto_failure(
+        result_class: str,
+        error_code: str,
+        *,
+        status: str = "failed",
+        client_cancelled: bool = False,
+        hard_failure: bool = False,
+    ) -> None:
+        complete_auto_attempt(
+            status=status,
+            result_class=result_class,
+            error_code=error_code,
+            actual_model=actual_model_id,
+        )
+        finalize_auto_run(
+            status=status,
+            result_class=result_class,
+            error_code=error_code,
+            actual_model=actual_model_id,
+            client_cancelled=client_cancelled,
+            hard_failure=hard_failure,
+        )
 
     def finalize_chat_canary_failure(
         result_class: str,
@@ -25140,21 +25338,22 @@ async def chat(payload: ChatRequest, request: Request):
     try:
         response = await send_initial_response()
     except RouterServiceError as exc:
+        finalize_auto_failure("preflight_failure", exc.code)
         await finalize_runtime("error", actual_model_id, error=exc.code)
         await close_request_client()
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={
-                "error": exc.hint,
-                "code": exc.code,
-                "route_receipt": stable_chat_service.route_receipt(
-                    stable_chat_dispatch,
-                    requested_model=payload.model_id,
-                    reason_codes=[exc.code],
-                ),
-            },
-        )
+        error_content: dict[str, object] = {
+            "error": exc.hint,
+            "code": exc.code,
+        }
+        if use_stable_chat:
+            error_content["route_receipt"] = stable_chat_service.route_receipt(
+                stable_chat_dispatch,
+                requested_model=payload.model_id,
+                reason_codes=[exc.code],
+            )
+        return JSONResponse(status_code=exc.status_code, content=error_content)
     except httpx.TimeoutException:
+        finalize_auto_failure("transient_failure", "provider_chat_timeout")
         finalize_chat_canary_failure(
             "transient_failure", "provider_chat_timeout"
         )
@@ -25190,6 +25389,9 @@ async def chat(payload: ChatRequest, request: Request):
             )
         return JSONResponse(status_code=504, content=timeout_content)
     except httpx.HTTPError as exc:
+        finalize_auto_failure(
+            "transient_failure", "provider_chat_transport_error"
+        )
         finalize_chat_canary_failure(
             "transient_failure", "provider_chat_transport_error"
         )
@@ -25238,6 +25440,9 @@ async def chat(payload: ChatRequest, request: Request):
             )
         return JSONResponse(status_code=502, content=transport_content)
     except Exception:
+        finalize_auto_failure(
+            "uncertain", "provider_chat_unexpected_error", status="uncertain"
+        )
         finalize_chat_canary_failure(
             "uncertain", "provider_chat_unexpected_error", status="uncertain"
         )
@@ -25277,6 +25482,25 @@ async def chat(payload: ChatRequest, request: Request):
     if response.status_code >= 400:
         body = await response.aread()
         await response.aclose()
+        if auto_audit_run is not None:
+            (
+                auto_result_class,
+                auto_http_error_code,
+                auto_hard_failure,
+            ) = auto_audit_service.classify_http_failure(response.status_code)
+            complete_auto_attempt(
+                status="failed",
+                result_class=auto_result_class,
+                error_code=auto_http_error_code,
+                actual_model=actual_model_id,
+            )
+            finalize_auto_run(
+                status="failed",
+                result_class=auto_result_class,
+                error_code=auto_http_error_code,
+                actual_model=actual_model_id,
+                hard_failure=auto_hard_failure,
+            )
         stable_http_receipt = None
         stable_http_error_code = None
         if use_chat_canary:
@@ -25639,6 +25863,12 @@ async def chat(payload: ChatRequest, request: Request):
                     )
                 except (httpx.TimeoutException, httpx.HTTPError) as exc:
                     runtime_error = "transport_error"
+                    complete_auto_attempt(
+                        status="failed",
+                        result_class="transient_failure",
+                        error_code="provider_chat_transport_error",
+                        actual_model=selected_target.model_id,
+                    )
                     if direct_file_requested:
                         logger.warning(
                             "File chat native fallback failed model=%s code=transport_error",
@@ -25666,6 +25896,17 @@ async def chat(payload: ChatRequest, request: Request):
                 if current_response.status_code >= 400:
                     status_code = current_response.status_code
                     runtime_error = f"http_{status_code}"
+                    (
+                        auto_result_class,
+                        auto_error_code,
+                        _auto_hard_failure,
+                    ) = auto_audit_service.classify_http_failure(status_code)
+                    complete_auto_attempt(
+                        status="failed",
+                        result_class=auto_result_class,
+                        error_code=auto_error_code,
+                        actual_model=selected_target.model_id,
+                    )
                     await current_response.aread()
                     await current_response.aclose()
                     current_response = None
@@ -25730,6 +25971,24 @@ async def chat(payload: ChatRequest, request: Request):
                             yield encoded
                     await asyncio.sleep(0)
                 stream_transport_finished = True
+            except asyncio.CancelledError:
+                complete_auto_attempt(
+                    status="cancelled",
+                    result_class="client_cancelled",
+                    error_code="provider_chat_client_cancelled",
+                    actual_model=selected_target.model_id,
+                    ttft_ms=attempt_ttft_ms,
+                )
+                finalize_auto_run(
+                    status="cancelled",
+                    result_class="client_cancelled",
+                    error_code="provider_chat_client_cancelled",
+                    actual_model=selected_target.model_id,
+                    client_cancelled=True,
+                    ttft_ms=attempt_ttft_ms,
+                )
+                await close_request_client()
+                raise
             except Exception as exc:
                 stream_exception = exc
                 if direct_file_requested:
@@ -25796,6 +26055,32 @@ async def chat(payload: ChatRequest, request: Request):
                         if finish_reason == "length"
                         else "completed"
                     )
+                    complete_auto_attempt(
+                        status="succeeded",
+                        result_class=(
+                            "output_limit"
+                            if runtime_status == "output_limit"
+                            else "success"
+                        ),
+                        actual_model=selected_target.model_id,
+                        ttft_ms=attempt_ttft_ms,
+                        e2e_ms=elapsed_ms,
+                        prompt_tokens=(
+                            state.get("tokens_in")
+                            if isinstance(state.get("tokens_in"), int)
+                            else None
+                        ),
+                        completion_tokens=(
+                            state.get("tokens_out")
+                            if isinstance(state.get("tokens_out"), int)
+                            else None
+                        ),
+                        total_tokens=(
+                            state.get("tokens_total")
+                            if isinstance(state.get("tokens_total"), int)
+                            else None
+                        ),
+                    )
                     native_router_engine.record_outcome(
                         native_plan,
                         selected_target,
@@ -25815,6 +26100,14 @@ async def chat(payload: ChatRequest, request: Request):
                     )
                 else:
                     runtime_error = "stream interrupted"
+                    complete_auto_attempt(
+                        status="failed",
+                        result_class="transient_failure",
+                        error_code="provider_chat_stream_interrupted",
+                        actual_model=selected_target.model_id,
+                        ttft_ms=attempt_ttft_ms,
+                        e2e_ms=elapsed_ms,
+                    )
                     native_router_engine.record_outcome(
                         native_plan,
                         selected_target,
@@ -25840,6 +26133,21 @@ async def chat(payload: ChatRequest, request: Request):
                 break
 
             outcome = "empty_stream" if stream_exception is None else "stream_error"
+            complete_auto_attempt(
+                status="failed",
+                result_class=(
+                    "hard_failure"
+                    if outcome == "empty_stream"
+                    else "transient_failure"
+                ),
+                error_code=(
+                    "provider_chat_empty_stream"
+                    if outcome == "empty_stream"
+                    else "provider_chat_stream_interrupted"
+                ),
+                actual_model=selected_target.model_id,
+                e2e_ms=elapsed_ms,
+            )
             native_router_engine.record_outcome(
                 native_plan,
                 selected_target,
@@ -25973,6 +26281,33 @@ async def chat(payload: ChatRequest, request: Request):
             },
             "version": "2",
         }
+        auto_run_status = "succeeded" if upstream_completed else "failed"
+        auto_run_result = (
+            "output_limit"
+            if runtime_status == "output_limit"
+            else "success"
+            if upstream_completed
+            else "hard_failure"
+            if runtime_error == "empty_stream"
+            else "transient_failure"
+        )
+        auto_run_error = (
+            None
+            if upstream_completed
+            else "provider_chat_empty_stream"
+            if runtime_error == "empty_stream"
+            else "provider_chat_stream_interrupted"
+        )
+        finalize_auto_run(
+            status=auto_run_status,
+            result_class=auto_run_result,
+            error_code=auto_run_error,
+            actual_model=selected_target.model_id,
+            ttft_ms=final_ttft_ms,
+            prompt_tokens=tokens_in if isinstance(tokens_in, int) else None,
+            completion_tokens=tokens_out if isinstance(tokens_out, int) else None,
+            total_tokens=tokens_total if isinstance(tokens_total, int) else None,
+        )
         if direct_file_requested:
             _file_succeeded, file_terminal_events = (
                 await finalize_native_chat_file_events(
@@ -26091,6 +26426,15 @@ async def chat(payload: ChatRequest, request: Request):
                 await asyncio.sleep(0)
             stream_completed = True
         except asyncio.CancelledError:
+            if auto_audit_run is not None:
+                runtime_status = "error"
+                runtime_error = "client cancelled"
+                finalize_auto_failure(
+                    "client_cancelled",
+                    "provider_chat_client_cancelled",
+                    status="cancelled",
+                    client_cancelled=True,
+                )
             if not use_chat_canary and not use_stable_chat:
                 raise
             runtime_status = "error"
@@ -26613,6 +26957,15 @@ async def chat(payload: ChatRequest, request: Request):
                         "algorithm_version": "sidecar",
                     }
                 )
+                if auto_audit_run is not None:
+                    receipt["reason_codes"] = list(
+                        dict.fromkeys(
+                            [
+                                *list(receipt.get("reason_codes") or []),
+                                AUTO_SIDECAR_ATTEMPTS_NOT_OBSERVED,
+                            ]
+                        )
+                    )
                 yield route_receipt_sse(receipt)
                 if not omniroute_stream_state.get("content_observed"):
                     runtime_status = "error"
@@ -26653,6 +27006,82 @@ async def chat(payload: ChatRequest, request: Request):
                     if runtime_error == "stream interrupted"
                     else "stream_error"
                 )
+                if auto_audit_run is not None:
+                    sidecar_actual_model = str(
+                        omniroute_stream_state.get("actual_model")
+                        or omniroute_header_state.get("actual_model")
+                        or actual_model_id
+                    )
+                    sidecar_result_class = (
+                        "success"
+                        if sidecar_outcome == "success"
+                        else "hard_failure"
+                        if sidecar_outcome == "empty_stream"
+                        else "transient_failure"
+                    )
+                    sidecar_error_code = (
+                        None
+                        if sidecar_outcome == "success"
+                        else "provider_chat_empty_stream"
+                        if sidecar_outcome == "empty_stream"
+                        else "provider_chat_stream_interrupted"
+                    )
+                    sidecar_prompt_tokens = (
+                        omniroute_stream_state.get("tokens_in")
+                        if isinstance(
+                            omniroute_stream_state.get("tokens_in"), int
+                        )
+                        else None
+                    )
+                    sidecar_total_tokens = (
+                        omniroute_stream_state.get("tokens_total")
+                        if isinstance(
+                            omniroute_stream_state.get("tokens_total"), int
+                        )
+                        else None
+                    )
+                    complete_auto_attempt(
+                        status=(
+                            "succeeded"
+                            if sidecar_outcome == "success"
+                            else "failed"
+                        ),
+                        result_class=sidecar_result_class,
+                        error_code=sidecar_error_code,
+                        actual_model=sidecar_actual_model,
+                        ttft_ms=sidecar_ttft_ms,
+                        e2e_ms=sidecar_e2e_ms,
+                        prompt_tokens=sidecar_prompt_tokens,
+                        completion_tokens=(
+                            omniroute_stream_state.get("tokens_out")
+                            if isinstance(
+                                omniroute_stream_state.get("tokens_out"), int
+                            )
+                            else None
+                        ),
+                        total_tokens=sidecar_total_tokens,
+                    )
+                    finalize_auto_run(
+                        status=(
+                            "succeeded"
+                            if sidecar_outcome == "success"
+                            else "failed"
+                        ),
+                        result_class=sidecar_result_class,
+                        error_code=sidecar_error_code,
+                        actual_model=sidecar_actual_model,
+                        ttft_ms=sidecar_ttft_ms,
+                        e2e_ms=sidecar_e2e_ms,
+                        prompt_tokens=sidecar_prompt_tokens,
+                        completion_tokens=(
+                            omniroute_stream_state.get("tokens_out")
+                            if isinstance(
+                                omniroute_stream_state.get("tokens_out"), int
+                            )
+                            else None
+                        ),
+                        total_tokens=sidecar_total_tokens,
+                    )
                 recorder = getattr(
                     get_model_router_service().repository,
                     "record_router_candidate_sample",
