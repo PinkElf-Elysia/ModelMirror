@@ -57,6 +57,7 @@ describe("NewApiChatCertification", () => {
           certifications: [
             {
               connection_id: "conn-1",
+              capability: "chat_text",
               status: "not_run",
               can_run: true,
               warning_codes: [],
@@ -71,6 +72,7 @@ describe("NewApiChatCertification", () => {
       <NewApiChatCertification
         connectionEnabled
         connectionId="conn-1"
+        connectionKind="newapi"
         csrfToken="csrf-1"
       />,
     );
@@ -78,13 +80,14 @@ describe("NewApiChatCertification", () => {
     expect(
       screen.getAllByText("不代表默认数据面已就绪", { exact: false }),
     ).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "运行 Chat 认证" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "运行能力认证" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "刷新可认证模型" }));
     await screen.findByRole("option", { name: "provider/model" });
-    fireEvent.click(screen.getByRole("button", { name: "运行 Chat 认证" }));
+    fireEvent.click(screen.getByRole("button", { name: "运行能力认证" }));
 
     expect(screen.getByRole("dialog")).toHaveTextContent("最多一次真实 Chat 请求");
+    expect(screen.getByRole("dialog")).toHaveTextContent("max_tokens=64");
     expect(screen.getByRole("dialog")).toHaveTextContent("可能产生少量额度费用");
     expect(
       fetchMock.mock.calls.filter(([url]) =>
@@ -94,7 +97,7 @@ describe("NewApiChatCertification", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "确认并运行一次" }));
     await waitFor(() =>
-      expect(screen.getAllByText("核心文本 Chat 已通过")).toHaveLength(2),
+      expect(screen.getAllByText("当前能力已通过")).toHaveLength(2),
     );
 
     const certificationCall = fetchMock.mock.calls.find(
@@ -114,6 +117,7 @@ describe("NewApiChatCertification", () => {
     });
     expect(JSON.parse(String(certificationCall[1]?.body))).toEqual({
       model_id: "provider/model",
+      capability: "chat_text",
       acknowledge_billed_call: true,
     });
   });
@@ -138,6 +142,7 @@ describe("NewApiChatCertification", () => {
           certifications: [
             {
               connection_id: "conn-1",
+              capability: "chat_text",
               status: "not_run",
               can_run: false,
               blocked_reason: "provider_chat_certification_disabled",
@@ -152,6 +157,7 @@ describe("NewApiChatCertification", () => {
       <NewApiChatCertification
         connectionEnabled
         connectionId="conn-1"
+        connectionKind="newapi"
         csrfToken="csrf-1"
       />,
     );
@@ -159,7 +165,7 @@ describe("NewApiChatCertification", () => {
     await waitFor(() =>
       expect(screen.getByText("部署已关闭 Chat 认证操作。")).toBeInTheDocument(),
     );
-    expect(screen.getByRole("button", { name: "运行 Chat 认证" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "运行能力认证" })).toBeDisabled();
   });
 
   it("enables only the selected connection as manual canary without exposing payloads", async () => {
@@ -253,6 +259,7 @@ describe("NewApiChatCertification", () => {
         certifications: [
           {
             connection_id: "conn-1",
+            capability: "chat_text",
             status: "passed",
             can_run: true,
             warning_codes: [],
@@ -266,6 +273,7 @@ describe("NewApiChatCertification", () => {
       <NewApiChatCertification
         connectionEnabled
         connectionId="conn-1"
+        connectionKind="newapi"
         csrfToken="csrf-1"
       />,
     );

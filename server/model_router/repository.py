@@ -28,7 +28,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 DEFAULT_TENANT_ID = "local"
 CANONICAL_MASTER_KEY_ENV = "MODEL_MIRROR_CREDENTIAL_MASTER_KEY"
 LEGACY_MASTER_KEY_ENV = "MODEL_ROUTER_CREDENTIAL_MASTER_KEY"
@@ -318,6 +318,7 @@ class SQLiteRouterRepository:
             connection_id TEXT NOT NULL,
             connection_fingerprint TEXT NOT NULL,
             contract_version TEXT NOT NULL,
+            capability TEXT NOT NULL DEFAULT 'chat_text',
             requested_model TEXT NOT NULL,
             actual_model TEXT,
             idempotency_key_hash TEXT NOT NULL,
@@ -417,6 +418,121 @@ class SQLiteRouterRepository:
                 tenant_id, connection_id, model_id, operation, access_mode
             )
         );
+        CREATE TABLE IF NOT EXISTS provider_chat_stable_policies (
+            tenant_id TEXT PRIMARY KEY,
+            mode TEXT NOT NULL DEFAULT 'legacy',
+            auto_enabled INTEGER NOT NULL DEFAULT 0,
+            revision INTEGER NOT NULL DEFAULT 0,
+            policy_fingerprint TEXT NOT NULL,
+            stable_models_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS provider_chat_capability_routes (
+            tenant_id TEXT NOT NULL,
+            capability TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            connection_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, capability, position),
+            UNIQUE (tenant_id, capability, connection_id)
+        );
+        CREATE TABLE IF NOT EXISTS provider_chat_model_qualifications (
+            tenant_id TEXT NOT NULL,
+            capability TEXT NOT NULL,
+            connection_id TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            certification_id TEXT NOT NULL,
+            connection_fingerprint TEXT NOT NULL,
+            contract_version TEXT NOT NULL,
+            qualified_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, capability, connection_id, model_id)
+        );
+        CREATE TABLE IF NOT EXISTS provider_chat_runs (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            policy_fingerprint TEXT NOT NULL,
+            epoch_id TEXT,
+            capability TEXT NOT NULL,
+            requested_model TEXT NOT NULL,
+            actual_model TEXT,
+            strategy TEXT NOT NULL,
+            gateway TEXT NOT NULL DEFAULT 'default',
+            status TEXT NOT NULL,
+            result_class TEXT,
+            reason_codes_json TEXT NOT NULL DEFAULT '[]',
+            is_real_user INTEGER NOT NULL DEFAULT 0,
+            primary_newapi INTEGER NOT NULL DEFAULT 0,
+            client_cancelled INTEGER NOT NULL DEFAULT 0,
+            hard_failure INTEGER NOT NULL DEFAULT 0,
+            ttft_ms REAL,
+            e2e_ms REAL,
+            prompt_tokens INTEGER,
+            completion_tokens INTEGER,
+            total_tokens INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id)
+        );
+        CREATE TABLE IF NOT EXISTS provider_chat_attempts (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            capability TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            connection_id TEXT,
+            provider_kind TEXT NOT NULL,
+            dispatched INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL,
+            result_class TEXT,
+            error_code TEXT,
+            actual_model TEXT,
+            ttft_ms REAL,
+            e2e_ms REAL,
+            prompt_tokens INTEGER,
+            completion_tokens INTEGER,
+            total_tokens INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id),
+            UNIQUE (tenant_id, run_id, position)
+        );
+        CREATE TABLE IF NOT EXISTS provider_chat_gate_epochs (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            policy_fingerprint TEXT NOT NULL,
+            status TEXT NOT NULL,
+            hard_failure_code TEXT,
+            started_at TEXT NOT NULL,
+            closed_at TEXT,
+            PRIMARY KEY (tenant_id, id)
+        );
+        CREATE TABLE IF NOT EXISTS provider_chat_gate_approvals (
+            tenant_id TEXT NOT NULL,
+            policy_fingerprint TEXT NOT NULL,
+            epoch_id TEXT NOT NULL,
+            no_open_p0_p1 INTEGER NOT NULL,
+            drills_json TEXT NOT NULL DEFAULT '{}',
+            acknowledge_fail_closed INTEGER NOT NULL,
+            approved_at TEXT NOT NULL,
+            revoked_at TEXT,
+            PRIMARY KEY (tenant_id, policy_fingerprint)
+        );
+        CREATE TABLE IF NOT EXISTS provider_chat_acceptance_evidence (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            policy_fingerprint TEXT NOT NULL,
+            epoch_id TEXT NOT NULL,
+            evidence_kind TEXT NOT NULL,
+            correlation_hash TEXT,
+            passed INTEGER NOT NULL,
+            reason_codes_json TEXT NOT NULL DEFAULT '[]',
+            observed_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, id)
+        );
         CREATE INDEX IF NOT EXISTS idx_router_connections_tenant_enabled
             ON router_connections (tenant_id, enabled);
         CREATE INDEX IF NOT EXISTS idx_router_decisions_tenant_created
@@ -471,6 +587,25 @@ class SQLiteRouterRepository:
             ON provider_catalog_offerings (
                 tenant_id, operation, stale, model_id
             );
+        CREATE INDEX IF NOT EXISTS idx_provider_chat_routes_lookup
+            ON provider_chat_capability_routes (tenant_id, capability, position);
+        CREATE INDEX IF NOT EXISTS idx_provider_chat_qualifications_lookup
+            ON provider_chat_model_qualifications (
+                tenant_id, capability, model_id, connection_id
+            );
+        CREATE INDEX IF NOT EXISTS idx_provider_chat_runs_recent
+            ON provider_chat_runs (tenant_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_provider_chat_runs_gate
+            ON provider_chat_runs (
+                tenant_id, policy_fingerprint, epoch_id, capability, created_at
+            );
+        CREATE INDEX IF NOT EXISTS idx_provider_chat_attempts_run
+            ON provider_chat_attempts (tenant_id, run_id, position);
+        CREATE INDEX IF NOT EXISTS idx_provider_chat_epochs_recent
+            ON provider_chat_gate_epochs (tenant_id, started_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_chat_epochs_open
+            ON provider_chat_gate_epochs (tenant_id)
+            WHERE closed_at IS NULL;
         """
         with self._lock, self._connect() as connection:
             previous_schema_version = int(
@@ -500,6 +635,23 @@ class SQLiteRouterRepository:
                     """SET scopes_json = '["chat"]' """
                     "WHERE kind IN ('newapi', 'openai_compatible')"
                 )
+            certification_columns = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(provider_chat_certifications)"
+                ).fetchall()
+            }
+            if "capability" not in certification_columns:
+                connection.execute(
+                    "ALTER TABLE provider_chat_certifications "
+                    "ADD COLUMN capability TEXT NOT NULL DEFAULT 'chat_text'"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS "
+                "idx_provider_chat_certifications_capability "
+                "ON provider_chat_certifications "
+                "(tenant_id, capability, connection_id, requested_model, created_at DESC)"
+            )
             existing = {
                 row["name"]
                 for row in connection.execute(
@@ -680,6 +832,25 @@ class SQLiteRouterRepository:
                 WHERE status = 'running'
                 """,
                 (now,),
+            )
+            connection.execute(
+                """
+                UPDATE provider_chat_attempts
+                SET status = 'uncertain', result_class = 'uncertain',
+                    error_code = 'server_restarted', updated_at = ?, completed_at = ?
+                WHERE status = 'running'
+                """,
+                (now, now),
+            )
+            connection.execute(
+                """
+                UPDATE provider_chat_runs
+                SET status = 'uncertain', result_class = 'uncertain',
+                    reason_codes_json = '["server_restarted"]',
+                    updated_at = ?, completed_at = ?
+                WHERE status = 'running'
+                """,
+                (now, now),
             )
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
@@ -1275,6 +1446,7 @@ class SQLiteRouterRepository:
         connection_id: str,
         connection_fingerprint: str,
         contract_version: str,
+        capability: str = "chat_text",
         requested_model: str,
         idempotency_key_hash: str,
     ) -> tuple[dict[str, object], bool]:
@@ -1290,16 +1462,20 @@ class SQLiteRouterRepository:
                 (clean_tenant, connection_id, idempotency_key_hash),
             ).fetchone()
             if existing is not None:
+                if str(existing["capability"]) != capability:
+                    raise RouterRepositoryError(
+                        "provider_chat_certification_idempotency_conflict"
+                    )
                 return dict(existing), False
             try:
                 connection.execute(
                     """
                     INSERT INTO provider_chat_certifications (
                         id, tenant_id, connection_id, connection_fingerprint,
-                        contract_version, requested_model,
+                        contract_version, capability, requested_model,
                         idempotency_key_hash, status, checks_json,
                         warnings_json, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', '{}', '[]', ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', '{}', '[]', ?, ?)
                     """,
                     (
                         certification_id,
@@ -1307,6 +1483,7 @@ class SQLiteRouterRepository:
                         connection_id,
                         connection_fingerprint,
                         contract_version,
+                        capability,
                         requested_model,
                         idempotency_key_hash,
                         now,
@@ -1392,12 +1569,14 @@ class SQLiteRouterRepository:
                 SELECT certification.*
                 FROM provider_chat_certifications AS certification
                 JOIN (
-                    SELECT connection_id, MAX(created_at) AS latest_created_at
+                    SELECT connection_id, capability,
+                        MAX(created_at) AS latest_created_at
                     FROM provider_chat_certifications
                     WHERE tenant_id = ?
-                    GROUP BY connection_id
+                    GROUP BY connection_id, capability
                 ) AS latest
                 ON latest.connection_id = certification.connection_id
+                    AND latest.capability = certification.capability
                     AND latest.latest_created_at = certification.created_at
                 WHERE certification.tenant_id = ?
                 ORDER BY certification.created_at DESC, certification.id DESC
@@ -1411,6 +1590,7 @@ class SQLiteRouterRepository:
         tenant_id: str,
         connection_id: str,
         requested_model: str,
+        capability: str = "chat_text",
     ) -> dict[str, object] | None:
         clean_tenant = self._tenant_id(tenant_id)
         with self._lock, self._connect() as connection:
@@ -1418,11 +1598,11 @@ class SQLiteRouterRepository:
                 """
                 SELECT * FROM provider_chat_certifications
                 WHERE tenant_id = ? AND connection_id = ?
-                    AND requested_model = ?
+                    AND requested_model = ? AND capability = ?
                 ORDER BY created_at DESC, id DESC
                 LIMIT 1
                 """,
-                (clean_tenant, connection_id, requested_model),
+                (clean_tenant, connection_id, requested_model, capability),
             ).fetchone()
         return dict(row) if row is not None else None
 
@@ -1431,34 +1611,572 @@ class SQLiteRouterRepository:
         tenant_id: str,
         *,
         connection_id: str | None = None,
+        capability: str | None = "chat_text",
     ) -> list[dict[str, object]]:
         clean_tenant = self._tenant_id(tenant_id)
-        values: list[object] = [clean_tenant, clean_tenant]
+        subquery_values: list[object] = [clean_tenant]
+        outer_values: list[object] = [clean_tenant]
         connection_filter = ""
         if connection_id is not None:
             connection_filter = " AND certification.connection_id = ?"
-            values.append(connection_id)
+            outer_values.append(connection_id)
+        capability_filter = ""
+        if capability is not None:
+            capability_filter = " AND capability = ?"
+            subquery_values.append(capability)
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 f"""
                 SELECT certification.*
                 FROM provider_chat_certifications AS certification
                 JOIN (
-                    SELECT connection_id, requested_model,
+                    SELECT connection_id, requested_model, capability,
                         MAX(created_at) AS latest_created_at
                     FROM provider_chat_certifications
-                    WHERE tenant_id = ?
-                    GROUP BY connection_id, requested_model
+                    WHERE tenant_id = ?{capability_filter}
+                    GROUP BY connection_id, requested_model, capability
                 ) AS latest
                 ON latest.connection_id = certification.connection_id
                     AND latest.requested_model = certification.requested_model
+                    AND latest.capability = certification.capability
                     AND latest.latest_created_at = certification.created_at
                 WHERE certification.tenant_id = ?{connection_filter}
                 ORDER BY certification.created_at DESC, certification.id DESC
                 """,
-                tuple(values),
+                tuple([*subquery_values, *outer_values]),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_chat_control_policy_bundle(
+        self, tenant_id: str
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            policy = connection.execute(
+                """
+                SELECT * FROM provider_chat_stable_policies
+                WHERE tenant_id = ?
+                """,
+                (clean_tenant,),
+            ).fetchone()
+            routes = connection.execute(
+                """
+                SELECT * FROM provider_chat_capability_routes
+                WHERE tenant_id = ?
+                ORDER BY capability ASC, position ASC
+                """,
+                (clean_tenant,),
+            ).fetchall()
+            qualifications = connection.execute(
+                """
+                SELECT * FROM provider_chat_model_qualifications
+                WHERE tenant_id = ?
+                ORDER BY capability ASC, model_id ASC, connection_id ASC
+                """,
+                (clean_tenant,),
+            ).fetchall()
+        return {
+            "policy": dict(policy) if policy is not None else None,
+            "routes": [dict(row) for row in routes],
+            "qualifications": [dict(row) for row in qualifications],
+        }
+
+    def replace_chat_control_policy(
+        self,
+        tenant_id: str,
+        *,
+        expected_revision: int,
+        mode: str,
+        auto_enabled: bool,
+        policy_fingerprint: str,
+        stable_model_ids: list[str],
+        routes: list[dict[str, object]],
+        qualifications: list[dict[str, object]],
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            current = connection.execute(
+                """
+                SELECT revision, created_at
+                FROM provider_chat_stable_policies
+                WHERE tenant_id = ?
+                """,
+                (clean_tenant,),
+            ).fetchone()
+            current_revision = int(current["revision"]) if current else 0
+            if current_revision != int(expected_revision):
+                raise RouterRepositoryError(
+                    "provider_chat_policy_revision_conflict"
+                )
+            revision = current_revision + 1
+            created_at = str(current["created_at"]) if current else now
+            connection.execute(
+                """
+                INSERT INTO provider_chat_stable_policies (
+                    tenant_id, mode, auto_enabled, revision,
+                    policy_fingerprint, stable_models_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id) DO UPDATE SET
+                    mode = excluded.mode,
+                    auto_enabled = excluded.auto_enabled,
+                    revision = excluded.revision,
+                    policy_fingerprint = excluded.policy_fingerprint,
+                    stable_models_json = excluded.stable_models_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    clean_tenant,
+                    mode,
+                    int(auto_enabled),
+                    revision,
+                    policy_fingerprint,
+                    json.dumps(stable_model_ids, separators=(",", ":")),
+                    created_at,
+                    now,
+                ),
+            )
+            connection.execute(
+                "DELETE FROM provider_chat_capability_routes WHERE tenant_id = ?",
+                (clean_tenant,),
+            )
+            for route in routes:
+                connection.execute(
+                    """
+                    INSERT INTO provider_chat_capability_routes (
+                        tenant_id, capability, position, connection_id,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        clean_tenant,
+                        route["capability"],
+                        int(route["position"]),
+                        route["connection_id"],
+                        now,
+                        now,
+                    ),
+                )
+            connection.execute(
+                "DELETE FROM provider_chat_model_qualifications WHERE tenant_id = ?",
+                (clean_tenant,),
+            )
+            for qualification in qualifications:
+                connection.execute(
+                    """
+                    INSERT INTO provider_chat_model_qualifications (
+                        tenant_id, capability, connection_id, model_id,
+                        certification_id, connection_fingerprint,
+                        contract_version, qualified_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        clean_tenant,
+                        qualification["capability"],
+                        qualification["connection_id"],
+                        qualification["model_id"],
+                        qualification["certification_id"],
+                        qualification["connection_fingerprint"],
+                        qualification["contract_version"],
+                        now,
+                    ),
+                )
+        return self.get_chat_control_policy_bundle(clean_tenant)
+
+    def claim_chat_control_run(
+        self,
+        tenant_id: str,
+        *,
+        run_id: str,
+        policy_fingerprint: str,
+        capability: str,
+        requested_model: str,
+        strategy: str,
+        gateway: str = "default",
+        epoch_id: str | None = None,
+        is_real_user: bool = False,
+        primary_newapi: bool = False,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO provider_chat_runs (
+                    id, tenant_id, policy_fingerprint, epoch_id, capability,
+                    requested_model, strategy, gateway, status,
+                    is_real_user, primary_newapi, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    clean_tenant,
+                    policy_fingerprint,
+                    epoch_id,
+                    capability,
+                    requested_model,
+                    strategy,
+                    gateway,
+                    int(is_real_user),
+                    int(primary_newapi),
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM provider_chat_runs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, run_id),
+            ).fetchone()
+        return dict(row)
+
+    def claim_chat_control_attempt(
+        self,
+        tenant_id: str,
+        *,
+        attempt_id: str,
+        run_id: str,
+        capability: str,
+        position: int,
+        connection_id: str | None,
+        provider_kind: str,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            run = connection.execute(
+                "SELECT id FROM provider_chat_runs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, run_id),
+            ).fetchone()
+            if run is None:
+                raise RouterRepositoryError("provider_chat_run_not_found")
+            connection.execute(
+                """
+                INSERT INTO provider_chat_attempts (
+                    id, tenant_id, run_id, capability, position,
+                    connection_id, provider_kind, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)
+                """,
+                (
+                    attempt_id,
+                    clean_tenant,
+                    run_id,
+                    capability,
+                    int(position),
+                    connection_id,
+                    provider_kind,
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM provider_chat_attempts WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, attempt_id),
+            ).fetchone()
+        return dict(row)
+
+    def mark_chat_control_attempt_dispatched(
+        self, tenant_id: str, attempt_id: str
+    ) -> None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_chat_attempts
+                SET dispatched = 1, updated_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (utc_now(), clean_tenant, attempt_id),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_chat_attempt_not_running")
+
+    def complete_chat_control_attempt(
+        self,
+        tenant_id: str,
+        attempt_id: str,
+        *,
+        status: str,
+        result_class: str | None = None,
+        error_code: str | None = None,
+        actual_model: str | None = None,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_chat_attempts
+                SET status = ?, result_class = ?, error_code = ?,
+                    actual_model = ?, ttft_ms = ?, e2e_ms = ?,
+                    prompt_tokens = ?, completion_tokens = ?, total_tokens = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    status,
+                    result_class,
+                    error_code,
+                    actual_model,
+                    ttft_ms,
+                    e2e_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    now,
+                    now,
+                    clean_tenant,
+                    attempt_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_chat_attempt_not_running")
+            row = connection.execute(
+                "SELECT * FROM provider_chat_attempts WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, attempt_id),
+            ).fetchone()
+        return dict(row)
+
+    def complete_chat_control_run(
+        self,
+        tenant_id: str,
+        run_id: str,
+        *,
+        status: str,
+        result_class: str | None = None,
+        reason_codes: list[str] | None = None,
+        actual_model: str | None = None,
+        client_cancelled: bool = False,
+        hard_failure: bool = False,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_chat_runs
+                SET status = ?, result_class = ?, reason_codes_json = ?,
+                    actual_model = ?, client_cancelled = ?, hard_failure = ?,
+                    ttft_ms = ?, e2e_ms = ?, prompt_tokens = ?,
+                    completion_tokens = ?, total_tokens = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    status,
+                    result_class,
+                    json.dumps(reason_codes or [], separators=(",", ":")),
+                    actual_model,
+                    int(client_cancelled),
+                    int(hard_failure),
+                    ttft_ms,
+                    e2e_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    now,
+                    now,
+                    clean_tenant,
+                    run_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_chat_run_not_running")
+            row = connection.execute(
+                "SELECT * FROM provider_chat_runs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, run_id),
+            ).fetchone()
+        return dict(row)
+
+    def list_chat_control_receipts(
+        self,
+        tenant_id: str,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        bounded_limit = max(1, min(int(limit), 100))
+        with self._lock, self._connect() as connection:
+            cursor_clause = ""
+            values: list[object] = [clean_tenant]
+            if cursor:
+                cursor_row = connection.execute(
+                    """
+                    SELECT created_at, id FROM provider_chat_runs
+                    WHERE tenant_id = ? AND id = ?
+                    """,
+                    (clean_tenant, cursor),
+                ).fetchone()
+                if cursor_row is None:
+                    raise RouterRepositoryError("provider_chat_receipt_cursor_invalid")
+                cursor_clause = (
+                    " AND (created_at < ? OR (created_at = ? AND id < ?))"
+                )
+                values.extend(
+                    [cursor_row["created_at"], cursor_row["created_at"], cursor_row["id"]]
+                )
+            values.append(bounded_limit + 1)
+            runs = connection.execute(
+                f"""
+                SELECT * FROM provider_chat_runs
+                WHERE tenant_id = ?{cursor_clause}
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                tuple(values),
+            ).fetchall()
+            if not runs:
+                return {"runs": [], "attempts": [], "next_cursor": None}
+            has_more = len(runs) > bounded_limit
+            runs = runs[:bounded_limit]
+            run_ids = [str(row["id"]) for row in runs]
+            placeholders = ",".join("?" for _ in run_ids)
+            attempts = connection.execute(
+                f"""
+                SELECT * FROM provider_chat_attempts
+                WHERE tenant_id = ? AND run_id IN ({placeholders})
+                ORDER BY run_id ASC, position ASC
+                """,
+                tuple([clean_tenant, *run_ids]),
+            ).fetchall()
+        return {
+            "runs": [dict(row) for row in runs],
+            "attempts": [dict(row) for row in attempts],
+            "next_cursor": run_ids[-1] if has_more else None,
+        }
+
+    def sync_chat_control_gate_epoch(
+        self,
+        tenant_id: str,
+        *,
+        epoch_id: str,
+        policy_fingerprint: str,
+        qualified: bool,
+        invalidation_code: str,
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            current = connection.execute(
+                """
+                SELECT * FROM provider_chat_gate_epochs
+                WHERE tenant_id = ? AND closed_at IS NULL
+                ORDER BY started_at DESC, id DESC
+                LIMIT 1
+                """,
+                (clean_tenant,),
+            ).fetchone()
+            if (
+                qualified
+                and current is not None
+                and str(current["policy_fingerprint"]) == policy_fingerprint
+            ):
+                return dict(current)
+            if current is not None:
+                connection.execute(
+                    """
+                    UPDATE provider_chat_gate_epochs
+                    SET status = 'invalidated', hard_failure_code = ?, closed_at = ?
+                    WHERE tenant_id = ? AND id = ? AND closed_at IS NULL
+                    """,
+                    (invalidation_code, now, clean_tenant, current["id"]),
+                )
+            connection.execute(
+                """
+                UPDATE provider_chat_gate_approvals
+                SET revoked_at = ?
+                WHERE tenant_id = ? AND revoked_at IS NULL
+                """,
+                (now, clean_tenant),
+            )
+            if not qualified:
+                return None
+            connection.execute(
+                """
+                INSERT INTO provider_chat_gate_epochs (
+                    id, tenant_id, policy_fingerprint, status, started_at
+                ) VALUES (?, ?, ?, 'collecting', ?)
+                """,
+                (epoch_id, clean_tenant, policy_fingerprint, now),
+            )
+            row = connection.execute(
+                """
+                SELECT * FROM provider_chat_gate_epochs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, epoch_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def cleanup_chat_control_receipts(
+        self,
+        tenant_id: str,
+        *,
+        before: str,
+        apply: bool = False,
+    ) -> dict[str, int | bool | str]:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            run_count = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*) FROM provider_chat_runs
+                    WHERE tenant_id = ? AND status != 'running'
+                        AND COALESCE(completed_at, updated_at) < ?
+                    """,
+                    (clean_tenant, before),
+                ).fetchone()[0]
+            )
+            attempt_count = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*) FROM provider_chat_attempts
+                    WHERE tenant_id = ? AND run_id IN (
+                        SELECT id FROM provider_chat_runs
+                        WHERE tenant_id = ? AND status != 'running'
+                            AND COALESCE(completed_at, updated_at) < ?
+                    )
+                    """,
+                    (clean_tenant, clean_tenant, before),
+                ).fetchone()[0]
+            )
+            if apply:
+                connection.execute(
+                    """
+                    DELETE FROM provider_chat_attempts
+                    WHERE tenant_id = ? AND run_id IN (
+                        SELECT id FROM provider_chat_runs
+                        WHERE tenant_id = ? AND status != 'running'
+                            AND COALESCE(completed_at, updated_at) < ?
+                    )
+                    """,
+                    (clean_tenant, clean_tenant, before),
+                )
+                connection.execute(
+                    """
+                    DELETE FROM provider_chat_runs
+                    WHERE tenant_id = ? AND status != 'running'
+                        AND COALESCE(completed_at, updated_at) < ?
+                    """,
+                    (clean_tenant, before),
+                )
+        return {
+            "applied": bool(apply),
+            "before": before,
+            "runs": run_count,
+            "attempts": attempt_count,
+        }
 
     def get_chat_canary_policy(
         self, tenant_id: str

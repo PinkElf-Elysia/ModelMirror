@@ -97,7 +97,7 @@ docker compose -f docker-compose.yml `
 ModelMirror 不得删除该目录。newAPI 上游为带附加条款的 AGPLv3 项目；本仓库不
 嵌入或修改其管理 UI，部署者仍需自行完成许可证与业务使用合规审查。
 
-### Provider Control Plane 与 v14 Catalog
+### Provider Control Plane、v14 Catalog 与 R5A Chat 管理基础
 
 Provider 管理面仍需外部注入至少 32 字符的
 `MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET` 和规范凭据主密钥。升级到 SQLite v14
@@ -130,6 +130,25 @@ curl -H "Cache-Control: no-cache" "http://localhost:8000/api/models/control-plan
 
 该接口描述当前发现与 Readiness，不是 liveness、默认 Provider 资格或计费账本。回退旧
 代码时保留 v14 表；旧版本可忽略这些加法表，无需降级或重写数据库。
+
+R5A 升级至 SQLite v15 前仍需先停止 Server 写入并创建一致性备份。新增表只保存
+Managed Chat 的逐能力策略、资格、Gate 和脱敏 Receipt，不接管 `/api/chat`。部署变量：
+
+```bash
+MODEL_CONTROL_CHAT_ENABLED=false
+```
+
+默认值必须保持 `false`。R5A 管理接口即使在该变量开启时也会返回
+`data_plane_integrated=false`；不要据此宣称普通 Chat 已迁移。超过 90 天的运行与尝试
+记录可先 dry-run 检查：
+
+```bash
+python -m server.model_router.cleanup_chat_receipts --storage-dir /app/model_router
+python -m server.model_router.cleanup_chat_receipts --storage-dir /app/model_router --apply
+```
+
+第二条命令会实际删除过期 Receipt，执行前必须复核目标存储目录并保留数据库备份。
+代码回退时保留 v15 表；旧版本可忽略这些加法表。
 
 规则：
 

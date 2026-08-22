@@ -157,6 +157,16 @@ Chat certification、显式 newAPI Canary 和多模态专用目录的已有证�
 `invocable`，也不展示仅由 Provider 发现的模型；运行时 Readiness 只在设置控制面审计。
 普通 `/api/chat` 在 R4 仍使用既有环境配置路径，受管 Provider 的数据面迁移属于 Round 5。
 
+Round 5A 在控制面增加 `modelmirror-provider-chat-routing-v1`：`chat_text`、
+`chat_tools` 与 `chat_file_output` 各自具有独立认证、稳定模型资格和有序 Managed
+Provider 路由。SQLite v15 保存租户隔离的策略、资格、Gate 纪元以及不含用户正文的
+父运行/尝试 Receipt。该层当前只生成可审核的 Route Plan 基础，明确返回
+`data_plane_integrated=false`；`/api/chat`、Auto、SSE 和默认网关尚未接入。
+
+`MODEL_CONTROL_CHAT_ENABLED` 默认关闭，且在 R5A 中即使开启也不会改变真实调度。
+后续 R5B 必须在独立 PR 中把普通文本 default 路径接入并验证“派发前可备用、派发后不
+重放”的边界，不能把 R5A 的管理绿测解释为数据面迁移完成。
+
 `/settings?section=overview|providers|routing` 共用一份 Provider 管理会话。Marble 等其他
 集成位于该门禁之外；newAPI 管理 UI 继续只通过安全外链访问，不嵌入或代理。
 

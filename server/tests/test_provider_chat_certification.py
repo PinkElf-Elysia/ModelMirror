@@ -8,8 +8,11 @@ import pytest
 from httpx import MockTransport, Request, Response
 
 from server.model_router.chat_certification import (
+    CHAT_TEXT_CERTIFICATION_MAX_TOKENS,
     ProviderChatCertificationService,
+    SYNTHETIC_FILE_TOOL_NAME,
     SYNTHETIC_CERTIFICATION_PROMPT,
+    SYNTHETIC_TOOL_NAME,
 )
 from server.model_router.egress import ProviderEgressPolicy
 from server.model_router.repository import SQLiteRouterRepository
@@ -22,6 +25,7 @@ def _service(
     handler,
     *,
     addresses: list[str] | None = None,
+    kind: str = "newapi",
 ) -> tuple[ProviderChatCertificationService, str, list[Request]]:
     requests: list[Request] = []
 
@@ -34,7 +38,7 @@ def _service(
         "local",
         RouterConnectionCreate(
             name="newAPI",
-            kind="newapi",
+            kind=kind,
             base_url="https://newapi.example/v1",
             api_key="certification-secret",
             scopes=["chat"],
@@ -71,7 +75,7 @@ def _handler(request: Request) -> Response:
         "messages": [{"role": "user", "content": SYNTHETIC_CERTIFICATION_PROMPT}],
         "stream": True,
         "temperature": 0,
-        "max_tokens": 16,
+        "max_tokens": CHAT_TEXT_CERTIFICATION_MAX_TOKENS,
     }
     return Response(
         200,
@@ -107,6 +111,9 @@ async def test_certification_passes_with_one_chat_post_and_redacted_record(
         "model_present": True,
         "chat_http_ok": True,
         "text_delta_observed": True,
+        "tool_call_observed": False,
+        "file_output_contract_observed": False,
+        "capability_verified": True,
         "stream_completed": True,
         "terminal_observed": True,
     }
@@ -115,6 +122,151 @@ async def test_certification_passes_with_one_chat_post_and_redacted_record(
     assert requests[1].url.host == "8.8.8.8"
     assert "certification-secret" not in result.model_dump_json()
     assert SYNTHETIC_CERTIFICATION_PROMPT not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["newapi", "openrouter", "openai_compatible"])
+async def test_text_certification_supports_every_managed_chat_provider_kind(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    service, connection_id, requests = _service(tmp_path, _handler, kind=kind)
+
+    result = await service.run(
+        connection_id,
+        model_id="provider/model",
+        capability="chat_text",
+        acknowledge_billed_call=True,
+        idempotency_key=f"kind-{kind}",
+    )
+
+    assert result.status == "passed"
+    assert result.capability == "chat_text"
+    assert [request.method for request in requests].count("POST") == 1
+
+
+@pytest.mark.asyncio
+async def test_certification_rejects_connection_without_chat_scope_before_catalog_get(
+    tmp_path: Path,
+) -> None:
+    service, connection_id, requests = _service(tmp_path, _handler)
+    service.repository.update_connection(
+        "local",
+        connection_id,
+        RouterConnectionUpdate(scopes=["audio"]),
+    )
+
+    with pytest.raises(RouterServiceError) as exc_info:
+        await service.run(
+            connection_id,
+            model_id="provider/model",
+            capability="chat_text",
+            acknowledge_billed_call=True,
+            idempotency_key="no-chat-scope",
+        )
+
+    assert exc_info.value.code == "connection_chat_scope_required"
+    assert requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "capability,tool_name,arguments,check_name",
+    [
+        (
+            "chat_tools",
+            SYNTHETIC_TOOL_NAME,
+            '{"value":"OK"}',
+            "tool_call_observed",
+        ),
+        (
+            "chat_file_output",
+            SYNTHETIC_FILE_TOOL_NAME,
+            '{"format_id":"plain_text","filename":"certification.txt",'
+            '"content":"OK"}',
+            "file_output_contract_observed",
+        ),
+    ],
+)
+async def test_capability_certification_observes_bounded_tool_contract_without_execution(
+    tmp_path: Path,
+    capability: str,
+    tool_name: str,
+    arguments: str,
+    check_name: str,
+) -> None:
+    def handler(request: Request) -> Response:
+        if request.method == "GET":
+            return Response(200, json={"data": [{"id": "provider/model"}]})
+        body = json.loads(request.content)
+        assert body["tool_choice"]["function"]["name"] == tool_name
+        assert body["parallel_tool_calls"] is False
+        split_at = max(1, len(arguments) // 2)
+        first = json.dumps(
+            {
+                "model": "provider/model",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call-1",
+                                    "function": {
+                                        "name": tool_name,
+                                        "arguments": arguments[:split_at],
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            separators=(",", ":"),
+        )
+        second = json.dumps(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "function": {
+                                        "arguments": arguments[split_at:],
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            },
+            separators=(",", ":"),
+        )
+        return Response(
+            200,
+            content=(
+                f"data: {first}\n\ndata: {second}\n\ndata: [DONE]\n\n"
+            ).encode(),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    service, connection_id, requests = _service(tmp_path, handler)
+    result = await service.run(
+        connection_id,
+        model_id="provider/model",
+        capability=capability,
+        acknowledge_billed_call=True,
+        idempotency_key=f"capability-{capability}",
+    )
+
+    assert result.status == "passed"
+    assert result.capability == capability
+    assert result.checks.capability_verified is True
+    assert getattr(result.checks, check_name) is True
+    assert [request.method for request in requests] == ["GET", "POST"]
 
 
 @pytest.mark.asyncio
@@ -232,6 +384,42 @@ async def test_empty_or_nonterminal_stream_fails_closed(
 
     assert result.status == "failed"
     assert result.error_code == error_code
+    assert [request.method for request in requests].count("POST") == 1
+
+
+@pytest.mark.asyncio
+async def test_reasoning_only_length_stream_reports_visible_text_budget_exhausted(
+    tmp_path: Path,
+) -> None:
+    def handler(request: Request) -> Response:
+        if request.method == "GET":
+            return Response(200, json={"data": [{"id": "provider/model"}]})
+        return Response(
+            200,
+            content=(
+                b'data: {"model":"provider/model","choices":[{"delta":'
+                b'{"reasoning":"thinking"},"finish_reason":null}]}\n\n'
+                b'data: {"choices":[{"delta":{},"finish_reason":"length"}],'
+                b'"usage":{"prompt_tokens":87,"completion_tokens":64,'
+                b'"total_tokens":151}}\n\n'
+                b"data: [DONE]\n\n"
+            ),
+        )
+
+    service, connection_id, requests = _service(tmp_path, handler)
+    result = await service.run(
+        connection_id,
+        model_id="provider/model",
+        acknowledge_billed_call=True,
+        idempotency_key="reasoning-budget-exhausted",
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "provider_chat_visible_text_budget_exhausted"
+    assert result.checks.stream_completed is True
+    assert result.checks.terminal_observed is True
+    assert result.checks.text_delta_observed is False
+    assert result.completion_tokens == 64
     assert [request.method for request in requests].count("POST") == 1
 
 

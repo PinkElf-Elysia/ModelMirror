@@ -25,6 +25,16 @@ ProviderChatCertificationStatus = Literal[
     "uncertain",
     "stale",
 ]
+ProviderChatCapability = Literal[
+    "chat_text",
+    "chat_tools",
+    "chat_file_output",
+]
+ProviderChatControlMode = Literal[
+    "legacy",
+    "newapi_preferred",
+    "newapi_required_default",
+]
 ProviderChatCanaryRunStatus = Literal[
     "running",
     "succeeded",
@@ -323,6 +333,7 @@ class ProviderControlPlaneOverview(BaseModel):
 
 class ProviderChatCertificationRequest(BaseModel):
     model_id: str = Field(min_length=1, max_length=512)
+    capability: ProviderChatCapability = "chat_text"
     acknowledge_billed_call: bool
 
     @field_validator("model_id")
@@ -336,6 +347,9 @@ class ProviderChatCertificationChecks(BaseModel):
     model_present: bool = False
     chat_http_ok: bool = False
     text_delta_observed: bool = False
+    tool_call_observed: bool = False
+    file_output_contract_observed: bool = False
+    capability_verified: bool = False
     stream_completed: bool = False
     terminal_observed: bool = False
 
@@ -344,6 +358,7 @@ class ProviderChatCertificationSummary(BaseModel):
     certification_id: str | None = None
     connection_id: str
     connection_name: str
+    capability: ProviderChatCapability = "chat_text"
     status: ProviderChatCertificationStatus = "not_run"
     can_run: bool
     blocked_reason: str | None = None
@@ -369,6 +384,156 @@ class ProviderChatCertificationListResponse(BaseModel):
     certifications: list[ProviderChatCertificationSummary] = Field(
         default_factory=list
     )
+
+
+class ProviderChatControlRouteUpdate(BaseModel):
+    capability: ProviderChatCapability
+    connection_ids: list[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("connection_ids")
+    @classmethod
+    def validate_connection_ids(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            connection_id = _required_text(
+                value,
+                field_name="connection_id",
+                limit=128,
+            )
+            if connection_id in normalized:
+                raise ValueError("connection_ids must be unique")
+            normalized.append(connection_id)
+        return normalized
+
+
+class ProviderChatControlPolicyUpdate(BaseModel):
+    expected_revision: int = Field(ge=0)
+    mode: ProviderChatControlMode = "legacy"
+    auto_enabled: bool = False
+    stable_model_ids: list[str] = Field(default_factory=list, max_length=500)
+    routes: list[ProviderChatControlRouteUpdate] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+
+    @field_validator("stable_model_ids")
+    @classmethod
+    def validate_stable_model_ids(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            model_id = _required_text(value, field_name="model_id", limit=512)
+            if model_id not in normalized:
+                normalized.append(model_id)
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_routes(self) -> "ProviderChatControlPolicyUpdate":
+        capabilities = [route.capability for route in self.routes]
+        if len(capabilities) != len(set(capabilities)):
+            raise ValueError("each capability may appear only once")
+        return self
+
+
+class ProviderChatControlRouteSummary(BaseModel):
+    capability: ProviderChatCapability
+    connection_ids: list[str] = Field(default_factory=list)
+
+
+class ProviderChatQualificationSummary(BaseModel):
+    capability: ProviderChatCapability
+    connection_id: str
+    connection_name: str
+    provider_kind: ConnectionKind
+    model_id: str
+    certification_id: str | None = None
+    valid: bool
+    reason_code: str
+
+
+class ProviderChatControlPolicyResponse(BaseModel):
+    contract_version: Literal["modelmirror-provider-chat-routing-v1"]
+    feature_enabled: bool
+    data_plane_integrated: bool = False
+    configured_mode: ProviderChatControlMode
+    effective_mode: ProviderChatControlMode
+    auto_enabled: bool
+    revision: int
+    policy_fingerprint: str
+    stable_model_ids: list[str] = Field(default_factory=list)
+    routes: list[ProviderChatControlRouteSummary] = Field(default_factory=list)
+    qualifications: list[ProviderChatQualificationSummary] = Field(
+        default_factory=list
+    )
+    updated_at: str | None = None
+
+
+class ProviderChatControlGateResponse(BaseModel):
+    contract_version: Literal["modelmirror-provider-chat-routing-v1"]
+    feature_enabled: bool
+    data_plane_integrated: bool = False
+    policy_fingerprint: str
+    configured_mode: ProviderChatControlMode
+    required_activation_available: bool = False
+    ready: bool = False
+    request_count: int = 0
+    observed_days: float = 0
+    success_rate: float | None = None
+    blocking_reason_codes: list[str] = Field(default_factory=list)
+
+
+class ProviderChatControlAttemptSummary(BaseModel):
+    attempt_id: str
+    run_id: str
+    capability: ProviderChatCapability
+    provider_kind: str
+    connection_id: str | None = None
+    position: int
+    dispatched: bool
+    status: str
+    result_class: str | None = None
+    error_code: str | None = None
+    actual_model: str | None = None
+    ttft_ms: float | None = None
+    e2e_ms: float | None = None
+    total_tokens: int | None = None
+    created_at: str
+    completed_at: str | None = None
+
+
+class ProviderChatControlRunSummary(BaseModel):
+    run_id: str
+    policy_fingerprint: str
+    capability: ProviderChatCapability
+    requested_model: str
+    actual_model: str | None = None
+    strategy: str
+    status: str
+    result_class: str | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+    ttft_ms: float | None = None
+    e2e_ms: float | None = None
+    total_tokens: int | None = None
+    created_at: str
+    completed_at: str | None = None
+    attempts: list[ProviderChatControlAttemptSummary] = Field(default_factory=list)
+
+
+class ProviderChatControlReceiptsResponse(BaseModel):
+    contract_version: Literal["modelmirror-provider-chat-routing-v1"]
+    runs: list[ProviderChatControlRunSummary] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class ProviderChatControlPublicStatus(BaseModel):
+    contract_version: Literal["modelmirror-provider-chat-routing-v1"]
+    feature_enabled: bool
+    data_plane_integrated: bool = False
+    model_id: str
+    capability: ProviderChatCapability
+    effective_mode: ProviderChatControlMode
+    available: bool
+    would_block: bool
+    reason_code: str
 
 
 class ProviderChatCanaryPolicyUpdate(BaseModel):

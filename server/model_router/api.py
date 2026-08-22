@@ -30,6 +30,12 @@ from .schemas import (
     ProviderChatCertificationListResponse,
     ProviderChatCertificationRequest,
     ProviderChatCertificationSummary,
+    ProviderChatCapability,
+    ProviderChatControlGateResponse,
+    ProviderChatControlPolicyResponse,
+    ProviderChatControlPolicyUpdate,
+    ProviderChatControlPublicStatus,
+    ProviderChatControlReceiptsResponse,
     ProviderChatCanaryAdminResponse,
     ProviderChatCanaryPolicyUpdate,
     ProviderChatCanaryPublicStatus,
@@ -47,6 +53,7 @@ from .schemas import (
     RouterStatus,
 )
 from .chat_certification import ProviderChatCertificationService
+from .chat_control import ProviderChatControlService
 from .chat_canary import ProviderChatCanaryService
 from .provider_catalog import ProviderCatalogService
 from .control_plane_catalog import ControlPlaneCatalogService
@@ -289,10 +296,71 @@ async def run_chat_certification(
         return await ProviderChatCertificationService(get_model_router_service()).run(
             connection_id,
             model_id=payload.model_id,
+            capability=payload.capability,
             acknowledge_billed_call=payload.acknowledge_billed_call,
             idempotency_key=idempotency_key,
         )
     except (ProviderEgressError, RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.get(
+    "/chat-control/policy",
+    response_model=ProviderChatControlPolicyResponse,
+)
+def get_chat_control_policy(
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> ProviderChatControlPolicyResponse:
+    try:
+        return ProviderChatControlService(get_model_router_service()).get_policy()
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.put(
+    "/chat-control/policy",
+    response_model=ProviderChatControlPolicyResponse,
+)
+def update_chat_control_policy(
+    payload: ProviderChatControlPolicyUpdate,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderChatControlPolicyResponse:
+    try:
+        return ProviderChatControlService(
+            get_model_router_service()
+        ).update_policy(payload)
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.get(
+    "/chat-control/gate",
+    response_model=ProviderChatControlGateResponse,
+)
+def get_chat_control_gate(
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> ProviderChatControlGateResponse:
+    try:
+        return ProviderChatControlService(get_model_router_service()).gate()
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.get(
+    "/chat-control/receipts",
+    response_model=ProviderChatControlReceiptsResponse,
+)
+def get_chat_control_receipts(
+    limit: int = 50,
+    cursor: str | None = None,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> ProviderChatControlReceiptsResponse:
+    try:
+        return ProviderChatControlService(get_model_router_service()).receipts(
+            limit=max(1, min(limit, 100)),
+            cursor=cursor,
+        )
+    except (RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
 
@@ -492,5 +560,23 @@ def get_public_chat_canary_status(
             model_id,
             default_gateway_url=os.getenv("LLM_GATEWAY_URL"),
         )
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@models_router.get(
+    "/provider-chat-control",
+    response_model=ProviderChatControlPublicStatus,
+)
+def get_public_chat_control_status(
+    model_id: str,
+    response: Response,
+    capability: ProviderChatCapability = "chat_text",
+) -> ProviderChatControlPublicStatus:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return ProviderChatControlService(
+            get_model_router_service()
+        ).public_status(model_id, capability)
     except (RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
