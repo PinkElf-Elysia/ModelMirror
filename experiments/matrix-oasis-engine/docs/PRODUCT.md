@@ -1,5 +1,7 @@
 # Product
 
+当前R15只验证已求解场景能否由实际控制器、射线和Action terminal完成运行路径；Creator迁移属于R16，因此`claimAllowed=false`。
+
 ## Register
 
 product

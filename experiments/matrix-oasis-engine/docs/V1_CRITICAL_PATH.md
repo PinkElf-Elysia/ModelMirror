@@ -1,5 +1,7 @@
 # 初版关键路径
 
+当前关键路径为R15实际运行证据与R16 Creator迁移。R15必须以R11中性和R12末班地铁双缓存证明实际输入链，R16通过前`claimAllowed`保持`false`。
+
 R8完成纯文本到严格Blueprint；R9完成Meshy道具/静态人物；R10增加Marble panorama/collider、确定性组装和Creator一键Godot预览。
 
 R12技术链可以到达结局，但人工验收确认出生点、资产与Action终端布局不自然，因此没有通过初版完成声明门。R13提取空间语义意图与Godot环境事实；R14再以通用约束求解器完成布局并用中性与末班地铁两类案例复验。当前末班地铁的显式离线R14预览已无明显阻塞，但Creator仍不能复现同等R14结果，第二个真实环境也尚未使用最新visual-safety与flat-support实现重验。两项完成前`claimAllowed`保持`false`。

@@ -193,7 +193,7 @@ const R9_SHARP_LIBVIPS_LICENSE_EXCEPTIONS = [
 }));
 
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 14],
+  [["schemaVersion"], 15],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
@@ -210,10 +210,11 @@ const REQUIRED_POLICY_VALUES = [
   [["networkPolicy", "r12QualificationCalls"], "human-approved-only"],
   [["networkPolicy", "r13AnalysisCalls"], "none"],
   [["networkPolicy", "r14SolverCalls"], "none"],
-  [["mvpClaimPolicy", "status"], "pending-spatial-solver"],
+  [["networkPolicy", "r15EvidenceCalls"], "none"],
+  [["mvpClaimPolicy", "status"], "pending-runtime-evidence"],
   [["mvpClaimPolicy", "claimAllowed"], false],
-  [["mvpClaimPolicy", "blockingRound"], "R14"],
-  [["mvpClaimPolicy", "acceptanceRecord"], "docs/rounds/R14_ACCEPTANCE.md"],
+  [["mvpClaimPolicy", "blockingRound"], "R15"],
+  [["mvpClaimPolicy", "acceptanceRecord"], "docs/rounds/R15_ACCEPTANCE.md"],
   [["mvpClaimPolicy", "machineStatus"], "docs/MVP_STATUS.json"],
   [["mvpClaimPolicy", "completionMarker"], "MATRIX_OASIS_R12_MVP_READY"],
   [["runtimeArtifactInputPolicy", "mode"], "paired-local-files-only"],

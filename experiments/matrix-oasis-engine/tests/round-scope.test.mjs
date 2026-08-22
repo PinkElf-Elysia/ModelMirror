@@ -132,12 +132,12 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R14 policy", () => {
+test("machine boundary and code expose the same ordered R15 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
-  assert.equal(policy.schemaVersion, 14);
+  assert.equal(policy.schemaVersion, 15);
   assert.equal(policy.activeRound, ACTIVE_ROUND);
   assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
@@ -156,25 +156,25 @@ test("machine boundary and code expose the same ordered R14 policy", () => {
     path.join(committedModuleRoot, "scripts", "check-round-scope.mjs"),
     "utf8",
   );
-  assert.match(cli, /policy\.schemaVersion !== 14/);
-  assert.doesNotMatch(cli, /policy\.schemaVersion !== 13/);
+  assert.match(cli, /policy\.schemaVersion !== 15/);
+  assert.doesNotMatch(cli, /policy\.schemaVersion !== 14/);
 });
 
-test("accepts exact R14 files and new package prefixes in every Git status source", (t) => {
+test("accepts exact R15 files and new package prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-spatial-solution-contracts/src/index.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-runtime-evidence-contracts/src/index.mjs`, "export {};\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-spatial-solver/src/index.mjs`, "export {};\n");
-  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-spatial-solver/src/index.mjs`]);
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-runtime-evidence/src/index.mjs`, "export {};\n");
+  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-runtime-evidence/src/index.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
-  write(fixture, `${MODULE_PREFIX}/scripts/lib/spatial-solution-core.mjs`);
-  write(fixture, `${MODULE_PREFIX}/scripts/solve-spatial-layout.mjs`);
-  write(fixture, `${MODULE_PREFIX}/tests/spatial-solution.test.mjs`);
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R14_ACCEPTANCE.md`);
-  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/spatial_solution_verification/verifier.gd`, "extends Node\n");
+  write(fixture, `${MODULE_PREFIX}/scripts/lib/runtime-evidence-core.mjs`);
+  write(fixture, `${MODULE_PREFIX}/scripts/plan-r15-replay.mjs`);
+  write(fixture, `${MODULE_PREFIX}/tests/r15-runtime-evidence.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R15_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/runtime_evidence/evidence_runner.gd`, "extends Node\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");

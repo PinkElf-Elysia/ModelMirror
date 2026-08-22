@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "status": "pending-spatial-solver",
+  "status": "pending-runtime-evidence",
   "claimAllowed": false,
-  "blockingRound": "R14",
-  "acceptanceRecord": "docs/rounds/R14_ACCEPTANCE.md",
+  "blockingRound": "R15",
+  "acceptanceRecord": "docs/rounds/R15_ACCEPTANCE.md",
   "completionMarker": "MATRIX_OASIS_R12_MVP_READY"
 }
