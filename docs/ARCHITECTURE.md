@@ -451,6 +451,8 @@ Harness v3 报告只接受 Harbor 结果、ATIF/Worker ledger、终态 Workspace
 
 V19 将 Coding Worker 冻结为模镜的代码与执行能力底座。模块与 Console 只面向 `TaskControlPlane` 和 `InteractionProjection`；模型循环只面向 `HarnessDriver`；Tool Broker 只面向 `ExecutionBackend`；评测 profile 只面向可空的 `EvaluationAdapter`。`runtime.py` 是唯一生产组装根，具体 Store、Workspace、Provider sidecar 和 Executor 只允许出现在 composition root 或 legacy adapter。
 
+`HarnessDriver` 将普通 turn message 与进行中 turn steer 分成独立方法。现有 Provider v4 没有原生 steer 原语，legacy adapter 因此失败关闭并由持久 Control Plane 在完整工具边界结算 steering；未来 ACP/Codex adapter 不能用新 message 冒充进行中 steer。`ExecutionBackend` 缺少 Shell、服务或 LSP 能力时统一返回中立的 unavailable 错误，不泄漏具体对象的 `AttributeError`。
+
 公开 `/api/coding-worker/v1`、`/api/coding`、`/api/agent-workspace`、`TaskSpec`、runtime protocol、数据库与历史 Provider v4 checkpoint 保持不变。SSE 只补发持久投影事件，不读取供应商帧。生产 profile 关闭时，API 和 Provider 启动链不得静态导入 Parity、Harness V3 或 Evaluation 模块。
 
 宿主写回继续由 v13 独占。Worker Control Plane 只生成不可变 `WritebackCandidate`，其中包含 opaque source、revision、tree hash、patch hash 与 rename-disabled patch bytes；v13 再执行 Diff 规范化、Helper exact-head、apply、commit、undo 和 recovery。后续 ACP/Codex 只可作为 Harness Driver adapter 接入，不得绕过 Tool Broker 或把绝对路径、模型、沙箱和凭据字段扩散到公共任务契约。

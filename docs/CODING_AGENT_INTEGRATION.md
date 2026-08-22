@@ -829,6 +829,6 @@ Parity v2 的公开 fixture、目标和可见检查可进入 runner；隐藏检�
 
 平台模块创建 Coding 任务时构造 `CodingWorkerModuleClient(module=..., substrate=...)`。模块只能登记 opaque source kind、Acceptance check、通用 model route 与 context validator；SDK 内只保存 Control/Projection 端口，不公开 Service、Provider、Executor、Store、Workspace、凭据或进程对象。
 
-新 Harness Driver 必须把外部生命周期归一为 `capabilities/open/restore/message/interrupt_turn/cancel/checkpoint/close`，并显式提供 slot capability 和 controller generation。ACP 的 initialize/session/prompt/update/permission/cancel 与 Codex App Server 的 thread/turn/item/steer/interrupt 都只能在 adapter 内转换；不得把绝对路径、供应商 session、模型或沙箱字段加入 `TaskSpec` 或公共 SSE。
+新 Harness Driver 必须把外部生命周期归一为 `capabilities/open/restore/message/steer/interrupt_turn/cancel/checkpoint/close`，并显式提供 slot capability 和 controller generation。`message` 只开始普通 turn，`steer` 表示对进行中 turn 的独立控制；不支持原生 steer 的 Provider v4 adapter 必须明确返回 false，由 Control Plane 继续在安全工具边界排队。ACP 的 initialize/session/prompt/update/permission/cancel 与 Codex App Server 的 thread/turn/item/steer/interrupt 都只能在 adapter 内转换；不得把绝对路径、供应商 session、模型或沙箱字段加入 `TaskSpec` 或公共 SSE。
 
 工具副作用仍只能经 Tool Broker 进入 `ExecutionBackend`。Driver 不能直接执行 Shell、服务、LSP、文件写入或网络操作。评测代码只能经 `EvaluationAdapter` 和正式 Worker API 运行；生产 profile 关闭时其模块不可加载。Host task 写回只调用 `prepare_writeback_candidate(task_id)`，随后完全交给 v13 apply/commit/undo/recovery。

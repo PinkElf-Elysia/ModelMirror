@@ -833,5 +833,6 @@ V19 不增加环境开关、数据库迁移或新 sidecar。部署继续使用 V
 1. 生产 profile 未启用 `CODING_WORKER_PARITY_ENABLED` 或 `CODING_WORKER_HARNESS_V3_ENABLED` 时，不应加载 `coding_worker.parity`、`coding_worker.harness_v3` 或 `coding_worker.evaluation`。
 2. `/api/coding-worker/v1` 的 JSON、SSE sequence、错误码、任务保留期和模型 route 行为应与 V18 一致。
 3. Host Snapshot 任务只有在 completed 且 Acceptance 对当前 tree 有效时才能生成写回候选；Helper exact-head 与 apply/commit/undo 仍由 v13 执行。
+4. Worker 关闭时 handoff 保持 404，Worker 已启用但底座不可用时保持 503；不存在的 task 必须先于 preview path 校验返回 404，未准备 Workspace 的评测导出保持 `workspace_not_ready`。
 
 回退不需要数据操作：恢复上一 Server 镜像或回退 PR C 即可。不得删除 Worker Store、Workspace、Evidence、Artifact、Provider checkpoint 或 v13 Recovery。评测 profile 与真实模型校准仍按 V18/V24 的独立发布窗口执行，V19 部署不授权真实模型调用。
