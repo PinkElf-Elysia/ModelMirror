@@ -53,14 +53,19 @@ const august20SecondRefreshModelIds = [
   "black-forest-labs/flux-video-upscale",
 ];
 
+const august21ModelIds = [
+  "meta/muse-spark-1.2-contributor",
+  "deepseek/deepseek-v4-flash-vision-exp",
+];
+
 describe("OpenRouter model refresh", () => {
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(552);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(491);
+    expect(counted).toHaveLength(554);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(493);
     expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(55);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(6);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(546);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(548);
   });
 
   it("restores V4 Flash ahead of V4 Pro and keeps Seedream in row four", () => {
@@ -287,6 +292,103 @@ describe("OpenRouter model refresh", () => {
         "safety_tolerance",
       ],
     });
+  });
+
+  it("adds the two August 21 snapshots below the first six rows", () => {
+    for (const modelId of august21ModelIds) {
+      const matches = models.filter((model) => model.id === modelId);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]).toMatchObject({
+        catalog_status: "live",
+        catalog_counted: true,
+        active: true,
+        primary_operation: "chat",
+        interaction_status: "ready",
+        ui_entrypoint: "chat",
+      });
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
+        2 + 6 * 3,
+      );
+    }
+  });
+
+  it("preserves the August 21 multimodal, retention, and segmented pricing contracts", () => {
+    const byId = new Map(models.map((model) => [model.id, model]));
+
+    expect(byId.get("meta/muse-spark-1.2-contributor")).toMatchObject({
+      canonical_slug: "meta/muse-spark-1.2-contributor-20260805",
+      input_modalities: ["text", "image", "video", "file", "audio"],
+      output_modalities: ["text"],
+      operations: expect.arrayContaining([
+        "analyze_document",
+        "analyze_image",
+        "analyze_audio",
+        "analyze_video",
+        "chat",
+      ]),
+      context_length: 1_048_576,
+      pricing: { input: 0.1, output: 0.2 },
+      pricing_status: "fixed",
+      pricing_basis: "token",
+      reasoning_declared: true,
+      openrouter_market: {
+        series: "Other",
+        author: "meta",
+        providers: ["Meta"],
+        distillable: false,
+        zero_data_retention: false,
+      },
+    });
+    expect(byId.get("meta/muse-spark-1.2-contributor")?.note).toContain(
+      "保留提示词与输出 30 天",
+    );
+
+    expect(byId.get("deepseek/deepseek-v4-flash-vision-exp")).toMatchObject({
+      canonical_slug: "deepseek/deepseek-v4-flash-vision-exp-20260821",
+      input_modalities: ["text", "image"],
+      output_modalities: ["text"],
+      operations: expect.arrayContaining(["analyze_image", "chat"]),
+      context_length: 1_048_576,
+      pricing: { input: 0.44, output: 1.32 },
+      pricing_status: "fixed",
+      pricing_basis: "token",
+      reasoning_declared: true,
+      openrouter_market: {
+        series: "DeepSeek",
+        author: "deepseek",
+        providers: ["DeepSeek"],
+        distillable: true,
+        zero_data_retention: false,
+      },
+    });
+    expect(
+      byId.get("deepseek/deepseek-v4-flash-vision-exp")?.pricing_time_windows,
+    ).toEqual([
+      {
+        utc_start: 1000,
+        utc_end: 100,
+        pricing: { input: 0.22, output: 0.66 },
+        price_cny: { input: 1.49, output: 4.47 },
+      },
+      {
+        utc_start: 100,
+        utc_end: 400,
+        pricing: { input: 0.44, output: 1.32 },
+        price_cny: { input: 2.98, output: 8.94 },
+      },
+      {
+        utc_start: 400,
+        utc_end: 600,
+        pricing: { input: 0.22, output: 0.66 },
+        price_cny: { input: 1.49, output: 4.47 },
+      },
+      {
+        utc_start: 600,
+        utc_end: 1000,
+        pricing: { input: 0.44, output: 1.32 },
+        price_cny: { input: 2.98, output: 8.94 },
+      },
+    ]);
   });
 
   it("routes the August 14 specialized models by their dedicated contracts", () => {

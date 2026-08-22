@@ -174,6 +174,7 @@ const modelAuthorLabels: Record<string, string> = {
   google: "Google",
   "x-ai": "Grok（xAI）",
   qwen: "Qwen（通义千问）",
+  meta: "Meta",
   "meta-llama": "Meta Llama",
   mistralai: "Mistral",
   nvidia: "NVIDIA",

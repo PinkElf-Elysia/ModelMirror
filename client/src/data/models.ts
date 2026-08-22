@@ -1,6 +1,6 @@
-﻿// Merged with OpenRouter model catalog on 2026-08-20T10:16:33.909Z.
+﻿// Merged with OpenRouter model catalog on 2026-08-22T04:02:56.573Z.
 // Current OpenRouter refresh verified on 2026-08-21 against the live all-modalities catalog.
-// Refreshed with entries published through 2026-08-20T20:04:55.000Z.
+// Refreshed with entries published through 2026-08-21T18:21:16.000Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
 // Full OpenRouter catalog audit refresh: 2026-08-16. Batch catalog entries are
 // attached to their canonical models as serving variants and excluded from
@@ -208,6 +208,97 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "meta/muse-spark-1.2-contributor",
+    "canonical_slug": "meta/muse-spark-1.2-contributor-20260805",
+    "name": "Meta: Muse Spark 1.2 Contributor",
+    "raw_description": "Muse Spark 1.2 Contributor is Meta's lower-cost contributor tier for the Muse Spark reasoning model. It accepts text, images, video, audio, and PDF documents, returns text, and supports complex agentic and coding workflows with a 1M-token context window.",
+    "context_length": 1048576,
+    "pricing": { "input": 0.1, "output": 0.2 },
+    "input_modalities": ["text", "image", "video", "file", "audio"],
+    "output_modalities": ["text"],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1787336476,
+    "expiration_date": null,
+    "model_author": "Meta",
+    "reasoning_declared": true,
+    "note": "Contributor 低价档要求账户完成 18 岁以上声明；Meta 端点会保留提示词与输出 30 天，并可能将其用于改进产品。"
+  },
+  {
+    "id": "deepseek/deepseek-v4-flash-vision-exp",
+    "canonical_slug": "deepseek/deepseek-v4-flash-vision-exp-20260821",
+    "name": "DeepSeek: DeepSeek V4 Flash Vision Exp",
+    "raw_description": "DeepSeek V4 Flash Vision Exp is an experimental vision-enabled version of DeepSeek V4 Flash 0731. It adds image understanding while retaining the base model's text, agent, reasoning, and world-knowledge capabilities, with 13B active parameters out of 284B total.",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.44,
+      "output": 1.32,
+      "time_overrides": [
+        {
+          "utc_start": 1000,
+          "utc_end": 100,
+          "input": 0.22,
+          "output": 0.66
+        },
+        {
+          "utc_start": 100,
+          "utc_end": 400,
+          "input": 0.44,
+          "output": 1.32
+        },
+        {
+          "utc_start": 400,
+          "utc_end": 600,
+          "input": 0.22,
+          "output": 0.66
+        },
+        {
+          "utc_start": 600,
+          "utc_end": 1000,
+          "input": 0.44,
+          "output": 1.32
+        }
+      ]
+    },
+    "input_modalities": ["text", "image"],
+    "output_modalities": ["text"],
+    "tokenizer": "DeepSeek",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1787311563,
+    "expiration_date": null,
+    "model_author": "DeepSeek",
+    "reasoning_declared": true,
+    "note": "实验性视觉版本通过普通 Chat Completions 的 image_url 多模态消息调用；DeepSeek 端点声明会保留提示词，并按 UTC 时段提供半价档。"
+  },
   {
     "id": "stealth/ox-alpha",
     "canonical_slug": "stealth/ox-alpha",
@@ -23069,6 +23160,8 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "meta/muse-spark-1.2-contributor",
+  "deepseek/deepseek-v4-flash-vision-exp",
   "stealth/ox-alpha",
   "tencent/hy-mt2-1.8b",
   "tencent/hy-mt2-30b-a3b",
