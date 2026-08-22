@@ -197,6 +197,7 @@ class SkillApplicationReceiptStore:
         *,
         method: ApplicationMethod | None = None,
         resource_paths: Iterable[str] = (),
+        read_resource_paths: Iterable[str] = (),
         resource_digests: Mapping[str, str] | None = None,
         expected_resource_digests: Mapping[str, str] | None = None,
         tool_name: str | None = None,
@@ -210,7 +211,13 @@ class SkillApplicationReceiptStore:
                 "Invalid Skill application method.",
                 code="skill_application_receipt_invalid",
             )
-        paths, paths_truncated = _resource_paths(resource_paths)
+        observed_paths = tuple(resource_paths)
+        explicit_read_paths, read_paths_truncated = _resource_paths(
+            read_resource_paths
+        )
+        paths, paths_truncated = _resource_paths(
+            (*observed_paths, *explicit_read_paths)
+        )
         digests = self._resource_digests(resource_digests or {}, allowed_paths=paths)
         expected_digests = self._resource_digests(
             expected_resource_digests or {},
@@ -302,6 +309,8 @@ class SkillApplicationReceiptStore:
             staged_paths = set(item.staged_resource_paths)
             if method == "skill_read" and clean_error is None:
                 read_paths.update(paths)
+            if clean_error is None:
+                read_paths.update(explicit_read_paths)
             if method == "skill_stage" and clean_error is None:
                 staged_paths.update(paths)
             updated.read_resource_paths = _resource_paths(read_paths)[0]
@@ -340,7 +349,10 @@ class SkillApplicationReceiptStore:
             ):
                 errors.add("skill_application_resource_digest_mismatch")
             updated.resource_paths_truncated = bool(
-                item.resource_paths_truncated or paths_truncated or merged_truncated
+                item.resource_paths_truncated
+                or paths_truncated
+                or read_paths_truncated
+                or merged_truncated
             )
             updated.tool_names = tuple(sorted(tools))[:64]
             updated.error_codes = tuple(sorted(errors))[:64]
@@ -692,6 +704,7 @@ class SkillApplicationReceiptStore:
         if item.source_kind in {"git", "local_import"} and not item.trust_fingerprint:
             return "unverified"
         integrity_errors = {
+            "skill_application_contract_stale",
             "skill_application_resource_digest_changed",
             "skill_application_expected_digest_changed",
             "skill_application_resource_digest_missing",
@@ -828,6 +841,7 @@ class SkillApplicationObserver:
         required_resource_paths: Iterable[str] = (),
         method: ApplicationMethod | None = None,
         resource_paths: Iterable[str] = (),
+        read_resource_paths: Iterable[str] = (),
         resource_digests: Mapping[str, str] | None = None,
         expected_resource_digests: Mapping[str, str] | None = None,
         tool_name: str | None = None,
@@ -852,6 +866,7 @@ class SkillApplicationObserver:
             ),
             method=method,
             resource_paths=resource_paths,
+            read_resource_paths=read_resource_paths,
             resource_digests=resource_digests,
             expected_resource_digests=expected_resource_digests,
             tool_name=tool_name,
