@@ -144,7 +144,7 @@
     "test:r14-qualification": "node --test tests/r14-qualification.test.mjs",
     "verify:r14": "npm run verify:spatial-contracts && npm run verify:spatial-solution && npm run test:r14-preview && npm run test:r14-qualification",
     "test:r15-runtime-evidence-contracts": "node --test packages/prototype-runtime-evidence-contracts/tests/contracts.test.mjs",
-    "test:r15-runtime-evidence": "node --test packages/prototype-runtime-evidence/tests/planner.test.mjs packages/prototype-runtime-evidence/tests/collector.test.mjs tests/r15-runtime-evidence.test.mjs",
+    "test:r15-runtime-evidence": "node --test packages/prototype-runtime-evidence/tests/planner.test.mjs packages/prototype-runtime-evidence/tests/collector.test.mjs tests/r15-runtime-evidence.test.mjs tests/r15-runtime-evidence-cache.test.mjs",
     "test:r15-runtime-evidence-godot": "node --test tests/r15-runtime-evidence-godot.test.mjs tests/godot-boundary.test.mjs",
     "plan:r15-replay": "node scripts/plan-r15-replay.mjs",
     "collect:r15-runtime-evidence": "node scripts/collect-r15-runtime-evidence.mjs",
