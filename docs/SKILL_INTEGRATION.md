@@ -284,6 +284,14 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 
 旧节点无需迁移即可采用 V2，节点数据和既有 receipt 不会被重写。回退只需设置 `SKILL_RUNTIME_GUIDANCE_V2_ENABLED=false` 并重启 Server；已有 Workflow、安装数据和 receipt 均保留。
 
+### 4.2 Skill Hook V2 包合同
+
+Hook V2 的唯一标准入口是 `hooks/manifest.json`，版本固定为 `modelmirror-hook-manifest-v2`；实现脚本仍放在 `scripts/`。Manifest 只能声明稳定 Hook ID、四类固定事件、`annotation / validation / guard` 模式、工具事件的精确工具名、包内 `.py / .js` 脚本、用途、验收条件和 1–60 秒超时。服务端根据扩展名选择运行时，不接受 executable、argv、cwd、环境变量、宿主路径、regex 或通配工具名。根目录 `modelmirror-hooks.json` 仅属于旧 `legacy_argv` 节点，不是 V2 包入口。
+
+`SkillApplicationReceiptV2` 在保留 V1 receipt ID 和普通应用合同的同时增加 `hook_execute` 及有界 Hook evidence；旧 V1 记录读取时得到空 evidence，不补造执行事实。Evidence 只保存 Hook/事件/模式、manifest/script/context/result 摘要、脱敏 code、结果类型和 verified 状态，不保存参数、正文、stdout/stderr 或模型输出。涉及 Hook 的后续评测必须另外取得 verified V2 evidence。
+
+当前 `SKILL_PLUGIN_HOOK_V2_ENABLED=false`：服务端会校验包、扫描信任风险并投影脱敏 `hookCapability`，但不会改变旧 Hook 的执行行为。类型化执行顺序、Creator 创作和新工作流体验在后续批次完成；将开关保持为 false 即可回退本合同尚未接管的运行路径。
+
 ## 5. 测试指南
 
 后端测试不依赖外网，会在临时目录创建本地 git 仓库作为 mock Skill 源：

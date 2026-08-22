@@ -1,0 +1,18 @@
+{
+  "version": "modelmirror-hook-manifest-v2",
+  "hooks": [
+    {
+      "hook_id": "check-release-name",
+      "event": "pre_tool_use",
+      "mode": "guard",
+      "tool_names": ["sandbox_write_file"],
+      "script_path": "scripts/check_release.py",
+      "purpose": "Reject executable release file names before a write.",
+      "acceptance_checks": [
+        "Allow a safe relative release path.",
+        "Deny executable file extensions."
+      ],
+      "timeout_seconds": 15
+    }
+  ]
+}

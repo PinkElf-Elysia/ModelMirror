@@ -17,15 +17,21 @@ import yaml
 from yaml.nodes import MappingNode
 from yaml.tokens import AliasToken, AnchorToken
 
+from .hook_contract import (
+    HOOK_MANIFEST_PATH,
+    SkillHookContractError,
+    parse_hook_manifest,
+)
 
-VALIDATOR_VERSION = "skill-package-v2.1"
+
+VALIDATOR_VERSION = "skill-package-v2.2"
 
 MAX_FILES = 40
 MAX_FILE_BYTES = 1024 * 1024
 MAX_TOTAL_BYTES = 5 * 1024 * 1024
 MAX_PATH_CHARS = 240
 MAX_PATH_SEGMENT_BYTES = 255
-ALLOWED_ROOTS = frozenset({"scripts", "references", "assets", "agents"})
+ALLOWED_ROOTS = frozenset({"scripts", "references", "assets", "agents", "hooks"})
 SUPPORTED_FRONTMATTER_FIELDS = frozenset(
     {
         "name",
@@ -178,7 +184,7 @@ _MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]\n]*\]\(([^)\n]+)\)")
 _FENCED_CODE_RE = re.compile(r"```.*?```|~~~.*?~~~", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 _INLINE_RESOURCE_PATH_RE = re.compile(
-    r"(?<![A-Za-z0-9._+@/-])(?P<path>(?:scripts|references|assets|agents)/"
+    r"(?<![A-Za-z0-9._+@/-])(?P<path>(?:scripts|references|assets|agents|hooks)/"
     r"[A-Za-z0-9][A-Za-z0-9._+@/-]*\.[A-Za-z0-9]{1,12}"
     r"(?:#[A-Za-z0-9._-]+)?)(?=$|[\s'\"),;:])"
 )
@@ -364,6 +370,18 @@ def validate_skill_package(
         frontmatter = _parse_skill_frontmatter(markdown_text, issues)
     for path, text in clean_files.items():
         _check_static_syntax(path, text, issues)
+    hook_manifest = clean_files.get(HOOK_MANIFEST_PATH)
+    if hook_manifest is not None:
+        try:
+            parse_hook_manifest(hook_manifest, available_paths=clean_files)
+        except SkillHookContractError as exc:
+            issues.append(
+                SkillPackageIssue(
+                    code=exc.code,
+                    message=str(exc),
+                    path=exc.path,
+                )
+            )
 
     parsed = _validate_frontmatter(frontmatter, clean_root, issues)
     if markdown_text is not None:
@@ -639,6 +657,15 @@ def _validate_file_path(
             SkillPackageIssue(
                 code="agents_file_unsupported",
                 message="Only agents/openai.yaml is supported under agents/.",
+                path=value,
+            )
+        )
+        return None
+    if path.parts[0] == "hooks" and value != HOOK_MANIFEST_PATH:
+        issues.append(
+            SkillPackageIssue(
+                code="hooks_file_unsupported",
+                message="Only hooks/manifest.json is supported under hooks/.",
                 path=value,
             )
         )
