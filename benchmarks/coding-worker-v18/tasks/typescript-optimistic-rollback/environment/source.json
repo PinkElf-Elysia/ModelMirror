@@ -1,7 +1,7 @@
 {
   "task_id": "typescript-optimistic-rollback",
   "source_id": "v18-typescript-optimistic-rollback",
-  "revision": "ed6edc3cd2c32f99ff5985f0a0a1a0ad2e47f501a236043c1f2e7ca08cab64c1",
+  "revision": "fedd97fb908075c9186053587de415e7b6651476d8a56e6c872651e9f6007d0b",
   "instruction_sha256": "d68829cb5b4c2179489f715f12f33d0dab3c910ef35d8ed828700f6410e76ae4",
   "scenario_sha256": null,
   "acceptance_sha256": "df8961bd5dedce99f805d412d103edc303209fdbc38e2c8c97096c6c436cfc6b",

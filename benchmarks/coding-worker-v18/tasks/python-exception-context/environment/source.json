@@ -1,7 +1,7 @@
 {
   "task_id": "python-exception-context",
   "source_id": "v18-python-exception-context",
-  "revision": "f12aa2820d8c861f8936e5bb3312214188521bd5052012c126ff57838b3f7bf4",
+  "revision": "8c28450b98fed76a125b492440bc32edbfccfee6129a444fc0e84c924b591c3c",
   "instruction_sha256": "5b35294238f80996cf5339f0d659f0f060ca0230b48fcebd90ec4424822e6a8c",
   "scenario_sha256": null,
   "acceptance_sha256": "db829fa747b0e9cb75ad330a10ff401966a6b82889140e025fee72dcc408dce3",
