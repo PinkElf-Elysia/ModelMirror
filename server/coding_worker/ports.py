@@ -247,6 +247,10 @@ class EvaluationAdapter(Protocol):
 
     def arm_fault(self, task_id: str, component: str, point: str) -> None: ...
 
+    def export_workspace(
+        self, task_id: str, *, harness_v3: bool
+    ) -> WorkerArtifact: ...
+
 
 @dataclass(frozen=True, slots=True)
 class CodingSubstrateHandle:

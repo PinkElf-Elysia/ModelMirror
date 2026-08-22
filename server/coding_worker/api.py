@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-import io
 import json
 import os
-import secrets
-import tarfile
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from typing import Any, Literal
@@ -47,7 +44,7 @@ from .contracts import (
     SubtaskRequest,
 )
 from .provider import ProviderCapabilities
-from .harness_v3 import SERVER_HARNESS_CODE_FILES, harness_code_bundle_sha256
+from .ports import EvaluationAdapter
 from .service import CodingWorkerService
 from .runtime import CodingWorkerRuntime, build_runtime_from_environment
 from .store import WorkerConflictError, WorkerNotFoundError, WorkerStoreError
@@ -96,18 +93,19 @@ def _require_harness_controller(request: Request) -> None:
 _service: CodingWorkerService | None = None
 _enabled_override: bool | None = None
 _runtime: CodingWorkerRuntime | None = None
+_evaluation_adapter: EvaluationAdapter | None = None
 _startup_error: str | None = None
-_HARNESS_PROCESS_GENERATION = secrets.token_hex(16)
 _CONSOLE_ORIGIN = Origin(module="worker-console", object_id="local-user")
 
 
 @asynccontextmanager
 async def _lifespan(_app: object) -> AsyncIterator[None]:
-    global _service, _runtime, _startup_error
+    global _service, _runtime, _evaluation_adapter, _startup_error
     if is_coding_worker_enabled() and _service is None:
         try:
             _runtime = build_runtime_from_environment()
             _service = await _runtime.start()
+            _evaluation_adapter = _runtime.substrate.evaluation
             _startup_error = None
         except Exception as exc:
             _startup_error = getattr(
@@ -120,6 +118,7 @@ async def _lifespan(_app: object) -> AsyncIterator[None]:
             await _runtime.close()
             _runtime = None
             _service = None
+            _evaluation_adapter = None
         elif _service is not None:
             await _service.shutdown()
 
@@ -375,11 +374,15 @@ def _require_children_enabled() -> None:
 
 
 def configure_coding_worker_for_tests(
-    service: CodingWorkerService | None, *, enabled: bool | None = None
+    service: CodingWorkerService | None,
+    *,
+    enabled: bool | None = None,
+    evaluation: EvaluationAdapter | None = None,
 ) -> None:
-    global _service, _enabled_override, _startup_error
+    global _service, _enabled_override, _evaluation_adapter, _startup_error
     _service = service
     _enabled_override = enabled
+    _evaluation_adapter = evaluation
     _startup_error = None
 
 
@@ -395,6 +398,12 @@ def get_coding_worker_service() -> CodingWorkerService:
             },
         )
     return _service
+
+
+def _get_evaluation_adapter() -> EvaluationAdapter:
+    if _evaluation_adapter is None or not _evaluation_adapter.enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+    return _evaluation_adapter
 
 
 def _require_enabled() -> None:
@@ -1143,37 +1152,9 @@ async def export_parity_workspace(task_id: str) -> WorkerArtifact:
     harness_v3_enabled = _feature_enabled("CODING_WORKER_HARNESS_V3_ENABLED")
     if not (parity_enabled or harness_v3_enabled):
         raise HTTPException(status_code=404, detail="Not found")
-    service, task = _task_workspace(task_id)
     try:
-        if task.state not in TERMINAL_STATES:
-            raise WorkerConflictError(
-                "Parity export requires a terminal task.",
-                code="parity_task_not_terminal",
-            )
-        snapshot = service.workspace_broker.capture_snapshot(task.workspace_id)
-        files = service.workspace_broker.snapshot_files(task.workspace_id, snapshot)
-        content = _deterministic_workspace_tar(files)
-        usage = service.store.budget_usage(task_id)
-        return service.store.create_artifact(
-            task_id=task_id,
-            media_type=(
-                "application/vnd.modelmirror.harness-workspace+tar"
-                if harness_v3_enabled
-                else "application/vnd.modelmirror.parity-workspace+tar"
-            ),
-            content=content,
-            metadata={
-                "kind": (
-                    "harness_workspace_export"
-                    if harness_v3_enabled
-                    else "parity_workspace_export"
-                ),
-                "workspace_tree_hash": snapshot.tree_hash,
-                "file_count": len(files),
-                "active_seconds": usage.active_seconds,
-                "tool_calls": usage.tool_calls,
-                "turns_started": usage.turns_started,
-            },
+        return _get_evaluation_adapter().export_workspace(
+            task_id, harness_v3=harness_v3_enabled
         )
     except Exception as exc:
         _raise_worker_error(exc)
@@ -1183,31 +1164,7 @@ async def export_parity_workspace(task_id: str) -> WorkerArtifact:
 async def harness_attestation(request: Request) -> dict[str, Any]:
     _require_harness_controller(request)
     try:
-        service = get_coding_worker_service()
-        reader = getattr(service.provider, "harness_attestations", None)
-        if not callable(reader):
-            raise WorkerConflictError(
-                "Provider Harness attestation is unavailable.",
-                code="harness_attestation_unavailable",
-            )
-        providers = await reader()
-        if len(providers) != service.max_active_tasks:
-            raise WorkerConflictError(
-                "Provider Harness attestation is incomplete.",
-                code="harness_attestation_unavailable",
-            )
-        return {
-            "protocol": "modelmirror-coding-harness-attestation/v1",
-            "server_code_bundle_sha256": harness_code_bundle_sha256(
-                Path(__file__).resolve().parent,
-                SERVER_HARNESS_CODE_FILES,
-            ),
-            "server_generation": _HARNESS_PROCESS_GENERATION,
-            "controller_generation": getattr(
-                service.provider, "controller_generation", None
-            ),
-            "providers": providers,
-        }
+        return dict(await _get_evaluation_adapter().attestation())
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -1218,26 +1175,12 @@ async def arm_harness_fault(
 ) -> dict[str, str]:
     _require_harness_controller(request)
     try:
-        get_coding_worker_service().arm_harness_fault(
+        _get_evaluation_adapter().arm_fault(
             payload.task_id, payload.component, payload.point
         )
         return {"status": "armed"}
     except Exception as exc:
         _raise_worker_error(exc)
-
-
-def _deterministic_workspace_tar(files: tuple[Any, ...]) -> bytes:
-    output = io.BytesIO()
-    with tarfile.open(fileobj=output, mode="w", format=tarfile.USTAR_FORMAT) as archive:
-        for entry in sorted(files, key=lambda item: item.path):
-            info = tarfile.TarInfo(entry.path)
-            info.size = len(entry.content)
-            info.mode = 0o755 if entry.executable else 0o644
-            info.mtime = 0
-            info.uid = info.gid = 0
-            info.uname = info.gname = ""
-            archive.addfile(info, io.BytesIO(entry.content))
-    return output.getvalue()
 
 
 @router.get("/tasks/{task_id}/services/{service_id}/preview/{preview_path:path}")

@@ -66,6 +66,7 @@ class CodingWorkerRuntime:
         route_context_tokens: Mapping[str, int] | None = None,
         documentation_resources: Mapping[str, str] | None = None,
         harness_faults_enabled: bool = False,
+        evaluation_profile: str | None = None,
     ) -> None:
         if (
             set(slot_roots) != set(provider_endpoints)
@@ -152,6 +153,20 @@ class CodingWorkerRuntime:
         )
         self.tool_broker.subtask_handler = self.service.create_subtask
         self.tool_broker.subtask_merge_handler = self.service.merge_subtask
+        self.evaluation = None
+        if evaluation_profile is not None:
+            if evaluation_profile not in {"parity", "harness_v3"}:
+                raise CodingWorkerRuntimeError(
+                    "Evaluation profile is invalid.",
+                    code="coding_worker_config_invalid",
+                )
+            from .evaluation import LegacyEvaluationAdapter
+
+            self.evaluation = LegacyEvaluationAdapter(
+                self.service,
+                attestation_reader=self.harness_driver.harness_attestations,
+                controller_generation=lambda: self.harness_driver.controller_generation,
+            )
         self.control_plane = LegacyTaskControlPlane(self.service)
         self.projection = StoreInteractionProjection(self.service)
         self.substrate = CodingSubstrateHandle(
@@ -159,6 +174,7 @@ class CodingWorkerRuntime:
             projection=self.projection,
             harness_driver=self.harness_driver,
             execution_backend=self.execution_backend,
+            evaluation=self.evaluation,
         )
         self.broker_socket_path = broker_socket_path
         self.sidecar_gid = sidecar_gid
@@ -455,6 +471,13 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         route_context_tokens=_route_context_tokens_from_environment(),
         documentation_resources=_documentation_resources_from_environment(),
         harness_faults_enabled=harness_v3_enabled,
+        evaluation_profile=(
+            "harness_v3"
+            if harness_v3_enabled
+            else "parity"
+            if parity_enabled
+            else None
+        ),
     )
 
 

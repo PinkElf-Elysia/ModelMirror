@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from server.coding_worker.api import configure_coding_worker_for_tests, router
 import server.coding_worker.api as worker_api
+from server.coding_worker.evaluation import LegacyEvaluationAdapter
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
     ProviderCapabilities,
@@ -82,7 +83,14 @@ def _client(
     service = CodingWorkerService(
         store=store, workspace_broker=broker, provider=selected_provider
     )
-    configure_coding_worker_for_tests(service, enabled=True)
+    evaluation = LegacyEvaluationAdapter(
+        service,
+        attestation_reader=lambda: service.provider.harness_attestations(),
+        controller_generation=lambda: service.provider.controller_generation,
+    )
+    configure_coding_worker_for_tests(
+        service, enabled=True, evaluation=evaluation
+    )
     app = FastAPI()
     app.include_router(router)
     return TestClient(app), service
