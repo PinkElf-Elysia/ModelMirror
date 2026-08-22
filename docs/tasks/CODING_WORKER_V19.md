@@ -47,13 +47,13 @@
 
 | 检查 | 命令或场景 | 预期 | 状态 |
 | --- | --- | --- | --- |
-| PR A 端口/门禁 | `python -m pytest server/tests/test_coding_worker_architecture.py -q` | 端口齐全，既有债务精确冻结 | 未运行 |
-| Worker 专项 | `python -m pytest server/tests -q -k coding_worker` | 通过 | 未运行 |
-| 后端全量 | `python -m pytest server/tests/ -q` | 无 V19 新增失败 | 未运行 |
-| 前端 | `npm.cmd --prefix client run test:run`、`npm.cmd --prefix client run build` | 公共契约无回归 | 未运行 |
-| Compose | `docker compose config -q` | 配置有效 | 未运行 |
-| V18 | `python scripts/coding_worker_harness.py compile`、`smoke` | bundle 不变，Fake smoke 通过 | 未运行 |
-| 安全 | `git diff --check`、敏感信息与禁止产物扫描 | 无异常 | 未运行 |
+| PR A 端口/门禁 | `python -m pytest server/tests/test_coding_worker_architecture.py -q` | 端口齐全，跨边界例外最终清零 | 通过；并验证评测模块不可导入时生产 API 仍可导入 |
+| Worker 专项 | `python -m pytest server/tests -q -k coding_worker` | 通过 | `407 passed, 5 skipped` |
+| 后端全量 | `python -m pytest server/tests/ -q` | 无 V19 新增失败 | 补齐仓库固定 Agency Worker build 前置后原命令复跑：`3910 passed, 29 skipped` |
+| 前端 | `npm.cmd --prefix client run test:run`、`npm.cmd --prefix client run build` | 公共契约无回归 | `97 files / 512 tests`，production build 通过 |
+| Compose | `docker compose config -q` | 配置有效 | 通过 |
+| V18 | `python scripts/coding_worker_harness.py compile`、`smoke` | 任务包不变，Fake smoke 通过 | 通过；4 类 8 条记录，摘要 `472b88ae…60a1df3` |
+| 安全 | `git diff --check`、敏感信息与禁止产物扫描 | 无异常 | 通过 |
 
 ## 7. 风险、停止与回退
 
@@ -63,9 +63,18 @@
 
 ## 8. 完成定义
 
-- [ ] API、SDK、handoff 对 Worker 具体对象的跨模块依赖为零。
-- [ ] 唯一 concrete wiring 位于 composition root 与 adapter。
-- [ ] 评测关闭时生产启动不加载 Parity/Harness V3。
-- [ ] 现有任务、checkpoint、公开响应和写回行为无迁移、无差异。
-- [ ] 后续 ACP/Codex Driver 不需要修改 TaskSpec、Tool Broker、Evidence 或 v13 写回。
-- [ ] 交付结论只表述为“Coding Substrate 架构边界完成”。
+- [x] API、SDK、handoff 对 Worker 具体对象的跨模块依赖为零。
+- [x] 唯一 concrete wiring 位于 composition root 与 adapter。
+- [x] 评测关闭时生产启动不加载 Parity/Harness V3。
+- [x] 现有任务、checkpoint、公开响应和写回行为无迁移、无差异。
+- [x] 后续 ACP/Codex Driver 不需要修改 TaskSpec、Tool Broker、Evidence 或 v13 写回。
+- [x] 交付结论只表述为“Coding Substrate 架构边界完成”。
+
+## 9. 实施结果与后续接入
+
+- `runtime.py` 是唯一生产组装根；Legacy Provider v4、Executor、Store/Workspace 与评测能力分别由 adapter 注入 `CodingSubstrateHandle`。
+- Worker API 的命令只进入 `TaskControlPlane`，读取与 SSE 只进入 `InteractionProjection`；模块 SDK 实例只保留这两个端口，不保留 Service 或完整 substrate。
+- v13 handoff 只接收已完成、host snapshot、Acceptance 有效且 tree/hash 绑定的 `WritebackCandidate`。候选生成使用 rename-disabled Diff；v13 继续独占规范化、exact-head、apply/commit/undo/recovery。
+- V20 新增 ACP 或 Codex Harness 时只允许增加 Driver adapter 和部署 wiring；不得修改 `TaskSpec`、Tool Broker、Evidence、公共 API 或写回协议。
+- 开工后 `origin/main` 前进到 `20dd124e`，新增文件与 V19 变更集合交集为空；交付前已记录 divergence/range 交叉，未把无关工作流提交混入 V19。
+- 本轮没有调用真实模型、运行 48/288 校准或认证，也不形成任何能力接近/等效结论。
