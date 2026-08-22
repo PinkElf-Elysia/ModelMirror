@@ -1,0 +1,435 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  LoaderCircle,
+  Plus,
+  RefreshCw,
+  Save,
+  Trash2,
+} from "lucide-react";
+
+type ChatCapability = "chat_text" | "chat_tools" | "chat_file_output";
+type ChatControlMode =
+  | "legacy"
+  | "newapi_preferred"
+  | "newapi_required_default";
+
+interface ConnectionSummary {
+  id: string;
+  name: string;
+  kind: string;
+  enabled: boolean;
+  scopes: string[];
+}
+
+interface RouteSummary {
+  capability: ChatCapability;
+  connection_ids: string[];
+}
+
+interface QualificationSummary {
+  capability: ChatCapability;
+  connection_id: string;
+  connection_name: string;
+  provider_kind: string;
+  model_id: string;
+  valid: boolean;
+  reason_code: string;
+}
+
+interface PolicyResponse {
+  contract_version: string;
+  feature_enabled: boolean;
+  data_plane_integrated: boolean;
+  configured_mode: ChatControlMode;
+  effective_mode: ChatControlMode;
+  auto_enabled: boolean;
+  revision: number;
+  policy_fingerprint: string;
+  stable_model_ids: string[];
+  routes: RouteSummary[];
+  qualifications: QualificationSummary[];
+}
+
+interface GateResponse {
+  ready: boolean;
+  required_activation_available: boolean;
+  request_count: number;
+  observed_days: number;
+  success_rate?: number | null;
+  blocking_reason_codes: string[];
+}
+
+const CAPABILITIES: Array<{
+  value: ChatCapability;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "chat_text",
+    label: "普通文本",
+    description: "首个目标必须是 newAPI；备用只允许在派发前选择。",
+  },
+  {
+    value: "chat_tools",
+    label: "工具调用",
+    description: "独立认证，不继承普通文本资格。",
+  },
+  {
+    value: "chat_file_output",
+    label: "受控文件输出",
+    description: "仅对应现有 allowlisted 文件输出合同。",
+  },
+];
+
+const EMPTY_ROUTES: Record<ChatCapability, string[]> = {
+  chat_text: [],
+  chat_tools: [],
+  chat_file_output: [],
+};
+
+async function readError(response: Response) {
+  if (response.status === 401) return "管理会话已失效，请重新配对。";
+  if (response.status === 409) {
+    try {
+      const payload = await response.json();
+      if (typeof payload?.detail?.message === "string") return payload.detail.message;
+    } catch {
+      return "策略资格或 revision 已变化，请刷新后重试。";
+    }
+  }
+  try {
+    const payload = await response.json();
+    if (typeof payload?.detail?.message === "string") return payload.detail.message;
+  } catch {
+    // Keep the stable fallback.
+  }
+  return "Provider Chat 控制策略操作未完成。";
+}
+
+function routesFromPolicy(policy: PolicyResponse) {
+  const result: Record<ChatCapability, string[]> = {
+    chat_text: [],
+    chat_tools: [],
+    chat_file_output: [],
+  };
+  for (const route of policy.routes) result[route.capability] = route.connection_ids;
+  return result;
+}
+
+export default function ProviderChatControlSettings({
+  csrfToken,
+}: {
+  csrfToken: string;
+}) {
+  const [policy, setPolicy] = useState<PolicyResponse | null>(null);
+  const [gate, setGate] = useState<GateResponse | null>(null);
+  const [connections, setConnections] = useState<ConnectionSummary[]>([]);
+  const [mode, setMode] = useState<ChatControlMode>("legacy");
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [stableModelsText, setStableModelsText] = useState("");
+  const [routes, setRoutes] = useState<Record<ChatCapability, string[]>>(
+    EMPTY_ROUTES,
+  );
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [policyResponse, gateResponse, connectionResponse] = await Promise.all([
+        fetch("/api/router/chat-control/policy"),
+        fetch("/api/router/chat-control/gate"),
+        fetch("/api/router/connections"),
+      ]);
+      for (const response of [policyResponse, gateResponse, connectionResponse]) {
+        if (!response.ok) throw new Error(await readError(response));
+      }
+      const nextPolicy = (await policyResponse.json()) as PolicyResponse;
+      setPolicy(nextPolicy);
+      setGate((await gateResponse.json()) as GateResponse);
+      setConnections((await connectionResponse.json()) as ConnectionSummary[]);
+      setMode(nextPolicy.configured_mode);
+      setAutoEnabled(nextPolicy.auto_enabled);
+      setStableModelsText(nextPolicy.stable_model_ids.join("\n"));
+      setRoutes(routesFromPolicy(nextPolicy));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法读取 Chat 控制策略。");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const eligibleConnections = useMemo(
+    () =>
+      connections.filter(
+        (connection) =>
+          connection.enabled && (connection.scopes ?? []).includes("chat"),
+      ),
+    [connections],
+  );
+
+  const setRouteAt = (
+    capability: ChatCapability,
+    position: number,
+    connectionId: string,
+  ) => {
+    setRoutes((current) => ({
+      ...current,
+      [capability]: current[capability].map((value, index) =>
+        index === position ? connectionId : value,
+      ),
+    }));
+  };
+
+  const moveRoute = (
+    capability: ChatCapability,
+    position: number,
+    direction: -1 | 1,
+  ) => {
+    setRoutes((current) => {
+      const values = [...current[capability]];
+      const target = position + direction;
+      if (target < 0 || target >= values.length) return current;
+      const sourceValue = values[position];
+      const targetValue = values[target];
+      if (sourceValue === undefined || targetValue === undefined) return current;
+      values[position] = targetValue;
+      values[target] = sourceValue;
+      return { ...current, [capability]: values };
+    });
+  };
+
+  const addRoute = (capability: ChatCapability) => {
+    setRoutes((current) => {
+      const candidate = eligibleConnections.find(
+        (connection) => !current[capability].includes(connection.id),
+      );
+      if (!candidate) return current;
+      return {
+        ...current,
+        [capability]: [...current[capability], candidate.id],
+      };
+    });
+  };
+
+  const removeRoute = (capability: ChatCapability, position: number) => {
+    setRoutes((current) => ({
+      ...current,
+      [capability]: current[capability].filter((_, index) => index !== position),
+    }));
+  };
+
+  const save = useCallback(async () => {
+    if (!policy) return;
+    setSaving(true);
+    setError("");
+    setMessage("");
+    const stableModelIds = Array.from(
+      new Set(
+        stableModelsText
+          .split(/\r?\n/)
+          .map((value) => value.trim())
+          .filter(Boolean),
+      ),
+    );
+    try {
+      const response = await fetch("/api/router/chat-control/policy", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-ModelMirror-CSRF": csrfToken,
+        },
+        body: JSON.stringify({
+          expected_revision: policy.revision,
+          mode,
+          auto_enabled: autoEnabled,
+          stable_model_ids: stableModelIds,
+          routes: CAPABILITIES.map((capability) => ({
+            capability: capability.value,
+            connection_ids: routes[capability.value],
+          })),
+        }),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      setMessage("Chat 控制策略已原子保存；R5A 不会改变 /api/chat 数据面。");
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "保存策略失败。");
+    } finally {
+      setSaving(false);
+    }
+  }, [autoEnabled, csrfToken, load, mode, policy, routes, stableModelsText]);
+
+  return (
+    <section className="mb-6 overflow-hidden rounded-lg border border-cyan-300/15 bg-ink-950/82 shadow-prism">
+      <div className="border-b border-white/10 bg-cyan-300/[0.04] px-5 py-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-cyan-100">Managed Chat 控制策略</p>
+            <h2 className="mt-2 text-xl font-semibold text-white">R5A 管理与资格基础</h2>
+            <p className="mt-2 max-w-[78ch] text-sm leading-6 text-slate-300">
+              本页只保存租户策略、逐能力路由和稳定模型资格。当前数据面尚未接入，
+              不会改变普通 Chat、Auto、Canary 或现有默认网关。
+            </p>
+          </div>
+          <button
+            className="inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200"
+            onClick={() => void load()}
+            type="button"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />刷新
+          </button>
+        </div>
+      </div>
+
+      {loading || !policy ? (
+        <div className="flex items-center gap-2 p-5 text-sm text-slate-300">
+          <LoaderCircle className="h-4 w-4 animate-spin" />正在读取策略…
+        </div>
+      ) : (
+        <div className="space-y-5 p-5">
+          {!policy.feature_enabled ? (
+            <p className="rounded-lg border border-amber-300/20 bg-amber-300/[0.07] px-3 py-2 text-xs leading-5 text-amber-100">
+              部署总开关 MODEL_CONTROL_CHAT_ENABLED 当前关闭；已保存配置不会接管 Chat。
+            </p>
+          ) : null}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="text-sm font-semibold text-white">
+              租户策略模式
+              <select
+                className="mt-2 w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-white"
+                onChange={(event) => setMode(event.target.value as ChatControlMode)}
+                value={mode}
+              >
+                <option value="legacy">legacy（保持现有静态路径）</option>
+                <option value="newapi_preferred">newapi_preferred（R5B 后生效）</option>
+                <option disabled value="newapi_required_default">
+                  newapi_required_default（等待 R5E）
+                </option>
+              </select>
+            </label>
+            <label className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/[0.035] p-3 text-sm text-slate-200">
+              <input
+                checked={autoEnabled}
+                className="accent-cyan-300"
+                onChange={(event) => setAutoEnabled(event.target.checked)}
+                type="checkbox"
+              />
+              保存 Auto 独立迁移门禁（R5C 前不生效）
+            </label>
+          </div>
+
+          <label className="block text-sm font-semibold text-white">
+            稳定模型允许列表
+            <textarea
+              className="mt-2 min-h-28 w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 font-mono text-xs text-white"
+              onChange={(event) => setStableModelsText(event.target.value)}
+              placeholder="每行一个精确模型 ID"
+              value={stableModelsText}
+            />
+          </label>
+
+          <div className="grid gap-4 xl:grid-cols-3">
+            {CAPABILITIES.map((capability) => (
+              <div className="rounded-lg border border-white/10 bg-white/[0.025] p-4" key={capability.value}>
+                <p className="text-sm font-semibold text-white">{capability.label}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-400">{capability.description}</p>
+                <div className="mt-3 space-y-2">
+                  {routes[capability.value].map((connectionId, index) => (
+                    <div className="flex items-center gap-1.5" key={`${capability.value}-${index}`}>
+                      <span className="w-5 text-center text-xs text-slate-500">{index + 1}</span>
+                      <select
+                        aria-label={`${capability.label}目标 ${index + 1}`}
+                        className="min-w-0 flex-1 rounded-lg border border-white/15 bg-slate-950 px-2 py-1.5 text-xs text-white"
+                        onChange={(event) => setRouteAt(capability.value, index, event.target.value)}
+                        value={connectionId}
+                      >
+                        {eligibleConnections.map((connection) => (
+                          <option
+                            disabled={
+                              connection.id !== connectionId &&
+                              routes[capability.value].includes(connection.id)
+                            }
+                            key={connection.id}
+                            value={connection.id}
+                          >
+                            {connection.name} · {connection.kind}
+                          </option>
+                        ))}
+                      </select>
+                      <button aria-label="上移" disabled={index === 0} onClick={() => moveRoute(capability.value, index, -1)} type="button"><ArrowUp className="h-3.5 w-3.5" /></button>
+                      <button aria-label="下移" disabled={index === routes[capability.value].length - 1} onClick={() => moveRoute(capability.value, index, 1)} type="button"><ArrowDown className="h-3.5 w-3.5" /></button>
+                      <button aria-label="删除目标" onClick={() => removeRoute(capability.value, index)} type="button"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </div>
+                  ))}
+                  <button
+                    className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-45"
+                    disabled={routes[capability.value].length >= eligibleConnections.length}
+                    onClick={() => addRoute(capability.value)}
+                    type="button"
+                  >
+                    <Plus className="h-3.5 w-3.5" />添加目标
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {policy.qualifications.length ? (
+            <div className="rounded-lg border border-white/10 bg-black/10 p-4">
+              <p className="text-xs font-semibold text-slate-300">当前资格快照</p>
+              <ul className="mt-2 space-y-1 text-xs text-slate-400">
+                {policy.qualifications.map((item) => (
+                  <li key={`${item.capability}-${item.connection_id}-${item.model_id}`}>
+                    {item.valid ? "有效" : "已失效"} · {item.capability} · {item.connection_name} · {item.model_id}
+                    {!item.valid ? ` · ${item.reason_code}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="rounded-lg border border-amber-300/15 bg-amber-300/[0.04] p-4 text-xs text-amber-50/80">
+            <p className="font-semibold text-amber-100">required 门禁：尚不可激活</p>
+            <p className="mt-1">
+              {gate?.request_count ?? 0}/500 次 · {gate?.observed_days ?? 0}/14 天 ·
+              成功率 {gate?.success_rate == null ? "暂无样本" : `${Math.round(gate.success_rate * 1000) / 10}%`}
+            </p>
+            <p className="mt-1 break-all text-slate-500">
+              {(gate?.blocking_reason_codes ?? []).join(" · ")}
+            </p>
+          </div>
+
+          <button
+            className="inline-flex items-center gap-2 rounded-full bg-cyan-200 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-45"
+            disabled={saving}
+            onClick={() => void save()}
+            type="button"
+          >
+            {saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            原子保存策略
+          </button>
+        </div>
+      )}
+
+      {error || message ? (
+        <p
+          className={`border-t px-5 py-3 text-sm ${error ? "border-rose-300/20 text-rose-100" : "border-emerald-300/20 text-emerald-100"}`}
+          role="status"
+        >
+          {error || message}
+        </p>
+      ) : null}
+    </section>
+  );
+}

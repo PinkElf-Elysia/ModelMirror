@@ -41,33 +41,56 @@ describe("ModelServiceConnections editing", () => {
     });
   });
 
-  it("explains why OpenRouter has no billed Chat certification action", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          {
-            id: "connection-openrouter",
-            name: "OpenRouter",
-            kind: "openrouter",
-            base_url: "https://openrouter.ai/api/v1",
-            masked_key: "****test",
-            scopes: ["chat", "audio"],
+  it("offers capability-specific certification for an enabled managed OpenRouter connection", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/router/connections") {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "connection-openrouter",
+              name: "OpenRouter",
+              kind: "openrouter",
+              base_url: "https://openrouter.ai/api/v1",
+              masked_key: "****test",
+              scopes: ["chat", "audio"],
+              enabled: true,
+              health: "online",
+              model_count: 419,
+            },
+          ]),
+          { status: 200 },
+        );
+      }
+      if (url === "/api/router/certifications/chat") {
+        return new Response(
+          JSON.stringify({
             enabled: true,
-            health: "online",
-            model_count: 419,
-          },
-        ]),
-        { status: 200 },
-      ),
-    );
+            contract_version: "modelmirror-provider-chat-v1",
+            certifications: [
+              {
+                connection_id: "connection-openrouter",
+                capability: "chat_text",
+                status: "not_run",
+                can_run: true,
+                warning_codes: [],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
 
     render(<ModelServiceConnections csrfToken="csrf-test" />);
 
     expect(
-      await screen.findByText(/Chat 契约认证首期仅支持 newAPI/),
+      await screen.findByText("Provider Chat 能力认证"),
     ).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: "运行 Chat 认证" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "运行能力认证" }),
+    ).toBeDisabled();
+    expect(screen.queryByText("手动会话 Canary")).toBeNull();
   });
 });

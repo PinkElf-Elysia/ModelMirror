@@ -631,16 +631,13 @@ export default function ModelServiceConnections({
                           {connection.last_error_hint}
                         </p>
                       ) : null}
-                      {connection.kind === "newapi" ? (
+                      {scopesForConnection(connection).includes("chat") ? (
                         <NewApiChatCertification
                           connectionEnabled={connection.enabled}
                           connectionId={connection.id}
+                          connectionKind={connection.kind}
                           csrfToken={csrfToken}
                         />
-                      ) : scopesForConnection(connection).includes("chat") ? (
-                        <p className="mt-3 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-100">
-                          Chat 契约认证首期仅支持 newAPI。此连接当前只提供连通性与目录证据，不会标记为已完成真实 Chat 认证。
-                        </p>
                       ) : null}
                     </div>
                     <div className="flex shrink-0 gap-2">

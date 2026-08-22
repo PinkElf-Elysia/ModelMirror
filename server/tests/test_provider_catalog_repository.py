@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from server.model_router.repository import RouterRepositoryError, SQLiteRouterRepository
+from server.model_router.repository import (
+    SCHEMA_VERSION,
+    RouterRepositoryError,
+    SQLiteRouterRepository,
+)
 from server.model_router.schemas import RouterConnectionCreate, RouterConnectionUpdate
 
 
@@ -71,7 +75,7 @@ def _complete(
     )
 
 
-def test_v13_to_v14_is_additive_and_creates_catalog_tables(tmp_path: Path) -> None:
+def test_v13_to_current_is_additive_and_creates_catalog_tables(tmp_path: Path) -> None:
     database_path = tmp_path / "router.sqlite3"
     with sqlite3.connect(database_path) as connection:
         connection.execute("PRAGMA user_version = 13")
@@ -79,7 +83,7 @@ def test_v13_to_v14_is_additive_and_creates_catalog_tables(tmp_path: Path) -> No
     repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         tables = {
             row[0]
             for row in connection.execute(

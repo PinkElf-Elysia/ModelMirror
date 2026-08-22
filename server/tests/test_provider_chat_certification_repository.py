@@ -8,6 +8,7 @@ import pytest
 
 from server.model_router.provider_chat import PROVIDER_CHAT_CONTRACT_VERSION
 from server.model_router.repository import (
+    SCHEMA_VERSION,
     RouterRepositoryError,
     SQLiteRouterRepository,
 )
@@ -70,7 +71,7 @@ def test_v11_to_current_schema_is_additive_and_preserves_connection(
     repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         table = connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
             ("provider_chat_certifications",),

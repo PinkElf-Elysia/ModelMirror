@@ -8,10 +8,12 @@ type CertificationStatus =
   | "failed"
   | "uncertain"
   | "stale";
+type ChatCapability = "chat_text" | "chat_tools" | "chat_file_output";
 
 interface CertificationSummary {
   certification_id?: string | null;
   connection_id: string;
+  capability: ChatCapability;
   status: CertificationStatus;
   can_run: boolean;
   blocked_reason?: string | null;
@@ -112,7 +114,7 @@ interface CanaryAdminResponse {
 const STATUS_LABELS: Record<CertificationStatus, string> = {
   not_run: "尚未认证",
   running: "认证进行中",
-  passed: "核心文本 Chat 已通过",
+  passed: "当前能力已通过",
   failed: "认证失败",
   uncertain: "结果不确定，未自动重放",
   stale: "连接配置已变化，结果已过期",
@@ -125,6 +127,33 @@ const BLOCKED_LABELS: Record<string, string> = {
   provider_model_catalog_not_checked: "请先刷新可认证模型。",
   provider_chat_certification_already_running: "该连接已有认证正在运行。",
 };
+
+const CERTIFICATION_ERROR_LABELS: Record<string, string> = {
+  provider_chat_visible_text_budget_exhausted:
+    "模型的可见文本预算已耗尽，未产生正文。",
+};
+
+const CAPABILITY_OPTIONS: Array<{
+  value: ChatCapability;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "chat_text",
+    label: "普通文本",
+    description: "验证非空文本流和安全终止。",
+  },
+  {
+    value: "chat_tools",
+    label: "工具调用",
+    description: "只验证固定无副作用工具调用，不执行外部工具。",
+  },
+  {
+    value: "chat_file_output",
+    label: "受控文件输出",
+    description: "只验证 allowlisted 文件工具合同，不创建或保存文件。",
+  },
+];
 
 async function readError(response: Response) {
   if (response.status === 401) return "管理会话已失效，请重新配对。";
@@ -142,10 +171,12 @@ async function readError(response: Response) {
 export default function NewApiChatCertification({
   connectionId,
   connectionEnabled,
+  connectionKind,
   csrfToken,
 }: {
   connectionId: string;
   connectionEnabled: boolean;
+  connectionKind: string;
   csrfToken: string;
 }) {
   const [featureEnabled, setFeatureEnabled] = useState(true);
@@ -153,6 +184,7 @@ export default function NewApiChatCertification({
   const [summary, setSummary] = useState<CertificationSummary | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
+  const [capability, setCapability] = useState<ChatCapability>("chat_text");
   const [refreshing, setRefreshing] = useState(false);
   const [running, setRunning] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -169,15 +201,21 @@ export default function NewApiChatCertification({
       setContractVersion(payload.contract_version);
       setSummary(
         payload.certifications.find(
-          (certification) => certification.connection_id === connectionId,
+          (certification) =>
+            certification.connection_id === connectionId &&
+            certification.capability === capability,
         ) ?? null,
       );
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "无法读取认证状态。");
     }
-  }, [connectionId]);
+  }, [capability, connectionId]);
 
   const loadCanary = useCallback(async () => {
+    if (connectionKind !== "newapi") {
+      setCanary(null);
+      return;
+    }
     try {
       const response = await fetch("/api/router/canaries/chat?limit=50");
       if (!response.ok) throw new Error(await readError(response));
@@ -187,7 +225,7 @@ export default function NewApiChatCertification({
         reason instanceof Error ? reason.message : "无法读取 Chat 试运行状态。",
       );
     }
-  }, []);
+  }, [connectionKind]);
 
   useEffect(() => {
     void loadStatus();
@@ -243,6 +281,7 @@ export default function NewApiChatCertification({
           },
           body: JSON.stringify({
             model_id: selectedModel,
+            capability,
             acknowledge_billed_call: true,
           }),
         },
@@ -258,7 +297,7 @@ export default function NewApiChatCertification({
     } finally {
       setRunning(false);
     }
-  }, [connectionId, csrfToken, loadCanary, loadStatus, selectedModel]);
+  }, [capability, connectionId, csrfToken, loadCanary, loadStatus, selectedModel]);
 
   const updateCanary = useCallback(
     async (enabled: boolean) => {
@@ -311,15 +350,38 @@ export default function NewApiChatCertification({
     <div className="mt-3 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.04] p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-xs font-semibold text-cyan-100">newAPI 文本 Chat 认证</p>
+          <p className="text-xs font-semibold text-cyan-100">Provider Chat 能力认证</p>
           <p className="mt-1 text-[11px] leading-5 text-slate-400">
-            只验证核心文本 Chat 契约，不代表默认数据面已就绪。
+            各能力独立验证；通过不代表默认数据面已就绪。
           </p>
         </div>
         <span className="rounded-full bg-white/[0.06] px-2 py-1 text-[10px] text-slate-300">
           {summary ? STATUS_LABELS[summary.status] : "读取状态中"}
         </span>
       </div>
+
+      <label className="mt-3 block text-[11px] text-slate-400">
+        认证能力
+        <select
+          aria-label="认证能力"
+          className="mt-1 w-full rounded-lg border border-white/15 bg-slate-950 px-2 py-1.5 text-xs text-white"
+          disabled={running}
+          onChange={(event) => {
+            setCapability(event.target.value as ChatCapability);
+            setMessage("");
+          }}
+          value={capability}
+        >
+          {CAPABILITY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <span className="mt-1 block leading-5">
+          {CAPABILITY_OPTIONS.find((option) => option.value === capability)?.description}
+        </span>
+      </label>
 
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
         <button
@@ -356,19 +418,24 @@ export default function NewApiChatCertification({
           type="button"
         >
           {running ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <BadgeCheck className="h-3.5 w-3.5" />}
-          运行 Chat 认证
+          运行能力认证
         </button>
       </div>
 
       {blockedMessage ? <p className="mt-2 text-xs text-amber-200">{blockedMessage}</p> : null}
       {message ? <p className="mt-2 text-xs text-slate-300" role="status">{message}</p> : null}
       {summary?.error_code ? (
-        <p className="mt-2 text-xs text-rose-200">错误码：{summary.error_code}</p>
+        <p className="mt-2 text-xs text-rose-200">
+          {CERTIFICATION_ERROR_LABELS[summary.error_code]
+            ? `${CERTIFICATION_ERROR_LABELS[summary.error_code]} 错误码：${summary.error_code}`
+            : `错误码：${summary.error_code}`}
+        </p>
       ) : null}
       {contractVersion ? (
         <p className="mt-2 font-mono text-[10px] text-slate-500">{contractVersion}</p>
       ) : null}
 
+      {connectionKind === "newapi" ? (
       <div className="mt-3 border-t border-white/10 pt-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
@@ -498,6 +565,7 @@ export default function NewApiChatCertification({
           </p>
         ) : null}
       </div>
+      ) : null}
 
       {confirming ? (
         <div
@@ -514,9 +582,18 @@ export default function NewApiChatCertification({
                   确认一次真实模型调用
                 </h3>
                 <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-300">
-                  <li>发送固定合成文本 “Reply with OK.”，不会发送用户聊天内容。</li>
+                  <li>
+                    {capability === "chat_text"
+                      ? "发送固定合成文本 Reply with OK."
+                      : capability === "chat_tools"
+                        ? "请求固定无副作用认证工具，但不会执行任何外部工具。"
+                        : "请求固定的受控文件工具合同，但不会创建或保存文件。"}
+                    不会发送用户聊天内容。
+                  </li>
                   <li>最多一次真实 Chat 请求，不自动重试。</li>
-                  <li>temperature=0，max_tokens=16。</li>
+                  <li>
+                    temperature=0，max_tokens=64。
+                  </li>
                   <li>本次调用可能产生少量额度费用。</li>
                 </ul>
               </div>

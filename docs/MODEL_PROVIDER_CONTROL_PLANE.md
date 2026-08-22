@@ -1,7 +1,7 @@
 # Model Provider Control Plane
 
-状态：Round 0–3 已合并且 Round 3 真实 Canary 已人工验收；Round 4 候选处于 PR 提交前收尾；默认数据面切换未批准
-Round 4 收尾基线：`origin/main@4f942f73149ea33a81df795b4035c37f9b49fe64`
+状态：Round 0–4 已合并；Round 5A 正在建设管理、资格和审计基础；默认数据面切换未批准
+Round 5A 实施基线：`origin/main@f5d2081acb444fee5de947031455b2050f259019`
 更新日期：2026-08-21
 
 ## 决策
@@ -33,6 +33,8 @@ Provider Control Plane 的会话、SQLite 或主密钥。它只加入独立外�
   影子复制、自动切流或默认资格判定。
 - Round 4 统一模型发现、Readiness 投影和 Provider 设置入口，不统一各模态调用协议，
   不触发自动刷新、自动认证、自动路由或付费请求。
+- Round 5A 只增加 Managed Chat 的逐能力认证、稳定策略、资格和脱敏 Receipt 基础；
+  不接管 `/api/chat`。真实调度从 Round 5B 开始并需独立验收。
 - newAPI 是否成为强制默认数据面由后续独立决策决定。
 - 任一门禁失败时保留现有静态数据面和 SQLite，不自动迁移或删除数据。
 
@@ -154,9 +156,28 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - R4 受管 Provider 不会自动配置或接管普通 `/api/chat`。当前 default Chat 仍读取
   `LLM_GATEWAY_URL/KEY` 或 `OPENROUTER_API_KEY`；迁移和 newAPI 默认门禁属于 Round 5。
 
+## Managed Chat 策略与资格基础（Round 5A）
+
+- 内部契约版本为 `modelmirror-provider-chat-routing-v1`，将 `chat_text`、
+  `chat_tools` 和 `chat_file_output` 分别认证和配置；普通文本认证不能证明工具或受控
+  文件输出兼容。
+- Chat 认证扩展到所有启用且带 `chat` scope 的 Managed Provider。工具认证只请求固定、
+  无副作用的合成工具且不执行；文件输出认证只验证 allowlisted 合同且不保存生成内容。
+- SQLite v15 以纯加法保存租户策略、有序能力路由、资格快照、逻辑运行、Provider 尝试、
+  Gate 纪元与脱敏验收证据。记录不包含 Prompt、消息、模型输出、Base URL 或凭据；遗留
+  `running` 在重启后标为 `uncertain` 且不重放。
+- `GET/PUT /api/router/chat-control/policy` 使用 `expected_revision` 原子更新，避免覆盖并发
+  管理修改。`GET /api/router/chat-control/gate` 和 receipts 接口在 R5A 只提供只读门禁与
+  审计基础；required 激活尚不可用。
+- `MODEL_CONTROL_CHAT_ENABLED` 默认 `false`。即使显式打开，R5A 仍报告
+  `data_plane_integrated=false`，不会改变 default、Auto、Canary、SSE 或 legacy 网关。
+- 清理命令 `python -m server.model_router.cleanup_chat_receipts --storage-dir <path>` 默认
+  dry-run；只有显式增加 `--apply` 才会删除超过保留期的运行和尝试记录，默认保留 90 天。
+
 ## 回退
 
 关闭管理面或回退路由不得删除 Provider SQLite、newAPI 数据目录、旧主密钥或迁移
 备份。将 `MODEL_MIRROR_PROVIDER_CHAT_CANARY_ENABLED=false` 可立即关闭 Round 3 入口；
-代码回退保留 v14 表和脱敏证据，旧版本可忽略新表继续运行。部署回退通过恢复上一版本
+将 `MODEL_CONTROL_CHAT_ENABLED=false` 保持 R5 数据面关闭。代码回退保留 v15 表和
+脱敏证据，旧版本可忽略新表继续运行。部署回退通过恢复上一版本
 Compose 与对应显式环境配置完成。

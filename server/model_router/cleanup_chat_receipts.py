@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import UTC, datetime, timedelta
+
+from .repository import DEFAULT_TENANT_ID, SQLiteRouterRepository
+
+
+def _arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Delete completed Provider Chat receipts older than a bounded age."
+    )
+    parser.add_argument("--storage-dir", required=True)
+    parser.add_argument("--tenant-id", default=DEFAULT_TENANT_ID)
+    parser.add_argument("--older-than-days", type=int, default=90)
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply deletion. Without this flag the command is a dry run.",
+    )
+    values = parser.parse_args()
+    if values.older_than_days < 1 or values.older_than_days > 3650:
+        parser.error("--older-than-days must be between 1 and 3650")
+    return values
+
+
+def main() -> int:
+    values = _arguments()
+    before = (
+        datetime.now(UTC) - timedelta(days=values.older_than_days)
+    ).isoformat()
+    repository = SQLiteRouterRepository(values.storage_dir)
+    result = repository.cleanup_chat_control_receipts(
+        values.tenant_id,
+        before=before,
+        apply=values.apply,
+    )
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

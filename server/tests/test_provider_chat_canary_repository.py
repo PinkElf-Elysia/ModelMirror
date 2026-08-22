@@ -11,7 +11,7 @@ from server.model_router.chat_canary import (
     ProviderChatCanaryStreamEvidence,
 )
 from server.model_router.provider_chat import PROVIDER_CHAT_CONTRACT_VERSION
-from server.model_router.repository import SQLiteRouterRepository
+from server.model_router.repository import SCHEMA_VERSION, SQLiteRouterRepository
 from server.model_router.schemas import RouterConnectionCreate, RouterConnectionUpdate
 from server.model_router.service import ModelRouterService
 
@@ -112,7 +112,7 @@ def test_v12_to_v13_is_additive_and_preserves_round2_rows(tmp_path: Path) -> Non
     restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(restarted.database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         tables = {
             row[0]
             for row in connection.execute(

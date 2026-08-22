@@ -20,6 +20,7 @@ from .provider_catalog import ProviderCatalogService
 from .egress import ProviderEgressError
 from .repository import RouterCredentialUnavailable, RouterRepositoryError
 from .schemas import (
+    ProviderChatCapability,
     ProviderChatCertificationChecks,
     ProviderChatCertificationListResponse,
     ProviderChatCertificationSummary,
@@ -33,16 +34,60 @@ PROVIDER_CHAT_CERTIFICATION_ENABLED_ENV = (
     "MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_ENABLED"
 )
 SYNTHETIC_CERTIFICATION_PROMPT = "Reply with OK."
+CHAT_TEXT_CERTIFICATION_MAX_TOKENS = 64
+SYNTHETIC_TOOL_NAME = "modelmirror_certification_echo"
+SYNTHETIC_TOOL_PROMPT = "Call the certification tool once with value OK."
+SYNTHETIC_FILE_PROMPT = (
+    "Create certification.txt as a plain text file containing exactly OK."
+)
+SYNTHETIC_TOOL = {
+    "type": "function",
+    "function": {
+        "name": SYNTHETIC_TOOL_NAME,
+        "description": "Return the fixed certification value without side effects.",
+        "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["value"],
+            "properties": {"value": {"type": "string", "enum": ["OK"]}},
+        },
+    },
+}
+SYNTHETIC_FILE_TOOL_NAME = "modelmirror_create_file"
+SYNTHETIC_FILE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": SYNTHETIC_FILE_TOOL_NAME,
+        "description": "Create one bounded file from a structured specification.",
+        "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["format_id", "filename", "content"],
+            "properties": {
+                "format_id": {"type": "string", "enum": ["plain_text"]},
+                "filename": {
+                    "type": "string",
+                    "enum": ["certification.txt"],
+                },
+                "content": {"type": "string", "enum": ["OK"]},
+            },
+        },
+    },
+}
 
 
 @dataclass(slots=True)
 class _StreamEvidence:
+    capability: ProviderChatCapability = "chat_text"
     checks: dict[str, bool] = field(
         default_factory=lambda: {
             "catalog_ok": True,
             "model_present": True,
             "chat_http_ok": False,
             "text_delta_observed": False,
+            "tool_call_observed": False,
+            "file_output_contract_observed": False,
+            "capability_verified": False,
             "stream_completed": False,
             "terminal_observed": False,
         }
@@ -54,6 +99,7 @@ class _StreamEvidence:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    tool_calls: dict[int, dict[str, str]] = field(default_factory=dict)
 
 
 class _CertificationFailure(Exception):
@@ -90,15 +136,24 @@ class ProviderChatCertificationService:
 
     def list(self) -> ProviderChatCertificationListResponse:
         rows = {
-            str(row["connection_id"]): row
+            (str(row["connection_id"]), str(row["capability"])): row
             for row in self._repository_method("list_chat_certifications")(
                 self.router_service.tenant_id
             )
         }
         summaries = [
-            self._summary(connection, rows.get(connection.id))
+            self._summary(
+                connection,
+                capability,
+                rows.get((connection.id, capability)),
+            )
             for connection in self.router_service.list_connections()
-            if connection.kind == "newapi"
+            if "chat" in connection.scopes
+            for capability in (
+                "chat_text",
+                "chat_tools",
+                "chat_file_output",
+            )
         ]
         return ProviderChatCertificationListResponse(
             enabled=self.enabled(),
@@ -111,6 +166,7 @@ class ProviderChatCertificationService:
         connection_id: str,
         *,
         model_id: str,
+        capability: ProviderChatCapability = "chat_text",
         acknowledge_billed_call: bool,
         idempotency_key: str,
     ) -> ProviderChatCertificationSummary:
@@ -166,6 +222,7 @@ class ProviderChatCertificationService:
                 connection_fingerprint=fingerprint,
                 contract_version=PROVIDER_CHAT_CONTRACT_VERSION,
                 requested_model=model_id,
+                capability=capability,
                 idempotency_key_hash=idempotency_hash,
             )
         except RouterRepositoryError as exc:
@@ -175,12 +232,18 @@ class ProviderChatCertificationService:
                     "该连接已有一项 Chat 认证正在运行。",
                     status_code=409,
                 ) from exc
+            if str(exc) == "provider_chat_certification_idempotency_conflict":
+                raise RouterServiceError(
+                    "provider_chat_certification_idempotency_conflict",
+                    "该 Idempotency-Key 已用于另一种 Chat 能力认证。",
+                    status_code=409,
+                ) from exc
             raise
         if not created:
-            return self._summary(connection, row)
+            return self._summary(connection, capability, row)
 
         certification_id = str(row["id"])
-        evidence = _StreamEvidence()
+        evidence = _StreamEvidence(capability=capability)
         started = time.perf_counter()
         status = "failed"
         error_code: str | None = None
@@ -195,15 +258,7 @@ class ProviderChatCertificationService:
                 api_key=api_key,
                 connection_id=connection.id,
             )
-            payload: dict[str, object] = {
-                "model": model_id,
-                "messages": [
-                    {"role": "user", "content": SYNTHETIC_CERTIFICATION_PROMPT}
-                ],
-                "stream": True,
-                "temperature": 0,
-                "max_tokens": 16,
-            }
+            payload = self._certification_payload(model_id, capability)
             async with asyncio.timeout(60):
                 async with self._client_factory() as client:
                     async with self.transport.stream(
@@ -214,7 +269,12 @@ class ProviderChatCertificationService:
                     ) as response:
                         self._validate_status(response.status_code)
                         evidence.checks["chat_http_ok"] = True
-                        await self._consume_sse(response, evidence, started)
+                        await self._consume_sse(
+                            response,
+                            evidence,
+                            started,
+                            requested_model=model_id,
+                        )
             status = "passed"
         except _CertificationFailure as exc:
             error_code = exc.code
@@ -256,11 +316,12 @@ class ProviderChatCertificationService:
                 completion_tokens=evidence.completion_tokens,
                 total_tokens=evidence.total_tokens,
             )
-        return self._summary(connection, completed)
+        return self._summary(connection, capability, completed)
 
     def _summary(
         self,
         connection: RouterConnection,
+        capability: ProviderChatCapability,
         row: dict[str, object] | None,
     ) -> ProviderChatCertificationSummary:
         blocked_reason = self._blocked_reason(connection)
@@ -268,6 +329,7 @@ class ProviderChatCertificationService:
             return ProviderChatCertificationSummary(
                 connection_id=connection.id,
                 connection_name=connection.name,
+                capability=capability,
                 can_run=blocked_reason is None,
                 blocked_reason=blocked_reason,
             )
@@ -285,6 +347,7 @@ class ProviderChatCertificationService:
             certification_id=str(row["id"]),
             connection_id=connection.id,
             connection_name=connection.name,
+            capability=capability,
             status=status,  # type: ignore[arg-type]
             can_run=blocked_reason is None,
             blocked_reason=blocked_reason,
@@ -305,8 +368,6 @@ class ProviderChatCertificationService:
     def _blocked_reason(self, connection: RouterConnection) -> str | None:
         if not self.enabled():
             return "provider_chat_certification_disabled"
-        if connection.kind != "newapi":
-            return "provider_chat_certification_newapi_only"
         if not connection.enabled:
             return "connection_disabled"
         if "chat" not in connection.scopes:
@@ -316,12 +377,6 @@ class ProviderChatCertificationService:
         return None
 
     def _validate_connection(self, connection: RouterConnection) -> None:
-        if connection.kind != "newapi":
-            raise RouterServiceError(
-                "provider_chat_certification_newapi_only",
-                "Chat 认证首期仅支持 newAPI 连接。",
-                status_code=409,
-            )
         if not connection.enabled:
             raise RouterServiceError(
                 "connection_disabled", "该模型服务已停用。", status_code=409
@@ -332,6 +387,54 @@ class ProviderChatCertificationService:
                 "该连接未启用 Chat scope。",
                 status_code=409,
             )
+
+    @staticmethod
+    def _certification_payload(
+        model_id: str,
+        capability: ProviderChatCapability,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": model_id,
+            "stream": True,
+            "temperature": 0,
+            "max_tokens": CHAT_TEXT_CERTIFICATION_MAX_TOKENS
+            if capability == "chat_text"
+            else 64,
+        }
+        if capability == "chat_text":
+            payload["messages"] = [
+                {"role": "user", "content": SYNTHETIC_CERTIFICATION_PROMPT}
+            ]
+            return payload
+        if capability == "chat_tools":
+            payload.update(
+                {
+                    "messages": [
+                        {"role": "user", "content": SYNTHETIC_TOOL_PROMPT}
+                    ],
+                    "tools": [SYNTHETIC_TOOL],
+                    "tool_choice": {
+                        "type": "function",
+                        "function": {"name": SYNTHETIC_TOOL_NAME},
+                    },
+                    "parallel_tool_calls": False,
+                }
+            )
+            return payload
+        payload.update(
+            {
+                "messages": [
+                    {"role": "user", "content": SYNTHETIC_FILE_PROMPT}
+                ],
+                "tools": [SYNTHETIC_FILE_TOOL],
+                "tool_choice": {
+                    "type": "function",
+                    "function": {"name": SYNTHETIC_FILE_TOOL_NAME},
+                },
+                "parallel_tool_calls": False,
+            }
+        )
+        return payload
 
     @staticmethod
     def _validate_status(status_code: int) -> None:
@@ -357,6 +460,8 @@ class ProviderChatCertificationService:
         response: httpx.Response,
         evidence: _StreamEvidence,
         started: float,
+        *,
+        requested_model: str,
     ) -> None:
         buffer = ""
         try:
@@ -372,16 +477,59 @@ class ProviderChatCertificationService:
         except Exception as exc:
             raise _CertificationFailure("provider_chat_stream_interrupted") from exc
         evidence.checks["stream_completed"] = True
-        if not evidence.checks["text_delta_observed"]:
-            raise _CertificationFailure("provider_chat_empty_stream")
+        self._verify_capability(evidence)
         if not evidence.checks["terminal_observed"]:
             raise _CertificationFailure("provider_chat_missing_terminal")
+        if evidence.actual_model is not None and evidence.actual_model != requested_model:
+            raise _CertificationFailure("provider_chat_model_mismatch")
         if evidence.actual_model is None:
             evidence.warning_codes.append("actual_model_missing")
         if evidence.total_tokens is None:
             evidence.warning_codes.append("usage_missing")
         if evidence.finish_reason == "length":
             evidence.warning_codes.append("finish_reason_length")
+
+    @staticmethod
+    def _verify_capability(evidence: _StreamEvidence) -> None:
+        if evidence.capability == "chat_text":
+            if not evidence.checks["text_delta_observed"]:
+                if evidence.finish_reason == "length":
+                    raise _CertificationFailure(
+                        "provider_chat_visible_text_budget_exhausted"
+                    )
+                raise _CertificationFailure("provider_chat_empty_stream")
+            evidence.checks["capability_verified"] = True
+            return
+        if len(evidence.tool_calls) != 1:
+            raise _CertificationFailure("provider_chat_tool_call_missing")
+        tool_call = next(iter(evidence.tool_calls.values()))
+        try:
+            arguments = json.loads(tool_call.get("arguments") or "")
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise _CertificationFailure(
+                "provider_chat_tool_arguments_invalid"
+            ) from exc
+        if not isinstance(arguments, dict):
+            raise _CertificationFailure("provider_chat_tool_arguments_invalid")
+        if evidence.capability == "chat_tools":
+            if tool_call.get("name") != SYNTHETIC_TOOL_NAME or arguments != {
+                "value": "OK"
+            }:
+                raise _CertificationFailure("provider_chat_tool_contract_mismatch")
+            evidence.checks["tool_call_observed"] = True
+            evidence.checks["capability_verified"] = True
+            return
+        if tool_call.get("name") != SYNTHETIC_FILE_TOOL_NAME or arguments != {
+            "format_id": "plain_text",
+            "filename": "certification.txt",
+            "content": "OK",
+        }:
+            raise _CertificationFailure(
+                "provider_chat_file_output_contract_mismatch"
+            )
+        evidence.checks["tool_call_observed"] = True
+        evidence.checks["file_output_contract_observed"] = True
+        evidence.checks["capability_verified"] = True
 
     @staticmethod
     def _consume_event(event: str, evidence: _StreamEvidence, started: float) -> None:
@@ -435,6 +583,33 @@ class ProviderChatCertificationService:
                 if evidence.ttft_ms is None:
                     evidence.ttft_ms = (time.perf_counter() - started) * 1000
                 evidence.checks["text_delta_observed"] = True
+            raw_tool_calls = delta.get("tool_calls")
+            if not isinstance(raw_tool_calls, list):
+                continue
+            for raw_call in raw_tool_calls:
+                if not isinstance(raw_call, dict):
+                    continue
+                index = ProviderChatCertificationService._integer(
+                    raw_call.get("index")
+                )
+                if index is None or index < 0 or index > 8:
+                    raise _CertificationFailure("provider_chat_invalid_sse")
+                accumulated = evidence.tool_calls.setdefault(
+                    index,
+                    {"id": "", "name": "", "arguments": ""},
+                )
+                call_id = raw_call.get("id")
+                if isinstance(call_id, str):
+                    accumulated["id"] += call_id
+                function = raw_call.get("function")
+                if not isinstance(function, dict):
+                    continue
+                name = function.get("name")
+                if isinstance(name, str):
+                    accumulated["name"] += name
+                arguments = function.get("arguments")
+                if isinstance(arguments, str):
+                    accumulated["arguments"] += arguments
 
     def _repository_method(self, name: str):
         method = getattr(self.repository, name, None)
