@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -17,8 +18,13 @@ from server.coding_worker.provider import (
 )
 from server.coding_worker.provider_rpc import (
     ProviderRPCError,
+    ProviderRPCRequest,
     ProviderRPCServer,
     ProviderSidecarClientPool,
+)
+from server.coding_worker.harness_v3 import (
+    PROVIDER_HARNESS_CODE_FILES,
+    harness_code_bundle_sha256,
 )
 from server.coding_worker.executor import (
     ExecutorRPCError,
@@ -72,6 +78,49 @@ class _NoShellProvider(FakeCodingAgentProvider):
                 )
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_provider_attestation_uses_sidecar_environment_and_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = ProviderRPCServer(FakeCodingAgentProvider(), token="a" * 48)
+    request = ProviderRPCRequest(
+        token="a" * 48,
+        action="harness_attestation",
+    )
+    with pytest.raises(ProviderRPCError) as disabled:
+        await server._dispatch(request)
+    assert disabled.value.code == "harness_attestation_disabled"
+
+    monkeypatch.setenv("CODING_WORKER_HARNESS_V3_ENABLED", "true")
+    with pytest.raises(ProviderRPCError) as unavailable:
+        await server._dispatch(request)
+    assert unavailable.value.code == "harness_attestation_unavailable"
+
+    server = ProviderRPCServer(
+        FakeCodingAgentProvider(),
+        token="a" * 48,
+        harness_identity=(
+            "coding/default",
+            "openrouter/example-model",
+            "opencode-1.18.9",
+        ),
+    )
+    result = await server._dispatch(request)
+    assert result == {
+        "route_id": "coding/default",
+        "model_identity_sha256": hashlib.sha256(
+            b"openrouter/example-model"
+        ).hexdigest(),
+        "engine": "opencode-1.18.9",
+        "sidecar_generation": result["sidecar_generation"],
+        "code_bundle_sha256": harness_code_bundle_sha256(
+            Path(__file__).parents[1] / "coding_worker",
+            PROVIDER_HARNESS_CODE_FILES,
+        ),
+    }
+    assert len(result["sidecar_generation"]) == 32
 
 
 @pytest.mark.asyncio

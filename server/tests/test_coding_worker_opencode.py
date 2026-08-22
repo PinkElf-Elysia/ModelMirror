@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -28,6 +29,7 @@ from server.coding_worker.opencode_provider import (
     TOOL_BROKER_MCP_NAME,
 )
 from server.coding_worker.store import CodingWorkerStore
+from server.coding_worker.sidecar import _provider_harness_identity
 from server.coding_worker.tool_broker import ToolBroker
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 from server.coding_worker.provider import (
@@ -68,6 +70,41 @@ def _route() -> OpenCodeRoute:
         base_url="http://new-api:3000/v1",
         api_key="ephemeral-route-key",
     )
+
+
+def test_harness_identity_observes_the_actual_opencode_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = OpenCodeProvider(
+        workspace_resolver=lambda _workspace_id: tmp_path,
+        runtime_root=tmp_path / "runtime",
+        routes={"coding/default": _route()},
+        executable="/opt/opencode",
+        tool_broker_command=("python", "-m", "coding_worker.tool_mcp"),
+    )
+    monkeypatch.setenv("CODING_WORKER_ROUTE_ID", "coding/default")
+    monkeypatch.setenv("CODING_WORKER_MODEL_ID", "test-model")
+
+    def fake_run(command, **kwargs):
+        assert command == ("/opt/opencode", "--version")
+        assert kwargs["timeout"] == 10
+        return SimpleNamespace(returncode=0, stdout="1.18.9\n")
+
+    monkeypatch.setattr("server.coding_worker.sidecar.subprocess.run", fake_run)
+    assert _provider_harness_identity(provider) == (
+        "coding/default",
+        "test-model",
+        "opencode-1.18.9",
+    )
+
+    monkeypatch.setattr(
+        "server.coding_worker.sidecar.subprocess.run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0, stdout="1.18.10\n"
+        ),
+    )
+    with pytest.raises(RuntimeError, match="version does not match"):
+        _provider_harness_identity(provider)
 
 
 def test_config_disables_direct_tools_plugins_sharing_and_supplier_surface(tmp_path: Path) -> None:
@@ -205,6 +242,9 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
                 )
                 + "\n\n"
                 'data: {"type":"message.part.updated","properties":{"sessionID":"ses_test","part":{"type":"text","text":"done"}}}\n\n'
+                'data: {"type":"message.updated","properties":{"sessionID":"ses_test","info":{"tokens":{"input":12,"output":7,"cache":{"read":4,"write":2}},"cost":0.00125}}}\n\n'
+                'data: {"type":"message.updated","properties":{"sessionID":"ses_test","info":{"tokens":{"input":12,"output":7,"cache":{"read":4,"write":2}},"cost":0.00125}}}\n\n'
+                'data: {"type":"message.updated","properties":{"sessionID":"ses_test","info":{"tokens":{"input":0,"output":0,"cache":{"read":0,"write":0}},"cost":0}}}\n\n'
                 'data: {"type":"session.idle","properties":{"sessionID":"ses_test"}}\n\n'
             )
             return httpx.Response(200, text=content, headers={"content-type": "text/event-stream"})
@@ -257,8 +297,10 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
     events = [event async for event in provider.message(session, "continue")]
     assert [event.kind for event in events] == [
         ProviderEventKind.MESSAGE,
+        ProviderEventKind.USAGE,
         ProviderEventKind.TURN_COMPLETED,
     ]
+    assert events[1].data["usage"]["input_tokens"] == 12
     assert await provider.cancel(session) is True
     prompt = state["prompts"][0]
     assert "exact tool names shown in the current provider tool list" in prompt
