@@ -19,6 +19,8 @@ from server.model_router import (
     get_model_router_service,
 )
 from server.model_router.egress import ProviderEgressPolicy
+from server.model_router.chat_control import ProviderChatControlService
+from server.model_router.schemas import ProviderChatControlPolicyUpdate
 
 
 @pytest_asyncio.fixture
@@ -124,6 +126,13 @@ async def test_native_auto_retries_empty_stream_before_visible_output(
 ) -> None:
     original_service = get_model_router_service()
     service = native_service(tmp_path)
+    ProviderChatControlService(service).update_policy(
+        ProviderChatControlPolicyUpdate(
+            expected_revision=0,
+            mode="legacy",
+            auto_enabled=True,
+        )
+    )
     configure_model_router(service)
     sent_models: list[str] = []
 
@@ -178,6 +187,7 @@ async def test_native_auto_retries_empty_stream_before_visible_output(
             return None
 
     try:
+        monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
         monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
         monkeypatch.setattr(main_module.httpx, "AsyncClient", FakeChatClient)
         response = await client.post(
@@ -236,6 +246,18 @@ async def test_native_auto_retries_empty_stream_before_visible_output(
     assert diagnostics["recent_decisions"][0]["budget"][
         "settled_cost_usd"
     ] == pytest.approx(0.000008)
+    stored = service.repository.list_chat_control_receipts("local")
+    assert len(stored["runs"]) == 1
+    assert stored["runs"][0]["gateway"] == "auto"
+    assert stored["runs"][0]["strategy"] == "auto_native"
+    assert stored["runs"][0]["primary_newapi"] == 0
+    assert [item["position"] for item in stored["attempts"]] == [0, 1]
+    assert [item["dispatched"] for item in stored["attempts"]] == [1, 1]
+    assert stored["attempts"][0]["error_code"] == "provider_chat_empty_stream"
+    assert stored["attempts"][1]["status"] == "succeeded"
+    assert "provider_chat_auto_fallback_used" in stored["runs"][0][
+        "reason_codes_json"
+    ]
 
 
 def test_native_canary_assignment_is_stable() -> None:

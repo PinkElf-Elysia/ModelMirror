@@ -151,7 +151,14 @@ MODEL_CONTROL_CHAT_ENABLED=false
 有序 Managed 路由后，显式开启该变量才会接管对应普通文本。开关关闭、策略为 `legacy`
 或模型不在白名单时继续使用旧静态网关。Managed 首选目标只允许在 POST 前的资格、目录、
 凭据或出口预检失败时选择显式备用；POST 派发后不会调用第二 IP、Provider、模型或 legacy
-网关。Auto、工具、受控文件输出和多模态仍未迁移。超过 90 天的运行与尝试记录可先
+网关。
+
+R5C 使用同一部署开关，并由设置页租户策略中的 `auto_enabled` 提供独立、默认关闭的
+Auto 门禁。开启后只为普通文本 Auto 写入脱敏父运行/尝试证据，不改变 Native 或
+OmniRoute 选路。Native 每个实际目标分别记录；OmniRoute 只记录一次 sidecar 边界尝试，
+内部 Provider 重试标记为不可观测。若 v15 Receipt 无法在派发前建立，已开启门禁的 Auto
+请求失败关闭；关闭 `auto_enabled` 即可恢复旧 Auto 路径。Auto 记录不计入 required
+资格样本。工具、受控文件输出和多模态仍未迁移。超过 90 天的运行与尝试记录可先
 dry-run 检查：
 
 ```bash

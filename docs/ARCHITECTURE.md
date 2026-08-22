@@ -170,6 +170,14 @@ Round 5B 将 `gateway=default` 的白名单普通文本和已提取文本附件�
 legacy 网关。Auto、工具、受控文件输出、多模态、Canary、SSE 成功字节和默认部署值
 保持不变；`newapi_required_default` 仍等待 R5E 门禁与人工批准。
 
+Round 5C 在不改变 Auto 选路的前提下，把 `gateway=auto` 的普通文本接入同一父运行/尝试
+证据管道。该入口由租户策略中的独立 `auto_enabled` 门禁控制，默认关闭；关闭时 Auto
+继续原样运行且不写 v15 Receipt。Native Router 的每个实际 Provider 目标分别记录一次
+attempt，并保留其既有 POST 后失败转向下一目标语义；OmniRoute 在 ModelMirror 边界只
+记录一次 sidecar attempt，内部 Provider 重试明确标记为 `provider_attempts_not_observed`，
+不扩展 sidecar 协议。Auto 运行固定 `primary_newapi=false`，不得计入 R5E required 门禁。
+工具、文件输出和多模态仍不进入该证据接入范围。
+
 `/settings?section=overview|providers|routing` 共用一份 Provider 管理会话。Marble 等其他
 集成位于该门禁之外；newAPI 管理 UI 继续只通过安全外链访问，不嵌入或代理。
 

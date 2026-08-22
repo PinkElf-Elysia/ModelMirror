@@ -24,7 +24,7 @@ const policy = {
 describe("ProviderChatControlSettings", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("describes the bounded R5B data plane and saves an atomic revisioned policy", async () => {
+  it("describes the bounded R5C data plane and saves an atomic revisioned policy", async () => {
     const calls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       calls.push([input, init]);
@@ -74,8 +74,9 @@ describe("ProviderChatControlSettings", () => {
     });
 
     render(<ProviderChatControlSettings csrfToken="csrf-test" />);
-    expect(await screen.findByText("R5B 普通文本稳定路由")).toBeInTheDocument();
+    expect(await screen.findByText("R5C 稳定路由与 Auto 证据")).toBeInTheDocument();
     expect(screen.getByText(/只接管白名单内的 default 普通文本/)).toBeInTheDocument();
+    expect(screen.getByText(/Auto 继续沿用 Native 或 OmniRoute/)).toBeInTheDocument();
     expect(
       (screen.getByRole("option", { name: /newapi_required_default/ }) as HTMLOptionElement)
         .disabled,
@@ -87,6 +88,7 @@ describe("ProviderChatControlSettings", () => {
     fireEvent.change(screen.getByLabelText("稳定模型允许列表"), {
       target: { value: "provider/model" },
     });
+    fireEvent.click(screen.getByText("启用 Auto 独立证据管道（不改变选路）"));
     fireEvent.click(screen.getAllByRole("button", { name: "添加目标" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "原子保存策略" }));
 
@@ -98,6 +100,7 @@ describe("ProviderChatControlSettings", () => {
     expect(body).toMatchObject({
       expected_revision: 0,
       mode: "newapi_preferred",
+      auto_enabled: true,
       stable_model_ids: ["provider/model"],
     });
     expect(body.routes[0]).toEqual({

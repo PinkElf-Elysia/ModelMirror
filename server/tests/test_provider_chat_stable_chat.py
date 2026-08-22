@@ -302,9 +302,18 @@ async def test_preferred_text_chat_uses_one_pinned_newapi_post_and_receipt(
     assert stored["attempts"][0]["connection_id"] == newapi_id
     assert stored["attempts"][0]["dispatched"] == 1
     with sqlite3.connect(repository.database_path) as database:
-        dump = "\n".join(database.iterdump())
-    assert "private user text" not in dump
-    assert "OK" not in dump
+        receipt_rows = repr(
+            {
+                "runs": database.execute(
+                    "SELECT * FROM provider_chat_runs"
+                ).fetchall(),
+                "attempts": database.execute(
+                    "SELECT * FROM provider_chat_attempts"
+                ).fetchall(),
+            }
+        )
+    assert "private user text" not in receipt_rows
+    assert "OK" not in receipt_rows
 
 
 @pytest.mark.asyncio

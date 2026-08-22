@@ -55,6 +55,12 @@ from .chat_stable import (
     ProviderChatStablePreflight,
     ProviderChatStableService,
 )
+from .chat_auto import (
+    AUTO_SIDECAR_ATTEMPTS_NOT_OBSERVED,
+    ProviderChatAutoAttempt,
+    ProviderChatAutoAuditService,
+    ProviderChatAutoRun,
+)
 
 __all__ = [
     "CompressionMode",
@@ -74,12 +80,16 @@ __all__ = [
     "ProviderChatCanaryDispatch",
     "ProviderChatCanaryService",
     "ProviderChatCanaryStreamEvidence",
+    "ProviderChatAutoAttempt",
+    "ProviderChatAutoAuditService",
+    "ProviderChatAutoRun",
     "ProviderChatStableDispatch",
     "ProviderChatStablePreflight",
     "ProviderChatStableService",
     "ProviderChatEndpointResolver",
     "ProviderChatTarget",
     "ProviderChatTransport",
+    "AUTO_SIDECAR_ATTEMPTS_NOT_OBSERVED",
     "RouterConnection",
     "RouterConnectionCreate",
     "RouterConnectionNotFound",
