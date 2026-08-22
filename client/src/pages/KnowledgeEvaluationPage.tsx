@@ -96,6 +96,7 @@ interface EvaluationSetVersion extends EvaluationSet {
   benchmark_contract_version?: string;
   corpus_snapshot_hash?: string;
   qualification_manifest?: { qualified?: boolean };
+  evidence_qualification?: { qualified?: boolean };
 }
 
 interface GatePolicy {
@@ -247,10 +248,33 @@ export function summarizeGoldReview(
   };
 }
 
+export function canPublishEvaluationSet(
+  dataset: {
+    cases: unknown[];
+    origin?: string;
+    provenance?: Record<string, unknown>;
+    calibration?: Record<string, unknown>;
+  } | null,
+  review: { isGoldV2: boolean; readyForCalibration: boolean } | null,
+) {
+  if (!dataset?.cases.length) return false;
+  if (dataset.origin !== "generated") return true;
+  const calibrationStatus = String(dataset.calibration?.status || "");
+  if (review?.isGoldV2) {
+    return calibrationStatus === "not_required" && review.readyForCalibration;
+  }
+  if (dataset.provenance?.benchmark_contract_version === "rag-calibration-v1") {
+    return calibrationStatus === "not_required" && Boolean(review?.readyForCalibration);
+  }
+  return ["calibrated", "warning"].includes(calibrationStatus)
+    && Boolean(review?.readyForCalibration);
+}
+
 export function summarizeFormalReadiness(
   evaluationVersion: {
     benchmark_contract_version?: string;
     qualification_manifest?: { qualified?: boolean };
+    evidence_qualification?: { qualified?: boolean };
   } | null,
   selectedVersions: string[],
   baselineVersionId: string,
@@ -259,6 +283,7 @@ export function summarizeFormalReadiness(
   if (
     evaluationVersion?.benchmark_contract_version !== "rag-gold-v2"
     || !evaluationVersion.qualification_manifest?.qualified
+    || !evaluationVersion.evidence_qualification?.qualified
   ) blockers.push("请选择已发布且合格的 rag-gold-v2");
   if (selectedVersions.length !== 2) blockers.push("正式评测需要恰好选择基线和候选两个版本");
   if (!baselineVersionId || !selectedVersions.includes(baselineVersionId)) blockers.push("请在所选版本中指定一个基线");
@@ -595,6 +620,30 @@ export default function KnowledgeEvaluationPage() {
     setNotice(`评测集 v${data.version} 已发布；后续草稿编辑不会改变该版本。`);
   }
 
+  async function forkCalibrationSet() {
+    if (!selectedSet || !selectedPublishedVersion || !previewVersionId) return;
+    setBusy("fork-calibration");
+    setError("");
+    const target = versions.find((item) => item.version_id === previewVersionId);
+    const response = await fetch(
+      `/api/rag/evaluation-sets/${encodeURIComponent(selectedSet.eval_set_id)}/versions/${selectedPublishedVersion.version}/fork-calibration`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_pipeline_version_id: previewVersionId,
+          name: `${selectedPublishedVersion.name} · v${target?.version ?? "?"} 校准`,
+        }),
+      },
+    );
+    const data = await response.json().catch(() => null);
+    setBusy("");
+    if (!response.ok) return setError(errorMessage(data, "派生校准集失败。"));
+    await reloadSets(data.eval_set_id);
+    setSelectedEvaluationVersion("draft");
+    setNotice("已派生目标绑定的校准草案；旧审批未继承，请重新审核 12 条困难负例。" );
+  }
+
   async function loadCaseEvidence(caseId: string) {
     if (!selectedSet) return;
     if (caseEvidence[caseId]) {
@@ -639,6 +688,10 @@ export default function KnowledgeEvaluationPage() {
 
   async function recalibrateGeneratedSet() {
     if (!selectedSet || selectedSet.origin !== "generated") return;
+    if (selectedSet.provenance?.benchmark_contract_version === "rag-calibration-v1") {
+      setError("该数据集本身就是 Strategy Tuner 校准输入，不执行额外模型校准。" );
+      return;
+    }
     if (selectedSet.provenance?.benchmark_contract_version === "rag-gold-v2") {
       setError("rag-gold-v2 不执行发布前真实校准；发布后仅运行一次配对 Formal 评测。" );
       return;
@@ -761,8 +814,9 @@ export default function KnowledgeEvaluationPage() {
                 </select>
                 <button className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 disabled:opacity-40" disabled={!selectedSet} onClick={() => importRef.current?.click()} type="button">导入</button>
                 {selectedSet?.origin === "generated" && selectedSet.calibration?.status === "warning" ? <label className="flex items-center gap-2 text-xs text-amber-100"><input checked={acknowledgeCalibrationWarnings} onChange={(event) => setAcknowledgeCalibrationWarnings(event.target.checked)} type="checkbox" />确认校准警告</label> : null}
-                {selectedSet?.origin === "generated" && !reviewSummary?.isGoldV2 ? <button className="rounded-lg border border-cyan-300/25 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={!reviewSummary?.readyForCalibration || busy === "calibration" || Boolean(calibrationJob && !["completed", "failed", "cancelled"].includes(calibrationJob.status))} onClick={() => void recalibrateGeneratedSet()} type="button">{selectedSet.calibration?.status === "awaiting_review" ? "开始真实校准" : "重新校准"}</button> : null}
-                <button className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={!selectedSet?.cases.length || busy === "publish-set" || (selectedSet?.origin === "generated" && (reviewSummary?.isGoldV2 ? (selectedSet.calibration?.status !== "not_required" || !reviewSummary.readyForCalibration) : (!["calibrated", "warning"].includes(String(selectedSet.calibration?.status || "")) || !reviewSummary?.readyForCalibration || (selectedSet.calibration?.status === "warning" && !acknowledgeCalibrationWarnings))))} onClick={() => void publishEvaluationSet()} type="button">发布版本</button>
+                {selectedPublishedVersion?.benchmark_contract_version === "rag-gold-v2" ? <><select aria-label="校准目标知识版本" className="rounded-lg border border-violet-300/25 bg-surface-950 px-3 py-2 text-sm text-violet-100" onChange={(event) => setPreviewVersionId(event.target.value)} value={previewVersionId}>{versions.map((version) => <option key={version.version_id} value={version.version_id}>校准目标 v{version.version}{version.active ? " · active" : ""}</option>)}</select><button className="rounded-lg border border-violet-300/25 bg-violet-300/10 px-3 py-2 text-sm font-semibold text-violet-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={!previewVersionId || busy === "fork-calibration"} onClick={() => void forkCalibrationSet()} type="button">派生校准集</button></> : null}
+                {selectedSet?.origin === "generated" && !reviewSummary?.isGoldV2 && selectedSet.provenance?.benchmark_contract_version !== "rag-calibration-v1" ? <button className="rounded-lg border border-cyan-300/25 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={!reviewSummary?.readyForCalibration || busy === "calibration" || Boolean(calibrationJob && !["completed", "failed", "cancelled"].includes(calibrationJob.status))} onClick={() => void recalibrateGeneratedSet()} type="button">{selectedSet.calibration?.status === "awaiting_review" ? "开始真实校准" : "重新校准"}</button> : null}
+                <button className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canPublishEvaluationSet(selectedSet, reviewSummary) || busy === "publish-set" || (selectedSet?.calibration?.status === "warning" && !acknowledgeCalibrationWarnings)} onClick={() => void publishEvaluationSet()} type="button">发布版本</button>
                 <input accept=".json,.csv,application/json,text/csv" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importCases(file); event.target.value = ""; }} ref={importRef} type="file" />
               </div>
             </div>
@@ -899,7 +953,7 @@ export default function KnowledgeEvaluationPage() {
             <label className="mt-3 block text-xs text-slate-400">评测数据版本
               <select className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white" onChange={(event) => setSelectedEvaluationVersion(event.target.value)} value={selectedEvaluationVersion}>
                 <option value="draft">草稿 revision {selectedSet?.revision ?? "-"}（兼容模式）</option>
-                {evaluationSetVersions.map((item) => <option key={item.version_id} value={String(item.version)}>不可变 v{item.version} · {item.cases.length} cases</option>)}
+                {evaluationSetVersions.map((item) => <option key={item.version_id} value={String(item.version)}>不可变 v{item.version} · {item.cases.length} cases · {item.evidence_qualification?.qualified ? "Formal eligible" : "diagnostic only"}</option>)}
               </select>
             </label>
             <label className="mt-3 flex items-start gap-2 rounded-lg bg-white/[0.025] px-3 py-2 text-xs text-slate-300">

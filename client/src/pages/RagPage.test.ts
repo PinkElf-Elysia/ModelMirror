@@ -3,6 +3,8 @@ import { createElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import RagPage, {
+  draftEditsFromResponse,
+  boundedEvidenceProbePayload,
   formatPipelineSourceLocation,
   formatRagSourceLocation,
   formatRagSheetLocation,
@@ -10,6 +12,7 @@ import RagPage, {
   isRagFileSelectionDisabled,
   ragUploadStatusLabel,
   readError,
+  retrievalProfileFromEdits,
 } from "./RagPage";
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -204,6 +207,79 @@ function renderRagPageWithOfficeUploadError(
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("RAG retrieval profile contract", () => {
+  it("round-trips explicit vector-score abstention without changing fused prefilter semantics", () => {
+    const edits = draftEditsFromResponse({
+      kb_id: "kb-contract",
+      draft_id: "draft-contract",
+      version: 1,
+      updated_at: 1,
+      editable: true,
+      index_schema_version: 1,
+      embedding_profile: { requested: { provider: "hash", model: "hash" } },
+      retrieval_profile: {
+        mode: "hybrid",
+        top_k: 5,
+        score_threshold: 0.125,
+        abstention_enabled: true,
+        abstention_score_domain: "vector_score",
+        abstention_threshold: 0.72,
+      },
+      stages: [],
+      stage_count: 0,
+    });
+
+    expect(edits.scoreThreshold).toBe("0.125");
+    expect(edits.abstentionEnabled).toBe(true);
+    expect(edits.abstentionThreshold).toBe("0.72");
+    expect(retrievalProfileFromEdits(edits)).toMatchObject({
+      score_threshold: 0.125,
+      abstention_enabled: true,
+      abstention_score_domain: "vector_score",
+      abstention_threshold: 0.72,
+    });
+  });
+
+  it("builds a bounded evidence probe with no answer or vector fallback", () => {
+    const edits = draftEditsFromResponse({
+      kb_id: "kb-probe",
+      draft_id: "draft-probe",
+      version: 1,
+      updated_at: 1,
+      editable: true,
+      index_schema_version: 2,
+      embedding_profile: { requested: { provider: "hash", model: "hash" } },
+      retrieval_profile: {
+        mode: "hybrid",
+        candidate_multiplier: 4,
+        rerank_model: "openai/test-verifier",
+      },
+      stages: [],
+      stage_count: 0,
+    });
+
+    expect(
+      boundedEvidenceProbePayload(
+        "  Is it supported?  ",
+        edits,
+        "openai/fast-evidence-verifier",
+      ),
+    ).toEqual({
+      question: "Is it supported?",
+      generate_answer: false,
+      probe_mode: "bounded_evidence",
+      retrieval: expect.objectContaining({
+        mode: "fulltext",
+        top_k: 5,
+        rerank_enabled: true,
+        rerank_provider: "llm",
+        rerank_model: "openai/fast-evidence-verifier",
+        evidence_verification_enabled: true,
+      }),
+    });
+  });
 });
 
 describe("RAG structured API errors", () => {

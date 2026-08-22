@@ -1,9 +1,30 @@
 import { describe, expect, it } from "vitest";
 import {
+  canPublishEvaluationSet,
   canApproveGoldReview,
   summarizeFormalReadiness,
   summarizeGoldReview,
 } from "./KnowledgeEvaluationPage";
+
+describe("canPublishEvaluationSet", () => {
+  it("allows a target-bound calibration fork only after all negative reviews", () => {
+    const dataset = {
+      cases: [{ case_id: "negative", expected_no_result: true }],
+      origin: "generated",
+      provenance: { benchmark_contract_version: "rag-calibration-v1" },
+      calibration: { status: "not_required" },
+    };
+
+    expect(canPublishEvaluationSet(dataset, {
+      isGoldV2: false,
+      readyForCalibration: false,
+    })).toBe(false);
+    expect(canPublishEvaluationSet(dataset, {
+      isGoldV2: false,
+      readyForCalibration: true,
+    })).toBe(true);
+  });
+});
 
 describe("summarizeGoldReview", () => {
   it("requires review for every Gold v2 positive and hard negative", () => {
@@ -106,6 +127,7 @@ describe("summarizeFormalReadiness", () => {
     const version = {
       benchmark_contract_version: "rag-gold-v2",
       qualification_manifest: { qualified: true },
+      evidence_qualification: { qualified: true },
     };
 
     expect(summarizeFormalReadiness(version, ["base", "candidate"], "base")).toEqual({
@@ -115,10 +137,26 @@ describe("summarizeFormalReadiness", () => {
     expect(summarizeFormalReadiness(version, ["base"], "base").ready).toBe(false);
     expect(
       summarizeFormalReadiness(
-        { benchmark_contract_version: "rag-gold-v1", qualification_manifest: { qualified: true } },
+        {
+          benchmark_contract_version: "rag-gold-v1",
+          qualification_manifest: { qualified: true },
+          evidence_qualification: { qualified: true },
+        },
         ["base", "candidate"],
         "base",
       ).blockers,
+    ).toContain("请选择已发布且合格的 rag-gold-v2");
+  });
+
+  it("rejects a sealed version whose live promotion qualification is invalid", () => {
+    const staleVersion = {
+      benchmark_contract_version: "rag-gold-v2",
+      qualification_manifest: { qualified: true },
+      evidence_qualification: { qualified: false },
+    };
+
+    expect(
+      summarizeFormalReadiness(staleVersion, ["base", "candidate"], "base").blockers,
     ).toContain("请选择已发布且合格的 rag-gold-v2");
   });
 });

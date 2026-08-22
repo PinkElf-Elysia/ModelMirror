@@ -124,7 +124,21 @@ interface PipelineVersion {
   vision_processed_page_count?: number;
   vision_failed_page_count?: number;
   vision_block_count?: number;
+  embedding_profile?: {
+    effective?: {
+      provider?: string;
+      ready?: boolean;
+    };
+  };
+  retrieval_profile?: Record<string, unknown>;
   created_at: number;
+}
+
+interface RetrievalCapabilities {
+  rerank?: {
+    evidence_verifier_configured?: boolean;
+    evidence_verifier_model?: string;
+  };
 }
 
 interface NodePreview {
@@ -136,6 +150,64 @@ interface NodePreview {
   metadata?: Record<string, unknown>;
   warnings?: string[];
   truncated?: boolean;
+}
+
+interface EvidenceProbeResult {
+  version_id: string;
+  version: number;
+  answer: string;
+  warnings: string[];
+  retrieval: Record<string, unknown>;
+  probe: Record<string, unknown>;
+  sources: Array<{
+    chunk_id: string;
+    document_name: string;
+    matched_text?: string | null;
+    text?: string;
+    rerank_score?: number | null;
+  }>;
+}
+
+export function safeEvidenceProbeReceipt(retrieval: Record<string, unknown>) {
+  const milliseconds = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.round(Math.max(0, value) * 1000) / 1000
+      : 0;
+  const count = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.max(0, Math.trunc(value))
+      : 0;
+  return {
+    retrievalElapsedMs: milliseconds(retrieval.retrieval_elapsed_ms),
+    embeddingElapsedMs: milliseconds(retrieval.embedding_elapsed_ms),
+    verifierElapsedMs: milliseconds(retrieval.rerank_elapsed_ms),
+    verifierInputCount: count(retrieval.rerank_input_count),
+    verifierInputChars: count(retrieval.rerank_input_char_count),
+    verifierMaxOutputTokens: count(retrieval.rerank_max_output_tokens),
+    verifierTimeoutBudgetMs: count(retrieval.rerank_timeout_budget_ms),
+  };
+}
+
+export function fullChainDiagnosticPayload(question: string) {
+  return {
+    question: question.trim(),
+    generate_answer: false,
+    probe_mode: "full_chain_diagnostic",
+  };
+}
+
+function supportsFullChainDiagnostic(version: PipelineVersion) {
+  const effectiveEmbedding = version.embedding_profile?.effective;
+  const retrieval = version.retrieval_profile ?? {};
+  return (
+    version.status === "ready" &&
+    effectiveEmbedding?.provider === "openai_compatible" &&
+    effectiveEmbedding.ready === true &&
+    ["vector", "hybrid"].includes(String(retrieval.mode ?? "")) &&
+    retrieval.rerank_enabled === true &&
+    retrieval.rerank_provider === "llm" &&
+    retrieval.evidence_verification_enabled === true
+  );
 }
 
 const PORTS: Record<GraphNodeKind, { input: string | null; output: string | null }> = {
@@ -303,9 +375,12 @@ export default function KnowledgePipelineCanvasPage() {
   const [strategyTunerOpen, setStrategyTunerOpen] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState("");
   const [preview, setPreview] = useState<NodePreview | null>(null);
+  const [evidenceProbeQuestion, setEvidenceProbeQuestion] = useState("");
+  const [evidenceProbeModel, setEvidenceProbeModel] = useState("");
+  const [evidenceProbeResult, setEvidenceProbeResult] = useState<EvidenceProbeResult | null>(null);
   const [jobs, setJobs] = useState<PipelineJob[]>([]);
   const [versions, setVersions] = useState<PipelineVersion[]>([]);
-  const [busy, setBusy] = useState<"load" | "save" | "validate" | "preview" | "execute" | "">("load");
+  const [busy, setBusy] = useState<"load" | "save" | "validate" | "preview" | "probe" | "execute" | "">("load");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -333,10 +408,11 @@ export default function KnowledgePipelineCanvasPage() {
     setBusy("load");
     setError("");
     try {
-      const [kbResponse, documentResponse, graphResponse] = await Promise.all([
+      const [kbResponse, documentResponse, graphResponse, capabilityResponse] = await Promise.all([
         fetch("/api/rag/knowledge_bases"),
         fetch(`/api/rag/knowledge_bases/${encodeURIComponent(kbId)}/documents`),
         fetch(`/api/rag/pipeline/graph?kb_id=${encodeURIComponent(kbId)}`),
+        fetch("/api/rag/retrieval-capabilities"),
       ]);
       if (!graphResponse.ok) throw new Error(parseError(await graphResponse.json().catch(() => null), "知识流水线图加载失败。"));
       const graphPayload = (await graphResponse.json()) as GraphResponse;
@@ -355,6 +431,17 @@ export default function KnowledgePipelineCanvasPage() {
         const list = ((await documentResponse.json()) as { documents: RagDocument[] }).documents || [];
         setDocuments(list);
         setSelectedDocumentId((current) => current || list[0]?.id || "");
+      }
+      if (capabilityResponse.ok) {
+        const capabilities = (await capabilityResponse.json()) as RetrievalCapabilities;
+        const verifierModel = String(
+          capabilities.rerank?.evidence_verifier_model ?? "",
+        ).trim();
+        setEvidenceProbeModel(
+          capabilities.rerank?.evidence_verifier_configured ? verifierModel : "",
+        );
+      } else {
+        setEvidenceProbeModel("");
       }
       await loadRuns();
     } catch (caught) {
@@ -580,6 +667,65 @@ export default function KnowledgePipelineCanvasPage() {
     await loadRuns();
   }
 
+  async function runEvidenceProbe(
+    versionId: string,
+    mode: "bounded_evidence" | "full_chain_diagnostic",
+  ) {
+    const question = evidenceProbeQuestion.trim();
+    const model = evidenceProbeModel.trim();
+    if (!question || !model || busy) return;
+    setBusy("probe");
+    setError("");
+    setNotice("");
+    setEvidenceProbeResult(null);
+    try {
+      const response = await fetch(
+        `/api/rag/pipeline/versions/${encodeURIComponent(versionId)}/query`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            mode === "full_chain_diagnostic"
+              ? fullChainDiagnosticPayload(question)
+              : {
+                  question,
+                  generate_answer: false,
+                  probe_mode: "bounded_evidence",
+                  retrieval: {
+                    mode: "fulltext",
+                    vector_weight: 0,
+                    fulltext_weight: 1,
+                    top_k: 5,
+                    score_threshold: 0,
+                    candidate_multiplier: 4,
+                    rerank_enabled: true,
+                    rerank_provider: "llm",
+                    rerank_model: model,
+                    rerank_top_n: 5,
+                    abstention_enabled: false,
+                    abstention_score_domain: "vector_score",
+                    abstention_threshold: 0,
+                    evidence_verification_enabled: true,
+                  },
+                },
+          ),
+        },
+      );
+      const payload = await response.json();
+      if (!response.ok) throw new Error(parseError(payload, "证据探针失败。"));
+      setEvidenceProbeResult(payload as EvidenceProbeResult);
+      setNotice(
+        mode === "full_chain_diagnostic"
+          ? "完整链路诊断已完成；结果不构成 Formal 证据，不会激活候选或生成答案。"
+          : "证据探针已完成；结果仅作诊断，不会激活候选或生成答案。",
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "证据探针失败。");
+    } finally {
+      setBusy("");
+    }
+  }
+
   if (!kbId) {
     navigate("/rag", { replace: true });
     return null;
@@ -686,7 +832,19 @@ export default function KnowledgePipelineCanvasPage() {
                   {preview ? <PreviewPanel preview={preview} /> : <EmptyPanel text="运行预览后，这里会显示安全摘要。" />}
                 </div>
               ) : null}
-              {workbenchTab === "run" ? <RunPanel jobs={jobs} versions={versions} onActivate={(id) => void activateVersion(id)} /> : null}
+              {workbenchTab === "run" ? (
+                <RunPanel
+                  busy={busy === "probe"}
+                  jobs={jobs}
+                  model={evidenceProbeModel}
+                  onActivate={(id) => void activateVersion(id)}
+                  onProbe={(id, mode) => void runEvidenceProbe(id, mode)}
+                  onQuestionChange={setEvidenceProbeQuestion}
+                  probeResult={evidenceProbeResult}
+                  question={evidenceProbeQuestion}
+                  versions={versions}
+                />
+              ) : null}
             </div>
           </aside>
         </div>
@@ -909,7 +1067,33 @@ function PreviewPanel({ preview }: { preview: NodePreview }) {
   );
 }
 
-function RunPanel({ jobs, versions, onActivate }: { jobs: PipelineJob[]; versions: PipelineVersion[]; onActivate: (id: string) => void }) {
+function RunPanel({
+  jobs,
+  versions,
+  onActivate,
+  onProbe,
+  question,
+  model,
+  onQuestionChange,
+  probeResult,
+  busy,
+}: {
+  jobs: PipelineJob[];
+  versions: PipelineVersion[];
+  onActivate: (id: string) => void;
+  onProbe: (
+    id: string,
+    mode: "bounded_evidence" | "full_chain_diagnostic",
+  ) => void;
+  question: string;
+  model: string;
+  onQuestionChange: (value: string) => void;
+  probeResult: EvidenceProbeResult | null;
+  busy: boolean;
+}) {
+  const safeProbeReceipt = probeResult
+    ? safeEvidenceProbeReceipt(probeResult.retrieval)
+    : null;
   return (
     <div className="space-y-6">
       <section>
@@ -932,11 +1116,78 @@ function RunPanel({ jobs, versions, onActivate }: { jobs: PipelineJob[]; version
       </section>
       <section>
         <h2 className="text-sm font-semibold text-white">索引版本</h2>
+        <div className="mt-3 space-y-2 rounded-md border border-amber-300/20 bg-amber-300/[0.06] p-3">
+          <p className="text-xs font-semibold text-amber-100">受限诊断探针</p>
+          <p className="text-[11px] leading-5 text-amber-100/80">
+            证据探针只调用一次 Verifier；完整链路诊断严格调用一次 Embedding 和一次 Verifier。两者都不生成答案、不重试、不激活版本。
+          </p>
+          <input
+            className="w-full rounded-md border border-white/10 bg-surface-950 px-3 py-2 text-xs text-white placeholder:text-slate-500"
+            onChange={(event) => onQuestionChange(event.target.value)}
+            placeholder="输入真实问题样例"
+            value={question}
+          />
+          <input
+            className="w-full rounded-md border border-white/10 bg-surface-950 px-3 py-2 text-xs text-white placeholder:text-slate-500"
+            placeholder="服务端未配置专用证据验证模型"
+            readOnly
+            value={model}
+          />
+          <p className="text-[10px] leading-5 text-slate-500">
+            模型由服务端 RAG_EVIDENCE_VERIFIER_LLM_MODEL 固定，客户端不可改写。
+          </p>
+          {probeResult ? (
+            <div className="rounded-md border border-sky-300/20 bg-sky-300/10 px-3 py-2 text-[11px] leading-5 text-sky-100">
+              <p>
+                v{probeResult.version} · 外部调用 {String(probeResult.probe.external_call_count ?? 0)} / {String(probeResult.probe.external_call_limit ?? 1)} · 结论 {String(probeResult.retrieval.evidence_verdict ?? "unavailable")}
+              </p>
+              <p>
+                原因 {String(probeResult.retrieval.evidence_reason_code ?? "-")} · 支持分 {String(probeResult.retrieval.evidence_support_score ?? "-")}
+              </p>
+              {safeProbeReceipt ? (
+                <>
+                  <p>
+                    耗时：检索 {safeProbeReceipt.retrievalElapsedMs}ms · Embedding {safeProbeReceipt.embeddingElapsedMs}ms · Verifier {safeProbeReceipt.verifierElapsedMs}ms
+                  </p>
+                  <p>
+                    请求包络：{safeProbeReceipt.verifierInputCount} 候选 · {safeProbeReceipt.verifierInputChars} 字符 · {safeProbeReceipt.verifierMaxOutputTokens} 输出 tokens · {safeProbeReceipt.verifierTimeoutBudgetMs}ms 超时预算
+                  </p>
+                </>
+              ) : null}
+              {probeResult.warnings.map((warning) => <p className="text-amber-100" key={warning}>{warning}</p>)}
+            </div>
+          ) : null}
+        </div>
         <div className="mt-3 space-y-2">
           {versions.length ? versions.map((version) => (
             <article className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.03] p-3" key={version.version_id}>
               <div><p className="text-xs font-semibold text-white">v{version.version} · {version.chunk_count} chunks</p>{Number(version.vision_processed_page_count || 0) > 0 ? <p className="mt-1 text-[10px] text-violet-200/80">视觉页 {version.vision_processed_page_count} · 块 {version.vision_block_count || 0} · 失败 {version.vision_failed_page_count || 0}</p> : null}<p className="mt-1 text-[10px] text-slate-500">{formatDate(version.created_at)}</p></div>
-              {version.active ? <span className="text-[11px] font-semibold text-emerald-200">活动版本</span> : <button className="rounded-md border border-white/10 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-white/[0.06]" onClick={() => onActivate(version.version_id)} type="button">激活</button>}
+              <div className="flex items-center gap-2">
+                <button
+                  className="rounded-md border border-amber-300/20 px-2 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-300/10 disabled:opacity-40"
+                  disabled={busy || !question.trim() || !model.trim()}
+                  onClick={() => onProbe(version.version_id, "bounded_evidence")}
+                  type="button"
+                >
+                  {busy ? "探针运行中..." : "证据探针"}
+                </button>
+                <button
+                  className="rounded-md border border-sky-300/20 px-2 py-1 text-[11px] font-semibold text-sky-100 hover:bg-sky-300/10 disabled:opacity-40"
+                  disabled={
+                    busy ||
+                    !question.trim() ||
+                    !model.trim() ||
+                    !supportsFullChainDiagnostic(version)
+                  }
+                  onClick={() =>
+                    onProbe(version.version_id, "full_chain_diagnostic")
+                  }
+                  type="button"
+                >
+                  {busy ? "诊断运行中..." : "完整链路诊断"}
+                </button>
+                {version.active ? <span className="text-[11px] font-semibold text-emerald-200">活动版本</span> : <button className="rounded-md border border-white/10 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-white/[0.06]" onClick={() => onActivate(version.version_id)} type="button">激活</button>}
+              </div>
             </article>
           )) : <EmptyPanel text="候选执行成功后会生成索引版本。" />}
         </div>

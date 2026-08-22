@@ -140,7 +140,7 @@ interface PipelinePreflightResponse {
   chunk_count: number;
 }
 
-interface PipelineDraftEdits {
+export interface PipelineDraftEdits {
   processorMode: "general" | "qa" | "summary";
   processorModelId: string;
   processorFailurePolicy: "continue_on_error" | "strict";
@@ -166,6 +166,8 @@ interface PipelineDraftEdits {
   fulltextWeight: string;
   topK: string;
   scoreThreshold: string;
+  abstentionEnabled: boolean;
+  abstentionThreshold: string;
   candidateMultiplier: string;
   rerankEnabled: boolean;
   rerankProvider: "none" | "auto" | "api" | "llm";
@@ -212,6 +214,8 @@ interface RetrievalCapabilities {
     llm_configured: boolean;
     api_model: string;
     llm_model: string;
+    evidence_verifier_configured?: boolean;
+    evidence_verifier_model?: string;
   };
 }
 
@@ -303,6 +307,7 @@ interface PipelineVersionQueryResponse {
   answer: string;
   warnings: string[];
   retrieval: Record<string, unknown>;
+  probe?: Record<string, unknown>;
   sources: Array<{
     chunk_id: string;
     document_name: string;
@@ -544,7 +549,7 @@ function embeddingProfileSection(
   return isUnknownRecord(value) ? value : {};
 }
 
-function draftEditsFromResponse(draft: PipelineDraftResponse): PipelineDraftEdits {
+export function draftEditsFromResponse(draft: PipelineDraftResponse): PipelineDraftEdits {
   const processor = draft.stages.find((stage) => stage.kind === "processor")?.config ?? {};
   const chunker = draft.stages.find((stage) => stage.kind === "chunker")?.config ?? {};
   const retrieval = draft.retrieval_profile ?? {};
@@ -594,11 +599,61 @@ function draftEditsFromResponse(draft: PipelineDraftResponse): PipelineDraftEdit
     fulltextWeight: String(numericProfileValue(retrieval, "fulltext_weight", 0.3)),
     topK: String(numericProfileValue(retrieval, "top_k", 5)),
     scoreThreshold: String(numericProfileValue(retrieval, "score_threshold", 0)),
+    abstentionEnabled: Boolean(retrieval.abstention_enabled),
+    abstentionThreshold: String(
+      numericProfileValue(retrieval, "abstention_threshold", 0),
+    ),
     candidateMultiplier: String(numericProfileValue(retrieval, "candidate_multiplier", 4)),
     rerankEnabled: Boolean(retrieval.rerank_enabled),
     rerankProvider: provider,
     rerankModel: String(retrieval.rerank_model ?? ""),
     rerankTopN: String(numericProfileValue(retrieval, "rerank_top_n", 5)),
+  };
+}
+
+export function retrievalProfileFromEdits(edits: PipelineDraftEdits) {
+  return {
+    mode: edits.retrievalMode,
+    vector_weight: Number(edits.vectorWeight),
+    fulltext_weight: Number(edits.fulltextWeight),
+    top_k: Number(edits.topK),
+    score_threshold: Number(edits.scoreThreshold),
+    candidate_multiplier: Number(edits.candidateMultiplier),
+    rerank_enabled: edits.rerankEnabled,
+    rerank_provider: edits.rerankEnabled ? edits.rerankProvider : "none",
+    rerank_model: edits.rerankModel.trim(),
+    rerank_top_n: Number(edits.rerankTopN),
+    abstention_enabled: edits.retrievalMode !== "fulltext" && edits.abstentionEnabled,
+    abstention_score_domain: "vector_score",
+    abstention_threshold: Number(edits.abstentionThreshold),
+  };
+}
+
+export function boundedEvidenceProbePayload(
+  question: string,
+  edits: PipelineDraftEdits,
+  evidenceVerifierModel: string,
+) {
+  return {
+    question: question.trim(),
+    generate_answer: false,
+    probe_mode: "bounded_evidence",
+    retrieval: {
+      mode: "fulltext",
+      vector_weight: 0,
+      fulltext_weight: 1,
+      top_k: 5,
+      score_threshold: 0,
+      candidate_multiplier: Math.min(4, Math.max(1, Number(edits.candidateMultiplier) || 4)),
+      rerank_enabled: true,
+      rerank_provider: "llm",
+      rerank_model: evidenceVerifierModel.trim(),
+      rerank_top_n: 5,
+      abstention_enabled: false,
+      abstention_score_domain: "vector_score",
+      abstention_threshold: 0,
+      evidence_verification_enabled: true,
+    },
   };
 }
 
@@ -777,6 +832,8 @@ export default function RagPage() {
     fulltextWeight: "0.3",
     topK: "5",
     scoreThreshold: "0",
+    abstentionEnabled: false,
+    abstentionThreshold: "0",
     candidateMultiplier: "4",
     rerankEnabled: false,
     rerankProvider: "auto",
@@ -802,6 +859,7 @@ export default function RagPage() {
   const [pipelinePreviewQuestion, setPipelinePreviewQuestion] = useState("");
   const [pipelinePreview, setPipelinePreview] = useState<PipelineVersionQueryResponse | null>(null);
   const [previewingVersionId, setPreviewingVersionId] = useState("");
+  const [boundedEvidenceProbe, setBoundedEvidenceProbe] = useState(false);
   const [activatingVersionId, setActivatingVersionId] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadButtonRef = useRef<HTMLButtonElement>(null);
@@ -1181,20 +1239,7 @@ export default function RagPage() {
             provider: pipelineDraftEdits.embeddingProvider,
             model: pipelineDraftEdits.embeddingModel.trim(),
           },
-          retrieval_profile: {
-            mode: pipelineDraftEdits.retrievalMode,
-            vector_weight: Number(pipelineDraftEdits.vectorWeight),
-            fulltext_weight: Number(pipelineDraftEdits.fulltextWeight),
-            top_k: Number(pipelineDraftEdits.topK),
-            score_threshold: Number(pipelineDraftEdits.scoreThreshold),
-            candidate_multiplier: Number(pipelineDraftEdits.candidateMultiplier),
-            rerank_enabled: pipelineDraftEdits.rerankEnabled,
-            rerank_provider: pipelineDraftEdits.rerankEnabled
-              ? pipelineDraftEdits.rerankProvider
-              : "none",
-            rerank_model: pipelineDraftEdits.rerankModel.trim(),
-            rerank_top_n: Number(pipelineDraftEdits.rerankTopN),
-          },
+          retrieval_profile: retrievalProfileFromEdits(pipelineDraftEdits),
         }),
       });
       if (!response.ok) throw new Error(await readError(response));
@@ -1319,29 +1364,31 @@ export default function RagPage() {
   async function previewPipelineVersion(versionId: string) {
     const question = pipelinePreviewQuestion.trim();
     if (!question || previewingVersionId) return;
+    const evidenceVerifierModel = String(
+      retrievalCapabilities?.rerank.evidence_verifier_model ?? "",
+    ).trim();
+    if (boundedEvidenceProbe && !evidenceVerifierModel) {
+      setPipelineError("服务端尚未配置专用证据验证模型，未发起外部调用。");
+      return;
+    }
     setPreviewingVersionId(versionId);
     setPipelineError("");
     try {
       const response = await fetch(`/api/rag/pipeline/versions/${versionId}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question,
-          retrieval: {
-            mode: pipelineDraftEdits.retrievalMode,
-            vector_weight: Number(pipelineDraftEdits.vectorWeight),
-            fulltext_weight: Number(pipelineDraftEdits.fulltextWeight),
-            top_k: Number(pipelineDraftEdits.topK),
-            score_threshold: Number(pipelineDraftEdits.scoreThreshold),
-            candidate_multiplier: Number(pipelineDraftEdits.candidateMultiplier),
-            rerank_enabled: pipelineDraftEdits.rerankEnabled,
-            rerank_provider: pipelineDraftEdits.rerankEnabled
-              ? pipelineDraftEdits.rerankProvider
-              : "none",
-            rerank_model: pipelineDraftEdits.rerankModel.trim(),
-            rerank_top_n: Number(pipelineDraftEdits.rerankTopN),
-          },
-        }),
+        body: JSON.stringify(
+          boundedEvidenceProbe
+            ? boundedEvidenceProbePayload(
+                question,
+                pipelineDraftEdits,
+                evidenceVerifierModel,
+              )
+            : {
+                question,
+                retrieval: retrievalProfileFromEdits(pipelineDraftEdits),
+              },
+        ),
       });
       if (!response.ok) throw new Error(await readError(response));
       setPipelinePreview((await response.json()) as PipelineVersionQueryResponse);
@@ -2560,7 +2607,7 @@ export default function RagPage() {
                               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                                 <label className="block">
                                   <span className="text-xs font-medium text-slate-300">检索模式</span>
-                                  <select className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, retrievalMode: event.target.value as PipelineDraftEdits["retrievalMode"] }))} value={pipelineDraftEdits.retrievalMode}>
+                                  <select className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, retrievalMode: event.target.value as PipelineDraftEdits["retrievalMode"], abstentionEnabled: event.target.value === "fulltext" ? false : current.abstentionEnabled }))} value={pipelineDraftEdits.retrievalMode}>
                                     <option value="hybrid">混合检索</option>
                                     <option value="vector">向量检索</option>
                                     <option value="fulltext">全文检索</option>
@@ -2568,13 +2615,20 @@ export default function RagPage() {
                                 </label>
                                 <div className="grid grid-cols-2 gap-2">
                                   <label className="block"><span className="text-xs font-medium text-slate-300">Top-K</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={1} max={50} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, topK: event.target.value }))} type="number" value={pipelineDraftEdits.topK} /></label>
-                                  <label className="block"><span className="text-xs font-medium text-slate-300">Score 阈值</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={0} max={1} step={0.05} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, scoreThreshold: event.target.value }))} type="number" value={pipelineDraftEdits.scoreThreshold} /></label>
+                                  <label className="block"><span className="text-xs font-medium text-slate-300">融合分数预过滤</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={0} max={1} step={0.05} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, scoreThreshold: event.target.value }))} type="number" value={pipelineDraftEdits.scoreThreshold} /></label>
                                 </div>
                               </div>
                               <div className="mt-3 grid gap-3 sm:grid-cols-3">
                                 <label className="block"><span className="text-xs font-medium text-slate-300">向量权重</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" disabled={pipelineDraftEdits.retrievalMode !== "hybrid"} min={0} max={1} step={0.1} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, vectorWeight: event.target.value }))} type="number" value={pipelineDraftEdits.vectorWeight} /></label>
                                 <label className="block"><span className="text-xs font-medium text-slate-300">全文权重</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" disabled={pipelineDraftEdits.retrievalMode !== "hybrid"} min={0} max={1} step={0.1} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, fulltextWeight: event.target.value }))} type="number" value={pipelineDraftEdits.fulltextWeight} /></label>
                                 <label className="block"><span className="text-xs font-medium text-slate-300">候选倍数</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={1} max={10} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, candidateMultiplier: event.target.value }))} type="number" value={pipelineDraftEdits.candidateMultiplier} /></label>
+                              </div>
+                              <div className="mt-3 grid gap-3 border-y border-white/10 py-3 sm:grid-cols-[1fr_180px] sm:items-center">
+                                <label className="flex items-center justify-between gap-3">
+                                  <span><span className="block text-xs font-medium text-slate-200">低证据拒答</span><span className="mt-1 block text-[11px] leading-5 text-slate-500">只使用原始 vector_score；不使用融合排名分数。全文检索不支持此门禁。</span></span>
+                                  <input checked={pipelineDraftEdits.abstentionEnabled} className="h-4 w-4 shrink-0 accent-hire-300" disabled={pipelineDraftEdits.retrievalMode === "fulltext"} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, abstentionEnabled: event.target.checked }))} type="checkbox" />
+                                </label>
+                                <label className="block"><span className="text-xs font-medium text-slate-300">Vector 拒答阈值</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50 disabled:opacity-45" disabled={!pipelineDraftEdits.abstentionEnabled || pipelineDraftEdits.retrievalMode === "fulltext"} min={-1} max={1} step={0.01} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, abstentionThreshold: event.target.value }))} type="number" value={pipelineDraftEdits.abstentionThreshold} /></label>
                               </div>
                               <div className="mt-3 flex items-center justify-between gap-3 border-y border-white/10 py-3">
                                 <div><p className="text-xs font-medium text-slate-200">启用 Rerank</p><p className="mt-1 text-[11px] text-slate-500">失败时保留混合融合排序，并返回 warning。</p></div>
@@ -2852,6 +2906,22 @@ export default function RagPage() {
                                 value={pipelinePreviewQuestion}
                               />
                             </div>
+                            <label className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-3 py-2 text-[11px] leading-5 text-amber-100">
+                              <input
+                                checked={boundedEvidenceProbe}
+                                className="mt-1"
+                                disabled={!retrievalCapabilities?.rerank.evidence_verifier_configured}
+                                onChange={(event) => setBoundedEvidenceProbe(event.target.checked)}
+                                type="checkbox"
+                              />
+                              <span>
+                                单调用证据探针：强制本地全文召回，仅允许一次 LLM
+                                证据验证，不生成答案、不回退向量，仅作诊断。
+                                {retrievalCapabilities?.rerank.evidence_verifier_configured
+                                  ? ` 专用模型：${retrievalCapabilities.rerank.evidence_verifier_model}`
+                                  : " 服务端未配置专用验证模型。"}
+                              </span>
+                            </label>
 
                             <div className="mt-3 divide-y divide-white/10 overflow-hidden rounded-lg border border-white/10">
                               {pipelineVersions.length > 0 ? pipelineVersions.map((versionItem) => (
@@ -2881,11 +2951,16 @@ export default function RagPage() {
                                     <div className="flex gap-1.5">
                                       <button
                                         className="rounded-md border border-white/10 px-2 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-white/[0.08] hover:text-white disabled:opacity-40"
-                                        disabled={!pipelinePreviewQuestion.trim() || Boolean(previewingVersionId)}
+                                        disabled={
+                                          !pipelinePreviewQuestion.trim()
+                                          || Boolean(previewingVersionId)
+                                          || (boundedEvidenceProbe
+                                            && !retrievalCapabilities?.rerank.evidence_verifier_configured)
+                                        }
                                         onClick={() => void previewPipelineVersion(versionItem.version_id)}
                                         type="button"
                                       >
-                                        预览
+                                        {boundedEvidenceProbe ? "运行证据探针" : "预览"}
                                       </button>
                                       {!versionItem.active ? (
                                         <button
@@ -2916,6 +2991,16 @@ export default function RagPage() {
                                   </span>
                                 </div>
                                 <p className="mt-2 line-clamp-5 text-xs leading-5 text-slate-200">{pipelinePreview.answer}</p>
+                                {pipelinePreview.probe ? (
+                                  <div className="mt-2 rounded-md border border-sky-300/20 bg-sky-300/10 px-2.5 py-2 text-[11px] leading-5 text-sky-100">
+                                    <p>
+                                      诊断探针 · 外部调用 {String(pipelinePreview.probe.external_call_count ?? 0)} / {String(pipelinePreview.probe.external_call_limit ?? 1)} · 不生成答案
+                                    </p>
+                                    <p>
+                                      证据结论：{String(pipelinePreview.retrieval.evidence_verdict ?? "unavailable")} · 原因 {String(pipelinePreview.retrieval.evidence_reason_code ?? "-")}
+                                    </p>
+                                  </div>
+                                ) : null}
                                 {pipelinePreview.warnings.length > 0 ? (
                                   <div className="mt-2 rounded-md border border-amber-300/20 bg-amber-300/10 px-2.5 py-2 text-[11px] leading-5 text-amber-100">
                                     {pipelinePreview.warnings.map((warning) => <p key={warning}>{warning}</p>)}
