@@ -1266,9 +1266,9 @@
       "f1a_red": "Frontend failed on hidden 4/24/3 defaults and missing budget/failure state; backend failed on missing request_contract and execution_budget.",
       "f1a_green": "RagStrategyTunerPanel 2 passed; budget/preflight backend focus 2 passed.",
       "f1b_green": "Evidence independence, no-residue Formal creation, materialized lineage and historical-promotion regressions passed; final Evaluation plus Strategy Tuner run was 100 passed.",
-      "affected_backend": "220 RAG, Knowledge Pipeline, Benchmark, Retrieval, Strategy Tuner and Evaluation tests passed with 4 existing FastAPI on_event deprecation warnings.",
-      "frontend": "87 files and 420 tests passed; TypeScript typecheck passed; production build passed with 3121 modules and the existing large-chunk warning.",
-      "backend_full": "3534 passed, 29 skipped and 20 unrelated environment failures. Seventeen failures require the absent Agency Worker build output; three Skill cross-language tests also lack server/orchestration_worker/node_modules TypeScript loader dependencies. Existing repository documentation records the same prerequisite class; no failing file intersects the RAG closure Diff.",
+      "affected_backend": "After rebasing onto main@365bc750, 221 RAG, Knowledge Pipeline, Benchmark, Retrieval, Strategy Tuner and Evaluation tests passed with 4 existing FastAPI on_event deprecation warnings.",
+      "frontend": "After rebasing, 101 files and 525 tests passed; TypeScript typecheck passed; production build passed with 3134 modules and the existing large-chunk warning.",
+      "backend_full": "After rebasing, 3986 passed, 29 skipped and 20 unrelated environment failures. Seventeen failures require the absent Agency Worker build output; three Skill cross-language tests also lack server/orchestration_worker/node_modules TypeScript loader dependencies. Existing repository documentation records the same prerequisite class; no failing file intersects the RAG closure Diff.",
       "provider_calls": 0
     },
     "remaining_gate": "No candidate meets the third-round promotion gate. A future round must predeclare a materially different answerability or retrieval design, use development evidence that does not consume its final validation questions, publish a fresh independent rag-gold-v2, and run one separately authorized Formal."
