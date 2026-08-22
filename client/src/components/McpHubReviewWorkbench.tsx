@@ -80,10 +80,18 @@ interface ReviewItem {
 
 interface ReviewRun {
   run_id: string;
+  trigger?: string;
   status: string;
   cancel_requested: boolean;
   counts: Record<string, number>;
   items: ReviewItem[];
+}
+
+interface TrustedMetrics {
+  window: string;
+  total: number;
+  events: Record<string, number>;
+  outcomes: Record<string, number>;
 }
 
 interface ReviewedContract {
@@ -132,6 +140,7 @@ export default function McpHubReviewWorkbench({
 }) {
   const [runs, setRuns] = useState<ReviewRun[]>([]);
   const [contracts, setContracts] = useState<ReviewedContract[]>([]);
+  const [metrics, setMetrics] = useState<TrustedMetrics | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -143,12 +152,14 @@ export default function McpHubReviewWorkbench({
   const refresh = useCallback(async () => {
     if (!status.enabled) return;
     try {
-      const [runData, contractData] = await Promise.all([
+      const [runData, contractData, metricData] = await Promise.all([
         requestJson<{ items: ReviewRun[] }>("/api/mcp/hub/review-runs"),
         requestJson<{ items: ReviewedContract[] }>("/api/mcp/hub/contracts"),
+        requestJson<TrustedMetrics>("/api/mcp/hub/trusted/metrics?window=30d").catch(() => null),
       ]);
       setRuns(runData.items);
       setContracts(contractData.items);
+      setMetrics(metricData);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "复核工作台加载失败");
     }
@@ -250,6 +261,16 @@ export default function McpHubReviewWorkbench({
         </button>
       </div>
 
+      {metrics ? (
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 rounded-lg border border-white/10 bg-ink-950/35 px-3 py-2 text-xs text-slate-300" aria-label="最近 30 天可信频道本地漏斗">
+          <span>频道查看 <strong className="text-white">{metrics.events.trusted_list_view || 0}</strong></span>
+          <span>激活成功 <strong className="text-white">{metrics.events.activation_succeeded || 0}</strong></span>
+          <span>审批展示 <strong className="text-white">{metrics.events.runtime_approval_shown || 0}</strong></span>
+          <span>调用成功 <strong className="text-white">{metrics.events.runtime_call_succeeded || 0}</strong></span>
+          <span>结果未知 <strong className="text-white">{metrics.events.runtime_call_unknown_outcome || 0}</strong></span>
+        </div>
+      ) : null}
+
       {selected.length ? (
         <p className="mt-2 break-all text-xs text-slate-500">
           {selected.map((item) => `${item.title} · ${item.origin}`).join(" ｜ ")}
@@ -263,7 +284,7 @@ export default function McpHubReviewWorkbench({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="font-mono text-xs text-slate-500">{latestRun.run_id}</p>
-              <p className="mt-1 text-sm text-slate-200">批次状态：{latestRun.status}</p>
+              <p className="mt-1 text-sm text-slate-200">批次状态：{latestRun.status} · {latestRun.trigger === "automatic" ? "系统自动选批" : latestRun.trigger === "drift" ? "漂移复核" : "人工创建"}</p>
               <p className="mt-1 text-xs text-slate-500">{Object.entries(stageSummary).map(([key, count]) => `${key} ${count}`).join(" · ")}</p>
             </div>
             <div className="flex gap-2">

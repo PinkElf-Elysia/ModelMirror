@@ -264,6 +264,7 @@ async def test_hub_hitl_request_exposes_fixed_registry_warning_and_redacts_argum
 @pytest.mark.asyncio
 async def test_hub_hitl_edit_recomputes_bound_arguments_digest(tmp_path) -> None:
     approvals = RuntimeApprovalStore(tmp_path)
+    hub_events: list[tuple[str, dict[str, object]]] = []
     provider = MagicMock()
     provider.call_tool = AsyncMock(return_value=RuntimeToolResult(output="edited"))
     capabilities = CapabilityRegistry()
@@ -277,6 +278,9 @@ async def test_hub_hitl_edit_recomputes_bound_arguments_digest(tmp_path) -> None
                     config={"interrupt_on_tools": "*"},
                 ),
                 approvals,
+                hub_event_recorder=lambda event_type, metadata: hub_events.append(
+                    (event_type, metadata)
+                ),
             )
         ]
     )
@@ -325,6 +329,16 @@ async def test_hub_hitl_edit_recomputes_bound_arguments_digest(tmp_path) -> None
         ]
         == expected
     )
+    assert hub_events == [
+        (
+            "runtime_approval_approved",
+            {
+                "contract_id": None,
+                "candidate_id": None,
+                "tool_name": "hub__example__search",
+            },
+        )
+    ]
 
 
 @pytest.mark.asyncio

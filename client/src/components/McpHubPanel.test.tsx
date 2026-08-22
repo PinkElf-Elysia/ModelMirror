@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import McpHubPanel from "./McpHubPanel";
 
@@ -231,6 +231,7 @@ describe("McpHubPanel", () => {
   });
 
   it("keeps a candidate visible and reports a failed preflight", async () => {
+    let preflightFailed = false;
     const candidate = {
       candidate_id: "mcphub_" + "4".repeat(32),
       server_name: "io.example/public",
@@ -250,8 +251,17 @@ describe("McpHubPanel", () => {
         return json({ enabled: true, remote_enabled: true, source: "registry", snapshot_at: 1, snapshot_count: 0 });
       }
       if (url.includes("/api/mcp/hub/servers?")) return json({ items: [], total: 0, next_cursor: null, categories: [] });
-      if (url.endsWith("/api/mcp/hub/candidates") && !init?.method) return json({ items: [candidate] });
+      if (url.endsWith("/api/mcp/hub/candidates") && !init?.method) {
+        return json({
+          items: [{
+            ...candidate,
+            state: preflightFailed ? "blocked" : candidate.state,
+            taint_reason: preflightFailed ? "hub_dns_private_or_synthetic_denied" : "",
+          }],
+        });
+      }
       if (url.endsWith(`/api/mcp/hub/candidates/${candidate.candidate_id}/preflight`)) {
+        preflightFailed = true;
         return json({ detail: { error: "远程 Schema 校验失败" } }, 409);
       }
       throw new Error(`unexpected URL: ${url}`);
@@ -260,9 +270,90 @@ describe("McpHubPanel", () => {
     render(<McpHubPanel />);
 
     fireEvent.click(await screen.findByRole("button", { name: "安全预检" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("远程 Schema 校验失败");
-    expect(screen.getByText("io.example/public")).toBeVisible();
-    expect(screen.getByRole("button", { name: "安全预检" })).toBeEnabled();
+    const candidateCard = screen.getByText("io.example/public").closest("article");
+    expect(candidateCard).not.toBeNull();
+    expect(await within(candidateCard!).findByRole("alert")).toHaveTextContent("远程 Schema 校验失败");
+    expect(within(candidateCard!).getByText(/目标解析到了私网或合成地址/)).toBeVisible();
+    expect(within(candidateCard!).getByText(/错误码：hub_dns_private_or_synthetic_denied/)).toBeVisible();
+    expect(within(candidateCard!).getByRole("button", { name: "安全预检" })).toBeEnabled();
+  });
+
+  it("converges a revoked candidate to one non-actionable user state", async () => {
+    const candidate = {
+      candidate_id: "mcphub_" + "5".repeat(32),
+      server_name: "io.example/revoked",
+      version: "1.0.0",
+      state: "verified",
+      origin: "https://revoked.example.com",
+      schema_digest: "a".repeat(64),
+      tools: [{ name: "upstream_tool", description: "", schema_digest: "b".repeat(64) }],
+      connected: false,
+      taint_reason: "",
+      activation_eligible: false,
+      activation_reason: "hub_contract_revoked",
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/mcp/hub/status")) {
+        return json({ enabled: true, remote_enabled: true, source: "registry", snapshot_at: 1, snapshot_count: 0 });
+      }
+      if (url.includes("/api/mcp/hub/servers?")) return json({ items: [], total: 0, next_cursor: null, categories: [] });
+      if (url.endsWith("/api/mcp/hub/candidates")) return json({ items: [candidate] });
+      throw new Error(`unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<McpHubPanel />);
+
+    const candidateCard = (await screen.findByText("io.example/revoked")).closest("article");
+    expect(candidateCard).not.toBeNull();
+    expect(within(candidateCard!).getByText("状态：已撤销 · 未连接")).toBeVisible();
+    expect(within(candidateCard!).getByRole("button", { name: "安全预检" })).toBeDisabled();
+    expect(within(candidateCard!).getByRole("button", { name: "激活" })).toBeDisabled();
+    expect(within(candidateCard!).queryByText("upstream_tool")).not.toBeInTheDocument();
+    expect(within(candidateCard!).getByText(/执行契约已由本地运维者撤销/)).toBeVisible();
+  });
+
+  it("confirms candidate deletion and reports the completed action", async () => {
+    let deleted = false;
+    const candidate = {
+      candidate_id: "mcphub_" + "6".repeat(32),
+      server_name: "io.example/delete-me",
+      version: "1.0.0",
+      state: "draft",
+      origin: "https://delete.example.com",
+      schema_digest: "",
+      tools: [],
+      connected: false,
+      taint_reason: "",
+      activation_eligible: false,
+      activation_reason: "hub_preflight_required",
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/mcp/hub/status")) {
+        return json({ enabled: true, remote_enabled: true, source: "registry", snapshot_at: 1, snapshot_count: 0 });
+      }
+      if (url.includes("/api/mcp/hub/servers?")) return json({ items: [], total: 0, next_cursor: null, categories: [] });
+      if (url.endsWith(`/api/mcp/hub/candidates/${candidate.candidate_id}`) && init?.method === "DELETE") {
+        deleted = true;
+        return json({ ok: true });
+      }
+      if (url.endsWith("/api/mcp/hub/candidates")) return json({ items: deleted ? [] : [candidate] });
+      throw new Error(`unexpected URL: ${url}`);
+    });
+    const confirmMock = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("confirm", confirmMock);
+    render(<McpHubPanel />);
+
+    const deleteButton = await screen.findByRole("button", { name: "删除 Hub 候选 io.example/delete-me" });
+    fireEvent.click(deleteButton);
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining("io.example/delete-me"));
+    expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith(candidate.candidate_id) && (init as RequestInit | undefined)?.method === "DELETE")).toBe(false);
+
+    fireEvent.click(deleteButton);
+    expect(await screen.findByRole("status")).toHaveTextContent("io.example/delete-me 已从“我的 Hub 连接”删除");
+    expect(screen.queryByText("io.example/delete-me")).not.toBeInTheDocument();
   });
 
   it("creates a local-operator review batch with Registry identifiers only", async () => {

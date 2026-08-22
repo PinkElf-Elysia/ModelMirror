@@ -269,6 +269,9 @@ class HubContractRegistry:
 
     def describe(self) -> list[dict[str, Any]]:
         contracts, collisions = self.all()
+        repository_fingerprints = {
+            item.contract_fingerprint for item in self._repository_contracts()
+        }
         result: list[dict[str, Any]] = []
         for contract in sorted(contracts, key=lambda item: item.contract_id):
             revoked = bool(
@@ -280,6 +283,11 @@ class HubContractRegistry:
             result.append(
                 {
                     **contract.model_dump(mode="json"),
+                    "contract_source": (
+                        "repository"
+                        if contract.contract_fingerprint in repository_fingerprints
+                        else "local"
+                    ),
                     "collision": contract.identity in collisions,
                     "revoked": revoked,
                 }
