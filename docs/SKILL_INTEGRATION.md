@@ -276,7 +276,11 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 
 服务端在模型调用前固定 Skill 版本、内容摘要与信任指纹，并在接受最终答案或执行副作用、敏感、审批及 terminal 工具前核验同一运行的 `SkillApplicationReceipt`。存在必用 Skill 时会跳过基于模型的 Tool Selector，保留完整已授权工具集合，避免选择器先消耗模型额度或移除 Skill 所需能力。首次缺少 `skill_read` 时只允许一次服务端纠偏；再次遗漏会以稳定错误终止 Workflow，不创建审批卡或放行工具。`SKILL_APPLICATION_RECEIPT_MODE=off` 时该门失败关闭。
 
-本批次默认保持开关关闭，不改变旧节点数据。回退只需设回 `false` 并重启 Server；已有 Workflow、安装数据和 receipt 均保留。多文件资源的自动只读工具与运行卡将在后续批次交付。
+绑定 `skills_runtime` 且开启 V2 时，运行器会同时提供 `sandbox_list_files`、`sandbox_read_file` 和 `sandbox_search_files`，用于消费 `skill_stage` 暂存的 UTF-8 reference、脚本源码和文本 asset；不会自动提供写入、Shell、网络或宿主文件访问。模型必须先读取 `SKILL.md`，仅在说明确实引用包内资源时暂存，并使用 `skills/<skill-id>/<relative-path>` 精确路径或有界搜索。被动二进制只能暂存，不能作为文本读取证据；脚本只有在工作流另行绑定 `sandbox_shell` 且信任、命令白名单和审批条件同时满足时才兼容。
+
+资源访问凭据只保存 Skill 相对路径、实际/预期摘要和工具名称，不保存搜索词、正文或工具参数。`skill_stage` 后的服务端映射绑定当前 Workspace、Skill 版本和内容合同，审批恢复继续使用同一映射；资源发生变化时 receipt 转为 `unverified`。
+
+本批次默认保持开关关闭，不改变旧节点数据。回退只需设回 `false` 并重启 Server；已有 Workflow、安装数据和 receipt 均保留。结构化运行卡将在后续批次交付。
 
 ## 5. 测试指南
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -19,7 +20,7 @@ from server.skills.application_receipts import (
 )
 from server.skills.creator_evaluation import SkillEvaluationStore, SkillEvaluationValidationError
 from server.skills.package_validation import compute_package_digest
-from server.xpert_runtime.sandbox_store import SandboxWorkspace
+from server.xpert_runtime.sandbox_store import SandboxWorkspace, SandboxWorkspaceStore
 from server.xpert_runtime.sandbox_toolset import SandboxToolsetProvider
 from server.xpert_runtime.toolset import RuntimeToolCall
 
@@ -101,6 +102,41 @@ def test_contract_and_receipt_distinguish_selection_from_application(tmp_path):
     assert second_node is not None
     assert second_node.receipt_id == applied.receipt_id
     assert second_node.node_ids == ("second-agent", "workflow-agent")
+
+
+def test_resource_read_evidence_does_not_forge_skill_read_method(tmp_path):
+    store = SkillApplicationReceiptStore(tmp_path)
+    contract = _contract(required=("references/guide.md",))
+    guide_digest = _digest("bounded guide")
+
+    resource_read = store.observe(
+        contract,
+        _scope(),
+        read_resource_paths=["references/guide.md"],
+        resource_digests={"references/guide.md": guide_digest},
+        expected_resource_digests={"references/guide.md": guide_digest},
+        tool_name="sandbox_read_file",
+    )
+
+    assert resource_read is not None
+    assert resource_read.methods == ()
+    assert resource_read.read_resource_paths == ("references/guide.md",)
+    assert resource_read.compliance_status == "incomplete"
+
+    applied = store.observe(
+        contract,
+        _scope(),
+        method="skill_read",
+        resource_paths=["SKILL.md"],
+        resource_digests={"SKILL.md": _digest("skill body")},
+        expected_resource_digests={"SKILL.md": _digest("skill body")},
+        tool_name="skill_read",
+    )
+
+    assert applied is not None
+    assert applied.methods == ("skill_read",)
+    assert applied.read_resource_paths == ("SKILL.md", "references/guide.md")
+    assert applied.compliance_status == "verified"
 
 
 def test_third_party_receipt_without_trust_fingerprint_stays_unverified(tmp_path):
@@ -358,6 +394,21 @@ def test_snapshot_contains_only_bounded_evidence_not_private_content(tmp_path):
 class _InstalledSkillManager:
     def __init__(self, package_root: Path) -> None:
         self.package_root = package_root
+        files = {
+            path.relative_to(package_root).as_posix(): path.read_bytes()
+            for path in package_root.rglob("*")
+            if path.is_file() and path.name != "SKILL.md"
+        }
+        package_digest = compute_package_digest(
+            (package_root / "SKILL.md").read_bytes(),
+            files,
+        )
+        self.lifecycle_store = SimpleNamespace(
+            require_version=lambda version_id: SimpleNamespace(
+                skill_id="incident-review",
+                package_digest=package_digest,
+            )
+        )
 
     def list_installed_skills(self):
         return [SimpleNamespace(skill_id="incident-review")]
@@ -379,6 +430,10 @@ async def test_skill_tools_emit_application_evidence_for_installed_package(tmp_p
     (package_root / "SKILL.md").write_bytes(skill_markdown_bytes)
     (package_root / "references" / "guide.md").write_text(
         "# Guide\n", encoding="utf-8"
+    )
+    (package_root / "assets").mkdir()
+    (package_root / "assets" / "sample.pdf").write_bytes(
+        b"%PDF-1.7\n1 0 obj<<>>endobj\n%%EOF\n"
     )
     workspace_root = tmp_path / "workspaces"
     client = SimpleNamespace(request=AsyncMock(return_value={"ok": True}))
@@ -425,6 +480,11 @@ async def test_skill_tools_emit_application_evidence_for_installed_package(tmp_p
     assert stage.metadata["application_method"] == "skill_stage"
     assert stage.metadata["application_resource_paths"] == [
         "SKILL.md",
+        "assets/sample.pdf",
+        "references/guide.md",
+    ]
+    assert stage.metadata["application_text_resource_paths"] == [
+        "SKILL.md",
         "references/guide.md",
     ]
     assert stage.metadata["application_expected_resource_digests"] == (
@@ -432,9 +492,88 @@ async def test_skill_tools_emit_application_evidence_for_installed_package(tmp_p
     )
     assert set(stage.metadata["application_resource_digests"]) == {
         "SKILL.md",
+        "assets/sample.pdf",
         "references/guide.md",
     }
-    assert client.request.await_count == 2
+    assert client.request.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_sandbox_text_access_metadata_is_bounded_and_digest_only(tmp_path):
+    workspace_root = tmp_path / "workspaces"
+    resource_path = "skills/incident-review/references/guide.md"
+    binary_path = "skills/incident-review/assets/sample.pdf"
+    resource_body = "private search result body"
+    store = SandboxWorkspaceStore(
+        tmp_path / "sandbox-store", workspace_root=workspace_root
+    )
+    workspace = store.get_or_create_workspace(
+        scope_type="workflow",
+        scope_id="task:node",
+        node_id="workflow-agent",
+        quota_bytes=1024 * 1024,
+    )
+
+    class WorkspaceClient:
+        async def request(self, payload):
+            action = payload.get("action")
+            workspace = workspace_root / str(payload.get("workspace_id"))
+            workspace.mkdir(parents=True, exist_ok=True)
+            if action == "ensure_workspace":
+                return {"ok": True}
+            if action == "write_file":
+                target = workspace / str(payload["path"])
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(base64.b64decode(payload["content_base64"]))
+                return {"ok": True, "path": payload["path"]}
+            if action == "read_file":
+                target = workspace / str(payload["path"])
+                return {
+                    "ok": True,
+                    "path": payload["path"],
+                    "content": target.read_text(encoding="utf-8"),
+                }
+            if action == "search_files":
+                return {
+                    "ok": True,
+                    "query": payload["query"],
+                    "matches": [
+                        {"path": resource_path, "line": 1, "preview": resource_body},
+                        {"path": binary_path, "line": 1, "preview": "binary preview"},
+                    ],
+                }
+            raise AssertionError(f"unexpected action: {action}")
+
+    target = workspace_root / workspace.workspace_id / resource_path
+    target.parent.mkdir(parents=True)
+    target.write_text(resource_body, encoding="utf-8")
+    binary_target = workspace_root / workspace.workspace_id / binary_path
+    binary_target.parent.mkdir(parents=True)
+    binary_target.write_bytes(b"%PDF-1.7\xffprivate")
+    provider = SandboxToolsetProvider(
+        store,
+        WorkspaceClient(),
+        skill_manager=SimpleNamespace(list_installed_skills=lambda: []),
+    )
+    result = await provider._sandbox_call(
+        workspace,
+        RuntimeToolCall(
+            "sandbox_search_files",
+            {"query": "private", "path": "skills/incident-review"},
+            {"task_id": "task_receipt_1", "node_id": "workflow-agent"},
+        )
+    )
+
+    assert result.metadata["sandbox_accessed_paths"] == [resource_path]
+    assert result.metadata["sandbox_accessed_text_paths"] == [resource_path]
+    assert result.metadata["sandbox_accessed_digests"] == {
+        resource_path: _digest(resource_body)
+    }
+    assert binary_path not in result.output
+    assert "binary preview" not in result.output
+    serialized_metadata = json.dumps(result.metadata, ensure_ascii=False)
+    assert "private" not in serialized_metadata
+    assert resource_body not in serialized_metadata
 
 
 @pytest.mark.asyncio
