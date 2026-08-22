@@ -68,7 +68,11 @@ class LegacyEvaluationAdapter:
         self, task_id: str, *, harness_v3: bool
     ) -> WorkerArtifact:
         task = self._service.store.get_task(task_id)
-        if task.state not in TERMINAL_STATES or task.workspace_id is None:
+        if task.workspace_id is None:
+            raise WorkerConflictError(
+                "Workspace is not ready.", code="workspace_not_ready"
+            )
+        if task.state not in TERMINAL_STATES:
             raise WorkerConflictError(
                 "Parity export requires a terminal task.",
                 code="parity_task_not_terminal",

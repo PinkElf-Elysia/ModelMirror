@@ -50,7 +50,11 @@ from .ports import (
     HarnessCapabilities,
     InteractionProjection,
 )
-from .runtime import CodingWorkerRuntime, build_runtime_from_environment
+from .runtime import (
+    CodingWorkerRuntime,
+    build_runtime_from_environment,
+    record_coding_substrate_unavailability,
+)
 
 
 class TaskMessageRequest(StrictModel):
@@ -107,10 +111,12 @@ async def _lifespan(_app: object) -> AsyncIterator[None]:
             _runtime = build_runtime_from_environment()
             _substrate = await _runtime.start()
             _startup_error = None
+            record_coding_substrate_unavailability(None)
         except Exception as exc:
             _startup_error = getattr(
                 exc, "code", "coding_worker_provider_unavailable"
             )
+            record_coding_substrate_unavailability(_startup_error)
     try:
         yield
     finally:
@@ -381,6 +387,7 @@ def configure_coding_worker_for_tests(
     _substrate = substrate
     _enabled_override = enabled
     _startup_error = None
+    record_coding_substrate_unavailability(None)
 
 
 def _get_substrate() -> CodingSubstrateHandle:
@@ -412,32 +419,31 @@ def _require_enabled() -> None:
 def _raise_worker_error(exc: Exception) -> None:
     if isinstance(exc, HTTPException):
         raise exc
-    kind = type(exc).__name__
-    if kind == "WorkspaceSourceUnavailableError":
+    code = getattr(exc, "code", "coding_worker_failed")
+    if code == "workspace_source_unavailable":
+        reason = getattr(exc, "reason", "temporarily_unavailable")
+        if reason not in {
+            "not_registered",
+            "revision_changed",
+            "temporarily_unavailable",
+            "unsafe",
+            "limit_exceeded",
+        }:
+            reason = "temporarily_unavailable"
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "workspace_source_unavailable",
                 "message": "Workspace source is unavailable.",
-                "reason": getattr(exc, "reason", "temporarily_unavailable"),
+                "reason": reason,
             },
         ) from exc
-    code = getattr(exc, "code", "coding_worker_failed")
-    if kind == "WorkerNotFoundError":
-        status = 404
-    elif kind == "WorkerConflictError":
-        status = 409
-    elif kind == "WorkspaceError" and code in {
-        "workspace_not_found",
-        "entry_not_found",
-    }:
-        status = 404
-    elif kind in {"WorkerStoreError", "WorkspaceError"}:
-        status = 400
-    elif isinstance(exc, CodingSubstrateError):
-        status = exc.status
-    else:
-        status = 500
+    raw_status = getattr(exc, "status", 500)
+    status = (
+        raw_status
+        if isinstance(raw_status, int) and raw_status in {400, 404, 409, 503}
+        else 500
+    )
     raise HTTPException(
         status_code=status,
         detail={"code": code, "message": str(exc)},
@@ -1194,6 +1200,13 @@ async def service_preview(
     request: Request,
 ) -> Response:
     try:
+        task = _get_substrate().projection.get_task(task_id)
+        if task.workspace_id is None:
+            raise CodingSubstrateError(
+                "Workspace is not ready.",
+                code="workspace_not_ready",
+                status=409,
+            )
         path = PurePosixPath(preview_path or ".")
         if "\\" in preview_path or any(part == ".." for part in path.parts):
             raise CodingSubstrateError(

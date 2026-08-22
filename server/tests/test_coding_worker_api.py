@@ -11,7 +11,7 @@ import pytest
 import httpx
 from unittest.mock import AsyncMock, Mock
 from cryptography.fernet import Fernet
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from server.coding_worker.api import configure_coding_worker_for_tests, router
@@ -96,6 +96,33 @@ def _client(
     app = FastAPI()
     app.include_router(router)
     return TestClient(app), service
+
+
+def test_worker_error_mapping_uses_neutral_status_and_sanitizes_source_reason() -> None:
+    class NeutralError(RuntimeError):
+        code = "neutral_conflict"
+        status = 409
+
+    with pytest.raises(HTTPException) as neutral:
+        worker_api._raise_worker_error(NeutralError("Neutral conflict."))
+    assert neutral.value.status_code == 409
+    assert neutral.value.detail == {
+        "code": "neutral_conflict",
+        "message": "Neutral conflict.",
+    }
+
+    class UnsafeSourceError(RuntimeError):
+        code = "workspace_source_unavailable"
+        status = 409
+        reason = "C:/private/repository"
+
+    with pytest.raises(HTTPException) as source:
+        worker_api._raise_worker_error(UnsafeSourceError("private"))
+    assert source.value.detail == {
+        "code": "workspace_source_unavailable",
+        "message": "Workspace source is unavailable.",
+        "reason": "temporarily_unavailable",
+    }
 
 
 class _QuestionProvider(FakeCodingAgentProvider):
@@ -568,6 +595,42 @@ def test_parity_workspace_export_is_flagged_terminal_and_path_free(
             member = archive.getmember("main.py")
             assert member.mtime == 0 and member.uid == member.gid == 0
             assert archive.extractfile(member).read() == b"print('ok')\n"
+
+
+def test_parity_export_preserves_workspace_not_ready_precedence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, service = _client(tmp_path)
+    request = TaskCreateRequest.model_validate(_payload("queued-export"))
+    task = service.store.create_task(
+        TaskSpec(
+            origin=Origin(module="worker-console", object_id="local-user"),
+            **request.model_dump(),
+        )
+    )
+    monkeypatch.setenv("CODING_WORKER_PARITY_ENABLED", "true")
+
+    response = client.post(
+        f"/api/coding-worker/v1/tasks/{task.task_id}/workspace/parity-export"
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "workspace_not_ready"
+
+
+def test_preview_checks_task_before_rejecting_path(tmp_path: Path) -> None:
+    client, _service = _client(tmp_path)
+
+    response = client.get(
+        "/api/coding-worker/v1/tasks/task_"
+        + "f" * 32
+        + "/services/service_"
+        + "a" * 32
+        + "/preview/%2E%2E%5Csecret"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "task_not_found"
 
 
 def test_pin_unpin_and_delete_keep_active_task_safe(tmp_path: Path) -> None:
