@@ -11,13 +11,17 @@ from server.coding_worker.contracts import (
     WorkspaceSource,
 )
 from server.coding_worker.provider import FakeCodingAgentProvider
+from server.coding_worker.adapters import legacy_substrate_from_service
+from server.coding_worker.ports import CodingSubstrateHandle
 from server.coding_worker.sdk import CodingWorkerModuleClient, CodingWorkerSDKError
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.store import CodingWorkerStore
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 
 
-def _client(tmp_path: Path) -> CodingWorkerModuleClient:
+def _client(
+    tmp_path: Path,
+) -> tuple[CodingWorkerModuleClient, CodingSubstrateHandle]:
     store = CodingWorkerStore(tmp_path / "store", master_key=Fernet.generate_key())
     service = CodingWorkerService(
         store=store,
@@ -32,14 +36,15 @@ def _client(tmp_path: Path) -> CodingWorkerModuleClient:
         ),
         provider=FakeCodingAgentProvider(),
     )
+    substrate = legacy_substrate_from_service(service)
     return CodingWorkerModuleClient(
         module="skill-creator",
-        service=service,
+        substrate=substrate,
         source_kinds=frozenset({"manifest"}),
         check_ids=frozenset({"python-tests"}),
         model_routes=frozenset({"coding/default"}),
         context_validators={"artifact": lambda value: value == "artifact_context"},
-    )
+    ), substrate
 
 
 def _request() -> TaskCreateRequest:
@@ -62,10 +67,12 @@ def _request() -> TaskCreateRequest:
     )
 
 
-def _other_client(client: CodingWorkerModuleClient) -> CodingWorkerModuleClient:
+def _other_client(
+    client: CodingWorkerModuleClient, substrate: CodingSubstrateHandle
+) -> CodingWorkerModuleClient:
     return CodingWorkerModuleClient(
         module="mcp-creator",
-        service=client.service,
+        substrate=substrate,
         source_kinds=client.source_kinds,
         check_ids=client.check_ids,
         model_routes=client.model_routes,
@@ -75,7 +82,7 @@ def _other_client(client: CodingWorkerModuleClient) -> CodingWorkerModuleClient:
 
 @pytest.mark.asyncio
 async def test_module_client_owns_origin_and_preserves_idempotency(tmp_path: Path) -> None:
-    client = _client(tmp_path)
+    client, _substrate = _client(tmp_path)
     first = await client.create_task(business_object_id="skill_01", request=_request())
     same = await client.create_task(business_object_id="skill_01", request=_request())
     assert same.task_id == first.task_id
@@ -91,7 +98,7 @@ async def test_module_client_owns_origin_and_preserves_idempotency(tmp_path: Pat
 async def test_module_client_rejects_unregistered_execution_inputs(
     tmp_path: Path, field: str, expected: str
 ) -> None:
-    client = _client(tmp_path)
+    client, _substrate = _client(tmp_path)
     request = _request()
     if field == "source":
         request = request.model_copy(update={"workspace_source": request.workspace_source.model_copy(update={"kind": "host_git"})})
@@ -108,18 +115,17 @@ async def test_module_client_rejects_unregistered_execution_inputs(
 
 @pytest.mark.asyncio
 async def test_module_client_reads_and_controls_only_its_own_origin(tmp_path: Path) -> None:
-    client = _client(tmp_path)
+    client, substrate = _client(tmp_path)
     task = await client.create_task(business_object_id="skill_01", request=_request())
-    client.service.store.append_event(task.task_id, "plan", {"summary": "public"})
 
     assert client.get_task(
         business_object_id="skill_01", task_id=task.task_id
     ).task_id == task.task_id
     assert [event.type for event in client.list_events(
         business_object_id="skill_01", task_id=task.task_id
-    )][-1] == "plan"
+    )][0] == "task_created"
 
-    foreign = _other_client(client)
+    foreign = _other_client(client, substrate)
     for action in (
         lambda: foreign.get_task(
             business_object_id="mcp_01", task_id=task.task_id
@@ -141,7 +147,7 @@ async def test_module_client_reads_and_controls_only_its_own_origin(tmp_path: Pa
 
 @pytest.mark.asyncio
 async def test_module_client_bounds_public_event_and_message_inputs(tmp_path: Path) -> None:
-    client = _client(tmp_path)
+    client, _substrate = _client(tmp_path)
     task = await client.create_task(business_object_id="skill_01", request=_request())
 
     with pytest.raises(CodingWorkerSDKError) as cursor:
@@ -166,3 +172,11 @@ def test_module_sdk_has_no_provider_tool_or_secret_registration_surface() -> Non
         "register_mcp_server",
     }
     assert forbidden.isdisjoint(vars(CodingWorkerModuleClient))
+
+
+def test_module_sdk_retains_only_control_and_projection_ports(tmp_path: Path) -> None:
+    client, _substrate = _client(tmp_path)
+    assert not hasattr(client, "service")
+    assert not hasattr(client, "_substrate")
+    assert hasattr(client, "_control_plane")
+    assert hasattr(client, "_projection")

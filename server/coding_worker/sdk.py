@@ -10,9 +10,8 @@ from .contracts import (
     WorkerEvent,
 )
 from .runtime import register_frozen_check, register_workspace_source_adapter
-from .service import CodingWorkerService
+from .ports import CodingSubstrateHandle
 from .tool_broker import FrozenCheck
-from .workspace import WorkspaceSourceAdapter
 
 
 class CodingWorkerSDKError(RuntimeError):
@@ -36,7 +35,7 @@ class CodingWorkerModuleClient:
         self,
         *,
         module: str,
-        service: CodingWorkerService,
+        substrate: CodingSubstrateHandle,
         source_kinds: frozenset[str],
         check_ids: frozenset[str],
         model_routes: frozenset[str],
@@ -45,7 +44,8 @@ class CodingWorkerModuleClient:
         if not module or not source_kinds or not check_ids or not model_routes:
             raise ValueError("coding worker module policy is incomplete")
         self.module = module
-        self.service = service
+        self._control_plane = substrate.control_plane
+        self._projection = substrate.projection
         self.source_kinds = source_kinds
         self.check_ids = check_ids
         self.model_routes = model_routes
@@ -73,7 +73,7 @@ class CodingWorkerModuleClient:
                 code="worker_model_route_not_registered",
             )
         self._validate_context(request.context_refs)
-        return await self.service.create_task(
+        return await self._control_plane.create_task(
             Origin(module=self.module, object_id=business_object_id), request
         )
 
@@ -97,7 +97,7 @@ class CodingWorkerModuleClient:
             raise CodingWorkerSDKError(
                 "Event cursor is invalid.", code="worker_event_cursor_invalid"
             )
-        return tuple(self.service.store.list_events(task_id, after=after, limit=limit))
+        return tuple(self._projection.list_events(task_id, after=after, limit=limit))
 
     async def append_message(
         self, *, business_object_id: str, task_id: str, message: str
@@ -107,30 +107,30 @@ class CodingWorkerModuleClient:
             raise CodingWorkerSDKError(
                 "Worker message is invalid.", code="worker_message_invalid"
             )
-        return await self.service.append_message(task_id, message)
+        return await self._control_plane.append_message(task_id, message)
 
     async def pause_task(
         self, *, business_object_id: str, task_id: str
     ) -> TaskRecord:
         self._require_owned_task(business_object_id, task_id)
-        return await self.service.pause(task_id)
+        return await self._control_plane.pause(task_id)
 
     async def resume_task(
         self, *, business_object_id: str, task_id: str
     ) -> TaskRecord:
         self._require_owned_task(business_object_id, task_id)
-        return await self.service.resume(task_id)
+        return await self._control_plane.resume(task_id)
 
     async def cancel_task(
         self, *, business_object_id: str, task_id: str
     ) -> TaskRecord:
         self._require_owned_task(business_object_id, task_id)
-        return await self.service.cancel(task_id)
+        return await self._control_plane.cancel(task_id)
 
     def _require_owned_task(
         self, business_object_id: str, task_id: str
     ) -> TaskRecord:
-        task = self.service.store.get_task(task_id)
+        task = self._projection.get_task(task_id)
         expected = Origin(module=self.module, object_id=business_object_id)
         if task.spec.origin != expected:
             raise CodingWorkerSDKError(
@@ -149,7 +149,7 @@ class CodingWorkerModuleClient:
                 )
 
 
-def register_module_source(kind: str, adapter: WorkspaceSourceAdapter) -> None:
+def register_module_source(kind: str, adapter: object) -> None:
     """Register a trusted opaque source adapter; paths stay inside the adapter."""
 
     register_workspace_source_adapter(kind, adapter)
