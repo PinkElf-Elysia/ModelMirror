@@ -1,0 +1,43 @@
+{
+  "protocol": "modelmirror-harness-lifecycle-traces/v2",
+  "traces": [
+    {
+      "name": "acp-v1.19",
+      "schema": "https://agentclientprotocol.com/protocol/schema/v1.19",
+      "schema_release": "schema-v1.19.0",
+      "schema_commit": "a213df5240048f96d2b23f644984bb20c188a234",
+      "schema_path": "schema/v1/schema.json",
+      "actions": [
+        {"action": "initialize", "source_frame": {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {}}}},
+        {"action": "open", "source_frame": {"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": {"cwd": "/workspace", "mcpServers": []}}},
+        {"action": "start_turn", "source_frame": {"jsonrpc": "2.0", "id": 3, "method": "session/prompt", "params": {"sessionId": "acp-session-1", "prompt": [{"type": "text", "text": "Inspect the fixture."}]}}},
+        {"action": "event", "source_frame": {"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "acp-session-1", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Inspecting."}}}}},
+        {"action": "request", "source_frame": {"jsonrpc": "2.0", "id": 4, "method": "session/request_permission", "params": {"sessionId": "acp-session-1", "toolCall": {"toolCallId": "tool-1", "title": "Run check", "kind": "execute"}, "options": [{"optionId": "allow", "name": "Allow", "kind": "allow_once"}]}}},
+        {"action": "reply", "source_frame": {"jsonrpc": "2.0", "id": 4, "result": {"outcome": {"outcome": "selected", "optionId": "allow"}}}},
+        {"action": "interrupt", "source_frame": {"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": "acp-session-1"}}},
+        {"action": "resume", "source_frame": {"jsonrpc": "2.0", "id": 5, "method": "session/resume", "params": {"sessionId": "acp-session-1", "cwd": "/workspace", "mcpServers": []}}},
+        {"action": "close", "source_frame": {"jsonrpc": "2.0", "id": 6, "method": "session/close", "params": {"sessionId": "acp-session-1"}}}
+      ]
+    },
+    {
+      "name": "codex-app-server-0.149.0",
+      "schema": "codex-app-server://0.149.0/generated-json-schema",
+      "package": "@openai/codex",
+      "package_version": "0.149.0",
+      "package_integrity": "sha512-i4dryj2Y1j+00Mb5n+0n71EYnTK9/KDc2cdFo/dXD0d1oTog2bhUssKDEIOnKmnEf51P0Z/HJTWvTKw/UHyOvQ==",
+      "schema_bundle_sha256": "02a4c63a638fdae4a5f6c3ad32a41a377b642c66f3abc84f6fc47c7f3d6074df",
+      "actions": [
+        {"action": "initialize", "source_frame": {"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "modelmirror-evaluation", "title": "ModelMirror Evaluation", "version": "20"}, "capabilities": {"experimentalApi": false}}}},
+        {"action": "open", "source_frame": {"id": 2, "method": "thread/start", "params": {"model": "controlled-route", "cwd": "/workspace", "approvalPolicy": "untrusted", "sandbox": "read-only"}}},
+        {"action": "start_turn", "source_frame": {"id": 3, "method": "turn/start", "params": {"threadId": "codex-thread-1", "input": [{"type": "text", "text": "Inspect the fixture."}]}}},
+        {"action": "event", "source_frame": {"method": "item/started", "params": {"threadId": "codex-thread-1", "turnId": "codex-turn-1", "item": {"id": "item-1", "type": "agentMessage", "text": ""}}}},
+        {"action": "request", "source_frame": {"id": 4, "method": "item/commandExecution/requestApproval", "params": {"threadId": "codex-thread-1", "turnId": "codex-turn-1", "itemId": "item-2", "startedAtMs": 1755907200000}}},
+        {"action": "reply", "source_frame": {"id": 4, "result": {"decision": "decline"}}},
+        {"action": "steer", "source_frame": {"id": 5, "method": "turn/steer", "params": {"threadId": "codex-thread-1", "expectedTurnId": "codex-turn-1", "input": [{"type": "text", "text": "Do not execute native tools."}]}}},
+        {"action": "interrupt", "source_frame": {"id": 6, "method": "turn/interrupt", "params": {"threadId": "codex-thread-1", "turnId": "codex-turn-1"}}},
+        {"action": "resume", "source_frame": {"id": 7, "method": "thread/resume", "params": {"threadId": "codex-thread-1"}}},
+        {"action": "close", "source_frame": {"id": 8, "method": "thread/unsubscribe", "params": {"threadId": "codex-thread-1"}}}
+      ]
+    }
+  ]
+}

@@ -33,6 +33,7 @@ from .provider import (
     ProviderOpenRequest,
     ProviderSession,
 )
+from .harness_protocol import HarnessDescriptor
 
 
 HarnessCapabilities = ProviderCapabilities
@@ -96,13 +97,8 @@ class WorkspaceTreeProjection(StrictModel):
 
 
 @runtime_checkable
-class HarnessDriver(Protocol):
-    """Private model-loop boundary.
-
-    Provider v4 request, event and checkpoint models remain the compatibility
-    carrier in V19.  New ACP or Codex adapters must normalize into these models
-    instead of extending the public Worker API with supplier frames.
-    """
+class HarnessSupervisor(Protocol):
+    """Private process, health, generation and attestation boundary."""
 
     async def capabilities(self) -> ProviderCapabilities: ...
 
@@ -112,6 +108,22 @@ class HarnessDriver(Protocol):
 
     @property
     def controller_generation(self) -> int: ...
+
+    async def harness_attestations(self) -> Mapping[str, Mapping[str, Any]]: ...
+
+    async def harness_descriptors_for_slots(
+        self, slot_ids: Sequence[str]
+    ) -> Mapping[str, HarnessDescriptor | None]: ...
+
+
+@runtime_checkable
+class HarnessDriver(Protocol):
+    """Private session and turn boundary.
+
+    PR A retains Provider v4 request/session/checkpoint carriers for historical
+    tasks.  V20 references and envelopes fence new adapters before production
+    migration without changing the public Worker API.
+    """
 
     async def open(self, request: ProviderOpenRequest) -> ProviderSession: ...
 
@@ -350,6 +362,7 @@ class EvaluationAdapter(Protocol):
 class CodingSubstrateHandle:
     control_plane: TaskControlPlane
     projection: InteractionProjection
+    harness_supervisor: HarnessSupervisor
     harness_driver: HarnessDriver
     execution_backend: ExecutionBackend
     evaluation: EvaluationAdapter | None = None

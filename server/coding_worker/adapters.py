@@ -34,6 +34,7 @@ from .ports import (
     TaskCapabilitySnapshot,
     WorkspaceTreeProjection,
 )
+from .harness_protocol import HarnessDescriptor
 from .provider import (
     CodingAgentProvider,
     ProviderCapabilities,
@@ -77,6 +78,13 @@ class LegacyHarnessDriver:
 
     async def harness_attestations(self) -> dict[str, dict[str, Any]]:
         return await self._provider.harness_attestations()
+
+    async def harness_descriptors_for_slots(
+        self, slot_ids: Sequence[str]
+    ) -> Mapping[str, HarnessDescriptor | None]:
+        # PR A introduces the fail-closed supervisor port.  PR B replaces this
+        # compatibility result with signed engine descriptors per slot.
+        return {slot_id: None for slot_id in slot_ids}
 
     async def open(self, request: ProviderOpenRequest) -> ProviderSession:
         return await self._provider.open(request)
@@ -487,6 +495,7 @@ def legacy_substrate_from_service(
             service, network_enabled=network_enabled
         ),
         projection=StoreInteractionProjection(service),
+        harness_supervisor=driver,
         harness_driver=driver,
         execution_backend=backend,
         evaluation=evaluation,
