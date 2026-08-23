@@ -965,6 +965,15 @@ def _read_regular(path: Path) -> bytes | None:
 
 def file_identity(path: Path) -> str:
     """Return a stable, path-free identity for a real file or directory."""
+    return _path_identity(path, generation=False)
+
+
+def file_generation_identity(path: Path) -> str:
+    """Return a versioned identity that also detects object replacement."""
+    return _path_identity(path, generation=True)
+
+
+def _path_identity(path: Path, *, generation: bool) -> str:
     candidate = Path(path)
     if os.name == "nt":
         handle = _windows_open_existing(
@@ -976,7 +985,11 @@ def file_identity(path: Path) -> str:
         )
         assert handle is not None
         try:
-            return _windows_handle_identity(handle, require_directory=None)
+            return _windows_handle_identity(
+                handle,
+                require_directory=None,
+                generation=generation,
+            )
         finally:
             _windows_close_handle(handle)
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
@@ -985,7 +998,11 @@ def file_identity(path: Path) -> str:
     except OSError as exc:
         raise HostFileTransactionError("path_unavailable") from exc
     try:
-        return _descriptor_identity(descriptor, require_directory=None)
+        return _descriptor_identity(
+            descriptor,
+            require_directory=None,
+            generation=generation,
+        )
     finally:
         os.close(descriptor)
 
@@ -994,6 +1011,7 @@ def _descriptor_identity(
     descriptor: int,
     *,
     require_directory: bool | None,
+    generation: bool = False,
 ) -> str:
     if os.name == "nt":
         import msvcrt
@@ -1001,6 +1019,7 @@ def _descriptor_identity(
         return _windows_handle_identity(
             msvcrt.get_osfhandle(descriptor),
             require_directory=require_directory,
+            generation=generation,
         )
     try:
         metadata = os.fstat(descriptor)
@@ -1013,15 +1032,22 @@ def _descriptor_identity(
         and is_directory != require_directory
         or metadata.st_dev <= 0
         or metadata.st_ino <= 0
+        or generation
+        and metadata.st_ctime_ns <= 0
     ):
         raise HostFileTransactionError("path_unsafe")
+    if generation:
+        return f"g2-{metadata.st_dev:x}-{metadata.st_ino:x}-{metadata.st_ctime_ns:x}"
     return f"{metadata.st_dev:x}-{metadata.st_ino:x}"
 
 
 def _validate_expected_identity(value: str | None) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str) or re.fullmatch(r"[a-f0-9]+-[a-f0-9]+", value) is None:
+    if not isinstance(value, str) or re.fullmatch(
+        r"(?:[a-f0-9]+-[a-f0-9]+|g2-[a-f0-9]+-[a-f0-9]+-[a-f0-9]+)",
+        value,
+    ) is None:
         raise HostFileTransactionError("transaction_parameters_invalid")
     return value
 
@@ -1035,6 +1061,7 @@ def _guard_exact_regular_object(
     allow_delete_share: bool = False,
 ) -> Iterator[str]:
     identity = _validate_expected_identity(expected_identity)
+    generation = identity is not None and identity.startswith("g2-")
     if os.name == "nt":
         share = 0x00000001 | (0x00000004 if allow_delete_share else 0)
         handle = _windows_open_existing(
@@ -1048,6 +1075,7 @@ def _guard_exact_regular_object(
             current_identity = _windows_handle_identity(
                 handle,
                 require_directory=False,
+                generation=generation,
             )
             if (
                 identity is not None
@@ -1057,7 +1085,11 @@ def _guard_exact_regular_object(
                 raise HostFileTransactionError("transaction_conflict")
             yield current_identity
             if (
-                _windows_handle_identity(handle, require_directory=False)
+                _windows_handle_identity(
+                    handle,
+                    require_directory=False,
+                    generation=generation,
+                )
                 != current_identity
                 or _windows_read_all(handle) != expected
             ):
@@ -1074,6 +1106,7 @@ def _guard_exact_regular_object(
         current_identity = _descriptor_identity(
             descriptor,
             require_directory=False,
+            generation=generation,
         )
         if (
             identity is not None
@@ -1083,7 +1116,11 @@ def _guard_exact_regular_object(
             raise HostFileTransactionError("transaction_conflict")
         yield current_identity
         if (
-            _descriptor_identity(descriptor, require_directory=False)
+            _descriptor_identity(
+                descriptor,
+                require_directory=False,
+                generation=generation,
+            )
             != current_identity
             or _read_descriptor(descriptor) != expected
         ):
@@ -1436,6 +1473,7 @@ def _windows_handle_identity(
     handle: int,
     *,
     require_directory: bool | None,
+    generation: bool = False,
 ) -> str:
     from ctypes import wintypes
 
@@ -1464,14 +1502,21 @@ def _windows_handle_identity(
         raise HostFileTransactionError("path_unavailable")
     is_directory = bool(information.attributes & 0x00000010)
     file_index = (information.file_index_high << 32) | information.file_index_low
+    creation_ticks = (
+        information.creation_time.dwHighDateTime << 32
+    ) | information.creation_time.dwLowDateTime
     if (
         information.attributes & FILE_ATTRIBUTE_REPARSE_POINT
         or require_directory is not None
         and is_directory != require_directory
         or information.volume_serial == 0
         or file_index == 0
+        or generation
+        and creation_ticks == 0
     ):
         raise HostFileTransactionError("path_unsafe")
+    if generation:
+        return f"g2-{information.volume_serial:x}-{file_index:x}-{creation_ticks:x}"
     return f"{information.volume_serial:x}-{file_index:x}"
 
 

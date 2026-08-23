@@ -17,6 +17,7 @@ from server.coding_project_host.host_apply_engine import (
 from server.coding_project_host.host_file_transaction import (
     HostFileTransactionError,
     _move_verified_no_replace,
+    file_identity,
 )
 from server.coding_project_host.operation_log import HostOperationJournal
 from server.coding_runtime.draft_workspace import DraftWorkspace
@@ -1159,6 +1160,9 @@ def test_revert_without_transaction_evidence_rejects_same_content_replacement(
     )
     applied = engine.journal.get(receipt.apply_id)
     assert applied is not None
+    assert applied.file_identities[0].startswith("g2-")
+    legacy_identity = (f"{file_identity(root / 'marker.txt')}:marker.txt",)
+    engine._assert_file_identities(legacy_identity, receipt, applied=True)
     revert_id = "revert_v13_revert_identity_r6n3"
     engine.journal.create(
         operation_id=revert_id,
