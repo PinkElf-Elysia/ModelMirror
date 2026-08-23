@@ -34,6 +34,7 @@
 2. PR B：增加 legacy adapter、runtime composition、评测隔离和测试态影子对照。
 3. PR C：切换 Worker API、模块 SDK 与 v13 handoff，清空 PR A 冻结的跨边界例外。
 4. 收口证伪修复：恢复 handoff/preview/parity-export 的既有错误优先级，消除按异常类名耦合，补齐原生 steer seam、执行后端 fail-closed、AST 绕过反例与序列化影子断言。
+5. v13 写回加固：新 apply 使用含对象代际的 `g2` 文件身份，阻断“删除后以相同内容重建”冒充原文件；历史两段式身份继续可读、可回退，无数据迁移。
 
 每个逻辑代码提交最多五个文件。不拆分大型 `service.py`、`store.py` 或 `api.py`，不增加生产依赖。
 
@@ -49,10 +50,11 @@
 | 检查 | 命令或场景 | 预期 | 状态 |
 | --- | --- | --- | --- |
 | PR A 端口/门禁 | `python -m pytest server/tests/test_coding_worker_architecture.py -q` | 端口齐全，跨边界例外最终清零 | 通过；绝对、相对、动态导入绕过均有反例，评测模块不可导入时生产 API 仍可导入 |
-| 收口专项 | 四个 V19/API/host 测试文件 | 原错误语义、影子序列化、生命周期与 fail-closed 通过 | `60 passed` |
+| 收口专项 | V19 architecture/runtime/SDK/substrate/API/host API | 原错误语义、影子序列化、生命周期与 fail-closed 通过 | `72 passed` |
 | Worker 专项 | `python -m pytest server/tests -q -k coding_worker` | 通过 | `413 passed, 5 skipped` |
-| 后端全量 | `python -m pytest server/tests/ -q` | 无 V19 新增失败 | 收口候选复跑：`3917 passed, 29 skipped` |
-| 前端 | `npm.cmd --prefix client run test:run`、`npm.cmd --prefix client run build` | 公共契约无回归 | `97 files / 512 tests`，production build 通过 |
+| Project Host 专项 | apply/commit/undo/snapshot/Windows 模拟五个测试文件 | 新旧文件身份凭据兼容，替换冲突可检出 | `248 passed, 9 skipped` |
+| 后端全量 | `python -m pytest server/tests/ -q` | 无 V19 新增失败 | 最终候选：`3995 passed, 29 skipped` |
+| 前端 | `npm.cmd --prefix client run test:run`、`npm.cmd --prefix client run build` | 公共契约无回归 | `99 files / 533 tests`，production build 通过 |
 | Compose | `docker compose config -q` | 配置有效 | 通过 |
 | V18 | `python scripts/coding_worker_harness.py compile`、`smoke` | 任务包不变，Fake smoke 通过 | 通过；4 类 8 条记录，摘要 `472b88ae…60a1df3` |
 | 安全 | `git diff --check`、敏感信息与禁止产物扫描 | 无异常 | 通过 |
@@ -79,5 +81,6 @@
 - v13 handoff 只接收已完成、host snapshot、Acceptance 有效且 tree/hash 绑定的 `WritebackCandidate`。候选生成使用 rename-disabled Diff；v13 继续独占规范化、exact-head、apply/commit/undo/recovery。
 - V20 新增 ACP 或 Codex Harness 时只允许增加 Driver adapter 和部署 wiring；不得修改 `TaskSpec`、Tool Broker、Evidence、公共 API 或写回协议。
 - 收口审查先实际复现了 handoff 503 被误映射为 409、preview/parity 检查顺序漂移、AST 门禁可绕过和缺失 Executor 方法泄漏 `AttributeError`；以上均以失败反例修复，不把原有绿测当作正确性证明。
-- 收口时 `origin/main` 已前进到 `c0c7c89b`，相对共同基线有 70 个变更文件，与 V19 的 27 个变更文件交集仍为零；交付前已记录 divergence/range 交叉，未把无关工作流、MCP 或 Skill Hook 提交混入 V19。
+- 最终收口已同步 `origin/main=7e543d8c`（含 #255）。以同步前共同点 `c0c7c89b` 复核，主线 18 个变更文件与 V19 32 个变更文件仅交叉 `docs/ARCHITECTURE.md`、`docs/DEPLOYMENT.md`，均自动合并；产品代码无交叉，Provider Chat 内容仅随主线进入。
+- 全量证伪曾揭示 v13 只用 device/inode 识别文件，inode 复用时无法拒绝相同内容替换；最终候选改用向后兼容的 `g2` 代际身份，原失败用例和 Project Host 全专项均通过。
 - 本轮没有调用真实模型、运行 48/288 校准或认证，也不形成任何能力接近/等效结论。
