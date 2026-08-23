@@ -109,7 +109,7 @@ def test_each_profile_loads_only_its_registered_driver(
     environment = {flag: "true"}
     driver_class = load_driver_class(driver_id, environment=environment)
     assert driver_class.__name__ == class_name
-    assert driver_class.__module__ == module_name
+    assert driver_class.__module__.endswith(module_name.removeprefix("server"))
 
 
 def test_manifest_loading_is_exact_and_bounded(tmp_path: Path) -> None:

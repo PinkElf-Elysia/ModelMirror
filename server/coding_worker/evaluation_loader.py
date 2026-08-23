@@ -18,12 +18,12 @@ from .harness_protocol import HarnessBinding
 _DRIVER_CONFIG = {
     "acp_v1": (
         "CODING_WORKER_ACP_EVALUATION_ENABLED",
-        "server.coding_worker.acp_driver",
+        ".acp_driver",
         "AcpV1HarnessDriver",
     ),
     "codex_app_server": (
         "CODING_WORKER_CODEX_EVALUATION_ENABLED",
-        "server.coding_worker.codex_app_server_driver",
+        ".codex_app_server_driver",
         "CodexAppServerHarnessDriver",
     ),
 }
@@ -58,7 +58,7 @@ def load_driver_class(
     flag, module_name, class_name = config
     if not _enabled(environment.get(flag)):
         raise StandardEvaluationUnavailable("evaluation driver flag is disabled")
-    module = importlib.import_module(module_name)
+    module = importlib.import_module(module_name, package=__package__)
     driver_class = getattr(module, class_name, None)
     if not isinstance(driver_class, type):
         raise StandardEvaluationUnavailable("evaluation driver class is unavailable")
