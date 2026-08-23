@@ -106,3 +106,15 @@ PR C 最终自动证据：Coding Worker `463 passed, 5 skipped`；Agent Workspac
 证伪修复最终重放到包含 #269 的主线 `bdd1dcda`，range-diff 与原四个逻辑提交一致。后端全量在紧邻主线 `e6a59117` 为 `4219 passed, 29 skipped`；主线继续合入 #267/#268 后，覆盖 Coding Worker、Coding Runtime、Agent Workspace 与 Project Host 的回归为 `962 passed, 14 skipped`，#269 仅修改前端竞态。最终基线专项为 `52 passed`，前端完整套件为 `104 files / 572 tests`，production build 通过。两套 evaluation 镜像重新构建并确认 UID/GID `65532:65532`，ACP 与 Codex Schema 摘要分别为 `998c6427fa78bf6cd39f442bf164c6172234ebdf1c04298af57c40fa716ce267` 和 `02a4c63a638fdae4a5f6c3ad32a41a377b642c66f3abc84f6fc47c7f3d6074df`。主/评测 Compose 静态展开、V18 compile 与 Fake smoke 通过，Fake smoke 摘要仍为 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。
 
 结论仍为 Experimental：未调用真实模型、未运行四次真实任务、校准或认证；ACP/Codex evaluation profile 尚不可用，V20 最终交付结论仍不得使用。
+
+## 11. R2 中立 Driver 边界收口
+
+R2 不启用 ACP/Codex transport，也不调用真实模型。范围只覆盖生产 Harness 边界：
+
+- 新增供应商中立的 open request、session、event、capability 与 checkpoint 私有载体；公共 API、SSE、数据库和 runtime protocol 不变。
+- `LegacyHarnessDriver` 独占 Harness 与 Provider-v4 的双向转换，并在 V20 binding 存在时执行 session/turn/sequence 相关性校验；Service 不再导入 Provider-v4 或具体 translator。
+- `HarnessSupervisor` 与 `HarnessDriver` 改为必需的独立注入，测试和生产组装不再依赖“同一对象碰巧实现两个端口”。
+- 历史 checkpoint JSON 结构保持不变；V14–V19 任务继续通过兼容适配器恢复，不迁移、不重写。
+- Adapter 与 `ProviderSidecarClientPool` 均以 `task_id + private session_id` 绑定会话，防止两个隔离槽使用相同私有 ID 时发生覆盖或串路由。
+
+R2 的结论只允许表述为“中立 HarnessDriver 边界完成收口”。真实 OpenCode/Claude 任务、ACP/Codex 实时 transport、校准、认证和任何等效表述仍不属于本轮。

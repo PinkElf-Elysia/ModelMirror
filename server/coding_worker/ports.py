@@ -26,17 +26,14 @@ from .contracts import (
     WorkerTodo,
     WorkerTurnHistory,
 )
-from .provider import (
-    ProviderCapabilities,
-    ProviderCheckpoint,
-    ProviderEvent,
-    ProviderOpenRequest,
-    ProviderSession,
+from .harness_contracts import (
+    HarnessCapabilities,
+    HarnessCheckpoint,
+    HarnessEvent,
+    HarnessOpenRequest,
+    HarnessSession,
 )
-from .harness_protocol import HarnessDescriptorObservation
-
-
-HarnessCapabilities = ProviderCapabilities
+from .harness_protocol import HarnessBinding, HarnessDescriptorObservation
 
 
 class CodingSubstrateError(RuntimeError):
@@ -62,7 +59,7 @@ class WritebackCandidate(StrictModel):
 class HarnessCapabilityObservation(StrictModel):
     """Fail-closed health snapshot for one private harness binding."""
 
-    capabilities: ProviderCapabilities | None = None
+    capabilities: HarnessCapabilities | None = None
     binding_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     observed_at: float
     expires_at: float
@@ -100,11 +97,11 @@ class WorkspaceTreeProjection(StrictModel):
 class HarnessSupervisor(Protocol):
     """Private process, health, generation and attestation boundary."""
 
-    async def capabilities(self) -> ProviderCapabilities: ...
+    async def capabilities(self) -> HarnessCapabilities: ...
 
     async def capabilities_for_slots(
         self, slot_ids: Sequence[str]
-    ) -> Mapping[str, ProviderCapabilities | None]: ...
+    ) -> Mapping[str, HarnessCapabilities | None]: ...
 
     @property
     def controller_generation(self) -> int: ...
@@ -120,30 +117,35 @@ class HarnessSupervisor(Protocol):
 class HarnessDriver(Protocol):
     """Private session and turn boundary.
 
-    PR A retains Provider v4 request/session/checkpoint carriers for historical
-    tasks.  V20 references and envelopes fence new adapters before production
-    migration without changing the public Worker API.
+    Concrete Provider contracts are translated only by compatibility adapters.
+    The control plane never receives supplier frames or Provider-v4 carriers.
     """
 
-    async def open(self, request: ProviderOpenRequest) -> ProviderSession: ...
+    async def open(
+        self, request: HarnessOpenRequest, *, binding: HarnessBinding | None = None
+    ) -> HarnessSession: ...
 
     def message(
-        self, session: ProviderSession, text: str
-    ) -> AsyncIterator[ProviderEvent]: ...
+        self, session: HarnessSession, text: str, *, turn_id: str
+    ) -> AsyncIterator[HarnessEvent]: ...
 
-    async def steer(self, session: ProviderSession, text: str) -> bool: ...
+    async def steer(self, session: HarnessSession, text: str) -> bool: ...
 
-    async def cancel(self, session: ProviderSession) -> bool: ...
+    async def cancel(self, session: HarnessSession) -> bool: ...
 
-    async def interrupt_turn(self, session: ProviderSession) -> bool: ...
+    async def interrupt_turn(self, session: HarnessSession) -> bool: ...
 
-    async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint: ...
+    async def checkpoint(self, session: HarnessSession) -> HarnessCheckpoint: ...
 
     async def restore(
-        self, request: ProviderOpenRequest, checkpoint: ProviderCheckpoint
-    ) -> ProviderSession: ...
+        self,
+        request: HarnessOpenRequest,
+        checkpoint: HarnessCheckpoint,
+        *,
+        binding: HarnessBinding | None = None,
+    ) -> HarnessSession: ...
 
-    async def close(self, session: ProviderSession) -> None: ...
+    async def close(self, session: HarnessSession) -> None: ...
 
 
 @runtime_checkable
@@ -226,7 +228,7 @@ class TaskControlPlane(Protocol):
 
     async def refresh_harness_capabilities(self) -> None: ...
 
-    def cached_harness_capabilities(self) -> Sequence[ProviderCapabilities]: ...
+    def cached_harness_capabilities(self) -> Sequence[HarnessCapabilities]: ...
 
     async def harness_capability_observation(
         self, route_id: str

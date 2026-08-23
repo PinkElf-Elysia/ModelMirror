@@ -221,3 +221,19 @@ def test_scheduler_has_no_concrete_supplier_or_sidecar_imports() -> None:
         "server.coding_worker.executor",
     }
     assert _matches_forbidden(imports, forbidden) == []
+
+
+def test_control_plane_uses_only_neutral_harness_contracts() -> None:
+    forbidden = {
+        "server.coding_worker.provider",
+        "server.coding_worker.provider_rpc",
+        "server.coding_worker.harness_driver",
+        "server.coding_worker.opencode_provider",
+        "server.coding_worker.claude_provider",
+    }
+    for relative_path in (
+        "server/coding_worker/ports.py",
+        "server/coding_worker/service.py",
+        "server/coding_worker/harness_contracts.py",
+    ):
+        assert _matches_forbidden(_imports(relative_path), forbidden) == []

@@ -16,7 +16,11 @@ from fastapi.testclient import TestClient
 
 from server.coding_worker.api import configure_coding_worker_for_tests, router
 import server.coding_worker.api as worker_api
-from server.coding_worker.adapters import legacy_substrate_from_service
+from server.coding_worker.adapters import (
+    LegacyHarnessDriver,
+    LegacyHarnessSupervisor,
+    legacy_substrate_from_service,
+)
 from server.coding_worker.evaluation import LegacyEvaluationAdapter
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
@@ -81,13 +85,17 @@ def _client(
     selected_provider = provider or FakeCodingAgentProvider(
         block=asyncio.Event() if blocked else None
     )
+    supervisor = LegacyHarnessSupervisor(selected_provider)
     service = CodingWorkerService(
-        store=store, workspace_broker=broker, provider=selected_provider
+        store=store,
+        workspace_broker=broker,
+        provider=LegacyHarnessDriver(selected_provider),
+        harness_supervisor=supervisor,
     )
     evaluation = LegacyEvaluationAdapter(
         service,
-        attestation_reader=lambda: service.provider.harness_attestations(),
-        controller_generation=lambda: service.provider.controller_generation,
+        attestation_reader=supervisor.harness_attestations,
+        controller_generation=lambda: supervisor.controller_generation,
     )
     configure_coding_worker_for_tests(
         legacy_substrate_from_service(service, evaluation=evaluation),
@@ -686,8 +694,8 @@ def test_harness_attestation_is_flag_token_and_two_provider_bound(
 ) -> None:
     client, service = _client(tmp_path, blocked=True)
     token = "harness-controller-token-0123456789abcdef"
-    service.provider.controller_generation = 9
-    service.provider.harness_attestations = AsyncMock(
+    service.harness_supervisor._provider.controller_generation = 9
+    service.harness_supervisor._provider.harness_attestations = AsyncMock(
         return_value={
             "slot-a": {"route_id": "coding/default"},
             "slot-b": {"route_id": "coding/default"},
@@ -720,7 +728,7 @@ def test_harness_attestation_rejects_incomplete_provider_set(
     token = "harness-controller-token-0123456789abcdef"
     monkeypatch.setenv("CODING_WORKER_HARNESS_V3_ENABLED", "true")
     monkeypatch.setenv("CODING_WORKER_HARNESS_CONTROLLER_TOKEN", token)
-    service.provider.harness_attestations = AsyncMock(
+    service.harness_supervisor._provider.harness_attestations = AsyncMock(
         return_value={"slot-a": {"route_id": "coding/default"}}
     )
     with client:

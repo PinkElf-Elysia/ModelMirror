@@ -44,14 +44,14 @@ from .contracts import (
     SessionLedgerKind,
 )
 from .evidence import HarnessRunner
-from .provider import (
-    ProviderCapabilities,
-    ProviderCheckpoint,
-    ProviderEvent,
-    ProviderEventKind,
-    ProviderOpenRequest,
-    ProviderSession,
-    provider_tools_for_policy,
+from .harness_contracts import (
+    HarnessCapabilities,
+    HarnessCheckpoint,
+    HarnessEvent,
+    HarnessEventKind,
+    HarnessOpenRequest,
+    HarnessSession,
+    harness_tools_for_policy,
 )
 from .ports import HarnessDriver, HarnessSupervisor
 from .harness_protocol import (
@@ -60,7 +60,6 @@ from .harness_protocol import (
     HarnessPersistenceLevel,
     HarnessToolOwnership,
 )
-from .harness_driver import ProviderV4HarnessTranslator
 from .store import CodingWorkerStore, WorkerConflictError
 from .changeset import ChangesetError
 from .tool_broker import ToolBroker, ToolBrokerError
@@ -72,7 +71,7 @@ PROVIDER_CAPABILITY_TTL_SECONDS = 30.0
 
 @dataclass(frozen=True)
 class ProviderCapabilityObservation:
-    capabilities: ProviderCapabilities | None
+    capabilities: HarnessCapabilities | None
     binding_sha256: str
     observed_at: float
     expires_at: float
@@ -91,7 +90,7 @@ class CodingWorkerService:
         store: CodingWorkerStore,
         workspace_broker: WorkspaceBroker,
         provider: HarnessDriver,
-        harness_supervisor: HarnessSupervisor | None = None,
+        harness_supervisor: HarnessSupervisor,
         harness_runner: HarnessRunner | None = None,
         max_active_tasks: int = 2,
         tool_broker: ToolBroker | None = None,
@@ -103,9 +102,7 @@ class CodingWorkerService:
         self.store = store
         self.workspace_broker = workspace_broker
         self.provider = provider
-        # Test and historical in-process providers implement both legacy
-        # surfaces. Production wiring always injects distinct wrappers.
-        self.harness_supervisor = harness_supervisor or provider
+        self.harness_supervisor = harness_supervisor
         self.harness_runner = harness_runner
         self.max_active_tasks = max_active_tasks
         self.tool_broker = tool_broker
@@ -138,8 +135,7 @@ class CodingWorkerService:
 
         self._active: dict[str, asyncio.Task[None]] = {}
         self._task_slots: dict[str, str] = {}
-        self._sessions: dict[str, ProviderSession] = {}
-        self._v20_translators: dict[str, ProviderV4HarnessTranslator] = {}
+        self._sessions: dict[str, HarnessSession] = {}
         self._wake = asyncio.Event()
         self._scheduler: asyncio.Task[None] | None = None
         self._capability_refresher: asyncio.Task[None] | None = None
@@ -255,7 +251,6 @@ class CodingWorkerService:
         self._active.clear()
         self._task_slots.clear()
         self._sessions.clear()
-        self._v20_translators.clear()
         self._scheduler = None
         self._capability_refresher = None
         self._started = False
@@ -356,7 +351,7 @@ class CodingWorkerService:
         return existing
 
     @staticmethod
-    def _v17_route_ready(capabilities: ProviderCapabilities | None) -> bool:
+    def _v17_route_ready(capabilities: HarnessCapabilities | None) -> bool:
         if capabilities is None:
             return False
         required_tools = {
@@ -445,7 +440,7 @@ class CodingWorkerService:
             reason="route_unavailable",
         )
 
-    def cached_provider_capabilities(self) -> tuple[ProviderCapabilities, ...]:
+    def cached_provider_capabilities(self) -> tuple[HarnessCapabilities, ...]:
         """Return only live, explicitly reported route capabilities.
 
         This method deliberately does not perform I/O. HTTP handlers refresh the
@@ -1641,7 +1636,7 @@ class CodingWorkerService:
             or _intersect_provider_capabilities(
                 tuple(item for item in current_capabilities if item is not None)
             )
-            != ProviderCapabilities.model_validate(frozen_capabilities)
+            != HarnessCapabilities.model_validate(frozen_capabilities)
         ):
             raise WorkerConflictError(
                 "V20 Harness capability health changed.",
@@ -1786,7 +1781,7 @@ class CodingWorkerService:
             self._wake.set()
 
     async def _run_task(self, task_id: str, *, slot_id: str | None = None) -> None:
-        session: ProviderSession | None = None
+        session: HarnessSession | None = None
         try:
             task = self.store.get_task(task_id)
             if self._task_uses_v20(task_id) and not self._v20_enabled():
@@ -1829,7 +1824,7 @@ class CodingWorkerService:
                 raise WorkspaceError(
                     "Workspace slot binding changed.", code="workspace_slot_changed"
                 )
-            request = ProviderOpenRequest(
+            request = HarnessOpenRequest(
                 task_id=task_id,
                 workspace_id=workspace.workspace_id,
                 objective=task.spec.objective,
@@ -1842,7 +1837,7 @@ class CodingWorkerService:
                 repository_instructions=self.workspace_broker.repository_instructions(
                     workspace.workspace_id
                 ),
-                tool_allowlist=provider_tools_for_policy(task.spec.policy_profile),
+                tool_allowlist=harness_tools_for_policy(task.spec.policy_profile),
             )
             resume_phase: str | None = None
             resume_context: dict[str, object] | None = None
@@ -1862,7 +1857,9 @@ class CodingWorkerService:
                 resume_context = self._context_summary(
                     task_id, tree_hash=current_tree_hash, public_output=""
                 )
-                session = await self.provider.open(request)
+                session = await self.provider.open(
+                    request, binding=harness_binding
+                )
             elif checkpoint is not None:
                 current_tree_hash = self.workspace_broker.current_tree_hash(
                     workspace.workspace_id
@@ -1876,7 +1873,7 @@ class CodingWorkerService:
                     )
                     return
                 try:
-                    provider_checkpoint = ProviderCheckpoint.model_validate(
+                    provider_checkpoint = HarnessCheckpoint.model_validate(
                         checkpoint.payload["provider"]
                     )
                     resume_phase = str(checkpoint.payload["phase"])
@@ -1931,12 +1928,12 @@ class CodingWorkerService:
                     and current_turn.barrier is TurnBarrier.OPERATION_UNKNOWN
                 ):
                     resume_phase = "operation_unknown"
-                session = await self.provider.restore(request, provider_checkpoint)
+                session = await self.provider.restore(
+                    request, provider_checkpoint, binding=harness_binding
+                )
             else:
-                session = await self.provider.open(request)
-            if harness_binding is not None:
-                self._v20_translators[task_id] = ProviderV4HarnessTranslator(
-                    harness_binding, session
+                session = await self.provider.open(
+                    request, binding=harness_binding
                 )
             self._sessions[task_id] = session
             messages = self.store.list_messages(task_id)
@@ -2011,10 +2008,6 @@ class CodingWorkerService:
             if session is not None:
                 with contextlib.suppress(Exception):
                     await self.provider.close(session)
-            translator = self._v20_translators.pop(task_id, None)
-            if translator is not None:
-                with contextlib.suppress(Exception):
-                    translator.close()
 
     def _uncheckpointed_completed_turns(self, task_id: str) -> int:
         cursor = 0
@@ -2029,7 +2022,7 @@ class CodingWorkerService:
                 if (
                     event.type == "provider_event"
                     and event.payload.get("kind")
-                    == ProviderEventKind.TURN_COMPLETED.value
+                    == HarnessEventKind.TURN_COMPLETED.value
                 ):
                     completed_turns += 1
                     last_completed_sequence = event.sequence
@@ -2047,7 +2040,7 @@ class CodingWorkerService:
     async def _drive_session(
         self,
         task: TaskRecord,
-        session: ProviderSession,
+        session: HarnessSession,
         *,
         resume_phase: str | None,
         resume_context: dict[str, object] | None,
@@ -2093,7 +2086,7 @@ class CodingWorkerService:
     async def _drive_session_steps(
         self,
         task: TaskRecord,
-        session: ProviderSession,
+        session: HarnessSession,
         *,
         resume_phase: str | None,
         resume_context: dict[str, object] | None,
@@ -2213,9 +2206,6 @@ class CodingWorkerService:
                 if resuming_turn and current_turn is not None
                 else f"turn_{uuid.uuid4().hex}"
             )
-            translator = self._v20_translators.get(task_id)
-            if translator is not None:
-                translator.start_turn(turn_id)
             if (
                 resume_phase == "waiting_approval"
                 and resuming_turn
@@ -2341,7 +2331,9 @@ class CodingWorkerService:
             question_data: dict[str, object] | None = None
             compaction_failed = False
             try:
-                stream = self.provider.message(session, message).__aiter__()
+                stream = self.provider.message(
+                    session, message, turn_id=turn_id
+                ).__aiter__()
                 while True:
                     try:
                         event, parked_state = await self._next_provider_event_when_runnable(
@@ -2366,8 +2358,6 @@ class CodingWorkerService:
                             else "state_changed"
                         )
                         break
-                    if translator is not None:
-                        translator.accept(event, turn_id=turn_id)
                     self.store.append_event(
                         task_id,
                         "provider_event",
@@ -2391,14 +2381,14 @@ class CodingWorkerService:
                         outcome = "waiting_subtasks"
                         break
                     if (
-                        event.kind is ProviderEventKind.QUESTION
+                        event.kind is HarnessEventKind.QUESTION
                         and task.runtime_protocol is not RuntimeProtocol.V17
                     ):
                         outcome = "waiting_input"
                         question_data = event.data
                         break
                     if (
-                        event.kind is ProviderEventKind.COMPACTION
+                        event.kind is HarnessEventKind.COMPACTION
                         and task.runtime_protocol is not RuntimeProtocol.V17
                     ):
                         try:
@@ -2414,13 +2404,13 @@ class CodingWorkerService:
                             outcome = "interrupted"
                             compaction_failed = True
                             break
-                    if event.kind is ProviderEventKind.TURN_COMPLETED:
+                    if event.kind is HarnessEventKind.TURN_COMPLETED:
                         outcome = "completed"
                         break
-                    if event.kind is ProviderEventKind.CANCELLED:
+                    if event.kind is HarnessEventKind.CANCELLED:
                         outcome = "cancelled"
                         break
-                    if event.kind is ProviderEventKind.FAILED:
+                    if event.kind is HarnessEventKind.FAILED:
                         outcome = "failed"
                         break
             except BaseException:
@@ -2428,8 +2418,6 @@ class CodingWorkerService:
                     task_id, turn_id=turn_id, result_state="interrupted"
                 )
                 raise
-            if outcome != "completed" and translator is not None:
-                translator.interrupt_turn(turn_id=turn_id)
             if outcome == "turn_parking":
                 try:
                     await self._park_v17_turn(
@@ -2701,8 +2689,8 @@ class CodingWorkerService:
     async def _next_provider_event_when_runnable(
         self,
         task_id: str,
-        stream: AsyncIterator[ProviderEvent],
-    ) -> tuple[ProviderEvent | None, TaskState | None]:
+        stream: AsyncIterator[HarnessEvent],
+    ) -> tuple[HarnessEvent | None, TaskState | None]:
         """Abort one provider turn while an exact approval is unresolved."""
 
         while True:
@@ -2792,9 +2780,9 @@ class CodingWorkerService:
 
     @staticmethod
     async def _close_provider_stream(
-        stream: AsyncIterator[ProviderEvent],
+        stream: AsyncIterator[HarnessEvent],
         *,
-        pending: asyncio.Task[ProviderEvent] | None = None,
+        pending: asyncio.Task[HarnessEvent] | None = None,
     ) -> None:
         if pending is not None and not pending.done():
             pending.cancel()
@@ -2963,7 +2951,7 @@ class CodingWorkerService:
     async def _park_v17_turn(
         self,
         task: TaskRecord,
-        session: ProviderSession,
+        session: HarnessSession,
         *,
         turn_id: str,
         turns: int,
@@ -3097,15 +3085,15 @@ class CodingWorkerService:
         )
 
     def _record_provider_session_event(
-        self, task_id: str, turn_id: str, event: ProviderEvent
+        self, task_id: str, turn_id: str, event: HarnessEvent
     ) -> None:
         kind = event.kind
         data = event.data
         authoritative_provider_kinds = {
-            ProviderEventKind.PLAN,
-            ProviderEventKind.TODO,
-            ProviderEventKind.QUESTION,
-            ProviderEventKind.COMPACTION,
+            HarnessEventKind.PLAN,
+            HarnessEventKind.TODO,
+            HarnessEventKind.QUESTION,
+            HarnessEventKind.COMPACTION,
         }
         if (
             self.store.get_task(task_id).runtime_protocol is RuntimeProtocol.V17
@@ -3117,23 +3105,23 @@ class CodingWorkerService:
                 {"kind": kind.value, "turn_id": turn_id},
             )
             return
-        if kind is ProviderEventKind.MESSAGE:
+        if kind is HarnessEventKind.MESSAGE:
             self.store.append_message(task_id, role="assistant", content=str(data["text"]))
-        elif kind is ProviderEventKind.PLAN:
+        elif kind is HarnessEventKind.PLAN:
             self.store.append_session_ledger(
                 task_id,
                 kind=SessionLedgerKind.PLAN,
                 turn_id=turn_id,
                 payload=data,
             )
-        elif kind is ProviderEventKind.TODO:
+        elif kind is HarnessEventKind.TODO:
             self.store.append_session_ledger(
                 task_id,
                 kind=SessionLedgerKind.TODO,
                 turn_id=turn_id,
                 payload=data,
             )
-        elif kind is ProviderEventKind.TOOL_STARTED:
+        elif kind is HarnessEventKind.TOOL_STARTED:
             self.store.append_session_ledger(
                 task_id,
                 kind=SessionLedgerKind.TOOL_STARTED,
@@ -3145,7 +3133,7 @@ class CodingWorkerService:
                 },
             )
 
-        elif kind is ProviderEventKind.TOOL_COMPLETED:
+        elif kind is HarnessEventKind.TOOL_COMPLETED:
             self.store.append_session_ledger(
                 task_id,
                 kind=SessionLedgerKind.TOOL_FINISHED,
@@ -3158,7 +3146,7 @@ class CodingWorkerService:
                     "artifact_id": data["artifact_id"],
                 },
             )
-        elif kind is ProviderEventKind.QUESTION:
+        elif kind is HarnessEventKind.QUESTION:
             self.store.append_session_ledger(
                 task_id,
                 kind=SessionLedgerKind.QUESTION,
@@ -3167,11 +3155,11 @@ class CodingWorkerService:
             )
 
     def _should_auto_compact(
-        self, task: TaskRecord, event: ProviderEvent
+        self, task: TaskRecord, event: HarnessEvent
     ) -> bool:
         if (
             task.runtime_protocol is not RuntimeProtocol.V17
-            or event.kind is not ProviderEventKind.USAGE
+            or event.kind is not HarnessEventKind.USAGE
         ):
             return False
         context_tokens = self._route_context_tokens.get(task.spec.model_route)
@@ -3190,7 +3178,7 @@ class CodingWorkerService:
     async def _record_controlled_compaction(
         self,
         task: TaskRecord,
-        session: ProviderSession,
+        session: HarnessSession,
         *,
         turn_id: str,
         turns: int,
@@ -3249,8 +3237,8 @@ class CodingWorkerService:
 
     @staticmethod
     def _bind_provider_checkpoint_tree(
-        checkpoint: ProviderCheckpoint, *, task_id: str, tree_hash: str
-    ) -> ProviderCheckpoint:
+        checkpoint: HarnessCheckpoint, *, task_id: str, tree_hash: str
+    ) -> HarnessCheckpoint:
         compatibility = checkpoint.compatibility
         if compatibility is None:
             return checkpoint
@@ -3742,14 +3730,14 @@ class CodingWorkerService:
 
 
 def _intersect_provider_capabilities(
-    values: tuple[ProviderCapabilities, ...],
-) -> ProviderCapabilities | None:
+    values: tuple[HarnessCapabilities, ...],
+) -> HarnessCapabilities | None:
     if not values or len({item.contract_version for item in values}) != 1:
         return None
     tool_names = set(values[0].tool_names)
     for item in values[1:]:
         tool_names.intersection_update(item.tool_names)
-    return ProviderCapabilities(
+    return HarnessCapabilities(
         contract_version=values[0].contract_version,
         supports_streaming=all(item.supports_streaming for item in values),
         supports_cancel=all(item.supports_cancel for item in values),

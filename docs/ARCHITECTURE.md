@@ -491,6 +491,8 @@ V19 将 Coding Worker 冻结为模镜的代码与执行能力底座。模块与 
 
 V20 将 Harness 的进程监督与会话生命周期拆为两个独立端口。`HarnessSupervisor` 独占 sidecar 健康、槽位 generation、协议和实现版本、Schema digest、route availability 与安全 attestation；`HarnessDriver` 只承接 session/turn 的 open、message、steer、interrupt、checkpoint、restore 与 close。两者由 `runtime.py` 分别注入 `CodingSubstrateHandle`，不得通过 session Driver 反向探测 Supervisor 状态。
 
+V20-R2 进一步把生产控制面与 Provider-v4 私有载体隔开。`CodingWorkerService` 和 `ports.py` 只消费 `HarnessOpenRequest`、`HarnessSession`、`HarnessEvent`、`HarnessCheckpoint` 与 `HarnessCapabilities`；Provider-v4 的 request/session/event/checkpoint 仅能在 `LegacyHarnessDriver` 内双向转换。V20 turn 相关性也由该 Driver 内部完成，Service 不再构造具体 translator。历史 checkpoint 的 JSON 字段保持原样，因此无需数据迁移；原始 session ID 在适配器和 sidecar pool 中都必须与 task ID 组成复合键，禁止跨槽覆盖。
+
 私有 `HarnessSessionRef`、`HarnessTurnRef` 与 `HarnessRequestRef` 将 task、route、slot、binding hash、driver generation 和协议描述符绑定到每次交互。规范化 `HarnessEventEnvelope` 使用每 generation 单调 sequence 和去重 ID；错误 generation、跨任务引用、迟到事件、重复请求结算或错误 turn 均失败关闭。供应商原始帧不能直接改变任务状态，只能映射为类型化 Harness request，再由 Control Plane 与 Tool Broker 权威结算。
 
 生产准入同时要求 capability 的 supported/available/maturity、健康窗口、Schema digest、persistence level 与 `HarnessToolOwnership=broker_only` 一致。OpenCode/Claude 的历史 Provider-v4 checkpoint 保持兼容；ACP/Codex adapter 与其 Schema 只允许由 `EvaluationAdapter` 在显式 profile 中延迟加载。公共 API、数据库、runtime protocol、Evidence 与 v13 写回协议不因 V20 改变。

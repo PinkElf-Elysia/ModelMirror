@@ -15,6 +15,7 @@ from server.coding_worker.provider import (
     ProviderEvent,
     ProviderEventKind,
     ProviderOpenRequest,
+    ProviderSession,
 )
 from server.coding_worker.provider_rpc import (
     ProviderRPCError,
@@ -84,6 +85,17 @@ class _NoShellProvider(FakeCodingAgentProvider):
                 )
             }
         )
+
+
+class _ConstantSessionProvider(FakeCodingAgentProvider):
+    async def open(self, request: ProviderOpenRequest) -> ProviderSession:
+        session = ProviderSession(
+            session_id="shared-session",
+            task_id=request.task_id,
+            provider_capabilities=await self.capabilities(),
+        )
+        self._requests[session.session_id] = request
+        return session
 
 
 def _harness_descriptor() -> HarnessDescriptor:
@@ -257,6 +269,54 @@ async def test_provider_sidecar_pool_streams_neutral_events_and_revokes_broker_t
     await pool.close(session)
     assert task_id not in broker_rpc._tokens
     await server.close()
+    await broker_rpc.close()
+
+
+@pytest.mark.asyncio
+async def test_provider_pool_scopes_equal_private_session_ids_by_task(
+    tmp_path: Path,
+) -> None:
+    store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
+    workspace = WorkspaceBroker(tmp_path / "workspace", {}, id_key=b"k" * 32)
+    broker_rpc = BrokerRPCServer(ToolBroker(store=store, workspace_broker=workspace))
+    await broker_rpc.start_tcp_for_tests()
+    first = ProviderRPCServer(_ConstantSessionProvider(), token="a" * 48)
+    second = ProviderRPCServer(_ConstantSessionProvider(), token="b" * 48)
+    endpoints = {
+        "slot-a": await first.start_tcp_for_tests(),
+        "slot-b": await second.start_tcp_for_tests(),
+    }
+    pool = ProviderSidecarClientPool(
+        endpoints=endpoints,
+        tokens={"slot-a": "a" * 48, "slot-b": "b" * 48},
+        workspace_slot_resolver=lambda workspace_id: (
+            "slot-a" if workspace_id == "workspace-a" else "slot-b"
+        ),
+        broker_rpc=broker_rpc,
+    )
+    from server.tests.test_coding_worker_service import _request as task_request
+    from server.coding_worker.contracts import Origin, TaskSpec
+
+    task_ids = [
+        store.create_task(
+            TaskSpec(
+                **task_request(f"session-scope-{index}").model_dump(),
+                origin=Origin(module="test", object_id=f"session-scope-{index}"),
+            )
+        ).task_id
+        for index in range(2)
+    ]
+    first_session = await pool.open(_request(task_ids[0], "workspace-a"))
+    second_session = await pool.open(_request(task_ids[1], "workspace-b"))
+
+    assert first_session.session_id == second_session.session_id
+    assert (await pool.checkpoint(first_session)).compatibility.task_id == task_ids[0]
+    assert (await pool.checkpoint(second_session)).compatibility.task_id == task_ids[1]
+
+    await pool.close(first_session)
+    await pool.close(second_session)
+    await first.close()
+    await second.close()
     await broker_rpc.close()
 
 

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from cryptography.fernet import Fernet
 
+from server.coding_worker.adapters import LegacyHarnessDriver, LegacyHarnessSupervisor
 from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
@@ -35,6 +36,7 @@ from server.coding_worker.harness_protocol import (
     HarnessPersistenceLevel,
     HarnessToolOwnership,
 )
+from server.coding_worker.harness_contracts import HarnessOpenRequest
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
     ProviderCapabilities,
@@ -152,7 +154,8 @@ def _service(
     return CodingWorkerService(
         store=store,
         workspace_broker=broker,
-        provider=provider,
+        provider=LegacyHarnessDriver(provider),
+        harness_supervisor=LegacyHarnessSupervisor(provider),
         route_context_tokens=route_context_tokens,
     )
 
@@ -545,7 +548,8 @@ def _service_with_harness(
         CodingWorkerService(
             store=store,
             workspace_broker=workspace,
-            provider=provider,
+            provider=LegacyHarnessDriver(provider),
+            harness_supervisor=LegacyHarnessSupervisor(provider),
             harness_runner=harness,
             tool_broker=broker,
         ),
@@ -1634,7 +1638,8 @@ async def test_compaction_checkpoint_restores_without_replaying_old_turn(
     restored_service = CodingWorkerService(
         store=service.store,
         workspace_broker=service.workspace_broker,
-        provider=restored_provider,
+        provider=LegacyHarnessDriver(restored_provider),
+        harness_supervisor=LegacyHarnessSupervisor(restored_provider),
     )
     await restored_service.resume(task.task_id)
     terminal = await restored_service.wait_for(
@@ -1712,7 +1717,8 @@ async def test_dedicated_slots_queue_third_task_and_resume_on_original_slot(
     service = CodingWorkerService(
         store=store,
         workspace_broker=broker,
-        provider=provider,
+        provider=LegacyHarnessDriver(provider),
+        harness_supervisor=LegacyHarnessSupervisor(provider),
         max_active_tasks=2,
     )
     origin = Origin(module="test", object_id="dedicated-slots")
@@ -1762,10 +1768,12 @@ async def test_route_catalog_pins_tasks_to_provider_slots(tmp_path: Path) -> Non
             "slot-b": tmp_path / "slot-b",
         },
     )
+    provider = FakeCodingAgentProvider(block=blocker)
     service = CodingWorkerService(
         store=store,
         workspace_broker=broker,
-        provider=FakeCodingAgentProvider(block=blocker),
+        provider=LegacyHarnessDriver(provider),
+        harness_supervisor=LegacyHarnessSupervisor(provider),
         max_active_tasks=2,
         route_slots={
             "coding/default": ("slot-a",),
@@ -1928,15 +1936,21 @@ async def test_active_time_budget_survives_restart_and_excludes_waiting(
     service = CodingWorkerService(
         store=restarted,
         workspace_broker=workspace,
-        provider=provider,
+        provider=LegacyHarnessDriver(provider),
+        harness_supervisor=LegacyHarnessSupervisor(provider),
     )
     restarted.transition(task.task_id, TaskState.QUEUED)
     restarted.transition(task.task_id, TaskState.PREPARING)
     running = restarted.transition(task.task_id, TaskState.RUNNING)
-    session = ProviderSession(
-        session_id="active-time-budget-session",
-        task_id=task.task_id,
-        provider_capabilities=await provider.capabilities(),
+    session = await service.provider.open(
+        HarnessOpenRequest(
+            task_id=task.task_id,
+            workspace_id="active-time-budget-workspace",
+            objective=task.spec.objective,
+            model_route=task.spec.model_route,
+            policy_profile=task.spec.policy_profile,
+            budget=task.spec.budget,
+        )
     )
     with pytest.raises(TimeoutError):
         await asyncio.wait_for(
