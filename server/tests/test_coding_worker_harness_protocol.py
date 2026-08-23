@@ -55,13 +55,14 @@ def _session(
     generation: int = 1,
     task_id: str = "task_fixture",
     session_id: str = "session_fixture",
+    binding_sha256: str = "b" * 64,
 ) -> HarnessSessionRef:
     return HarnessSessionRef(
         binding=HarnessBinding(
             task_id=task_id,
             route_id="coding/default",
             slot_id="slot_a",
-            binding_sha256="b" * 64,
+            binding_sha256=binding_sha256,
             driver_generation=generation,
             descriptor=descriptor,
         ),
@@ -254,6 +255,57 @@ def test_kernel_settles_each_request_exactly_once() -> None:
                 turn=turn,
                 request=request,
                 kind=HarnessEventKind.REQUEST,
+            )
+        )
+
+
+def test_event_and_request_deduplication_is_scoped_to_the_exact_binding() -> None:
+    descriptor = _descriptor()
+    first_session = _session(
+        descriptor,
+        task_id="task_first",
+        binding_sha256="b" * 64,
+    )
+    second_session = _session(
+        descriptor,
+        task_id="task_second",
+        binding_sha256="c" * 64,
+    )
+    first_turn = HarnessTurnRef(session=first_session, turn_id="turn_shared")
+    second_turn = HarnessTurnRef(session=second_session, turn_id="turn_shared")
+    first_request = HarnessRequestRef(
+        turn=first_turn,
+        request_id="request_shared",
+        kind=HarnessRequestKind.APPROVAL,
+    )
+    second_request = HarnessRequestRef(
+        turn=second_turn,
+        request_id="request_shared",
+        kind=HarnessRequestKind.APPROVAL,
+    )
+    kernel = HarnessLifecycleKernel()
+    kernel.initialize(descriptor)
+
+    for session, turn, request in (
+        (first_session, first_turn, first_request),
+        (second_session, second_turn, second_request),
+    ):
+        kernel.open_session(session)
+        kernel.start_turn(turn)
+        kernel.accept_event(
+            HarnessEventEnvelope(
+                event_id="event_shared",
+                sequence=1,
+                session=session,
+                turn=turn,
+                request=request,
+                kind=HarnessEventKind.REQUEST,
+            )
+        )
+        kernel.resolve_request(
+            HarnessResponse(
+                ref=request,
+                outcome=HarnessResponseOutcome.APPROVED,
             )
         )
 

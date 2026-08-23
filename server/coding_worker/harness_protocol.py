@@ -202,9 +202,9 @@ class HarnessLifecycleKernel:
         self._sessions: dict[tuple[str, str], HarnessSessionRef] = {}
         self._turns: dict[tuple[str, str], HarnessTurnRef] = {}
         self._sequences: dict[tuple[str, str, int], int] = {}
-        self._event_ids: set[str] = set()
-        self._pending_requests: dict[str, HarnessRequestRef] = {}
-        self._resolved_requests: set[str] = set()
+        self._event_ids: set[tuple[object, ...]] = set()
+        self._pending_requests: dict[tuple[object, ...], HarnessRequestRef] = {}
+        self._resolved_requests: set[tuple[object, ...]] = set()
 
     def initialize(self, descriptor: HarnessDescriptor) -> None:
         if self._descriptor is not None:
@@ -237,31 +237,33 @@ class HarnessLifecycleKernel:
         expected = self._sequences.get(sequence_key, 0) + 1
         if event.sequence != expected:
             raise HarnessProtocolError("harness event sequence is not contiguous")
-        if event.event_id in self._event_ids:
+        event_key = self._event_key(event)
+        if event_key in self._event_ids:
             raise HarnessProtocolError("harness event was replayed")
         if event.turn is not None:
             self._require_turn(event.turn)
         if event.request is not None:
+            request_key = self._request_key(event.request)
             if (
-                event.request.request_id in self._pending_requests
-                or event.request.request_id in self._resolved_requests
+                request_key in self._pending_requests
+                or request_key in self._resolved_requests
             ):
                 raise HarnessProtocolError("harness request id was replayed")
-            self._pending_requests[event.request.request_id] = event.request
+            self._pending_requests[request_key] = event.request
         self._sequences[sequence_key] = event.sequence
-        self._event_ids.add(event.event_id)
+        self._event_ids.add(event_key)
         if event.kind is HarnessEventKind.TURN_COMPLETED:
             assert event.turn is not None
             self._turns.pop(self._session_key(event.turn.session), None)
 
     def resolve_request(self, response: HarnessResponse) -> None:
-        request_id = response.ref.request_id
-        pending = self._pending_requests.get(request_id)
+        request_key = self._request_key(response.ref)
+        pending = self._pending_requests.get(request_key)
         if pending is None or pending != response.ref:
             raise HarnessProtocolError("harness request is not pending for this turn")
         self._require_turn(response.ref.turn)
-        self._pending_requests.pop(request_id)
-        self._resolved_requests.add(request_id)
+        self._pending_requests.pop(request_key)
+        self._resolved_requests.add(request_key)
 
     def steer(self, turn: HarnessTurnRef) -> None:
         self._require_turn(turn)
@@ -314,3 +316,28 @@ class HarnessLifecycleKernel:
     @staticmethod
     def _session_key(session: HarnessSessionRef) -> tuple[str, str]:
         return session.binding.task_id, session.session_id
+
+    @staticmethod
+    def _correlation_key(session: HarnessSessionRef) -> tuple[object, ...]:
+        binding = session.binding
+        return (
+            binding.task_id,
+            binding.route_id,
+            binding.slot_id,
+            binding.binding_sha256,
+            binding.driver_generation,
+            session.session_id,
+        )
+
+    @classmethod
+    def _event_key(cls, event: HarnessEventEnvelope) -> tuple[object, ...]:
+        return (*cls._correlation_key(event.session), event.event_id)
+
+    @classmethod
+    def _request_key(cls, request: HarnessRequestRef) -> tuple[object, ...]:
+        return (
+            *cls._correlation_key(request.turn.session),
+            request.turn.turn_id,
+            request.kind.value,
+            request.request_id,
+        )
