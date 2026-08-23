@@ -15,6 +15,13 @@ from server.coding_worker.adapters import (
     StoreInteractionProjection,
 )
 from server.coding_worker.ports import CodingSubstrateError
+from server.coding_worker.harness_contracts import (
+    HarnessCheckpoint,
+    HarnessEvent,
+    HarnessEventKind,
+    HarnessOpenRequest,
+    HarnessSession,
+)
 from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
@@ -23,7 +30,12 @@ from server.coding_worker.contracts import (
     TaskState,
     WorkspaceSource,
 )
-from server.coding_worker.provider import FakeCodingAgentProvider, ProviderSession
+from server.coding_worker.provider import (
+    FakeCodingAgentProvider,
+    ProviderCheckpoint,
+    ProviderOpenRequest,
+    ProviderSession,
+)
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.store import CodingWorkerStore, WorkerConflictError
 from server.coding_worker.workspace import (
@@ -69,13 +81,92 @@ async def test_legacy_execution_backend_fails_closed_when_capability_is_absent()
 async def test_legacy_harness_driver_does_not_claim_native_steering() -> None:
     provider = FakeCodingAgentProvider()
     driver = LegacyHarnessDriver(provider)
-    session = ProviderSession(
-        session_id="fake_session",
-        task_id="task",
-        provider_capabilities=await provider.capabilities(),
+    session = await driver.open(
+        HarnessOpenRequest(
+            task_id="task-steering",
+            workspace_id="workspace-steering",
+            objective="Inspect steering support.",
+            model_route="coding/default",
+            policy_profile="inspect",
+            budget={},
+        )
     )
 
     assert await driver.steer(session, "change direction") is False
+    await driver.close(session)
+
+
+class _SharedSessionIdProvider(FakeCodingAgentProvider):
+    async def open(self, request: ProviderOpenRequest) -> ProviderSession:
+        return ProviderSession(
+            session_id="shared-session",
+            task_id=request.task_id,
+            provider_capabilities=await self.capabilities(),
+        )
+
+    async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint:
+        return ProviderCheckpoint(
+            checkpoint_id=f"checkpoint_{session.task_id}",
+            payload={"task_id": session.task_id},
+        )
+
+
+@pytest.mark.asyncio
+async def test_legacy_harness_driver_scopes_equal_session_ids_by_task() -> None:
+    driver = LegacyHarnessDriver(_SharedSessionIdProvider())
+
+    async def open_task(task_id: str) -> HarnessSession:
+        return await driver.open(
+            HarnessOpenRequest(
+                task_id=task_id,
+                workspace_id=f"workspace-{task_id}",
+                objective="Inspect composite session binding.",
+                model_route="coding/default",
+                policy_profile="inspect",
+                budget={},
+            )
+        )
+
+    first = await open_task("taska")
+    second = await open_task("taskb")
+
+    assert first.session_id == second.session_id
+    assert (await driver.checkpoint(first)).payload["task_id"] == "taska"
+    assert (await driver.checkpoint(second)).payload["task_id"] == "taskb"
+    await driver.close(first)
+    await driver.close(second)
+
+
+@pytest.mark.asyncio
+async def test_legacy_harness_driver_translates_private_carriers_at_adapter() -> None:
+    provider = FakeCodingAgentProvider()
+    driver = LegacyHarnessDriver(provider)
+    request = HarnessOpenRequest(
+        task_id="task-neutral",
+        workspace_id="workspace-neutral",
+        objective="Inspect the neutral boundary.",
+        model_route="coding/default",
+        policy_profile="inspect",
+        budget={},
+    )
+
+    session = await driver.open(request)
+    events = [
+        event
+        async for event in driver.message(
+            session, "continue", turn_id="turn-neutral"
+        )
+    ]
+    checkpoint = await driver.checkpoint(session)
+
+    assert type(session) is HarnessSession
+    assert all(type(event) is HarnessEvent for event in events)
+    assert events[-1].kind is HarnessEventKind.TURN_COMPLETED
+    assert type(checkpoint) is HarnessCheckpoint
+    assert ProviderCheckpoint.model_validate(
+        checkpoint.model_dump(mode="json")
+    ).model_dump(mode="json") == checkpoint.model_dump(mode="json")
+    await driver.close(session)
 
 
 @pytest.mark.asyncio

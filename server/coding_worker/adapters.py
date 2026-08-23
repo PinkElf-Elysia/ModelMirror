@@ -34,12 +34,19 @@ from .ports import (
     TaskCapabilitySnapshot,
     WorkspaceTreeProjection,
 )
-from .harness_protocol import HarnessDescriptorObservation
+from .harness_contracts import (
+    HarnessCapabilities,
+    HarnessCheckpoint,
+    HarnessEvent,
+    HarnessOpenRequest,
+    HarnessSession,
+)
+from .harness_driver import ProviderV4HarnessTranslator
+from .harness_protocol import HarnessBinding, HarnessDescriptorObservation
 from .provider import (
     CodingAgentProvider,
     ProviderCapabilities,
     ProviderCheckpoint,
-    ProviderEvent,
     ProviderOpenRequest,
     ProviderSession,
 )
@@ -78,13 +85,22 @@ class LegacyHarnessSupervisor:
         value = self._provider.controller_generation
         return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
-    async def capabilities(self) -> ProviderCapabilities:
-        return await self._provider.capabilities()
+    async def capabilities(self) -> HarnessCapabilities:
+        value = await self._provider.capabilities()
+        return HarnessCapabilities.model_validate(value.model_dump(mode="json"))
 
     async def capabilities_for_slots(
         self, slot_ids: Sequence[str]
-    ) -> Mapping[str, ProviderCapabilities | None]:
-        return await self._provider.capabilities_for_slots(slot_ids)
+    ) -> Mapping[str, HarnessCapabilities | None]:
+        values = await self._provider.capabilities_for_slots(slot_ids)
+        return {
+            slot_id: (
+                HarnessCapabilities.model_validate(value.model_dump(mode="json"))
+                if value is not None
+                else None
+            )
+            for slot_id, value in values.items()
+        }
 
     async def harness_attestations(self) -> dict[str, dict[str, Any]]:
         return await self._provider.harness_attestations()
@@ -100,36 +116,141 @@ class LegacyHarnessDriver:
 
     def __init__(self, provider: LegacyProviderBinding) -> None:
         self._provider = provider
+        self._sessions: dict[tuple[str, str], ProviderSession] = {}
+        self._translators: dict[
+            tuple[str, str], ProviderV4HarnessTranslator
+        ] = {}
+        self._active_turns: dict[tuple[str, str], str] = {}
 
-    async def open(self, request: ProviderOpenRequest) -> ProviderSession:
-        return await self._provider.open(request)
+    @staticmethod
+    def _session_key(session: HarnessSession | ProviderSession) -> tuple[str, str]:
+        return session.task_id, session.session_id
+
+    @staticmethod
+    def _provider_request(request: HarnessOpenRequest) -> ProviderOpenRequest:
+        return ProviderOpenRequest.model_validate(request.model_dump(mode="json"))
+
+    @staticmethod
+    def _provider_checkpoint(checkpoint: HarnessCheckpoint) -> ProviderCheckpoint:
+        return ProviderCheckpoint.model_validate(checkpoint.model_dump(mode="json"))
+
+    @staticmethod
+    def _harness_session(session: ProviderSession) -> HarnessSession:
+        return HarnessSession(
+            session_id=session.session_id,
+            task_id=session.task_id,
+            capabilities=HarnessCapabilities.model_validate(
+                session.provider_capabilities.model_dump(mode="json")
+            ),
+        )
+
+    def _require_provider_session(self, session: HarnessSession) -> ProviderSession:
+        provider_session = self._sessions.get(self._session_key(session))
+        if provider_session is None or provider_session.task_id != session.task_id:
+            raise CodingSubstrateError(
+                "Harness session is unavailable.",
+                code="harness_session_unavailable",
+                status=409,
+            )
+        return provider_session
+
+    def _bind(
+        self,
+        session: ProviderSession,
+        binding: HarnessBinding | None,
+    ) -> None:
+        key = self._session_key(session)
+        self._sessions[key] = session
+        if binding is not None:
+            self._translators[key] = ProviderV4HarnessTranslator(
+                binding, session
+            )
+
+    async def open(
+        self,
+        request: HarnessOpenRequest,
+        *,
+        binding: HarnessBinding | None = None,
+    ) -> HarnessSession:
+        session = await self._provider.open(self._provider_request(request))
+        self._bind(session, binding)
+        return self._harness_session(session)
 
     def message(
-        self, session: ProviderSession, text: str
-    ) -> AsyncIterator[ProviderEvent]:
-        return self._provider.message(session, text)
+        self,
+        session: HarnessSession,
+        text: str,
+        *,
+        turn_id: str,
+    ) -> AsyncIterator[HarnessEvent]:
+        provider_session = self._require_provider_session(session)
+        key = self._session_key(session)
+        translator = self._translators.get(key)
 
-    async def steer(self, session: ProviderSession, text: str) -> bool:
+        async def stream() -> AsyncIterator[HarnessEvent]:
+            if translator is not None:
+                translator.start_turn(turn_id)
+                self._active_turns[key] = turn_id
+            try:
+                async for event in self._provider.message(provider_session, text):
+                    if translator is not None:
+                        translator.accept(event, turn_id=turn_id)
+                    yield HarnessEvent.model_validate(event.model_dump(mode="json"))
+            finally:
+                active_turn = self._active_turns.pop(key, None)
+                if translator is not None and active_turn is not None:
+                    translator.interrupt_turn(turn_id=active_turn)
+
+        return stream()
+
+    async def steer(self, session: HarnessSession, text: str) -> bool:
         # Provider v4 queues steering through the control plane at a durable
         # tool boundary; it has no independent in-flight steer primitive.
         return False
 
-    async def cancel(self, session: ProviderSession) -> bool:
-        return await self._provider.cancel(session)
+    async def cancel(self, session: HarnessSession) -> bool:
+        return await self._provider.cancel(self._require_provider_session(session))
 
-    async def interrupt_turn(self, session: ProviderSession) -> bool:
-        return await self._provider.interrupt_turn(session)
+    async def interrupt_turn(self, session: HarnessSession) -> bool:
+        provider_session = self._require_provider_session(session)
+        interrupted = await self._provider.interrupt_turn(provider_session)
+        key = self._session_key(session)
+        active_turn = self._active_turns.pop(key, None)
+        translator = self._translators.get(key)
+        if translator is not None and active_turn is not None:
+            translator.interrupt_turn(turn_id=active_turn)
+        return interrupted
 
-    async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint:
-        return await self._provider.checkpoint(session)
+    async def checkpoint(self, session: HarnessSession) -> HarnessCheckpoint:
+        checkpoint = await self._provider.checkpoint(
+            self._require_provider_session(session)
+        )
+        return HarnessCheckpoint.model_validate(checkpoint.model_dump(mode="json"))
 
     async def restore(
-        self, request: ProviderOpenRequest, checkpoint: ProviderCheckpoint
-    ) -> ProviderSession:
-        return await self._provider.restore(request, checkpoint)
+        self,
+        request: HarnessOpenRequest,
+        checkpoint: HarnessCheckpoint,
+        *,
+        binding: HarnessBinding | None = None,
+    ) -> HarnessSession:
+        session = await self._provider.restore(
+            self._provider_request(request), self._provider_checkpoint(checkpoint)
+        )
+        self._bind(session, binding)
+        return self._harness_session(session)
 
-    async def close(self, session: ProviderSession) -> None:
-        await self._provider.close(session)
+    async def close(self, session: HarnessSession) -> None:
+        provider_session = self._require_provider_session(session)
+        try:
+            await self._provider.close(provider_session)
+        finally:
+            key = self._session_key(session)
+            self._active_turns.pop(key, None)
+            translator = self._translators.pop(key, None)
+            if translator is not None:
+                translator.close()
+            self._sessions.pop(key, None)
 
 
 class LegacyExecutionBackend:
@@ -323,7 +444,7 @@ class LegacyTaskControlPlane:
     async def refresh_harness_capabilities(self) -> None:
         await self._service.refresh_provider_capabilities()
 
-    def cached_harness_capabilities(self) -> Sequence[ProviderCapabilities]:
+    def cached_harness_capabilities(self) -> Sequence[HarnessCapabilities]:
         return self._service.cached_provider_capabilities()
 
     async def harness_capability_observation(
