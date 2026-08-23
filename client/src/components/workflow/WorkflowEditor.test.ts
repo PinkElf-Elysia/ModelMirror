@@ -4,7 +4,9 @@ import {
   createNodeData,
   normalizeWorkflowNodePositions,
   parseSkillRuntimeIds,
+  reconcileMcpArgumentBindings,
   updateSkillRuntimeIds,
+  workflowTypesForMcpSchema,
 } from "./WorkflowEditor";
 import {
   knowledgePipelineItems,
@@ -252,6 +254,78 @@ describe("WorkflowEditor palette defaults", () => {
       categoriesV2: [
         expect.objectContaining({ id: "category_1" }),
         expect.objectContaining({ id: "category_2" }),
+      ],
+    });
+  });
+
+  it("provides R2.0 V2 defaults without persisting MCP session identity", () => {
+    expect(createNodeData("variable_assign")).toMatchObject({
+      contractVersion: 2,
+      outputVariable: "assigned_value",
+      valueSource: "template",
+      template: "收到：{{user_input}}",
+    });
+    expect(createNodeData("human_intervention")).toMatchObject({
+      contractVersion: 2,
+      interactionMode: "input",
+      outputVariable: "human_input",
+      timeoutSeconds: 3600,
+    });
+    const mcp = createNodeData("mcp_tool");
+    expect(mcp).toMatchObject({
+      contractVersion: 2,
+      serverId: "",
+      toolName: "",
+      inputSchemaChecksum: "",
+      argumentMode: "fields",
+      argumentBindings: [],
+      outputVariable: "mcp_output",
+    });
+    expect(mcp).not.toHaveProperty("sessionId");
+    expect(mcp).not.toHaveProperty("argumentsJson");
+  });
+
+  it("maps MCP JSON Schema field types to workflow variable types", () => {
+    expect(workflowTypesForMcpSchema({ type: "string" })).toEqual(["text"]);
+    expect(workflowTypesForMcpSchema({ type: "integer" })).toEqual(["number"]);
+    expect(workflowTypesForMcpSchema({ type: "array" })).toEqual(["json"]);
+    expect(
+      workflowTypesForMcpSchema({ anyOf: [{ type: "string" }, { type: "null" }] }),
+    ).toEqual(["text", "json"]);
+    expect(workflowTypesForMcpSchema({})).toEqual(["unknown"]);
+  });
+
+  it("reconciles MCP schema drift without losing same-name bindings", () => {
+    const reconciled = reconcileMcpArgumentBindings(
+      {
+        type: "object",
+        properties: {
+          scope: { type: "string" },
+          query: { type: "string" },
+        },
+      },
+      [
+        {
+          id: "argument_1",
+          name: "query",
+          binding: { source: "variable", variable: "user_input" },
+        },
+      ],
+    );
+
+    expect(reconciled).toEqual({
+      argumentMode: "fields",
+      argumentBindings: [
+        {
+          id: "argument_2",
+          name: "scope",
+          binding: { source: "literal", value: "" },
+        },
+        {
+          id: "argument_1",
+          name: "query",
+          binding: { source: "variable", variable: "user_input" },
+        },
       ],
     });
   });

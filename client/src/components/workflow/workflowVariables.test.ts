@@ -452,11 +452,51 @@ describe("analyzeWorkflowVariables", () => {
     expect(version2.find((item) => item.name === "typed_parameters")?.valueType).toBe("json");
   });
 
+  it("tracks R2.0 structured bindings and typed outputs", () => {
+    const nodes = [
+      node("input", "input", { variableName: "request" }),
+      node("assign", "variable_assign", {
+        contractVersion: 2,
+        valueSource: "variable",
+        sourceVariable: "request",
+        outputVariable: "assigned",
+      }),
+      node("human", "human_intervention", {
+        contractVersion: 2,
+        prompt: "Review {{assigned}}",
+        outputVariable: "decision",
+      }),
+      node("mcp", "mcp_tool", {
+        contractVersion: 2,
+        argumentMode: "fields",
+        argumentBindings: [
+          {
+            id: "argument_1",
+            name: "query",
+            binding: { source: "variable", variable: "assigned" },
+          },
+        ],
+        outputVariable: "tool_result",
+      }),
+    ];
+    const variables = analyzeWorkflowVariables(
+      nodes,
+      [edge("input", "assign"), edge("assign", "human"), edge("human", "mcp")],
+      null,
+    );
+
+    expect(variables.find((item) => item.name === "assigned")?.references).toHaveLength(2);
+    expect(variables.find((item) => item.name === "tool_result")?.valueType).toBe("json");
+    expect(variables.find((item) => item.name === "decision")?.valueType).toBe("text");
+  });
+
   it.each([
     ["condition", "conditionVariable", "binding"],
     ["condition", "inputVariable", "binding"],
     ["code", "codeInputVariable", "binding"],
     ["variable_assign", "template", "template"],
+    ["variable_assign", "sourceVariable", "binding"],
+    ["variable_assign", "outputVariable", "declaration"],
     ["knowledge_retrieval", "queryVariable", "binding"],
     ["http_request", "url", "template"],
     ["http_request", "bodyVariable", "binding"],
@@ -477,6 +517,7 @@ describe("analyzeWorkflowVariables", () => {
     ["document_extractor", "assetIdVariable", "declaration"],
     ["workflow_agent", "taskInput", "template"],
     ["agent_handoff", "taskIdVariable", "binding"],
+    ["mcp_tool", "argumentsVariable", "binding"],
     ["output", "outputVariable", "binding"],
     ["data_table_query", "outputVariable", "declaration"],
   ] as const)(

@@ -5,6 +5,7 @@ import pytest
 import pytest_asyncio
 
 from server.main import app, parse_workflow_tool_policy_list
+from server.workflow_native.r20_nodes import mcp_schema_checksum
 from server.xpert_runtime.tool_policy import ToolPermissionPolicy
 
 
@@ -3485,3 +3486,113 @@ async def test_office_automation_validates_scope_timeout_and_tool_mode(
     assert "office_automation_host_invalid" in codes
     assert "office_automation_timeout_invalid" in codes
     assert "office_automation_requires_runtime_tool_mode" in codes
+
+
+@pytest.mark.asyncio
+async def test_validate_r20_variable_assign_v2_typed_sources_and_references(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = linear_workflow()
+    workflow["nodes"][1] = {
+        "id": "assign",
+        "type": "variable_assign",
+        "data": {
+            "kind": "variable_assign",
+            "contractVersion": 2,
+            "outputVariable": "assigned",
+            "valueSource": "literal",
+            "literalValue": {"items": [1, True, None]},
+        },
+    }
+    workflow["nodes"][2]["data"]["outputVariable"] = "assigned"
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "assign"},
+        {"id": "e2", "source": "assign", "target": "output"},
+    ]
+
+    valid = await validate(client, workflow)
+    assert valid["valid"] is True, valid["issues"]
+
+    workflow["nodes"][1]["data"].update(
+        {"valueSource": "variable", "sourceVariable": "missing"}
+    )
+    invalid = await validate(client, workflow)
+    assert "missing_variable_assign_source_reference" in issue_codes(invalid)
+
+
+@pytest.mark.asyncio
+async def test_validate_r20_human_intervention_v2_timeout_and_mode(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = linear_workflow()
+    workflow["nodes"][1] = {
+        "id": "human",
+        "type": "human_intervention",
+        "data": {
+            "kind": "human_intervention",
+            "contractVersion": 2,
+            "interactionMode": "approval",
+            "prompt": "Approve {{user_input}}",
+            "outputVariable": "decision",
+            "timeoutSeconds": 3600,
+        },
+    }
+    workflow["nodes"][2]["data"]["outputVariable"] = "decision"
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "human"},
+        {"id": "e2", "source": "human", "target": "output"},
+    ]
+
+    valid = await validate(client, workflow)
+    assert valid["valid"] is True, valid["issues"]
+
+    workflow["nodes"][1]["data"].update(
+        {"interactionMode": "automatic", "timeoutSeconds": 30.5}
+    )
+    invalid = await validate(client, workflow)
+    assert "human_intervention_mode_invalid" in issue_codes(invalid)
+
+
+@pytest.mark.asyncio
+async def test_validate_r20_mcp_tool_v2_uses_structured_variable_bindings(
+    client: httpx.AsyncClient,
+) -> None:
+    schema = {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "required": ["query"],
+    }
+    workflow = linear_workflow()
+    workflow["nodes"][1] = {
+        "id": "mcp",
+        "type": "mcp_tool",
+        "data": {
+            "kind": "mcp_tool",
+            "contractVersion": 2,
+            "serverId": "server_alpha",
+            "toolName": "search",
+            "inputSchemaChecksum": mcp_schema_checksum(schema),
+            "argumentMode": "fields",
+            "argumentBindings": [
+                {
+                    "id": "query_binding",
+                    "name": "query",
+                    "binding": {"source": "variable", "variable": "user_input"},
+                }
+            ],
+            "argumentsVariable": "mcp_arguments",
+            "outputVariable": "mcp_result",
+        },
+    }
+    workflow["nodes"][2]["data"]["outputVariable"] = "mcp_result"
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "mcp"},
+        {"id": "e2", "source": "mcp", "target": "output"},
+    ]
+
+    valid = await validate(client, workflow)
+    assert valid["valid"] is True, valid["issues"]
+
+    workflow["nodes"][1]["data"]["argumentBindings"][0]["binding"]["variable"] = "missing"
+    invalid = await validate(client, workflow)
+    assert "missing_mcp_tool_variable_reference" in issue_codes(invalid)

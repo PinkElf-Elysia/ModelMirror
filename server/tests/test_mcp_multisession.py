@@ -71,10 +71,12 @@ async def test_sessions_and_registry_aggregate_multiple_servers(
     tools = registry_response.json()["tools"]
     tool_names = [tool["name"] for tool in tools]
 
-    assert tool_names.count("fetch") == 1
-    assert tool_names.count("echo") == 1
+    assert tool_names.count("fetch") == 2
+    assert tool_names.count("echo") == 2
     assert "marker_alpha" in tool_names
     assert "marker_beta" in tool_names
+    assert len({tool["server_id"] for tool in tools if tool["name"] == "fetch"}) == 2
+    assert all(len(tool["schema_checksum"]) == 64 for tool in tools)
     assert {tool["session_id"] for tool in tools}.issubset(
         {first_session_id, second_session_id}
     )

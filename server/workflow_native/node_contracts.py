@@ -802,6 +802,55 @@ def _complete_contracts() -> dict[str, NodeContract]:
         ),
         planner=_planner(),
     )
+    variable_assign_v1_schema = _object_schema(
+        {
+            "variableName": {"type": "string"},
+            "template": {"type": "string"},
+        },
+        required=["variableName", "template"],
+    )
+    variable_assign_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "outputVariable": {"type": "string"},
+            "valueSource": {
+                "type": "string",
+                "enum": ["literal", "variable", "template"],
+            },
+            "literalValue": {},
+            "sourceVariable": {"type": "string"},
+            "template": {"type": "string", "maxLength": 100_000},
+        },
+        required=["contractVersion", "outputVariable", "valueSource"],
+    )
+    contracts["variable_assign"] = NodeContract(
+        kind="variable_assign",
+        contract_status="complete",
+        config_schema={
+            "type": "object",
+            "anyOf": [variable_assign_v1_schema, variable_assign_v2_schema],
+        },
+        ports=(
+            NodePortContract(
+                name="value",
+                direction="output",
+                value_schema=any_value,
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=True,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="data",
+        ),
+        availability=_availability(
+            app=_rule("allow"),
+            evaluation=_rule("allow"),
+            evolution=_rule("deny"),
+        ),
+        planner=_planner(),
+    )
     extractor_v1_schema = _object_schema(
         {
             "contractVersion": {"const": 1},
@@ -987,6 +1036,72 @@ def _complete_contracts() -> dict[str, NodeContract]:
         ),
         planner=_planner(),
     )
+    human_v1_schema = _object_schema(
+        {
+            "prompt": {"type": "string"},
+            "outputVariable": {"type": "string"},
+            "interactionMode": {"type": "string"},
+        },
+        required=["prompt", "outputVariable"],
+    )
+    human_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "interactionMode": {
+                "type": "string",
+                "enum": ["input", "approval"],
+            },
+            "prompt": {"type": "string", "minLength": 1, "maxLength": 4_000},
+            "outputVariable": {"type": "string"},
+            "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 30,
+                "maximum": 86_400,
+            },
+        },
+        required=[
+            "contractVersion",
+            "interactionMode",
+            "prompt",
+            "outputVariable",
+            "timeoutSeconds",
+        ],
+    )
+    contracts["human_intervention"] = NodeContract(
+        kind="human_intervention",
+        contract_status="complete",
+        config_schema={"type": "object", "anyOf": [human_v1_schema, human_v2_schema]},
+        ports=(
+            NodePortContract(
+                name="result",
+                direction="output",
+                value_schema=string_value,
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="write",
+            deterministic=False,
+            idempotent=True,
+            external_io=True,
+            can_wait=True,
+            error_semantics="fail_closed",
+            security_category="human_approval",
+        ),
+        availability=_availability(
+            app=_rule(
+                "deny",
+                code="app_interactive_hitl_forbidden",
+                message="Public Xpert Apps cannot deploy interactive HITL workflows.",
+            ),
+            evaluation=_rule(
+                "deny",
+                code="evaluation_unsafe_node",
+                message="Evaluation does not allow node kind: human_intervention.",
+            ),
+            evolution=_rule("deny"),
+        ),
+        planner=_planner(),
+    )
     http_binding_schema = _object_schema(
         {
             "source": {"type": "string", "enum": ["literal", "variable"]},
@@ -1098,6 +1213,125 @@ def _complete_contracts() -> dict[str, NodeContract]:
                 code="evolution_http_request_forbidden",
                 message="Evolution does not allow HTTP request nodes.",
             ),
+        ),
+        planner=_planner(),
+    )
+    mcp_binding_schema = _object_schema(
+        {
+            "source": {"type": "string", "enum": ["literal", "variable"]},
+            "variable": {"type": "string"},
+            "value": {},
+        },
+        required=["source"],
+        additional_properties=False,
+    )
+    mcp_argument_binding_schema = _object_schema(
+        {
+            "id": {"type": "string", "minLength": 1, "maxLength": 64},
+            "name": {"type": "string", "minLength": 1, "maxLength": 160},
+            "binding": mcp_binding_schema,
+        },
+        required=["id", "name", "binding"],
+        additional_properties=False,
+    )
+    mcp_v1_schema = _object_schema(
+        {
+            "toolName": {"type": "string"},
+            "argumentsJson": {"type": "string"},
+            "outputVariable": {"type": "string"},
+            "errorMode": {"type": "string"},
+        },
+        required=["toolName", "argumentsJson", "outputVariable"],
+    )
+    mcp_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "serverId": {"type": "string", "minLength": 1, "maxLength": 300},
+            "toolName": {"type": "string", "minLength": 1, "maxLength": 160},
+            "inputSchemaChecksum": {
+                "type": "string",
+                "pattern": r"^[a-f0-9]{64}$",
+            },
+            "argumentMode": {
+                "type": "string",
+                "enum": ["fields", "object_variable"],
+            },
+            "argumentBindings": {
+                "type": "array",
+                "items": mcp_argument_binding_schema,
+                "maxItems": 100,
+            },
+            "argumentsVariable": {"type": "string"},
+            "outputVariable": {"type": "string"},
+        },
+        required=[
+            "contractVersion",
+            "serverId",
+            "toolName",
+            "inputSchemaChecksum",
+            "argumentMode",
+            "argumentBindings",
+            "outputVariable",
+        ],
+    )
+    contracts["mcp_tool"] = NodeContract(
+        kind="mcp_tool",
+        contract_status="complete",
+        config_schema={"type": "object", "anyOf": [mcp_v1_schema, mcp_v2_schema]},
+        ports=(
+            NodePortContract(
+                name="result",
+                direction="output",
+                value_schema=WorkflowValueSchema(
+                    type="object",
+                    properties={
+                        "status": string_value,
+                        "serverId": string_value,
+                        "toolName": string_value,
+                        "text": string_value,
+                        "contentTypes": WorkflowValueSchema(type="array", items=string_value),
+                        "fileAssetIds": WorkflowValueSchema(type="array", items=string_value),
+                    },
+                    required=(
+                        "status",
+                        "serverId",
+                        "toolName",
+                        "text",
+                        "contentTypes",
+                        "fileAssetIds",
+                    ),
+                ),
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_write",
+            deterministic=False,
+            idempotent=False,
+            external_io=True,
+            can_wait=True,
+            error_semantics="fail_closed",
+            security_category="tool",
+        ),
+        availability=NodeAvailabilityPolicy(
+            workflow=_rule("allow"),
+            xpert=_rule(
+                "conditional",
+                code="mcp_tools_feature_required",
+                message="Private Xpert MCP tools require WORKFLOW_MCP_TOOLS_ENABLED.",
+            ),
+            goal=_rule("allow"),
+            handoff=_rule("allow"),
+            app=_rule(
+                "deny",
+                code="public_mcp_tool_forbidden",
+                message="Public Xpert Apps cannot deploy direct MCP tool nodes.",
+            ),
+            evaluation=_rule(
+                "deny",
+                code="evaluation_mcp_tool_forbidden",
+                message="Evaluation does not allow direct MCP tool nodes.",
+            ),
+            evolution=_rule("deny"),
         ),
         planner=_planner(),
     )
@@ -2188,6 +2422,12 @@ def build_builtin_node_contract_registry() -> NodeContractRegistry:
         kind: _compatibility_contract(kind) for kind in get_args(NativeNodeKind)
     }
     contracts.update(_complete_contracts())
+    contracts["knowledge_citation"] = contracts["knowledge_citation"].model_copy(
+        update={
+            "deprecated": True,
+            "replacement_kind": "knowledge_retrieval",
+        }
+    )
 
     evaluation_denied = {
         "agent_handoff",

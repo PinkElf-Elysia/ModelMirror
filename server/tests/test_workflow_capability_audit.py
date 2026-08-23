@@ -79,6 +79,14 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert mapped["outputParserAutofixing"]["模镜对应节点"] == "parameter_extractor"
     assert mapped["textClassifier"]["模镜对应节点"] == "question_classifier"
     assert mapped["guardrails"]["模镜对应节点"] == "runtime_middleware"
+    assert mapped["renameKeys"]["模镜当前状态"] == "已实现"
+    assert mapped["renameKeys"]["模镜对应节点"] == "object_transform"
+    assert mapped["mcpClientTool"]["模镜当前状态"] == "已实现"
+    assert mapped["mcpClientTool"]["模镜对应节点"] == "mcp_tool"
+    assert mapped["mcpClient"]["模镜当前状态"] == "部分实现"
+    assert mapped["mcpRegistryClientTool"]["模镜当前状态"] == "部分实现"
+    assert mapped["memoryManager"]["模镜当前状态"] == "部分实现"
+    assert "没有可独立连线" in mapped["memoryManager"]["判断说明"]
     assert "区间截取" in mapped["itemLists"]["判断说明"]
     assert all(mapped[key]["模镜当前状态"] == "已实现" for key in (
         "scheduleTrigger", "webhook", "wait", "respondToWebhook", "errorTrigger",
@@ -91,10 +99,10 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     ))
     assert all("不复制代码" in row["许可证边界"] or "企业条目" in row["许可证边界"] for row in rows)
     assert Counter(row["模镜当前状态"] for row in rows) == {
-        "已实现": 32,
-        "部分实现": 83,
+        "已实现": 34,
+        "部分实现": 82,
         "通用节点可覆盖": 276,
-        "未实现": 172,
+        "未实现": 171,
     }
     native_kinds = set(get_args(NativeNodeKind))
     assert {
@@ -119,22 +127,29 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
     )
+    complete_count = sum(
+        contract.contract_status == "complete"
+        for contract in workflow_node_contract_registry.list()
+    )
     planner_count = sum(
         contract.planner.enabled
         for contract in workflow_node_contract_registry.list()
     )
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
-    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9" in markdown
+    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0" in markdown
     assert "44、画布目录项 42" in markdown
     assert "R1.6 结果" in markdown
     assert "自研节点总数 47、画布目录项 45、当前 18 个" in markdown
-    assert f"{compatibility_count} 个冻结 compatibility 合同" in markdown
+    assert f"{compatibility_count} 个 compatibility 合同" in markdown
     assert f"自研节点总数 {native_count}" in markdown
     assert f"画布目录项 {palette_count}" in markdown
     assert f"Planner 可生成类型仍固定为 {planner_count} 类" in markdown
     assert "R1.8 结果" in markdown
     assert native_count == 50
     assert palette_count == 48
-    assert compatibility_count == 12
+    assert complete_count == 41
+    assert compatibility_count == 9
     assert planner_count == 7
     assert "R1.9 结果" in markdown
+    assert "R2.0 结果" in markdown
+    assert "当前 50 Native、48 个可新增 Palette 项、41 个完整合同、9 个 compatibility 合同" in markdown

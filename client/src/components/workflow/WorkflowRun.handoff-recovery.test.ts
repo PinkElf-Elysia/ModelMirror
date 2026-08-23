@@ -3,6 +3,7 @@ import {
   buildRunSteps,
   persistWorkflowRunRecovery,
   readWorkflowRunRecovery,
+  shouldRecordNodeStreamFailure,
   workflowRunRecoveryKey,
 } from "./WorkflowRun";
 
@@ -11,6 +12,12 @@ afterEach(() => {
 });
 
 describe("WorkflowRun handoff recovery pointer", () => {
+  it("records a node-level stream failure when no terminal event was emitted", () => {
+    expect(shouldRecordNodeStreamFailure(1, false)).toBe(true);
+    expect(shouldRecordNodeStreamFailure(0, false)).toBe(false);
+    expect(shouldRecordNodeStreamFailure(1, true)).toBe(false);
+  });
+
   it("joins workflow agent streaming deltas without inserting line breaks", () => {
     const steps = buildRunSteps([
       {

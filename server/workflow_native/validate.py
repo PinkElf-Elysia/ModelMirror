@@ -45,6 +45,13 @@ from .typed_ai import (
     validate_parameter_extractor_v2_config,
     validate_question_classifier_v2_config,
 )
+from .r20_nodes import (
+    WorkflowR20NodeError,
+    contract_version as r20_contract_version,
+    validate_human_intervention_v2_config,
+    validate_mcp_tool_v2_config,
+    validate_variable_assign_v2_config,
+)
 from .schemas import (
     NativeWorkflowDefinition,
     NativeWorkflowEdge,
@@ -1202,6 +1209,18 @@ def validate_node_configuration(
             )
 
     if kind == "variable_assign":
+        if r20_contract_version(data) == 2:
+            try:
+                validate_variable_assign_v2_config(data)
+            except WorkflowR20NodeError as exc:
+                issues.append(
+                    ValidationIssue(
+                        code=exc.code.lower(),
+                        message=exc.safe_message,
+                        node_id=node.id,
+                    )
+                )
+            return issues
         variable_name = str(data.get("variableName") or "").strip()
         if not variable_name:
             issues.append(
@@ -1876,6 +1895,18 @@ def validate_node_configuration(
             )
 
     if kind == "human_intervention":
+        if r20_contract_version(data) == 2:
+            try:
+                validate_human_intervention_v2_config(data)
+            except WorkflowR20NodeError as exc:
+                issues.append(
+                    ValidationIssue(
+                        code=exc.code.lower(),
+                        message=exc.safe_message,
+                        node_id=node.id,
+                    )
+                )
+            return issues
         prompt = str(data.get("prompt") or "").strip()
         if not prompt:
             issues.append(
@@ -2687,6 +2718,18 @@ def validate_node_configuration(
         )
 
     if kind == "mcp_tool":
+        if r20_contract_version(data) == 2:
+            try:
+                validate_mcp_tool_v2_config(data)
+            except WorkflowR20NodeError as exc:
+                issues.append(
+                    ValidationIssue(
+                        code=exc.code.lower(),
+                        message=exc.safe_message,
+                        node_id=node.id,
+                    )
+                )
+            return issues
         tool_name = str(data.get("toolName") or "").strip()
         if not tool_name:
             issues.append(
@@ -3693,7 +3736,14 @@ def collect_declared_variables(
             if is_variable_name(variable):
                 variables.add(variable)
         if kind == "variable_assign":
-            variable = str(data.get("variableName") or "").strip()
+            variable = str(
+                (
+                    data.get("outputVariable")
+                    if r20_contract_version(data) == 2
+                    else data.get("variableName")
+                )
+                or ""
+            ).strip()
             if is_variable_name(variable):
                 variables.add(variable)
         if kind in {
@@ -3759,7 +3809,7 @@ def collect_node_variable_producers(
         "invoke_workflow": ("resultVariable",),
         "llm": ("outputVariable",),
         "code": ("codeOutputVariable",),
-        "variable_assign": ("variableName",),
+        "variable_assign": ("variableName", "outputVariable"),
         "template_transform": ("outputVariable",),
         "variable_aggregator": ("outputVariable",),
         "parameter_extractor": ("outputVariable",),
@@ -3911,7 +3961,27 @@ def validate_variable_references(
                     )
 
     if kind == "variable_assign":
-        template = str(data.get("template") or "")
+        if r20_contract_version(data) == 2:
+            if str(data.get("valueSource") or "") == "variable":
+                variable = str(data.get("sourceVariable") or "").strip()
+                if variable and variable not in available_variables:
+                    issues.append(
+                        ValidationIssue(
+                            code="missing_variable_assign_source_reference",
+                            message=(
+                                "Variable assignment references undefined sourceVariable "
+                                f"'{variable}'."
+                            ),
+                            node_id=node.id,
+                        )
+                    )
+            template = (
+                str(data.get("template") or "")
+                if str(data.get("valueSource") or "") == "template"
+                else ""
+            )
+        else:
+            template = str(data.get("template") or "")
         for variable in sorted(extract_template_variables(template)):
             if variable not in available_variables:
                 issues.append(
@@ -4209,19 +4279,43 @@ def validate_variable_references(
                     )
 
     if kind == "mcp_tool":
-        arguments_json = str(data.get("argumentsJson") or "")
-        for variable in sorted(extract_template_variables(arguments_json)):
-            if variable not in available_variables:
-                issues.append(
-                    ValidationIssue(
-                        code="missing_template_variable",
-                        message=(
-                            "MCP tool argumentsJson references undefined variable "
-                            f"'{variable}'."
-                        ),
-                        node_id=node.id,
+        if r20_contract_version(data) == 2:
+            references: set[str] = set()
+            if str(data.get("argumentMode") or "") == "object_variable":
+                references.add(str(data.get("argumentsVariable") or "").strip())
+            else:
+                for item in data.get("argumentBindings", []):
+                    if not isinstance(item, dict):
+                        continue
+                    binding = item.get("binding")
+                    if (
+                        isinstance(binding, dict)
+                        and str(binding.get("source") or "") == "variable"
+                    ):
+                        references.add(str(binding.get("variable") or "").strip())
+            for variable in sorted(references - {""}):
+                if variable not in available_variables:
+                    issues.append(
+                        ValidationIssue(
+                            code="missing_mcp_tool_variable_reference",
+                            message=f"MCP tool references undefined variable '{variable}'.",
+                            node_id=node.id,
+                        )
                     )
-                )
+        else:
+            arguments_json = str(data.get("argumentsJson") or "")
+            for variable in sorted(extract_template_variables(arguments_json)):
+                if variable not in available_variables:
+                    issues.append(
+                        ValidationIssue(
+                            code="missing_template_variable",
+                            message=(
+                                "MCP tool argumentsJson references undefined variable "
+                                f"'{variable}'."
+                            ),
+                            node_id=node.id,
+                        )
+                    )
 
     if kind == "multi_route":
         input_variable = str(data.get("inputVariable") or "").strip()

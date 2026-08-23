@@ -17,6 +17,10 @@ from server.workflow_deployments import (
     WorkflowDeploymentValidationError,
     _safe_error_summary,
 )
+from server.workflow_native.r20_nodes import (
+    mcp_schema_checksum,
+    validate_mcp_tool_v2_config,
+)
 
 
 def test_server_image_includes_workflow_deployment_module() -> None:
@@ -230,6 +234,17 @@ def secure_http_workflow(*, auth_type: str = "none") -> dict:
             {"id": "e2", "source": "http", "target": "end"},
         ],
     }
+
+
+def manual_workflow_with_node(node: dict, *, output_variable: str) -> dict:
+    workflow = manual_workflow()
+    workflow["nodes"].insert(1, node)
+    workflow["nodes"][2]["data"]["outputVariable"] = output_variable
+    workflow["edges"] = [
+        {"id": "e1", "source": "start", "target": node["id"]},
+        {"id": "e2", "source": node["id"], "target": "end"},
+    ]
+    return workflow
 
 
 def r18_file_workflow(kind: str) -> dict:
@@ -497,6 +512,182 @@ def test_secure_http_publish_rejects_legacy_and_missing_credentials(tmp_path) ->
     project = unavailable.create_project(secure_http_workflow(auth_type="api_key"))
     with pytest.raises(WorkflowDeploymentValidationError, match="unavailable"):
         unavailable.publish(project.project_id)
+
+
+@pytest.mark.parametrize(
+    ("kind", "data", "output_variable"),
+    [
+        (
+            "human_intervention",
+            {
+                "kind": "human_intervention",
+                "prompt": "Please provide input",
+                "outputVariable": "human_result",
+            },
+            "human_result",
+        ),
+        (
+            "mcp_tool",
+            {
+                "kind": "mcp_tool",
+                "toolName": "search",
+                "argumentsJson": "{}",
+                "outputVariable": "mcp_result",
+            },
+            "mcp_result",
+        ),
+        (
+            "variable_assign",
+            {
+                "kind": "variable_assign",
+                "variableName": "assigned",
+                "template": "{{user_input}}",
+            },
+            "assigned",
+        ),
+    ],
+)
+def test_r20_legacy_nodes_must_be_explicitly_migrated_before_publish(
+    tmp_path,
+    kind: str,
+    data: dict,
+    output_variable: str,
+) -> None:
+    workflow = manual_workflow_with_node(
+        {"id": "legacy", "type": kind, "data": data},
+        output_variable=output_variable,
+    )
+    store = WorkflowDeploymentStore(tmp_path / kind)
+    project = store.create_project(workflow)
+
+    with pytest.raises(WorkflowDeploymentValidationError, match="explicitly migrated"):
+        store.publish(project.project_id)
+
+
+def test_legacy_knowledge_citation_must_migrate_before_publish(tmp_path) -> None:
+    workflow = manual_workflow_with_node(
+        {
+            "id": "citation",
+            "type": "knowledge_citation",
+            "data": {
+                "kind": "knowledge_citation",
+                "knowledgeBaseId": "kb_test",
+                "queryVariable": "user_input",
+                "topK": 5,
+                "outputVariable": "citations",
+            },
+        },
+        output_variable="citations",
+    )
+    store = WorkflowDeploymentStore(tmp_path)
+    project = store.create_project(workflow)
+
+    with pytest.raises(WorkflowDeploymentValidationError, match="knowledge citation"):
+        store.publish(project.project_id)
+
+
+def test_mcp_v2_publish_and_activation_recheck_schema_and_feature_flag(tmp_path) -> None:
+    schema = {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "required": ["query"],
+        "additionalProperties": False,
+    }
+    node = {
+        "id": "mcp",
+        "type": "mcp_tool",
+        "data": {
+            "kind": "mcp_tool",
+            "contractVersion": 2,
+            "serverId": "server_alpha",
+            "toolName": "search",
+            "inputSchemaChecksum": mcp_schema_checksum(schema),
+            "argumentMode": "fields",
+            "argumentBindings": [
+                {
+                    "id": "query_binding",
+                    "name": "query",
+                    "binding": {"source": "variable", "variable": "user_input"},
+                }
+            ],
+            "argumentsVariable": "mcp_arguments",
+            "outputVariable": "mcp_result",
+        },
+    }
+    current_schema = {"value": schema}
+
+    def validate(data: dict) -> None:
+        validate_mcp_tool_v2_config(data, input_schema=current_schema["value"])
+
+    store = WorkflowDeploymentStore(tmp_path, mcp_tool_validator=validate)
+    project = store.create_project(
+        manual_workflow_with_node(node, output_variable="mcp_result")
+    )
+    release = store.publish(project.project_id)
+
+    with pytest.raises(WorkflowDeploymentConflictError, match="disabled"):
+        store.activate(
+            project.project_id,
+            release.version,
+            webhooks_enabled=False,
+            mcp_tools_enabled=False,
+        )
+
+    current_schema["value"] = {
+        **schema,
+        "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}},
+    }
+    with pytest.raises(WorkflowDeploymentConflictError, match="changed"):
+        store.activate(
+            project.project_id,
+            release.version,
+            webhooks_enabled=False,
+            mcp_tools_enabled=True,
+        )
+
+
+@pytest.mark.parametrize("waiting_kind", ["human_intervention", "mcp_tool"])
+def test_http_publish_rejects_r20_interactive_waiting_nodes(tmp_path, waiting_kind: str) -> None:
+    workflow = http_workflow()
+    if waiting_kind == "human_intervention":
+        data = {
+            "kind": waiting_kind,
+            "contractVersion": 2,
+            "interactionMode": "approval",
+            "prompt": "Approve request",
+            "outputVariable": "decision",
+            "timeoutSeconds": 3600,
+        }
+    else:
+        schema = {"type": "object", "properties": {}}
+        data = {
+            "kind": waiting_kind,
+            "contractVersion": 2,
+            "serverId": "server_alpha",
+            "toolName": "search",
+            "inputSchemaChecksum": mcp_schema_checksum(schema),
+            "argumentMode": "fields",
+            "argumentBindings": [],
+            "argumentsVariable": "mcp_arguments",
+            "outputVariable": "mcp_result",
+        }
+    workflow["nodes"].insert(1, {"id": "waiting", "type": waiting_kind, "data": data})
+    workflow["edges"] = [
+        {"id": "e1", "source": "start", "target": "waiting"},
+        {"id": "e2", "source": "waiting", "target": "reply"},
+    ]
+    store = WorkflowDeploymentStore(
+        tmp_path / waiting_kind,
+        mcp_tool_validator=(
+            (lambda node_data: validate_mcp_tool_v2_config(node_data, input_schema=schema))
+            if waiting_kind == "mcp_tool"
+            else None
+        ),
+    )
+    project = store.create_project(workflow)
+
+    with pytest.raises(WorkflowDeploymentValidationError, match="interactive waiting"):
+        store.publish(project.project_id)
 
 
 def test_private_webhook_key_idempotency_and_safe_snapshot(tmp_path) -> None:

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 export interface RuntimeApproval {
   approval_id: string;
-  request_type: "tool_call" | "final_output" | "manual_input" | "browser_domain";
+  request_type: "tool_call" | "final_output" | "manual_input" | "execution_gate" | "browser_domain";
   task_id: string;
   run_id: string;
   node_id: string;
@@ -104,6 +104,7 @@ function formatDeadline(timestamp: number) {
 function requestTypeLabel(type: RuntimeApproval["request_type"]) {
   if (type === "tool_call") return "工具调用审批";
   if (type === "final_output") return "最终输出确认";
+  if (type === "execution_gate") return "执行批准";
   if (type === "browser_domain") return "浏览器域名授权";
   return "人工输入";
 }
@@ -143,7 +144,7 @@ export default function RuntimeApprovalPanel({
     : [...new Set(requestTypes)].sort().join("\u0000");
 
   const query = useMemo(() => {
-    const params = new URLSearchParams({ status: "pending", limit: compact ? "20" : "100" });
+    const params = new URLSearchParams({ limit: compact ? "20" : "100" });
     if (taskId) params.set("task_id", taskId);
     if (runId) params.set("run_id", runId);
     if (scopeType) params.set("scope_type", scopeType);
@@ -158,13 +159,14 @@ export default function RuntimeApprovalPanel({
     }
     if (!quiet) setLoading(true);
     try {
-      const response = await fetch(`/api/runtime/approvals?${query}`);
-      const payload = (await response.json().catch(() => null)) as
-        | { items?: RuntimeApproval[]; detail?: string }
-        | null;
-      if (!response.ok) {
-        throw new Error(approvalError(payload, "审批列表加载失败"));
-      }
+      const responses = await Promise.all(["pending", "expired"].map(async (status) => {
+        const response = await fetch(`/api/runtime/approvals?status=${status}&${query}`);
+        const payload = (await response.json().catch(() => null)) as
+          | { items?: RuntimeApproval[]; detail?: string }
+          | null;
+        if (!response.ok) throw new Error(approvalError(payload, "审批列表加载失败"));
+        return payload?.items ?? [];
+      }));
       const allowedRequestTypes = requestTypeKey === null
         ? null
         : new Set(
@@ -172,8 +174,15 @@ export default function RuntimeApprovalPanel({
               ? requestTypeKey.split("\u0000") as RuntimeApproval["request_type"][]
               : [],
           );
+      const currentById = new Map<string, RuntimeApproval>();
+      responses.flat().forEach((item) => {
+        const existing = currentById.get(item.approval_id);
+        if (!existing || item.revision >= existing.revision) {
+          currentById.set(item.approval_id, item);
+        }
+      });
       setItems(
-        (payload?.items ?? []).filter(
+        [...currentById.values()].filter(
           (item) => !allowedRequestTypes || allowedRequestTypes.has(item.request_type),
         ),
       );
@@ -244,6 +253,33 @@ export default function RuntimeApprovalPanel({
       });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "工具参数 JSON 无效");
+    }
+  }
+
+  async function reopen(approval: RuntimeApproval) {
+    setBusyId(approval.approval_id);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/runtime/approvals/${approval.approval_id}/reopen`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            revision: approval.revision,
+            timeout_seconds: 3600,
+            operator: "local-operator",
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => null)) as RuntimeApproval | { detail?: string } | null;
+      if (!response.ok) throw new Error(approvalError(payload, "重新打开审批失败"));
+      await load(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "重新打开审批失败");
+      await load(true);
+    } finally {
+      setBusyId("");
     }
   }
 
@@ -434,7 +470,16 @@ export default function RuntimeApprovalPanel({
               ) : null}
 
               <div className="mt-3 flex flex-wrap gap-2">
-                {approval.allowed_decisions.map((decision) => {
+                {approval.status === "expired" ? (
+                  <button
+                    className="inline-flex h-8 items-center rounded-md bg-amber-200 px-3 text-xs font-semibold text-ink-950 disabled:opacity-45"
+                    disabled={busy}
+                    onClick={() => void reopen(approval)}
+                    type="button"
+                  >
+                    {busy ? "重新打开中…" : "重新打开 1 小时"}
+                  </button>
+                ) : approval.allowed_decisions.map((decision) => {
                   if (decision === "edit") {
                     return (
                       <button

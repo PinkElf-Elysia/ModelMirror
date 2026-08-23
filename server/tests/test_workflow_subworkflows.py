@@ -253,6 +253,60 @@ def test_callable_publish_activation_interface_and_binding_guards(tmp_path) -> N
         store.publish(waiting_project.project_id)
 
 
+@pytest.mark.parametrize(
+    ("kind", "data", "output_variable"),
+    [
+        (
+            "human_intervention",
+            {
+                "kind": "human_intervention",
+                "contractVersion": 2,
+                "interactionMode": "approval",
+                "prompt": "Approve the callable workflow",
+                "outputVariable": "decision",
+                "timeoutSeconds": 3600,
+            },
+            "decision",
+        ),
+        (
+            "mcp_tool",
+            {
+                "kind": "mcp_tool",
+                "contractVersion": 2,
+                "serverId": "server_alpha",
+                "toolName": "search",
+                "inputSchemaChecksum": "0" * 64,
+                "argumentMode": "fields",
+                "argumentBindings": [],
+                "outputVariable": "mcp_result",
+            },
+            "mcp_result",
+        ),
+    ],
+)
+def test_callable_publish_rejects_r20_waiting_nodes(
+    tmp_path,
+    kind: str,
+    data: dict,
+    output_variable: str,
+) -> None:
+    workflow = callable_workflow(title=f"waiting {kind}")
+    workflow["nodes"].insert(
+        1,
+        {"id": "waiting", "type": kind, "data": data},
+    )
+    workflow["nodes"][-1]["data"]["outputVariable"] = output_variable
+    workflow["edges"] = [
+        {"id": "e1", "source": "entry", "target": "waiting"},
+        {"id": "e2", "source": "waiting", "target": "output"},
+    ]
+    store = WorkflowDeploymentStore(tmp_path / kind)
+    project = store.create_project(workflow)
+
+    with pytest.raises(WorkflowDeploymentValidationError, match="waiting"):
+        store.publish(project.project_id)
+
+
 def test_subworkflow_relation_is_stable_bounded_and_additive(tmp_path) -> None:
     store = WorkflowDeploymentStore(tmp_path)
     target = store.create_project(callable_workflow())

@@ -26,9 +26,11 @@ import {
   type NodeRunStatus,
   type WorkflowDefinition,
   type WorkflowEdge,
+  type WorkflowMcpArgumentBinding,
   type WorkflowNode,
   type WorkflowNodeData,
   type WorkflowNodeKind,
+  type WorkflowValue,
   type WorkflowVariableDeclaration,
 } from "../../types/workflow";
 import {
@@ -96,6 +98,7 @@ import {
   analyzeWorkflowVariables,
   planWorkflowVariableRename,
   type WorkflowVariableRenamePlan,
+  type WorkflowVariableValueType,
 } from "./workflowVariables";
 import {
   analyzeXpertWorkflowConversion,
@@ -599,8 +602,10 @@ export function createNodeData(
     return {
       kind,
       title: "变量赋值",
-      description: "把模板内容写入一个新变量。",
-      variableName: "assigned_text",
+      description: "把类型化字面量、变量副本或模板文本写入变量。",
+      contractVersion: 2,
+      outputVariable: "assigned_value",
+      valueSource: "template",
       template: "收到：{{user_input}}",
     };
   }
@@ -715,9 +720,12 @@ export function createNodeData(
     return {
       kind,
       title: "人工确认",
-      description: "暂停流水线，等待用户补充文本后继续。",
+      description: "暂停执行，等待人工输入或批准后从断点继续。",
+      contractVersion: 2,
+      interactionMode: "input",
       prompt: "请确认或补充这段内容：\n\n{{user_input}}",
       outputVariable: "human_input",
+      timeoutSeconds: 3600,
     };
   }
 
@@ -918,11 +926,15 @@ export function createNodeData(
     return {
       kind,
       title: "MCP Tool",
-      description: "调用已注册的 MCP 工具",
+      description: "按服务器、工具和 Schema 指纹调用已注册的 MCP 工具。",
+      contractVersion: 2,
+      serverId: "",
       toolName: "",
-      argumentsJson: "{}",
+      inputSchemaChecksum: "",
+      argumentMode: "fields",
+      argumentBindings: [],
+      argumentsVariable: "mcp_arguments",
       outputVariable: "mcp_output",
-      errorMode: "fail_safe",
     };
   }
 
@@ -1279,7 +1291,89 @@ function runtimeMiddlewareBooleanValue(
 
 interface RegistryToolOption {
   name: string;
+  server_id: string;
   description?: string;
+  input_schema: Record<string, unknown>;
+  schema_checksum: string;
+}
+
+export function workflowTypesForMcpSchema(
+  schema: unknown,
+): WorkflowVariableValueType[] {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    return ["unknown"];
+  }
+  const record = schema as Record<string, unknown>;
+  const variants = Array.isArray(record.anyOf)
+    ? record.anyOf
+    : Array.isArray(record.oneOf)
+      ? record.oneOf
+      : [record];
+  const accepted = new Set<WorkflowVariableValueType>();
+  variants.forEach((variant) => {
+    if (!variant || typeof variant !== "object" || Array.isArray(variant)) return;
+    const rawType = (variant as Record<string, unknown>).type;
+    const types = Array.isArray(rawType) ? rawType : [rawType];
+    types.forEach((type) => {
+      if (type === "string") accepted.add("text");
+      else if (type === "number" || type === "integer") accepted.add("number");
+      else if (type === "boolean") accepted.add("boolean");
+      else if (type === "object" || type === "array" || type === "null") accepted.add("json");
+    });
+  });
+  return accepted.size ? [...accepted] : ["unknown"];
+}
+
+export function reconcileMcpArgumentBindings(
+  inputSchema: Record<string, unknown>,
+  currentBindings: WorkflowMcpArgumentBinding[] = [],
+): {
+  argumentMode: "fields" | "object_variable";
+  argumentBindings: WorkflowMcpArgumentBinding[];
+} {
+  const properties = inputSchema.properties;
+  const fieldsSupported =
+    (inputSchema.type === undefined || inputSchema.type === "object")
+    && properties !== null
+    && typeof properties === "object"
+    && !Array.isArray(properties);
+  if (!fieldsSupported) {
+    return { argumentMode: "object_variable", argumentBindings: [] };
+  }
+
+  const currentByName = new Map(
+    currentBindings.map((binding) => [binding.name, binding]),
+  );
+  const propertyEntries = Object.entries(properties as Record<string, unknown>);
+  const retainedIds = new Set(
+    propertyEntries
+      .map(([name]) => currentByName.get(name)?.id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  let nextId = 1;
+  const createId = () => {
+    while (retainedIds.has(`argument_${nextId}`)) nextId += 1;
+    const id = `argument_${nextId}`;
+    retainedIds.add(id);
+    nextId += 1;
+    return id;
+  };
+
+  return {
+    argumentMode: "fields",
+    argumentBindings: propertyEntries.map(([name, schema]) => {
+      const current = currentByName.get(name);
+      if (current) return current;
+      return {
+        id: createId(),
+        name,
+        binding: {
+          source: "literal" as const,
+          value: defaultLiteralForSchema(schema),
+        },
+      };
+    }),
+  };
 }
 
 function isRegistryToolOption(value: unknown): value is RegistryToolOption {
@@ -1287,7 +1381,69 @@ function isRegistryToolOption(value: unknown): value is RegistryToolOption {
     typeof value === "object" &&
     value !== null &&
     "name" in value &&
-    typeof (value as { name?: unknown }).name === "string"
+    typeof (value as { name?: unknown }).name === "string" &&
+    "server_id" in value &&
+    typeof (value as { server_id?: unknown }).server_id === "string" &&
+    "schema_checksum" in value &&
+    typeof (value as { schema_checksum?: unknown }).schema_checksum === "string" &&
+    "input_schema" in value &&
+    typeof (value as { input_schema?: unknown }).input_schema === "object" &&
+    (value as { input_schema?: unknown }).input_schema !== null
+  );
+}
+
+function literalKind(value: WorkflowValue | undefined) {
+  if (value === null) return "null";
+  if (Array.isArray(value) || (typeof value === "object" && value !== null)) return "json";
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  return "text";
+}
+
+function defaultLiteralForSchema(schema: unknown): WorkflowValue {
+  if (!schema || typeof schema !== "object") return "";
+  const type = (schema as { type?: unknown }).type;
+  if (type === "number" || type === "integer") return 0;
+  if (type === "boolean") return false;
+  if (type === "null") return null;
+  if (type === "array") return [];
+  if (type === "object") return {};
+  return "";
+}
+
+function JsonLiteralEditor({
+  value,
+  onChange,
+}: {
+  value: WorkflowValue;
+  onChange: (value: WorkflowValue) => void;
+}) {
+  const [draft, setDraft] = useState(() => JSON.stringify(value, null, 2));
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setDraft(JSON.stringify(value, null, 2));
+    setError("");
+  }, [value]);
+
+  return (
+    <>
+      <textarea
+        className={`${textInputClass()} min-h-28 resize-y font-mono text-xs leading-5`}
+        onBlur={() => {
+          try {
+            const parsed = JSON.parse(draft) as WorkflowValue;
+            onChange(parsed);
+            setError("");
+          } catch {
+            setError("JSON 格式无效，尚未写入节点配置。");
+          }
+        }}
+        onChange={(event) => setDraft(event.target.value)}
+        value={draft}
+      />
+      {error ? <p className="mt-1 text-xs text-rose-200">{error}</p> : null}
+    </>
   );
 }
 
@@ -2719,6 +2875,7 @@ function LegacyKnowledgeCitationConfig({
   variableContract,
   data,
   update,
+  onMigrate,
 }: {
   node: WorkflowNode;
   nodes: WorkflowNode[];
@@ -2726,11 +2883,19 @@ function LegacyKnowledgeCitationConfig({
   variableContract: WorkflowNodeContractProjection | null;
   data: WorkflowNodeData;
   update: (patch: Partial<WorkflowNodeData>) => void;
+  onMigrate: () => void;
 }) {
   return (
     <>
       <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-50">
-        该节点已弃用，仅用于旧工作流兼容。新流程请使用知识检索 V2 的类型化结果。
+        <p>该节点已退役，仅用于旧工作流兼容，不能创建新发布版本。</p>
+        <button
+          className="mt-2 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950"
+          onClick={onMigrate}
+          type="button"
+        >
+          迁移到知识检索 V2
+        </button>
       </div>
       <Field label="查询变量">
         <WorkflowVariableField
@@ -2792,6 +2957,7 @@ interface NodeConfigProps {
   onOpenRunFileInput: (variableName: string) => void;
   onOpenVariableCenter: () => void;
   onMigrateTypedAiNode: (nodeId: string) => string;
+  onReplaceNodeData: (nodeId: string, data: WorkflowNodeData) => void;
 }
 
 function NodeConfig({
@@ -2806,9 +2972,11 @@ function NodeConfig({
   onOpenRunFileInput,
   onOpenVariableCenter,
   onMigrateTypedAiNode,
+  onReplaceNodeData,
 }: NodeConfigProps) {
   const [registryTools, setRegistryTools] = useState<RegistryToolOption[]>([]);
   const [registryToolsError, setRegistryToolsError] = useState("");
+  const [migrationNotice, setMigrationNotice] = useState("");
   const [publishedXperts, setPublishedXperts] = useState<XpertSummary[]>([]);
   const [publishedXpertsError, setPublishedXpertsError] = useState("");
   const [installedSkills, setInstalledSkills] = useState<TrustSelectableSkill[]>([]);
@@ -2836,14 +3004,21 @@ function NodeConfig({
 
     async function loadRegistryTools() {
       try {
-        const tools = await cachedFetchResource<unknown[]>("/api/registry/tools", async () => {
-          const response = await fetch("/api/registry/tools");
-          if (!response.ok) {
-            throw new Error("工具注册表暂时不可用。");
-          }
-          const payload: unknown = await response.json();
-          return Array.isArray(payload) ? payload : [];
-        });
+        // MCP 会话与 Schema 可在编辑期间变化，不能复用其他静态目录的 60 秒缓存。
+        const response = await fetch("/api/registry/tools");
+        if (!response.ok) {
+          throw new Error("工具注册表暂时不可用。");
+        }
+        const payload: unknown = await response.json();
+        if (
+          !payload
+          || typeof payload !== "object"
+          || !("tools" in payload)
+          || !Array.isArray((payload as { tools?: unknown }).tools)
+        ) {
+          throw new Error("工具注册表响应格式无效。");
+        }
+        const tools = (payload as { tools: unknown[] }).tools;
         if (!cancelled) {
           setRegistryTools(tools.filter(isRegistryToolOption));
           setRegistryToolsError("");
@@ -2989,6 +3164,16 @@ function NodeConfig({
 
   const data = node.data;
   const update = (patch: Partial<WorkflowNodeData>) => onChange(node.id, patch);
+  const selectedRegistryTool = data.kind === "mcp_tool"
+    ? registryTools.find(
+        (tool) => tool.server_id === data.serverId && tool.name === data.toolName,
+      )
+    : undefined;
+  const mcpSchemaDrift =
+    String(data.contractVersion ?? "1") === "2"
+    && Boolean(data.toolName)
+    && Boolean(selectedRegistryTool)
+    && data.inputSchemaChecksum !== selectedRegistryTool?.schema_checksum;
   const variableContract = variableNodeContracts.get(data.kind) ?? null;
   const runtimeMiddlewareConfig = isRecord(data.runtimeMiddlewareConfig)
     ? data.runtimeMiddlewareConfig
@@ -3330,30 +3515,151 @@ function NodeConfig({
 
       {data.kind === "variable_assign" ? (
         <>
-          <Field label="写入变量名">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="variableName"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ variableName: value })}
-              value={data.variableName ?? ""}
-            />
-          </Field>
-          <Field label="赋值模板（支持 {{变量}}）">
-            <WorkflowVariableField
-              className="min-h-28 resize-none leading-6"
-              contract={variableContract}
-              edges={edges}
-              fieldName="template"
-              multiline
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ template: value })}
-              value={data.template ?? ""}
-            />
-          </Field>
+          {String(data.contractVersion ?? "1") !== "2" ? (
+            <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-3 text-xs leading-5 text-amber-50">
+              <p>这是旧版文本赋值配置。发布新版本前需要显式升级；升级后仍可撤销。</p>
+              <button
+                className="mt-2 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950"
+                onClick={() => {
+                  onReplaceNodeData(node.id, {
+                    kind: "variable_assign",
+                    title: data.title,
+                    description: "把类型化字面量、变量副本或模板文本写入变量。",
+                    contractVersion: 2,
+                    outputVariable: String(data.variableName ?? "assigned_text"),
+                    valueSource: "template",
+                    template: String(data.template ?? ""),
+                  });
+                  setMigrationNotice("变量赋值已升级为 V2 模板模式。");
+                }}
+                type="button"
+              >
+                升级为 V2
+              </button>
+            </div>
+          ) : (
+            <>
+              <Field label="值来源">
+                <select
+                  className={textInputClass()}
+                  onChange={(event) => {
+                    const valueSource = event.target.value as "literal" | "variable" | "template";
+                    update({
+                      valueSource,
+                      ...(valueSource === "literal" && data.literalValue === undefined
+                        ? { literalValue: "" }
+                        : {}),
+                    });
+                  }}
+                  value={data.valueSource ?? "template"}
+                >
+                  <option value="literal">固定类型化值</option>
+                  <option value="variable">复制已有变量</option>
+                  <option value="template">渲染文本模板</option>
+                </select>
+              </Field>
+              {data.valueSource === "literal" ? (
+                <Field label="固定值">
+                  <select
+                    className={textInputClass()}
+                    onChange={(event) => {
+                      const type = event.target.value;
+                      update({
+                        literalValue:
+                          type === "number" ? 0
+                            : type === "boolean" ? false
+                              : type === "null" ? null
+                                : type === "json" ? {}
+                                  : "",
+                      });
+                    }}
+                    value={literalKind(data.literalValue as WorkflowValue | undefined)}
+                  >
+                    <option value="text">文本</option>
+                    <option value="number">数字</option>
+                    <option value="boolean">布尔</option>
+                    <option value="null">null</option>
+                    <option value="json">对象或数组</option>
+                  </select>
+                  {literalKind(data.literalValue as WorkflowValue | undefined) === "text" ? (
+                    <input
+                      className={`${textInputClass()} mt-2`}
+                      onChange={(event) => update({ literalValue: event.target.value })}
+                      value={String(data.literalValue ?? "")}
+                    />
+                  ) : literalKind(data.literalValue as WorkflowValue | undefined) === "number" ? (
+                    <input
+                      className={`${textInputClass()} mt-2`}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        if (Number.isFinite(value)) update({ literalValue: value });
+                      }}
+                      type="number"
+                      value={String(data.literalValue ?? 0)}
+                    />
+                  ) : literalKind(data.literalValue as WorkflowValue | undefined) === "boolean" ? (
+                    <select
+                      className={`${textInputClass()} mt-2`}
+                      onChange={(event) => update({ literalValue: event.target.value === "true" })}
+                      value={data.literalValue === true ? "true" : "false"}
+                    >
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  ) : literalKind(data.literalValue as WorkflowValue | undefined) === "null" ? (
+                    <p className="mt-2 rounded-md bg-white/[0.04] px-3 py-2 text-xs text-slate-400">固定写入 null</p>
+                  ) : (
+                    <div className="mt-2">
+                      <JsonLiteralEditor
+                        onChange={(value) => update({ literalValue: value })}
+                        value={(data.literalValue ?? {}) as WorkflowValue}
+                      />
+                    </div>
+                  )}
+                </Field>
+              ) : null}
+              {data.valueSource === "variable" ? (
+                <Field label="来源变量">
+                  <WorkflowVariableField
+                    contract={variableContract}
+                    edges={edges}
+                    fieldName="sourceVariable"
+                    node={node}
+                    nodes={nodes}
+                    onChange={(value) => update({ sourceVariable: value })}
+                    value={data.sourceVariable ?? ""}
+                  />
+                </Field>
+              ) : null}
+              {data.valueSource === "template" ? (
+                <Field label="文本模板（支持 {{变量}}）">
+                  <WorkflowVariableField
+                    className="min-h-28 resize-none leading-6"
+                    contract={variableContract}
+                    edges={edges}
+                    fieldName="template"
+                    multiline
+                    node={node}
+                    nodes={nodes}
+                    onChange={(value) => update({ template: value })}
+                    value={data.template ?? ""}
+                  />
+                </Field>
+              ) : null}
+              <Field label="输出变量">
+                <WorkflowVariableField
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="outputVariable"
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ outputVariable: value })}
+                  value={data.outputVariable ?? ""}
+                />
+              </Field>
+            </>
+          )}
+          {migrationNotice ? <p className="text-xs text-emerald-200">{migrationNotice}</p> : null}
         </>
       ) : null}
 
@@ -3447,14 +3753,40 @@ function NodeConfig({
       ) : null}
 
       {data.kind === "knowledge_citation" ? (
-        <LegacyKnowledgeCitationConfig
-          data={data}
-          edges={edges}
-          node={node}
-          nodes={nodes}
-          update={update}
-          variableContract={variableContract}
-        />
+        <>
+          <LegacyKnowledgeCitationConfig
+            data={data}
+            edges={edges}
+            node={node}
+            nodes={nodes}
+            update={update}
+            variableContract={variableContract}
+            onMigrate={() => {
+            const knowledgeBaseId = String(data.knowledgeBaseId ?? "").trim();
+            const queryVariable = String(data.queryVariable ?? "").trim();
+            const outputVariable = String(data.outputVariable ?? "").trim();
+            const topK = Number(data.top_k ?? data.topK ?? 4);
+            if (!knowledgeBaseId || !queryVariable || !outputVariable || !Number.isInteger(topK) || topK < 1 || topK > 10) {
+              setMigrationNotice("迁移被阻止：请先补齐知识库、查询变量、输出变量和合法 Top K。");
+              return;
+            }
+            if (!window.confirm("迁移会保留节点 ID、位置和连线，但输出将从 Citation JSON 字符串变为类型化检索结果。是否继续？")) return;
+            onReplaceNodeData(node.id, {
+              kind: "knowledge_retrieval",
+              title: "知识检索",
+              description: "检索指定知识库的活动版本。",
+              contractVersion: 2,
+              knowledgeBaseId,
+              queryVariable,
+              top_k: String(topK),
+              returnMode: "result",
+              outputVariable,
+            });
+            setMigrationNotice("知识引用已迁移为知识检索 V2；请检查下游类型。");
+            }}
+          />
+          {migrationNotice ? <p className="text-xs text-amber-100">{migrationNotice}</p> : null}
+        </>
       ) : null}
 
       {data.kind === "document_extractor" ? (
@@ -3630,8 +3962,46 @@ function NodeConfig({
       {data.kind === "human_intervention" ? (
         <>
           <div className="rounded-lg border border-sky-300/25 bg-sky-300/10 px-3 py-2 text-xs leading-5 text-sky-50">
-            运行到这里会暂停流水线，等待用户在运行面板提交文本后继续。
+            运行到这里会持久暂停；服务重启后仍可从审批记录恢复。超时不会自动批准。
           </div>
+          {String(data.contractVersion ?? "1") !== "2" ? (
+            <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-3 text-xs leading-5 text-amber-50">
+              <p>这是旧版人工介入配置。发布新版本前需要显式升级。</p>
+              <button
+                className="mt-2 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950"
+                onClick={() => {
+                  onReplaceNodeData(node.id, {
+                    kind: "human_intervention",
+                    title: data.title,
+                    description: "暂停执行，等待人工输入或批准后从断点继续。",
+                    contractVersion: 2,
+                    interactionMode:
+                      data.interactionMode === "approval" ? "approval" : "input",
+                    prompt: String(data.prompt ?? "请补充内容。"),
+                    outputVariable: String(data.outputVariable ?? "human_input"),
+                    timeoutSeconds: 3600,
+                  });
+                  setMigrationNotice("人工介入已升级为 V2。");
+                }}
+                type="button"
+              >
+                升级为 V2
+              </button>
+            </div>
+          ) : (
+            <Field label="交互模式">
+              <select
+                className={textInputClass()}
+                onChange={(event) =>
+                  update({ interactionMode: event.target.value as "input" | "approval" })
+                }
+                value={data.interactionMode ?? "input"}
+              >
+                <option value="input">提交人工文本</option>
+                <option value="approval">批准或拒绝</option>
+              </select>
+            </Field>
+          )}
           <Field label="提示文案（支持 {{变量}}）">
             <WorkflowVariableField
               className="min-h-32 resize-none leading-6"
@@ -3656,6 +4026,20 @@ function NodeConfig({
               value={data.outputVariable ?? ""}
             />
           </Field>
+          {String(data.contractVersion ?? "1") === "2" ? (
+            <Field label="等待时限（秒）">
+              <input
+                className={textInputClass()}
+                max={86400}
+                min={30}
+                onChange={(event) => update({ timeoutSeconds: Number(event.target.value) })}
+                type="number"
+                value={data.timeoutSeconds ?? 3600}
+              />
+              <p className="mt-1 text-xs leading-5 text-slate-500">30 秒至 24 小时；过期后需重新打开审批请求。</p>
+            </Field>
+          ) : null}
+          {migrationNotice ? <p className="text-xs text-emerald-200">{migrationNotice}</p> : null}
         </>
       ) : null}
 
@@ -3882,20 +4266,102 @@ function NodeConfig({
       {data.kind === "mcp_tool" ? (
         <>
           <div className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-xs leading-5 text-emerald-50">
-            先在 MCP 工具采购页连接 Server，工具会自动进入全局注册表。
+            工具按服务器、名称和 Schema 指纹固定；运行时重新解析当前会话，不保存短生命周期 sessionId。
           </div>
+          {String(data.contractVersion ?? "1") !== "2" ? (
+            <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-3 text-xs leading-5 text-amber-50">
+              <p>这是旧版 argumentsJson 配置。发布新版本前需要显式迁移。</p>
+              <button
+                className="mt-2 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950"
+                onClick={() => {
+                  const toolName = String(data.toolName ?? "").trim();
+                  const matches = registryTools.filter((tool) => tool.name === toolName);
+                  if (matches.length !== 1) {
+                    setMigrationNotice(matches.length > 1
+                      ? "迁移被阻止：存在同名工具，请先在 V2 中明确选择服务器。"
+                      : "迁移被阻止：当前 Registry 无法唯一解析旧工具。");
+                    return;
+                  }
+                  const raw = String(data.argumentsJson ?? "{}");
+                  if (raw.includes("{{")) {
+                    setMigrationNotice("迁移被阻止：旧参数包含混合模板，无法无损转成类型化绑定。");
+                    return;
+                  }
+                  let parsed: Record<string, WorkflowValue>;
+                  try {
+                    const value = JSON.parse(raw) as unknown;
+                    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
+                    parsed = value as Record<string, WorkflowValue>;
+                  } catch {
+                    setMigrationNotice("迁移被阻止：旧参数不是合法 JSON 对象。");
+                    return;
+                  }
+                  const tool = matches[0];
+                  const properties = tool.input_schema.properties;
+                  if (tool.input_schema.type !== "object" || !properties || typeof properties !== "object" || Array.isArray(properties)) {
+                    setMigrationNotice("迁移被阻止：该工具需要对象变量模式，旧 JSON 无法自动映射。");
+                    return;
+                  }
+                  const propertyNames = new Set(Object.keys(properties));
+                  const required = new Set(Array.isArray(tool.input_schema.required) ? tool.input_schema.required.filter((item): item is string => typeof item === "string") : []);
+                  if (Object.keys(parsed).some((name) => !propertyNames.has(name)) || [...required].some((name) => !(name in parsed))) {
+                    setMigrationNotice("迁移被阻止：旧参数与当前工具 Schema 不一致。");
+                    return;
+                  }
+                  if (!window.confirm("迁移后工具将固定到当前服务器和 Schema；旧 argumentsJson 会转换为类型化字面量绑定。是否继续？")) return;
+                  onReplaceNodeData(node.id, {
+                    kind: "mcp_tool",
+                    title: data.title,
+                    description: "按服务器、工具和 Schema 指纹调用已注册的 MCP 工具。",
+                    contractVersion: 2,
+                    serverId: tool.server_id,
+                    toolName: tool.name,
+                    inputSchemaChecksum: tool.schema_checksum,
+                    argumentMode: "fields",
+                    argumentBindings: Object.entries(parsed).map(([name, value], index) => ({
+                      id: `argument_${index + 1}`,
+                      name,
+                      binding: { source: "literal", value },
+                    })),
+                    argumentsVariable: "mcp_arguments",
+                    outputVariable: String(data.outputVariable ?? "mcp_output"),
+                  });
+                  setMigrationNotice("MCP 工具已升级为 V2 固定绑定。");
+                }}
+                type="button"
+              >
+                尝试无损迁移
+              </button>
+            </div>
+          ) : null}
           <Field label="MCP 工具">
             <select
               className={textInputClass()}
-              onChange={(event) => update({ toolName: event.target.value })}
-              value={data.toolName ?? ""}
+              disabled={String(data.contractVersion ?? "1") !== "2"}
+              onChange={(event) => {
+                if (!event.target.value) {
+                  update({ serverId: "", toolName: "", inputSchemaChecksum: "", argumentBindings: [] });
+                  return;
+                }
+                const [serverId, toolName] = JSON.parse(event.target.value) as [string, string];
+                const tool = registryTools.find((item) => item.server_id === serverId && item.name === toolName);
+                if (!tool) return;
+                const reconciled = reconcileMcpArgumentBindings(tool.input_schema);
+                update({
+                  serverId,
+                  toolName,
+                  inputSchemaChecksum: tool.schema_checksum,
+                  ...reconciled,
+                });
+              }}
+              value={data.serverId && data.toolName ? JSON.stringify([data.serverId, data.toolName]) : ""}
             >
               <option className="bg-slate-950" value="">
                 {registryTools.length ? "请选择工具" : "暂无已注册工具"}
               </option>
               {registryTools.map((tool) => (
-                <option className="bg-slate-950" key={tool.name} value={tool.name}>
-                  {tool.name}
+                <option className="bg-slate-950" key={`${tool.server_id}:${tool.name}`} value={JSON.stringify([tool.server_id, tool.name])}>
+                  {tool.name} · {tool.server_id}
                 </option>
               ))}
             </select>
@@ -3903,20 +4369,128 @@ function NodeConfig({
               <p className="mt-2 text-xs text-rose-200">{registryToolsError}</p>
             ) : null}
           </Field>
-          <Field label="参数 JSON（支持 {{变量}}）">
-            <WorkflowVariableField
-              className="min-h-32 resize-none font-mono text-xs leading-5"
-              contract={variableContract}
-              edges={edges}
-              fieldName="argumentsJson"
-              multiline
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ argumentsJson: value })}
-              placeholder='{"url":"{{user_input}}"}'
-              value={data.argumentsJson ?? "{}"}
-            />
-          </Field>
+          {String(data.contractVersion ?? "1") === "2" && data.toolName ? (
+            <>
+              {mcpSchemaDrift && selectedRegistryTool ? (
+                <div className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-3 text-xs leading-5 text-amber-50">
+                  <p className="font-semibold">工具 Schema 已变化，当前配置不能发布或运行。</p>
+                  <p className="mt-1 break-all text-amber-100/80">
+                    已保存 {String(data.inputSchemaChecksum ?? "").slice(0, 12)}… · 当前 {selectedRegistryTool.schema_checksum.slice(0, 12)}…
+                  </p>
+                  <button
+                    className="mt-2 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950"
+                    onClick={() => {
+                      const reconciled = reconcileMcpArgumentBindings(
+                        selectedRegistryTool.input_schema,
+                        data.argumentMode === "fields" ? data.argumentBindings ?? [] : [],
+                      );
+                      update({
+                        inputSchemaChecksum: selectedRegistryTool.schema_checksum,
+                        ...reconciled,
+                      });
+                      setMigrationNotice("已重新确认当前 Schema；同名字段保留原绑定，请检查新增字段后再发布。");
+                    }}
+                    type="button"
+                  >
+                    重新确认当前 Schema
+                  </button>
+                </div>
+              ) : null}
+              <p className="break-all rounded-md bg-white/[0.04] px-3 py-2 font-mono text-[10px] leading-4 text-slate-400">
+                Schema {String(data.inputSchemaChecksum ?? "").slice(0, 16)}…
+              </p>
+              <Field label="参数方式">
+                <select
+                  className={textInputClass()}
+                  onChange={(event) => update({ argumentMode: event.target.value as "fields" | "object_variable" })}
+                  value={data.argumentMode ?? "fields"}
+                >
+                  <option value="fields">按字段绑定</option>
+                  <option value="object_variable">绑定完整 JSON 对象变量</option>
+                </select>
+              </Field>
+              {data.argumentMode === "object_variable" ? (
+                <Field label="参数对象变量">
+                  <WorkflowVariableField
+                    contract={variableContract}
+                    edges={edges}
+                    fieldName="argumentsVariable"
+                    node={node}
+                    nodes={nodes}
+                    onChange={(value) => update({ argumentsVariable: value })}
+                    value={data.argumentsVariable ?? ""}
+                  />
+                </Field>
+              ) : (
+                <div className="space-y-3">
+                  {(data.argumentBindings ?? []).map((item, index) => (
+                    <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3" key={item.id}>
+                      <p className="text-xs font-semibold text-slate-200">{item.name}</p>
+                      <select
+                        className={`${textInputClass()} mt-2`}
+                        onChange={(event) => {
+                          const next = [...(data.argumentBindings ?? [])];
+                          next[index] = {
+                            ...item,
+                            binding: event.target.value === "variable"
+                              ? { source: "variable", variable: "" }
+                              : { source: "literal", value: "" },
+                          };
+                          update({ argumentBindings: next });
+                        }}
+                        value={item.binding.source}
+                      >
+                        <option value="literal">固定值</option>
+                        <option value="variable">工作流变量</option>
+                      </select>
+                      {item.binding.source === "variable" ? (
+                        <div className="mt-2">
+                          <WorkflowVariableField
+                            contract={variableContract}
+                            descriptor={{
+                              nodeKind: "mcp_tool",
+                              field: `argumentBindings.${index}.binding.variable`,
+                              mode: "binding",
+                              fallbackTypes: workflowTypesForMcpSchema(
+                                (registryTools.find(
+                                  (tool) => tool.server_id === data.serverId && tool.name === data.toolName,
+                                )?.input_schema.properties as Record<string, unknown> | undefined)?.[item.name],
+                              ),
+                            }}
+                            edges={edges}
+                            fieldName="argumentsVariable"
+                            node={node}
+                            nodes={nodes}
+                            onChange={(value) => {
+                              const next = [...(data.argumentBindings ?? [])];
+                              next[index] = { ...item, binding: { source: "variable", variable: value } };
+                              update({ argumentBindings: next });
+                            }}
+                            value={item.binding.variable ?? ""}
+                          />
+                        </div>
+                      ) : (
+                        <div className="mt-2">
+                          <JsonLiteralEditor
+                            onChange={(value) => {
+                              const next = [...(data.argumentBindings ?? [])];
+                              next[index] = { ...item, binding: { source: "literal", value } };
+                              update({ argumentBindings: next });
+                            }}
+                            value={item.binding.value ?? ""}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : String(data.contractVersion ?? "1") !== "2" ? (
+            <Field label="旧参数 JSON（只读迁移源）">
+              <textarea className={`${textInputClass()} min-h-28 font-mono text-xs`} readOnly value={data.argumentsJson ?? "{}"} />
+            </Field>
+          ) : null}
           <Field label="输出变量">
             <WorkflowVariableField
               contract={variableContract}
@@ -3928,6 +4502,7 @@ function NodeConfig({
               value={data.outputVariable ?? ""}
             />
           </Field>
+          {migrationNotice ? <p className="text-xs text-amber-100">{migrationNotice}</p> : null}
         </>
       ) : null}
 
@@ -4988,6 +5563,17 @@ function WorkflowCanvas({
           : node,
       ),
     );
+  }
+
+  function replaceNodeData(nodeId: string, data: WorkflowNodeData) {
+    commitHistory();
+    setNodes((currentNodes) =>
+      currentNodes.map((node) =>
+        node.id === nodeId ? { ...node, type: "workflowNode", data } : node,
+      ),
+    );
+    setSaveNotice("节点已显式迁移；可使用撤销恢复旧配置。");
+    window.setTimeout(() => setSaveNotice(""), 2600);
   }
 
   function migrateTypedAiNode(nodeId: string): string {
@@ -6169,6 +6755,7 @@ function WorkflowCanvas({
               onRuntimeMiddlewareConfigChange={updateRuntimeMiddlewareConfig}
               onOpenRunFileInput={openRunFileInput}
               onOpenVariableCenter={() => setIsVariableCenterOpen(true)}
+              onReplaceNodeData={replaceNodeData}
               onSelectNode={setSelectedNodeId}
               workflowId={workflowId}
             />

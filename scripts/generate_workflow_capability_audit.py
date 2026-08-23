@@ -13,6 +13,31 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 DIRECT_UPDATES = {
+    "renameKeys": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "object_transform",
+        "判断说明": "自研对象整理已提供稳定步骤 ID 的顶层字段重命名，并对缺失字段和命名冲突失败关闭。",
+    },
+    "mcpClientTool": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "mcp_tool",
+        "判断说明": "自研 MCP 工具 V2 固定服务器、单一工具与 Schema 指纹，使用类型化参数和脱敏审批；不扩展为完整工具集连接能力。",
+    },
+    "mcpClient": {
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "mcp_tool",
+        "判断说明": "自研 MCP 工具 V2 只闭环一个固定工具调用；没有把整套动态 MCP Toolset 暴露为同等画布节点。",
+    },
+    "mcpRegistryClientTool": {
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "mcp_tool",
+        "判断说明": "模镜有自有会话 Registry 和固定单工具解析，但不宣称具备参考项的完整注册表客户端节点语义。",
+    },
+    "memoryManager": {
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "agent / workflow_agent",
+        "判断说明": "智能体内部支持受控记忆读写配置，仅属于嵌入式覆盖；当前没有可独立连线和配置的记忆管理节点。",
+    },
     "informationExtractor": {
         "模镜当前状态": "已实现",
         "模镜对应节点": "parameter_extractor",
@@ -203,7 +228,7 @@ def status_bucket(value: str) -> str:
     return "未实现"
 
 
-def current_registry_counts() -> tuple[int, int, int, int]:
+def current_registry_counts() -> tuple[int, int, int, int, int]:
     from server.workflow_native.node_contracts import workflow_node_contract_registry
     from server.workflow_native.schemas import NativeNodeKind
     from server.xpert_runtime.workflow_node_registry import (
@@ -222,6 +247,7 @@ def current_registry_counts() -> tuple[int, int, int, int]:
     return (
         len(get_args(NativeNodeKind)),
         len(palette_kinds),
+        sum(contract.contract_status == "complete" for contract in contracts),
         sum(contract.contract_status == "compatibility" for contract in contracts),
         sum(contract.planner.enabled for contract in contracts),
     )
@@ -261,7 +287,7 @@ def main() -> None:
         domains[row["能力域"]]["总数"] += 1
     ee_count = sum(".ee" in row.get("来源条目标识", "") for row in rows)
     direct_rows = [row for row in rows if row.get("n8n内部标识") in DIRECT_UPDATES]
-    native_count, palette_count, compatibility_count, planner_count = (
+    native_count, palette_count, complete_count, compatibility_count, planner_count = (
         current_registry_counts()
     )
 
@@ -277,9 +303,9 @@ def main() -> None:
         f"{row['n8n原名参考']} | {row['模镜当前状态']} |"
         for row in direct_rows
     ]
-    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9）
+    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0）
 
-- 审计日期：2026-08-22
+- 审计日期：2026-08-23
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
 - R0 基线事实：NodeContract V3、37 个 `NativeNodeKind`、35 个画布目录项、20 个冻结 compatibility 合同
 - R1 结果：新增 4 个完整合同，并将既有 `llm` 提升为完整合同；自研节点总数 41、画布目录项 39、当前 19 个冻结 compatibility 合同；四节点与 `llm` Planner 均关闭
@@ -287,8 +313,9 @@ def main() -> None:
 - R1.5 PR2 结果：新增完整合同 `workflow_call_entry` 与 `invoke_workflow`；自研节点总数 44、画布目录项 42、compatibility 白名单不增长；仅支持私有同步固定版本调用，Planner 关闭且 Xpert 内嵌入口禁止
 - R1.6 结果：新增完整合同 `terminate_error`、`multi_route`、`data_aggregate`，并将 `list_operation` 提升为完整合同；自研节点总数 47、画布目录项 45、当前 18 个冻结 compatibility 合同；四类均允许经典工作流和 Xpert 使用，Planner 关闭
 - R1.7 结果：新增完整合同 `dataset_compare`，并将 `http_request`、`condition` 提升为完整合同；自研节点总数 48、画布目录项 46、当前 16 个冻结 compatibility 合同；Planner 仍固定为 7 类
-- R1.8 结果：新增完整合同 `file_output`、`object_transform`，并将 `document_extractor`、`time_tool` 提升为完整合同，同时扩展 `list_operation`；自研节点总数 {native_count}、画布目录项 {palette_count}、当前 {compatibility_count} 个冻结 compatibility 合同；文件节点仅允许经典工作流和私有 Xpert，Planner 仍固定为 {planner_count} 类
-- R1.9 结果：不新增普通节点，将 `parameter_extractor`、`question_classifier` 提升为完整 V2 合同，并在既有 `runtime_middleware` 下增加 `content_policy` 文本策略；自研节点总数 {native_count}、画布目录项 {palette_count}、当前 {compatibility_count} 个冻结 compatibility 合同，Planner 仍固定为 {planner_count} 类
+- R1.8 结果：新增完整合同 `file_output`、`object_transform`，并将 `document_extractor`、`time_tool` 提升为完整合同，同时扩展 `list_operation`；自研节点总数 50、画布目录项 48、当前 14 个冻结 compatibility 合同；文件节点仅允许经典工作流和私有 Xpert，Planner 仍固定为 7 类
+- R1.9 结果：不新增普通节点，将 `parameter_extractor`、`question_classifier` 提升为完整 V2 合同，并在既有 `runtime_middleware` 下增加 `content_policy` 文本策略；自研节点总数 50、画布目录项 48、当前 12 个冻结 compatibility 合同，Planner 仍固定为 7 类
+- R2.0 结果：不新增普通节点，将 `human_intervention`、`mcp_tool`、`variable_assign` 提升为完整 V2 合同，并退役旧知识引用新增入口；当前 {native_count} Native、{palette_count} 个可新增 Palette 项、{complete_count} 个完整合同、{compatibility_count} 个 compatibility 合同、{planner_count} 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` {ee_count} 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -323,7 +350,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R1.9 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.0 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
 """
     (args.output_dir / "N8N_NODE_CAPABILITY_MATRIX.md").write_text(
         markdown,
