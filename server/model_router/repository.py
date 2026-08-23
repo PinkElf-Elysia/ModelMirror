@@ -16,6 +16,11 @@ from typing import Protocol
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from .chat_gate import (
+    REQUIRED_PROVIDER_CHAT_DRILLS,
+    evaluate_provider_chat_gate,
+    validate_provider_chat_drills,
+)
 from .gate import REQUIRED_DRILLS, evaluate_native_gate, percentile
 from .omniroute_parity import ALGORITHM_VERSION, CONFIG_HASH
 from .schemas import (
@@ -1996,6 +2001,31 @@ class SQLiteRouterRepository:
                 "SELECT * FROM provider_chat_runs WHERE tenant_id = ? AND id = ?",
                 (clean_tenant, run_id),
             ).fetchone()
+            if bool(hard_failure) and row is not None and row["epoch_id"]:
+                failure_code = next(
+                    (
+                        str(item)
+                        for item in reversed(reason_codes or [])
+                        if str(item).strip()
+                    ),
+                    str(result_class or "provider_chat_hard_failure"),
+                )
+                connection.execute(
+                    """
+                    UPDATE provider_chat_gate_epochs
+                    SET status = 'degraded', hard_failure_code = ?, closed_at = ?
+                    WHERE tenant_id = ? AND id = ? AND closed_at IS NULL
+                    """,
+                    (failure_code, now, clean_tenant, row["epoch_id"]),
+                )
+                connection.execute(
+                    """
+                    UPDATE provider_chat_gate_approvals
+                    SET revoked_at = ?
+                    WHERE tenant_id = ? AND epoch_id = ? AND revoked_at IS NULL
+                    """,
+                    (now, clean_tenant, row["epoch_id"]),
+                )
         return dict(row)
 
     def list_chat_control_receipts(
@@ -2082,6 +2112,21 @@ class SQLiteRouterRepository:
                 and current is not None
                 and str(current["policy_fingerprint"]) == policy_fingerprint
             ):
+                if str(current["status"]) == "open":
+                    connection.execute(
+                        """
+                        UPDATE provider_chat_gate_epochs SET status = 'collecting'
+                        WHERE tenant_id = ? AND id = ? AND status = 'open'
+                        """,
+                        (clean_tenant, current["id"]),
+                    )
+                    current = connection.execute(
+                        """
+                        SELECT * FROM provider_chat_gate_epochs
+                        WHERE tenant_id = ? AND id = ?
+                        """,
+                        (clean_tenant, current["id"]),
+                    ).fetchone()
                 return dict(current)
             if current is not None:
                 connection.execute(
@@ -2102,6 +2147,20 @@ class SQLiteRouterRepository:
             )
             if not qualified:
                 return None
+            latest_same_policy = connection.execute(
+                """
+                SELECT * FROM provider_chat_gate_epochs
+                WHERE tenant_id = ? AND policy_fingerprint = ?
+                ORDER BY started_at DESC, id DESC
+                LIMIT 1
+                """,
+                (clean_tenant, policy_fingerprint),
+            ).fetchone()
+            if (
+                latest_same_policy is not None
+                and str(latest_same_policy["status"]) == "degraded"
+            ):
+                return None
             connection.execute(
                 """
                 INSERT INTO provider_chat_gate_epochs (
@@ -2118,6 +2177,331 @@ class SQLiteRouterRepository:
                 (clean_tenant, epoch_id),
             ).fetchone()
         return dict(row) if row is not None else None
+
+    def summarize_chat_control_gate(
+        self,
+        tenant_id: str,
+        *,
+        epoch_id: str,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            return self._summarize_chat_control_gate(
+                connection,
+                tenant_id=clean_tenant,
+                epoch_id=epoch_id,
+            )
+
+    @staticmethod
+    def _summarize_chat_control_gate(
+        connection: sqlite3.Connection,
+        *,
+        tenant_id: str,
+        epoch_id: str,
+    ) -> dict[str, object]:
+        aggregate = connection.execute(
+            """
+            WITH eligible AS (
+                SELECT r.*,
+                       CASE WHEN r.hard_failure = 1 OR EXISTS (
+                           SELECT 1 FROM provider_chat_attempts AS failed_attempt
+                           WHERE failed_attempt.tenant_id = r.tenant_id
+                             AND failed_attempt.run_id = r.id
+                             AND failed_attempt.result_class = 'hard_failure'
+                       ) THEN 1 ELSE 0 END AS observed_hard_failure
+                FROM provider_chat_runs AS r
+                WHERE r.tenant_id = ? AND r.epoch_id = ?
+                  AND r.capability = 'chat_text'
+                  AND r.gateway = 'default'
+                  AND r.is_real_user = 1
+                  AND r.primary_newapi = 1
+                  AND r.client_cancelled = 0
+                  AND EXISTS (
+                      SELECT 1 FROM provider_chat_attempts AS attempt
+                      WHERE attempt.tenant_id = r.tenant_id
+                        AND attempt.run_id = r.id
+                        AND attempt.position = 0
+                        AND attempt.provider_kind = 'newapi'
+                        AND attempt.dispatched = 1
+                  )
+            )
+            SELECT COUNT(*) AS request_count,
+                   SUM(CASE WHEN status = 'succeeded' AND result_class = 'success'
+                            THEN 1 ELSE 0 END) AS success_count,
+                   SUM(observed_hard_failure)
+                       AS hard_failure_count,
+                   MIN(created_at) AS first_created_at,
+                   MAX(created_at) AS last_created_at
+            FROM eligible
+            """,
+            (tenant_id, epoch_id),
+        ).fetchone()
+        model_rows = connection.execute(
+            """
+            SELECT r.requested_model, COUNT(*) AS success_count
+            FROM provider_chat_runs AS r
+            WHERE r.tenant_id = ? AND r.epoch_id = ?
+              AND r.capability = 'chat_text'
+              AND r.gateway = 'default'
+              AND r.is_real_user = 1
+              AND r.primary_newapi = 1
+              AND r.client_cancelled = 0
+              AND r.status = 'succeeded' AND r.result_class = 'success'
+              AND EXISTS (
+                  SELECT 1 FROM provider_chat_attempts AS attempt
+                  WHERE attempt.tenant_id = r.tenant_id
+                    AND attempt.run_id = r.id
+                    AND attempt.position = 0
+                    AND attempt.provider_kind = 'newapi'
+                    AND attempt.dispatched = 1
+              )
+            GROUP BY r.requested_model
+            """,
+            (tenant_id, epoch_id),
+        ).fetchall()
+        model_successes = {
+            str(row["requested_model"]): int(row["success_count"])
+            for row in model_rows
+        }
+        observed_days = 0.0
+        if (
+            aggregate is not None
+            and aggregate["first_created_at"]
+            and aggregate["last_created_at"]
+        ):
+            try:
+                first = datetime.fromisoformat(
+                    str(aggregate["first_created_at"]).replace("Z", "+00:00")
+                )
+                last = datetime.fromisoformat(
+                    str(aggregate["last_created_at"]).replace("Z", "+00:00")
+                )
+                observed_days = max(0.0, (last - first).total_seconds() / 86400)
+            except ValueError:
+                observed_days = 0.0
+        return {
+            "request_count": int(aggregate["request_count"] or 0),
+            "success_count": int(aggregate["success_count"] or 0),
+            "hard_failure_count": int(aggregate["hard_failure_count"] or 0),
+            "observed_days": observed_days,
+            "model_successes": model_successes,
+        }
+
+    def get_chat_control_gate_approval(
+        self,
+        tenant_id: str,
+        *,
+        policy_fingerprint: str,
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM provider_chat_gate_approvals
+                WHERE tenant_id = ? AND policy_fingerprint = ?
+                  AND revoked_at IS NULL
+                """,
+                (clean_tenant, policy_fingerprint),
+            ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        result["no_open_p0_p1"] = bool(result["no_open_p0_p1"])
+        result["acknowledge_fail_closed"] = bool(
+            result["acknowledge_fail_closed"]
+        )
+        result["drills"] = json.loads(str(result.pop("drills_json") or "{}"))
+        return result
+
+    def list_chat_control_acceptance_evidence(
+        self,
+        tenant_id: str,
+        *,
+        policy_fingerprint: str,
+        epoch_id: str,
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT evidence_kind, passed, observed_at
+                FROM provider_chat_acceptance_evidence
+                WHERE tenant_id = ? AND policy_fingerprint = ? AND epoch_id = ?
+                ORDER BY evidence_kind ASC, observed_at DESC
+                """,
+                (clean_tenant, policy_fingerprint, epoch_id),
+            ).fetchall()
+        return [
+            {
+                "evidence_kind": str(row["evidence_kind"]),
+                "passed": bool(row["passed"]),
+                "observed_at": str(row["observed_at"]),
+            }
+            for row in rows
+        ]
+
+    def get_latest_chat_control_hard_failure(
+        self,
+        tenant_id: str,
+        *,
+        connection_id: str,
+        model_id: str,
+        capability: str,
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT run.completed_at, run.reason_codes_json, run.epoch_id
+                FROM provider_chat_runs AS run
+                JOIN provider_chat_attempts AS attempt
+                  ON attempt.tenant_id = run.tenant_id AND attempt.run_id = run.id
+                WHERE run.tenant_id = ? AND run.capability = ?
+                  AND run.requested_model = ? AND run.hard_failure = 1
+                  AND attempt.connection_id = ? AND attempt.dispatched = 1
+                ORDER BY run.completed_at DESC, run.id DESC
+                LIMIT 1
+                """,
+                (clean_tenant, capability, model_id, connection_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def activate_chat_control_required(
+        self,
+        tenant_id: str,
+        *,
+        expected_revision: int,
+        policy_fingerprint: str,
+        epoch_id: str,
+        no_open_p0_p1: bool,
+        drills: dict[str, bool],
+        acknowledge_fail_closed: bool,
+        correlation_hash: str,
+        evidence_checks: dict[str, bool],
+    ) -> None:
+        clean_tenant = self._tenant_id(tenant_id)
+        if not no_open_p0_p1:
+            raise RouterRepositoryError("provider_chat_gate_p0_p1_attestation_required")
+        drill_errors = validate_provider_chat_drills(drills)
+        if drill_errors:
+            raise RouterRepositoryError(drill_errors[0])
+        if not acknowledge_fail_closed:
+            raise RouterRepositoryError("provider_chat_gate_fail_closed_ack_required")
+        required_evidence = {
+            "newapi_quota_decrement",
+            "newapi_usage_log",
+            "newapi_restart_persistence",
+        }
+        if set(evidence_checks) != required_evidence or not all(
+            evidence_checks.values()
+        ):
+            raise RouterRepositoryError("provider_chat_gate_acceptance_evidence_required")
+        if len(correlation_hash) != 64 or any(
+            char not in "0123456789abcdef" for char in correlation_hash
+        ):
+            raise RouterRepositoryError("provider_chat_gate_correlation_hash_invalid")
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            policy = connection.execute(
+                """
+                SELECT * FROM provider_chat_stable_policies WHERE tenant_id = ?
+                """,
+                (clean_tenant,),
+            ).fetchone()
+            if policy is None or int(policy["revision"]) != int(expected_revision):
+                raise RouterRepositoryError("provider_chat_policy_revision_conflict")
+            if str(policy["mode"]) != "newapi_preferred":
+                raise RouterRepositoryError("provider_chat_gate_preferred_mode_required")
+            if str(policy["policy_fingerprint"]) != policy_fingerprint:
+                raise RouterRepositoryError("provider_chat_gate_policy_changed")
+            epoch = connection.execute(
+                """
+                SELECT * FROM provider_chat_gate_epochs
+                WHERE tenant_id = ? AND id = ? AND policy_fingerprint = ?
+                  AND closed_at IS NULL AND status IN ('open', 'collecting', 'ready')
+                """,
+                (clean_tenant, epoch_id, policy_fingerprint),
+            ).fetchone()
+            if epoch is None:
+                raise RouterRepositoryError("provider_chat_gate_epoch_changed")
+            stable_models = [
+                str(item)
+                for item in json.loads(str(policy["stable_models_json"] or "[]"))
+            ]
+            summary = self._summarize_chat_control_gate(
+                connection,
+                tenant_id=clean_tenant,
+                epoch_id=epoch_id,
+            )
+            evaluation = evaluate_provider_chat_gate(
+                summary,
+                stable_model_ids=stable_models,
+            )
+            if not evaluation.ready:
+                raise RouterRepositoryError(evaluation.blocking_reason_codes[0])
+            connection.execute(
+                """
+                UPDATE provider_chat_stable_policies
+                SET mode = 'newapi_required_default', revision = revision + 1,
+                    updated_at = ?
+                WHERE tenant_id = ? AND revision = ?
+                """,
+                (now, clean_tenant, int(expected_revision)),
+            )
+            connection.execute(
+                """
+                UPDATE provider_chat_gate_epochs SET status = 'active'
+                WHERE tenant_id = ? AND id = ? AND closed_at IS NULL
+                """,
+                (clean_tenant, epoch_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO provider_chat_gate_approvals (
+                    tenant_id, policy_fingerprint, epoch_id, no_open_p0_p1,
+                    drills_json, acknowledge_fail_closed, approved_at, revoked_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                ON CONFLICT(tenant_id, policy_fingerprint) DO UPDATE SET
+                    epoch_id = excluded.epoch_id,
+                    no_open_p0_p1 = excluded.no_open_p0_p1,
+                    drills_json = excluded.drills_json,
+                    acknowledge_fail_closed = excluded.acknowledge_fail_closed,
+                    approved_at = excluded.approved_at,
+                    revoked_at = NULL
+                """,
+                (
+                    clean_tenant,
+                    policy_fingerprint,
+                    epoch_id,
+                    1,
+                    json.dumps(
+                        {name: True for name in REQUIRED_PROVIDER_CHAT_DRILLS},
+                        separators=(",", ":"),
+                    ),
+                    1,
+                    now,
+                ),
+            )
+            for evidence_kind in sorted(required_evidence):
+                connection.execute(
+                    """
+                    INSERT INTO provider_chat_acceptance_evidence (
+                        id, tenant_id, policy_fingerprint, epoch_id,
+                        evidence_kind, correlation_hash, passed,
+                        reason_codes_json, observed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 1, '[]', ?)
+                    """,
+                    (
+                        f"chatevidence_{uuid.uuid4().hex}",
+                        clean_tenant,
+                        policy_fingerprint,
+                        epoch_id,
+                        evidence_kind,
+                        correlation_hash,
+                        now,
+                    ),
+                )
 
     def cleanup_chat_control_receipts(
         self,
@@ -2232,7 +2616,24 @@ class SQLiteRouterRepository:
                 """
                 SELECT * FROM provider_chat_gate_epochs
                 WHERE tenant_id = ? AND policy_fingerprint = ?
-                  AND status = 'open' AND closed_at IS NULL
+                  AND status IN ('open', 'collecting', 'ready', 'active')
+                  AND closed_at IS NULL
+                ORDER BY started_at DESC, id DESC
+                LIMIT 1
+                """,
+                (clean_tenant, policy_fingerprint),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def get_latest_chat_control_gate_epoch(
+        self, tenant_id: str, policy_fingerprint: str
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM provider_chat_gate_epochs
+                WHERE tenant_id = ? AND policy_fingerprint = ?
                 ORDER BY started_at DESC, id DESC
                 LIMIT 1
                 """,

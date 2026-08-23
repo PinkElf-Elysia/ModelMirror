@@ -168,7 +168,7 @@ Round 5B 将 `gateway=default` 的白名单普通文本和已提取文本附件�
 目录、凭据或 DNS/SSRF 预检失败且尚未派发 POST 时选择显式 Managed 备用。一旦 POST
 标记派发，HTTP 错误、超时、断流和不确定结果都不得调用第二 IP、Provider、模型或
 legacy 网关。Auto、工具、受控文件输出、多模态、Canary、SSE 成功字节和默认部署值
-保持不变；`newapi_required_default` 仍等待 R5E 门禁与人工批准。
+保持不变；该阶段尚未开放 `newapi_required_default`，其门禁与人工批准由 R5E 提供。
 
 Round 5C 在不改变 Auto 选路的前提下，把 `gateway=auto` 的普通文本接入同一父运行/尝试
 证据管道。该入口由租户策略中的独立 `auto_enabled` 门禁控制，默认关闭；关闭时 Auto
@@ -185,6 +185,18 @@ ModelMirror Runtime 执行，文件规格仍由 allowlisted renderer 校验和�
 获得工具凭据或本地文件权限。多步模型调用在首次派发前固定同一连接和批准 IP，后续步骤
 重新校验策略但不得切换 Provider、模型、IP 或 legacy 路径；Receipt 只保存聚合指标和
 稳定原因码，不保存消息、工具结果或生成内容。专用多模态与 Canary 行为不变。
+
+Round 5E 在 v15 表上启用普通文本资格纪元与只读证据聚合，不新增迁移。只有真实用户、
+`gateway=default`、当前策略指纹、`chat_text`、首选 newAPI 且已派发的稳定模型运行计入
+500 次、14 天、99% 和逐模型 10 次成功门槛。Auto、Canary、认证、工具、文件、备用与
+客户端取消均被排除。自动门槛只产生“可人工激活”状态，`newapi_required_default` 只能
+由带 revision、故障演练、P0/P1 声明和 newAPI 有界验收结论的管理员操作原子激活。
+
+required 运行时重新核对批准、资格纪元、策略与连接指纹，只尝试首选 newAPI；任何阶段
+不得进入备用或 legacy。硬失败会在同一证据面关闭纪元、撤销批准并令当前资格失效，策略
+仍保持 required 并失败关闭。恢复必须先由管理员显式退回 preferred、重新认证并建立新
+纪元。数据库只保存聚合运行证据、稳定原因码和外部验收关联哈希，不保存用户内容、模型
+输出、newAPI 余额或完整 Token 日志。
 
 `/settings?section=overview|providers|routing` 共用一份 Provider 管理会话。Marble 等其他
 集成位于该门禁之外；newAPI 管理 UI 继续只通过安全外链访问，不嵌入或代理。

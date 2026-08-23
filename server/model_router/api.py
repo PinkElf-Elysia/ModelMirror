@@ -36,6 +36,7 @@ from .schemas import (
     ProviderChatControlPolicyUpdate,
     ProviderChatControlPublicStatus,
     ProviderChatControlReceiptsResponse,
+    ProviderChatRequiredActivationRequest,
     ProviderChatCanaryAdminResponse,
     ProviderChatCanaryPolicyUpdate,
     ProviderChatCanaryPublicStatus,
@@ -342,6 +343,22 @@ def get_chat_control_gate(
 ) -> ProviderChatControlGateResponse:
     try:
         return ProviderChatControlService(get_model_router_service()).gate()
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.post(
+    "/chat-control/gate/activate-required",
+    response_model=ProviderChatControlGateResponse,
+)
+def activate_required_chat_control(
+    payload: ProviderChatRequiredActivationRequest,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderChatControlGateResponse:
+    try:
+        return ProviderChatControlService(
+            get_model_router_service()
+        ).activate_required(payload)
     except (RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
 
