@@ -1,7 +1,7 @@
 # Model Provider Control Plane
 
-状态：Round 0–4、Round 5A–5C 已合并；Round 5D 正在接入工具与受控文件输出；默认数据面切换未批准
-Round 5D 当前基线：`origin/main@20dd124e364701ee6ac569cc8de15d102eb1a07b`
+状态：Round 0–4、Round 5A–5D 已合并；Round 5E 正在建设资格证据与 required 人工门禁；默认数据面切换未批准
+Round 5E 当前基线：`origin/main@7e543d8c02dbb0386771bcae052d38f78c33b9ce`
 更新日期：2026-08-22
 
 ## 决策
@@ -39,6 +39,8 @@ Provider Control Plane 的会话、SQLite 或主密钥。它只加入独立外�
   Auto 接入不改变选路的独立证据管道。
 - Round 5D 只迁移 MCP 工具和受控文件输出的 Provider 选择与 Receipt；工具执行、权限、
   文件渲染和专用多模态协议仍由既有 Runtime 负责。
+- Round 5E 只实现普通文本 required 资格纪元、证据聚合、故障降级和可审核人工激活；
+  代码合并、部署或自动门槛达标均不等于批准切换。
 - newAPI 是否成为强制默认数据面由后续独立决策决定。
 - 任一门禁失败时保留现有静态数据面和 SQLite，不自动迁移或删除数据。
 
@@ -160,7 +162,7 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - R4 受管 Provider 不会自动配置或接管普通 `/api/chat`。当前 default Chat 仍读取
   `LLM_GATEWAY_URL/KEY` 或 `OPENROUTER_API_KEY`；迁移和 newAPI 默认门禁属于 Round 5。
 
-## Managed Chat 策略、稳定路由与 Auto 证据（Round 5A—5D）
+## Managed Chat 策略、稳定路由与 required 门禁（Round 5A—5E）
 
 - 内部契约版本为 `modelmirror-provider-chat-routing-v1`，将 `chat_text`、
   `chat_tools` 和 `chat_file_output` 分别认证和配置；普通文本认证不能证明工具或受控
@@ -172,7 +174,7 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   `running` 在重启后标为 `uncertain` 且不重放。
 - `GET/PUT /api/router/chat-control/policy` 使用 `expected_revision` 原子更新，避免覆盖并发
   管理修改。`GET /api/router/chat-control/gate` 和 receipts 接口提供只读门禁与脱敏运行
-  证据；required 激活仍不可用。
+  证据；普通策略更新不能直接进入 required。
 - R5B 只接管 `gateway=default`、稳定模型白名单内的普通文本和已提取文本附件。
   `MODEL_CONTROL_CHAT_ENABLED` 默认 `false`；关闭开关、选择 `legacy` 或使用白名单外模型
   时继续走原有静态路径。
@@ -190,8 +192,20 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - 工具由 ModelMirror Runtime 执行，文件由 allowlisted renderer 校验；Provider 只接收
   既有安全模型输入，不接收 MCP 凭据或本地文件权限。需要多次模型决策时保持同一连接和
   已批准 IP，策略漂移则失败关闭，不跨 Provider 重放。
-- 多模态与 Canary 不在 R5D 接入范围；`newapi_required_default` 仍等待 R5E 的证据门禁
-  与人工批准。
+- R5E 只把当前资格纪元内真实用户发起、`gateway=default`、`chat_text`、首选 newAPI
+  实际派发的稳定模型请求计入 required。Canary、认证、Auto、工具、文件、预检备用和
+  客户端取消不计入；每个稳定模型至少需要 10 次成功样本。
+- 自动门槛固定为至少 500 次合格请求、首末跨度至少 14 天、总成功率至少 99%、零硬
+  失败。达到门槛后仍需管理员确认无未解决 P0/P1、全部故障演练、required 失败关闭语义，
+  并提供 newAPI 额度扣减、Token 日志关联及重启持久化的有界验收结论。
+- `POST /api/router/chat-control/gate/activate-required` 使用策略 revision 在同一事务中复核
+  资格并记录人工批准。验收关联引用只保存 SHA-256 哈希；不保存余额、完整 newAPI 日志、
+  Prompt、回答或引用原文。该记录证明外部数据面验收，不构成 ModelMirror 计费系统。
+- required 只使用有序文本路由的首选 newAPI。任何预检或派发后失败都失败关闭，不能调用
+  备用、第二 IP 或 legacy；401/402/403、模型不一致、非法/空 SSE 或缺少终止信号会立即
+  关闭资格纪元、撤销批准并标记 degraded，但策略保持 required，不会自动降级。
+- degraded 后管理员只能显式退回 preferred，重新认证并建立新纪元；相同失败纪元不能被
+  自动重开。瞬时失败计入成功率，但不自动关闭纪元。
 - 清理命令 `python -m server.model_router.cleanup_chat_receipts --storage-dir <path>` 默认
   dry-run；只有显式增加 `--apply` 才会删除超过保留期的运行和尝试记录，默认保留 90 天。
 

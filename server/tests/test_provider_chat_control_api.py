@@ -71,6 +71,11 @@ async def test_admin_policy_gate_and_receipts_require_session_and_csrf(
         assert (
             await client.get("/api/router/chat-control/receipts")
         ).status_code == 401
+        assert (
+            await client.post(
+                "/api/router/chat-control/gate/activate-required", json={}
+            )
+        ).status_code == 401
 
         paired = await client.post(
             "/api/router/admin/session", json={"pairing_secret": PAIRING_SECRET}
@@ -106,7 +111,7 @@ async def test_admin_policy_gate_and_receipts_require_session_and_csrf(
         assert "provider_chat_control_data_plane_pending_r5b" not in gate.json()[
             "blocking_reason_codes"
         ]
-        assert "provider_chat_required_gate_pending_r5e" in gate.json()[
+        assert "provider_chat_gate_epoch_unavailable" in gate.json()[
             "blocking_reason_codes"
         ]
         receipts = await client.get("/api/router/chat-control/receipts")
@@ -121,9 +126,59 @@ async def test_admin_policy_gate_and_receipts_require_session_and_csrf(
             "provider_chat_receipt_cursor_invalid"
         )
 
+        activation_payload = {
+            "expected_revision": 1,
+            "no_open_p0_p1": True,
+            "acknowledge_fail_closed": True,
+            "drills": {
+                "auth_failure": True,
+                "http_429": True,
+                "http_5xx": True,
+                "connect_timeout": True,
+                "read_timeout": True,
+                "empty_stream": True,
+                "invalid_sse": True,
+                "stream_interrupted": True,
+                "service_restart": True,
+                "credential_invalid": True,
+                "data_plane_offline": True,
+                "preferred_fallback": True,
+            },
+            "newapi_correlation_reference": "opaque-newapi-correlation",
+            "quota_decrement_verified": True,
+            "usage_log_verified": True,
+            "restart_persistence_verified": True,
+        }
+        without_csrf = await client.post(
+            "/api/router/chat-control/gate/activate-required",
+            json=activation_payload,
+        )
+        assert without_csrf.status_code == 403
+        invalid_reference = await client.post(
+            "/api/router/chat-control/gate/activate-required",
+            headers={"X-ModelMirror-CSRF": csrf},
+            json={
+                **activation_payload,
+                "newapi_correlation_reference": "leakme",
+            },
+        )
+        assert invalid_reference.status_code == 422
+        assert "leakme" not in invalid_reference.text
+        not_ready = await client.post(
+            "/api/router/chat-control/gate/activate-required",
+            headers={"X-ModelMirror-CSRF": csrf},
+            json=activation_payload,
+        )
+        assert not_ready.status_code == 409
+        assert not_ready.json()["detail"]["code"] in {
+            "provider_chat_control_feature_disabled",
+            "provider_chat_control_legacy_mode",
+            "provider_chat_control_stable_models_required",
+        }
+
 
 @pytest.mark.asyncio
-async def test_required_policy_is_rejected_until_r5e(
+async def test_required_policy_is_rejected_outside_gate_activation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -97,7 +97,7 @@ docker compose -f docker-compose.yml `
 ModelMirror 不得删除该目录。newAPI 上游为带附加条款的 AGPLv3 项目；本仓库不
 嵌入或修改其管理 UI，部署者仍需自行完成许可证与业务使用合规审查。
 
-### Provider Control Plane、v14 Catalog 与 R5D Managed Chat
+### Provider Control Plane、v14 Catalog 与 R5E Managed Chat
 
 Provider 管理面仍需外部注入至少 32 字符的
 `MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET` 和规范凭据主密钥。升级到 SQLite v14
@@ -167,6 +167,18 @@ Runtime 按既有权限执行，文件仍由 allowlisted renderer 生成，Provi
 或本地文件权限。首次 Provider 派发后，多步模型决策只能继续使用同一连接和预检批准的
 IP；连接、策略或资格漂移会失败关闭，不转向备用或 legacy。关闭
 `MODEL_CONTROL_CHAT_ENABLED` 即恢复全部旧静态路径；多模态与 Canary 不受影响。
+
+R5E 不增加环境变量，也不会因部署或样本达标自动进入 required。设置页仅在当前
+preferred 策略的资格纪元达到 500 次、14 天、99%、逐稳定模型至少 10 次成功且零硬失败
+后开放 Go/No-Go 区域。管理员还必须逐项确认故障演练、无未解决 P0/P1、失败关闭语义，
+以及 newAPI 额度扣减、Token 日志关联和重启持久化。验收关联引用仅在请求内传输，SQLite
+只保存其 SHA-256 哈希；不要输入 API Key、Token 或日志正文。
+
+激活 required 后，普通文本只允许首选 newAPI，任何预检或派发后失败都不会调用备用或
+legacy。硬失败会令 Gate 标记 degraded 并撤销批准，但不会自动改变 required 策略。
+恢复时先在设置页显式退回 `newapi_preferred`，重新完成受影响模型认证并收集新资格纪元；
+不得直接修改 SQLite、伪造 Receipt 或重开旧纪元。紧急回滚可先显式退回 preferred；必要
+时关闭 `MODEL_CONTROL_CHAT_ENABLED` 并重启以恢复 legacy 路径，同时保留 v15 表和证据。
 
 Direct Chat 可以读取已连接 MCP Catalog 中明确标记为只读、无需审批、非敏感且非终止性的
 工具；调用仍经 Catalog Service 重新执行策略校验。该接入使用独立的 Chat Runtime 能力，

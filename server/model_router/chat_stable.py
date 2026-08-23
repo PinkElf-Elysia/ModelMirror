@@ -16,6 +16,7 @@ class ProviderChatStableDispatch:
     run_id: str
     attempt_id: str
     policy_fingerprint: str
+    strategy: str
     capability: ProviderChatCapability
     requested_model: str
     target: ProviderChatTarget
@@ -56,6 +57,38 @@ class ProviderChatStableService:
             or clean_model not in policy.stable_model_ids
         ):
             return ProviderChatStablePreflight(intercepted=False)
+        runtime_allowed, runtime_error = self.control.required_runtime_allowed(policy)
+        if not runtime_allowed:
+            error_code = runtime_error or "provider_chat_required_gate_degraded"
+            run_id = f"chatrun_{uuid.uuid4().hex}"
+            self._repository_method("claim_chat_control_run")(
+                self.router_service.tenant_id,
+                run_id=run_id,
+                policy_fingerprint=policy.policy_fingerprint,
+                capability=capability,
+                requested_model=clean_model,
+                strategy=policy.effective_mode,
+                gateway="default",
+                is_real_user=True,
+                primary_newapi=True,
+            )
+            self._repository_method("complete_chat_control_run")(
+                self.router_service.tenant_id,
+                run_id,
+                status="failed",
+                result_class="preflight_failure",
+                reason_codes=[error_code],
+            )
+            return ProviderChatStablePreflight(
+                intercepted=True,
+                error_code=error_code,
+                route_receipt=self.route_receipt(
+                    None,
+                    requested_model=clean_model,
+                    reason_codes=[error_code],
+                    strategy=policy.effective_mode,
+                ),
+            )
 
         route = next(
             (item for item in policy.routes if item.capability == capability),
@@ -86,7 +119,12 @@ class ProviderChatStableService:
             if item.capability == capability and item.model_id == clean_model
         }
         failures: list[str] = []
-        for position, connection_id in enumerate(route_ids):
+        candidate_route_ids = (
+            route_ids[:1]
+            if policy.effective_mode == "newapi_required_default"
+            else route_ids
+        )
+        for position, connection_id in enumerate(candidate_route_ids):
             connection = self.repository.get_connection(
                 self.router_service.tenant_id, connection_id
             )
@@ -140,6 +178,7 @@ class ProviderChatStableService:
                     run_id=run_id,
                     attempt_id=attempt_id,
                     policy_fingerprint=policy.policy_fingerprint,
+                    strategy=policy.effective_mode,
                     capability=capability,
                     requested_model=clean_model,
                     target=target,
@@ -165,6 +204,7 @@ class ProviderChatStableService:
                 None,
                 requested_model=clean_model,
                 reason_codes=list(dict.fromkeys(failures or [error_code])),
+                strategy=policy.effective_mode,
             ),
         )
 
@@ -200,7 +240,7 @@ class ProviderChatStableService:
             None,
         )
         if (
-            policy.effective_mode != "newapi_preferred"
+            policy.effective_mode != dispatch.strategy
             or policy.policy_fingerprint != dispatch.policy_fingerprint
             or qualification is None
             or not qualification.valid
@@ -286,6 +326,7 @@ class ProviderChatStableService:
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
+        strategy: str = "newapi_preferred",
     ) -> dict[str, object]:
         codes = list(dispatch.reason_codes) if dispatch is not None else []
         codes.extend(reason_codes or [])
@@ -293,7 +334,7 @@ class ProviderChatStableService:
             "requested_model": requested_model,
             "actual_model": actual_model or requested_model,
             "provider": None,
-            "strategy": "newapi_preferred",
+            "strategy": dispatch.strategy if dispatch is not None else strategy,
             "engine": (
                 dispatch.target.provider_kind
                 if dispatch is not None
