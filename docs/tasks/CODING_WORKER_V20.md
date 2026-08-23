@@ -12,7 +12,7 @@
 | 项目 | 状态 |
 | --- | --- |
 | V19 最终 PR #256 | 已合并 |
-| V20 PR A 开工基线 | `dbe695ea`，随后无冲突纳入主线 PR #257 |
+| V20 PR A 开工基线 | `dbe695ea`，随后无冲突纳入主线 PR #257、#258 |
 | 主检出 | 保持不动；V20 使用独立 `C:\tmp\modelmirror-coding-v20-*` 工作树 |
 | 公共 API、TaskSpec、SSE、数据库、runtime protocol、v13 写回 | 保持不变 |
 | 历史 Provider-v4 checkpoint | 原样保留，不迁移、不重写 |
@@ -53,3 +53,16 @@
 - 四次真实任务仅在自动门禁通过且另行授权额度后执行；平台缺陷造成的付费复跑不自动扩额。
 
 V20 唯一允许的最终结论是：“Harness Protocol Kernel 与标准 Driver 准入边界完成，现有 OpenCode/Claude 已通过该内核运行。”
+
+## 7. PR A 实施证据
+
+- 协议、架构与 attestation 收口：`104 passed`。
+- Coding Worker 全专项：`418 passed, 5 skipped`。
+- Agent Workspace、Coding Runtime 与 Project Host：`439 passed, 9 skipped`。
+- 最终候选后端全量：`4030 passed, 29 skipped`。
+- 前端：typecheck 通过；`99 files / 534 tests` 通过；production build 通过。
+- Compose config、V18 compile、Fake smoke、`git diff --check`、敏感信息和禁止产物扫描通过；Fake smoke 摘要保持 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。
+
+证伪收口发现并修复了两项不能留给后续轮次的基础缺口：新增协议文件最初未进入 V18 在线 attestation 代码摘要；事件与请求最初按裸 ID 全局去重，两个独立任务使用相同供应商起始 ID 时会互相误判为重放。最终实现按 task、route、slot、binding、generation、session、turn、kind 与 ID 的完整私有引用隔离去重。
+
+PR A 未切换生产路径，未调用真实模型，未运行 calibration/parity/certification。ACP/Codex 仍只存在于固定协议帧和后续 evaluation 设计中；OpenCode/Claude 生产迁移属于 PR B，因而 PR A 不能使用 V20 最终交付结论。
