@@ -60,10 +60,11 @@ async def test_runtime_connects_two_dedicated_provider_slots(tmp_path: Path) -> 
         sidecar_gid=-1,
     )
     assert runtime.tool_broker.executor is runtime.execution_backend
-    assert runtime.substrate.harness_supervisor is runtime.harness_driver
+    assert runtime.substrate.harness_supervisor is runtime.harness_supervisor
     assert runtime.substrate.harness_driver is runtime.harness_driver
     assert runtime.substrate.execution_backend is runtime.execution_backend
     assert runtime.harness_driver is not runtime.execution_backend
+    assert runtime.harness_supervisor is not runtime.harness_driver
     await runtime.start()
     source = WorkspaceSource(kind="manifest", source_id="source", revision="h0")
     tasks = [

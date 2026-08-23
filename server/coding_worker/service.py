@@ -53,7 +53,7 @@ from .provider import (
     ProviderSession,
     provider_tools_for_policy,
 )
-from .ports import HarnessDriver
+from .ports import HarnessDriver, HarnessSupervisor
 from .store import CodingWorkerStore, WorkerConflictError
 from .changeset import ChangesetError
 from .tool_broker import ToolBroker, ToolBrokerError
@@ -81,6 +81,7 @@ class CodingWorkerService:
         store: CodingWorkerStore,
         workspace_broker: WorkspaceBroker,
         provider: HarnessDriver,
+        harness_supervisor: HarnessSupervisor | None = None,
         harness_runner: HarnessRunner | None = None,
         max_active_tasks: int = 2,
         tool_broker: ToolBroker | None = None,
@@ -92,6 +93,9 @@ class CodingWorkerService:
         self.store = store
         self.workspace_broker = workspace_broker
         self.provider = provider
+        # Test and historical in-process providers implement both legacy
+        # surfaces. Production wiring always injects distinct wrappers.
+        self.harness_supervisor = harness_supervisor or provider
         self.harness_runner = harness_runner
         self.max_active_tasks = max_active_tasks
         self.tool_broker = tool_broker
@@ -401,7 +405,7 @@ class CodingWorkerService:
                 return
             observations: dict[str, ProviderCapabilityObservation] = {}
             if self._route_slots is not None:
-                slot_values = await self.provider.capabilities_for_slots(
+                slot_values = await self.harness_supervisor.capabilities_for_slots(
                     tuple(
                         dict.fromkeys(
                             slot_id
@@ -432,7 +436,7 @@ class CodingWorkerService:
                     )
             else:
                 try:
-                    capabilities = await self.provider.capabilities()
+                    capabilities = await self.harness_supervisor.capabilities()
                     reason = None
                 except Exception:
                     capabilities = None
@@ -455,7 +459,7 @@ class CodingWorkerService:
     def _capability_binding(
         self, route_id: str, slot_ids: Sequence[str]
     ) -> str:
-        generation = self.provider.controller_generation
+        generation = self.harness_supervisor.controller_generation
         encoded = json.dumps(
             {
                 "route": route_id,
