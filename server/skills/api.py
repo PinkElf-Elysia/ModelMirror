@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Literal
+from typing import Callable, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -45,6 +45,7 @@ from .draft_store import (
     SkillDraftError,
     SkillDraftNotFoundError,
     SkillDraftValidationError,
+    WorkspaceSkillDraft,
     WorkspaceSkillDraftStore,
 )
 from .builtin_library import (
@@ -80,6 +81,7 @@ _semantic_rerank_service: SkillSemanticRerankService | None = None
 _rerank_governance_service: SkillRerankGovernanceService | None = None
 _skill_lifecycle_service: SkillLifecycleMigrationService | None = None
 _skill_lifecycle_store: SkillLifecycleStore | None = None
+_workspace_draft_install_guard: Callable[[WorkspaceSkillDraft], None] | None = None
 
 
 class SkillInstallRequest(BaseModel):
@@ -281,6 +283,15 @@ def set_skill_draft_store_for_tests(
 ) -> None:
     global _skill_draft_store
     _skill_draft_store = store
+
+
+def configure_workspace_draft_install_guard(
+    guard: Callable[[WorkspaceSkillDraft], None] | None,
+) -> None:
+    """Bind an optional server-owned gate inside the immutable draft install lock."""
+
+    global _workspace_draft_install_guard
+    _workspace_draft_install_guard = guard
 
 
 def get_skill_lifecycle_service() -> SkillLifecycleMigrationService:
@@ -1041,6 +1052,8 @@ async def install_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
         manager = get_skill_manager()
 
         def _install_locked(item):
+            if _workspace_draft_install_guard is not None:
+                _workspace_draft_install_guard(item)
             decision = item.quality_decision
             return manager.install_workspace_draft(
                 draft_id=item.draft_id,
@@ -1070,7 +1083,18 @@ async def install_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
         }
     except SkillDraftError as exc:
         _raise_draft_error(exc)
-    except (SkillInstallError, SkillValidationError) as exc:
+    except SkillValidationError as exc:
+        if not str(exc.code or "").startswith("skill_trigger_"):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": str(exc.code or "skill_package_invalid"),
+                "message": str(exc),
+                "details": exc.details,
+            },
+        ) from exc
+    except SkillInstallError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

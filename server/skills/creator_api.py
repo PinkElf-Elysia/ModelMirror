@@ -19,6 +19,7 @@ from .creator_evaluation_suite_service import SkillCreatorEvaluationSuiteService
 from .creator_evolution_service import SkillCreatorEvolutionService
 from .creator_resource_build_service import SkillCreatorResourceBuildService
 from .creator_resource_service import SkillCreatorResourcePlanningService
+from .creator_trigger_service import SkillCreatorTriggerOptimizationService
 from .creator_service import SkillCreatorService
 from .creator_store import (
     CREATOR_ASSISTANT_AGENT_ID,
@@ -55,6 +56,7 @@ _evaluation_suite_service: SkillCreatorEvaluationSuiteService | None = None
 _resource_planning_service: SkillCreatorResourcePlanningService | None = None
 _resource_build_service: SkillCreatorResourceBuildService | None = None
 _evolution_service: SkillCreatorEvolutionService | None = None
+_trigger_optimization_service: SkillCreatorTriggerOptimizationService | None = None
 
 
 class CreatorSessionCreateRequest(BaseModel):
@@ -135,6 +137,51 @@ class CreatorResourcePlanPatchRequest(CreatorResourcePlanWriteRequest):
     failure_modes: list[str] | None = Field(default=None, max_length=20)
     resources: list[dict[str, Any]] | None = Field(default=None, max_length=20)
     hooks: list[dict[str, Any]] | None = Field(default=None, max_length=12)
+
+
+class CreatorTriggerCaseInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["should_trigger", "should_not_trigger", "exact_name_smoke"]
+    text: str = Field(min_length=1, max_length=500)
+
+
+class CreatorTriggerSuiteGenerateRequest(CreatorResourcePlanWriteRequest):
+    expected_suite_revision: int | None = Field(default=None, ge=1)
+    expected_suite_digest: str | None = Field(
+        default=None, min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+
+
+class CreatorTriggerSuitePatchRequest(CreatorTriggerSuiteGenerateRequest):
+    cases: list[CreatorTriggerCaseInput] = Field(min_length=4, max_length=13)
+    change_reason: str = Field(min_length=1, max_length=2_000)
+
+
+class CreatorTriggerSuiteConfirmRequest(CreatorResourcePlanWriteRequest):
+    suite_id: str = Field(min_length=1, max_length=200)
+    expected_suite_revision: int = Field(ge=1)
+    expected_suite_digest: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+
+
+class CreatorTriggerDescriptionRequest(CreatorTriggerSuiteConfirmRequest):
+    pass
+
+
+class CreatorTriggerDescriptionEvaluateRequest(CreatorTriggerDescriptionRequest):
+    description: str = Field(min_length=1, max_length=600)
+
+
+class CreatorTriggerDescriptionConfirmRequest(CreatorTriggerDescriptionRequest):
+    expected_attempt_revision: int = Field(ge=1)
+    expected_attempt_digest: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+    selected_description_digest: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
 
 
 class CreatorResourceBuildStartRequest(CreatorResourcePlanWriteRequest):
@@ -366,6 +413,7 @@ def configure_skill_creator(service: SkillCreatorService | None) -> None:
     global _resource_planning_service
     global _resource_build_service
     global _evolution_service
+    global _trigger_optimization_service
     if service is not _service:
         if (
             _evaluation_service is not None
@@ -392,6 +440,11 @@ def configure_skill_creator(service: SkillCreatorService | None) -> None:
             and getattr(_evolution_service, "creator_service", None) is not service
         ):
             _evolution_service = None
+        if (
+            _trigger_optimization_service is not None
+            and getattr(_trigger_optimization_service, "creator_service", None) is not service
+        ):
+            _trigger_optimization_service = None
     _service = service
 
 
@@ -426,6 +479,13 @@ def configure_skill_creator_resource_build(
 ) -> None:
     global _resource_build_service
     _resource_build_service = service
+
+
+def configure_skill_creator_trigger_optimization(
+    service: SkillCreatorTriggerOptimizationService | None,
+) -> None:
+    global _trigger_optimization_service
+    _trigger_optimization_service = service
 
 
 def get_skill_creator_service() -> SkillCreatorService:
@@ -491,13 +551,24 @@ def get_skill_creator_evolution_service() -> SkillCreatorEvolutionService:
     return _evolution_service
 
 
+def get_skill_creator_trigger_optimization_service() -> SkillCreatorTriggerOptimizationService:
+    get_skill_creator_resource_planning_service()
+    if _trigger_optimization_service is None:
+        raise SkillCreatorValidationError(
+            "Skill trigger optimization is unavailable.",
+            code="skill_trigger_gate_required",
+        )
+    _trigger_optimization_service.require_enabled()
+    return _trigger_optimization_service
+
+
 def _api_error(exc: Exception) -> HTTPException:
     if isinstance(
         exc,
         (SkillCreatorNotFoundError, SkillDraftNotFoundError, SkillEvaluationNotFoundError),
     ):
         status = 404
-        code = "skill_creator_not_found"
+        code = str(getattr(exc, "code", "skill_creator_not_found"))
     elif isinstance(
         exc,
         (
@@ -508,18 +579,28 @@ def _api_error(exc: Exception) -> HTTPException:
         ),
     ):
         status = 409
-        code = "skill_evaluation_conflict" if isinstance(
-            exc, (SkillEvaluationConflictError, SkillEvaluationStateError)
-        ) else "skill_creator_conflict"
+        code = str(
+            getattr(
+                exc,
+                "code",
+                "skill_evaluation_conflict"
+                if isinstance(exc, (SkillEvaluationConflictError, SkillEvaluationStateError))
+                else "skill_creator_conflict",
+            )
+        )
     elif isinstance(
         exc,
         (SkillCreatorStorageError, SkillDraftStorageError, SkillEvaluationStorageError),
     ):
         status = 503
-        code = (
-            "skill_evaluation_storage_unavailable"
-            if isinstance(exc, SkillEvaluationStorageError)
-            else "skill_creator_storage_unavailable"
+        code = str(
+            getattr(
+                exc,
+                "code",
+                "skill_evaluation_storage_unavailable"
+                if isinstance(exc, SkillEvaluationStorageError)
+                else "skill_creator_storage_unavailable",
+            )
         )
     elif isinstance(exc, SkillEvaluationValidationError):
         status = (
@@ -551,6 +632,11 @@ def _api_error(exc: Exception) -> HTTPException:
         if code == "model_gateway_unconfigured":
             status = 503
         elif code in {
+            "skill_trigger_optimizer_unconfigured",
+            "skill_trigger_index_unavailable",
+        }:
+            status = 503
+        elif code in {
             "skill_creator_sandbox_unavailable",
             "skill_creator_sandbox_profile_invalid",
         }:
@@ -569,6 +655,7 @@ def _api_error(exc: Exception) -> HTTPException:
             "skill_evaluation_suite_generator_invalid",
             "skill_creator_evolution_planner_failed",
             "skill_creator_evolution_planner_invalid",
+            "skill_trigger_optimizer_invalid",
         }:
             status = 502
         elif code == "skill_creator_evolution_plan_required":
@@ -596,6 +683,12 @@ def _session_response(
     case_set: dict[str, Any] | None = None,
     evaluation_run=None,
 ):
+    current_resource_plan = (
+        _resource_planning_service.plan_store.current_for_session(session.session_id)
+        if _resource_planning_service is not None
+        and _resource_planning_service.enabled
+        else None
+    )
     if (
         case_set is None
         and _evaluation_service is not None
@@ -621,9 +714,7 @@ def _session_response(
         ),
         "resource_plan": (
             _resource_planning_service.serialize_projection(
-                _resource_planning_service.plan_store.current_for_session(
-                    session.session_id
-                ),
+                current_resource_plan,
                 session=session,
                 draft=draft,
             )
@@ -651,6 +742,34 @@ def _session_response(
             else None
         ),
     }
+    if _trigger_optimization_service is not None:
+        try:
+            response.update(
+                _trigger_optimization_service.projection(
+                    session,
+                    current_resource_plan,
+                )
+            )
+        except SkillCreatorStorageError:
+            response.update(
+                {
+                    "trigger_required": False,
+                    "trigger_suite": None,
+                    "trigger_attempt": None,
+                    "trigger_receipt": None,
+                    "trigger_stale_reason": "skill_trigger_index_unavailable",
+                }
+            )
+    else:
+        response.update(
+            {
+                "trigger_required": False,
+                "trigger_suite": None,
+                "trigger_attempt": None,
+                "trigger_receipt": None,
+                "trigger_stale_reason": None,
+            }
+        )
     return response
 
 
@@ -697,6 +816,10 @@ async def get_creator_status():
             "hook_manifest_version": HOOK_MANIFEST_VERSION,
             "hook_result_version": HOOK_RESULT_VERSION,
             "hook_runtimes": ["python", "javascript"],
+            "trigger_optimization_enabled": False,
+            "trigger_optimization_version": None,
+            "trigger_optimizer_available": False,
+            "trigger_store_available": False,
         }
     status = _service.status()
     status["evaluation_available"] = _evaluation_service is not None
@@ -755,6 +878,29 @@ async def get_creator_status():
             "hook_manifest_version": HOOK_MANIFEST_VERSION,
             "hook_result_version": HOOK_RESULT_VERSION,
             "hook_runtimes": ["python", "javascript"],
+        }
+    )
+    trigger_status = (
+        _trigger_optimization_service.status()
+        if _trigger_optimization_service is not None
+        else None
+    )
+    status.update(
+        {
+            "trigger_optimization_enabled": bool(
+                trigger_status and trigger_status.get("enabled")
+            ),
+            "trigger_optimization_version": (
+                trigger_status.get("version") if trigger_status else None
+            ),
+            "trigger_optimizer_available": bool(
+                trigger_status and trigger_status.get("model_available")
+            ),
+            "trigger_store_available": bool(
+                trigger_status
+                and trigger_status.get("trigger_store", {}).get("available")
+                and trigger_status.get("optimization_store", {}).get("available")
+            ),
         }
     )
     return status
@@ -1027,6 +1173,177 @@ async def confirm_creator_resource_plan(
             plan, session=session, draft=draft
         )
         return response
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/trigger-suite/generate")
+async def generate_creator_trigger_suite(
+    session_id: str, payload: CreatorTriggerSuiteGenerateRequest
+):
+    try:
+        if (payload.expected_suite_revision is None) != (
+            payload.expected_suite_digest is None
+        ):
+            raise SkillCreatorValidationError(
+                "Expected trigger suite revision and digest must be provided together.",
+                code="skill_trigger_suite_invalid",
+            )
+        trigger = get_skill_creator_trigger_optimization_service()
+        await trigger.generate_suite(
+            session_id,
+            expected_session_revision=payload.expected_session_revision,
+            plan_id=payload.plan_id,
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+            expected_suite_revision=payload.expected_suite_revision,
+            expected_suite_digest=(
+                payload.expected_suite_digest.lower()
+                if payload.expected_suite_digest
+                else None
+            ),
+        )
+        creator = get_skill_creator_service()
+        session, draft = await asyncio.to_thread(creator.get_session, session_id)
+        return _session_response(creator, session, draft)
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.patch("/sessions/{session_id}/trigger-suite")
+async def patch_creator_trigger_suite(
+    session_id: str, payload: CreatorTriggerSuitePatchRequest
+):
+    try:
+        if (payload.expected_suite_revision is None) != (
+            payload.expected_suite_digest is None
+        ):
+            raise SkillCreatorValidationError(
+                "Expected trigger suite revision and digest must be provided together.",
+                code="skill_trigger_suite_invalid",
+            )
+        trigger = get_skill_creator_trigger_optimization_service()
+        await asyncio.to_thread(
+            trigger.save_suite,
+            session_id,
+            expected_session_revision=payload.expected_session_revision,
+            plan_id=payload.plan_id,
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+            cases=[
+                {"kind": item.kind, "text": item.text, "source": "user"}
+                for item in payload.cases
+            ],
+            expected_suite_revision=payload.expected_suite_revision,
+            expected_suite_digest=(
+                payload.expected_suite_digest.lower()
+                if payload.expected_suite_digest
+                else None
+            ),
+            change_reason=payload.change_reason,
+        )
+        creator = get_skill_creator_service()
+        session, draft = await asyncio.to_thread(creator.get_session, session_id)
+        return _session_response(creator, session, draft)
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/trigger-suite/confirm")
+async def confirm_creator_trigger_suite(
+    session_id: str, payload: CreatorTriggerSuiteConfirmRequest
+):
+    try:
+        trigger = get_skill_creator_trigger_optimization_service()
+        await asyncio.to_thread(
+            trigger.confirm_suite,
+            session_id,
+            suite_id=payload.suite_id,
+            expected_session_revision=payload.expected_session_revision,
+            plan_id=payload.plan_id,
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+            expected_suite_revision=payload.expected_suite_revision,
+            expected_suite_digest=payload.expected_suite_digest.lower(),
+        )
+        creator = get_skill_creator_service()
+        session, draft = await asyncio.to_thread(creator.get_session, session_id)
+        return _session_response(creator, session, draft)
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/trigger-descriptions/optimize")
+async def optimize_creator_trigger_descriptions(
+    session_id: str, payload: CreatorTriggerDescriptionRequest
+):
+    try:
+        trigger = get_skill_creator_trigger_optimization_service()
+        await trigger.optimize(
+            session_id,
+            expected_session_revision=payload.expected_session_revision,
+            plan_id=payload.plan_id,
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+            expected_suite_revision=payload.expected_suite_revision,
+            expected_suite_digest=payload.expected_suite_digest.lower(),
+        )
+        creator = get_skill_creator_service()
+        session, draft = await asyncio.to_thread(creator.get_session, session_id)
+        return _session_response(creator, session, draft)
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/trigger-descriptions/evaluate")
+async def evaluate_creator_trigger_description(
+    session_id: str, payload: CreatorTriggerDescriptionEvaluateRequest
+):
+    try:
+        trigger = get_skill_creator_trigger_optimization_service()
+        await asyncio.to_thread(
+            trigger.evaluate_description,
+            session_id,
+            description=payload.description,
+            expected_session_revision=payload.expected_session_revision,
+            plan_id=payload.plan_id,
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+            expected_suite_revision=payload.expected_suite_revision,
+            expected_suite_digest=payload.expected_suite_digest.lower(),
+        )
+        creator = get_skill_creator_service()
+        session, draft = await asyncio.to_thread(creator.get_session, session_id)
+        return _session_response(creator, session, draft)
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/trigger-descriptions/{attempt_id}/confirm")
+async def confirm_creator_trigger_description(
+    session_id: str,
+    attempt_id: str,
+    payload: CreatorTriggerDescriptionConfirmRequest,
+):
+    try:
+        trigger = get_skill_creator_trigger_optimization_service()
+        await asyncio.to_thread(
+            trigger.confirm_description,
+            session_id,
+            attempt_id=attempt_id,
+            selected_description_digest=payload.selected_description_digest.lower(),
+            expected_attempt_revision=payload.expected_attempt_revision,
+            expected_attempt_digest=payload.expected_attempt_digest.lower(),
+            expected_session_revision=payload.expected_session_revision,
+            plan_id=payload.plan_id,
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+            expected_suite_revision=payload.expected_suite_revision,
+            expected_suite_digest=payload.expected_suite_digest.lower(),
+        )
+        creator = get_skill_creator_service()
+        session, draft = await asyncio.to_thread(creator.get_session, session_id)
+        return _session_response(creator, session, draft)
     except (SkillCreatorError, SkillDraftError) as exc:
         raise _api_error(exc) from exc
 

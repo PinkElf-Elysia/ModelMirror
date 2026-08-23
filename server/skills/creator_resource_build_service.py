@@ -68,6 +68,15 @@ class ResourceBuilderExecutor(Protocol):
     async def generate(self, request: ResourceBuildGenerationRequest) -> ResourceBuildSegment: ...
 
 
+class ResourceProposalGate(Protocol):
+    def __call__(
+        self,
+        session: SkillCreatorSession,
+        plan: SkillResourcePlan,
+        draft: WorkspaceSkillDraft | None,
+    ) -> Any: ...
+
+
 class SkillCreatorResourceBuildService:
     """Coordinate confirmed plans, segmented generation, review, and proposal creation."""
 
@@ -81,6 +90,7 @@ class SkillCreatorResourceBuildService:
         *,
         builder: ResourceBuilderExecutor | None = None,
         script_runner: SandboxCreatorScriptRunner | None = None,
+        proposal_gate: ResourceProposalGate | None = None,
         enabled: bool | None = None,
     ) -> None:
         self.creator_service = creator_service
@@ -88,6 +98,7 @@ class SkillCreatorResourceBuildService:
         self.build_store = build_store
         self.builder = builder
         self.script_runner = script_runner
+        self.proposal_gate = proposal_gate
         self.enabled = (
             os.getenv("SKILL_CREATOR_RESOURCE_AUTHORING_ENABLED", "true").strip().lower()
             in {"1", "true", "yes", "on"}
@@ -377,6 +388,7 @@ class SkillCreatorResourceBuildService:
         self._require_session_revision(session, expected_session_revision)
         self._require_build_scope(current, session=session, draft=draft)
         if current.phase == "proposal":
+            self._require_proposal_gate(current, session=session, draft=draft)
             if current.proposal_id:
                 proposal = self.creator_service.authoring_service.proposal_store.require(
                     current.proposal_id
@@ -404,6 +416,7 @@ class SkillCreatorResourceBuildService:
             )
         if decision != "accept":
             raise SkillCreatorValidationError("Invalid final resource build decision.")
+        self._require_proposal_gate(current, session=session, draft=draft)
         coverage = self._coverage(session)
         preflight_payload = self._proposal_payload(
             current, session=session, draft=draft, coverage=coverage
@@ -434,6 +447,18 @@ class SkillCreatorResourceBuildService:
             proposal_id=proposal.proposal_id,
         )
         return recorded, proposal
+
+    def _require_proposal_gate(
+        self,
+        build: SkillResourceBuild,
+        *,
+        session: SkillCreatorSession,
+        draft: WorkspaceSkillDraft | None,
+    ) -> None:
+        if self.proposal_gate is None:
+            return
+        plan = self.planning_service.plan_store.require(build.plan_id)
+        self.proposal_gate(session, plan, draft)
 
     async def _validate_current(
         self,
