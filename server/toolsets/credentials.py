@@ -58,8 +58,22 @@ class CredentialStore:
             if require_external_master_key is None
             else bool(require_external_master_key)
         )
-        self._fernet = Fernet(self._resolve_master_key(master_key))
+        resolved_key, self._master_key_source = self._resolve_master_key(master_key)
+        self._fernet = Fernet(resolved_key)
         self._ensure_storage_unlocked()
+
+    def remote_auth_master_key_attestation(self) -> tuple[bool, bool]:
+        """Report whether this vault actually uses an externally supplied key.
+
+        The broker consumes only these booleans. It never learns the key, its
+        source name, or a storage path, and later environment changes cannot
+        misrepresent how this already-created vault was initialized.
+        """
+
+        return (
+            self._master_key_source in {"supplied", "environment"},
+            self.require_external_master_key,
+        )
 
     def create(
         self,
@@ -209,12 +223,15 @@ class CredentialStore:
             self._write_unlocked(items)
             return self._public(record)
 
-    def _resolve_master_key(self, supplied: str | bytes | None) -> bytes:
+    def _resolve_master_key(
+        self,
+        supplied: str | bytes | None,
+    ) -> tuple[bytes, Literal["supplied", "environment", "local_file", "generated"]]:
         if supplied:
-            return self._normalize_key(supplied)
+            return self._normalize_key(supplied), "supplied"
         environment_key = os.getenv("MODEL_MIRROR_CREDENTIAL_MASTER_KEY", "").strip()
         if environment_key:
-            return self._normalize_key(environment_key)
+            return self._normalize_key(environment_key), "environment"
         if self.require_external_master_key:
             raise CredentialStoreError(
                 "An external credential master key is required by runtime policy."
@@ -222,7 +239,7 @@ class CredentialStore:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         if self.master_key_path.exists():
             raw = self.master_key_path.read_bytes().strip()
-            return self._normalize_key(raw)
+            return self._normalize_key(raw), "local_file"
         key = Fernet.generate_key()
         temporary = self.master_key_path.with_suffix(".tmp")
         temporary.write_bytes(key)
@@ -231,7 +248,7 @@ class CredentialStore:
             os.chmod(self.master_key_path, 0o600)
         except OSError:
             pass
-        return key
+        return key, "generated"
 
     @staticmethod
     def _normalize_key(value: str | bytes) -> bytes:
