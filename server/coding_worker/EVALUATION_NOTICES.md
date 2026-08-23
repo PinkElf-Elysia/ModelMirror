@@ -48,9 +48,10 @@ This package is not bundled or executed. It is used only as an external mapping
 oracle while auditing the common protocol subset; ModelMirror does not treat it
 as evidence for Codex 0.149.0-only fields.
 
-The full Apache License 2.0 text is retained in each redistributed upstream
-package and in `server/agent_upstream/vendor/penguin_harness/LICENSE` in the
-source tree; the evaluation images copy that canonical license text to
-`/usr/share/doc/modelmirror-coding-evaluation/APACHE-2.0.txt`.
+The source tree retains a canonical full Apache License 2.0 text at
+`server/agent_upstream/vendor/penguin_harness/LICENSE`. The evaluation images
+copy it to `/usr/share/doc/modelmirror-coding-evaluation/APACHE-2.0.txt`, so the
+license remains present even when an upstream package archive omits a license
+file.
 The locked evaluation input inventory is recorded in
 `server/coding_worker/evaluation_sbom.cdx.json`.
