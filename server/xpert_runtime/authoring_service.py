@@ -57,6 +57,7 @@ class AuthoringService:
         prompt_profile_store: PromptProfileStore | None = None,
         *,
         xpert_preflight: Callable[[XpertDefinition], Any] | None = None,
+        skill_proposal_approval_guard: Callable[[AuthoringProposal], None] | None = None,
         local_console_actor_id: str | None = None,
     ) -> None:
         self.proposal_store = proposal_store
@@ -64,6 +65,7 @@ class AuthoringService:
         self.skill_draft_store = skill_draft_store
         self.prompt_profile_store = prompt_profile_store
         self.xpert_preflight = xpert_preflight
+        self.skill_proposal_approval_guard = skill_proposal_approval_guard
         self.local_console_actor_id = (
             str(local_console_actor_id or "").strip()
             or self._load_or_create_local_console_actor_id()
@@ -190,6 +192,11 @@ class AuthoringService:
                     applied_content_digest=applied_receipt.content_digest,
                     decision_reason=reason,
                 )
+            if (
+                proposal.kind in {"skill_create", "skill_update"}
+                and self.skill_proposal_approval_guard is not None
+            ):
+                self.skill_proposal_approval_guard(proposal)
             if proposal.revision != revision:
                 raise AuthoringProposalConflictError(
                     "Proposal changed. Reload it before approval."

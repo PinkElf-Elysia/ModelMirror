@@ -42,6 +42,15 @@ class ResourcePlannerExecutor(Protocol):
     async def plan(self, request: ResourcePlanningRequest) -> dict[str, Any]: ...
 
 
+class ResourcePlanConfirmationGate(Protocol):
+    def __call__(
+        self,
+        session: SkillCreatorSession,
+        plan: SkillResourcePlan,
+        draft: WorkspaceSkillDraft | None,
+    ) -> Any: ...
+
+
 class SkillCreatorResourcePlanningService:
     VERSION = RESOURCE_AUTHORING_VERSION
 
@@ -51,11 +60,13 @@ class SkillCreatorResourcePlanningService:
         plan_store: SkillResourcePlanStore,
         *,
         planner: ResourcePlannerExecutor | None = None,
+        confirmation_gate: ResourcePlanConfirmationGate | None = None,
         enabled: bool | None = None,
     ) -> None:
         self.creator_service = creator_service
         self.plan_store = plan_store
         self.planner = planner
+        self.confirmation_gate = confirmation_gate
         self.enabled = (
             os.getenv("SKILL_CREATOR_RESOURCE_AUTHORING_ENABLED", "true")
             .strip()
@@ -274,6 +285,8 @@ class SkillCreatorResourcePlanningService:
                 "Skill Hook V2 authoring is disabled.",
                 code="skill_hook_v2_disabled",
             )
+        if self.confirmation_gate is not None:
+            self.confirmation_gate(session, current, draft)
         return self.plan_store.confirm(
             plan_id,
             expected_revision=expected_plan_revision,

@@ -224,6 +224,7 @@ try:
         tool_requires_skill_application,
     )
     from server.skills.api import (
+        configure_workspace_draft_install_guard,
         get_builtin_skill_library,
         get_skill_draft_store,
         get_skill_manager,
@@ -239,6 +240,7 @@ try:
         configure_skill_creator_evolution,
         configure_skill_creator_resource_build,
         configure_skill_creator_resource_planning,
+        configure_skill_creator_trigger_optimization,
         router as skill_creator_router,
     )
     from server.skills.creator_runtime import (
@@ -270,6 +272,17 @@ try:
     from server.skills.creator_resource_service import (
         SkillCreatorResourcePlanningService,
     )
+    from server.skills.creator_trigger_runtime import (
+        TriggerOptimizationWorkflowInvocation,
+        WorkflowCreatorTriggerOptimizationExecutor,
+    )
+    from server.skills.creator_trigger_service import (
+        SkillCreatorTriggerOptimizationService,
+        SkillTriggerOptimizationStore,
+    )
+    from server.skills.finder import SkillFinder
+    from server.skills.skill_manager import SkillValidationError
+    from server.skills.trigger_contract import SkillTriggerEvaluator, SkillTriggerStore
     from server.skills.creator_evaluation import (
         SkillEvaluationError,
         SkillEvaluationExecutor,
@@ -312,6 +325,8 @@ try:
     )
     from server.skills.creator_store import (
         CREATOR_ASSISTANT_AGENT_ID,
+        SkillCreatorError,
+        SkillCreatorStorageError,
         SkillCreatorSessionStore,
     )
 except ModuleNotFoundError:
@@ -333,6 +348,7 @@ except ModuleNotFoundError:
         tool_requires_skill_application,
     )
     from skills.api import (
+        configure_workspace_draft_install_guard,
         get_builtin_skill_library,
         get_skill_draft_store,
         get_skill_manager,
@@ -348,6 +364,7 @@ except ModuleNotFoundError:
         configure_skill_creator_evolution,
         configure_skill_creator_resource_build,
         configure_skill_creator_resource_planning,
+        configure_skill_creator_trigger_optimization,
         router as skill_creator_router,
     )
     from skills.creator_runtime import (
@@ -375,6 +392,17 @@ except ModuleNotFoundError:
         WorkflowCreatorResourcePlanner,
     )
     from skills.creator_resource_service import SkillCreatorResourcePlanningService
+    from skills.creator_trigger_runtime import (
+        TriggerOptimizationWorkflowInvocation,
+        WorkflowCreatorTriggerOptimizationExecutor,
+    )
+    from skills.creator_trigger_service import (
+        SkillCreatorTriggerOptimizationService,
+        SkillTriggerOptimizationStore,
+    )
+    from skills.finder import SkillFinder
+    from skills.skill_manager import SkillValidationError
+    from skills.trigger_contract import SkillTriggerEvaluator, SkillTriggerStore
     from skills.creator_evaluation import (
         SkillEvaluationError,
         SkillEvaluationExecutor,
@@ -413,7 +441,12 @@ except ModuleNotFoundError:
         SkillCreatorService,
         configure_creator_generation_executor,
     )
-    from skills.creator_store import CREATOR_ASSISTANT_AGENT_ID, SkillCreatorSessionStore
+    from skills.creator_store import (
+        CREATOR_ASSISTANT_AGENT_ID,
+        SkillCreatorError,
+        SkillCreatorStorageError,
+        SkillCreatorSessionStore,
+    )
 
 try:
     from server.agent_workspace.api import router as agent_workspace_router
@@ -1076,6 +1109,11 @@ except ModuleNotFoundError:
         human_in_the_loop_final_confirmation,
         workflow_node_registry,
     )
+
+try:
+    from server.xpert_runtime.authoring_store import AuthoringProposalValidationError
+except ModuleNotFoundError:
+    from xpert_runtime.authoring_store import AuthoringProposalValidationError
 
 try:
     from server.xpert_runtime.agent_strategy import (
@@ -1827,6 +1865,21 @@ skill_creator_resource_planning_service = SkillCreatorResourcePlanningService(
     skill_creator_service,
     skill_creator_resource_plan_store,
 )
+skill_trigger_store = SkillTriggerStore(storage_dir=AGENT_TASK_STORAGE_DIR or None)
+skill_trigger_optimization_store = SkillTriggerOptimizationStore(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None
+)
+skill_creator_trigger_optimization_service = SkillCreatorTriggerOptimizationService(
+    skill_creator_service,
+    skill_creator_resource_planning_service,
+    skill_trigger_store,
+    skill_trigger_optimization_store,
+    SkillTriggerEvaluator(SkillFinder(skill_manager=get_skill_manager())),
+    actor_id=authoring_service.local_console_actor_id,
+)
+skill_creator_resource_planning_service.confirmation_gate = (
+    skill_creator_trigger_optimization_service.require_plan_gate
+)
 skill_creator_resource_build_store = SkillResourceBuildStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
 )
@@ -1835,6 +1888,7 @@ skill_creator_resource_build_service = SkillCreatorResourceBuildService(
     skill_creator_resource_planning_service,
     skill_creator_resource_build_store,
     script_runner=SandboxCreatorScriptRunner(sandbox_sidecar_client),
+    proposal_gate=skill_creator_trigger_optimization_service.require_plan_gate,
 )
 skill_creator_evaluation_suite_store = SkillEvaluationSuiteStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
@@ -1866,8 +1920,67 @@ configure_runtime_authoring(authoring_service)
 configure_skill_creator(skill_creator_service)
 configure_skill_creator_resource_planning(skill_creator_resource_planning_service)
 configure_skill_creator_resource_build(skill_creator_resource_build_service)
+configure_skill_creator_trigger_optimization(
+    skill_creator_trigger_optimization_service
+)
 configure_skill_creator_evaluation_suite(skill_creator_evaluation_suite_service)
 configure_skill_creator_evolution(skill_creator_evolution_service)
+
+
+def require_creator_trigger_proposal_approval(proposal) -> None:
+    if not skill_creator_trigger_optimization_service.enabled:
+        return
+    if proposal.source_type != "skill_creator" or not proposal.creator_session_id:
+        return
+    session = skill_creator_session_store.require(proposal.creator_session_id)
+    if not skill_trigger_optimization_store.is_required(session.session_id):
+        return
+    plan = skill_creator_resource_plan_store.current_for_session(session.session_id)
+    resource_binding = proposal.payload.get("creator_resource_build")
+    skill_payload = proposal.payload.get("skill")
+    if (
+        plan is None
+        or plan.state != "confirmed"
+        or not isinstance(resource_binding, dict)
+        or resource_binding.get("plan_id") != plan.plan_id
+        or resource_binding.get("plan_digest") != plan.digest
+        or not isinstance(skill_payload, dict)
+        or skill_payload.get("name") != plan.skill_name
+        or skill_payload.get("slug") != plan.skill_name
+        or skill_payload.get("description") != plan.skill_description
+    ):
+        raise AuthoringProposalValidationError(
+            "The Creator proposal no longer matches its trigger-gated resource plan.",
+            code="skill_trigger_receipt_stale",
+        )
+    try:
+        _, draft = skill_creator_service.get_session(session.session_id)
+        skill_creator_trigger_optimization_service.require_plan_gate(
+            session, plan, draft
+        )
+    except SkillCreatorError as exc:
+        raise AuthoringProposalValidationError(
+            str(exc),
+            code=str(getattr(exc, "code", "skill_trigger_gate_required")),
+        ) from exc
+
+
+authoring_service.skill_proposal_approval_guard = (
+    require_creator_trigger_proposal_approval
+)
+
+
+def require_workspace_creator_trigger_gate(draft) -> None:
+    try:
+        skill_creator_trigger_optimization_service.require_draft_install_gate(draft)
+    except (SkillCreatorError, SkillCreatorStorageError) as exc:
+        raise SkillValidationError(
+            str(exc),
+            code=str(getattr(exc, "code", "skill_trigger_gate_required")),
+        ) from exc
+
+
+configure_workspace_draft_install_guard(require_workspace_creator_trigger_gate)
 runtime_capabilities.register(
     "mcp_tools",
     workflow_mcp_provider,
@@ -20406,6 +20519,43 @@ skill_creator_resource_planner = WorkflowCreatorResourcePlanner(
     runner=run_skill_creator_resource_planning,
 )
 skill_creator_resource_planning_service.planner = skill_creator_resource_planner
+
+
+async def run_skill_creator_trigger_optimization(
+    invocation: TriggerOptimizationWorkflowInvocation,
+) -> str:
+    payload = WorkflowRunRequest.model_validate(
+        {"workflow": invocation.workflow, "inputs": invocation.inputs}
+    )
+    session_id = str(
+        invocation.runtime_metadata.get("creator_session_id") or ""
+    ).strip()
+    response = await _run_workflow_response(
+        payload,
+        None,
+        runtime_run_type="workflow",
+        runtime_source_id=session_id,
+        runtime_metadata=dict(invocation.runtime_metadata),
+    )
+    final_event = await consume_workflow_stream(response)
+    if final_event.get("event") in {"runtime_approval_pending", "client_tool_waiting"}:
+        raise RuntimeError(
+            "The dedicated Skill trigger optimizer cannot pause for tools."
+        )
+    output = str(final_event.get("final_output") or "").strip()
+    if not output:
+        raise RuntimeError("The Skill trigger optimizer returned no output.")
+    return output
+
+
+skill_creator_trigger_optimizer = WorkflowCreatorTriggerOptimizationExecutor(
+    model_id=TEXT_FALLBACK_MODEL,
+    model_available=lambda: bool(get_llm_gateway_config()[0]),
+    runner=run_skill_creator_trigger_optimization,
+)
+skill_creator_trigger_optimization_service.executor = (
+    skill_creator_trigger_optimizer
+)
 
 
 async def run_skill_creator_resource_build(
