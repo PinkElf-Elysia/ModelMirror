@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
   CircleAlert,
@@ -279,7 +279,7 @@ export default function ProviderWorkloadControlSettings({
     [entryId, policies],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!selectedPolicy) return;
     setConfirmActivation(false);
     setConfirmNoOpenP0P1(false);
