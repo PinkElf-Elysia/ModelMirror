@@ -59,6 +59,7 @@ class EvaluationSidecar:
             observed_command=observed_command,
         )
         self.driver_class = load_driver_class(driver_id, environment=environment)
+        self.driver_class.validate_manifest(self.manifest)
         self.driver_id = driver_id
         self.token = token
         self._verify_runtime_package()

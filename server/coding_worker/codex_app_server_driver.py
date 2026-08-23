@@ -15,6 +15,7 @@ from .harness_protocol import (
     HarnessBinding,
     HarnessEventEnvelope,
     HarnessEventKind,
+    HarnessPersistenceLevel,
     HarnessToolOwnership,
 )
 
@@ -98,6 +99,21 @@ class CodexAppServerHarnessDriver(StandardEvaluationDriver):
     created.  Its descriptor is permanently unavailable to production routes.
     """
 
+    @classmethod
+    def validate_manifest(cls, manifest: EvaluationDriverManifest) -> None:
+        if (
+            manifest.protocol_id != "codex-app-server"
+            or manifest.protocol_version != CODEX_APP_SERVER_VERSION
+            or manifest.implementation_version != CODEX_APP_SERVER_VERSION
+            or manifest.package_name != "@openai/codex"
+            or manifest.package_version != CODEX_APP_SERVER_VERSION
+            or manifest.package_integrity != CODEX_PACKAGE_INTEGRITY
+            or manifest.schema_sha256 != CODEX_SCHEMA_SHA256
+            or manifest.tool_ownership is not HarnessToolOwnership.UNKNOWN
+            or manifest.persistence is not HarnessPersistenceLevel.SESSION_RESUME
+        ):
+            raise EvaluationDriverError("Codex evaluation manifest is incompatible")
+
     def __init__(
         self,
         *,
@@ -106,16 +122,7 @@ class CodexAppServerHarnessDriver(StandardEvaluationDriver):
         observed_image_digest: str,
         observed_command: Sequence[str],
     ) -> None:
-        if (
-            manifest.protocol_id != "codex-app-server"
-            or manifest.protocol_version != CODEX_APP_SERVER_VERSION
-            or manifest.schema_sha256 != CODEX_SCHEMA_SHA256
-        ):
-            raise EvaluationDriverError("Codex evaluation manifest is incompatible")
-        if manifest.tool_ownership is not HarnessToolOwnership.UNKNOWN:
-            raise EvaluationDriverError(
-                "Codex evaluation ownership must remain unknown"
-            )
+        self.validate_manifest(manifest)
         super().__init__(
             manifest=manifest,
             binding=binding,

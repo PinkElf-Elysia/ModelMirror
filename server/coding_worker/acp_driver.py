@@ -17,9 +17,11 @@ from .harness_protocol import (
     HarnessBinding,
     HarnessEventEnvelope,
     HarnessEventKind,
+    HarnessPersistenceLevel,
     HarnessRequestKind,
     HarnessResponse,
     HarnessResponseOutcome,
+    HarnessToolOwnership,
 )
 
 
@@ -56,6 +58,21 @@ class AcpV1HarnessDriver(StandardEvaluationDriver):
     conformance only; the platform Broker remains the sole side-effect owner.
     """
 
+    @classmethod
+    def validate_manifest(cls, manifest: EvaluationDriverManifest) -> None:
+        if (
+            manifest.protocol_id != "acp"
+            or manifest.protocol_version != "1.19"
+            or manifest.implementation_version != ACP_SDK_VERSION
+            or manifest.package_name != "agent-client-protocol"
+            or manifest.package_version != ACP_SDK_VERSION
+            or manifest.package_integrity != f"sha256:{ACP_SDK_WHEEL_SHA256}"
+            or manifest.schema_sha256 != ACP_SCHEMA_SHA256
+            or manifest.tool_ownership is not HarnessToolOwnership.BROKER_ONLY
+            or manifest.persistence is not HarnessPersistenceLevel.SESSION_RESUME
+        ):
+            raise EvaluationDriverError("ACP evaluation manifest is incompatible")
+
     def __init__(
         self,
         *,
@@ -65,10 +82,7 @@ class AcpV1HarnessDriver(StandardEvaluationDriver):
         observed_image_digest: str,
         observed_command: Sequence[str],
     ) -> None:
-        if manifest.protocol_id != "acp" or manifest.protocol_version != "1.19":
-            raise EvaluationDriverError("ACP evaluation manifest is incompatible")
-        if manifest.schema_sha256 != ACP_SCHEMA_SHA256:
-            raise EvaluationDriverError("ACP evaluation schema digest is incompatible")
+        self.validate_manifest(manifest)
         super().__init__(
             manifest=manifest,
             binding=binding,

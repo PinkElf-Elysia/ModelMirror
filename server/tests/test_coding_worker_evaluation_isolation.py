@@ -11,6 +11,7 @@ import pytest
 
 from server.coding_worker.evaluation_driver import (
     EvaluationBrokerMcp,
+    EvaluationDriverError,
     EvaluationDriverManifest,
     command_sha256,
 )
@@ -35,6 +36,19 @@ from server.coding_worker.harness_protocol import (
 IMAGE_DIGEST = "sha256:" + "a" * 64
 ACP_COMMAND = ("/usr/local/bin/python", "-m", "modelmirror_acp_fixture_agent")
 CODEX_COMMAND = ("/usr/local/bin/codex", "app-server")
+ACP_WHEEL_SHA256 = (
+    "233626748034896214de118f5cf5a319484ad2186705fd595219afee92237ccc"
+)
+ACP_SCHEMA_SHA256 = (
+    "998c6427fa78bf6cd39f442bf164c6172234ebdf1c04298af57c40fa716ce267"
+)
+CODEX_INTEGRITY = (
+    "sha512-i4dryj2Y1j+00Mb5n+0n71EYnTK9/KDc2cdFo/dXD0d1oTog2bhUssKDEIOn"
+    "KmnEf51P0Z/HJTWvTKw/UHyOvQ=="
+)
+CODEX_SCHEMA_SHA256 = (
+    "02a4c63a638fdae4a5f6c3ad32a41a377b642c66f3abc84f6fc47c7f3d6074df"
+)
 
 
 def _manifest(driver_id: str) -> EvaluationDriverManifest:
@@ -49,8 +63,10 @@ def _manifest(driver_id: str) -> EvaluationDriverManifest:
             "agent-client-protocol" if is_acp else "@openai/codex"
         ),
         package_version="0.12.0" if is_acp else "0.149.0",
-        package_integrity="sha256:" + "c" * 64,
-        schema_sha256="d" * 64,
+        package_integrity=(
+            f"sha256:{ACP_WHEEL_SHA256}" if is_acp else CODEX_INTEGRITY
+        ),
+        schema_sha256=ACP_SCHEMA_SHA256 if is_acp else CODEX_SCHEMA_SHA256,
         image_digest=IMAGE_DIGEST,
         command=command,
         command_sha256=command_sha256(command),
@@ -202,6 +218,22 @@ def test_sidecar_requires_exactly_one_profile_and_emits_safe_health(
         "persistence",
         "production_route",
     }
+    incompatible = _manifest("acp_v1").model_copy(
+        update={"package_integrity": "sha256:" + "f" * 64}
+    )
+    incompatible_path = tmp_path / "incompatible.json"
+    incompatible_path.write_text(
+        json.dumps(incompatible.model_dump(mode="json")), encoding="utf-8"
+    )
+    with pytest.raises(EvaluationDriverError, match="manifest is incompatible"):
+        EvaluationSidecar(
+            driver_id="acp_v1",
+            manifest_path=incompatible_path,
+            observed_image_digest=IMAGE_DIGEST,
+            observed_command=ACP_COMMAND,
+            token="t" * 32,
+            environment={"CODING_WORKER_ACP_EVALUATION_ENABLED": "true"},
+        )
 
 
 def test_codex_sidecar_verifies_fixed_runtime_version(tmp_path: Path, monkeypatch) -> None:
