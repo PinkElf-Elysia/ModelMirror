@@ -96,3 +96,13 @@ PR C 最终自动证据：Coding Worker `463 passed, 5 skipped`；Agent Workspac
 在 #261 rebase 阶段首次把前后端全量并行运行时，既有 Chat/OCR 交互测试未展开面板，模型路由 p95 微基准以 `10.165ms` 略过 `10ms` 阈值。两者与 PR C Diff 无交集；停止并发后，OCR 单文件 `5/5` 通过，路由微基准连续 `3/3` 通过，随后前端和后端各自独立全量均通过。最终 #262/#263 基线上再次独立全量通过；未修改这两个模块、未放宽阈值，也未用单项绿测替代最终全量证据。
 
 本阶段没有调用真实模型、没有运行另行授权的四次真实任务、校准或认证。因此当前只证明自动工程门禁与 evaluation conformance/准入边界完成；不能使用 V20 最终交付结论，也不形成任何能力提升、接近或等效表述。
+
+## 10. 合并后证伪修复状态
+
+严格反例审查发现，原自动门禁仍允许 pending request 在 turn 完成、interrupt 或 resume 时成为孤儿；失败事件还会提前消耗 Driver sequence，JSON-RPC 数字与字符串 ID 会发生相关性碰撞。修复后，一个 turn 同时只能存在一个未结算请求，退出前必须精确结算；sequence 和 pending 状态仅在生命周期核接受后提交，供应商 ID 同时绑定原始类型。ACP permission 现在接受规范 `_meta`，但只允许最多 16 个结构完整、ID 唯一的官方类型选项；回复必须选择原请求实际提供的 option，cancel 必须先结算全部 pending permission。
+
+镜像级审查同时推翻了“health 即 Driver 可用”的假设：当前 evaluation sidecar 仅实现鉴权 health 与静态 adapter 装载，尚未承载 ACP/Codex 实时协议传输。sidecar 现会校验固定命令和镜像内实际 Schema 摘要，并明确返回 `available=false`、`reason=protocol_transport_unavailable`、`image_attestation=external_required`；Compose 健康检查据此 fail-closed。只有外部控制器完成真实镜像身份验证且实现协议传输后，evaluation profile 才能转为可用。
+
+本轮修复后的专项为 `52 passed`；受影响后端回归为 `912 passed, 14 skipped`；两套 evaluation 镜像重新构建并确认 UID/GID `65532:65532` 与固定 Schema 摘要。V18 compile 与 Fake smoke 通过，Fake smoke 摘要仍为 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。前端 production build 通过；完整前端套件两次均有同一个既有 Chat/OCR 时序用例失败（单文件 `5/5` 通过），因此不得记录为全量前端绿测。后端全量首个失败是隔离镜像缺少 Agency Worker 构建产物，受影响集合无失败。
+
+结论仍为 Experimental：未调用真实模型、未运行四次真实任务、校准或认证；ACP/Codex evaluation profile 尚不可用，V20 最终交付结论仍不得使用。
