@@ -26,6 +26,12 @@ from server.coding_worker.harness_v3 import (
     PROVIDER_HARNESS_CODE_FILES,
     harness_code_bundle_sha256,
 )
+from server.coding_worker.harness_protocol import (
+    HarnessCapabilityState,
+    HarnessDescriptor,
+    HarnessPersistenceLevel,
+    HarnessToolOwnership,
+)
 from server.coding_worker.executor import (
     ExecutorRPCError,
     ExecutorRPCServer,
@@ -78,6 +84,62 @@ class _NoShellProvider(FakeCodingAgentProvider):
                 )
             }
         )
+
+
+def _harness_descriptor() -> HarnessDescriptor:
+    return HarnessDescriptor(
+        protocol_id="modelmirror-provider-v4",
+        protocol_version="4",
+        implementation_version="fake-1",
+        schema_sha256="d" * 64,
+        tool_ownership=HarnessToolOwnership.BROKER_ONLY,
+        persistence=HarnessPersistenceLevel.SESSION_RESUME,
+        capabilities={
+            "checkpoint": HarnessCapabilityState(supported=True, available=True)
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_provider_descriptor_is_sidecar_generation_bound_and_fail_closed(
+    tmp_path: Path,
+) -> None:
+    store = CodingWorkerStore(
+        tmp_path / "control", master_key=Fernet.generate_key()
+    )
+    workspace = WorkspaceBroker(tmp_path / "workspace", {}, id_key=b"d" * 32)
+    broker_rpc = BrokerRPCServer(ToolBroker(store=store, workspace_broker=workspace))
+    await broker_rpc.start_tcp_for_tests()
+    available = ProviderRPCServer(
+        FakeCodingAgentProvider(),
+        token="a" * 48,
+        harness_descriptor=_harness_descriptor(),
+    )
+    unavailable = ProviderRPCServer(FakeCodingAgentProvider(), token="b" * 48)
+    endpoints = {
+        "slot-a": await available.start_tcp_for_tests(),
+        "slot-b": await unavailable.start_tcp_for_tests(),
+    }
+    pool = ProviderSidecarClientPool(
+        endpoints=endpoints,
+        tokens={"slot-a": "a" * 48, "slot-b": "b" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        broker_rpc=broker_rpc,
+    )
+
+    observations = await pool.harness_descriptors_for_slots(
+        ("slot-a", "slot-b", "missing")
+    )
+    observed = observations["slot-a"]
+    assert observed is not None
+    assert observed.descriptor == _harness_descriptor()
+    assert len(observed.sidecar_generation) == 32
+    assert observations["slot-b"] is None
+    assert observations["missing"] is None
+
+    await available.close()
+    await unavailable.close()
+    await broker_rpc.close()
 
 
 @pytest.mark.asyncio

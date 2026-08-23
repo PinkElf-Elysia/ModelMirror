@@ -15,6 +15,7 @@ from pydantic import Field
 
 from .broker_rpc import BrokerRPCServer
 from .contracts import SAFE_ID, StrictModel
+from .harness_protocol import HarnessDescriptor, HarnessDescriptorObservation
 from .provider import (
     CodingAgentProvider,
     ProviderCapabilities,
@@ -54,6 +55,7 @@ class ProviderRPCServer:
         unbind_broker: Callable[[str], None] | None = None,
         executor: SidecarExecutor | None = None,
         harness_identity: tuple[str, str, str] | None = None,
+        harness_descriptor: HarnessDescriptor | None = None,
     ) -> None:
         if len(token) < 32:
             raise ValueError("provider RPC token is too short")
@@ -74,6 +76,7 @@ class ProviderRPCServer:
             self._harness_identity = (route_id, model_id, engine)
         else:
             self._harness_identity = None
+        self._harness_descriptor = harness_descriptor
         self._harness_generation = secrets.token_hex(16)
         self._server: asyncio.AbstractServer | None = None
         self.endpoint: str | None = None
@@ -182,6 +185,16 @@ class ProviderRPCServer:
                 self._connections.pop(current, None)
 
     async def _dispatch(self, request: ProviderRPCRequest) -> dict[str, Any]:
+        if request.action == "harness_descriptor":
+            if self._harness_descriptor is None:
+                raise ProviderRPCError(
+                    "Provider Harness descriptor is unavailable.",
+                    code="harness_descriptor_unavailable",
+                )
+            return HarnessDescriptorObservation(
+                descriptor=self._harness_descriptor,
+                sidecar_generation=self._harness_generation,
+            ).model_dump(mode="json")
         if request.action == "harness_attestation":
             from .harness_v3 import (
                 PROVIDER_HARNESS_CODE_FILES,
@@ -534,6 +547,22 @@ class ProviderSidecarClientPool(CodingAgentProvider):
             slot_id: await self._call(slot_id, "harness_attestation", {})
             for slot_id in sorted(self._endpoints)
         }
+
+    async def harness_descriptors_for_slots(
+        self, slot_ids: Sequence[str]
+    ) -> dict[str, HarnessDescriptorObservation | None]:
+        observations: dict[str, HarnessDescriptorObservation | None] = {}
+        for slot_id in slot_ids:
+            if slot_id not in self._endpoints:
+                observations[slot_id] = None
+                continue
+            try:
+                observations[slot_id] = HarnessDescriptorObservation.model_validate(
+                    await self._call(slot_id, "harness_descriptor", {})
+                )
+            except (OSError, ValueError, ProviderRPCError, asyncio.TimeoutError):
+                observations[slot_id] = None
+        return observations
 
     async def open(self, request: ProviderOpenRequest) -> ProviderSession:
         return await self._open_or_restore(request, None)
