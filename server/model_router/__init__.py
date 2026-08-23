@@ -61,6 +61,12 @@ from .chat_auto import (
     ProviderChatAutoAuditService,
     ProviderChatAutoRun,
 )
+from .workload_control import (
+    PROVIDER_WORKLOAD_CONTRACT_VERSION,
+    ProviderWorkloadCallService,
+    ProviderWorkloadCertificationService,
+    ProviderWorkloadControlService,
+)
 
 __all__ = [
     "CompressionMode",
@@ -89,6 +95,10 @@ __all__ = [
     "ProviderChatEndpointResolver",
     "ProviderChatTarget",
     "ProviderChatTransport",
+    "PROVIDER_WORKLOAD_CONTRACT_VERSION",
+    "ProviderWorkloadCallService",
+    "ProviderWorkloadCertificationService",
+    "ProviderWorkloadControlService",
     "AUTO_SIDECAR_ATTEMPTS_NOT_OBSERVED",
     "RouterConnection",
     "RouterConnectionCreate",

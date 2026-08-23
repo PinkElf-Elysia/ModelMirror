@@ -9,7 +9,10 @@ from .repository import DEFAULT_TENANT_ID, SQLiteRouterRepository
 
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Delete completed Provider Chat receipts older than a bounded age."
+        description=(
+            "Delete completed Provider Chat and Workload receipts older than "
+            "a bounded age."
+        )
     )
     parser.add_argument("--storage-dir", required=True)
     parser.add_argument("--tenant-id", default=DEFAULT_TENANT_ID)
@@ -25,13 +28,38 @@ def _arguments() -> argparse.Namespace:
     return values
 
 
+def cleanup_receipts(
+    repository: SQLiteRouterRepository,
+    tenant_id: str,
+    *,
+    before: str,
+    apply: bool = False,
+) -> dict[str, int | bool | str]:
+    chat = repository.cleanup_chat_control_receipts(
+        tenant_id,
+        before=before,
+        apply=apply,
+    )
+    workload = repository.cleanup_workload_receipts(
+        tenant_id,
+        before=before,
+        apply=apply,
+    )
+    return {
+        **chat,
+        "workload_runs": int(workload["runs"]),
+        "workload_calls": int(workload["calls"]),
+    }
+
+
 def main() -> int:
     values = _arguments()
     before = (
         datetime.now(UTC) - timedelta(days=values.older_than_days)
     ).isoformat()
     repository = SQLiteRouterRepository(values.storage_dir)
-    result = repository.cleanup_chat_control_receipts(
+    result = cleanup_receipts(
+        repository,
         values.tenant_id,
         before=before,
         apply=values.apply,

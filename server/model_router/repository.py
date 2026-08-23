@@ -33,7 +33,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 DEFAULT_TENANT_ID = "local"
 CANONICAL_MASTER_KEY_ENV = "MODEL_MIRROR_CREDENTIAL_MASTER_KEY"
 LEGACY_MASTER_KEY_ENV = "MODEL_ROUTER_CREDENTIAL_MASTER_KEY"
@@ -538,6 +538,110 @@ class SQLiteRouterRepository:
             observed_at TEXT NOT NULL,
             PRIMARY KEY (tenant_id, id)
         );
+        CREATE TABLE IF NOT EXISTS provider_workload_certifications (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            connection_id TEXT NOT NULL,
+            connection_fingerprint TEXT NOT NULL,
+            contract_version TEXT NOT NULL,
+            execution_shape TEXT NOT NULL,
+            requested_model TEXT NOT NULL,
+            actual_model TEXT,
+            profile_json TEXT NOT NULL DEFAULT '{}',
+            profile_fingerprint TEXT NOT NULL,
+            idempotency_key_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            checks_json TEXT NOT NULL DEFAULT '{}',
+            warnings_json TEXT NOT NULL DEFAULT '[]',
+            error_code TEXT,
+            ttft_ms REAL,
+            e2e_ms REAL,
+            prompt_tokens INTEGER,
+            completion_tokens INTEGER,
+            total_tokens INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id),
+            UNIQUE (tenant_id, connection_id, idempotency_key_hash)
+        );
+        CREATE TABLE IF NOT EXISTS provider_workload_policies (
+            tenant_id TEXT NOT NULL,
+            entry_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'legacy',
+            revision INTEGER NOT NULL DEFAULT 0,
+            policy_fingerprint TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, entry_id)
+        );
+        CREATE TABLE IF NOT EXISTS provider_workload_bindings (
+            tenant_id TEXT NOT NULL,
+            entry_id TEXT NOT NULL,
+            execution_shape TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            connection_id TEXT NOT NULL,
+            certification_id TEXT NOT NULL,
+            certification_source TEXT NOT NULL,
+            connection_fingerprint TEXT NOT NULL,
+            qualification_fingerprint TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, entry_id, execution_shape, model_id)
+        );
+        CREATE TABLE IF NOT EXISTS provider_workload_runs (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            entry_id TEXT NOT NULL,
+            policy_fingerprint TEXT NOT NULL,
+            parent_run_reference TEXT,
+            status TEXT NOT NULL,
+            result_class TEXT,
+            reason_codes_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id)
+        );
+        CREATE TABLE IF NOT EXISTS provider_workload_calls (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            entry_id TEXT NOT NULL,
+            execution_shape TEXT NOT NULL,
+            requested_model TEXT NOT NULL,
+            actual_model TEXT,
+            connection_id TEXT,
+            certification_id TEXT,
+            connection_fingerprint TEXT,
+            logical_call_key_hash TEXT NOT NULL,
+            call_sequence INTEGER NOT NULL,
+            dispatched INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL,
+            result_class TEXT,
+            error_code TEXT,
+            ttft_ms REAL,
+            e2e_ms REAL,
+            prompt_tokens INTEGER,
+            completion_tokens INTEGER,
+            total_tokens INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id),
+            UNIQUE (tenant_id, run_id, logical_call_key_hash),
+            UNIQUE (tenant_id, run_id, call_sequence)
+        );
+        CREATE TABLE IF NOT EXISTS provider_workload_approvals (
+            tenant_id TEXT NOT NULL,
+            entry_id TEXT NOT NULL,
+            policy_fingerprint TEXT NOT NULL,
+            no_open_p0_p1 INTEGER NOT NULL,
+            acknowledge_fail_closed INTEGER NOT NULL,
+            approved_at TEXT NOT NULL,
+            revoked_at TEXT,
+            PRIMARY KEY (tenant_id, entry_id, policy_fingerprint)
+        );
         CREATE INDEX IF NOT EXISTS idx_router_connections_tenant_enabled
             ON router_connections (tenant_id, enabled);
         CREATE INDEX IF NOT EXISTS idx_router_decisions_tenant_created
@@ -611,6 +715,22 @@ class SQLiteRouterRepository:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_chat_epochs_open
             ON provider_chat_gate_epochs (tenant_id)
             WHERE closed_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_workload_certifications_running
+            ON provider_workload_certifications (tenant_id, connection_id)
+            WHERE status = 'running';
+        CREATE INDEX IF NOT EXISTS idx_provider_workload_certifications_lookup
+            ON provider_workload_certifications (
+                tenant_id, connection_id, execution_shape,
+                requested_model, created_at DESC
+            );
+        CREATE INDEX IF NOT EXISTS idx_provider_workload_bindings_lookup
+            ON provider_workload_bindings (
+                tenant_id, entry_id, execution_shape, model_id
+            );
+        CREATE INDEX IF NOT EXISTS idx_provider_workload_runs_recent
+            ON provider_workload_runs (tenant_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_provider_workload_calls_run
+            ON provider_workload_calls (tenant_id, run_id, call_sequence);
         """
         with self._lock, self._connect() as connection:
             previous_schema_version = int(
@@ -850,6 +970,34 @@ class SQLiteRouterRepository:
             connection.execute(
                 """
                 UPDATE provider_chat_runs
+                SET status = 'uncertain', result_class = 'uncertain',
+                    reason_codes_json = '["server_restarted"]',
+                    updated_at = ?, completed_at = ?
+                WHERE status = 'running'
+                """,
+                (now, now),
+            )
+            connection.execute(
+                """
+                UPDATE provider_workload_certifications
+                SET status = 'uncertain', error_code = 'server_restarted',
+                    updated_at = ?, completed_at = ?
+                WHERE status = 'running'
+                """,
+                (now, now),
+            )
+            connection.execute(
+                """
+                UPDATE provider_workload_calls
+                SET status = 'uncertain', result_class = 'uncertain',
+                    error_code = 'server_restarted', updated_at = ?, completed_at = ?
+                WHERE status = 'running'
+                """,
+                (now, now),
+            )
+            connection.execute(
+                """
+                UPDATE provider_workload_runs
                 SET status = 'uncertain', result_class = 'uncertain',
                     reason_codes_json = '["server_restarted"]',
                     updated_at = ?, completed_at = ?
@@ -2560,6 +2708,912 @@ class SQLiteRouterRepository:
             "before": before,
             "runs": run_count,
             "attempts": attempt_count,
+        }
+
+    def claim_workload_certification(
+        self,
+        tenant_id: str,
+        *,
+        certification_id: str,
+        connection_id: str,
+        connection_fingerprint: str,
+        contract_version: str,
+        execution_shape: str,
+        requested_model: str,
+        profile: dict[str, object],
+        profile_fingerprint: str,
+        idempotency_key_hash: str,
+    ) -> tuple[dict[str, object], bool]:
+        clean_tenant = self._tenant_id(tenant_id)
+        self.get_connection(clean_tenant, connection_id)
+        now = utc_now()
+        profile_json = json.dumps(profile, sort_keys=True, separators=(",", ":"))
+        with self._lock, self._connect() as connection:
+            existing = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND connection_id = ?
+                    AND idempotency_key_hash = ?
+                """,
+                (clean_tenant, connection_id, idempotency_key_hash),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    str(existing["execution_shape"]) != execution_shape
+                    or str(existing["requested_model"]) != requested_model
+                    or str(existing["profile_fingerprint"]) != profile_fingerprint
+                ):
+                    raise RouterRepositoryError(
+                        "provider_workload_certification_idempotency_conflict"
+                    )
+                return dict(existing), False
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO provider_workload_certifications (
+                        id, tenant_id, connection_id, connection_fingerprint,
+                        contract_version, execution_shape, requested_model,
+                        profile_json, profile_fingerprint, idempotency_key_hash,
+                        status, checks_json, warnings_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', '{}', '[]', ?, ?)
+                    """,
+                    (
+                        certification_id,
+                        clean_tenant,
+                        connection_id,
+                        connection_fingerprint,
+                        contract_version,
+                        execution_shape,
+                        requested_model,
+                        profile_json,
+                        profile_fingerprint,
+                        idempotency_key_hash,
+                        now,
+                        now,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise RouterRepositoryError(
+                    "provider_workload_certification_already_running"
+                ) from exc
+            row = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+        return dict(row), True
+
+    def get_workload_certification_by_idempotency(
+        self,
+        tenant_id: str,
+        connection_id: str,
+        idempotency_key_hash: str,
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND connection_id = ?
+                    AND idempotency_key_hash = ?
+                """,
+                (clean_tenant, connection_id, idempotency_key_hash),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def complete_workload_certification(
+        self,
+        tenant_id: str,
+        certification_id: str,
+        *,
+        status: str,
+        checks: dict[str, bool],
+        warning_codes: list[str],
+        error_code: str | None = None,
+        actual_model: str | None = None,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> dict[str, object]:
+        if status not in {"passed", "failed", "uncertain"}:
+            raise RouterRepositoryError(
+                "invalid_provider_workload_certification_status"
+            )
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_workload_certifications
+                SET status = ?, checks_json = ?, warnings_json = ?,
+                    error_code = ?, actual_model = ?, ttft_ms = ?, e2e_ms = ?,
+                    prompt_tokens = ?, completion_tokens = ?, total_tokens = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    status,
+                    json.dumps(checks, sort_keys=True, separators=(",", ":")),
+                    json.dumps(warning_codes, separators=(",", ":")),
+                    error_code,
+                    actual_model,
+                    ttft_ms,
+                    e2e_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    now,
+                    now,
+                    clean_tenant,
+                    certification_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_workload_certification_not_running"
+                )
+            row = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+        return dict(row)
+
+    def list_workload_certifications(
+        self, tenant_id: str, *, connection_id: str | None = None
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        connection_clause = ""
+        values: list[object] = [clean_tenant]
+        if connection_id is not None:
+            connection_clause = " AND certification.connection_id = ?"
+            values.append(connection_id)
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT certification.*
+                FROM provider_workload_certifications AS certification
+                JOIN (
+                    SELECT connection_id, execution_shape, requested_model,
+                        profile_fingerprint, MAX(created_at) AS latest_created_at
+                    FROM provider_workload_certifications
+                    WHERE tenant_id = ?
+                    GROUP BY connection_id, execution_shape, requested_model,
+                        profile_fingerprint
+                ) AS latest
+                ON latest.connection_id = certification.connection_id
+                    AND latest.execution_shape = certification.execution_shape
+                    AND latest.requested_model = certification.requested_model
+                    AND latest.profile_fingerprint = certification.profile_fingerprint
+                    AND latest.latest_created_at = certification.created_at
+                WHERE certification.tenant_id = ?{connection_clause}
+                ORDER BY certification.created_at DESC, certification.id DESC
+                """,
+                tuple([clean_tenant, *values]),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_latest_workload_certification(
+        self,
+        tenant_id: str,
+        connection_id: str,
+        requested_model: str,
+        execution_shape: str,
+        *,
+        profile_fingerprint: str | None = None,
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        profile_clause = ""
+        values: list[object] = [
+            clean_tenant,
+            connection_id,
+            requested_model,
+            execution_shape,
+        ]
+        if profile_fingerprint is not None:
+            profile_clause = " AND profile_fingerprint = ?"
+            values.append(profile_fingerprint)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                f"""
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND connection_id = ?
+                    AND requested_model = ? AND execution_shape = ?
+                    {profile_clause}
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                tuple(values),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def get_workload_policy_bundle(
+        self, tenant_id: str, *, entry_id: str | None = None
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        clause = ""
+        values: list[object] = [clean_tenant]
+        if entry_id is not None:
+            clause = " AND entry_id = ?"
+            values.append(entry_id)
+        with self._lock, self._connect() as connection:
+            policies = connection.execute(
+                f"""
+                SELECT * FROM provider_workload_policies
+                WHERE tenant_id = ?{clause}
+                ORDER BY entry_id ASC
+                """,
+                tuple(values),
+            ).fetchall()
+            bindings = connection.execute(
+                f"""
+                SELECT * FROM provider_workload_bindings
+                WHERE tenant_id = ?{clause}
+                ORDER BY entry_id ASC, execution_shape ASC, model_id ASC
+                """,
+                tuple(values),
+            ).fetchall()
+            approvals = connection.execute(
+                f"""
+                SELECT * FROM provider_workload_approvals
+                WHERE tenant_id = ?{clause}
+                ORDER BY entry_id ASC, approved_at DESC
+                """,
+                tuple(values),
+            ).fetchall()
+        return {
+            "policies": [dict(row) for row in policies],
+            "bindings": [dict(row) for row in bindings],
+            "approvals": [dict(row) for row in approvals],
+        }
+
+    def replace_workload_policy(
+        self,
+        tenant_id: str,
+        *,
+        entry_id: str,
+        expected_revision: int,
+        policy_fingerprint: str,
+        bindings: list[dict[str, object]],
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            current = connection.execute(
+                """
+                SELECT * FROM provider_workload_policies
+                WHERE tenant_id = ? AND entry_id = ?
+                """,
+                (clean_tenant, entry_id),
+            ).fetchone()
+            current_revision = int(current["revision"]) if current else 0
+            if current_revision != int(expected_revision):
+                raise RouterRepositoryError(
+                    "provider_workload_policy_revision_conflict"
+                )
+            previous_status = str(current["status"]) if current else "legacy"
+            changed = (
+                current is None
+                or str(current["policy_fingerprint"]) != policy_fingerprint
+            )
+            status = (
+                "degraded_required"
+                if changed and previous_status in {"managed_required", "degraded_required"}
+                else previous_status
+            )
+            revision = current_revision + 1
+            created_at = str(current["created_at"]) if current else now
+            connection.execute(
+                """
+                INSERT INTO provider_workload_policies (
+                    tenant_id, entry_id, status, revision,
+                    policy_fingerprint, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, entry_id) DO UPDATE SET
+                    status = excluded.status,
+                    revision = excluded.revision,
+                    policy_fingerprint = excluded.policy_fingerprint,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    clean_tenant,
+                    entry_id,
+                    status,
+                    revision,
+                    policy_fingerprint,
+                    created_at,
+                    now,
+                ),
+            )
+            connection.execute(
+                "DELETE FROM provider_workload_bindings "
+                "WHERE tenant_id = ? AND entry_id = ?",
+                (clean_tenant, entry_id),
+            )
+            for binding in bindings:
+                connection.execute(
+                    """
+                    INSERT INTO provider_workload_bindings (
+                        tenant_id, entry_id, execution_shape, model_id,
+                        connection_id, certification_id, certification_source,
+                        connection_fingerprint, qualification_fingerprint,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        clean_tenant,
+                        entry_id,
+                        binding["execution_shape"],
+                        binding["model_id"],
+                        binding["connection_id"],
+                        binding["certification_id"],
+                        binding["certification_source"],
+                        binding["connection_fingerprint"],
+                        binding["qualification_fingerprint"],
+                        now,
+                        now,
+                    ),
+                )
+            if changed:
+                connection.execute(
+                    """
+                    UPDATE provider_workload_approvals SET revoked_at = ?
+                    WHERE tenant_id = ? AND entry_id = ? AND revoked_at IS NULL
+                    """,
+                    (now, clean_tenant, entry_id),
+                )
+        return self.get_workload_policy_bundle(clean_tenant, entry_id=entry_id)
+
+    def activate_workload_policy(
+        self,
+        tenant_id: str,
+        *,
+        entry_id: str,
+        expected_revision: int,
+        policy_fingerprint: str,
+        no_open_p0_p1: bool,
+        acknowledge_fail_closed: bool,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            policy = connection.execute(
+                """
+                SELECT * FROM provider_workload_policies
+                WHERE tenant_id = ? AND entry_id = ?
+                """,
+                (clean_tenant, entry_id),
+            ).fetchone()
+            if policy is None:
+                raise RouterRepositoryError("provider_workload_policy_not_configured")
+            if int(policy["revision"]) != int(expected_revision):
+                raise RouterRepositoryError(
+                    "provider_workload_policy_revision_conflict"
+                )
+            if str(policy["policy_fingerprint"]) != policy_fingerprint:
+                raise RouterRepositoryError("provider_workload_policy_changed")
+            connection.execute(
+                """
+                UPDATE provider_workload_policies
+                SET status = 'managed_required', revision = revision + 1,
+                    updated_at = ?
+                WHERE tenant_id = ? AND entry_id = ? AND revision = ?
+                """,
+                (now, clean_tenant, entry_id, int(expected_revision)),
+            )
+            connection.execute(
+                """
+                INSERT INTO provider_workload_approvals (
+                    tenant_id, entry_id, policy_fingerprint,
+                    no_open_p0_p1, acknowledge_fail_closed,
+                    approved_at, revoked_at
+                ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+                ON CONFLICT(tenant_id, entry_id, policy_fingerprint) DO UPDATE SET
+                    no_open_p0_p1 = excluded.no_open_p0_p1,
+                    acknowledge_fail_closed = excluded.acknowledge_fail_closed,
+                    approved_at = excluded.approved_at,
+                    revoked_at = NULL
+                """,
+                (
+                    clean_tenant,
+                    entry_id,
+                    policy_fingerprint,
+                    int(no_open_p0_p1),
+                    int(acknowledge_fail_closed),
+                    now,
+                ),
+            )
+        return self.get_workload_policy_bundle(clean_tenant, entry_id=entry_id)
+
+    def deactivate_workload_policy(
+        self, tenant_id: str, *, entry_id: str, expected_revision: int
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_workload_policies
+                SET status = 'legacy', revision = revision + 1, updated_at = ?
+                WHERE tenant_id = ? AND entry_id = ? AND revision = ?
+                """,
+                (now, clean_tenant, entry_id, int(expected_revision)),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_workload_policy_revision_conflict"
+                )
+            connection.execute(
+                """
+                UPDATE provider_workload_approvals SET revoked_at = ?
+                WHERE tenant_id = ? AND entry_id = ? AND revoked_at IS NULL
+                """,
+                (now, clean_tenant, entry_id),
+            )
+        return self.get_workload_policy_bundle(clean_tenant, entry_id=entry_id)
+
+    def claim_workload_run(
+        self,
+        tenant_id: str,
+        *,
+        run_id: str,
+        entry_id: str,
+        policy_fingerprint: str,
+        parent_run_reference: str | None = None,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO provider_workload_runs (
+                    id, tenant_id, entry_id, policy_fingerprint,
+                    parent_run_reference, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'running', ?, ?)
+                """,
+                (
+                    run_id,
+                    clean_tenant,
+                    entry_id,
+                    policy_fingerprint,
+                    parent_run_reference,
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM provider_workload_runs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, run_id),
+            ).fetchone()
+        return dict(row)
+
+    def claim_workload_call(
+        self,
+        tenant_id: str,
+        *,
+        call_id: str,
+        run_id: str,
+        entry_id: str,
+        execution_shape: str,
+        requested_model: str,
+        connection_id: str,
+        certification_id: str,
+        connection_fingerprint: str,
+        logical_call_key_hash: str,
+        call_sequence: int,
+    ) -> tuple[dict[str, object], bool]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            run = connection.execute(
+                "SELECT * FROM provider_workload_runs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, run_id),
+            ).fetchone()
+            if run is None:
+                raise RouterRepositoryError("provider_workload_run_not_found")
+            if str(run["status"]) != "running":
+                raise RouterRepositoryError("provider_workload_run_not_running")
+            if str(run["entry_id"]) != entry_id:
+                raise RouterRepositoryError("provider_workload_run_entry_mismatch")
+            existing = connection.execute(
+                """
+                SELECT * FROM provider_workload_calls
+                WHERE tenant_id = ? AND run_id = ? AND logical_call_key_hash = ?
+                """,
+                (clean_tenant, run_id, logical_call_key_hash),
+            ).fetchone()
+            if existing is not None:
+                return dict(existing), False
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO provider_workload_calls (
+                        id, tenant_id, run_id, entry_id, execution_shape,
+                        requested_model, connection_id, certification_id,
+                        connection_fingerprint, logical_call_key_hash,
+                        call_sequence, status, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)
+                    """,
+                    (
+                        call_id,
+                        clean_tenant,
+                        run_id,
+                        entry_id,
+                        execution_shape,
+                        requested_model,
+                        connection_id,
+                        certification_id,
+                        connection_fingerprint,
+                        logical_call_key_hash,
+                        int(call_sequence),
+                        now,
+                        now,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise RouterRepositoryError(
+                    "provider_workload_call_sequence_conflict"
+                ) from exc
+            row = connection.execute(
+                "SELECT * FROM provider_workload_calls WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, call_id),
+            ).fetchone()
+        return dict(row), True
+
+    def get_workload_run(
+        self, tenant_id: str, run_id: str
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM provider_workload_runs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, run_id),
+            ).fetchone()
+        if row is None:
+            raise RouterRepositoryError("provider_workload_run_not_found")
+        return dict(row)
+
+    def mark_workload_call_dispatched(
+        self,
+        tenant_id: str,
+        call_id: str,
+        *,
+        run_id: str,
+        entry_id: str,
+        execution_shape: str,
+        requested_model: str,
+        connection_id: str,
+        certification_id: str,
+        connection_fingerprint: str,
+        policy_fingerprint: str,
+    ) -> None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            current = connection.execute(
+                """
+                SELECT status, dispatched FROM provider_workload_calls
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, call_id),
+            ).fetchone()
+            if (
+                current is None
+                or str(current["status"]) != "running"
+                or bool(current["dispatched"])
+            ):
+                raise RouterRepositoryError(
+                    "provider_workload_duplicate_dispatch_blocked"
+                )
+            cursor = connection.execute(
+                """
+                UPDATE provider_workload_calls
+                SET dispatched = 1, updated_at = ?
+                WHERE tenant_id = ? AND id = ?
+                    AND status = 'running' AND dispatched = 0
+                    AND run_id = ? AND entry_id = ?
+                    AND execution_shape = ? AND requested_model = ?
+                    AND connection_id = ? AND certification_id = ?
+                    AND connection_fingerprint = ?
+                    AND EXISTS (
+                        SELECT 1 FROM provider_workload_runs AS run
+                        JOIN provider_workload_policies AS policy
+                            ON policy.tenant_id = run.tenant_id
+                            AND policy.entry_id = run.entry_id
+                        WHERE run.tenant_id = provider_workload_calls.tenant_id
+                            AND run.id = provider_workload_calls.run_id
+                            AND run.status = 'running'
+                            AND run.policy_fingerprint = ?
+                            AND policy.status = 'managed_required'
+                            AND policy.policy_fingerprint = ?
+                    )
+                    AND EXISTS (
+                        SELECT 1 FROM provider_workload_bindings AS binding
+                        WHERE binding.tenant_id = provider_workload_calls.tenant_id
+                            AND binding.entry_id = provider_workload_calls.entry_id
+                            AND binding.execution_shape = provider_workload_calls.execution_shape
+                            AND binding.model_id = provider_workload_calls.requested_model
+                            AND binding.connection_id = provider_workload_calls.connection_id
+                            AND binding.certification_id = provider_workload_calls.certification_id
+                            AND binding.connection_fingerprint = provider_workload_calls.connection_fingerprint
+                    )
+                """,
+                (
+                    utc_now(),
+                    clean_tenant,
+                    call_id,
+                    run_id,
+                    entry_id,
+                    execution_shape,
+                    requested_model,
+                    connection_id,
+                    certification_id,
+                    connection_fingerprint,
+                    policy_fingerprint,
+                    policy_fingerprint,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_workload_dispatch_preconditions_changed"
+                )
+
+    def complete_workload_call(
+        self,
+        tenant_id: str,
+        call_id: str,
+        *,
+        status: str,
+        result_class: str | None = None,
+        error_code: str | None = None,
+        actual_model: str | None = None,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> dict[str, object]:
+        if status not in {"passed", "failed", "uncertain", "cancelled"}:
+            raise RouterRepositoryError("invalid_provider_workload_call_status")
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            current = connection.execute(
+                """
+                SELECT status, dispatched FROM provider_workload_calls
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, call_id),
+            ).fetchone()
+            if current is None or str(current["status"]) != "running":
+                raise RouterRepositoryError("provider_workload_call_not_running")
+            if status == "passed" and not bool(current["dispatched"]):
+                raise RouterRepositoryError(
+                    "provider_workload_call_passed_without_dispatch"
+                )
+            cursor = connection.execute(
+                """
+                UPDATE provider_workload_calls
+                SET status = ?, result_class = ?, error_code = ?, actual_model = ?,
+                    ttft_ms = ?, e2e_ms = ?, prompt_tokens = ?,
+                    completion_tokens = ?, total_tokens = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    status,
+                    result_class,
+                    error_code,
+                    actual_model,
+                    ttft_ms,
+                    e2e_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    now,
+                    now,
+                    clean_tenant,
+                    call_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_workload_call_not_running")
+            row = connection.execute(
+                "SELECT * FROM provider_workload_calls WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, call_id),
+            ).fetchone()
+        return dict(row)
+
+    def complete_workload_run(
+        self,
+        tenant_id: str,
+        run_id: str,
+        *,
+        status: str,
+        result_class: str | None = None,
+        reason_codes: list[str] | None = None,
+    ) -> dict[str, object]:
+        if status not in {"passed", "failed", "uncertain", "cancelled"}:
+            raise RouterRepositoryError("invalid_provider_workload_run_status")
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            current = connection.execute(
+                """
+                SELECT status FROM provider_workload_runs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, run_id),
+            ).fetchone()
+            if current is None or str(current["status"]) != "running":
+                raise RouterRepositoryError("provider_workload_run_not_running")
+            call_rows = connection.execute(
+                """
+                SELECT status FROM provider_workload_calls
+                WHERE tenant_id = ? AND run_id = ?
+                """,
+                (clean_tenant, run_id),
+            ).fetchall()
+            if any(str(row["status"]) == "running" for row in call_rows):
+                raise RouterRepositoryError(
+                    "provider_workload_run_has_running_calls"
+                )
+            if status == "passed" and (
+                not call_rows
+                or any(str(row["status"]) != "passed" for row in call_rows)
+            ):
+                raise RouterRepositoryError(
+                    "provider_workload_run_passed_without_successful_calls"
+                )
+            cursor = connection.execute(
+                """
+                UPDATE provider_workload_runs
+                SET status = ?, result_class = ?, reason_codes_json = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    status,
+                    result_class,
+                    json.dumps(reason_codes or [], separators=(",", ":")),
+                    now,
+                    now,
+                    clean_tenant,
+                    run_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_workload_run_not_running")
+            row = connection.execute(
+                "SELECT * FROM provider_workload_runs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, run_id),
+            ).fetchone()
+        return dict(row)
+
+    def list_workload_receipts(
+        self,
+        tenant_id: str,
+        *,
+        entry_id: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        bounded_limit = max(1, min(int(limit), 100))
+        with self._lock, self._connect() as connection:
+            clauses = ["tenant_id = ?"]
+            values: list[object] = [clean_tenant]
+            if entry_id is not None:
+                clauses.append("entry_id = ?")
+                values.append(entry_id)
+            if cursor:
+                cursor_row = connection.execute(
+                    """
+                    SELECT created_at, id FROM provider_workload_runs
+                    WHERE tenant_id = ? AND id = ?
+                    """,
+                    (clean_tenant, cursor),
+                ).fetchone()
+                if cursor_row is None:
+                    raise RouterRepositoryError(
+                        "provider_workload_receipt_cursor_invalid"
+                    )
+                clauses.append("(created_at < ? OR (created_at = ? AND id < ?))")
+                values.extend(
+                    [cursor_row["created_at"], cursor_row["created_at"], cursor_row["id"]]
+                )
+            values.append(bounded_limit + 1)
+            runs = connection.execute(
+                f"""
+                SELECT * FROM provider_workload_runs
+                WHERE {" AND ".join(clauses)}
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                tuple(values),
+            ).fetchall()
+            has_more = len(runs) > bounded_limit
+            runs = runs[:bounded_limit]
+            if not runs:
+                return {"runs": [], "calls": [], "next_cursor": None}
+            run_ids = [str(row["id"]) for row in runs]
+            placeholders = ",".join("?" for _ in run_ids)
+            calls = connection.execute(
+                f"""
+                SELECT * FROM provider_workload_calls
+                WHERE tenant_id = ? AND run_id IN ({placeholders})
+                ORDER BY run_id ASC, call_sequence ASC
+                """,
+                tuple([clean_tenant, *run_ids]),
+            ).fetchall()
+        return {
+            "runs": [dict(row) for row in runs],
+            "calls": [dict(row) for row in calls],
+            "next_cursor": run_ids[-1] if has_more else None,
+        }
+
+    def cleanup_workload_receipts(
+        self,
+        tenant_id: str,
+        *,
+        before: str,
+        apply: bool = False,
+    ) -> dict[str, int | bool | str]:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            run_count = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*) FROM provider_workload_runs
+                    WHERE tenant_id = ? AND status != 'running'
+                        AND COALESCE(completed_at, updated_at) < ?
+                    """,
+                    (clean_tenant, before),
+                ).fetchone()[0]
+            )
+            call_count = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*) FROM provider_workload_calls
+                    WHERE tenant_id = ? AND run_id IN (
+                        SELECT id FROM provider_workload_runs
+                        WHERE tenant_id = ? AND status != 'running'
+                            AND COALESCE(completed_at, updated_at) < ?
+                    )
+                    """,
+                    (clean_tenant, clean_tenant, before),
+                ).fetchone()[0]
+            )
+            if apply:
+                connection.execute(
+                    """
+                    DELETE FROM provider_workload_calls
+                    WHERE tenant_id = ? AND run_id IN (
+                        SELECT id FROM provider_workload_runs
+                        WHERE tenant_id = ? AND status != 'running'
+                            AND COALESCE(completed_at, updated_at) < ?
+                    )
+                    """,
+                    (clean_tenant, clean_tenant, before),
+                )
+                connection.execute(
+                    """
+                    DELETE FROM provider_workload_runs
+                    WHERE tenant_id = ? AND status != 'running'
+                        AND COALESCE(completed_at, updated_at) < ?
+                    """,
+                    (clean_tenant, before),
+                )
+        return {
+            "applied": bool(apply),
+            "before": before,
+            "runs": run_count,
+            "calls": call_count,
         }
 
     def get_chat_canary_policy(

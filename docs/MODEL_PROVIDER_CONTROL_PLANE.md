@@ -209,11 +209,31 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - 清理命令 `python -m server.model_router.cleanup_chat_receipts --storage-dir <path>` 默认
   dry-run；只有显式增加 `--apply` 才会删除超过保留期的运行和尝试记录，默认保留 90 天。
 
+## Agent 与 Workflow Managed 控制面基础（Round 6A）
+
+- 内部契约版本为 `modelmirror-provider-workload-routing-v1`。入口、执行形态、精确模型与
+  单一 Managed Connection 组成 Binding；客户端不能提交连接 ID，也不能按模型名称推断能力。
+- SQLite v16 纯加法保存 Workload 资格、入口 Policy、Binding、批准、父运行与逐逻辑调用
+  Receipt。所有约束包含 `tenant_id`；记录不包含 Prompt、消息、模型输出、工具参数、Base URL
+  或凭据。遗留 `running` 在重启后变为 `uncertain`，绝不自动重放。
+- `chat_text` 与 `chat_tools` 复用 R5 对应能力认证。R6A 新增 `chat_text_unary`、
+  `chat_json_object` 与 OpenRouter 专用 `fusion_native` 认证；真实认证只允许一个已批准 IP、
+  一个 Provider POST 和零自动重试，合成输入及响应正文不落库。
+- 管理接口以 optimistic revision 原子维护 Policy/Binding，并提供脱敏资格、Overview 和
+  Receipt 查询；公共状态只返回部署开关、状态、是否在派发前阻断及稳定 reason code。
+- R6A 不接管任何 Agent、Workflow 或 Xpert 数据面。所有 R6 Feature Flag 默认 `false`，
+  `activate` 还会因入口尚未完成对应数据面子轮次而失败关闭；保存 Binding 不改变 legacy 调用。
+- 后续 R6B—R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
+  只能存在于 Python 主进程内存，Worker、工具执行器和浏览器不得收到 Key、URL 或连接细节。
+- Receipt 清理命令现在同时检查 R5 Chat 与 R6 Workload 记录，仍默认 dry-run；`--apply`
+  才删除超过保留期的已完成运行、尝试或调用。
+
 ## 回退
 
 关闭管理面或回退路由不得删除 Provider SQLite、newAPI 数据目录、旧主密钥或迁移
 备份。将 `MODEL_MIRROR_PROVIDER_CHAT_CANARY_ENABLED=false` 可立即关闭 Round 3 入口；
-将 `MODEL_CONTROL_CHAT_ENABLED=false` 保持 R5 数据面关闭。代码回退保留 v15 表和
+将 `MODEL_CONTROL_CHAT_ENABLED=false` 保持 R5 数据面关闭。关闭各入口对应的
+`MODEL_CONTROL_*_ENABLED` 可保持 R6 数据面为 legacy。代码回退保留 v15/v16 表和
 脱敏证据；只需将策略 `auto_enabled=false` 即可停止新增 Auto 证据而不改变 Auto 调度。
 旧版本可忽略新表继续运行。部署回退通过恢复上一版本
 Compose 与对应显式环境配置完成。
