@@ -251,6 +251,8 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 - `本地导入`：懒加载私有 Import Store 摘要；`/skills/import` 接受单个 ZIP 或文件夹，完成确定性扫描、风险确认、安装或同源替换，不执行包内脚本、不调用模型或网络。
 - `工作区草稿`、`待审提案`：保留通用创作与审批入口；默认开启的私有 `/skills/create` 提供 Creator V2 工作台。新 Session 先确认资源计划，再按需生成和验证 `scripts/`、`references/`、可选 `assets/`，最后评审 `SKILL.md`；简单 Skill 可以不生成附加资源。客观 Skill 使用固定三类核心案例和最多 9 条用户确认回归案例，并在进化后以 baseline / previous / candidate 三侧复跑；主观创作类仍可记录明确人工豁免。新增退化必须逐项确认并说明原因，质量门通过后仍需独立确认安装，评测不会自动安装。详细边界见 [Skill 体验治理与候选能力审计](./SKILL_EXPERIENCE_AUDIT.md#43-通过-skill-creator-创建-skill)。
 
+触发描述验证的第一阶段基础由 `SkillTriggerSuiteV1`、`SkillTriggerReceiptV1` 和纯本地 `SkillTriggerEvaluator` 提供。验证器把 Creator 草稿作为内存中的 `workspace_draft` 候选，直接复用生产 Finder/Router 的 Top 6 与 Top 24 词典排序，不写入安装目录或全局索引；凭据绑定套件、描述、ranker 及 Runtime/Trust/目录指纹。`SKILL_CREATOR_TRIGGER_OPTIMIZATION_ENABLED` 当前默认 `false`，因此本阶段不改变 Creator 计划确认、提案或安装行为。
+
 社区资源卡片同时显示原始来源与收录索引。安装第三方条目只会复制目录，不会在安装阶段自动执行脚本；用户仍需在激活前检查依赖、外部服务和凭据要求。
 
 面试间 `/chat/:modelId` 增加 Skill 选择器：
