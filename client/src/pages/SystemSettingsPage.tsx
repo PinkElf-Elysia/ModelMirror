@@ -6,13 +6,14 @@ import MarbleConnectionSettings from "../components/settings/MarbleConnectionSet
 import ProviderAdminGate from "../components/settings/ProviderAdminGate";
 import ProviderCatalogPanel from "../components/settings/ProviderCatalogPanel";
 import ProviderControlPlaneOverview from "../components/settings/ProviderControlPlaneOverview";
+import ProviderWorkloadControlSettings from "../components/settings/ProviderWorkloadControlSettings";
 import SmartRoutingSettings from "../components/settings/SmartRoutingSettings";
 
 type SettingsSection = "overview" | "providers" | "routing";
 const SECTIONS: Array<{ id: SettingsSection; label: string; description: string }> = [
   { id: "overview", label: "总览", description: "目录与运行准备度" },
   { id: "providers", label: "Provider 与 Catalog", description: "连接、Inventory 与认证" },
-  { id: "routing", label: "路由与实验", description: "Native 门禁与 Canary" },
+  { id: "routing", label: "路由与实验", description: "Managed 路由、Native 门禁与实验" },
 ];
 
 function trimTrailingSlash(value: string) { return value.replace(/\/+$/, ""); }
@@ -75,7 +76,7 @@ export default function SystemSettingsPage() {
           {SECTIONS.map((item) => <button aria-current={section === item.id ? "page" : undefined} className={`rounded-lg px-4 py-3 text-left transition ${section === item.id ? "bg-cyan-300/12 text-cyan-100 ring-1 ring-cyan-300/25" : "text-slate-300 hover:bg-white/[0.045]"}`} key={item.id} onClick={() => setSearchParams({ section: item.id }, { replace: true })} type="button"><span className="block text-sm font-semibold">{item.label}</span><span className="mt-1 block text-xs text-slate-400">{item.description}</span></button>)}
         </nav>
         <ProviderAdminGate>
-          {({ csrfToken }) => section === "overview" ? <ProviderControlPlaneOverview /> : section === "providers" ? <div><ModelServiceConnections csrfToken={csrfToken} /><ProviderCatalogPanel csrfToken={csrfToken} /><NewApiExternalConsole consoleUrl={consoleUrl} /></div> : <SmartRoutingSettings csrfToken={csrfToken} />}
+          {({ csrfToken }) => section === "overview" ? <ProviderControlPlaneOverview /> : section === "providers" ? <div><ModelServiceConnections csrfToken={csrfToken} /><ProviderCatalogPanel csrfToken={csrfToken} /><ProviderWorkloadControlSettings csrfToken={csrfToken} view="certifications" /><NewApiExternalConsole consoleUrl={consoleUrl} /></div> : <SmartRoutingSettings csrfToken={csrfToken} />}
         </ProviderAdminGate>
       </section>
 

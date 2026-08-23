@@ -26,7 +26,7 @@ V15_TABLES = {
 }
 
 
-def test_v14_to_v15_is_additive_and_defaults_existing_certification_to_text(
+def test_v14_to_current_schema_is_additive_and_defaults_existing_certification_to_text(
     tmp_path: Path,
 ) -> None:
     database_path = tmp_path / "router.sqlite3"
@@ -63,7 +63,7 @@ def test_v14_to_v15_is_additive_and_defaults_existing_certification_to_text(
     SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         tables = {
             row[0]
             for row in connection.execute(
@@ -74,7 +74,7 @@ def test_v14_to_v15_is_additive_and_defaults_existing_certification_to_text(
         assert connection.execute(
             "SELECT capability FROM provider_chat_certifications WHERE id = 'cert-old'"
         ).fetchone()[0] == "chat_text"
-    assert SCHEMA_VERSION == 15
+    assert SCHEMA_VERSION >= 15
 
 
 def test_policy_replace_is_atomic_revisioned_and_tenant_scoped(

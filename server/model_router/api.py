@@ -46,6 +46,19 @@ from .schemas import (
     ControlPlaneCatalogResponse,
     OperationName,
     ProviderModelsRefreshResponse,
+    ProviderWorkloadActivationRequest,
+    ProviderWorkloadCertificationListResponse,
+    ProviderWorkloadCertificationRequest,
+    ProviderWorkloadCertificationSummary,
+    ProviderWorkloadDeactivationRequest,
+    ProviderWorkloadEntryId,
+    ProviderWorkloadExecutionShape,
+    ProviderWorkloadOverview,
+    ProviderWorkloadPolicyListResponse,
+    ProviderWorkloadPolicyResponse,
+    ProviderWorkloadPolicyUpdate,
+    ProviderWorkloadPublicStatus,
+    ProviderWorkloadReceiptsResponse,
     RouterConnection,
     RouterConnectionCreate,
     RouterConnectionUpdate,
@@ -55,6 +68,10 @@ from .schemas import (
 )
 from .chat_certification import ProviderChatCertificationService
 from .chat_control import ProviderChatControlService
+from .workload_control import (
+    ProviderWorkloadCertificationService,
+    ProviderWorkloadControlService,
+)
 from .chat_canary import ProviderChatCanaryService
 from .provider_catalog import ProviderCatalogService
 from .control_plane_catalog import ControlPlaneCatalogService
@@ -382,6 +399,150 @@ def get_chat_control_receipts(
 
 
 @router.get(
+    "/workload-control/overview",
+    response_model=ProviderWorkloadOverview,
+)
+def get_workload_control_overview(
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> ProviderWorkloadOverview:
+    try:
+        return ProviderWorkloadControlService(
+            get_model_router_service()
+        ).overview()
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.get(
+    "/workload-control/policies",
+    response_model=ProviderWorkloadPolicyListResponse,
+)
+def get_workload_control_policies(
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> ProviderWorkloadPolicyListResponse:
+    try:
+        return ProviderWorkloadControlService(
+            get_model_router_service()
+        ).policies()
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.put(
+    "/workload-control/policies/{entry_id}",
+    response_model=ProviderWorkloadPolicyResponse,
+)
+def update_workload_control_policy(
+    entry_id: ProviderWorkloadEntryId,
+    payload: ProviderWorkloadPolicyUpdate,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderWorkloadPolicyResponse:
+    try:
+        return ProviderWorkloadControlService(
+            get_model_router_service()
+        ).update_policy(entry_id, payload)
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.post(
+    "/workload-control/policies/{entry_id}/activate",
+    response_model=ProviderWorkloadPolicyResponse,
+)
+def activate_workload_control_policy(
+    entry_id: ProviderWorkloadEntryId,
+    payload: ProviderWorkloadActivationRequest,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderWorkloadPolicyResponse:
+    try:
+        return ProviderWorkloadControlService(
+            get_model_router_service()
+        ).activate(entry_id, payload)
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.post(
+    "/workload-control/policies/{entry_id}/deactivate",
+    response_model=ProviderWorkloadPolicyResponse,
+)
+def deactivate_workload_control_policy(
+    entry_id: ProviderWorkloadEntryId,
+    payload: ProviderWorkloadDeactivationRequest,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderWorkloadPolicyResponse:
+    try:
+        return ProviderWorkloadControlService(
+            get_model_router_service()
+        ).deactivate(entry_id, payload)
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.get(
+    "/workload-control/receipts",
+    response_model=ProviderWorkloadReceiptsResponse,
+)
+def get_workload_control_receipts(
+    entry_id: ProviderWorkloadEntryId | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> ProviderWorkloadReceiptsResponse:
+    try:
+        return ProviderWorkloadControlService(
+            get_model_router_service()
+        ).receipts(
+            entry_id=entry_id,
+            limit=max(1, min(limit, 100)),
+            cursor=cursor,
+        )
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.get(
+    "/certifications/workloads",
+    response_model=ProviderWorkloadCertificationListResponse,
+)
+def list_workload_certifications(
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin),
+) -> ProviderWorkloadCertificationListResponse:
+    try:
+        return ProviderWorkloadCertificationService(
+            get_model_router_service()
+        ).list()
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@router.post(
+    "/connections/{connection_id}/certifications/workloads",
+    response_model=ProviderWorkloadCertificationSummary,
+)
+async def run_workload_certification(
+    connection_id: str,
+    payload: ProviderWorkloadCertificationRequest,
+    idempotency_key: str = Header(default="", alias="Idempotency-Key"),
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderWorkloadCertificationSummary:
+    try:
+        return await ProviderWorkloadCertificationService(
+            get_model_router_service()
+        ).run(
+            connection_id,
+            payload,
+            idempotency_key=idempotency_key,
+        )
+    except (
+        ProviderEgressError,
+        RouterServiceError,
+        RouterRepositoryError,
+    ) as exc:
+        _raise_public_error(exc)
+
+
+@router.get(
     "/canaries/chat",
     response_model=ProviderChatCanaryAdminResponse,
 )
@@ -595,5 +756,24 @@ def get_public_chat_control_status(
         return ProviderChatControlService(
             get_model_router_service()
         ).public_status(model_id, capability)
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+
+
+@models_router.get(
+    "/provider-workload-control",
+    response_model=ProviderWorkloadPublicStatus,
+)
+def get_public_workload_control_status(
+    entry_id: ProviderWorkloadEntryId,
+    model_id: str,
+    execution_shape: ProviderWorkloadExecutionShape,
+    response: Response,
+) -> ProviderWorkloadPublicStatus:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return ProviderWorkloadControlService(
+            get_model_router_service()
+        ).public_status(entry_id, model_id, execution_shape)
     except (RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)

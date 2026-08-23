@@ -198,6 +198,33 @@ python -m server.model_router.cleanup_chat_receipts --storage-dir /app/model_rou
 第二条命令会实际删除过期 Receipt，执行前必须复核目标存储目录并保留数据库备份。
 代码回退时保留 v15 表；旧版本可忽略这些加法表。
 
+R6A 升级到 SQLite v16 前同样需要停止 Server 写入并创建一致性备份。v16 只增加
+Agent/Workflow Workload 的资格、Policy、Binding、批准和脱敏 Receipt 表；不会重写 v15
+Chat 数据。R6 数据面开关全部默认关闭：
+
+```bash
+MODEL_CONTROL_AGENT_SHADOW_ENABLED=false
+MODEL_CONTROL_META_AGENT_ENABLED=false
+MODEL_CONTROL_WORKFLOW_LLM_ENABLED=false
+MODEL_CONTROL_WORKFLOW_AGENT_ENABLED=false
+MODEL_CONTROL_WORKFLOW_DEPLOYMENT_ENABLED=false
+MODEL_CONTROL_XPERT_ENABLED=false
+MODEL_CONTROL_XPERT_APP_ENABLED=false
+MODEL_CONTROL_EXPERT_TEAM_PLANNER_ENABLED=false
+MODEL_CONTROL_EXPERT_TEAM_DAG_ENABLED=false
+MODEL_CONTROL_FUSION_ENABLED=false
+MODEL_CONTROL_ROUTE_AGENT_ENABLED=false
+MODEL_CONTROL_TEAM_CHAT_ENABLED=false
+```
+
+R6A 的入口数据面尚未接入，即使误开环境变量也不能激活 Managed Policy。管理员可以先完成
+新执行形态资格并保存精确 Binding，但 Agent、Workflow 和 Xpert 继续使用 legacy 路径。
+每个后续子轮次验收后才会把对应入口加入可激活集合。紧急回退先显式停用入口 Policy，再
+关闭对应开关并重启；保留 v16 表和 Receipt，旧代码可忽略这些表运行。
+
+同一清理命令从 v16 起同时报告 R5 Chat 与 R6 Workload 的过期记录；第一条仍是 dry-run，
+只有第二条显式 `--apply` 才删除已完成记录。不得对正在运行的父运行或逻辑调用执行清理。
+
 规则：
 
 - `.env`、API Key、token 和 master key 不得提交。

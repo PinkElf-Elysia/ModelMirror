@@ -43,6 +43,41 @@ ProviderChatCanaryRunStatus = Literal[
     "preflight_fallback",
     "cancelled",
 ]
+ProviderWorkloadEntryId = Literal[
+    "agent_shadow",
+    "meta_agent",
+    "workflow_interactive_llm",
+    "workflow_deployment_llm",
+    "workflow_interactive_agent",
+    "workflow_deployment_agent",
+    "xpert",
+    "xpert_app",
+    "expert_team_planner",
+    "expert_team_dag",
+    "fusion",
+    "route_agent",
+    "team_chat",
+]
+ProviderWorkloadExecutionShape = Literal[
+    "chat_text",
+    "chat_tools",
+    "chat_text_unary",
+    "chat_json_object",
+    "fusion_native",
+]
+ProviderWorkloadPolicyStatus = Literal[
+    "legacy",
+    "managed_required",
+    "degraded_required",
+]
+ProviderWorkloadCertificationStatus = Literal[
+    "not_run",
+    "running",
+    "passed",
+    "failed",
+    "uncertain",
+    "stale",
+]
 ProviderCatalogRefreshStatus = Literal[
     "running",
     "succeeded",
@@ -675,6 +710,236 @@ class ProviderChatCanaryAdminResponse(BaseModel):
     )
     runs: list[ProviderChatCanaryRunSummary] = Field(default_factory=list)
     aggregates: list[ProviderChatCanaryAggregate] = Field(default_factory=list)
+
+
+class ProviderWorkloadCertificationRequest(BaseModel):
+    execution_shape: ProviderWorkloadExecutionShape
+    model_id: str = Field(min_length=1, max_length=512)
+    acknowledge_billed_call: bool
+    candidate_model_ids: list[str] = Field(default_factory=list, max_length=5)
+    judge_model_id: str | None = Field(default=None, max_length=512)
+
+    @field_validator("model_id")
+    @classmethod
+    def validate_model_id(cls, value: str) -> str:
+        return _required_text(value, field_name="model_id", limit=512)
+
+    @field_validator("candidate_model_ids")
+    @classmethod
+    def validate_candidate_model_ids(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            model_id = _required_text(value, field_name="candidate_model_id", limit=512)
+            if model_id in normalized:
+                raise ValueError("candidate_model_ids must be unique")
+            normalized.append(model_id)
+        return normalized
+
+    @field_validator("judge_model_id")
+    @classmethod
+    def validate_judge_model_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _required_text(value, field_name="judge_model_id", limit=512)
+
+    @model_validator(mode="after")
+    def validate_fusion_profile(self) -> "ProviderWorkloadCertificationRequest":
+        if self.execution_shape == "fusion_native":
+            if self.model_id != "openrouter/fusion":
+                raise ValueError("fusion_native requires model_id=openrouter/fusion")
+            if len(self.candidate_model_ids) < 2 or self.judge_model_id is None:
+                raise ValueError(
+                    "fusion_native requires 2-5 candidate_model_ids and judge_model_id"
+                )
+        elif self.candidate_model_ids or self.judge_model_id is not None:
+            raise ValueError("fusion profile is only valid for fusion_native")
+        if self.execution_shape in {"chat_text", "chat_tools"}:
+            raise ValueError("chat_text and chat_tools reuse Provider Chat certification")
+        return self
+
+
+class ProviderWorkloadCertificationChecks(BaseModel):
+    catalog_ok: bool = False
+    model_present: bool = False
+    http_ok: bool = False
+    response_complete: bool = False
+    content_observed: bool = False
+    json_object_verified: bool = False
+    fusion_profile_verified: bool = False
+    actual_model_verified: bool = False
+
+
+class ProviderWorkloadCertificationSummary(BaseModel):
+    certification_id: str | None = None
+    connection_id: str
+    connection_name: str
+    provider_kind: ConnectionKind
+    execution_shape: ProviderWorkloadExecutionShape
+    status: ProviderWorkloadCertificationStatus = "not_run"
+    can_run: bool
+    blocked_reason: str | None = None
+    checks: ProviderWorkloadCertificationChecks = Field(
+        default_factory=ProviderWorkloadCertificationChecks
+    )
+    warning_codes: list[str] = Field(default_factory=list)
+    error_code: str | None = None
+    requested_model: str | None = None
+    actual_model: str | None = None
+    candidate_model_ids: list[str] = Field(default_factory=list)
+    judge_model_id: str | None = None
+    profile_fingerprint: str | None = None
+    ttft_ms: float | None = None
+    e2e_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    created_at: str | None = None
+    completed_at: str | None = None
+
+
+class ProviderWorkloadCertificationListResponse(BaseModel):
+    enabled: bool
+    contract_version: Literal["modelmirror-provider-workload-routing-v1"]
+    certifications: list[ProviderWorkloadCertificationSummary] = Field(
+        default_factory=list
+    )
+
+
+class ProviderWorkloadBindingUpdate(BaseModel):
+    execution_shape: ProviderWorkloadExecutionShape
+    model_id: str = Field(min_length=1, max_length=512)
+    connection_id: str = Field(min_length=1, max_length=128)
+
+    @field_validator("model_id", "connection_id")
+    @classmethod
+    def validate_required_text(cls, value: str, info) -> str:
+        return _required_text(value, field_name=info.field_name, limit=512)
+
+
+class ProviderWorkloadPolicyUpdate(BaseModel):
+    expected_revision: int = Field(ge=0)
+    bindings: list[ProviderWorkloadBindingUpdate] = Field(
+        default_factory=list,
+        max_length=500,
+    )
+
+    @model_validator(mode="after")
+    def validate_bindings(self) -> "ProviderWorkloadPolicyUpdate":
+        keys = [
+            (binding.execution_shape, binding.model_id)
+            for binding in self.bindings
+        ]
+        if len(keys) != len(set(keys)):
+            raise ValueError("each execution_shape and model_id binding must be unique")
+        return self
+
+
+class ProviderWorkloadBindingSummary(BaseModel):
+    execution_shape: ProviderWorkloadExecutionShape
+    model_id: str
+    connection_id: str
+    connection_name: str
+    provider_kind: ConnectionKind | None = None
+    certification_id: str
+    certification_source: Literal["provider_chat", "provider_workload"]
+    connection_fingerprint: str
+    qualification_fingerprint: str
+    valid: bool
+    reason_code: str
+
+
+class ProviderWorkloadPolicyResponse(BaseModel):
+    contract_version: Literal["modelmirror-provider-workload-routing-v1"]
+    entry_id: ProviderWorkloadEntryId
+    feature_enabled: bool
+    data_plane_integrated: bool = False
+    configured_status: ProviderWorkloadPolicyStatus
+    effective_status: ProviderWorkloadPolicyStatus
+    revision: int
+    policy_fingerprint: str
+    bindings: list[ProviderWorkloadBindingSummary] = Field(default_factory=list)
+    approval_valid: bool = False
+    blocking_reason_codes: list[str] = Field(default_factory=list)
+    updated_at: str | None = None
+
+
+class ProviderWorkloadPolicyListResponse(BaseModel):
+    contract_version: Literal["modelmirror-provider-workload-routing-v1"]
+    policies: list[ProviderWorkloadPolicyResponse] = Field(default_factory=list)
+
+
+class ProviderWorkloadActivationRequest(BaseModel):
+    expected_revision: int = Field(ge=0)
+    no_open_p0_p1: bool
+    acknowledge_fail_closed: bool
+
+
+class ProviderWorkloadDeactivationRequest(BaseModel):
+    expected_revision: int = Field(ge=0)
+
+
+class ProviderWorkloadCallSummary(BaseModel):
+    call_id: str
+    run_id: str
+    entry_id: ProviderWorkloadEntryId
+    execution_shape: ProviderWorkloadExecutionShape
+    model_id: str
+    connection_id: str | None = None
+    call_sequence: int
+    dispatched: bool
+    status: str
+    result_class: str | None = None
+    error_code: str | None = None
+    actual_model: str | None = None
+    ttft_ms: float | None = None
+    e2e_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    created_at: str
+    completed_at: str | None = None
+
+
+class ProviderWorkloadRunSummary(BaseModel):
+    run_id: str
+    entry_id: ProviderWorkloadEntryId
+    policy_fingerprint: str
+    parent_run_reference: str | None = None
+    status: str
+    result_class: str | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+    created_at: str
+    completed_at: str | None = None
+    calls: list[ProviderWorkloadCallSummary] = Field(default_factory=list)
+
+
+class ProviderWorkloadReceiptsResponse(BaseModel):
+    contract_version: Literal["modelmirror-provider-workload-routing-v1"]
+    runs: list[ProviderWorkloadRunSummary] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class ProviderWorkloadOverview(BaseModel):
+    contract_version: Literal["modelmirror-provider-workload-routing-v1"]
+    entry_count: int
+    feature_enabled_count: int
+    managed_required_count: int
+    degraded_required_count: int
+    qualified_binding_count: int
+    blocking_reason_codes: list[str] = Field(default_factory=list)
+    policies: list[ProviderWorkloadPolicyResponse] = Field(default_factory=list)
+
+
+class ProviderWorkloadPublicStatus(BaseModel):
+    contract_version: Literal["modelmirror-provider-workload-routing-v1"]
+    entry_id: ProviderWorkloadEntryId
+    execution_shape: ProviderWorkloadExecutionShape
+    model_id: str
+    feature_enabled: bool
+    status: ProviderWorkloadPolicyStatus
+    available: bool
+    blocks_before_dispatch: bool
+    reason_code: str
 
 
 class RouterPolicy(BaseModel):

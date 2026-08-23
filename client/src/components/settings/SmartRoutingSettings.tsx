@@ -8,6 +8,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import ProviderChatControlSettings from "./ProviderChatControlSettings";
+import ProviderWorkloadControlSettings from "./ProviderWorkloadControlSettings";
 
 type RouterEngine = "sidecar" | "shadow" | "native_canary" | "native";
 type RoutingMode =
@@ -231,7 +232,8 @@ export default function SmartRoutingSettings({
 
   return (
     <>
-    <ProviderChatControlSettings csrfToken={csrfToken} />
+      <ProviderWorkloadControlSettings csrfToken={csrfToken} view="routing" />
+      <ProviderChatControlSettings csrfToken={csrfToken} />
     <section className="mb-6 overflow-hidden rounded-lg border border-white/10 bg-ink-950/82 shadow-prism">
       <div className="flex flex-col gap-3 border-b border-white/10 bg-white/[0.035] px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
         <div>
