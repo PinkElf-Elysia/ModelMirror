@@ -108,6 +108,13 @@ class _V20Supervisor:
         }
 
 
+class _NoUsageProvider(FakeCodingAgentProvider):
+    async def capabilities(self) -> ProviderCapabilities:
+        return (await super().capabilities()).model_copy(
+            update={"supports_usage": False}
+        )
+
+
 def _request(client_task_id: str) -> TaskCreateRequest:
     return TaskCreateRequest(
         client_task_id=client_task_id,
@@ -617,6 +624,26 @@ async def test_v20_new_task_requires_frozen_broker_only_descriptor(
         await service.create_task(
             Origin(module="test", object_id="v20-fail-closed"),
             _request("v20-fail-closed"),
+        )
+
+    assert rejected.value.code == "harness_v20_route_unavailable"
+    assert service.store.list_tasks() == []
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v20_rejects_descriptor_capability_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_HARNESS_V20_ENABLED", "true")
+    provider = _NoUsageProvider()
+    service = _service(tmp_path, provider)
+    service.harness_supervisor = _V20Supervisor(provider)
+
+    with pytest.raises(WorkerConflictError) as rejected:
+        await service.create_task(
+            Origin(module="test", object_id="v20-capability-mismatch"),
+            _request("v20-capability-mismatch"),
         )
 
     assert rejected.value.code == "harness_v20_route_unavailable"

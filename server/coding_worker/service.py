@@ -383,7 +383,18 @@ class CodingWorkerService:
 
     @staticmethod
     def _v20_route_ready(observation: ProviderCapabilityObservation) -> bool:
-        if observation.capabilities is None or not observation.harness_descriptors:
+        capabilities = observation.capabilities
+        if capabilities is None or not observation.harness_descriptors:
+            return False
+        if not (
+            capabilities.supports_streaming
+            and capabilities.supports_cancel
+            and capabilities.supports_checkpoint
+            and capabilities.supports_restore
+            and capabilities.supports_usage
+            and capabilities.supports_tool_boundaries
+            and capabilities.supports_turn_interrupt
+        ):
             return False
         required = {
             "cancel",
@@ -1611,6 +1622,29 @@ class CodingWorkerService:
         ):
             raise WorkerConflictError(
                 "V20 Harness sidecar binding changed.",
+                code="harness_binding_changed",
+            )
+        current_capability_values = (
+            await self.harness_supervisor.capabilities_for_slots(
+                tuple(expected_slots)
+            )
+        )
+        current_capabilities = tuple(
+            current_capability_values.get(expected_slot)
+            for expected_slot in expected_slots
+        )
+        frozen_capabilities = stored.snapshot.get("capabilities")
+        if (
+            not current_capabilities
+            or any(item is None for item in current_capabilities)
+            or not isinstance(frozen_capabilities, dict)
+            or _intersect_provider_capabilities(
+                tuple(item for item in current_capabilities if item is not None)
+            )
+            != ProviderCapabilities.model_validate(frozen_capabilities)
+        ):
+            raise WorkerConflictError(
+                "V20 Harness capability health changed.",
                 code="harness_binding_changed",
             )
         frozen = next(
