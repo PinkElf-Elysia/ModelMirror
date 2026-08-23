@@ -601,6 +601,13 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
   return steps;
 }
 
+export function shouldRecordNodeStreamFailure(
+  failedNodeCount: number,
+  terminalHistoryRecorded: boolean,
+): boolean {
+  return failedNodeCount > 0 && !terminalHistoryRecorded;
+}
+
 export default function WorkflowRun({
   definition,
   embedded = false,
@@ -662,6 +669,7 @@ export default function WorkflowRun({
     runId: null,
   });
   const terminalHistoryRecordedRef = useRef(false);
+  const lastNodeErrorRef = useRef("");
   const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
   const [finishedOutcome, setFinishedOutcome] = useState<
     "completed" | "cancelled" | "error" | null
@@ -1245,6 +1253,7 @@ export default function WorkflowRun({
     setRunCheckpointsLoading(false);
     setIsRunning(true);
     terminalHistoryRecordedRef.current = false;
+    lastNodeErrorRef.current = "";
 
     const abort = new AbortController();
     runAbortRef.current = abort;
@@ -1297,6 +1306,17 @@ export default function WorkflowRun({
       }
 
       await consumeWorkflowResponse(response);
+      if (
+        shouldRecordNodeStreamFailure(
+          failedNodesRef.current.size,
+          terminalHistoryRecordedRef.current,
+        )
+      ) {
+        const message = lastNodeErrorRef.current || "工作流运行异常。";
+        setFinishedOutcome("error");
+        setError(message);
+        recordRunHistory("error", message);
+      }
     } catch (runError) {
       const cancelled =
         runError instanceof DOMException && runError.name === "AbortError";
@@ -1388,6 +1408,7 @@ export default function WorkflowRun({
     }
     if (event.event === "error") {
       if (event.node_id) {
+        lastNodeErrorRef.current = event.message ?? "工作流节点运行异常。";
         failedNodesRef.current.add(event.node_id);
         runningNodesRef.current.delete(event.node_id);
         onNodeStatusChange?.(event.node_id, "error");
@@ -1423,13 +1444,15 @@ export default function WorkflowRun({
       runMetaRef.current.runId = event.run_id;
     }
     if (event.event === "human_intervention_pending") {
-      setPendingHuman({
-        nodeId: event.node_id ?? "",
-        nodeTitle: event.node_title ?? "人工介入",
-        prompt: event.prompt ?? "请补充人工输入。",
-        outputVariable: event.output_variable ?? "human_input",
-      });
-      setHumanInput("");
+      if (event.contract_version !== 2) {
+        setPendingHuman({
+          nodeId: event.node_id ?? "",
+          nodeTitle: event.node_title ?? "人工介入",
+          prompt: event.prompt ?? "请补充人工输入。",
+          outputVariable: event.output_variable ?? "human_input",
+        });
+        setHumanInput("");
+      }
     }
     if (event.event === "node_end") {
       setPendingHuman((current) =>
@@ -1952,7 +1975,7 @@ export default function WorkflowRun({
           <RuntimeApprovalPanel
             compact
             onResolved={() => resumeDurableExecution()}
-            requestTypes={["tool_call", "final_output", "browser_domain"]}
+            requestTypes={["tool_call", "final_output", "manual_input", "execution_gate", "browser_domain"]}
             taskId={taskId}
             title="Agent 运行审批"
           />

@@ -17,6 +17,7 @@ from server.xpert_runtime import (
     RuntimeApprovalConflictError,
     RuntimeApprovalStore,
     RuntimeInterrupt,
+    RuntimeMiddlewareFatalError,
     RuntimeMiddlewareSpec,
     RuntimeToolCall,
     RuntimeToolResult,
@@ -196,6 +197,80 @@ async def test_hitl_interrupt_never_falls_back_to_provider(tmp_path) -> None:
     approval = approvals.require(caught.value.approval_id)
     assert approval.status == "pending"
     assert approval.tool_name == "search"
+
+
+@pytest.mark.asyncio
+async def test_mcp_workflow_hitl_persists_only_redacted_read_only_arguments(
+    tmp_path,
+) -> None:
+    approvals = RuntimeApprovalStore(tmp_path)
+    provider = MagicMock()
+    provider.call_tool = AsyncMock(return_value=RuntimeToolResult(output="no call"))
+    capabilities = CapabilityRegistry()
+    capabilities.register("mcp_tools", provider)
+    pipeline = MiddlewarePipeline(
+        [
+            build_human_in_the_loop_middleware(
+                RuntimeMiddlewareSpec(
+                    node_id="hitl-1",
+                    middleware_id="human_in_the_loop",
+                    config={"interrupt_on_tools": "*"},
+                ),
+                approvals,
+            )
+        ]
+    )
+    context = MiddlewareContext(
+        task_id="task-1",
+        trace_id="run-1",
+        metadata={"run_id": "run-1", "node_id": "mcp-1"},
+    )
+    sentinel = "R20_PRIVATE_ARGUMENT_SENTINEL"
+
+    with pytest.raises(RuntimeInterrupt) as caught:
+        await run_tool_with_runtime(
+            RuntimeToolCall(
+                tool_name="search",
+                arguments={"query": sentinel},
+                metadata={
+                    "iteration": 1,
+                    "approval_read_only_args": True,
+                    "approval_redacted_arguments": {"query": "[已脱敏]"},
+                    "approval_argument_digest": "a" * 64,
+                },
+            ),
+            capabilities,
+            pipeline,
+            context,
+        )
+
+    approval = approvals.require(caught.value.approval_id)
+    assert approval.allowed_decisions == ["approve", "reject"]
+    assert approval.arguments == {"query": "[已脱敏]"}
+    assert approval.metadata["tool_input_schema"] == {}
+    assert approval.metadata["arguments_digest"] == "a" * 64
+    assert sentinel not in json.dumps(approvals.serialize(approval), ensure_ascii=False)
+
+    with pytest.raises(RuntimeMiddlewareFatalError, match="does not allow argument editing"):
+        await run_tool_with_runtime(
+            RuntimeToolCall(
+                tool_name="search",
+                arguments={"query": sentinel},
+                metadata={
+                    "approval_read_only_args": True,
+                    "resolved_approval": {
+                        "approval_id": approval.approval_id,
+                        "decision": "edit",
+                        "edited_arguments": {"query": "changed"},
+                    },
+                },
+            ),
+            capabilities,
+            pipeline,
+            context,
+        )
+
+    provider.call_tool.assert_not_awaited()
 
 
 @pytest.mark.asyncio

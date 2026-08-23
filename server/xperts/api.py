@@ -55,6 +55,10 @@ try:
         is_http_request_v2,
         validate_http_request_credential,
     )
+    from server.workflow_native.r20_nodes import (
+        WorkflowR20NodeError,
+        contract_version as r20_contract_version,
+    )
 except ModuleNotFoundError:
     from file_assets.contracts import FileInputKind, FilePurpose
     from file_assets.registry import get_file_format_registry
@@ -73,6 +77,10 @@ except ModuleNotFoundError:
         is_http_request_v2,
         validate_http_request_credential,
     )
+    from workflow_native.r20_nodes import (
+        WorkflowR20NodeError,
+        contract_version as r20_contract_version,
+    )
 
 
 router = APIRouter(prefix="/api/xperts", tags=["xperts"])
@@ -80,6 +88,7 @@ _xpert_store: XpertStore | None = None
 _xpert_context_store: XpertContextStore | None = None
 _memory_writeback_runner: Callable[..., Awaitable[list[dict]]] | None = None
 _workflow_http_credential_lookup: Callable[[str], object] | None = None
+_workflow_mcp_tool_validator: Callable[[dict], object] | None = None
 
 
 def configure_workflow_http_credential_lookup(
@@ -87,6 +96,13 @@ def configure_workflow_http_credential_lookup(
 ) -> None:
     global _workflow_http_credential_lookup
     _workflow_http_credential_lookup = lookup
+
+
+def configure_workflow_mcp_tool_validator(
+    validator: Callable[[dict], object] | None,
+) -> None:
+    global _workflow_mcp_tool_validator
+    _workflow_mcp_tool_validator = validator
 
 
 def _validate_installed_skills(
@@ -809,6 +825,54 @@ def preview_xpert_for_publish(
                         node_id=node.id,
                     )
                 )
+        if kind in {"human_intervention", "mcp_tool", "variable_assign"} and (
+            r20_contract_version(data) != 2
+        ):
+            feature_issues.append(
+                ValidationIssue(
+                    code=f"xpert_{kind}_migration_required",
+                    message=f"Legacy {kind} nodes must be explicitly migrated before publish.",
+                    node_id=node.id,
+                )
+            )
+        if kind == "knowledge_citation":
+            feature_issues.append(
+                ValidationIssue(
+                    code="xpert_knowledge_citation_migration_required",
+                    message="Knowledge citation nodes must be migrated to knowledge_retrieval before publish.",
+                    node_id=node.id,
+                )
+            )
+        if kind == "mcp_tool" and r20_contract_version(data) == 2:
+            if os.getenv("WORKFLOW_MCP_TOOLS_ENABLED", "false").strip().lower() not in {
+                "1", "true", "yes", "on"
+            }:
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_mcp_tools_disabled",
+                        message="Workflow MCP tools are disabled.",
+                        node_id=node.id,
+                    )
+                )
+            if _workflow_mcp_tool_validator is None:
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_mcp_registry_unavailable",
+                        message="Workflow MCP tool registry validation is unavailable.",
+                        node_id=node.id,
+                    )
+                )
+            else:
+                try:
+                    _workflow_mcp_tool_validator(data)
+                except WorkflowR20NodeError as exc:
+                    feature_issues.append(
+                        ValidationIssue(
+                            code=f"xpert_{exc.code.lower()}",
+                            message=exc.safe_message,
+                            node_id=node.id,
+                        )
+                    )
         if kind == "file_output" and os.getenv(
             "FILE_OUTPUT_ASSETS_ENABLED", "false"
         ).strip().lower() not in {"1", "true", "yes", "on"}:

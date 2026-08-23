@@ -502,6 +502,7 @@ try:
         validate_selected_files,
         configure_memory_writeback_runner,
         configure_workflow_http_credential_lookup,
+        configure_workflow_mcp_tool_validator,
         configure_xpert_app_runtime,
         get_xpert_context_store,
         get_xpert_store,
@@ -529,6 +530,7 @@ except ModuleNotFoundError:
         validate_selected_files,
         configure_memory_writeback_runner,
         configure_workflow_http_credential_lookup,
+        configure_workflow_mcp_tool_validator,
         configure_xpert_app_runtime,
         get_xpert_context_store,
         get_xpert_store,
@@ -606,6 +608,18 @@ try:
         validate_parameter_extractor_v2_config,
         validate_question_classifier_v2_config,
     )
+    from server.workflow_native.r20_nodes import (
+        WorkflowR20NodeError,
+        build_mcp_result,
+        contract_version as r20_contract_version,
+        execute_variable_assign_v2,
+        mcp_arguments_digest,
+        mcp_schema_checksum,
+        resolve_mcp_tool_arguments,
+        validate_human_intervention_v2_config,
+        validate_mcp_tool_v2_config,
+        workflow_mcp_tools_enabled,
+    )
     from server.workflow_native.values import (
         WorkflowValue,
         deserialize_workflow_value,
@@ -674,6 +688,18 @@ except ModuleNotFoundError:
         select_question_classifier_rule,
         validate_parameter_extractor_v2_config,
         validate_question_classifier_v2_config,
+    )
+    from workflow_native.r20_nodes import (
+        WorkflowR20NodeError,
+        build_mcp_result,
+        contract_version as r20_contract_version,
+        execute_variable_assign_v2,
+        mcp_arguments_digest,
+        mcp_schema_checksum,
+        resolve_mcp_tool_arguments,
+        validate_human_intervention_v2_config,
+        validate_mcp_tool_v2_config,
+        workflow_mcp_tools_enabled,
     )
     from workflow_native.values import (
         WorkflowValue,
@@ -1499,6 +1525,32 @@ mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_manager = MCPClientManager()
 mcp_installer = MCPInstaller()
 tool_registry = ToolRegistry()
+
+
+def validate_registered_workflow_mcp_tool(data: dict[str, Any]) -> dict[str, Any]:
+    """Resolve one pinned workflow MCP tool without persisting its session ID."""
+
+    validate_mcp_tool_v2_config(data)
+    server_id = str(data.get("serverId") or "").strip()
+    tool_name = str(data.get("toolName") or "").strip()
+    matches = [
+        item
+        for item in tool_registry.snapshot_tools()
+        if item.get("server_id") == server_id and item.get("name") == tool_name
+    ]
+    if len(matches) != 1:
+        raise WorkflowR20NodeError(
+            "MCP_TOOL_UNAVAILABLE",
+            "The pinned MCP tool is not currently registered.",
+        )
+    input_schema = matches[0].get("input_schema")
+    if not isinstance(input_schema, dict):
+        raise WorkflowR20NodeError(
+            "MCP_TOOL_SCHEMA_INVALID",
+            "The pinned MCP tool input schema is unavailable.",
+        )
+    validate_mcp_tool_v2_config(data, input_schema=input_schema)
+    return matches[0]
 mcp_hub_store = MCPHubStore()
 mcp_hub_service = MCPHubService(
     mcp_hub_store,
@@ -1578,6 +1630,7 @@ toolset_service = ToolsetService(
 )
 configure_toolsets(toolset_service)
 configure_workflow_http_credential_lookup(toolset_credential_store.get_public)
+configure_workflow_mcp_tool_validator(validate_registered_workflow_mcp_tool)
 workflow_published_toolset_provider = PublishedMCPToolsetProvider(toolset_service)
 workflow_draft_toolset_test_provider = DraftMCPToolTestProvider(toolset_service)
 xpert_context_store = get_xpert_context_store()
@@ -1681,6 +1734,7 @@ skill_application_observer = SkillApplicationObserver(
 workflow_deployment_store = WorkflowDeploymentStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None,
     credential_validator=toolset_credential_store.get_public,
+    mcp_tool_validator=validate_registered_workflow_mcp_tool,
 )
 
 
@@ -2061,6 +2115,25 @@ async def run_draft_toolset_test(call: RuntimeToolCall) -> RuntimeToolResult:
 toolset_service.set_tool_test_runner(run_draft_toolset_test)
 
 
+def require_current_r20_workflow_approval(
+    approval: RuntimeApprovalRequest,
+    *,
+    expected_status: str,
+) -> None:
+    execution = workflow_execution_store.get(approval.task_id)
+    if (
+        approval.status != expected_status
+        or execution is None
+        or execution.status != "waiting"
+        or execution.wait_kind != "approval"
+        or execution.wait_id != approval.approval_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Runtime approval is no longer attached to a waiting execution.",
+        )
+
+
 async def validate_runtime_approval_decision(
     approval: RuntimeApprovalRequest,
     decision_payload: Any,
@@ -2140,6 +2213,44 @@ async def validate_runtime_approval_decision(
                 "code": "agency_interaction_invalid",
             },
         )
+    if (
+        approval.scope_type == "workflow"
+        and approval.request_type in {"manual_input", "execution_gate"}
+        and int(approval.metadata.get("contract_version") or 1) == 2
+    ):
+        require_current_r20_workflow_approval(
+            approval,
+            expected_status="pending",
+        )
+        if approval.request_type == "manual_input":
+            if decision_payload.decision == "reject":
+                return
+            value = str(decision_payload.replacement_text or "")
+            if decision_payload.decision != "replace" or not 1 <= len(value) <= 20_000:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Human input must contain 1 to 20000 characters.",
+                )
+            return
+        if decision_payload.decision not in {"approve", "reject"}:
+            raise HTTPException(
+                status_code=422,
+                detail="Approval mode only accepts approve or reject.",
+            )
+        return
+    if (
+        approval.request_type == "tool_call"
+        and bool(approval.metadata.get("arguments_read_only"))
+    ):
+        require_current_r20_workflow_approval(
+            approval,
+            expected_status="pending",
+        )
+        if decision_payload.decision == "edit":
+            raise HTTPException(
+                status_code=422,
+                detail="This MCP approval does not allow argument editing.",
+            )
     if approval.request_type != "tool_call" or decision_payload.decision != "edit":
         return
     edited_arguments = decision_payload.edited_arguments
@@ -2193,6 +2304,26 @@ async def validate_runtime_approval_reopen(
     approval: RuntimeApprovalRequest,
     _payload: Any,
 ) -> None:
+    if (
+        approval.scope_type == "workflow"
+        and approval.request_type in {"manual_input", "execution_gate"}
+        and int(approval.metadata.get("contract_version") or 1) == 2
+    ):
+        require_current_r20_workflow_approval(
+            approval,
+            expected_status="expired",
+        )
+        return
+    if (
+        approval.scope_type == "workflow"
+        and approval.request_type == "tool_call"
+        and bool(approval.metadata.get("arguments_read_only"))
+    ):
+        require_current_r20_workflow_approval(
+            approval,
+            expected_status="expired",
+        )
+        return
     if approval.scope_type != "expert_team_agency":
         return
     if not expert_team_agency_hitl_enabled():
@@ -2619,6 +2750,7 @@ class RegistryToolPayload(BaseModel):
     name: str
     description: str | None = None
     input_schema: dict[str, Any] = Field(default_factory=dict)
+    schema_checksum: str = Field(pattern=r"^[a-f0-9]{64}$")
     server_id: str
     session_id: str
     registered_at: float
@@ -2695,7 +2827,7 @@ class WorkflowPayload(BaseModel):
             "invoke_workflow": ("resultVariable",),
             "llm": ("outputVariable",),
             "code": ("codeOutputVariable",),
-            "variable_assign": ("variableName",),
+            "variable_assign": ("variableName", "outputVariable"),
             "template_transform": ("outputVariable",),
             "variable_aggregator": ("outputVariable",),
             "parameter_extractor": ("outputVariable",),
@@ -14036,11 +14168,24 @@ async def _run_workflow_response(
                         )
 
                 elif kind == "variable_assign":
-                    try:
-                        variable_name = str(node.data.get("variableName") or "assigned_text")
-                        template = str(node.data.get("template") or "")
-                        output = render_workflow_template(template, variables)
-                        variables[variable_name] = output
+                    if r20_contract_version(node.data) == 2:
+                        try:
+                            output_variable, stored_output = execute_variable_assign_v2(
+                                node.data,
+                                variables,
+                                render_template=render_workflow_template,
+                            )
+                        except WorkflowR20NodeError as exc:
+                            raise WorkflowTerminationError(
+                                exc.code,
+                                exc.safe_message,
+                                node_id=node.id,
+                            ) from None
+                        variables[output_variable] = normalize_workflow_value(
+                            stored_output,
+                            path=f"$.variables.{output_variable}",
+                        )
+                        output = workflow_value_to_text(stored_output)
                         yield sse_payload(
                             {
                                 "event": "node_delta",
@@ -14048,18 +14193,34 @@ async def _run_workflow_response(
                                 "node_title": title,
                                 "node_type": kind,
                                 "output": output,
-                                "variable": variable_name,
+                                "variable": output_variable,
                             }
                         )
-                    except Exception as exc:
-                        logger.warning("Workflow variable_assign node failed: %s", exc)
-                        yield sse_payload(
-                            {
-                                "event": "error",
-                                "node_id": node.id,
-                                "message": str(exc),
-                            }
-                        )
+                    else:
+                        try:
+                            variable_name = str(node.data.get("variableName") or "assigned_text")
+                            template = str(node.data.get("template") or "")
+                            output = render_workflow_template(template, variables)
+                            variables[variable_name] = output
+                            yield sse_payload(
+                                {
+                                    "event": "node_delta",
+                                    "node_id": node.id,
+                                    "node_title": title,
+                                    "node_type": kind,
+                                    "output": output,
+                                    "variable": variable_name,
+                                }
+                            )
+                        except Exception as exc:
+                            logger.warning("Workflow variable_assign node failed: %s", exc)
+                            yield sse_payload(
+                                {
+                                    "event": "error",
+                                    "node_id": node.id,
+                                    "message": str(exc),
+                                }
+                            )
 
                 elif kind == "http_request":
                     if is_http_request_v2(node.data):
@@ -15519,6 +15680,142 @@ async def _run_workflow_response(
                                 "event": "error",
                                 "node_id": node.id,
                                 "message": "人工介入节点当前未启用。",
+                            }
+                        )
+                    elif r20_contract_version(node.data) == 2:
+                        try:
+                            validate_human_intervention_v2_config(node.data)
+                        except WorkflowR20NodeError as exc:
+                            raise WorkflowTerminationError(
+                                exc.code,
+                                exc.safe_message,
+                                node_id=node.id,
+                            ) from None
+                        interaction_mode = str(node.data["interactionMode"])
+                        timeout_seconds = int(node.data["timeoutSeconds"])
+                        manual_resume_state = task_state.get("agent_resume_state")
+                        manual_resume_state = (
+                            dict(manual_resume_state)
+                            if isinstance(manual_resume_state, dict)
+                            and manual_resume_state.get("type")
+                            == "human_intervention_v2"
+                            and str(manual_resume_state.get("node_id") or "")
+                            == node.id
+                            else {}
+                        )
+                        if manual_resume_state:
+                            if str(manual_resume_state.get("interaction_mode") or "") != interaction_mode:
+                                raise WorkflowTerminationError(
+                                    "HUMAN_INTERVENTION_RESUME_MISMATCH",
+                                    "Human intervention configuration changed before resume.",
+                                    node_id=node.id,
+                                )
+                            approval_payload = task_state.get("resolved_approval")
+                            if not isinstance(approval_payload, dict):
+                                raise WorkflowTerminationError(
+                                    "HUMAN_INTERVENTION_RESOLUTION_MISSING",
+                                    "Human intervention resolution is unavailable.",
+                                    node_id=node.id,
+                                )
+                            decision = str(approval_payload.get("decision") or "").strip()
+                            if decision == "reject":
+                                raise WorkflowTerminationError(
+                                    "HUMAN_INTERVENTION_REJECTED",
+                                    "Human intervention was rejected.",
+                                    node_id=node.id,
+                                )
+                            if interaction_mode == "input":
+                                if decision != "replace":
+                                    raise WorkflowTerminationError(
+                                        "HUMAN_INTERVENTION_DECISION_INVALID",
+                                        "Human input requires a submitted text value.",
+                                        node_id=node.id,
+                                    )
+                                output = str(approval_payload.get("replacement_text") or "")
+                                if not output or len(output) > 20_000:
+                                    raise WorkflowTerminationError(
+                                        "HUMAN_INTERVENTION_INPUT_INVALID",
+                                        "Human input must contain 1 to 20000 characters.",
+                                        node_id=node.id,
+                                    )
+                            else:
+                                if decision != "approve":
+                                    raise WorkflowTerminationError(
+                                        "HUMAN_INTERVENTION_DECISION_INVALID",
+                                        "Approval mode requires an approve or reject decision.",
+                                        node_id=node.id,
+                                    )
+                                output = "approved"
+                            task_state["agent_resume_state"] = {}
+                            task_state["resolved_approval"] = None
+                        else:
+                            request_type = (
+                                "manual_input"
+                                if interaction_mode == "input"
+                                else "execution_gate"
+                            )
+                            allowed_decisions = (
+                                ["replace", "reject"]
+                                if interaction_mode == "input"
+                                else ["approve", "reject"]
+                            )
+                            approval = runtime_approval_store.create_request(
+                                action_key=f"{task_id}:{node.id}:human-intervention-v2",
+                                request_type=request_type,
+                                task_id=task_id,
+                                run_id=workflow_run.run_id,
+                                node_id=node.id,
+                                node_title=title,
+                                scope_type="workflow",
+                                scope_id=task_id,
+                                timeout_seconds=timeout_seconds,
+                                allowed_decisions=allowed_decisions,
+                                description=prompt,
+                                content_preview=prompt,
+                                metadata={
+                                    "output_variable": output_variable,
+                                    "interaction_mode": interaction_mode,
+                                    "contract_version": 2,
+                                },
+                            )
+                            yield sse_payload(
+                                {
+                                    "event": "human_intervention_pending",
+                                    "task_id": task_id,
+                                    "node_id": node.id,
+                                    "node_title": title,
+                                    "node_type": kind,
+                                    "prompt": prompt,
+                                    "output_variable": output_variable,
+                                    "approval_id": approval.approval_id,
+                                    "revision": approval.revision,
+                                    "interaction_mode": interaction_mode,
+                                    "expires_at": approval.expires_at,
+                                    "contract_version": 2,
+                                }
+                            )
+                            raise RuntimeInterrupt(
+                                approval.approval_id,
+                                task_id=task_id,
+                                run_id=workflow_run.run_id,
+                                continuation={
+                                    "agent_state": {
+                                        "type": "human_intervention_v2",
+                                        "node_id": node.id,
+                                        "interaction_mode": interaction_mode,
+                                        "output_variable": output_variable,
+                                    }
+                                },
+                            )
+                        variables[output_variable] = output
+                        yield sse_payload(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": output,
+                                "variable": output_variable,
                             }
                         )
                     else:
@@ -18766,76 +19063,169 @@ async def _run_workflow_response(
 
                 elif kind == "mcp_tool":
                     output_variable = str(node.data.get("outputVariable") or "mcp_output")
-                    try:
-                        if not app_capability_allowed("allow_tools"):
-                            raise PermissionError("Xpert App tool access is disabled.")
-                        tool_name = str(node.data.get("toolName") or "").strip()
-                        if not WORKFLOW_MCP_TOOL_ENABLED or not tool_name:
-                            output = ""
-                            variables[output_variable] = output
-                            yield sse_payload(
-                                {
-                                    "event": "node_delta",
-                                    "node_id": node.id,
-                                    "node_title": title,
-                                    "node_type": kind,
-                                    "output": "mcp_tool 未启用或 toolName 为空。",
-                                    "variable": output_variable,
-                                }
+                    if r20_contract_version(node.data) == 2:
+                        try:
+                            if not app_capability_allowed("allow_tools"):
+                                raise WorkflowR20NodeError(
+                                    "MCP_TOOL_NOT_ALLOWED",
+                                    "MCP tool access is not allowed in this runtime.",
+                                )
+                            if not workflow_mcp_tools_enabled():
+                                raise WorkflowR20NodeError(
+                                    "MCP_TOOLS_DISABLED",
+                                    "Workflow MCP tools are disabled.",
+                                )
+                            validate_mcp_tool_v2_config(node.data)
+                            server_id = str(node.data["serverId"]).strip()
+                            tool_name = str(node.data["toolName"]).strip()
+                            matched_tool = await workflow_mcp_provider.find_tool_exact(
+                                server_id=server_id,
+                                tool_name=tool_name,
                             )
-                        else:
-                            matched_tool = await workflow_mcp_provider.find_tool(tool_name)
-                            if not matched_tool:
-                                raise ValueError(f"MCP 工具未注册：{tool_name}")
-                            raw_arguments = render_workflow_template(
-                                str(node.data.get("argumentsJson") or "{}"),
+                            if matched_tool is None:
+                                raise WorkflowR20NodeError(
+                                    "MCP_TOOL_UNAVAILABLE",
+                                    "The pinned MCP tool is not currently registered.",
+                                )
+                            input_schema = dict(matched_tool.input_schema or {})
+                            current_checksum = mcp_schema_checksum(input_schema)
+                            if current_checksum != str(
+                                node.data.get("inputSchemaChecksum") or ""
+                            ).strip().lower():
+                                raise WorkflowR20NodeError(
+                                    "MCP_TOOL_SCHEMA_DRIFT",
+                                    "MCP tool input schema changed; review and republish the node.",
+                                )
+                            arguments = resolve_mcp_tool_arguments(
+                                node.data,
                                 variables,
+                                input_schema=input_schema,
                             )
-                            arguments = json.loads(raw_arguments)
-                            if not isinstance(arguments, dict):
-                                raise ValueError("MCP 工具参数必须是 JSON 对象。")
-                            call_result = await run_tool_with_runtime(
-                                RuntimeToolCall(
-                                    tool_name=tool_name,
-                                    arguments=arguments,
-                                    metadata={
-                                        "session_id": matched_tool.session_id,
-                                        "server_id": matched_tool.server_id,
-                                        "node_id": node.id,
-                                        "workflow_id": payload.workflow.id,
-                                        "run_id": workflow_run.run_id,
-                                    },
-                                ),
-                                runtime_capabilities,
-                                workflow_mcp_pipeline,
-                                MiddlewareContext(
-                                    task_id=task_id,
-                                    trace_id=task_id,
-                                    capabilities=runtime_capabilities,
-                                    store=task_state["runtime_event_store"],
-                                    metadata={
-                                        "node_id": node.id,
-                                        "node_title": title,
-                                        "workflow": True,
-                                    },
-                                ),
-                                policy=selected_workflow_tool_policy(),
-                                audit_store=(
-                                    task_state.get("tool_audit_store")
-                                    or workflow_tool_audit_store
-                                ),
+                            arguments_digest = mcp_arguments_digest(arguments)
+                            mcp_resume_state = task_state.get("agent_resume_state")
+                            mcp_resume_state = (
+                                dict(mcp_resume_state)
+                                if isinstance(mcp_resume_state, dict)
+                                and mcp_resume_state.get("type") == "mcp_tool_v2"
+                                and str(mcp_resume_state.get("node_id") or "") == node.id
+                                else {}
                             )
-                            content_types = call_result.metadata.get("content_types", [])
-                            non_text_types = [
-                                str(content_type)
-                                for content_type in content_types
-                                if str(content_type) != "text"
-                            ]
-                            output = call_result.output.strip()
-                            variables[output_variable] = output
-                            for file_output in list(
+                            call_metadata: dict[str, Any] = {
+                                "server_id": server_id,
+                                "node_id": node.id,
+                                "workflow_id": payload.workflow.id,
+                                "run_id": workflow_run.run_id,
+                                "approval_action_key": f"{task_id}:{node.id}:mcp-tool-v2",
+                                "approval_redacted_arguments": {
+                                    name: "[已脱敏]" for name in sorted(arguments)
+                                },
+                                "approval_argument_digest": arguments_digest,
+                                "approval_read_only_args": True,
+                            }
+                            if mcp_resume_state:
+                                if (
+                                    str(mcp_resume_state.get("server_id") or "") != server_id
+                                    or str(mcp_resume_state.get("tool_name") or "") != tool_name
+                                    or str(mcp_resume_state.get("argument_digest") or "")
+                                    != arguments_digest
+                                ):
+                                    raise WorkflowR20NodeError(
+                                        "MCP_TOOL_RESUME_MISMATCH",
+                                        "MCP tool binding changed before approval resume.",
+                                    )
+                                approval_payload = task_state.get("resolved_approval")
+                                if not isinstance(approval_payload, dict):
+                                    raise WorkflowR20NodeError(
+                                        "MCP_TOOL_RESOLUTION_MISSING",
+                                        "MCP tool approval resolution is unavailable.",
+                                    )
+                                call_metadata["resolved_approval"] = approval_payload
+                            try:
+                                controlled_mcp_pipeline = MiddlewarePipeline(
+                                    [
+                                        event_recorder,
+                                        build_human_in_the_loop_middleware(
+                                            RuntimeMiddlewareSpec(
+                                                node_id=f"{node.id}:mcp-approval",
+                                                middleware_id="human_in_the_loop",
+                                                config={
+                                                    "interrupt_on_tools": {
+                                                        tool_name: True,
+                                                    },
+                                                    "timeout_seconds": 3600,
+                                                    "description_prefix": (
+                                                        "Workflow MCP tool execution "
+                                                        "requires approval"
+                                                    ),
+                                                    "allow_edit": False,
+                                                    "allow_reject": True,
+                                                },
+                                                binding="node",
+                                            ),
+                                            runtime_approval_store,
+                                        ),
+                                    ]
+                                )
+                                call_result = await run_tool_with_runtime(
+                                    RuntimeToolCall(
+                                        tool_name=tool_name,
+                                        arguments=arguments,
+                                        metadata=call_metadata,
+                                    ),
+                                    runtime_capabilities,
+                                    controlled_mcp_pipeline,
+                                    MiddlewareContext(
+                                        task_id=task_id,
+                                        trace_id=task_id,
+                                        capabilities=runtime_capabilities,
+                                        store=task_state["runtime_event_store"],
+                                        metadata={
+                                            "node_id": node.id,
+                                            "node_title": title,
+                                            "run_id": workflow_run.run_id,
+                                            "workflow": True,
+                                        },
+                                    ),
+                                    policy=selected_workflow_tool_policy(),
+                                    audit_store=(
+                                        task_state.get("tool_audit_store")
+                                        or workflow_tool_audit_store
+                                    ),
+                                )
+                            except RuntimeInterrupt as interrupt:
+                                interrupt.continuation["agent_state"] = {
+                                    "type": "mcp_tool_v2",
+                                    "node_id": node.id,
+                                    "server_id": server_id,
+                                    "tool_name": tool_name,
+                                    "argument_digest": arguments_digest,
+                                }
+                                raise
+                            if call_result.is_error:
+                                raise WorkflowR20NodeError(
+                                    "MCP_TOOL_CALL_FAILED",
+                                    "The MCP tool returned an error.",
+                                )
+                            file_outputs = list(
                                 call_result.metadata.get("file_outputs") or []
-                            ):
+                            )
+                            stored_output = build_mcp_result(
+                                server_id=server_id,
+                                tool_name=tool_name,
+                                text=call_result.output,
+                                content_types=call_result.metadata.get(
+                                    "content_types", []
+                                ),
+                                file_outputs=file_outputs,
+                            )
+                            variables[output_variable] = normalize_workflow_value(
+                                stored_output,
+                                path=f"$.variables.{output_variable}",
+                            )
+                            output = workflow_value_to_text(stored_output)
+                            task_state["agent_resume_state"] = {}
+                            task_state["resolved_approval"] = None
+                            for file_output in file_outputs:
                                 if isinstance(file_output, dict):
                                     yield sse_payload(
                                         {
@@ -18847,41 +19237,157 @@ async def _run_workflow_response(
                                             **dict(file_output),
                                         }
                                     )
-                            if non_text_types:
-                                yield sse_payload(
-                                    {
-                                        "event": "node_delta",
-                                        "node_id": node.id,
-                                        "node_title": title,
-                                        "node_type": kind,
-                                        "output": (
-                                            "非文本工具结果已省略："
-                                            + ", ".join(non_text_types)
-                                        ),
-                                        "variable": output_variable,
-                                    }
-                                )
                             yield sse_payload(
                                 {
                                     "event": "node_delta",
                                     "node_id": node.id,
                                     "node_title": title,
                                     "node_type": kind,
-                                    "output": output[:300],
+                                    "output": output[:500],
                                     "variable": output_variable,
                                 }
                             )
-                    except Exception as exc:
-                        logger.warning("Workflow mcp_tool node failed: %s", exc)
-                        output = ""
-                        variables[output_variable] = output
-                        yield sse_payload(
-                            {
-                                "event": "error",
-                                "node_id": node.id,
-                                "message": str(exc),
-                            }
-                        )
+                        except RuntimeInterrupt:
+                            raise
+                        except WorkflowR20NodeError as exc:
+                            raise WorkflowTerminationError(
+                                exc.code,
+                                exc.safe_message,
+                                node_id=node.id,
+                            ) from None
+                        except (RuntimeToolError, RuntimeMiddlewareFatalError):
+                            raise WorkflowTerminationError(
+                                "MCP_TOOL_CALL_FAILED",
+                                "The MCP tool call failed safely.",
+                                node_id=node.id,
+                            ) from None
+                        except Exception:
+                            logger.warning(
+                                "Workflow MCP V2 node failed safely",
+                                exc_info=True,
+                            )
+                            raise WorkflowTerminationError(
+                                "MCP_TOOL_CALL_FAILED",
+                                "The MCP tool call failed safely.",
+                                node_id=node.id,
+                            ) from None
+                    else:
+                        try:
+                            if not app_capability_allowed("allow_tools"):
+                                raise PermissionError("Xpert App tool access is disabled.")
+                            tool_name = str(node.data.get("toolName") or "").strip()
+                            if not WORKFLOW_MCP_TOOL_ENABLED or not tool_name:
+                                output = ""
+                                variables[output_variable] = output
+                                yield sse_payload(
+                                    {
+                                        "event": "node_delta",
+                                        "node_id": node.id,
+                                        "node_title": title,
+                                        "node_type": kind,
+                                        "output": "mcp_tool 未启用或 toolName 为空。",
+                                        "variable": output_variable,
+                                    }
+                                )
+                            else:
+                                matched_tool = await workflow_mcp_provider.find_tool(tool_name)
+                                if not matched_tool:
+                                    raise ValueError(f"MCP 工具未注册：{tool_name}")
+                                raw_arguments = render_workflow_template(
+                                    str(node.data.get("argumentsJson") or "{}"),
+                                    variables,
+                                )
+                                arguments = json.loads(raw_arguments)
+                                if not isinstance(arguments, dict):
+                                    raise ValueError("MCP 工具参数必须是 JSON 对象。")
+                                call_result = await run_tool_with_runtime(
+                                    RuntimeToolCall(
+                                        tool_name=tool_name,
+                                        arguments=arguments,
+                                        metadata={
+                                            "session_id": matched_tool.session_id,
+                                            "server_id": matched_tool.server_id,
+                                            "node_id": node.id,
+                                            "workflow_id": payload.workflow.id,
+                                            "run_id": workflow_run.run_id,
+                                        },
+                                    ),
+                                    runtime_capabilities,
+                                    workflow_mcp_pipeline,
+                                    MiddlewareContext(
+                                        task_id=task_id,
+                                        trace_id=task_id,
+                                        capabilities=runtime_capabilities,
+                                        store=task_state["runtime_event_store"],
+                                        metadata={
+                                            "node_id": node.id,
+                                            "node_title": title,
+                                            "workflow": True,
+                                        },
+                                    ),
+                                    policy=selected_workflow_tool_policy(),
+                                    audit_store=(
+                                        task_state.get("tool_audit_store")
+                                        or workflow_tool_audit_store
+                                    ),
+                                )
+                                content_types = call_result.metadata.get("content_types", [])
+                                non_text_types = [
+                                    str(content_type)
+                                    for content_type in content_types
+                                    if str(content_type) != "text"
+                                ]
+                                output = call_result.output.strip()
+                                variables[output_variable] = output
+                                for file_output in list(
+                                    call_result.metadata.get("file_outputs") or []
+                                ):
+                                    if isinstance(file_output, dict):
+                                        yield sse_payload(
+                                            {
+                                                "event": "output_file",
+                                                "node_id": node.id,
+                                                "node_title": title,
+                                                "node_type": kind,
+                                                "run_id": workflow_run.run_id,
+                                                **dict(file_output),
+                                            }
+                                        )
+                                if non_text_types:
+                                    yield sse_payload(
+                                        {
+                                            "event": "node_delta",
+                                            "node_id": node.id,
+                                            "node_title": title,
+                                            "node_type": kind,
+                                            "output": (
+                                                "非文本工具结果已省略："
+                                                + ", ".join(non_text_types)
+                                            ),
+                                            "variable": output_variable,
+                                        }
+                                    )
+                                yield sse_payload(
+                                    {
+                                        "event": "node_delta",
+                                        "node_id": node.id,
+                                        "node_title": title,
+                                        "node_type": kind,
+                                        "output": output[:300],
+                                        "variable": output_variable,
+                                    }
+                                )
+                        except Exception as exc:
+                            logger.warning("Workflow mcp_tool node failed: %s", exc)
+                            output = ""
+                            variables[output_variable] = output
+                            yield sse_payload(
+                                {
+                                    "event": "error",
+                                    "node_id": node.id,
+                                    "message": str(exc),
+                                }
+                            )
 
                 elif kind == "time_tool":
                     output_variable = str(node.data.get("outputVariable") or "current_time")

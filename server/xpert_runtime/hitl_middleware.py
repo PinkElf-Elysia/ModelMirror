@@ -56,9 +56,20 @@ def build_human_in_the_loop_middleware(
             or f"{task_id}:{node_id}:{iteration}:{request.tool_name}"
         )
         scope_type, scope_id = _approval_scope(context, task_id)
+        read_only_arguments = _bool(
+            request.metadata.get("approval_read_only_args"), False
+        )
         skill_approval = request.metadata.get("skill_approval")
         hub_approval = request.metadata.get("hub_approval")
-        if isinstance(hub_approval, dict):
+        if read_only_arguments:
+            allowed = ["approve"]
+            if allow_reject:
+                allowed.append("reject")
+            approval_description = (
+                f"{description_prefix}\n\nTool: {request.tool_name}\n"
+                "参数已脱敏；批准后将按当前工作流变量重新解析并核对摘要。"
+            )
+        elif isinstance(hub_approval, dict):
             allowed = ["approve"]
             if allow_edit:
                 allowed.append("edit")
@@ -107,16 +118,28 @@ def build_human_in_the_loop_middleware(
                 timeout_seconds=timeout_seconds,
                 allowed_decisions=allowed,
                 tool_name=request.tool_name,
-                arguments=request.arguments,
+                arguments=(
+                    dict(request.metadata.get("approval_redacted_arguments") or {})
+                    if read_only_arguments
+                    else request.arguments
+                ),
                 description=approval_description,
                 metadata={
                     "middleware_node_id": spec.node_id,
                     "middleware_priority": spec.priority,
                     "iteration": iteration,
                     "capability": request.metadata.get("capability"),
-                    "tool_input_schema": dict(
-                        request.metadata.get("tool_input_schema") or {}
+                    "tool_input_schema": (
+                        {}
+                        if read_only_arguments
+                        else dict(request.metadata.get("tool_input_schema") or {})
                     ),
+                    "arguments_digest": (
+                        str(request.metadata.get("approval_argument_digest") or "")
+                        if read_only_arguments
+                        else None
+                    ),
+                    "arguments_read_only": read_only_arguments,
                     "skill_approval": (
                         dict(skill_approval)
                         if isinstance(skill_approval, dict)
@@ -207,6 +230,10 @@ async def _apply_resolution(
     hub_event_recorder: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> ToolCallResponse:
     decision = str(resolved.get("decision") or "").strip()
+    if request.metadata.get("approval_read_only_args") and decision == "edit":
+        raise RuntimeMiddlewareFatalError(
+            "This tool approval does not allow argument editing."
+        )
     if decision == "approve":
         hub_approval = request.metadata.get("hub_approval")
         if isinstance(hub_approval, dict) and hub_event_recorder is not None:

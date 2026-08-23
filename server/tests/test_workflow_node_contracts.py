@@ -58,18 +58,21 @@ BASELINE_213_COMPATIBILITY_KINDS = {
     "question_classifier",
     "template_transform",
     "time_tool",
-    "variable_aggregator",
     "variable_assign",
+    "variable_aggregator",
 }
 PROMOTED_COMPLETE_KINDS = {
     "condition",
     "document_extractor",
     "http_request",
+    "human_intervention",
     "llm",
     "list_operation",
+    "mcp_tool",
     "parameter_extractor",
     "question_classifier",
     "time_tool",
+    "variable_assign",
 }
 
 
@@ -182,7 +185,7 @@ def test_r16_control_data_contracts_are_complete_local_and_not_plannable() -> No
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-    ) == 12
+    ) == 9
 
 
 def test_r17_http_condition_and_dataset_contracts_are_complete_and_not_plannable() -> None:
@@ -229,7 +232,33 @@ def test_r18_file_data_contracts_are_complete_scoped_and_not_plannable() -> None
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-    ) == 12
+    ) == 9
+
+
+def test_r20_human_mcp_and_variable_contracts_are_complete_and_not_plannable() -> None:
+    for kind in {"human_intervention", "mcp_tool", "variable_assign"}:
+        contract = workflow_node_contract_registry.require(kind)
+        assert contract.contract_status == "complete"
+        assert contract.planner.enabled is False
+        assert node_policy_service.decision(kind, "workflow").allowed
+        assert node_policy_service.decision(kind, "xpert").allowed
+
+    human = workflow_node_contract_registry.require("human_intervention")
+    mcp = workflow_node_contract_registry.require("mcp_tool")
+    variable = workflow_node_contract_registry.require("variable_assign")
+    assert human.execution.can_wait is True
+    assert human.execution.external_io is True
+    assert mcp.execution.can_wait is True
+    assert mcp.execution.external_io is True
+    assert mcp.execution.idempotent is False
+    assert variable.execution.side_effect == "none"
+    assert variable.execution.deterministic is True
+    assert not node_policy_service.decision("human_intervention", "app").allowed
+    assert not node_policy_service.decision("mcp_tool", "app").allowed
+    assert not node_policy_service.decision("mcp_tool", "evaluation").allowed
+    legacy_citation = workflow_node_contract_registry.require("knowledge_citation")
+    assert legacy_citation.deprecated is True
+    assert legacy_citation.replacement_kind == "knowledge_retrieval"
 
 
 def test_r19_typed_ai_contracts_are_complete_and_not_plannable() -> None:
@@ -397,6 +426,7 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "agent_handoff",
         "handoff_router",
         "human_intervention",
+        "mcp_tool",
         "vision_understanding",
         "data_table_query",
         "data_table_insert",
@@ -417,6 +447,7 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "external_xpert",
         "plugin_resource",
         "human_intervention",
+        "mcp_tool",
         "vision_understanding",
         "data_table_query",
         "data_table_insert",

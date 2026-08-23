@@ -109,8 +109,24 @@ class MCPToolsetProvider:
                 return tool
         return None
 
+    async def find_tool_exact(
+        self,
+        *,
+        server_id: str,
+        tool_name: str,
+    ) -> RuntimeTool | None:
+        for tool in await self.list_tools():
+            if tool.server_id == server_id and tool.name == tool_name:
+                return tool
+        return None
+
     async def call_tool(self, call: RuntimeToolCall) -> RuntimeToolResult:
-        tool = await self.find_tool(call.tool_name)
+        server_id = str(call.metadata.get("server_id") or "").strip()
+        tool = (
+            await self.find_tool_exact(server_id=server_id, tool_name=call.tool_name)
+            if server_id
+            else await self.find_tool(call.tool_name)
+        )
         if tool is None:
             raise RuntimeToolError(
                 call.tool_name,
@@ -210,9 +226,35 @@ class CompositeMCPToolsetProvider:
                 return tool
         return None
 
-    async def call_tool(self, call: RuntimeToolCall) -> RuntimeToolResult:
+    async def find_tool_exact(
+        self,
+        *,
+        server_id: str,
+        tool_name: str,
+    ) -> RuntimeTool | None:
         for provider in self.providers:
-            if await provider.find_tool(call.tool_name) is not None:
+            finder = getattr(provider, "find_tool_exact", None)
+            if finder is not None:
+                tool = await finder(server_id=server_id, tool_name=tool_name)
+            else:
+                tool = await provider.find_tool(tool_name)
+                if tool is not None and tool.server_id != server_id:
+                    tool = None
+            if tool is not None:
+                return tool
+        return None
+
+    async def call_tool(self, call: RuntimeToolCall) -> RuntimeToolResult:
+        server_id = str(call.metadata.get("server_id") or "").strip()
+        for provider in self.providers:
+            finder = getattr(provider, "find_tool_exact", None)
+            if server_id and finder is not None:
+                matched = await finder(server_id=server_id, tool_name=call.tool_name)
+            else:
+                matched = await provider.find_tool(call.tool_name)
+                if server_id and matched is not None and matched.server_id != server_id:
+                    matched = None
+            if matched is not None:
                 return await provider.call_tool(call)
         raise RuntimeToolError(call.tool_name, "Tool not found", code="tool_not_found")
 

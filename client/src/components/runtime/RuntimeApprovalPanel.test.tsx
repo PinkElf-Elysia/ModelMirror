@@ -33,7 +33,7 @@ describe("RuntimeApprovalPanel Skill install approval", () => {
       />,
     );
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(screen.queryByText("Agent 运行审批")).not.toBeInTheDocument();
 
     await act(async () => {
@@ -54,7 +54,7 @@ describe("RuntimeApprovalPanel Skill install approval", () => {
         taskId="task-stable"
       />,
     );
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
     rerender(
       <RuntimeApprovalPanel
@@ -67,7 +67,7 @@ describe("RuntimeApprovalPanel Skill install approval", () => {
       await Promise.resolve();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("keeps an explicit empty request-type filter distinct from no filter", async () => {
@@ -101,8 +101,63 @@ describe("RuntimeApprovalPanel Skill install approval", () => {
       />,
     );
 
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     expect(screen.queryByText(approval.description)).not.toBeInTheDocument();
+  });
+
+  it("reopens an expired execution gate with the current revision", async () => {
+    const expired: RuntimeApproval = {
+      approval_id: "approval-expired-gate",
+      request_type: "execution_gate",
+      task_id: "task-gate",
+      run_id: "run-gate",
+      node_id: "human-gate",
+      node_title: "人工批准",
+      status: "expired",
+      revision: 3,
+      scope_type: "workflow",
+      scope_id: "task-gate",
+      tool_name: null,
+      arguments: {},
+      description: "请批准继续执行",
+      content_preview: "",
+      allowed_decisions: ["approve", "reject"],
+      expires_at: 1_900_000_000,
+      created_at: 1_800_000_000,
+      metadata: { interaction_mode: "approval", contract_version: 2 },
+    };
+    let reopened = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/approval-expired-gate/reopen")) {
+        reopened = true;
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          revision: 3,
+          timeout_seconds: 3600,
+        });
+        return jsonResponse({ ...expired, status: "pending", revision: 4 });
+      }
+      if (url.includes("status=expired") && !reopened) {
+        return jsonResponse({ items: [expired] });
+      }
+      if (url.includes("status=pending") && reopened) {
+        return jsonResponse({ items: [{ ...expired, status: "pending", revision: 4 }] });
+      }
+      return jsonResponse({ items: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<RuntimeApprovalPanel pollIntervalMs={60_000} taskId="task-gate" />);
+
+    const reopenButton = await screen.findByRole("button", { name: "重新打开 1 小时" });
+    await act(async () => reopenButton.click());
+
+    expect(await screen.findByRole("button", { name: "批准" })).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/runtime/approvals/approval-expired-gate/reopen",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("shows trusted fixed-SHA details without exposing editable install arguments", async () => {

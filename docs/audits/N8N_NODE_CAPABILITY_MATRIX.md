@@ -1,6 +1,6 @@
-# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9）
+# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0）
 
-- 审计日期：2026-08-22
+- 审计日期：2026-08-23
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
 - R0 基线事实：NodeContract V3、37 个 `NativeNodeKind`、35 个画布目录项、20 个冻结 compatibility 合同
 - R1 结果：新增 4 个完整合同，并将既有 `llm` 提升为完整合同；自研节点总数 41、画布目录项 39、当前 19 个冻结 compatibility 合同；四节点与 `llm` Planner 均关闭
@@ -8,8 +8,9 @@
 - R1.5 PR2 结果：新增完整合同 `workflow_call_entry` 与 `invoke_workflow`；自研节点总数 44、画布目录项 42、compatibility 白名单不增长；仅支持私有同步固定版本调用，Planner 关闭且 Xpert 内嵌入口禁止
 - R1.6 结果：新增完整合同 `terminate_error`、`multi_route`、`data_aggregate`，并将 `list_operation` 提升为完整合同；自研节点总数 47、画布目录项 45、当前 18 个冻结 compatibility 合同；四类均允许经典工作流和 Xpert 使用，Planner 关闭
 - R1.7 结果：新增完整合同 `dataset_compare`，并将 `http_request`、`condition` 提升为完整合同；自研节点总数 48、画布目录项 46、当前 16 个冻结 compatibility 合同；Planner 仍固定为 7 类
-- R1.8 结果：新增完整合同 `file_output`、`object_transform`，并将 `document_extractor`、`time_tool` 提升为完整合同，同时扩展 `list_operation`；自研节点总数 50、画布目录项 48、当前 12 个冻结 compatibility 合同；文件节点仅允许经典工作流和私有 Xpert，Planner 仍固定为 7 类
+- R1.8 结果：新增完整合同 `file_output`、`object_transform`，并将 `document_extractor`、`time_tool` 提升为完整合同，同时扩展 `list_operation`；自研节点总数 50、画布目录项 48、当前 14 个冻结 compatibility 合同；文件节点仅允许经典工作流和私有 Xpert，Planner 仍固定为 7 类
 - R1.9 结果：不新增普通节点，将 `parameter_extractor`、`question_classifier` 提升为完整 V2 合同，并在既有 `runtime_middleware` 下增加 `content_policy` 文本策略；自研节点总数 50、画布目录项 48、当前 12 个冻结 compatibility 合同，Planner 仍固定为 7 类
+- R2.0 结果：不新增普通节点，将 `human_intervention`、`mcp_tool`、`variable_assign` 提升为完整 V2 合同，并退役旧知识引用新增入口；当前 50 Native、48 个可新增 Palette 项、41 个完整合同、9 个 compatibility 合同、7 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` 2 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -20,17 +21,17 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 
 ## 状态汇总
 
-- 已实现：32
-- 部分实现：83
+- 已实现：34
+- 部分实现：82
 - 通用节点可覆盖：276（不等于已有专用连接器）
 - 目录声明：0
-- 未实现：172
+- 未实现：171
 
 | 能力域 | 总数 | 已实现 | 部分实现 | 通用覆盖 | 目录声明 | 未实现 |
 |---|---:|---:|---:|---:|---:|---:|
 | 触发与事件 | 112 | 6 | 1 | 0 | 0 | 105 |
 | 流程控制与编排 | 8 | 5 | 2 | 0 | 0 | 1 |
-| 数据变换与计算 | 17 | 10 | 7 | 0 | 0 | 0 |
+| 数据变换与计算 | 17 | 11 | 6 | 0 | 0 | 0 |
 | 文件与内容处理 | 20 | 2 | 4 | 10 | 0 | 4 |
 | 网络与接口 | 3 | 2 | 0 | 1 | 0 | 0 |
 | 数据库与存储 | 63 | 0 | 1 | 61 | 0 | 1 |
@@ -40,9 +41,9 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 安全与身份 | 13 | 0 | 0 | 9 | 0 | 4 |
 | AI 模型与生成 | 55 | 2 | 53 | 0 | 0 | 0 |
 | 智能体与任务协作 | 3 | 0 | 3 | 0 | 0 | 0 |
-| 智能体工具与协议 | 14 | 0 | 3 | 11 | 0 | 0 |
+| 智能体工具与协议 | 14 | 1 | 2 | 11 | 0 | 0 |
 | 知识检索与向量 | 48 | 0 | 8 | 0 | 0 | 40 |
-| 记忆与上下文 | 9 | 0 | 0 | 0 | 0 | 9 |
+| 记忆与上下文 | 9 | 0 | 1 | 0 | 0 | 8 |
 | 解析、评测与护栏 | 4 | 4 | 0 | 0 | 0 | 0 |
 | 交互、人工与表单 | 1 | 0 | 0 | 1 | 0 | 0 |
 | 画布、评测与内部元数据 | 9 | 1 | 0 | 1 | 0 | 7 |
@@ -70,6 +71,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 数据变换与计算 | 数据筛选 | list_operation | (Filter) | 已实现 |
 | 数据变换与计算 | 数量限制 | list_operation | (Limit) | 已实现 |
 | 数据变换与计算 | 字段编辑 | object_transform | (Set) | 已实现 |
+| 数据变换与计算 | 字段重命名 | object_transform | (Rename Keys) | 已实现 |
 | 文件与内容处理 | 内容转文件 | file_output | (Convert to File) | 已实现 |
 | 文件与内容处理 | 文件内容提取 | document_extractor | (Extract from File) | 已实现 |
 | 网络与接口 | HTTP 调用 | http_request | (HTTP Request) | 已实现 |
@@ -77,6 +79,10 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 数据库与存储 | 内置数据表 | data_table_query / data_table_insert / data_table_update / data_table_delete | (Data table) | 部分实现 |
 | AI 模型与生成 | 文本分类 | question_classifier | (Text Classifier) | 已实现 |
 | AI 模型与生成 | 信息提取 | parameter_extractor | (Information Extractor) | 已实现 |
+| 智能体工具与协议 | MCP 单工具连接 | mcp_tool | (MCP Client Tool) | 已实现 |
+| 智能体工具与协议 | MCP 工具集连接 | mcp_tool | (MCP Client) | 部分实现 |
+| 智能体工具与协议 | MCP 注册表连接（内部） | mcp_tool | (MCP Registry Client (internal)) | 部分实现 |
+| 记忆与上下文 | 对话记忆管理 | agent / workflow_agent | (Chat Memory Manager) | 部分实现 |
 | 解析、评测与护栏 | 结构化结果解析 | parameter_extractor | (Structured Output Parser) | 已实现 |
 | 解析、评测与护栏 | 列表结果解析 | parameter_extractor | (Item List Output Parser) | 已实现 |
 | 解析、评测与护栏 | 内容护栏 | runtime_middleware | (Guardrails) | 已实现 |
@@ -91,4 +97,4 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R1.9 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.0 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。

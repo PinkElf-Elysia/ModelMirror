@@ -136,6 +136,16 @@ export interface WorkflowHttpParameter {
   binding: WorkflowHttpBinding;
 }
 
+export interface WorkflowMcpArgumentBinding {
+  id: string;
+  name: string;
+  binding: {
+    source: "literal" | "variable";
+    value?: WorkflowValue;
+    variable?: string;
+  };
+}
+
 export type ListOperationOperator =
   | "length"
   | "join"
@@ -202,6 +212,8 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   title: string;
   description: string;
   variableName?: string;
+  valueSource?: "literal" | "variable" | "template";
+  literalValue?: WorkflowValue;
   eventVariable?: string;
   scheduleType?: "once" | "interval" | "cron";
   onceAt?: string;
@@ -220,6 +232,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   bodyTemplate?: string;
   modelId?: string;
   prompt?: string;
+  interactionMode?: "input" | "approval";
   outputVariable?: string;
   conditionVariable?: string;
   conditionOperator?: ConditionOperator;
@@ -326,6 +339,11 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   knowledgeBaseIds?: string;
   nodeParametersJson?: string;
   toolName?: string;
+  serverId?: string;
+  inputSchemaChecksum?: string;
+  argumentMode?: "fields" | "object_variable";
+  argumentBindings?: WorkflowMcpArgumentBinding[];
+  argumentsVariable?: string;
   argumentsJson?: string;
   errorMode?: string;
   operation?: string;
@@ -453,7 +471,11 @@ export interface WorkflowRunEvent {
   host_id?: string;
   session_id?: string;
   error_code?: string;
-  request_type?: "tool_call" | "final_output" | "manual_input";
+  request_type?: "tool_call" | "final_output" | "manual_input" | "execution_gate";
+  revision?: number;
+  interaction_mode?: "input" | "approval";
+  expires_at?: number;
+  contract_version?: number;
   tool_name?: string;
   workspace_id?: string;
   operation_id?: string;

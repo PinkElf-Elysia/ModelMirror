@@ -178,6 +178,8 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("code", "codeInputVariable", "binding", ANY_RENDERABLE_TYPES, "input"),
   field("code", "codeOutputVariable", "declaration", TEXT_TYPES),
   field("variable_assign", "variableName", "declaration", TEXT_TYPES),
+  field("variable_assign", "outputVariable", "declaration", ANY_RENDERABLE_TYPES),
+  field("variable_assign", "sourceVariable", "binding", ANY_RENDERABLE_TYPES, "value"),
   field("variable_assign", "template", "template", TEMPLATE_TYPES),
   field("template_transform", "template", "template", TEMPLATE_TYPES),
   field("template_transform", "outputVariable", "declaration", TEXT_TYPES),
@@ -218,6 +220,7 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("handoff_router", "outputVariable", "declaration", TEXT_TYPES),
   field("handoff_router", "resultVariable", "declaration", TEXT_TYPES),
   field("mcp_tool", "argumentsJson", "template", TEMPLATE_TYPES),
+  field("mcp_tool", "argumentsVariable", "binding", JSON_TYPES, "arguments"),
   field("mcp_tool", "outputVariable", "declaration", ANY_RENDERABLE_TYPES),
   field("time_tool", "inputVariable", "binding", ANY_RENDERABLE_TYPES, "input"),
   field("time_tool", "rightVariable", "binding", ANY_RENDERABLE_TYPES, "right"),
@@ -369,7 +372,18 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
   llm: [{ field: "outputVariable", fallback: "llm_output", valueType: "text" }],
   code: [{ field: "codeOutputVariable", fallback: "code_output", valueType: "text" }],
   variable_assign: [
-    { field: "variableName", fallback: "assigned_text", valueType: "text" },
+    {
+      field: "variableName",
+      fallback: "assigned_text",
+      valueType: "text",
+      enabled: (node) => String(node.data.contractVersion ?? "1") !== "2",
+    },
+    {
+      field: "outputVariable",
+      fallback: "assigned_value",
+      valueType: "unknown",
+      enabled: (node) => String(node.data.contractVersion ?? "1") === "2",
+    },
   ],
   template_transform: [
     { field: "outputVariable", fallback: "template_output", valueType: "text" },
@@ -429,7 +443,11 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
       enabled: (node) => String(node.data.waitForCompletion ?? "false") === "true",
     },
   ],
-  mcp_tool: [{ field: "outputVariable", fallback: "mcp_output", valueType: "unknown" }],
+  mcp_tool: [{
+    field: "outputVariable",
+    fallback: "mcp_output",
+    valueType: (node) => String(node.data.contractVersion ?? "1") === "2" ? "json" : "unknown",
+  }],
   time_tool: [{ field: "outputVariable", fallback: "current_time", valueType: "unknown" }],
   http_request: [
     {
@@ -799,6 +817,13 @@ function collectReferences(nodes: WorkflowNode[], knownNames: Set<string>) {
     collectNestedVariableReferences(
       node.data.inputBindings,
       "inputBindings",
+      node,
+      referencesByName,
+      seen,
+    );
+    collectNestedVariableReferences(
+      node.data.argumentBindings,
+      "argumentBindings",
       node,
       referencesByName,
       seen,
@@ -1237,14 +1262,18 @@ export function planWorkflowVariableRename(
           ? "valueBindings"
           : reference.field.startsWith("inputBindings")
             ? "inputBindings"
-            : reference.field.startsWith("operations")
-              ? "operations"
-              : "filter";
+            : reference.field.startsWith("argumentBindings")
+              ? "argumentBindings"
+              : reference.field.startsWith("operations")
+                ? "operations"
+                : "filter";
         const replaced = replaceStructuredVariable(node.data[root], oldName, normalized);
         if (root === "valueBindings") {
           node.data.valueBindings = replaced as typeof node.data.valueBindings;
         } else if (root === "inputBindings") {
           node.data.inputBindings = replaced as typeof node.data.inputBindings;
+        } else if (root === "argumentBindings") {
+          node.data.argumentBindings = replaced as typeof node.data.argumentBindings;
         } else if (root === "operations") {
           node.data.operations = replaced as typeof node.data.operations;
         } else {

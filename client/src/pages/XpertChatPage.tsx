@@ -67,7 +67,7 @@ interface XpertRunEvent {
   approval_id?: string;
   request_id?: string;
   approval_status?: string;
-  request_type?: "tool_call" | "final_output" | "manual_input";
+  request_type?: "tool_call" | "final_output" | "manual_input" | "execution_gate";
   tool_name?: string;
   status?: string;
   candidate_id?: string;

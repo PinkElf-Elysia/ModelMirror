@@ -10,6 +10,7 @@ import pytest_asyncio
 
 import server.main as main_module
 from server.main import app
+from server.workflow_native.r20_nodes import mcp_schema_checksum
 from server.xperts import (
     XpertConflictError,
     XpertContextStore,
@@ -226,6 +227,165 @@ async def test_xpert_publish_preflight_rejects_invalid_chat_contract(
 
     versions_response = await client.get(f"/api/xperts/{xpert['id']}/versions")
     assert versions_response.json() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "data", "expected_code"),
+    [
+        (
+            "human_intervention",
+            {
+                "kind": "human_intervention",
+                "prompt": "Approve",
+                "outputVariable": "human_result",
+            },
+            "xpert_human_intervention_migration_required",
+        ),
+        (
+            "mcp_tool",
+            {
+                "kind": "mcp_tool",
+                "toolName": "search",
+                "argumentsJson": "{}",
+                "outputVariable": "mcp_result",
+            },
+            "xpert_mcp_tool_migration_required",
+        ),
+        (
+            "variable_assign",
+            {
+                "kind": "variable_assign",
+                "variableName": "assigned",
+                "template": "value",
+            },
+            "xpert_variable_assign_migration_required",
+        ),
+        (
+            "knowledge_citation",
+            {
+                "kind": "knowledge_citation",
+                "knowledgeBaseId": "kb_test",
+                "queryVariable": "user_input",
+                "top_k": "4",
+                "outputVariable": "citations",
+            },
+            "xpert_knowledge_citation_migration_required",
+        ),
+    ],
+)
+async def test_r20_xpert_preflight_requires_explicit_legacy_node_migration(
+    client: httpx.AsyncClient,
+    kind: str,
+    data: dict,
+    expected_code: str,
+) -> None:
+    created_response = await client.post("/api/xperts", json={"name": f"Legacy {kind}"})
+    assert created_response.status_code == 200, created_response.text
+    xpert = created_response.json()
+    draft = xpert["draft"]
+    draft["workflow"]["nodes"].append(
+        {
+            "id": "legacy-node",
+            "type": kind,
+            "position": {"x": 200, "y": 250},
+            "data": data,
+        }
+    )
+
+    updated = await client.patch(
+        f"/api/xperts/{xpert['id']}",
+        json={"draft": draft},
+    )
+    assert updated.status_code == 200, updated.text
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+
+    assert published.status_code == 422
+    codes = {item["code"] for item in published.json()["detail"]["issues"]}
+    assert expected_code in codes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["human_intervention", "variable_assign"])
+async def test_r20_general_v2_nodes_pass_private_xpert_publish(
+    client: httpx.AsyncClient,
+    kind: str,
+) -> None:
+    created_response = await client.post("/api/xperts", json={"name": f"R2.0 {kind}"})
+    assert created_response.status_code == 200, created_response.text
+    xpert = created_response.json()
+    draft = xpert["draft"]
+    workflow = draft["workflow"]
+    data = (
+        {
+            "kind": kind,
+            "contractVersion": 2,
+            "interactionMode": "approval",
+            "prompt": "Approve this run",
+            "outputVariable": "human_result",
+            "timeoutSeconds": 3600,
+        }
+        if kind == "human_intervention"
+        else {
+            "kind": kind,
+            "contractVersion": 2,
+            "outputVariable": "assigned",
+            "valueSource": "literal",
+            "literalValue": {"ok": True},
+        }
+    )
+    workflow["nodes"].append(
+        {
+            "id": "r20-node",
+            "type": kind,
+            "position": {"x": 200, "y": 250},
+            "data": data,
+        }
+    )
+
+    updated = await client.patch(f"/api/xperts/{xpert['id']}", json={"draft": draft})
+    assert updated.status_code == 200, updated.text
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+
+    assert published.status_code == 200, published.text
+
+
+@pytest.mark.asyncio
+async def test_r20_mcp_v2_private_xpert_fails_closed_when_feature_is_disabled(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("WORKFLOW_MCP_TOOLS_ENABLED", raising=False)
+    schema = {"type": "object", "properties": {}}
+    created_response = await client.post("/api/xperts", json={"name": "Disabled MCP V2"})
+    xpert = created_response.json()
+    draft = xpert["draft"]
+    draft["workflow"]["nodes"].append(
+        {
+            "id": "mcp-v2",
+            "type": "mcp_tool",
+            "position": {"x": 200, "y": 250},
+            "data": {
+                "kind": "mcp_tool",
+                "contractVersion": 2,
+                "serverId": "server_alpha",
+                "toolName": "search",
+                "inputSchemaChecksum": mcp_schema_checksum(schema),
+                "argumentMode": "fields",
+                "argumentBindings": [],
+                "argumentsVariable": "mcp_arguments",
+                "outputVariable": "mcp_result",
+            },
+        }
+    )
+
+    updated = await client.patch(f"/api/xperts/{xpert['id']}", json={"draft": draft})
+    assert updated.status_code == 200, updated.text
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+
+    assert published.status_code == 422
+    codes = {item["code"] for item in published.json()["detail"]["issues"]}
+    assert "xpert_mcp_tools_disabled" in codes
 
 
 @pytest.mark.asyncio

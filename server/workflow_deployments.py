@@ -31,6 +31,11 @@ try:
         is_http_request_v2,
         validate_http_request_credential,
     )
+    from server.workflow_native.r20_nodes import (
+        WorkflowR20NodeError,
+        contract_version as r20_contract_version,
+        validate_mcp_tool_v2_config,
+    )
     from server.xpert_runtime.automation_store import (
         AutomationStore,
         AutomationTrigger,
@@ -50,6 +55,11 @@ except ModuleNotFoundError:
         WorkflowHttpRequestError,
         is_http_request_v2,
         validate_http_request_credential,
+    )
+    from workflow_native.r20_nodes import (
+        WorkflowR20NodeError,
+        contract_version as r20_contract_version,
+        validate_mcp_tool_v2_config,
     )
     from xpert_runtime.automation_store import (
         AutomationStore,
@@ -200,6 +210,7 @@ class WorkflowDeploymentStore:
         storage_dir: str | Path | None = None,
         *,
         credential_validator: Callable[[str], Any] | None = None,
+        mcp_tool_validator: Callable[[dict[str, Any]], Any] | None = None,
     ) -> None:
         package_dir = Path(__file__).resolve().parent
         self.storage_dir = Path(
@@ -216,6 +227,7 @@ class WorkflowDeploymentStore:
         self._failure_subscriptions: dict[str, WorkflowFailureSubscription] = {}
         self._subworkflow_relations: dict[str, WorkflowSubworkflowRelation] = {}
         self._credential_validator = credential_validator
+        self._mcp_tool_validator = mcp_tool_validator
         self._load()
 
     def create_project(self, workflow: dict[str, Any]) -> WorkflowProject:
@@ -315,6 +327,7 @@ class WorkflowDeploymentStore:
             trigger_kind, entry_node_id = validate_publishable_workflow(
                 project.draft,
                 credential_validator=self._credential_validator,
+                mcp_tool_validator=self._mcp_tool_validator,
             )
             if trigger_kind == "failure":
                 self._validate_failure_sources_unlocked(
@@ -366,6 +379,7 @@ class WorkflowDeploymentStore:
         http_requests_enabled: bool = False,
         workflow_file_assets_enabled: bool = False,
         file_output_assets_enabled: bool = False,
+        mcp_tools_enabled: bool = False,
         now: float | None = None,
     ) -> tuple[WorkflowDeployment, str | None]:
         current = time.time() if now is None else float(now)
@@ -406,6 +420,25 @@ class WorkflowDeploymentStore:
                 for node in release.workflow.get("nodes", [])
                 if isinstance(node, dict)
             ]
+            mcp_v2_nodes = [
+                node
+                for node in nodes
+                if _raw_node_kind(node) == "mcp_tool"
+                and r20_contract_version(dict(node.get("data") or {})) == 2
+            ]
+            if mcp_v2_nodes and not mcp_tools_enabled:
+                raise WorkflowDeploymentConflictError(
+                    "Workflow MCP tools are disabled."
+                )
+            for node in mcp_v2_nodes:
+                if self._mcp_tool_validator is None:
+                    raise WorkflowDeploymentConflictError(
+                        "Workflow MCP tool registry validation is unavailable."
+                    )
+                try:
+                    self._mcp_tool_validator(dict(node.get("data") or {}))
+                except WorkflowR20NodeError as exc:
+                    raise WorkflowDeploymentConflictError(exc.safe_message) from exc
             if any(_raw_node_kind(node) == "file_output" for node in nodes):
                 if not file_output_assets_enabled:
                     raise WorkflowDeploymentConflictError(
@@ -1568,6 +1601,7 @@ def validate_publishable_workflow(
     workflow: dict[str, Any],
     *,
     credential_validator: Callable[[str], Any] | None = None,
+    mcp_tool_validator: Callable[[dict[str, Any]], Any] | None = None,
 ) -> tuple[WorkflowTriggerKind, str]:
     try:
         definition = NativeWorkflowDefinition.model_validate(
@@ -1606,6 +1640,10 @@ def validate_publishable_workflow(
     for node in definition.nodes:
         kind = node_kind(node)
         contract = workflow_node_contract_registry.require(kind)
+        if kind == "knowledge_citation":
+            raise WorkflowDeploymentValidationError(
+                "Legacy knowledge citation nodes must be migrated to knowledge_retrieval before publishing."
+            )
         if contract.contract_status != "complete":
             raise WorkflowDeploymentValidationError(
                 f"Node '{node.id}' does not have a complete NodeContract."
@@ -1622,6 +1660,10 @@ def validate_publishable_workflow(
             raise WorkflowDeploymentValidationError(
                 "HTTP deployments cannot contain runtime middleware in R1."
             )
+        if trigger_kind == "http" and kind in {"human_intervention", "mcp_tool"}:
+            raise WorkflowDeploymentValidationError(
+                "HTTP deployments cannot contain interactive waiting nodes."
+            )
         if trigger_kind == "call" and contract.execution.can_wait:
             raise WorkflowDeploymentValidationError(
                 "Callable workflows cannot contain waiting nodes."
@@ -1637,6 +1679,20 @@ def validate_publishable_workflow(
                     credential_validator,
                 )
             except WorkflowHttpRequestError as exc:
+                raise WorkflowDeploymentValidationError(exc.safe_message) from exc
+        if kind in {"human_intervention", "mcp_tool", "variable_assign"}:
+            if r20_contract_version(node.data) != 2:
+                raise WorkflowDeploymentValidationError(
+                    f"Legacy {kind} nodes must be explicitly migrated before publishing."
+                )
+        if kind == "mcp_tool":
+            if mcp_tool_validator is None:
+                raise WorkflowDeploymentValidationError(
+                    "Workflow MCP tool registry validation is unavailable."
+                )
+            try:
+                mcp_tool_validator(node.data)
+            except WorkflowR20NodeError as exc:
                 raise WorkflowDeploymentValidationError(exc.safe_message) from exc
     sensitive_path = _find_sensitive_value(workflow)
     if sensitive_path:
