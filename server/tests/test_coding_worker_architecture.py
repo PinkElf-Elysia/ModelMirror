@@ -125,6 +125,9 @@ def test_pr_a_freezes_existing_boundary_debt_without_allowing_expansion() -> Non
         "server.coding_worker.opencode_provider",
         "server.coding_worker.claude_provider",
         "server.coding_worker.harness_v3",
+        "server.coding_worker.acp_driver",
+        "server.coding_worker.codex_app_server_driver",
+        "agentclientprotocol",
         "coding_worker.service",
         "coding_worker.store",
         "coding_worker.workspace",
@@ -135,6 +138,8 @@ def test_pr_a_freezes_existing_boundary_debt_without_allowing_expansion() -> Non
         "coding_worker.opencode_provider",
         "coding_worker.claude_provider",
         "coding_worker.harness_v3",
+        "coding_worker.acp_driver",
+        "coding_worker.codex_app_server_driver",
         "server.coding_worker.api",
         "coding_worker.api",
     }
@@ -178,6 +183,9 @@ class DenyEvaluation(importlib.abc.MetaPathFinder):
             'server.coding_worker.harness_v3',
             'server.coding_worker.parity',
             'server.coding_worker.evaluation',
+            'server.coding_worker.acp_driver',
+            'server.coding_worker.codex_app_server_driver',
+            'agentclientprotocol',
         }:
             raise ImportError(f'evaluation module denied: {fullname}')
         return None

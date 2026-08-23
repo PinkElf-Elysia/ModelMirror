@@ -140,6 +140,14 @@ def test_current_acp_and_codex_lifecycles_replay_through_the_kernel() -> None:
         "acp-v1.19",
         "codex-app-server-0.149.0",
     }
+    acp, codex = fixture["traces"]
+    assert acp["schema_release"] == "schema-v1.19.0"
+    assert acp["schema_commit"] == "a213df5240048f96d2b23f644984bb20c188a234"
+    assert codex["package"] == "@openai/codex"
+    assert codex["package_version"] == "0.149.0"
+    assert codex["schema_bundle_sha256"] == (
+        "02a4c63a638fdae4a5f6c3ad32a41a377b642c66f3abc84f6fc47c7f3d6074df"
+    )
     methods: set[str] = set()
     for trace in fixture["traces"]:
         actions = trace["actions"]
@@ -156,6 +164,18 @@ def test_current_acp_and_codex_lifecycles_replay_through_the_kernel() -> None:
     assert "thread/close" not in methods
     assert "session/resume" in methods
     assert "thread/unsubscribe" in methods
+    command_approval = next(
+        action["source_frame"]
+        for action in codex["actions"]
+        if action["source_frame"].get("method")
+        == "item/commandExecution/requestApproval"
+    )
+    assert set(command_approval["params"]) == {
+        "threadId",
+        "turnId",
+        "itemId",
+        "startedAtMs",
+    }
 
 
 def test_kernel_rejects_stale_turn_cross_task_and_noncontiguous_events() -> None:
