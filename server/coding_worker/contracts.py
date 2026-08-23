@@ -85,7 +85,13 @@ TERMINAL_STATES = frozenset(
 
 _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     TaskState.QUEUED: frozenset(
-        {TaskState.PREPARING, TaskState.PAUSED, TaskState.CANCELLED, TaskState.EXPIRED}
+        {
+            TaskState.PREPARING,
+            TaskState.PAUSED,
+            TaskState.INTERRUPTED,
+            TaskState.CANCELLED,
+            TaskState.EXPIRED,
+        }
     ),
     TaskState.PREPARING: frozenset(
         {
@@ -146,6 +152,7 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
         {
             TaskState.QUEUED,
             TaskState.WAITING_SUBTASKS,
+            TaskState.INTERRUPTED,
             TaskState.CANCELLED,
             TaskState.EXPIRED,
         }

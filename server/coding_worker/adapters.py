@@ -34,7 +34,7 @@ from .ports import (
     TaskCapabilitySnapshot,
     WorkspaceTreeProjection,
 )
-from .harness_protocol import HarnessDescriptor
+from .harness_protocol import HarnessDescriptorObservation
 from .provider import (
     CodingAgentProvider,
     ProviderCapabilities,
@@ -62,6 +62,10 @@ class LegacySupervisorBinding(Protocol):
 
     async def harness_attestations(self) -> dict[str, dict[str, Any]]: ...
 
+    async def harness_descriptors_for_slots(
+        self, slot_ids: Sequence[str]
+    ) -> Mapping[str, HarnessDescriptorObservation | None]: ...
+
 
 class LegacyHarnessSupervisor:
     """V20 process, health and generation adapter for Provider v4 sidecars."""
@@ -87,10 +91,8 @@ class LegacyHarnessSupervisor:
 
     async def harness_descriptors_for_slots(
         self, slot_ids: Sequence[str]
-    ) -> Mapping[str, HarnessDescriptor | None]:
-        # Provider v4 sidecars do not expose V20 descriptors until the second
-        # migration step. Keep that absence explicit and fail closed.
-        return {slot_id: None for slot_id in slot_ids}
+    ) -> Mapping[str, HarnessDescriptorObservation | None]:
+        return await self._provider.harness_descriptors_for_slots(slot_ids)
 
 
 class LegacyHarnessDriver:
