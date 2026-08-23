@@ -7,6 +7,15 @@ import uuid
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
+from .chat_gate import (
+    MIN_PROVIDER_CHAT_GATE_DAYS,
+    MIN_PROVIDER_CHAT_GATE_MODEL_SUCCESSES,
+    MIN_PROVIDER_CHAT_GATE_REQUESTS,
+    MIN_PROVIDER_CHAT_GATE_SUCCESS_RATE,
+    REQUIRED_PROVIDER_CHAT_DRILLS,
+    evaluate_provider_chat_gate,
+    validate_provider_chat_drills,
+)
 from .chat_canary import (
     DEFAULT_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS,
     MAX_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS,
@@ -18,6 +27,8 @@ from .repository import RouterCredentialUnavailable, RouterRepositoryError
 from .schemas import (
     ProviderChatCapability,
     ProviderChatControlAttemptSummary,
+    ProviderChatGateEvidenceSummary,
+    ProviderChatGateModelProgress,
     ProviderChatControlGateResponse,
     ProviderChatControlPolicyResponse,
     ProviderChatControlPolicyUpdate,
@@ -26,6 +37,7 @@ from .schemas import (
     ProviderChatControlRouteSummary,
     ProviderChatControlRunSummary,
     ProviderChatQualificationSummary,
+    ProviderChatRequiredActivationRequest,
 )
 from .service import ModelRouterService, RouterServiceError
 
@@ -65,10 +77,11 @@ class ProviderChatControlService:
         if payload.mode == "newapi_required_default":
             raise RouterServiceError(
                 "provider_chat_required_activation_not_available",
-                "强制默认必须等待 R5E 门禁和人工批准。",
+                "强制默认只能通过 required Go/No-Go 门禁人工激活。",
                 status_code=409,
             )
 
+        current_policy = self.get_policy()
         stable_models = sorted(set(payload.stable_model_ids))
         routes_by_capability = {
             route.capability: list(route.connection_ids) for route in payload.routes
@@ -90,51 +103,88 @@ class ProviderChatControlService:
                 status_code=422,
             )
 
-        connections = {}
-        normalized_routes: list[dict[str, object]] = []
-        for capability in CHAT_CONTROL_CAPABILITIES:
-            for position, connection_id in enumerate(
-                routes_by_capability[capability]
+        normalized_routes: list[dict[str, object]] = [
+            {
+                "capability": capability,
+                "position": position,
+                "connection_id": connection_id,
+            }
+            for capability in CHAT_CONTROL_CAPABILITIES
+            for position, connection_id in enumerate(routes_by_capability[capability])
+        ]
+        rollback_only = (
+            current_policy.configured_mode == "newapi_required_default"
+            and payload.mode == "newapi_preferred"
+        )
+        if rollback_only:
+            current_routes = {
+                route.capability: list(route.connection_ids)
+                for route in current_policy.routes
+            }
+            if (
+                stable_models != current_policy.stable_model_ids
+                or bool(payload.auto_enabled) != current_policy.auto_enabled
+                or any(
+                    routes_by_capability[capability]
+                    != current_routes.get(capability, [])
+                    for capability in CHAT_CONTROL_CAPABILITIES
+                )
             ):
+                raise RouterServiceError(
+                    "provider_chat_required_rollback_scope_change_not_allowed",
+                    "从 required 回退 preferred 时只能改变模式；其他策略变更需在回退后单独保存。",
+                    status_code=409,
+                )
+            bundle = self._repository_method("get_chat_control_policy_bundle")(
+                self.router_service.tenant_id
+            )
+            qualifications = [
+                {
+                    "capability": str(item["capability"]),
+                    "connection_id": str(item["connection_id"]),
+                    "model_id": str(item["model_id"]),
+                    "certification_id": str(item["certification_id"]),
+                    "connection_fingerprint": str(item["connection_fingerprint"]),
+                    "contract_version": str(item["contract_version"]),
+                }
+                for item in list(bundle.get("qualifications") or [])
+            ]
+        else:
+            connections = {}
+            for route in normalized_routes:
+                connection_id = str(route["connection_id"])
                 connection = self.repository.get_connection(
                     self.router_service.tenant_id, connection_id
                 )
                 self._validate_route_connection(connection)
                 connections[connection_id] = connection
-                normalized_routes.append(
-                    {
-                        "capability": capability,
-                        "position": position,
-                        "connection_id": connection_id,
-                    }
-                )
 
-        if text_routes:
-            primary = connections[text_routes[0]]
-            if primary.kind != "newapi":
-                raise RouterServiceError(
-                    "provider_chat_text_primary_newapi_required",
-                    "普通文本路由的第一个目标必须是 newAPI。",
-                    status_code=422,
-                )
-
-        qualifications: list[dict[str, object]] = []
-        for route in normalized_routes:
-            capability = str(route["capability"])
-            connection_id = str(route["connection_id"])
-            for model_id in stable_models:
-                qualification, reason = self._current_qualification(
-                    connection_id=connection_id,
-                    model_id=model_id,
-                    capability=capability,
-                )
-                if qualification is None:
+            if text_routes:
+                primary = connections[text_routes[0]]
+                if primary.kind != "newapi":
                     raise RouterServiceError(
-                        reason,
-                        self._qualification_hint(reason, model_id),
-                        status_code=409,
+                        "provider_chat_text_primary_newapi_required",
+                        "普通文本路由的第一个目标必须是 newAPI。",
+                        status_code=422,
                     )
-                qualifications.append(qualification)
+
+            qualifications = []
+            for route in normalized_routes:
+                capability = str(route["capability"])
+                connection_id = str(route["connection_id"])
+                for model_id in stable_models:
+                    qualification, reason = self._current_qualification(
+                        connection_id=connection_id,
+                        model_id=model_id,
+                        capability=capability,
+                    )
+                    if qualification is None:
+                        raise RouterServiceError(
+                            reason,
+                            self._qualification_hint(reason, model_id),
+                            status_code=409,
+                        )
+                    qualifications.append(qualification)
 
         fingerprint = self._fingerprint(
             mode=payload.mode,
@@ -187,15 +237,251 @@ class ProviderChatControlService:
             blockers.append("provider_chat_control_text_route_required")
         if any(not item.valid for item in policy.qualifications):
             blockers.append("provider_chat_control_qualification_stale")
-        blockers.append("provider_chat_required_gate_pending_r5e")
+        epoch = self._repository_method("get_open_chat_control_gate_epoch")(
+            self.router_service.tenant_id,
+            policy.policy_fingerprint,
+        )
+        latest_epoch = epoch or self._repository_method(
+            "get_latest_chat_control_gate_epoch"
+        )(
+            self.router_service.tenant_id,
+            policy.policy_fingerprint,
+        )
+        summary: dict[str, object] = {}
+        if latest_epoch is not None:
+            summary = self._repository_method("summarize_chat_control_gate")(
+                self.router_service.tenant_id,
+                epoch_id=str(latest_epoch["id"]),
+            )
+        evaluation = evaluate_provider_chat_gate(
+            summary,
+            stable_model_ids=policy.stable_model_ids,
+        )
+        if epoch is None:
+            blockers.append("provider_chat_gate_epoch_unavailable")
+            if latest_epoch is not None and str(latest_epoch["status"]) == "degraded":
+                blockers.append("provider_chat_gate_hard_failure_recertification_required")
+        else:
+            blockers.extend(evaluation.blocking_reason_codes)
+        approval = self._repository_method("get_chat_control_gate_approval")(
+            self.router_service.tenant_id,
+            policy_fingerprint=policy.policy_fingerprint,
+        )
+        acceptance_evidence: list[dict[str, object]] = []
+        if latest_epoch is not None:
+            acceptance_evidence = self._repository_method(
+                "list_chat_control_acceptance_evidence"
+            )(
+                self.router_service.tenant_id,
+                policy_fingerprint=policy.policy_fingerprint,
+                epoch_id=str(latest_epoch["id"]),
+            )
+        evidence_kinds = {
+            str(item["evidence_kind"])
+            for item in acceptance_evidence
+            if bool(item["passed"])
+        }
+        required_evidence = {
+            "newapi_quota_decrement",
+            "newapi_usage_log",
+            "newapi_restart_persistence",
+        }
+        evidence_complete = required_evidence <= evidence_kinds
+        required_active = bool(
+            policy.feature_enabled
+            and policy.configured_mode == "newapi_required_default"
+            and epoch is not None
+            and str(epoch["status"]) == "active"
+            and approval is not None
+            and bool(approval.get("no_open_p0_p1"))
+            and bool(approval.get("acknowledge_fail_closed"))
+            and not validate_provider_chat_drills(
+                approval.get("drills")
+                if isinstance(approval.get("drills"), dict)
+                else {}
+            )
+            and evidence_complete
+            and all(item.valid for item in policy.qualifications)
+        )
+        automatic_ready = bool(
+            epoch is not None
+            and evaluation.ready
+            and policy.feature_enabled
+            and policy.configured_mode in {
+                "newapi_preferred",
+                "newapi_required_default",
+            }
+            and policy.stable_model_ids
+            and text_routes
+            and all(item.valid for item in policy.qualifications)
+        )
+        activation_available = bool(
+            automatic_ready
+            and policy.configured_mode == "newapi_preferred"
+            and str(epoch["status"]) in {"open", "collecting", "ready"}
+        )
+        if policy.configured_mode == "newapi_preferred" and automatic_ready:
+            blockers.append("provider_chat_required_manual_approval_pending")
+        if (
+            policy.configured_mode == "newapi_required_default"
+            and not required_active
+        ):
+            blockers.append("provider_chat_required_gate_degraded")
         return ProviderChatControlGateResponse(
             contract_version=PROVIDER_CHAT_ROUTING_CONTRACT_VERSION,
             feature_enabled=policy.feature_enabled,
             data_plane_integrated=True,
             policy_fingerprint=policy.policy_fingerprint,
             configured_mode=policy.configured_mode,
+            required_activation_available=activation_available,
+            required_active=required_active,
+            ready=automatic_ready,
+            epoch_id=(str(latest_epoch["id"]) if latest_epoch is not None else None),
+            epoch_status=(
+                str(latest_epoch["status"]) if latest_epoch is not None else None
+            ),
+            epoch_started_at=(
+                str(latest_epoch["started_at"])
+                if latest_epoch is not None
+                else None
+            ),
+            epoch_closed_at=(
+                str(latest_epoch["closed_at"])
+                if latest_epoch is not None and latest_epoch.get("closed_at")
+                else None
+            ),
+            hard_failure_code=(
+                str(latest_epoch["hard_failure_code"])
+                if latest_epoch is not None and latest_epoch.get("hard_failure_code")
+                else None
+            ),
+            minimum_request_count=MIN_PROVIDER_CHAT_GATE_REQUESTS,
+            minimum_observed_days=MIN_PROVIDER_CHAT_GATE_DAYS,
+            minimum_success_rate=MIN_PROVIDER_CHAT_GATE_SUCCESS_RATE,
+            request_count=evaluation.request_count,
+            success_count=evaluation.success_count,
+            hard_failure_count=evaluation.hard_failure_count,
+            observed_days=evaluation.observed_days,
+            success_rate=evaluation.success_rate,
+            model_progress=[
+                ProviderChatGateModelProgress(
+                    model_id=model_id,
+                    success_count=evaluation.model_successes.get(model_id, 0),
+                    minimum_success_count=MIN_PROVIDER_CHAT_GATE_MODEL_SUCCESSES,
+                    ready=(
+                        evaluation.model_successes.get(model_id, 0)
+                        >= MIN_PROVIDER_CHAT_GATE_MODEL_SUCCESSES
+                    ),
+                )
+                for model_id in policy.stable_model_ids
+            ],
+            required_drills=list(REQUIRED_PROVIDER_CHAT_DRILLS),
+            approval_recorded=approval is not None,
+            acceptance_evidence_complete=evidence_complete,
+            acceptance_evidence=[
+                ProviderChatGateEvidenceSummary(
+                    evidence_kind=str(item["evidence_kind"]),
+                    passed=bool(item["passed"]),
+                    observed_at=str(item["observed_at"]),
+                )
+                for item in acceptance_evidence
+            ],
             blocking_reason_codes=list(dict.fromkeys(blockers)),
         )
+
+    def activate_required(
+        self, payload: ProviderChatRequiredActivationRequest
+    ) -> ProviderChatControlGateResponse:
+        correlation_reference = (
+            payload.newapi_correlation_reference.get_secret_value().strip()
+        )
+        if not 8 <= len(correlation_reference) <= 512:
+            raise RouterServiceError(
+                "provider_chat_gate_correlation_reference_invalid",
+                "newAPI 验收关联引用长度必须为 8 到 512 个字符。",
+                status_code=422,
+            )
+        gate = self.gate()
+        if not gate.required_activation_available or gate.epoch_id is None:
+            code = next(
+                (
+                    item
+                    for item in gate.blocking_reason_codes
+                    if item != "provider_chat_required_manual_approval_pending"
+                ),
+                "provider_chat_required_gate_not_ready",
+            )
+            raise RouterServiceError(
+                code,
+                "当前证据尚未满足 newAPI 强制默认激活门禁。",
+                status_code=409,
+            )
+        drill_errors = validate_provider_chat_drills(payload.drills)
+        if drill_errors:
+            raise RouterServiceError(
+                drill_errors[0],
+                "必须逐项完成并确认全部 required 故障演练。",
+                status_code=422,
+            )
+        if not payload.no_open_p0_p1:
+            raise RouterServiceError(
+                "provider_chat_gate_p0_p1_attestation_required",
+                "必须确认当前无未解决 P0/P1 问题。",
+                status_code=422,
+            )
+        if not payload.acknowledge_fail_closed:
+            raise RouterServiceError(
+                "provider_chat_gate_fail_closed_ack_required",
+                "必须确认 required 模式不可用时失败关闭且不会自动回退。",
+                status_code=422,
+            )
+        evidence_checks = {
+            "newapi_quota_decrement": payload.quota_decrement_verified,
+            "newapi_usage_log": payload.usage_log_verified,
+            "newapi_restart_persistence": payload.restart_persistence_verified,
+        }
+        if not all(evidence_checks.values()):
+            raise RouterServiceError(
+                "provider_chat_gate_acceptance_evidence_required",
+                "必须完成 newAPI 额度、用量日志和重启持久化验收。",
+                status_code=422,
+            )
+        try:
+            self._repository_method("activate_chat_control_required")(
+                self.router_service.tenant_id,
+                expected_revision=payload.expected_revision,
+                policy_fingerprint=gate.policy_fingerprint,
+                epoch_id=gate.epoch_id,
+                no_open_p0_p1=payload.no_open_p0_p1,
+                drills=payload.drills,
+                acknowledge_fail_closed=payload.acknowledge_fail_closed,
+                correlation_hash=hashlib.sha256(
+                    correlation_reference.encode("utf-8")
+                ).hexdigest(),
+                evidence_checks=evidence_checks,
+            )
+        except RouterRepositoryError as exc:
+            code = str(exc)
+            status_code = 409 if code.startswith("provider_chat_gate_") or code == (
+                "provider_chat_policy_revision_conflict"
+            ) else 422
+            raise RouterServiceError(
+                code,
+                "激活前证据、策略或资格已变化，请刷新后重新审查。",
+                status_code=status_code,
+            ) from exc
+        return self.gate()
+
+    def required_runtime_allowed(
+        self, policy: ProviderChatControlPolicyResponse | None = None
+    ) -> tuple[bool, str | None]:
+        current = policy or self.get_policy()
+        if current.effective_mode != "newapi_required_default":
+            return True, None
+        gate = self.gate()
+        if gate.required_active:
+            return True, None
+        return False, "provider_chat_required_gate_degraded"
 
     def public_status(
         self, model_id: str, capability: ProviderChatCapability
@@ -536,6 +822,23 @@ class ProviderChatControlService:
             return None, "provider_chat_capability_certification_stale"
         if str(certification["contract_version"]) != PROVIDER_CHAT_CONTRACT_VERSION:
             return None, "provider_chat_capability_contract_stale"
+        hard_failure_reader = getattr(
+            self.repository,
+            "get_latest_chat_control_hard_failure",
+            None,
+        )
+        if callable(hard_failure_reader):
+            hard_failure = hard_failure_reader(
+                self.router_service.tenant_id,
+                connection_id=connection_id,
+                model_id=model_id,
+                capability=capability,
+            )
+            if hard_failure is not None and self._timestamp_at_or_after(
+                hard_failure.get("completed_at"),
+                certification.get("completed_at"),
+            ):
+                return None, "provider_chat_hard_failure_recertification_required"
         time_reason = self._certification_time_status(certification)
         if time_reason is not None:
             return None, time_reason
@@ -590,7 +893,10 @@ class ProviderChatControlService:
         )
         qualified = bool(
             policy.feature_enabled
-            and policy.configured_mode == "newapi_preferred"
+            and policy.configured_mode in {
+                "newapi_preferred",
+                "newapi_required_default",
+            }
             and policy.stable_model_ids
             and text_routes
             and expected_qualifications > 0
@@ -678,6 +984,21 @@ class ProviderChatControlService:
             "provider_chat_capability_certification_stale": "当前能力认证已因连接变化而过期。",
         }
         return f"模型 {model_id} 无法加入稳定策略：{hints.get(reason, reason)}"
+
+    @staticmethod
+    def _timestamp_at_or_after(candidate: object, baseline: object) -> bool:
+        try:
+            candidate_time = datetime.fromisoformat(
+                str(candidate or "").replace("Z", "+00:00")
+            )
+            baseline_time = datetime.fromisoformat(
+                str(baseline or "").replace("Z", "+00:00")
+            )
+        except ValueError:
+            return True
+        if candidate_time.tzinfo is None or baseline_time.tzinfo is None:
+            return True
+        return candidate_time.astimezone(UTC) >= baseline_time.astimezone(UTC)
 
     def _repository_method(self, name: str):
         method = getattr(self.repository, name, None)

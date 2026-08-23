@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 from pathlib import Path
 
@@ -89,14 +90,19 @@ def _qualified_connection(
     return connection.id
 
 
-def _service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def _service(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    newapi_ip: str = "10.0.0.8",
+):
     monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
     repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
     service = ModelRouterService(
         repository,
         egress_policy=ProviderEgressPolicy(
             resolver=lambda host, _port: (
-                ["10.0.0.8"] if host.startswith("newapi") else ["8.8.8.8"]
+                [newapi_ip] if host.startswith("newapi") else ["8.8.8.8"]
             )
         ),
     )
@@ -118,6 +124,81 @@ def _service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         )
     )
     return ProviderChatStableService(service), repository, newapi_id, backup_id
+
+
+def _activate_required_for_test(repository: SQLiteRouterRepository) -> None:
+    policy = repository.get_chat_control_policy_bundle("local")["policy"]
+    assert policy is not None
+    epoch = repository.get_open_chat_control_gate_epoch(
+        "local", str(policy["policy_fingerprint"])
+    )
+    assert epoch is not None
+    drills = {
+        "auth_failure": True,
+        "http_429": True,
+        "http_5xx": True,
+        "connect_timeout": True,
+        "read_timeout": True,
+        "empty_stream": True,
+        "invalid_sse": True,
+        "stream_interrupted": True,
+        "service_restart": True,
+        "credential_invalid": True,
+        "data_plane_offline": True,
+        "preferred_fallback": True,
+    }
+    now = "2026-08-22T00:00:00+00:00"
+    with sqlite3.connect(repository.database_path) as connection:
+        connection.execute(
+            """
+            UPDATE provider_chat_stable_policies
+            SET mode = 'newapi_required_default', revision = revision + 1
+            WHERE tenant_id = 'local'
+            """
+        )
+        connection.execute(
+            """
+            UPDATE provider_chat_gate_epochs SET status = 'active'
+            WHERE tenant_id = 'local' AND id = ?
+            """,
+            (epoch["id"],),
+        )
+        connection.execute(
+            """
+            INSERT INTO provider_chat_gate_approvals (
+                tenant_id, policy_fingerprint, epoch_id, no_open_p0_p1,
+                drills_json, acknowledge_fail_closed, approved_at
+            ) VALUES ('local', ?, ?, 1, ?, 1, ?)
+            """,
+            (
+                policy["policy_fingerprint"],
+                epoch["id"],
+                json.dumps(drills),
+                now,
+            ),
+        )
+        for evidence_kind in (
+            "newapi_quota_decrement",
+            "newapi_usage_log",
+            "newapi_restart_persistence",
+        ):
+            connection.execute(
+                """
+                INSERT INTO provider_chat_acceptance_evidence (
+                    id, tenant_id, policy_fingerprint, epoch_id,
+                    evidence_kind, correlation_hash, passed,
+                    reason_codes_json, observed_at
+                ) VALUES (?, 'local', ?, ?, ?, ?, 1, '[]', ?)
+                """,
+                (
+                    f"evidence-{evidence_kind}",
+                    policy["policy_fingerprint"],
+                    epoch["id"],
+                    evidence_kind,
+                    hashlib.sha256(b"correlation").hexdigest(),
+                    now,
+                ),
+            )
 
 
 @pytest.mark.asyncio
@@ -240,3 +321,82 @@ async def test_feature_disabled_and_non_stable_models_use_legacy(
     assert disabled.intercepted is False
     assert outside.intercepted is False
     assert repository.list_chat_control_receipts("local")["runs"] == []
+
+
+@pytest.mark.asyncio
+async def test_required_preflight_failure_never_selects_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    _activate_required_for_test(repository)
+
+    result = await service.begin(MODEL_ID)
+
+    assert result.intercepted is True
+    assert result.dispatch is None
+    assert result.error_code == "provider_address_blocked"
+    assert result.route_receipt is not None
+    assert result.route_receipt["strategy"] == "newapi_required_default"
+    receipts = repository.list_chat_control_receipts("local")
+    assert [item["connection_id"] for item in receipts["attempts"]] == [newapi_id]
+    assert backup_id not in {item["connection_id"] for item in receipts["attempts"]}
+
+
+@pytest.mark.asyncio
+async def test_required_hard_failure_stays_required_and_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(
+        tmp_path,
+        monkeypatch,
+        newapi_ip="8.8.8.8",
+    )
+    _activate_required_for_test(repository)
+    first = await service.begin(MODEL_ID)
+    assert first.dispatch is not None
+    assert first.dispatch.target.connection_id == newapi_id
+    assert first.dispatch.strategy == "newapi_required_default"
+    service.mark_dispatched(first.dispatch)
+    service.complete(
+        first.dispatch,
+        status="failed",
+        result_class="hard_failure",
+        error_code="provider_chat_empty_stream",
+        hard_failure=True,
+    )
+
+    policy = service.control.get_policy()
+    assert policy.configured_mode == "newapi_required_default"
+    blocked = await service.begin(MODEL_ID)
+    assert blocked.intercepted is True
+    assert blocked.dispatch is None
+    assert blocked.error_code == "provider_chat_required_gate_degraded"
+    receipts = repository.list_chat_control_receipts("local")
+    assert len(receipts["runs"]) == 2
+    assert backup_id not in {item["connection_id"] for item in receipts["attempts"]}
+
+    current = service.control.get_policy()
+    rolled_back = service.control.update_policy(
+        ProviderChatControlPolicyUpdate(
+            expected_revision=current.revision,
+            mode="newapi_preferred",
+            auto_enabled=current.auto_enabled,
+            stable_model_ids=current.stable_model_ids,
+            routes=[
+                ProviderChatControlRouteUpdate(
+                    capability=route.capability,
+                    connection_ids=route.connection_ids,
+                )
+                for route in current.routes
+            ],
+        )
+    )
+    assert rolled_back.configured_mode == "newapi_preferred"
+    assert next(
+        item
+        for item in rolled_back.qualifications
+        if item.connection_id == newapi_id
+    ).valid is False
+    fallback = await service.begin(MODEL_ID)
+    assert fallback.dispatch is not None
+    assert fallback.dispatch.target.connection_id == backup_id

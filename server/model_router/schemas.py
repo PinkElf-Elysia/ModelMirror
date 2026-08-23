@@ -467,6 +467,30 @@ class ProviderChatControlPolicyResponse(BaseModel):
     updated_at: str | None = None
 
 
+class ProviderChatRequiredActivationRequest(BaseModel):
+    expected_revision: int = Field(ge=0)
+    no_open_p0_p1: bool
+    acknowledge_fail_closed: bool
+    drills: dict[str, bool] = Field(default_factory=dict, max_length=16)
+    newapi_correlation_reference: SecretStr
+    quota_decrement_verified: bool
+    usage_log_verified: bool
+    restart_persistence_verified: bool
+
+
+class ProviderChatGateModelProgress(BaseModel):
+    model_id: str
+    success_count: int = 0
+    minimum_success_count: int = 10
+    ready: bool = False
+
+
+class ProviderChatGateEvidenceSummary(BaseModel):
+    evidence_kind: str
+    passed: bool
+    observed_at: str
+
+
 class ProviderChatControlGateResponse(BaseModel):
     contract_version: Literal["modelmirror-provider-chat-routing-v1"]
     feature_enabled: bool
@@ -474,10 +498,28 @@ class ProviderChatControlGateResponse(BaseModel):
     policy_fingerprint: str
     configured_mode: ProviderChatControlMode
     required_activation_available: bool = False
+    required_active: bool = False
     ready: bool = False
+    epoch_id: str | None = None
+    epoch_status: str | None = None
+    epoch_started_at: str | None = None
+    epoch_closed_at: str | None = None
+    hard_failure_code: str | None = None
+    minimum_request_count: int = 500
+    minimum_observed_days: float = 14
+    minimum_success_rate: float = 0.99
     request_count: int = 0
+    success_count: int = 0
+    hard_failure_count: int = 0
     observed_days: float = 0
     success_rate: float | None = None
+    model_progress: list[ProviderChatGateModelProgress] = Field(default_factory=list)
+    required_drills: list[str] = Field(default_factory=list)
+    approval_recorded: bool = False
+    acceptance_evidence_complete: bool = False
+    acceptance_evidence: list[ProviderChatGateEvidenceSummary] = Field(
+        default_factory=list
+    )
     blocking_reason_codes: list[str] = Field(default_factory=list)
 
 

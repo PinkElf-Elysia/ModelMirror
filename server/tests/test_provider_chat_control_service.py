@@ -5,11 +5,13 @@ import sqlite3
 
 import pytest
 
+from server.model_router.chat_gate import evaluate_provider_chat_gate
 from server.model_router.chat_control import ProviderChatControlService
 from server.model_router.repository import SQLiteRouterRepository
 from server.model_router.schemas import (
     ProviderChatControlPolicyUpdate,
     ProviderChatControlRouteUpdate,
+    ProviderChatRequiredActivationRequest,
     RouterConnectionCreate,
     RouterConnectionUpdate,
 )
@@ -305,3 +307,203 @@ def test_required_mode_cannot_be_saved_before_r5e_gate(tmp_path: Path) -> None:
             )
         )
     assert exc_info.value.code == "provider_chat_required_activation_not_available"
+
+
+def test_r5e_gate_truth_table_requires_volume_window_rate_models_and_zero_hard() -> None:
+    ready = evaluate_provider_chat_gate(
+        {
+            "request_count": 500,
+            "success_count": 495,
+            "hard_failure_count": 0,
+            "observed_days": 14,
+            "model_successes": {MODEL_ID: 495},
+        },
+        stable_model_ids=[MODEL_ID],
+    )
+    assert ready.ready is True
+    assert ready.success_rate == pytest.approx(0.99)
+
+    blocked = evaluate_provider_chat_gate(
+        {
+            "request_count": 499,
+            "success_count": 494,
+            "hard_failure_count": 1,
+            "observed_days": 13.99,
+            "model_successes": {MODEL_ID: 9},
+        },
+        stable_model_ids=[MODEL_ID],
+    )
+    assert blocked.ready is False
+    assert set(blocked.blocking_reason_codes) == {
+        "provider_chat_gate_request_count_insufficient",
+        "provider_chat_gate_observation_window_insufficient",
+        "provider_chat_gate_success_rate_insufficient",
+        "provider_chat_gate_model_samples_insufficient",
+        "provider_chat_gate_hard_failure_observed",
+    }
+
+
+def test_hard_failure_invalidates_saved_qualification_until_recertification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    service, repository = _service(tmp_path)
+    newapi_id = _connection(repository, name="newAPI", kind="newapi")
+    _certify(repository, newapi_id, "chat_text")
+    policy = service.update_policy(
+        ProviderChatControlPolicyUpdate(
+            expected_revision=0,
+            mode="newapi_preferred",
+            stable_model_ids=[MODEL_ID],
+            routes=[
+                ProviderChatControlRouteUpdate(
+                    capability="chat_text", connection_ids=[newapi_id]
+                )
+            ],
+        )
+    )
+    epoch = repository.get_open_chat_control_gate_epoch(
+        "local", policy.policy_fingerprint
+    )
+    assert epoch is not None
+    repository.claim_chat_control_run(
+        "local",
+        run_id="hard-run",
+        policy_fingerprint=policy.policy_fingerprint,
+        capability="chat_text",
+        requested_model=MODEL_ID,
+        strategy="newapi_preferred",
+        epoch_id=str(epoch["id"]),
+        is_real_user=True,
+        primary_newapi=True,
+    )
+    repository.claim_chat_control_attempt(
+        "local",
+        attempt_id="hard-attempt",
+        run_id="hard-run",
+        capability="chat_text",
+        position=0,
+        connection_id=newapi_id,
+        provider_kind="newapi",
+    )
+    repository.mark_chat_control_attempt_dispatched("local", "hard-attempt")
+    repository.complete_chat_control_attempt(
+        "local",
+        "hard-attempt",
+        status="failed",
+        result_class="hard_failure",
+        error_code="provider_chat_model_mismatch",
+    )
+    repository.complete_chat_control_run(
+        "local",
+        "hard-run",
+        status="failed",
+        result_class="hard_failure",
+        reason_codes=["provider_chat_model_mismatch"],
+        hard_failure=True,
+    )
+
+    stale = service.get_policy()
+    assert stale.qualifications[0].valid is False
+    assert stale.qualifications[0].reason_code == (
+        "provider_chat_hard_failure_recertification_required"
+    )
+    gate = service.gate()
+    assert gate.required_active is False
+    assert gate.epoch_status == "degraded"
+    assert gate.request_count == 1
+    assert gate.hard_failure_count == 1
+    assert "provider_chat_gate_hard_failure_recertification_required" in (
+        gate.blocking_reason_codes
+    )
+
+
+def test_ready_gate_requires_explicit_atomic_activation_and_hashes_correlation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    service, repository = _service(tmp_path)
+    newapi_id = _connection(repository, name="newAPI", kind="newapi")
+    _certify(repository, newapi_id, "chat_text")
+    policy = service.update_policy(
+        ProviderChatControlPolicyUpdate(
+            expected_revision=0,
+            mode="newapi_preferred",
+            stable_model_ids=[MODEL_ID],
+            routes=[
+                ProviderChatControlRouteUpdate(
+                    capability="chat_text", connection_ids=[newapi_id]
+                )
+            ],
+        )
+    )
+    epoch = repository.get_open_chat_control_gate_epoch(
+        "local", policy.policy_fingerprint
+    )
+    assert epoch is not None
+    with sqlite3.connect(repository.database_path) as connection:
+        connection.execute(
+            """
+            WITH RECURSIVE seq(i) AS (
+                SELECT 0 UNION ALL SELECT i + 1 FROM seq WHERE i < 499
+            )
+            INSERT INTO provider_chat_runs (
+                id, tenant_id, policy_fingerprint, epoch_id, capability,
+                requested_model, actual_model, strategy, gateway, status,
+                result_class, reason_codes_json, is_real_user, primary_newapi,
+                client_cancelled, hard_failure, created_at, updated_at, completed_at
+            )
+            SELECT 'activation-run-' || i, 'local', ?, ?, 'chat_text', ?, ?,
+                   'newapi_preferred', 'default', 'succeeded', 'success', '[]',
+                   1, 1, 0, 0,
+                   datetime('2026-08-01T00:00:00', '+' ||
+                     CAST(i * 1209600.0 / 499 AS INTEGER) || ' seconds'),
+                   datetime('2026-08-01T00:00:00', '+' ||
+                     CAST(i * 1209600.0 / 499 AS INTEGER) || ' seconds'),
+                   datetime('2026-08-01T00:00:00', '+' ||
+                     CAST(i * 1209600.0 / 499 AS INTEGER) || ' seconds')
+            FROM seq
+            """,
+            (policy.policy_fingerprint, epoch["id"], MODEL_ID, MODEL_ID),
+        )
+        connection.execute(
+            """
+            INSERT INTO provider_chat_attempts (
+                id, tenant_id, run_id, capability, position, connection_id,
+                provider_kind, dispatched, status, result_class, actual_model,
+                created_at, updated_at, completed_at
+            )
+            SELECT 'activation-attempt-' || substr(id, 16), tenant_id, id,
+                   capability, 0, ?, 'newapi', 1, 'succeeded', 'success',
+                   actual_model, created_at, updated_at, completed_at
+            FROM provider_chat_runs WHERE epoch_id = ?
+            """,
+            (newapi_id, epoch["id"]),
+        )
+
+    gate = service.gate()
+    assert gate.ready is True
+    assert gate.required_activation_available is True
+    assert gate.request_count == 500
+    activated = service.activate_required(
+        ProviderChatRequiredActivationRequest(
+            expected_revision=policy.revision,
+            no_open_p0_p1=True,
+            acknowledge_fail_closed=True,
+            drills={name: True for name in gate.required_drills},
+            newapi_correlation_reference="opaque-newapi-usage-log-reference",
+            quota_decrement_verified=True,
+            usage_log_verified=True,
+            restart_persistence_verified=True,
+        )
+    )
+    assert activated.required_active is True
+    assert activated.configured_mode == "newapi_required_default"
+    assert activated.approval_recorded is True
+    assert activated.acceptance_evidence_complete is True
+    assert activated.required_activation_available is False
+    with sqlite3.connect(repository.database_path) as connection:
+        dump = "\n".join(connection.iterdump())
+    assert "opaque-newapi-usage-log-reference" not in dump
