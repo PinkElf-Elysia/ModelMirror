@@ -56,10 +56,10 @@ V20 唯一允许的最终结论是：“Harness Protocol Kernel 与标准 Driver
 
 ## 7. PR A 实施证据
 
-- 协议、架构与 attestation 收口：`104 passed`。
-- Coding Worker 全专项：`418 passed, 5 skipped`。
+- 协议、架构与 attestation 收口：`106 passed`。
+- Coding Worker 全专项：`420 passed, 5 skipped`。
 - Agent Workspace、Coding Runtime 与 Project Host：`439 passed, 9 skipped`。
-- 最终候选后端全量：`4030 passed, 29 skipped`。
+- 最终候选后端全量：`4032 passed, 29 skipped`。
 - 前端：typecheck 通过；`99 files / 534 tests` 通过；production build 通过。
 - Compose config、V18 compile、Fake smoke、`git diff --check`、敏感信息和禁止产物扫描通过；Fake smoke 摘要保持 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。
 
