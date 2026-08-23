@@ -45,7 +45,7 @@ function expectCode(callback, code) {
 
 test("committed R15 status keeps the MVP completion claim blocked", () => {
   assert.deepEqual(checkMvpClaim({ moduleRoot }), {
-    status: "pending-runtime-evidence",
+    status: "pending-creator-migration",
     claimAllowed: false,
     checkedDocuments: 5,
   });
@@ -82,7 +82,7 @@ test("rejects status or policy drift before qualification", (t) => {
   );
 });
 
-test("rejects an acceptance record that stops declaring R15 in progress", (t) => {
+test("rejects an acceptance record that omits the R15 manual gate", (t) => {
   const fixture = withFixture(t);
   writeFileSync(
     path.join(fixture, "docs", "rounds", "R15_ACCEPTANCE.md"),

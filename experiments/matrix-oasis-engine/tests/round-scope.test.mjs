@@ -173,13 +173,14 @@ test("accepts exact R15 files and new package prefixes in every Git status sourc
   write(fixture, `${MODULE_PREFIX}/scripts/lib/runtime-evidence-core.mjs`);
   write(fixture, `${MODULE_PREFIX}/scripts/plan-r15-replay.mjs`);
   write(fixture, `${MODULE_PREFIX}/tests/r15-runtime-evidence.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/tests/prototype-asset-cli.test.mjs`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R15_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/runtime_evidence/evidence_runner.gd`, "extends Node\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
   assert.equal(result.mode, "parent");
-  assert.equal(result.uniqueChangedPaths, 8);
+  assert.equal(result.uniqueChangedPaths, 9);
 });
 
 test("rejects a committed R1 contracts change", (t) => {
@@ -396,26 +397,42 @@ test("rejects a caller-selected base", (t) => {
   );
 });
 
-test("round path classifier exposes stable R14 guard categories", () => {
+test("round path classifier exposes stable R15 guard categories", () => {
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-runtime-evidence-contracts/src/index.mjs`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-runtime-evidence/src/index.mjs`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/tests/prototype-asset-cli.test.mjs`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/runtime_evidence/runtime_evidence_runner.gd`),
+    null,
+  );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-solution-contracts/src/index.mjs`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-solver/src/index.mjs`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-verifier/src/index.mjs`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/spatial_solution_verification/verifier.gd`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/solved_spatial_prototype/solved_lab.gd`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/spatial_analysis/analyzer.gd`),

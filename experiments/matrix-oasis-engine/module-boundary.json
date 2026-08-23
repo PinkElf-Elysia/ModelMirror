@@ -17,7 +17,7 @@
       "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/parent-scope-core.mjs",
       "scripts/lib/runtime-evidence-core.mjs", "scripts/lib/runtime-evidence-cache-core.mjs", "scripts/lib/r15-preview-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/mvp-claim.test.mjs", "tests/r14-preview.test.mjs", "tests/r15-runtime-evidence.test.mjs", "tests/r15-runtime-evidence-godot.test.mjs", "tests/r15-runtime-evidence-cache.test.mjs", "tests/r15-qualification.test.mjs", "tests/round-scope.test.mjs"
+      "tests/mvp-claim.test.mjs", "tests/prototype-asset-cli.test.mjs", "tests/r14-preview.test.mjs", "tests/r15-runtime-evidence.test.mjs", "tests/r15-runtime-evidence-godot.test.mjs", "tests/r15-runtime-evidence-cache.test.mjs", "tests/r15-qualification.test.mjs", "tests/round-scope.test.mjs"
     ],
     "allowedModulePrefixes": [
       "packages/prototype-runtime-evidence-contracts",
@@ -43,9 +43,9 @@
     "r15EvidenceCalls": "none"
   },
   "mvpClaimPolicy": {
-    "status": "pending-runtime-evidence",
+    "status": "pending-creator-migration",
     "claimAllowed": false,
-    "blockingRound": "R15",
+    "blockingRound": "R16",
     "acceptanceRecord": "docs/rounds/R15_ACCEPTANCE.md",
     "machineStatus": "docs/MVP_STATUS.json",
     "completionMarker": "MATRIX_OASIS_R12_MVP_READY"

@@ -44,6 +44,7 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "tests/godot-boundary.test.mjs",
   "tests/extraction-contract.test.mjs",
   "tests/mvp-claim.test.mjs",
+  "tests/prototype-asset-cli.test.mjs",
   "tests/r14-preview.test.mjs",
   "tests/r15-runtime-evidence.test.mjs",
   "tests/r15-runtime-evidence-godot.test.mjs",

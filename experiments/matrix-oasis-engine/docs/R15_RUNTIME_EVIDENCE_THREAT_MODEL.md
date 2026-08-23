@@ -19,7 +19,7 @@ Runtime、Receipt、Facts、Intent、Asset Bundle、R14 Solution/Verification、
 
 ## 控制
 
-- 仅`Input.parse_input_event()`驱动实际InputMap、控制器、射线和terminal；
+- 键盘仅由`Input.parse_input_event()`驱动全局InputMap；保存的鼠标按键与移动仅由目标Viewport `push_input()`送入实际控制器、射线和terminal，不直接改写相机或焦点；
 - 通用Runtime BFS、闭合合同、静态诊断、固定上限和身份链；
 - 等待physics/navigation同步，逐checkpoint记录path、floor、capsule、focus、视线和资产AABB；
 - 功能录像与实时300帧性能分离；
@@ -27,4 +27,4 @@ Runtime、Receipt、Facts、Intent、Asset Bundle、R14 Solution/Verification、
 - 无法映射的失败立即停报，不隐藏重试；
 - 仓外事务发布和进程有界清理；
 - R11与R12走同一代码路径，普通verify零网络；
-- `pending-runtime-evidence / claimAllowed=false`机器锁定。
+- 人工门通过后仅转为`pending-creator-migration / blockingRound=R16 / claimAllowed=false`，继续禁止提前声明MVP完成。

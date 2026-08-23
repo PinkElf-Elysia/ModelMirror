@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "status": "pending-runtime-evidence",
+  "status": "pending-creator-migration",
   "claimAllowed": false,
-  "blockingRound": "R15",
+  "blockingRound": "R16",
   "acceptanceRecord": "docs/rounds/R15_ACCEPTANCE.md",
   "completionMarker": "MATRIX_OASIS_R12_MVP_READY"
 }
