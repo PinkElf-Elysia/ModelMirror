@@ -1,0 +1,54 @@
+FROM python:3.12-slim@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461
+
+ARG ACP_SDK_VERSION=0.12.0
+ARG ACP_SDK_WHEEL_SHA256=233626748034896214de118f5cf5a319484ad2186705fd595219afee92237ccc
+ARG PYDANTIC_VERSION=2.13.4
+ARG PYDANTIC_CORE_VERSION=2.46.4
+ARG ANNOTATED_TYPES_VERSION=0.8.0
+ARG TYPING_EXTENSIONS_VERSION=4.16.0
+ARG TYPING_INSPECTION_VERSION=0.4.4
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip download --disable-pip-version-check --no-deps --only-binary=:all: \
+        --dest /tmp "agent-client-protocol==${ACP_SDK_VERSION}" \
+    && echo "${ACP_SDK_WHEEL_SHA256}  /tmp/agent_client_protocol-${ACP_SDK_VERSION}-py3-none-any.whl" | sha256sum --check --strict \
+    && pip install --no-cache-dir \
+        "pydantic==${PYDANTIC_VERSION}" \
+        "pydantic-core==${PYDANTIC_CORE_VERSION}" \
+        "annotated-types==${ANNOTATED_TYPES_VERSION}" \
+        "typing-extensions==${TYPING_EXTENSIONS_VERSION}" \
+        "typing-inspection==${TYPING_INSPECTION_VERSION}" \
+    && pip install --no-cache-dir --no-deps \
+        "/tmp/agent_client_protocol-${ACP_SDK_VERSION}-py3-none-any.whl" \
+    && test "$(python -c 'from importlib.metadata import version; print(version("agent-client-protocol"))')" = "${ACP_SDK_VERSION}" \
+    && groupadd --gid 65532 coding \
+    && useradd --uid 65532 --gid 65532 --home-dir /home/coding --no-create-home coding \
+    && mkdir -p /opt/modelmirror /home/coding /run/modelmirror-coding-evaluation \
+    && chown -R 65532:65532 /home/coding /run/modelmirror-coding-evaluation \
+    && rm -f /tmp/agent_client_protocol-*.whl
+
+WORKDIR /opt/modelmirror
+COPY server/coding_worker/contracts.py \
+    server/coding_worker/harness_protocol.py \
+    server/coding_worker/evaluation_driver.py \
+    server/coding_worker/evaluation_loader.py \
+    server/coding_worker/evaluation_sidecar.py \
+    server/coding_worker/acp_driver.py \
+    ./coding_worker/
+COPY server/tests/fixtures/coding_worker_v20_schemas/acp-schema-v1.19.json \
+    /usr/share/modelmirror-coding-evaluation/schemas/acp-schema-v1.19.json
+COPY server/coding_worker/EVALUATION_NOTICES.md \
+    /usr/share/doc/modelmirror-coding-evaluation/EVALUATION_NOTICES.md
+COPY server/agent_upstream/vendor/penguin_harness/LICENSE \
+    /usr/share/doc/modelmirror-coding-evaluation/APACHE-2.0.txt
+COPY server/coding_worker/evaluation_sbom.cdx.json \
+    /usr/share/doc/modelmirror-coding-evaluation/evaluation_sbom.cdx.json
+
+USER 65532:65532
+
+CMD ["python", "-m", "coding_worker.evaluation_sidecar"]

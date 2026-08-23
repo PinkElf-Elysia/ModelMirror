@@ -1,0 +1,92 @@
+name: modelmirror-coding-worker-v20-evaluation
+
+x-evaluation-common: &evaluation-common
+  user: "65532:65532"
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  pids_limit: 96
+  mem_limit: 512m
+  cpus: 1.0
+  tmpfs:
+    - /tmp:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+    - /home/coding:rw,nosuid,noexec,size=32m,uid=65532,gid=65532,mode=0700
+  networks:
+    - evaluation_internal
+  restart: "no"
+
+services:
+  coding-worker-acp-evaluation:
+    <<: *evaluation-common
+    profiles:
+      - coding-worker-acp-evaluation
+    image: modelmirror-coding-worker-acp-evaluation:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.evaluation-acp
+    environment:
+      CODING_WORKER_ACP_EVALUATION_ENABLED: "true"
+      CODING_WORKER_CODEX_EVALUATION_ENABLED: "false"
+      CODING_WORKER_EVALUATION_DRIVER: acp_v1
+      CODING_WORKER_EVALUATION_MANIFEST: /run/modelmirror-evaluation-config/manifest.json
+      CODING_WORKER_EVALUATION_IMAGE_DIGEST: ${CODING_WORKER_ACP_EVALUATION_IMAGE_DIGEST:-invalid}
+      CODING_WORKER_EVALUATION_EXECUTABLE_JSON: '["/usr/local/bin/python","-m","coding_worker.evaluation_sidecar"]'
+      CODING_WORKER_EVALUATION_TOKEN: ${CODING_WORKER_ACP_EVALUATION_TOKEN:-}
+      CODING_WORKER_EVALUATION_SOCKET: /run/modelmirror-coding-evaluation/driver.sock
+    volumes:
+      - type: bind
+        source: ${CODING_WORKER_ACP_EVALUATION_MANIFEST:-./deployment/coding-worker-acp-evaluation.json}
+        target: /run/modelmirror-evaluation-config/manifest.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - coding_worker_acp_evaluation_socket:/run/modelmirror-coding-evaluation
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,os,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding-evaluation/driver.sock'); s.sendall((json.dumps({'token':os.environ['CODING_WORKER_EVALUATION_TOKEN'],'action':'health'})+'\\n').encode()); assert json.loads(s.recv(65536))['ok']"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  coding-worker-codex-evaluation:
+    <<: *evaluation-common
+    profiles:
+      - coding-worker-codex-evaluation
+    image: modelmirror-coding-worker-codex-evaluation:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.evaluation-codex
+    environment:
+      CODING_WORKER_ACP_EVALUATION_ENABLED: "false"
+      CODING_WORKER_CODEX_EVALUATION_ENABLED: "true"
+      CODING_WORKER_EVALUATION_DRIVER: codex_app_server
+      CODING_WORKER_EVALUATION_MANIFEST: /run/modelmirror-evaluation-config/manifest.json
+      CODING_WORKER_EVALUATION_IMAGE_DIGEST: ${CODING_WORKER_CODEX_EVALUATION_IMAGE_DIGEST:-invalid}
+      CODING_WORKER_EVALUATION_EXECUTABLE_JSON: '["/usr/local/bin/codex","app-server"]'
+      CODING_WORKER_EVALUATION_TOKEN: ${CODING_WORKER_CODEX_EVALUATION_TOKEN:-}
+      CODING_WORKER_EVALUATION_SOCKET: /run/modelmirror-coding-evaluation/driver.sock
+    volumes:
+      - type: bind
+        source: ${CODING_WORKER_CODEX_EVALUATION_MANIFEST:-./deployment/coding-worker-codex-evaluation.json}
+        target: /run/modelmirror-evaluation-config/manifest.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - coding_worker_codex_evaluation_socket:/run/modelmirror-coding-evaluation
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,os,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding-evaluation/driver.sock'); s.sendall((json.dumps({'token':os.environ['CODING_WORKER_EVALUATION_TOKEN'],'action':'health'})+'\\n').encode()); assert json.loads(s.recv(65536))['ok']"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  coding_worker_acp_evaluation_socket:
+  coding_worker_codex_evaluation_socket:
+
+networks:
+  evaluation_internal:
+    driver: bridge
+    internal: true

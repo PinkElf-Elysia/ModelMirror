@@ -1,0 +1,71 @@
+FROM node:22-bookworm-slim@sha256:f32b81066cde10a75dbac96646099533316d94bac4150c55da1636e1f0ffdc46 AS codex_runtime
+
+ARG CODEX_VERSION=0.149.0
+ARG CODEX_INTEGRITY_SHA512=8b876bca3d98d63fb4d0c6f99fed27ef51189d32bdfca0dcd9c745a3f7570f4775a13a20d9b854b2c2831083a72a69c47f9d4fd19fc72535af4cac3f507c8ebd
+ARG CODEX_LINUX_X64_INTEGRITY_SHA512=b995da37d24fc6ed3f8e39eaa8979377891160f9e35592b732256775f1b59878446a80ca2fb49c5877cfaaf0043a3c2c48312641294c7d4926bd8a7f08772263
+
+RUN npm pack "@openai/codex@${CODEX_VERSION}" --pack-destination /tmp \
+    && npm pack "@openai/codex@${CODEX_VERSION}-linux-x64" --pack-destination /tmp \
+    && echo "${CODEX_INTEGRITY_SHA512}  /tmp/openai-codex-${CODEX_VERSION}.tgz" | sha512sum --check --strict \
+    && echo "${CODEX_LINUX_X64_INTEGRITY_SHA512}  /tmp/openai-codex-${CODEX_VERSION}-linux-x64.tgz" | sha512sum --check --strict \
+    && npm install --global --omit=optional "/tmp/openai-codex-${CODEX_VERSION}.tgz" \
+    && mkdir -p /tmp/codex-platform /usr/local/lib/node_modules/@openai/codex-linux-x64 \
+    && tar --extract --gzip \
+        --file "/tmp/openai-codex-${CODEX_VERSION}-linux-x64.tgz" \
+        --directory /tmp/codex-platform --strip-components=1 \
+    && cp -a /tmp/codex-platform/. /usr/local/lib/node_modules/@openai/codex-linux-x64/ \
+    && rm -f /usr/local/lib/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex-code-mode-host \
+    && rm -rf /usr/local/lib/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path \
+        /usr/local/lib/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-resources \
+    && test "$(codex --version | awk '{print $2}')" = "${CODEX_VERSION}"
+
+FROM python:3.12-slim@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461
+
+ARG PYDANTIC_VERSION=2.13.4
+ARG PYDANTIC_CORE_VERSION=2.46.4
+ARG ANNOTATED_TYPES_VERSION=0.8.0
+ARG TYPING_EXTENSIONS_VERSION=4.16.0
+ARG TYPING_INSPECTION_VERSION=0.4.4
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+COPY --from=codex_runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=codex_runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s ../lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex \
+    && pip install --no-cache-dir \
+        "pydantic==${PYDANTIC_VERSION}" \
+        "pydantic-core==${PYDANTIC_CORE_VERSION}" \
+        "annotated-types==${ANNOTATED_TYPES_VERSION}" \
+        "typing-extensions==${TYPING_EXTENSIONS_VERSION}" \
+        "typing-inspection==${TYPING_INSPECTION_VERSION}" \
+    && test "$(codex --version | awk '{print $2}')" = "0.149.0" \
+    && groupadd --gid 65532 coding \
+    && useradd --uid 65532 --gid 65532 --home-dir /home/coding --no-create-home coding \
+    && mkdir -p /opt/modelmirror /home/coding /run/modelmirror-coding-evaluation \
+    && chown -R 65532:65532 /home/coding /run/modelmirror-coding-evaluation
+
+WORKDIR /opt/modelmirror
+COPY server/coding_worker/contracts.py \
+    server/coding_worker/harness_protocol.py \
+    server/coding_worker/evaluation_driver.py \
+    server/coding_worker/evaluation_loader.py \
+    server/coding_worker/evaluation_sidecar.py \
+    server/coding_worker/codex_app_server_driver.py \
+    ./coding_worker/
+COPY server/tests/fixtures/coding_worker_v20_schemas/codex-app-server-0.149.0.schemas.json \
+    /usr/share/modelmirror-coding-evaluation/schemas/codex-app-server-0.149.0.schemas.json
+COPY server/coding_worker/EVALUATION_NOTICES.md \
+    /usr/share/doc/modelmirror-coding-evaluation/EVALUATION_NOTICES.md
+COPY server/agent_upstream/vendor/penguin_harness/LICENSE \
+    /usr/share/doc/modelmirror-coding-evaluation/APACHE-2.0.txt
+COPY server/coding_worker/evaluation_sbom.cdx.json \
+    /usr/share/doc/modelmirror-coding-evaluation/evaluation_sbom.cdx.json
+
+USER 65532:65532
+
+CMD ["python", "-m", "coding_worker.evaluation_sidecar"]
