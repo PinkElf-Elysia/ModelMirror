@@ -86,7 +86,7 @@ class ProviderV4HarnessTranslator:
             raise HarnessDriverProtocolError(
                 "provider event kind is unavailable to the V20 harness"
             )
-        self._sequence += 1
+        next_sequence = self._sequence + 1
         payload = {"provider_kind": event.kind.value, "data": event.data}
         digest = hashlib.sha256(
             json.dumps(
@@ -94,7 +94,7 @@ class ProviderV4HarnessTranslator:
                     "task_id": self.session.binding.task_id,
                     "session_id": self.session.session_id,
                     "turn_id": turn_id,
-                    "sequence": self._sequence,
+                    "sequence": next_sequence,
                     "payload": payload,
                 },
                 sort_keys=True,
@@ -103,7 +103,7 @@ class ProviderV4HarnessTranslator:
         ).hexdigest()
         envelope = HarnessEventEnvelope(
             event_id=f"event_{digest[:32]}",
-            sequence=self._sequence,
+            sequence=next_sequence,
             session=self.session,
             turn=self._turn,
             kind=kind,
@@ -115,6 +115,7 @@ class ProviderV4HarnessTranslator:
             raise HarnessDriverProtocolError(
                 "provider event violated the V20 Harness contract"
             ) from exc
+        self._sequence = next_sequence
         if kind is HarnessEventKind.TURN_COMPLETED:
             self._turn = None
         return envelope

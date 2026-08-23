@@ -34,7 +34,7 @@ from server.coding_worker.harness_protocol import (
 
 
 IMAGE_DIGEST = "sha256:" + "a" * 64
-ACP_COMMAND = ("/usr/local/bin/python", "-m", "modelmirror_acp_fixture_agent")
+ACP_COMMAND = ("/usr/local/bin/python", "-m", "coding_worker.evaluation_sidecar")
 CODEX_COMMAND = ("/usr/local/bin/codex", "app-server")
 ACP_WHEEL_SHA256 = (
     "233626748034896214de118f5cf5a319484ad2186705fd595219afee92237ccc"
@@ -49,6 +49,13 @@ CODEX_INTEGRITY = (
 CODEX_SCHEMA_SHA256 = (
     "02a4c63a638fdae4a5f6c3ad32a41a377b642c66f3abc84f6fc47c7f3d6074df"
 )
+SCHEMA_ROOT = Path(__file__).resolve().parent / "fixtures/coding_worker_v20_schemas"
+
+
+def _schema_path(driver_id: str) -> Path:
+    if driver_id == "acp_v1":
+        return SCHEMA_ROOT / "acp-schema-v1.19.json"
+    return SCHEMA_ROOT / "codex-app-server-0.149.0.schemas.json"
 
 
 def _manifest(driver_id: str) -> EvaluationDriverManifest:
@@ -193,6 +200,7 @@ def test_sidecar_requires_exactly_one_profile_and_emits_safe_health(
             observed_image_digest=IMAGE_DIGEST,
             observed_command=ACP_COMMAND,
             token="t" * 32,
+            schema_path=_schema_path("acp_v1"),
             environment={
                 "CODING_WORKER_ACP_EVALUATION_ENABLED": "true",
                 "CODING_WORKER_CODEX_EVALUATION_ENABLED": "true",
@@ -204,6 +212,7 @@ def test_sidecar_requires_exactly_one_profile_and_emits_safe_health(
         observed_image_digest=IMAGE_DIGEST,
         observed_command=ACP_COMMAND,
         token="t" * 32,
+        schema_path=_schema_path("acp_v1"),
         environment={"CODING_WORKER_ACP_EVALUATION_ENABLED": "true"},
     )
     descriptor = sidecar.safe_descriptor()
@@ -217,7 +226,13 @@ def test_sidecar_requires_exactly_one_profile_and_emits_safe_health(
         "tool_ownership",
         "persistence",
         "production_route",
+        "available",
+        "reason",
+        "image_attestation",
     }
+    assert descriptor["available"] is False
+    assert descriptor["reason"] == "protocol_transport_unavailable"
+    assert descriptor["image_attestation"] == "external_required"
     incompatible = _manifest("acp_v1").model_copy(
         update={"package_integrity": "sha256:" + "f" * 64}
     )
@@ -232,6 +247,7 @@ def test_sidecar_requires_exactly_one_profile_and_emits_safe_health(
             observed_image_digest=IMAGE_DIGEST,
             observed_command=ACP_COMMAND,
             token="t" * 32,
+            schema_path=_schema_path("acp_v1"),
             environment={"CODING_WORKER_ACP_EVALUATION_ENABLED": "true"},
         )
 
@@ -251,6 +267,7 @@ def test_codex_sidecar_verifies_fixed_runtime_version(tmp_path: Path, monkeypatc
         observed_image_digest=IMAGE_DIGEST,
         observed_command=CODEX_COMMAND,
         token="t" * 32,
+        schema_path=_schema_path("codex_app_server"),
         environment={"CODING_WORKER_CODEX_EVALUATION_ENABLED": "true"},
     )
     assert sidecar.safe_descriptor()["tool_ownership"] == "unknown"
@@ -265,6 +282,7 @@ def test_sidecar_refuses_to_replace_a_regular_file(tmp_path: Path, monkeypatch) 
         observed_image_digest=IMAGE_DIGEST,
         observed_command=ACP_COMMAND,
         token="t" * 32,
+        schema_path=_schema_path("acp_v1"),
         environment={"CODING_WORKER_ACP_EVALUATION_ENABLED": "true"},
     )
     socket_path = tmp_path / "driver.sock"
@@ -272,3 +290,43 @@ def test_sidecar_refuses_to_replace_a_regular_file(tmp_path: Path, monkeypatch) 
     with pytest.raises(EvaluationSidecarError, match="unsafe"):
         asyncio.run(sidecar.serve_unix(socket_path))
     assert socket_path.read_text(encoding="utf-8") == "do not delete"
+
+
+def test_sidecar_rejects_unregistered_acp_executable_and_schema_bytes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(importlib.metadata, "version", lambda package: "0.12.0")
+    wrong_command = ("/missing/acp-agent",)
+    wrong_manifest = _manifest("acp_v1").model_copy(
+        update={
+            "command": wrong_command,
+            "command_sha256": command_sha256(wrong_command),
+        }
+    )
+    wrong_manifest_path = tmp_path / "wrong-command.json"
+    wrong_manifest_path.write_text(
+        json.dumps(wrong_manifest.model_dump(mode="json")), encoding="utf-8"
+    )
+    with pytest.raises(EvaluationSidecarError, match="ACP executable is not fixed"):
+        EvaluationSidecar(
+            driver_id="acp_v1",
+            manifest_path=wrong_manifest_path,
+            observed_image_digest=IMAGE_DIGEST,
+            observed_command=wrong_command,
+            token="t" * 32,
+            schema_path=_schema_path("acp_v1"),
+            environment={"CODING_WORKER_ACP_EVALUATION_ENABLED": "true"},
+        )
+
+    corrupt_schema = tmp_path / "schema.json"
+    corrupt_schema.write_text("{}", encoding="utf-8")
+    with pytest.raises(EvaluationSidecarError, match="schema digest does not match"):
+        EvaluationSidecar(
+            driver_id="acp_v1",
+            manifest_path=_write_manifest(tmp_path, "acp_v1"),
+            observed_image_digest=IMAGE_DIGEST,
+            observed_command=ACP_COMMAND,
+            token="t" * 32,
+            schema_path=corrupt_schema,
+            environment={"CODING_WORKER_ACP_EVALUATION_ENABLED": "true"},
+        )

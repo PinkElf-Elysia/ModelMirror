@@ -75,6 +75,8 @@ def test_evaluation_compose_has_no_production_or_host_escape() -> None:
         token_setting = service["environment"]["CODING_WORKER_EVALUATION_TOKEN"]
         assert token_setting.startswith("${CODING_WORKER_")
         assert token_setting.endswith("_EVALUATION_TOKEN:-}")
+        healthcheck = service["healthcheck"]["test"]
+        assert any("['available']" in item for item in healthcheck)
 
     acp = payload["services"]["coding-worker-acp-evaluation"]["environment"]
     codex = payload["services"]["coding-worker-codex-evaluation"]["environment"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -20,6 +21,21 @@ from .evaluation_loader import (
 
 
 MAX_REQUEST_BYTES = 64 * 1024
+MAX_SCHEMA_BYTES = 16 * 1024 * 1024
+_SCHEMA_PATHS = {
+    "acp_v1": Path(
+        "/usr/share/modelmirror-coding-evaluation/schemas/acp-schema-v1.19.json"
+    ),
+    "codex_app_server": Path(
+        "/usr/share/modelmirror-coding-evaluation/schemas/"
+        "codex-app-server-0.149.0.schemas.json"
+    ),
+}
+_ACP_SIDECAR_COMMAND = (
+    "/usr/local/bin/python",
+    "-m",
+    "coding_worker.evaluation_sidecar",
+)
 
 
 class EvaluationSidecarError(RuntimeError):
@@ -42,6 +58,7 @@ class EvaluationSidecar:
         observed_image_digest: str,
         observed_command: Sequence[str],
         token: str,
+        schema_path: Path | None = None,
         environment: Mapping[str, str] | None = None,
     ) -> None:
         if len(token) < 32:
@@ -62,6 +79,7 @@ class EvaluationSidecar:
         self.driver_class.validate_manifest(self.manifest)
         self.driver_id = driver_id
         self.token = token
+        self._verify_schema(schema_path or _SCHEMA_PATHS[driver_id])
         self._verify_runtime_package()
 
     def safe_descriptor(self) -> dict[str, Any]:
@@ -74,6 +92,9 @@ class EvaluationSidecar:
             "tool_ownership": self.manifest.tool_ownership.value,
             "persistence": self.manifest.persistence.value,
             "production_route": False,
+            "available": False,
+            "reason": "protocol_transport_unavailable",
+            "image_attestation": "external_required",
         }
 
     async def serve_unix(self, socket_path: Path) -> None:
@@ -122,6 +143,8 @@ class EvaluationSidecar:
         else:
             package = "@openai/codex"
         if package == "agent-client-protocol":
+            if tuple(self.manifest.command) != _ACP_SIDECAR_COMMAND:
+                raise EvaluationSidecarError("ACP executable is not fixed")
             try:
                 version = importlib.metadata.version(package)
             except importlib.metadata.PackageNotFoundError as exc:
@@ -147,6 +170,21 @@ class EvaluationSidecar:
                 raise EvaluationSidecarError(
                     "Codex runtime version does not match"
                 )
+
+    def _verify_schema(self, schema_path: Path) -> None:
+        if not schema_path.is_absolute():
+            raise EvaluationSidecarError("evaluation schema path must be absolute")
+        try:
+            metadata = schema_path.lstat()
+            if schema_path.is_symlink() or not stat.S_ISREG(metadata.st_mode):
+                raise EvaluationSidecarError("evaluation schema path is unsafe")
+            if metadata.st_size <= 0 or metadata.st_size > MAX_SCHEMA_BYTES:
+                raise EvaluationSidecarError("evaluation schema path is unsafe")
+            digest = hashlib.sha256(schema_path.read_bytes()).hexdigest()
+        except OSError as exc:
+            raise EvaluationSidecarError("evaluation schema is unavailable") from exc
+        if digest != self.manifest.schema_sha256:
+            raise EvaluationSidecarError("evaluation schema digest does not match")
 
 
 def _from_environment() -> tuple[EvaluationSidecar, Path]:

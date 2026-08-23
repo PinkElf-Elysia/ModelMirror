@@ -92,10 +92,13 @@ class AcpV1HarnessDriver(StandardEvaluationDriver):
         )
         self.broker_mcp = broker_mcp
         self._prompt_request_id: str | None = None
+        self._permission_options: dict[
+            str, tuple[object, frozenset[str]]
+        ] = {}
 
     def initialize(self, frame: Mapping[str, Any]) -> None:
         _, params = require_jsonrpc_method(frame, "initialize", notification=False)
-        require_exact_keys(
+        self._require_acp_keys(
             params,
             required={"protocolVersion"},
             optional={"clientCapabilities", "clientInfo"},
@@ -121,7 +124,7 @@ class AcpV1HarnessDriver(StandardEvaluationDriver):
         request_id, params = require_jsonrpc_method(
             frame, "session/prompt", notification=False
         )
-        require_exact_keys(params, required={"sessionId", "prompt"})
+        self._require_acp_keys(params, required={"sessionId", "prompt"})
         self._require_supplier_session(params["sessionId"])
         prompt = params["prompt"]
         if not isinstance(prompt, list) or not prompt:
@@ -142,7 +145,7 @@ class AcpV1HarnessDriver(StandardEvaluationDriver):
         _, params = require_jsonrpc_method(
             frame, "session/update", notification=True
         )
-        require_exact_keys(params, required={"sessionId", "update"})
+        self._require_acp_keys(params, required={"sessionId", "update"})
         self._require_supplier_session(params["sessionId"])
         update = params["update"]
         if not isinstance(update, Mapping):
@@ -172,7 +175,7 @@ class AcpV1HarnessDriver(StandardEvaluationDriver):
         request_id, params = require_jsonrpc_method(
             frame, "session/request_permission", notification=False
         )
-        require_exact_keys(
+        self._require_acp_keys(
             params,
             required={"sessionId", "toolCall", "options"},
         )
@@ -181,45 +184,100 @@ class AcpV1HarnessDriver(StandardEvaluationDriver):
         options = params["options"]
         if not isinstance(tool_call, Mapping) or not isinstance(options, list):
             raise EvaluationDriverError("ACP permission request is invalid")
-        if not options or any(not isinstance(option, Mapping) for option in options):
+        if (
+            not options
+            or len(options) > 16
+            or any(not isinstance(option, Mapping) for option in options)
+        ):
             raise EvaluationDriverError("ACP permission options are invalid")
+        option_ids: list[str] = []
+        for option in options:
+            try:
+                self._require_acp_keys(
+                    option,
+                    required={"optionId", "name", "kind"},
+                )
+            except EvaluationDriverError as exc:
+                raise EvaluationDriverError(
+                    "ACP permission options are invalid"
+                ) from exc
+            option_id = option.get("optionId")
+            name = option.get("name")
+            option_kind = option.get("kind")
+            if (
+                not isinstance(option_id, str)
+                or not option_id
+                or len(option_id) > 128
+                or not isinstance(name, str)
+                or len(name) > 512
+                or option_kind
+                not in {
+                    "allow_once",
+                    "allow_always",
+                    "reject_once",
+                    "reject_always",
+                }
+            ):
+                raise EvaluationDriverError("ACP permission options are invalid")
+            option_ids.append(option_id)
+        if len(set(option_ids)) != len(option_ids):
+            raise EvaluationDriverError("ACP permission option id was repeated")
         assert request_id is not None
-        return self.request(
+        event = self.request(
             supplier_request_id=request_id,
             kind=HarnessRequestKind.APPROVAL,
             payload={
                 "tool_call_id": str(tool_call.get("toolCallId") or "")[:128],
                 "title": str(tool_call.get("title") or "")[:256],
                 "kind": str(tool_call.get("kind") or "")[:64],
-                "option_ids": [
-                    str(option.get("optionId") or "")[:128]
-                    for option in options[:16]
-                ],
+                "option_ids": option_ids,
             },
         )
+        self._permission_options[canonical_supplier_id(request_id)] = (
+            request_id,
+            frozenset(option_ids),
+        )
+        return event
 
     def reply_permission(self, frame: Mapping[str, Any]) -> HarnessResponse:
         request_id = frame.get("id")
         result = frame.get("result")
         if request_id is None or not isinstance(result, Mapping):
             raise EvaluationDriverError("ACP permission reply is invalid")
+        self._require_acp_keys(result, required={"outcome"})
         outcome = result.get("outcome")
         if not isinstance(outcome, Mapping):
             raise EvaluationDriverError("ACP permission outcome is invalid")
-        selected = outcome.get("outcome") == "selected"
-        return self.resolve(
+        request_key = canonical_supplier_id(request_id)
+        registered = self._permission_options.get(request_key)
+        if registered is None:
+            raise EvaluationDriverError("evaluation request is not pending")
+        _, offered_options = registered
+        outcome_kind = outcome.get("outcome")
+        if outcome_kind == "selected":
+            self._require_acp_keys(
+                outcome, required={"outcome", "optionId"}
+            )
+            option_id = outcome.get("optionId")
+            if not isinstance(option_id, str) or option_id not in offered_options:
+                raise EvaluationDriverError(
+                    "ACP permission option was not offered"
+                )
+            response_outcome = HarnessResponseOutcome.APPROVED
+            response_payload = {"option_id": option_id[:128]}
+        elif outcome_kind == "cancelled":
+            self._require_acp_keys(outcome, required={"outcome"})
+            response_outcome = HarnessResponseOutcome.CANCELLED
+            response_payload = {"option_id": ""}
+        else:
+            raise EvaluationDriverError("ACP permission outcome is invalid")
+        response = self.resolve(
             supplier_request_id=request_id,
-            outcome=(
-                HarnessResponseOutcome.APPROVED
-                if selected
-                else HarnessResponseOutcome.DECLINED
-            ),
-            payload={
-                "option_id": str(outcome.get("optionId") or "")[:128]
-                if selected
-                else "",
-            },
+            outcome=response_outcome,
+            payload=response_payload,
         )
+        self._permission_options.pop(request_key)
+        return response
 
     def complete_turn(self, frame: Mapping[str, Any]) -> HarnessEventEnvelope:
         request_id = frame.get("id")
@@ -230,7 +288,7 @@ class AcpV1HarnessDriver(StandardEvaluationDriver):
             or not isinstance(result, Mapping)
         ):
             raise EvaluationDriverError("ACP prompt response is not correlated")
-        require_exact_keys(result, required={"stopReason"})
+        self._require_acp_keys(result, required={"stopReason"})
         stop_reason = str(result["stopReason"])
         self._prompt_request_id = None
         return self.emit(
@@ -239,14 +297,28 @@ class AcpV1HarnessDriver(StandardEvaluationDriver):
             payload={"stop_reason": stop_reason[:64]},
         )
 
-    def cancel_turn(self, frame: Mapping[str, Any]) -> None:
+    def cancel_turn(
+        self, frame: Mapping[str, Any]
+    ) -> tuple[HarnessResponse, ...]:
         _, params = require_jsonrpc_method(
             frame, "session/cancel", notification=True
         )
-        require_exact_keys(params, required={"sessionId"})
+        self._require_acp_keys(params, required={"sessionId"})
         self._require_supplier_session(params["sessionId"])
+        cancelled: list[HarnessResponse] = []
+        for request_key, (supplier_request_id, _) in tuple(
+            self._permission_options.items()
+        ):
+            cancelled.append(
+                self.resolve(
+                    supplier_request_id=supplier_request_id,
+                    outcome=HarnessResponseOutcome.CANCELLED,
+                )
+            )
+            self._permission_options.pop(request_key)
         self._prompt_request_id = None
         self.interrupt()
+        return tuple(cancelled)
 
     def resume_session(
         self,
@@ -265,7 +337,7 @@ class AcpV1HarnessDriver(StandardEvaluationDriver):
         _, params = require_jsonrpc_method(
             frame, "session/close", notification=False
         )
-        require_exact_keys(params, required={"sessionId"})
+        self._require_acp_keys(params, required={"sessionId"})
         self._require_supplier_session(params["sessionId"])
         self.close()
 
@@ -275,7 +347,7 @@ class AcpV1HarnessDriver(StandardEvaluationDriver):
         required = {"cwd", "mcpServers"}
         if resume:
             required.add("sessionId")
-        require_exact_keys(
+        self._require_acp_keys(
             params,
             required=required,
             optional={"additionalDirectories"},
@@ -287,6 +359,22 @@ class AcpV1HarnessDriver(StandardEvaluationDriver):
             raise EvaluationDriverError("ACP additional directories are unavailable")
         if params["mcpServers"] != [self.broker_mcp.acp_config()]:
             raise EvaluationDriverError("ACP arbitrary MCP configuration is unavailable")
+
+    @staticmethod
+    def _require_acp_keys(
+        payload: Mapping[str, Any],
+        *,
+        required: set[str],
+        optional: set[str] | None = None,
+    ) -> None:
+        require_exact_keys(
+            payload,
+            required=required,
+            optional=set(optional or ()) | {"_meta"},
+        )
+        metadata = payload.get("_meta")
+        if metadata is not None and not isinstance(metadata, Mapping):
+            raise EvaluationDriverError("ACP metadata is invalid")
 
     def _require_supplier_session(self, value: object) -> None:
         session = self.require_session()

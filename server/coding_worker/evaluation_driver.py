@@ -205,10 +205,10 @@ class StandardEvaluationDriver:
         request: HarnessRequestRef | None = None,
     ) -> HarnessEventEnvelope:
         session = self.require_session()
-        self.sequence += 1
+        next_sequence = self.sequence + 1
         envelope = HarnessEventEnvelope(
             event_id=safe_supplier_id("event", supplier_event_id),
-            sequence=self.sequence,
+            sequence=next_sequence,
             session=session,
             turn=self.turn,
             request=request,
@@ -216,6 +216,7 @@ class StandardEvaluationDriver:
             payload=dict(payload or {}),
         )
         self._kernel_call(self.kernel.accept_event, envelope)
+        self.sequence = next_sequence
         if kind is HarnessEventKind.TURN_COMPLETED:
             self.turn = None
         return envelope
@@ -253,7 +254,7 @@ class StandardEvaluationDriver:
         payload: Mapping[str, Any] | None = None,
     ) -> HarnessResponse:
         request_key = canonical_supplier_id(supplier_request_id)
-        request = self._pending.pop(request_key, None)
+        request = self._pending.get(request_key)
         if request is None:
             raise EvaluationDriverError("evaluation request is not pending")
         response = HarnessResponse(
@@ -262,6 +263,7 @@ class StandardEvaluationDriver:
             payload=dict(payload or {}),
         )
         self._kernel_call(self.kernel.resolve_request, response)
+        self._pending.pop(request_key)
         return response
 
     def steer(self) -> None:
@@ -325,7 +327,8 @@ def canonical_supplier_id(value: object) -> str:
     text = str(value)
     if not text or len(text) > 256:
         raise EvaluationDriverError("supplier correlation id is invalid")
-    return text
+    kind = "string" if isinstance(value, str) else "integer"
+    return f"{kind}:{text}"
 
 
 def safe_supplier_id(prefix: str, value: object) -> str:
