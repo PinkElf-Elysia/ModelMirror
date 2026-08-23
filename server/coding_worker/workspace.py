@@ -35,9 +35,14 @@ MAX_REPOSITORY_INSTRUCTIONS_BYTES = 64 * 1024
 
 
 class WorkspaceError(RuntimeError):
+    status = 400
+
     def __init__(self, message: str, *, code: str) -> None:
         super().__init__(message)
         self.code = code
+        self.status = (
+            404 if code in {"workspace_not_found", "entry_not_found"} else 400
+        )
 
 
 SOURCE_ADMISSION_REASONS = frozenset(
@@ -61,6 +66,7 @@ class WorkspaceSourceUnavailableError(WorkspaceError):
             "Workspace source is unavailable.",
             code="workspace_source_unavailable",
         )
+        self.status = 409
         self.reason = reason
 
 

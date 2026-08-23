@@ -20,6 +20,7 @@ NATIVE_OPENCODE_VERSION = "1.18.9"
 ATIF_SCHEMA_VERSION = "ATIF-v1.7"
 CODING_WORKER_HARNESS_CODE_FILES = (
     "__init__.py",
+    "adapters.py",
     "api.py",
     "broker_mcp.py",
     "broker_rpc.py",
@@ -29,6 +30,7 @@ CODING_WORKER_HARNESS_CODE_FILES = (
     "contracts.py",
     "crypto.py",
     "egress_proxy.py",
+    "evaluation.py",
     "evidence.py",
     "executor.py",
     "harness_v3.py",
@@ -37,6 +39,7 @@ CODING_WORKER_HARNESS_CODE_FILES = (
     "parity.py",
     "parity_runner.py",
     "parity_sidecar.py",
+    "ports.py",
     "process_manager.py",
     "provider.py",
     "provider_rpc.py",

@@ -35,8 +35,8 @@ from server.coding_runtime.project_host_api import (
 )
 from server.coding_runtime.project_writer_client import ProjectWriterClientError
 from server.coding_runtime.projects import ProjectFeatures, ProjectKind
-from server.coding_worker.api import configure_coding_worker_for_tests
-from server.coding_worker.contracts import TaskState
+from server.coding_worker.ports import WritebackCandidate
+from server.coding_worker.runtime import configure_coding_substrate_for_tests
 from server.coding_runtime.recovery import CodingRecoveryStore, RecoveryProjectContext
 from server.coding_runtime.draft_workspace import DraftWorkspace
 from server.coding_runtime.worker import CodingWorkerError, CodingWorkerServer
@@ -612,8 +612,9 @@ async def test_worker_handoff_rejects_binary_patch_before_host_snapshot(
 
 @pytest.mark.asyncio
 async def test_completed_worker_task_handoff_route_uses_v13_recovery(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("CODING_WORKER_V14_ENABLED", "true")
     store = CodingRecoveryStore(tmp_path / "worker-route-recovery")
     service, worker, _source, _host = _service(
         store,
@@ -624,39 +625,36 @@ async def test_completed_worker_task_handoff_route_uses_v13_recovery(
     # v2 is independently online and writable.
     worker.configured = False
     task_id = "task_" + "a" * 32
-    task = SimpleNamespace(
-        state=TaskState.COMPLETED,
-        workspace_id="workspace_" + "b" * 32,
-        spec=SimpleNamespace(
-            workspace_source=SimpleNamespace(
-                kind="host_snapshot",
-                source_id=PROJECT_ID,
-                revision=PROJECT_HEAD,
-            )
-        ),
-    )
     git_patch = worker._diff_content().replace(
         "--- a/",
         "index 1111111..2222222 100644\n--- a/",
         1,
     )
-    worker_service = SimpleNamespace(
-        store=SimpleNamespace(get_task=lambda value: task if value == task_id else None),
-        harness_runner=SimpleNamespace(acceptance_satisfied=lambda value: value == task_id),
-        workspace_broker=SimpleNamespace(
-            diff=lambda value, *, detect_renames: (
-                git_patch.encode("utf-8")
-                if value == task.workspace_id and detect_renames is False
-                else pytest.fail("handoff did not request a no-renames diff")
-            )
-        ),
+    patch_bytes = git_patch.encode("utf-8")
+    candidate = WritebackCandidate(
+        task_id=task_id,
+        source_id=PROJECT_ID,
+        revision=PROJECT_HEAD,
+        workspace_tree_hash="b" * 64,
+        patch_sha256=hashlib.sha256(patch_bytes).hexdigest(),
+        patch=patch_bytes,
     )
-    configure_coding_worker_for_tests(worker_service, enabled=True)  # type: ignore[arg-type]
+
+    async def prepare_writeback_candidate(value: str) -> WritebackCandidate:
+        assert value == task_id
+        return candidate
+
+    substrate = SimpleNamespace(
+        control_plane=SimpleNamespace(
+            prepare_writeback_candidate=prepare_writeback_candidate
+        )
+    )
+    configure_coding_substrate_for_tests(substrate)  # type: ignore[arg-type]
     try:
         async with _client(service) as client:
             response = await client.post(f"/api/coding/worker-tasks/{task_id}/handoff")
     finally:
-        configure_coding_worker_for_tests(None, enabled=None)
+        configure_coding_substrate_for_tests(None)
         configure_coding_service(None)
 
     assert response.status_code == 201, response.text
@@ -666,6 +664,39 @@ async def test_completed_worker_task_handoff_route_uses_v13_recovery(
     recovery = store.load()
     assert recovery is not None
     assert recovery.payload.patch == worker._diff_content()
+
+
+@pytest.mark.asyncio
+async def test_worker_handoff_preserves_disabled_and_unavailable_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, _worker, _source, _host = _service(
+        CodingRecoveryStore(tmp_path / "worker-unavailable-recovery")
+    )
+    configure_coding_substrate_for_tests(None)
+    try:
+        monkeypatch.setenv("CODING_WORKER_V14_ENABLED", "false")
+        async with _client(service) as client:
+            disabled = await client.post(
+                "/api/coding/worker-tasks/task_" + "a" * 32 + "/handoff"
+            )
+        assert disabled.status_code == 404
+        assert disabled.json()["detail"] == "Coding Worker V14 is disabled"
+
+        monkeypatch.setenv("CODING_WORKER_V14_ENABLED", "true")
+        async with _client(service) as client:
+            unavailable = await client.post(
+                "/api/coding/worker-tasks/task_" + "a" * 32 + "/handoff"
+            )
+        assert unavailable.status_code == 503
+        assert unavailable.json()["detail"] == {
+            "code": "coding_worker_provider_unavailable",
+            "message": "The V14 Worker provider is unavailable.",
+            "reason": None,
+        }
+    finally:
+        configure_coding_substrate_for_tests(None)
+        configure_coding_service(None)
 
 
 def test_worker_handoff_restores_added_empty_file_without_git_object_ids(

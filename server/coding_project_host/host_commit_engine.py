@@ -51,7 +51,9 @@ DEFAULT_AUTHOR_NAME = "ModelMirror Coding Assistant"
 DEFAULT_AUTHOR_EMAIL = "coding@modelmirror.local"
 MutationHook = Callable[[str], None]
 _OBJECT_ID = re.compile(r"^(?:[a-f0-9]{40}|[a-f0-9]{64})$")
-_IDENTITY = re.compile(r"^[a-f0-9]+-[a-f0-9]+$")
+_IDENTITY = re.compile(
+    r"^(?:[a-f0-9]+-[a-f0-9]+|g2-[a-f0-9]+-[a-f0-9]+-[a-f0-9]+)$"
+)
 _DANGEROUS_CONFIG = (
     r"^(include|include[Ii]f|filter|credential|diff|url)(\.|$)"
     r"|^remote\..*\.(promisor|partial[Cc]lone[Ff]ilter)$"

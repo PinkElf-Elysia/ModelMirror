@@ -824,3 +824,11 @@ Parity v2 的公开 fixture、目标和可见检查可进入 runner；隐藏检�
 外置 `ModelMirrorWorkerAgent` 只使用正式 API 创建/驱动任务，按 scenario 结算精确审批、问题、steering、暂停、恢复和故障注入，并导出绑定 tree hash 的 Workspace Artifact。故障注入只在 Harness profile 内以独立 Bearer 绑定当前唯一待批准的 mutate shell operation；副作用后的 Executor task binding reset 必须留下 unknown operation，并按原 ID reconcile 一次。ATIF 只含公开消息、工具摘要、operation、turn、approval、question、subtask 与 Evidence；不含隐藏思维链、供应商帧、端口、物理路径或凭据。它是 Harbor 评测适配器，不是产品 Provider。
 
 原生 OpenCode 对照继承 Harbor 固定安装生命周期，但不再使用不可控的阻塞式 CLI `run`。评测专用 `NativeOpenCodeHarnessAgent` 启动随机认证、仅回环的 OpenCode 1.18.9 Session Server；默认拒绝工作区外读取、Web、task、Skill/MCP、LSP 与未冻结 Bash，仅问题夹具开放 question。LSP 在原生侧失败关闭，是因为固定 1.18.9 的语言服务器进程继承 Server 环境且可能加载仓库插件；Worker 现有隔离 LSP 不受影响，该限制随完整原生工具配置进入 route binding。Server 的认证与模型 route 环境只保留在 root 进程和 root-only 私有目录；全部冻结 Shell 经平台固定 wrapper 使用 `env -i` 最小环境、uid/gid 65534 与独立 HOME 执行，任务代码不能读取控制目录。question、steering、显式 compaction、故障注入和原 operation reconcile 必须同时在脱敏 Session 事件、控制动作、公开消息哈希和 ATIF 中闭合。restart 场景还要求该监督 wrapper 在唯一冻结命令成功后留下结果标记并阻塞回执，控制器终止完整 OpenCode 进程组后，以同一 call ID、intent hash 和 result hash 对账；重复命令仍按第二个副作用 operation 拒绝。缺少 `native_ledger` 或任一绑定的成功结果无效。该实现仍须经过授权的真实 Session 小规模验证，不能仅凭单元测试解除校准审慎门禁。
+
+## V19 Coding Substrate 内部接入
+
+平台模块创建 Coding 任务时构造 `CodingWorkerModuleClient(module=..., substrate=...)`。模块只能登记 opaque source kind、Acceptance check、通用 model route 与 context validator；SDK 内只保存 Control/Projection 端口，不公开 Service、Provider、Executor、Store、Workspace、凭据或进程对象。
+
+新 Harness Driver 必须把外部生命周期归一为 `capabilities/open/restore/message/steer/interrupt_turn/cancel/checkpoint/close`，并显式提供 slot capability 和 controller generation。`message` 只开始普通 turn，`steer` 表示对进行中 turn 的独立控制；不支持原生 steer 的 Provider v4 adapter 必须明确返回 false，由 Control Plane 继续在安全工具边界排队。ACP 的 initialize/session/prompt/update/permission/cancel 与 Codex App Server 的 thread/turn/item/steer/interrupt 都只能在 adapter 内转换；不得把绝对路径、供应商 session、模型或沙箱字段加入 `TaskSpec` 或公共 SSE。
+
+工具副作用仍只能经 Tool Broker 进入 `ExecutionBackend`。Driver 不能直接执行 Shell、服务、LSP、文件写入或网络操作。评测代码只能经 `EvaluationAdapter` 和正式 Worker API 运行；生产 profile 关闭时其模块不可加载。Host task 写回只调用 `prepare_writeback_candidate(task_id)`，随后完全交给 v13 apply/commit/undo/recovery。

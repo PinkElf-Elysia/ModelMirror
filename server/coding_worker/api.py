@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-import io
 import json
 import os
-import secrets
-import tarfile
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from typing import Any, Literal
@@ -46,12 +43,18 @@ from .contracts import (
     SubtaskRecord,
     SubtaskRequest,
 )
-from .provider import ProviderCapabilities
-from .harness_v3 import SERVER_HARNESS_CODE_FILES, harness_code_bundle_sha256
-from .service import CodingWorkerService
-from .runtime import CodingWorkerRuntime, build_runtime_from_environment
-from .store import WorkerConflictError, WorkerNotFoundError, WorkerStoreError
-from .workspace import WorkspaceError, WorkspaceSourceUnavailableError
+from .ports import (
+    CodingSubstrateError,
+    CodingSubstrateHandle,
+    EvaluationAdapter,
+    HarnessCapabilities,
+    InteractionProjection,
+)
+from .runtime import (
+    CodingWorkerRuntime,
+    build_runtime_from_environment,
+    record_coding_substrate_unavailability,
+)
 
 
 class TaskMessageRequest(StrictModel):
@@ -93,35 +96,34 @@ def _require_harness_controller(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-_service: CodingWorkerService | None = None
+_substrate: CodingSubstrateHandle | None = None
 _enabled_override: bool | None = None
 _runtime: CodingWorkerRuntime | None = None
 _startup_error: str | None = None
-_HARNESS_PROCESS_GENERATION = secrets.token_hex(16)
 _CONSOLE_ORIGIN = Origin(module="worker-console", object_id="local-user")
 
 
 @asynccontextmanager
 async def _lifespan(_app: object) -> AsyncIterator[None]:
-    global _service, _runtime, _startup_error
-    if is_coding_worker_enabled() and _service is None:
+    global _substrate, _runtime, _startup_error
+    if is_coding_worker_enabled() and _substrate is None:
         try:
             _runtime = build_runtime_from_environment()
-            _service = await _runtime.start()
+            _substrate = await _runtime.start()
             _startup_error = None
+            record_coding_substrate_unavailability(None)
         except Exception as exc:
             _startup_error = getattr(
                 exc, "code", "coding_worker_provider_unavailable"
             )
+            record_coding_substrate_unavailability(_startup_error)
     try:
         yield
     finally:
         if _runtime is not None:
             await _runtime.close()
             _runtime = None
-            _service = None
-        elif _service is not None:
-            await _service.shutdown()
+            _substrate = None
 
 
 router = APIRouter(
@@ -184,7 +186,7 @@ def _feature_flag_enabled(feature: WorkerFeatureName) -> bool:
 
 
 def _provider_supports_feature(
-    capabilities: ProviderCapabilities, feature: WorkerFeatureName
+    capabilities: HarnessCapabilities, feature: WorkerFeatureName
 ) -> bool:
     tools = set(capabilities.tool_names)
     if feature is WorkerFeatureName.TASK_RUNTIME:
@@ -222,18 +224,20 @@ def _provider_supports_feature(
 
 
 def coding_worker_capabilities() -> WorkerCapabilities:
-    provider_capabilities = (
-        _service.cached_provider_capabilities() if _service is not None else ()
+    harness_capabilities = (
+        _substrate.control_plane.cached_harness_capabilities()
+        if _substrate is not None
+        else ()
     )
 
     def available(feature: WorkerFeatureName) -> bool:
         if not _feature_flag_enabled(feature):
             return False
         if feature is WorkerFeatureName.TURN_HISTORY:
-            return bool(provider_capabilities)
+            return bool(harness_capabilities)
         return any(
             _provider_supports_feature(capabilities, feature)
-            for capabilities in provider_capabilities
+            for capabilities in harness_capabilities
         )
 
     return WorkerCapabilities(
@@ -256,9 +260,9 @@ def coding_worker_capabilities() -> WorkerCapabilities:
 def _task_capability_status(
     *,
     feature: WorkerFeatureName,
-    snapshot: ProviderCapabilities | None,
+    snapshot: HarnessCapabilities | None,
     snapshot_exists: bool,
-    current: ProviderCapabilities | None,
+    current: HarnessCapabilities | None,
     binding_matches: bool,
     current_reason: str | None,
     v17_task: bool = False,
@@ -288,7 +292,7 @@ def _task_capability_status(
     elif platform_owned:
         reason = (
             None
-            if _service is not None
+            if _substrate is not None
             else WorkerCapabilityReason.PROVIDER_UNAVAILABLE
         )
     elif not snapshot_exists and not basic_runtime:
@@ -375,17 +379,20 @@ def _require_children_enabled() -> None:
 
 
 def configure_coding_worker_for_tests(
-    service: CodingWorkerService | None, *, enabled: bool | None = None
+    substrate: CodingSubstrateHandle | None,
+    *,
+    enabled: bool | None = None,
 ) -> None:
-    global _service, _enabled_override, _startup_error
-    _service = service
+    global _substrate, _enabled_override, _startup_error
+    _substrate = substrate
     _enabled_override = enabled
     _startup_error = None
+    record_coding_substrate_unavailability(None)
 
 
-def get_coding_worker_service() -> CodingWorkerService:
+def _get_substrate() -> CodingSubstrateHandle:
     _require_enabled()
-    if _service is None:
+    if _substrate is None:
         raise HTTPException(
             status_code=503,
             detail={
@@ -394,7 +401,14 @@ def get_coding_worker_service() -> CodingWorkerService:
                 "reason": _startup_error,
             },
         )
-    return _service
+    return _substrate
+
+
+def _get_evaluation_adapter() -> EvaluationAdapter:
+    evaluation = _get_substrate().evaluation
+    if evaluation is None or not evaluation.enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+    return evaluation
 
 
 def _require_enabled() -> None:
@@ -405,29 +419,31 @@ def _require_enabled() -> None:
 def _raise_worker_error(exc: Exception) -> None:
     if isinstance(exc, HTTPException):
         raise exc
-    if isinstance(exc, WorkspaceSourceUnavailableError):
+    code = getattr(exc, "code", "coding_worker_failed")
+    if code == "workspace_source_unavailable":
+        reason = getattr(exc, "reason", "temporarily_unavailable")
+        if reason not in {
+            "not_registered",
+            "revision_changed",
+            "temporarily_unavailable",
+            "unsafe",
+            "limit_exceeded",
+        }:
+            reason = "temporarily_unavailable"
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "workspace_source_unavailable",
                 "message": "Workspace source is unavailable.",
-                "reason": exc.reason,
+                "reason": reason,
             },
         ) from exc
-    if isinstance(exc, WorkerNotFoundError):
-        status = 404
-    elif isinstance(exc, WorkerConflictError):
-        status = 409
-    elif isinstance(exc, WorkspaceError) and exc.code in {
-        "workspace_not_found",
-        "entry_not_found",
-    }:
-        status = 404
-    elif isinstance(exc, (WorkerStoreError, WorkspaceError)):
-        status = 400
-    else:
-        status = 500
-    code = getattr(exc, "code", "coding_worker_failed")
+    raw_status = getattr(exc, "status", 500)
+    status = (
+        raw_status
+        if isinstance(raw_status, int) and raw_status in {400, 404, 409, 503}
+        else 500
+    )
     raise HTTPException(
         status_code=status,
         detail={"code": code, "message": str(exc)},
@@ -437,24 +453,23 @@ def _raise_worker_error(exc: Exception) -> None:
 @router.get("")
 async def coding_worker_status() -> dict[str, Any]:
     enabled = is_coding_worker_enabled()
-    if _service is not None:
+    if _substrate is not None:
         with suppress(Exception):
-            await _service.refresh_provider_capabilities()
+            await _substrate.control_plane.refresh_harness_capabilities()
     capabilities = coding_worker_capabilities()
+    status = (
+        _substrate.control_plane.status()
+        if _substrate is not None
+        else None
+    )
     return {
         "enabled": enabled,
         "available": capabilities.task_runtime,
         "version": "v1",
-        "max_active_tasks": _service.max_active_tasks if _service is not None else 2,
-        "retention_seconds": (
-            _service.store.retention_seconds if _service is not None else 604800
-        ),
-        "network_enabled": _runtime.network_enabled if _runtime is not None else False,
-        "acceptance_checks": (
-            sorted(_service.tool_broker.frozen_checks)
-            if _service is not None and _service.tool_broker is not None
-            else []
-        ),
+        "max_active_tasks": status.max_active_tasks if status is not None else 2,
+        "retention_seconds": status.retention_seconds if status is not None else 604800,
+        "network_enabled": status.network_enabled if status is not None else False,
+        "acceptance_checks": list(status.acceptance_checks) if status is not None else [],
         "model_routes": _configured_model_routes(),
         "reason": _startup_error,
         "capabilities": capabilities.model_dump(mode="json"),
@@ -463,28 +478,28 @@ async def coding_worker_status() -> dict[str, Any]:
 
 @router.get("/capabilities", response_model=WorkerCapabilities)
 async def get_worker_capabilities() -> WorkerCapabilities:
-    if _service is not None:
+    if _substrate is not None:
         with suppress(Exception):
-            await _service.refresh_provider_capabilities()
+            await _substrate.control_plane.refresh_harness_capabilities()
     return coding_worker_capabilities()
 
 
 @router.post("/tasks", response_model=TaskRecord, status_code=202)
 async def create_task(payload: TaskCreateRequest) -> TaskRecord:
     try:
-        service = get_coding_worker_service()
-        existing = service.store.find_task_by_idempotency(
+        substrate = _get_substrate()
+        existing = substrate.projection.find_task_by_idempotency(
             _CONSOLE_ORIGIN, payload.client_task_id
         )
         if existing is None:
             try:
                 _validate_model_route(payload.model_route)
             except HTTPException:
-                if service.store.find_task_by_idempotency(
+                if substrate.projection.find_task_by_idempotency(
                     _CONSOLE_ORIGIN, payload.client_task_id
                 ) is None:
                     raise
-        return await service.create_task(_CONSOLE_ORIGIN, payload)
+        return await substrate.control_plane.create_task(_CONSOLE_ORIGIN, payload)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -492,7 +507,7 @@ async def create_task(payload: TaskCreateRequest) -> TaskRecord:
 @router.get("/tasks", response_model=dict[str, list[TaskRecord]])
 async def list_tasks() -> dict[str, list[TaskRecord]]:
     try:
-        return {"tasks": get_coding_worker_service().store.list_tasks(origin=_CONSOLE_ORIGIN)}
+        return {"tasks": list(_get_substrate().projection.list_tasks(origin=_CONSOLE_ORIGIN))}
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -500,7 +515,7 @@ async def list_tasks() -> dict[str, list[TaskRecord]]:
 @router.get("/tasks/{task_id}", response_model=TaskRecord)
 async def get_task(task_id: str) -> TaskRecord:
     try:
-        return get_coding_worker_service().store.get_task(task_id)
+        return _get_substrate().projection.get_task(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -508,17 +523,17 @@ async def get_task(task_id: str) -> TaskRecord:
 @router.get("/tasks/{task_id}/capabilities", response_model=TaskCapabilities)
 async def get_task_capabilities(task_id: str) -> TaskCapabilities:
     try:
-        service = get_coding_worker_service()
-        task = service.store.get_task(task_id)
-        persisted = service.store.get_task_capability_snapshot(task_id)
-        observation = await service.provider_capability_observation(
+        substrate = _get_substrate()
+        task = substrate.projection.get_task(task_id)
+        persisted = substrate.projection.get_task_capability_snapshot(task_id)
+        observation = await substrate.control_plane.harness_capability_observation(
             task.spec.model_route
         )
-        snapshot_capabilities: ProviderCapabilities | None = None
+        snapshot_capabilities: HarnessCapabilities | None = None
         if persisted is not None:
             raw_capabilities = persisted.snapshot.get("capabilities")
             if raw_capabilities is not None:
-                snapshot_capabilities = ProviderCapabilities.model_validate(
+                snapshot_capabilities = HarnessCapabilities.model_validate(
                     raw_capabilities
                 )
         binding_matches = (
@@ -552,20 +567,20 @@ async def task_events(
     request: Request,
     after: int = Query(default=0, ge=0),
 ) -> StreamingResponse:
-    service = get_coding_worker_service()
+    projection = _get_substrate().projection
     try:
-        service.store.get_task(task_id)
+        projection.get_task(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 
     async def stream() -> AsyncIterator[str]:
         cursor = after
         while not await request.is_disconnected():
-            events = service.store.list_events(task_id, after=cursor)
+            events = projection.list_events(task_id, after=cursor)
             for event in events:
                 cursor = event.sequence
                 yield _encode_sse(event.type, event.model_dump(mode="json"), event.sequence)
-            task = service.store.get_task(task_id)
+            task = projection.get_task(task_id)
             if task.state in TERMINAL_STATES and not events:
                 return
             if not events:
@@ -582,7 +597,7 @@ async def task_events(
 @router.post("/tasks/{task_id}/messages", response_model=TaskRecord, status_code=202)
 async def append_task_message(task_id: str, payload: TaskMessageRequest) -> TaskRecord:
     try:
-        return await get_coding_worker_service().append_message(task_id, payload.message)
+        return await _get_substrate().control_plane.append_message(task_id, payload.message)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -591,7 +606,7 @@ async def append_task_message(task_id: str, payload: TaskMessageRequest) -> Task
 async def task_plan(task_id: str) -> WorkerPlan | None:
     _require_interaction_enabled()
     try:
-        return get_coding_worker_service().store.latest_plan(task_id)
+        return _get_substrate().projection.latest_plan(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -600,7 +615,7 @@ async def task_plan(task_id: str) -> WorkerPlan | None:
 async def task_todo(task_id: str) -> WorkerTodo | None:
     _require_interaction_enabled()
     try:
-        return get_coding_worker_service().store.latest_todo(task_id)
+        return _get_substrate().projection.latest_todo(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -613,7 +628,7 @@ async def task_questions(task_id: str) -> dict[str, list[WorkerQuestion]]:
     _require_interaction_enabled()
     try:
         return {
-            "questions": get_coding_worker_service().store.list_questions(task_id)
+            "questions": list(_get_substrate().projection.list_questions(task_id))
         }
     except Exception as exc:
         _raise_worker_error(exc)
@@ -629,7 +644,7 @@ async def answer_task_question(
 ) -> WorkerQuestion:
     _require_interaction_enabled()
     try:
-        return await get_coding_worker_service().answer_question(
+        return await _get_substrate().control_plane.answer_question(
             task_id, question_id, payload
         )
     except Exception as exc:
@@ -639,7 +654,7 @@ async def answer_task_question(
 @router.get("/tasks/{task_id}/approvals", response_model=dict[str, list[WorkerApproval]])
 async def task_approvals(task_id: str) -> dict[str, list[WorkerApproval]]:
     try:
-        return {"approvals": get_coding_worker_service().store.list_approvals(task_id)}
+        return {"approvals": list(_get_substrate().projection.list_approvals(task_id))}
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -648,24 +663,14 @@ async def task_approvals(task_id: str) -> dict[str, list[WorkerApproval]]:
 async def decide_task_approval(
     task_id: str, payload: ApprovalDecisionRequest
 ) -> WorkerApproval:
-    service = get_coding_worker_service()
     try:
-        approval = service.store.get_approval(payload.approval_id)
-        if approval.task_id != task_id:
-            raise WorkerNotFoundError("Approval was not found.", code="approval_not_found")
-        if approval.capability == "shell" and payload.decision == "approve_task":
-            raise WorkerConflictError(
-                "Shell approval is always bound to one exact operation.",
-                code="shell_task_approval_forbidden",
-            )
-        decided = service.store.decide_approval(
+        return _get_substrate().control_plane.decide_approval(
+            task_id,
             payload.approval_id,
             approved=payload.decision != "reject",
             task_scope=payload.decision == "approve_task",
             ttl_seconds=payload.ttl_seconds,
         )
-        service.settle_approval_state(task_id)
-        return decided
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -674,18 +679,13 @@ async def decide_task_approval(
     "/tasks/{task_id}/evidence", response_model=dict[str, list[WorkerEvidence]]
 )
 async def task_evidence(task_id: str) -> dict[str, list[WorkerEvidence]]:
-    service = get_coding_worker_service()
     try:
-        task = service.store.get_task(task_id)
-        tree_hash = (
-            service.workspace_broker.current_tree_hash(task.workspace_id)
-            if task.workspace_id is not None
-            else None
-        )
+        projection = _get_substrate().projection
+        tree_hash = projection.current_tree_hash(task_id)
         return {
-            "evidence": service.store.list_evidence(
+            "evidence": list(projection.list_evidence(
                 task_id, current_tree_hash=tree_hash
-            )
+            ))
         }
     except Exception as exc:
         _raise_worker_error(exc)
@@ -696,7 +696,7 @@ async def task_evidence(task_id: str) -> dict[str, list[WorkerEvidence]]:
 )
 async def task_artifacts(task_id: str) -> dict[str, list[WorkerArtifact]]:
     try:
-        return {"artifacts": get_coding_worker_service().store.list_artifacts(task_id)}
+        return {"artifacts": list(_get_substrate().projection.list_artifacts(task_id))}
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -710,18 +710,20 @@ async def task_operation_output(
     operation_id: str,
     after: int = Query(default=0, ge=0),
 ) -> dict[str, list[OperationOutputChunk]]:
-    service = get_coding_worker_service()
+    projection = _get_substrate().projection
     try:
-        operation = service.store.get_operation(operation_id)
+        operation = projection.get_operation(operation_id)
         if operation.task_id != task_id:
-            raise WorkerNotFoundError(
-                "Operation was not found.", code="operation_not_found"
+            raise CodingSubstrateError(
+                "Operation was not found.",
+                code="operation_not_found",
+                status=404,
             )
         chunks: list[OperationOutputChunk] = []
         cursor = after
         scanned = 0
         while len(chunks) < 256 and scanned < 10_000:
-            events = service.store.list_events(task_id, after=cursor, limit=1000)
+            events = projection.list_events(task_id, after=cursor, limit=1000)
             if not events:
                 break
             cursor = events[-1].sequence
@@ -753,12 +755,12 @@ async def task_operation_output(
 
 
 def _code_intelligence_snapshot(
-    service: CodingWorkerService,
+    projection: InteractionProjection,
     task_id: str,
     operation_id: str,
 ) -> CodeIntelligenceSnapshot:
-    task = service.store.get_task(task_id)
-    operation = service.store.get_operation(operation_id)
+    task = projection.get_task(task_id)
+    operation = projection.get_operation(operation_id)
     operation_kind = {
         "code_symbols": "symbols",
         "code_definition": "definition",
@@ -767,18 +769,22 @@ def _code_intelligence_snapshot(
         "code_diagnostics": "diagnostics",
     }.get(operation.tool_name)
     if operation.task_id != task_id or operation_kind is None:
-        raise WorkerNotFoundError(
+        raise CodingSubstrateError(
             "Code intelligence result was not found.",
             code="code_intelligence_not_found",
+            status=404,
         )
     if operation.state is not OperationState.COMPLETED:
-        raise WorkerConflictError(
+        raise CodingSubstrateError(
             "Code intelligence result is not available.",
             code="code_intelligence_result_unavailable",
+            status=409,
         )
     if task.workspace_id is None:
-        raise WorkerConflictError(
-            "Task workspace is unavailable.", code="workspace_unavailable"
+        raise CodingSubstrateError(
+            "Task workspace is unavailable.",
+            code="workspace_unavailable",
+            status=409,
         )
     result = operation.result
     value_key = {
@@ -802,10 +808,18 @@ def _code_intelligence_snapshot(
         or result.get("task_id") != task_id
         or result.get("operation") != operation_kind
     ):
-        raise WorkerStoreError(
-            "Code intelligence result is corrupt.", code="worker_data_corrupt"
+        raise CodingSubstrateError(
+            "Code intelligence result is corrupt.",
+            code="worker_data_corrupt",
+            status=400,
         )
-    current_tree_hash = service.workspace_broker.current_tree_hash(task.workspace_id)
+    current_tree_hash = projection.current_tree_hash(task_id)
+    if current_tree_hash is None:
+        raise CodingSubstrateError(
+            "Task workspace is unavailable.",
+            code="workspace_unavailable",
+            status=409,
+        )
     try:
         return CodeIntelligenceSnapshot(
             task_id=task_id,
@@ -819,8 +833,10 @@ def _code_intelligence_snapshot(
             result={value_key: result[value_key]},
         )
     except (KeyError, ValidationError) as exc:
-        raise WorkerStoreError(
-            "Code intelligence result is corrupt.", code="worker_data_corrupt"
+        raise CodingSubstrateError(
+            "Code intelligence result is corrupt.",
+            code="worker_data_corrupt",
+            status=400,
         ) from exc
 
 
@@ -833,7 +849,7 @@ async def task_code_intelligence(
 ) -> CodeIntelligenceSnapshot:
     try:
         return _code_intelligence_snapshot(
-            get_coding_worker_service(), task_id, operation_id
+            _get_substrate().projection, task_id, operation_id
         )
     except Exception as exc:
         _raise_worker_error(exc)
@@ -848,11 +864,13 @@ async def task_diagnostics(
 ) -> CodeDiagnosticsSnapshot:
     try:
         snapshot = _code_intelligence_snapshot(
-            get_coding_worker_service(), task_id, operation_id
+            _get_substrate().projection, task_id, operation_id
         )
         if snapshot.operation != "diagnostics":
-            raise WorkerNotFoundError(
-                "Diagnostics were not found.", code="diagnostics_not_found"
+            raise CodingSubstrateError(
+                "Diagnostics were not found.",
+                code="diagnostics_not_found",
+                status=404,
             )
         diagnostics = tuple(
             WorkerDiagnostic.model_validate(item)
@@ -864,8 +882,10 @@ async def task_diagnostics(
             or item.workspace_tree_hash != snapshot.workspace_tree_hash
             for item in diagnostics
         ):
-            raise WorkerStoreError(
-                "Diagnostics result is corrupt.", code="worker_data_corrupt"
+            raise CodingSubstrateError(
+                "Diagnostics result is corrupt.",
+                code="worker_data_corrupt",
+                status=400,
             )
         return CodeDiagnosticsSnapshot(
             task_id=task_id,
@@ -879,8 +899,10 @@ async def task_diagnostics(
         )
     except ValidationError as exc:
         _raise_worker_error(
-            WorkerStoreError(
-                "Diagnostics result is corrupt.", code="worker_data_corrupt"
+            CodingSubstrateError(
+                "Diagnostics result is corrupt.",
+                code="worker_data_corrupt",
+                status=400,
             )
         )
     except Exception as exc:
@@ -892,18 +914,20 @@ async def task_diagnostics(
     response_model=WorkerChangeset,
 )
 async def task_changeset(task_id: str, operation_id: str) -> WorkerChangeset:
-    service = get_coding_worker_service()
     try:
-        operation = service.store.get_operation(operation_id)
+        operation = _get_substrate().projection.get_operation(operation_id)
         if operation.task_id != task_id:
-            raise WorkerNotFoundError(
-                "Changeset was not found.", code="changeset_not_found"
+            raise CodingSubstrateError(
+                "Changeset was not found.",
+                code="changeset_not_found",
+                status=404,
             )
         value = (operation.result or {}).get("changeset")
         if not isinstance(value, dict):
-            raise WorkerConflictError(
+            raise CodingSubstrateError(
                 "Changeset result is not available.",
                 code="changeset_result_unavailable",
+                status=409,
             )
         return WorkerChangeset.model_validate(value)
     except Exception as exc:
@@ -912,19 +936,21 @@ async def task_changeset(task_id: str, operation_id: str) -> WorkerChangeset:
 
 @router.get("/tasks/{task_id}/artifacts/{artifact_id}")
 async def task_artifact(task_id: str, artifact_id: str) -> Response:
-    service = get_coding_worker_service()
     try:
+        projection = _get_substrate().projection
         artifact = next(
             (
                 item
-                for item in service.store.list_artifacts(task_id)
+                for item in projection.list_artifacts(task_id)
                 if item.artifact_id == artifact_id
             ),
             None,
         )
         if artifact is None:
-            raise WorkerNotFoundError("Artifact was not found.", code="artifact_not_found")
-        content = service.store.read_artifact(artifact_id, task_id=task_id)
+            raise CodingSubstrateError(
+                "Artifact was not found.", code="artifact_not_found", status=404
+            )
+        content = projection.read_artifact(task_id, artifact_id)
         return Response(
             content,
             media_type=artifact.media_type,
@@ -940,7 +966,7 @@ async def task_artifact(task_id: str, artifact_id: str) -> Response:
 @router.post("/tasks/{task_id}/pause", response_model=TaskRecord)
 async def pause_task(task_id: str) -> TaskRecord:
     try:
-        return await get_coding_worker_service().pause(task_id)
+        return await _get_substrate().control_plane.pause(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -949,7 +975,7 @@ async def pause_task(task_id: str) -> TaskRecord:
 async def task_turn_history(task_id: str) -> WorkerTurnHistory:
     _require_session_controls_enabled()
     try:
-        return get_coding_worker_service().store.turn_history(task_id)
+        return _get_substrate().projection.turn_history(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -958,7 +984,7 @@ async def task_turn_history(task_id: str) -> WorkerTurnHistory:
 async def undo_task_turn(task_id: str) -> WorkerTurnHistory:
     _require_session_controls_enabled()
     try:
-        return await get_coding_worker_service().navigate_turn(task_id, "undo")
+        return await _get_substrate().control_plane.navigate_turn(task_id, "undo")
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -967,7 +993,7 @@ async def undo_task_turn(task_id: str) -> WorkerTurnHistory:
 async def redo_task_turn(task_id: str) -> WorkerTurnHistory:
     _require_session_controls_enabled()
     try:
-        return await get_coding_worker_service().navigate_turn(task_id, "redo")
+        return await _get_substrate().control_plane.navigate_turn(task_id, "redo")
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -976,7 +1002,7 @@ async def redo_task_turn(task_id: str) -> WorkerTurnHistory:
 async def fork_task(task_id: str, payload: TaskForkRequest) -> TaskRecord:
     _require_session_controls_enabled()
     try:
-        return await get_coding_worker_service().fork_task(
+        return await _get_substrate().control_plane.fork_task(
             task_id, payload.client_fork_id
         )
     except Exception as exc:
@@ -991,7 +1017,7 @@ async def create_task_subtask(
 ) -> SubtaskRecord:
     _require_subtasks_enabled()
     try:
-        return await get_coding_worker_service().create_subtask(task_id, payload)
+        return await _get_substrate().control_plane.create_subtask(task_id, payload)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -1005,7 +1031,7 @@ async def merge_task_subtask(
 ) -> SubtaskRecord:
     _require_subtasks_enabled()
     try:
-        return await get_coding_worker_service().merge_subtask(
+        return await _get_substrate().control_plane.merge_subtask(
             task_id, child_task_id, payload.operation_id
         )
     except Exception as exc:
@@ -1016,10 +1042,10 @@ async def merge_task_subtask(
 async def task_children(task_id: str) -> TaskChildrenResponse:
     _require_children_enabled()
     try:
-        service = get_coding_worker_service()
+        projection = _get_substrate().projection
         return TaskChildrenResponse(
-            tasks=tuple(service.store.list_children(task_id)),
-            subtasks=tuple(service.store.list_subtasks(task_id)),
+            tasks=tuple(projection.list_children(task_id)),
+            subtasks=tuple(projection.list_subtasks(task_id)),
         )
     except Exception as exc:
         _raise_worker_error(exc)
@@ -1029,7 +1055,7 @@ async def task_children(task_id: str) -> TaskChildrenResponse:
 async def export_task(task_id: str) -> WorkerTaskExport:
     _require_session_controls_enabled()
     try:
-        return await get_coding_worker_service().export_task(task_id)
+        return await _get_substrate().control_plane.export_task(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -1037,7 +1063,7 @@ async def export_task(task_id: str) -> WorkerTaskExport:
 @router.post("/tasks/{task_id}/resume", response_model=TaskRecord, status_code=202)
 async def resume_task(task_id: str) -> TaskRecord:
     try:
-        return await get_coding_worker_service().resume(task_id)
+        return await _get_substrate().control_plane.resume(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -1045,7 +1071,7 @@ async def resume_task(task_id: str) -> TaskRecord:
 @router.post("/tasks/{task_id}/cancel", response_model=TaskRecord)
 async def cancel_task(task_id: str) -> TaskRecord:
     try:
-        return await get_coding_worker_service().cancel(task_id)
+        return await _get_substrate().control_plane.cancel(task_id)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -1053,7 +1079,7 @@ async def cancel_task(task_id: str) -> TaskRecord:
 @router.post("/tasks/{task_id}/pin", response_model=TaskRecord)
 async def pin_task(task_id: str) -> TaskRecord:
     try:
-        return get_coding_worker_service().store.set_pinned(task_id, True)
+        return _get_substrate().control_plane.set_pinned(task_id, True)
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -1061,18 +1087,15 @@ async def pin_task(task_id: str) -> TaskRecord:
 @router.delete("/tasks/{task_id}/pin", response_model=TaskRecord)
 async def unpin_task(task_id: str) -> TaskRecord:
     try:
-        return get_coding_worker_service().store.set_pinned(task_id, False)
+        return _get_substrate().control_plane.set_pinned(task_id, False)
     except Exception as exc:
         _raise_worker_error(exc)
 
 
 @router.delete("/tasks/{task_id}", status_code=204)
 async def delete_task(task_id: str) -> Response:
-    service = get_coding_worker_service()
     try:
-        task = service.store.get_task(task_id)
-        if service.store.delete_task(task_id) and task.workspace_id is not None:
-            service.workspace_broker.delete(task.workspace_id)
+        _get_substrate().control_plane.delete_task(task_id)
         return Response(status_code=204)
     except Exception as exc:
         _raise_worker_error(exc)
@@ -1080,31 +1103,27 @@ async def delete_task(task_id: str) -> Response:
 
 @router.get("/tasks/{task_id}/workspace/tree")
 async def workspace_tree(task_id: str) -> dict[str, Any]:
-    service, task = _task_workspace(task_id)
     try:
-        return {
-            "workspace_id": task.workspace_id,
-            "tree_hash": service.workspace_broker.current_tree_hash(task.workspace_id),
-            "entries": [
-                entry.model_dump(mode="json")
-                for entry in service.workspace_broker.tree(task.workspace_id)
-            ],
-        }
+        return _get_substrate().projection.workspace_tree(task_id).model_dump(
+            mode="json"
+        )
     except Exception as exc:
         _raise_worker_error(exc)
 
 
 @router.get("/tasks/{task_id}/workspace/entries/{entry_id}")
 async def workspace_entry(task_id: str, entry_id: str) -> Response:
-    service, task = _task_workspace(task_id)
     try:
-        content = service.workspace_broker.read_entry(task.workspace_id, entry_id)
+        content = _get_substrate().projection.read_workspace_entry(
+            task_id, entry_id
+        )
         try:
             text = content.decode("utf-8", errors="strict")
         except UnicodeError as exc:
-            raise WorkspaceError(
+            raise CodingSubstrateError(
                 "Binary entries are not available as text previews.",
                 code="preview_unavailable",
+                status=400,
             ) from exc
         return Response(
             text,
@@ -1117,10 +1136,9 @@ async def workspace_entry(task_id: str, entry_id: str) -> Response:
 
 @router.get("/tasks/{task_id}/workspace/diff")
 async def workspace_diff(task_id: str) -> Response:
-    service, task = _task_workspace(task_id)
     try:
         return Response(
-            service.workspace_broker.diff(task.workspace_id),
+            _get_substrate().projection.workspace_diff(task_id),
             media_type="text/x-diff; charset=utf-8",
             headers={"Cache-Control": "no-store"},
         )
@@ -1143,37 +1161,9 @@ async def export_parity_workspace(task_id: str) -> WorkerArtifact:
     harness_v3_enabled = _feature_enabled("CODING_WORKER_HARNESS_V3_ENABLED")
     if not (parity_enabled or harness_v3_enabled):
         raise HTTPException(status_code=404, detail="Not found")
-    service, task = _task_workspace(task_id)
     try:
-        if task.state not in TERMINAL_STATES:
-            raise WorkerConflictError(
-                "Parity export requires a terminal task.",
-                code="parity_task_not_terminal",
-            )
-        snapshot = service.workspace_broker.capture_snapshot(task.workspace_id)
-        files = service.workspace_broker.snapshot_files(task.workspace_id, snapshot)
-        content = _deterministic_workspace_tar(files)
-        usage = service.store.budget_usage(task_id)
-        return service.store.create_artifact(
-            task_id=task_id,
-            media_type=(
-                "application/vnd.modelmirror.harness-workspace+tar"
-                if harness_v3_enabled
-                else "application/vnd.modelmirror.parity-workspace+tar"
-            ),
-            content=content,
-            metadata={
-                "kind": (
-                    "harness_workspace_export"
-                    if harness_v3_enabled
-                    else "parity_workspace_export"
-                ),
-                "workspace_tree_hash": snapshot.tree_hash,
-                "file_count": len(files),
-                "active_seconds": usage.active_seconds,
-                "tool_calls": usage.tool_calls,
-                "turns_started": usage.turns_started,
-            },
+        return _get_evaluation_adapter().export_workspace(
+            task_id, harness_v3=harness_v3_enabled
         )
     except Exception as exc:
         _raise_worker_error(exc)
@@ -1183,31 +1173,7 @@ async def export_parity_workspace(task_id: str) -> WorkerArtifact:
 async def harness_attestation(request: Request) -> dict[str, Any]:
     _require_harness_controller(request)
     try:
-        service = get_coding_worker_service()
-        reader = getattr(service.provider, "harness_attestations", None)
-        if not callable(reader):
-            raise WorkerConflictError(
-                "Provider Harness attestation is unavailable.",
-                code="harness_attestation_unavailable",
-            )
-        providers = await reader()
-        if len(providers) != service.max_active_tasks:
-            raise WorkerConflictError(
-                "Provider Harness attestation is incomplete.",
-                code="harness_attestation_unavailable",
-            )
-        return {
-            "protocol": "modelmirror-coding-harness-attestation/v1",
-            "server_code_bundle_sha256": harness_code_bundle_sha256(
-                Path(__file__).resolve().parent,
-                SERVER_HARNESS_CODE_FILES,
-            ),
-            "server_generation": _HARNESS_PROCESS_GENERATION,
-            "controller_generation": getattr(
-                service.provider, "controller_generation", None
-            ),
-            "providers": providers,
-        }
+        return dict(await _get_evaluation_adapter().attestation())
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -1218,26 +1184,12 @@ async def arm_harness_fault(
 ) -> dict[str, str]:
     _require_harness_controller(request)
     try:
-        get_coding_worker_service().arm_harness_fault(
+        _get_evaluation_adapter().arm_fault(
             payload.task_id, payload.component, payload.point
         )
         return {"status": "armed"}
     except Exception as exc:
         _raise_worker_error(exc)
-
-
-def _deterministic_workspace_tar(files: tuple[Any, ...]) -> bytes:
-    output = io.BytesIO()
-    with tarfile.open(fileobj=output, mode="w", format=tarfile.USTAR_FORMAT) as archive:
-        for entry in sorted(files, key=lambda item: item.path):
-            info = tarfile.TarInfo(entry.path)
-            info.size = len(entry.content)
-            info.mode = 0o755 if entry.executable else 0o644
-            info.mtime = 0
-            info.uid = info.gid = 0
-            info.uname = info.gname = ""
-            archive.addfile(info, io.BytesIO(entry.content))
-    return output.getvalue()
 
 
 @router.get("/tasks/{task_id}/services/{service_id}/preview/{preview_path:path}")
@@ -1247,28 +1199,32 @@ async def service_preview(
     preview_path: str,
     request: Request,
 ) -> Response:
-    service, task = _task_workspace(task_id)
     try:
-        if service.tool_broker is None or service.tool_broker.executor is None:
-            raise WorkerConflictError(
-                "Preview service is unavailable.", code="preview_unavailable"
+        task = _get_substrate().projection.get_task(task_id)
+        if task.workspace_id is None:
+            raise CodingSubstrateError(
+                "Workspace is not ready.",
+                code="workspace_not_ready",
+                status=409,
             )
         path = PurePosixPath(preview_path or ".")
         if "\\" in preview_path or any(part == ".." for part in path.parts):
-            raise WorkerConflictError(
-                "Preview path is invalid.", code="preview_path_invalid"
+            raise CodingSubstrateError(
+                "Preview path is invalid.",
+                code="preview_path_invalid",
+                status=409,
             )
-        result = await service.tool_broker.executor.service_status(
-            task_id=task_id,
-            workspace_id=task.workspace_id,
-            service_id=service_id,
+        result = await _get_substrate().control_plane.preview_service_status(
+            task_id, service_id
         )
-        port = result.get("preview_port")
-        if result.get("state") != "running" or isinstance(port, bool) or not isinstance(port, int):
-            raise WorkerConflictError(
-                "Preview service is not running.", code="preview_unavailable"
+        port = result.preview_port
+        if result.state != "running" or port is None:
+            raise CodingSubstrateError(
+                "Preview service is not running.",
+                code="preview_unavailable",
+                status=409,
             )
-        slot_id = service.workspace_broker.workspace_slot(task.workspace_id)
+        slot_id = result.slot_id
         host = os.getenv(
             f"CODING_WORKER_{slot_id.replace('-', '_').upper()}_PREVIEW_HOST",
             f"coding-worker-{slot_id}",
@@ -1278,8 +1234,10 @@ async def service_preview(
             f"http://{host}:{port}/{preview_path}" + (f"?{query}" if query else "")
         )
         if 300 <= upstream.status_code < 400:
-            raise WorkerConflictError(
-                "Preview redirects are not allowed.", code="preview_redirect_denied"
+            raise CodingSubstrateError(
+                "Preview redirects are not allowed.",
+                code="preview_redirect_denied",
+                status=409,
             )
         return Response(
             upstream.content,
@@ -1309,9 +1267,10 @@ async def _fetch_preview(url: str) -> httpx.Response:
             async for chunk in response.aiter_bytes(64 * 1024):
                 size += len(chunk)
                 if size > 4 * 1024 * 1024:
-                    raise WorkerConflictError(
+                    raise CodingSubstrateError(
                         "Preview response is too large.",
                         code="preview_response_too_large",
+                        status=409,
                     )
                 chunks.append(chunk)
             return httpx.Response(
@@ -1321,20 +1280,6 @@ async def _fetch_preview(url: str) -> httpx.Response:
             )
         finally:
             await response.aclose()
-
-
-def _task_workspace(task_id: str) -> tuple[CodingWorkerService, TaskRecord]:
-    service = get_coding_worker_service()
-    try:
-        task = service.store.get_task(task_id)
-    except Exception as exc:
-        _raise_worker_error(exc)
-    if task.workspace_id is None:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "workspace_not_ready", "message": "Workspace is not ready."},
-        )
-    return service, task
 
 
 def _configured_model_routes() -> list[str]:

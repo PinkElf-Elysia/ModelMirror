@@ -29,6 +29,7 @@ from .host_file_transaction import (
     _windows_handle_identity,
     _windows_open_existing,
     _windows_read_all,
+    file_generation_identity,
     file_identity,
     move_directory_no_replace,
     read_regular,
@@ -1578,6 +1579,7 @@ class HostGitApplyEngine:
         receipt: ApplyReceipt,
         *,
         applied: bool,
+        generation: bool = True,
     ) -> tuple[str, ...]:
         values: list[str] = []
         for item in receipt.files:
@@ -1592,7 +1594,11 @@ class HostGitApplyEngine:
             if current is None or _sha256(current) != expected_hash:
                 raise HostApplyError("apply_conflict")
             try:
-                identity = file_identity(target)
+                identity = (
+                    file_generation_identity(target)
+                    if generation
+                    else file_identity(target)
+                )
             except HostFileTransactionError as exc:
                 raise HostApplyError("apply_conflict") from exc
             values.append(f"{identity}:{item.path}")
@@ -1605,7 +1611,16 @@ class HostGitApplyEngine:
         *,
         applied: bool,
     ) -> None:
-        if identities != self._file_identity_receipts(receipt, applied=applied):
+        formats = {
+            "g2" if item.split(":", 1)[0].startswith("g2-") else "legacy"
+            for item in identities
+            if not item.startswith("missing:")
+        }
+        if len(formats) > 1 or identities != self._file_identity_receipts(
+            receipt,
+            applied=applied,
+            generation=formats == {"g2"},
+        ):
             raise HostApplyError("target_changed")
 
     def _assert_receipt_state(self, receipt: ApplyReceipt, *, applied: bool) -> None:

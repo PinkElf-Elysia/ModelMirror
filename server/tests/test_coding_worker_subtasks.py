@@ -780,7 +780,7 @@ def test_subtask_capability_routes_and_runtime_wiring(
         provider_tokens={"slot-a": "a" * 32, "slot-b": "b" * 32},
         broker_socket_path=None,
     )
-    configure_coding_worker_for_tests(runtime.service, enabled=True)
+    configure_coding_worker_for_tests(runtime.substrate, enabled=True)
     try:
         # Flags do not make a provider-dependent capability available. These
         # deliberately unreachable sidecars keep the public capability false.

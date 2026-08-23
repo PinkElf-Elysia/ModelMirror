@@ -406,6 +406,16 @@ class FakeCodingAgentProvider:
         self._cancelled: set[str] = set()
         self._closed: set[str] = set()
         self._requests: dict[str, ProviderOpenRequest] = {}
+        self.controller_generation = 0
+
+    async def capabilities_for_slots(
+        self, slot_ids: Sequence[str]
+    ) -> dict[str, ProviderCapabilities]:
+        capabilities = await self.capabilities()
+        return {slot_id: capabilities for slot_id in slot_ids}
+
+    async def harness_attestations(self) -> dict[str, dict[str, Any]]:
+        return {}
 
     async def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(

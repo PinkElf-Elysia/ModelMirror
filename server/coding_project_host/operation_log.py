@@ -753,14 +753,16 @@ def _valid_file_identities(value: Any, record: HostOperationRecord) -> bool:
         if not isinstance(item, str) or ":" not in item:
             return False
         identity, path = item.split(":", 1)
-        if identity != "missing" and re.fullmatch(
-            r"[a-f0-9]+-[a-f0-9]+",
-            identity,
-        ) is None:
-            return False
         if identity != "missing":
-            device_text, inode_text = identity.split("-", 1)
-            if int(device_text, 16) == 0 or int(inode_text, 16) == 0:
+            match = re.fullmatch(
+                r"(?:([a-f0-9]+)-([a-f0-9]+)|g2-([a-f0-9]+)-([a-f0-9]+)-([a-f0-9]+))",
+                identity,
+            )
+            if match is None or any(
+                int(component, 16) == 0
+                for component in match.groups()
+                if component is not None
+            ):
                 return False
         try:
             normalized = DraftWorkspace.normalize_relative_path(path)

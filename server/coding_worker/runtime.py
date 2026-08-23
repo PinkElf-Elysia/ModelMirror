@@ -7,10 +7,17 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from .broker_rpc import BrokerRPCServer
+from .adapters import (
+    LegacyExecutionBackend,
+    LegacyHarnessDriver,
+    LegacyTaskControlPlane,
+    StoreInteractionProjection,
+)
 from .evidence import HarnessRunner
 from .executor import ExecutorSidecarClientPool
 from .network_policy import EgressPolicy
 from .provider_rpc import ProviderSidecarClientPool
+from .ports import CodingSubstrateHandle
 from .service import CodingWorkerService
 from .store import CodingWorkerStore, DEFAULT_RETENTION_SECONDS
 from .tool_broker import FrozenCheck, ToolBroker
@@ -30,6 +37,47 @@ class CodingWorkerRuntimeError(RuntimeError):
     def __init__(self, message: str, *, code: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+_ACTIVE_SUBSTRATE: CodingSubstrateHandle | None = None
+_SUBSTRATE_UNAVAILABLE_REASON: str | None = None
+
+
+def is_coding_substrate_enabled() -> bool:
+    """Return the production feature gate without importing the HTTP adapter."""
+
+    return os.getenv("CODING_WORKER_V14_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def get_coding_substrate_handle() -> CodingSubstrateHandle:
+    if _ACTIVE_SUBSTRATE is None:
+        raise CodingWorkerRuntimeError(
+            "Coding substrate is unavailable.",
+            code="coding_worker_provider_unavailable",
+        )
+    return _ACTIVE_SUBSTRATE
+
+
+def get_coding_substrate_unavailability_reason() -> str | None:
+    return _SUBSTRATE_UNAVAILABLE_REASON
+
+
+def record_coding_substrate_unavailability(reason: str | None) -> None:
+    global _SUBSTRATE_UNAVAILABLE_REASON
+    _SUBSTRATE_UNAVAILABLE_REASON = reason
+
+
+def configure_coding_substrate_for_tests(
+    substrate: CodingSubstrateHandle | None,
+) -> None:
+    global _ACTIVE_SUBSTRATE, _SUBSTRATE_UNAVAILABLE_REASON
+    _ACTIVE_SUBSTRATE = substrate
+    _SUBSTRATE_UNAVAILABLE_REASON = None
 
 
 class CodingWorkerRuntime:
@@ -59,6 +107,7 @@ class CodingWorkerRuntime:
         route_context_tokens: Mapping[str, int] | None = None,
         documentation_resources: Mapping[str, str] | None = None,
         harness_faults_enabled: bool = False,
+        evaluation_profile: str | None = None,
     ) -> None:
         if (
             set(slot_roots) != set(provider_endpoints)
@@ -115,6 +164,7 @@ class CodingWorkerRuntime:
                 controller_id=controller_id,
                 controller_generation=controller_generation,
             )
+        self.executor_pool = executor_pool
         self.provider = ProviderSidecarClientPool(
             endpoints=provider_endpoints,
             tokens=provider_tokens,
@@ -124,7 +174,9 @@ class CodingWorkerRuntime:
             controller_id=controller_id,
             controller_generation=controller_generation,
         )
-        self.tool_broker.executor = executor_pool or self.provider
+        self.harness_driver = LegacyHarnessDriver(self.provider)
+        self.execution_backend = LegacyExecutionBackend(executor_pool or self.provider)
+        self.tool_broker.executor = self.execution_backend
         self.harness = HarnessRunner(
             store=self.store,
             workspace_broker=self.workspace_broker,
@@ -133,7 +185,7 @@ class CodingWorkerRuntime:
         self.service = CodingWorkerService(
             store=self.store,
             workspace_broker=self.workspace_broker,
-            provider=self.provider,
+            provider=self.harness_driver,
             harness_runner=self.harness,
             max_active_tasks=max_active_tasks,
             tool_broker=self.tool_broker,
@@ -142,14 +194,40 @@ class CodingWorkerRuntime:
         )
         self.tool_broker.subtask_handler = self.service.create_subtask
         self.tool_broker.subtask_merge_handler = self.service.merge_subtask
+        self.evaluation = None
+        if evaluation_profile is not None:
+            if evaluation_profile not in {"parity", "harness_v3"}:
+                raise CodingWorkerRuntimeError(
+                    "Evaluation profile is invalid.",
+                    code="coding_worker_config_invalid",
+                )
+            from .evaluation import LegacyEvaluationAdapter
+
+            self.evaluation = LegacyEvaluationAdapter(
+                self.service,
+                attestation_reader=self.harness_driver.harness_attestations,
+                controller_generation=lambda: self.harness_driver.controller_generation,
+            )
+        self.control_plane = LegacyTaskControlPlane(
+            self.service, network_enabled=network_enabled
+        )
+        self.projection = StoreInteractionProjection(self.service)
+        self.substrate = CodingSubstrateHandle(
+            control_plane=self.control_plane,
+            projection=self.projection,
+            harness_driver=self.harness_driver,
+            execution_backend=self.execution_backend,
+            evaluation=self.evaluation,
+        )
         self.broker_socket_path = broker_socket_path
         self.sidecar_gid = sidecar_gid
         self.network_enabled = network_enabled
         self._started = False
 
-    async def start(self) -> CodingWorkerService:
+    async def start(self) -> CodingSubstrateHandle:
+        global _ACTIVE_SUBSTRATE
         if self._started:
-            return self.service
+            return self.substrate
         if self.broker_socket_path is None:
             await self.broker_rpc.start_tcp_for_tests()
         else:
@@ -158,14 +236,18 @@ class CodingWorkerRuntime:
             )
         await self.service.start()
         self._started = True
-        return self.service
+        _ACTIVE_SUBSTRATE = self.substrate
+        return self.substrate
 
     async def close(self) -> None:
+        global _ACTIVE_SUBSTRATE
         if not self._started:
             return
         await self.service.shutdown()
         await self.broker_rpc.close()
         self._started = False
+        if _ACTIVE_SUBSTRATE is self.substrate:
+            _ACTIVE_SUBSTRATE = None
 
     @staticmethod
     def _workspace_key(storage_root: Path) -> bytes:
@@ -437,6 +519,13 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         route_context_tokens=_route_context_tokens_from_environment(),
         documentation_resources=_documentation_resources_from_environment(),
         harness_faults_enabled=harness_v3_enabled,
+        evaluation_profile=(
+            "harness_v3"
+            if harness_v3_enabled
+            else "parity"
+            if parity_enabled
+            else None
+        ),
     )
 
 

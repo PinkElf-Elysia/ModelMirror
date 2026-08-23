@@ -70,17 +70,19 @@ ACTIVE_ON_RESTART = (
 
 
 class WorkerStoreError(RuntimeError):
+    status = 400
+
     def __init__(self, message: str, *, code: str) -> None:
         super().__init__(message)
         self.code = code
 
 
 class WorkerNotFoundError(WorkerStoreError):
-    pass
+    status = 404
 
 
 class WorkerConflictError(WorkerStoreError):
-    pass
+    status = 409
 
 
 @dataclass(frozen=True)
