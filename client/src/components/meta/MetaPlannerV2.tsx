@@ -5,6 +5,9 @@ import { models } from "../../data/models";
 import { type WorkflowDefinition } from "../../types/workflow";
 import { type XpertDraft, type XpertSummary } from "../../types/xpert";
 import { listXperts, toXpertDraftWorkflow } from "../../utils/xpertApi";
+import ProviderRouteReceiptSummary, {
+  type ProviderRouteReceipt,
+} from "./ProviderRouteReceiptSummary";
 import WorkflowEditor from "../workflow/WorkflowEditor";
 
 type ScopeKey =
@@ -103,6 +106,8 @@ interface MetaPlannerResponse {
   repair_used: boolean;
   capability_snapshot_version: string;
   capability_snapshot_hash: string;
+  run_id?: string | null;
+  provider_route_receipts?: ProviderRouteReceipt | null;
 }
 
 interface AuthoringProposal {
@@ -138,6 +143,24 @@ function readError(payload: unknown, fallback: string) {
     if (typeof error === "string") return error;
   }
   return fallback;
+}
+
+export function candidateGenerationOutcome(
+  validation: Record<string, unknown>,
+  repairUsed: boolean,
+) {
+  if (validation.valid === false) {
+    return {
+      error: "候选已保留，但一次定向修复后仍未通过验证，需要人工修复。",
+      notice: "",
+    };
+  }
+  return {
+    error: "",
+    notice: repairUsed
+      ? "候选已生成并完成一次定向修复。"
+      : "候选已生成并写入审批提案。",
+  };
 }
 
 function candidateFromProposal(proposal: AuthoringProposal): CandidateXpert {
@@ -273,6 +296,7 @@ export default function MetaPlannerV2() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [repairUsed, setRepairUsed] = useState(false);
   const [snapshotHash, setSnapshotHash] = useState("");
+  const [routeReceipt, setRouteReceipt] = useState<ProviderRouteReceipt | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -324,7 +348,12 @@ export default function MetaPlannerV2() {
     };
   }, []);
 
-  async function loadProposal(proposalId: string, showNotice = true) {
+  async function loadProposal(
+    proposalId: string,
+    showNotice = true,
+    clearRouteReceipt = true,
+  ) {
+    if (clearRouteReceipt) setRouteReceipt(null);
     const response = await fetch(`/api/runtime/authoring-proposals/${proposalId}`);
     const payload = (await response.json().catch(() => null)) as
       | AuthoringProposal
@@ -379,6 +408,7 @@ export default function MetaPlannerV2() {
     setIsGenerating(true);
     setError("");
     setNotice("");
+    setRouteReceipt(null);
     try {
       const response = await fetch("/api/meta-agent/generate-xpert-candidate", {
         method: "POST",
@@ -396,9 +426,14 @@ export default function MetaPlannerV2() {
       });
       const payload = (await response.json().catch(() => null)) as
         | MetaPlannerResponse
-        | { detail?: string }
+        | {
+            detail?: string;
+            error?: string;
+            provider_route_receipts?: ProviderRouteReceipt | null;
+          }
         | null;
       if (!response.ok || !payload || !("proposal_id" in payload)) {
+        setRouteReceipt(payload?.provider_route_receipts ?? null);
         throw new Error(readError(payload, "Meta Planner 生成失败。"));
       }
       const generated = payload as MetaPlannerResponse;
@@ -407,12 +442,14 @@ export default function MetaPlannerV2() {
       setWarnings(generated.warnings);
       setRepairUsed(generated.repair_used);
       setSnapshotHash(generated.capability_snapshot_hash);
-      await loadProposal(generated.proposal_id, false);
-      setNotice(
-        generated.repair_used
-          ? "候选已生成并完成一次定向修复。"
-          : "候选已生成并写入审批提案。",
+      setRouteReceipt(generated.provider_route_receipts ?? null);
+      await loadProposal(generated.proposal_id, false, false);
+      const outcome = candidateGenerationOutcome(
+        generated.validation,
+        generated.repair_used,
       );
+      setError(outcome.error);
+      setNotice(outcome.notice);
     } catch (generateError) {
       setError(
         generateError instanceof Error ? generateError.message : "Meta Planner 生成失败。",
@@ -909,6 +946,9 @@ export default function MetaPlannerV2() {
             <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100">
               {notice}
             </div>
+          ) : null}
+          {routeReceipt ? (
+            <ProviderRouteReceiptSummary receipt={routeReceipt} />
           ) : null}
           {error ? (
             <div className="rounded-lg border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm text-rose-100">

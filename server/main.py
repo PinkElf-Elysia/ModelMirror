@@ -553,6 +553,9 @@ try:
     from server.meta_agent import (
         MetaAgentGenerateRequest,
         MetaAgentGenerateResponse,
+        ManagedMetaAgentGateway,
+        ManagedMetaAgentRoutingError,
+        ManagedMetaAgentRun,
         MetaPlannerGenerateRequest,
         MetaPlannerGenerateResponse,
         MetaPlannerScope,
@@ -634,6 +637,9 @@ except ModuleNotFoundError:
     from meta_agent import (
         MetaAgentGenerateRequest,
         MetaAgentGenerateResponse,
+        ManagedMetaAgentGateway,
+        ManagedMetaAgentRoutingError,
+        ManagedMetaAgentRun,
         MetaPlannerGenerateRequest,
         MetaPlannerGenerateResponse,
         MetaPlannerScope,
@@ -7843,11 +7849,6 @@ async def generate_meta_planner_xpert_candidate(
     payload: MetaPlannerGenerateRequest,
     request: Request,
 ):
-    if not get_llm_gateway_config()[0]:
-        return JSONResponse(
-            status_code=500,
-            content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
-        )
     try:
         rate_limit_or_raise(client_ip(request))
         validate_plain_message(payload.goal)
@@ -7871,6 +7872,24 @@ async def generate_meta_planner_xpert_candidate(
             content={"error": "Create mode cannot set target_xpert_id."},
         )
 
+    managed_gateway = ManagedMetaAgentGateway.for_router(
+        get_model_router_service()
+    )
+    routing_mode = managed_gateway.routing_mode()
+    if routing_mode == "legacy" and not get_llm_gateway_config()[0]:
+        return JSONResponse(
+            status_code=500,
+            content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
+        )
+    if routing_mode == "degraded_required":
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "Meta Agent 的 Managed Provider 策略已失效，当前入口失败关闭。",
+                "code": "provider_workload_meta_agent_degraded_required",
+            },
+        )
+
     run = await run_registry.create_run(
         "meta_planner",
         f"Meta Planner: {payload.goal[:80]}",
@@ -7890,6 +7909,29 @@ async def generate_meta_planner_xpert_candidate(
         metadata={"mode": payload.mode},
     )
 
+    managed_run: ManagedMetaAgentRun | None = None
+    if routing_mode == "managed_required":
+        try:
+            managed_run = managed_gateway.start_run(
+                parent_run_reference=run.run_id
+            )
+        except RouterServiceError as exc:
+            await run_registry.update_run(
+                run.run_id,
+                status="failed",
+                error="Managed Provider route failed before dispatch.",
+            )
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "error": "Meta Agent 的 Managed Provider 路由已失败关闭。",
+                    "code": exc.code,
+                    "run_id": run.run_id,
+                },
+            )
+
+    call_sequence = 0
+
     async def complete(
         model_id: str,
         system_prompt: str,
@@ -7897,6 +7939,18 @@ async def generate_meta_planner_xpert_candidate(
         temperature: float,
         max_tokens: int,
     ) -> str:
+        nonlocal call_sequence
+        if managed_run is not None:
+            call_sequence += 1
+            return await managed_run.complete_json(
+                logical_call_key=f"{run.run_id}:meta-planner:{call_sequence}",
+                call_sequence=call_sequence,
+                model_id=model_id,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
         return await collect_chat_completion_text(
             model_id,
             [
@@ -7920,6 +7974,22 @@ async def generate_meta_planner_xpert_candidate(
             target=target,
             source_run_id=run.run_id,
         )
+        if managed_run is not None:
+            if response.validation.get("valid") is True:
+                managed_run.finish("passed")
+            else:
+                managed_run.finish(
+                    "failed",
+                    reason_code="provider_workload_meta_agent_validation_failed",
+                )
+        response = response.model_copy(
+            update={
+                "run_id": run.run_id,
+                "provider_route_receipts": (
+                    managed_run.receipt_summary() if managed_run is not None else None
+                ),
+            }
+        )
         await run_registry.record_checkpoint(
             run.run_id,
             event_type="meta_planner.completed",
@@ -7938,13 +8008,82 @@ async def generate_meta_planner_xpert_candidate(
             metadata={"proposal_id": response.proposal_id},
         )
         return response
+    except asyncio.CancelledError:
+        if managed_run is not None:
+            managed_run.finish(
+                "cancelled", reason_code="provider_workload_call_cancelled"
+            )
+        await run_registry.update_run(
+            run.run_id,
+            status="cancelled",
+            error="Meta Agent request was cancelled.",
+        )
+        raise
+    except ManagedMetaAgentRoutingError as exc:
+        if managed_run is not None:
+            failure_status = (
+                "uncertain"
+                if any(item.status == "uncertain" for item in managed_run.calls)
+                else "failed"
+            )
+            managed_run.finish(failure_status, reason_code=exc.code)
+        await run_registry.update_run(
+            run.run_id,
+            status="failed",
+            error="Managed Provider route failed closed.",
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": exc.public_message,
+                "code": exc.code,
+                "run_id": run.run_id,
+                "provider_route_receipts": (
+                    managed_run.receipt_summary().model_dump(mode="json")
+                    if managed_run is not None
+                    else None
+                ),
+            },
+        )
     except ValueError as exc:
-        await run_registry.update_run(run.run_id, status="failed", error=str(exc)[:500])
-        return JSONResponse(status_code=422, content={"error": str(exc)})
+        if managed_run is not None:
+            managed_run.finish(
+                "failed", reason_code="provider_workload_meta_agent_invalid_output"
+            )
+            error_message = "Managed Provider 未生成可验证的 Meta Agent 结构化结果。"
+            error_code = "provider_workload_meta_agent_invalid_output"
+        else:
+            error_message = str(exc)
+            error_code = None
+        await run_registry.update_run(
+            run.run_id, status="failed", error=error_message[:500]
+        )
+        content: dict[str, Any] = {"error": error_message, "run_id": run.run_id}
+        if error_code:
+            content["code"] = error_code
+            content["provider_route_receipts"] = managed_run.receipt_summary().model_dump(
+                mode="json"
+            )
+        return JSONResponse(status_code=422, content=content)
     except Exception as exc:
         logger.exception("Meta Planner V2 candidate generation failed")
-        await run_registry.update_run(run.run_id, status="failed", error=str(exc)[:500])
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        if managed_run is not None:
+            managed_run.finish(
+                "failed", reason_code="provider_workload_meta_agent_internal_error"
+            )
+            error_message = "Meta Agent 生成失败；Managed Provider 调用不会自动重放。"
+        else:
+            error_message = str(exc)
+        await run_registry.update_run(
+            run.run_id, status="failed", error=error_message[:500]
+        )
+        content: dict[str, Any] = {"error": error_message, "run_id": run.run_id}
+        if managed_run is not None:
+            content["code"] = "provider_workload_meta_agent_internal_error"
+            content["provider_route_receipts"] = managed_run.receipt_summary().model_dump(
+                mode="json"
+            )
+        return JSONResponse(status_code=500, content=content)
 
 
 @app.post("/api/meta-agent/generate-workflow", response_model=MetaAgentGenerateResponse)
@@ -7952,29 +8091,79 @@ async def generate_meta_agent_workflow(
     payload: MetaAgentGenerateRequest,
     request: Request,
 ):
-    if not get_llm_gateway_config()[0]:
-        return JSONResponse(
-            status_code=500,
-            content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
-        )
-
     try:
         rate_limit_or_raise(client_ip(request))
         validate_plain_message(payload.goal)
     except HTTPException as exc:
         return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)})
 
+    managed_gateway = ManagedMetaAgentGateway.for_router(
+        get_model_router_service()
+    )
+    routing_mode = managed_gateway.routing_mode()
+    if routing_mode == "legacy" and not get_llm_gateway_config()[0]:
+        return JSONResponse(
+            status_code=500,
+            content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
+        )
+    if routing_mode == "degraded_required":
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "Meta Agent 的 Managed Provider 策略已失效，当前入口失败关闭。",
+                "code": "provider_workload_meta_agent_degraded_required",
+            },
+        )
+
+    run = await run_registry.create_run(
+        "meta_planner",
+        f"Meta Agent workflow: {payload.goal[:80]}",
+        status="running",
+        metadata={"model_id": payload.model_id, "max_tasks": payload.max_tasks},
+    )
+    managed_run: ManagedMetaAgentRun | None = None
+    if routing_mode == "managed_required":
+        try:
+            managed_run = managed_gateway.start_run(
+                parent_run_reference=run.run_id
+            )
+        except RouterServiceError as exc:
+            await run_registry.update_run(
+                run.run_id,
+                status="failed",
+                error="Managed Provider route failed before dispatch.",
+            )
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "error": "Meta Agent 的 Managed Provider 路由已失败关闭。",
+                    "code": exc.code,
+                    "run_id": run.run_id,
+                },
+            )
+
     try:
         prompt = build_meta_agent_prompt(payload.goal, payload.max_tasks)
-        raw_plan = await collect_chat_completion_text(
-            payload.model_id,
-            [
-                ChatMessage(role="system", content=META_AGENT_SYSTEM_PROMPT),
-                ChatMessage(role="user", content=prompt),
-            ],
-            temperature=payload.temperature,
-            max_tokens=4096,
-        )
+        if managed_run is not None:
+            raw_plan = await managed_run.complete_json(
+                logical_call_key=f"{run.run_id}:workflow-plan:1",
+                call_sequence=1,
+                model_id=payload.model_id,
+                system_prompt=META_AGENT_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                temperature=payload.temperature,
+                max_tokens=4096,
+            )
+        else:
+            raw_plan = await collect_chat_completion_text(
+                payload.model_id,
+                [
+                    ChatMessage(role="system", content=META_AGENT_SYSTEM_PROMPT),
+                    ChatMessage(role="user", content=prompt),
+                ],
+                temperature=payload.temperature,
+                max_tokens=4096,
+            )
         plan = parse_meta_agent_plan(raw_plan, max_tasks=payload.max_tasks)
         workflow, warnings = build_workflow_from_plan(
             goal=payload.goal,
@@ -7993,18 +8182,101 @@ async def generate_meta_agent_workflow(
                 }
             )
         )
-        return MetaAgentGenerateResponse(
+        if managed_run is not None:
+            if validation.valid:
+                managed_run.finish("passed")
+            else:
+                managed_run.finish(
+                    "failed",
+                    reason_code="provider_workload_meta_agent_validation_failed",
+                )
+        response = MetaAgentGenerateResponse(
             goal=payload.goal,
             plan=plan,
             workflow=workflow,
             warnings=warnings,
             validation=validation.model_dump(mode="json"),
+            run_id=run.run_id,
+            provider_route_receipts=(
+                managed_run.receipt_summary() if managed_run is not None else None
+            ),
+        )
+        await run_registry.update_run(run.run_id, status="completed")
+        return response
+    except asyncio.CancelledError:
+        if managed_run is not None:
+            managed_run.finish(
+                "cancelled", reason_code="provider_workload_call_cancelled"
+            )
+        await run_registry.update_run(
+            run.run_id,
+            status="cancelled",
+            error="Meta Agent request was cancelled.",
+        )
+        raise
+    except ManagedMetaAgentRoutingError as exc:
+        if managed_run is not None:
+            failure_status = (
+                "uncertain"
+                if any(item.status == "uncertain" for item in managed_run.calls)
+                else "failed"
+            )
+            managed_run.finish(failure_status, reason_code=exc.code)
+        await run_registry.update_run(
+            run.run_id,
+            status="failed",
+            error="Managed Provider route failed closed.",
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": exc.public_message,
+                "code": exc.code,
+                "run_id": run.run_id,
+                "provider_route_receipts": (
+                    managed_run.receipt_summary().model_dump(mode="json")
+                    if managed_run is not None
+                    else None
+                ),
+            },
         )
     except ValueError as exc:
-        return JSONResponse(status_code=422, content={"error": str(exc)})
+        if managed_run is not None:
+            managed_run.finish(
+                "failed", reason_code="provider_workload_meta_agent_invalid_output"
+            )
+            error_message = "Managed Provider 未生成可验证的 Meta Agent 工作流计划。"
+        else:
+            error_message = str(exc)
+        await run_registry.update_run(
+            run.run_id, status="failed", error=error_message[:500]
+        )
+        content: dict[str, Any] = {"error": error_message, "run_id": run.run_id}
+        if managed_run is not None:
+            content["code"] = "provider_workload_meta_agent_invalid_output"
+            content["provider_route_receipts"] = managed_run.receipt_summary().model_dump(
+                mode="json"
+            )
+        return JSONResponse(status_code=422, content=content)
     except Exception as exc:
         logger.exception("Meta-agent workflow generation failed")
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        if managed_run is not None:
+            managed_run.finish(
+                "failed", reason_code="provider_workload_meta_agent_internal_error"
+            )
+            error_message = "Meta Agent 生成失败；Managed Provider 调用不会自动重放。"
+        else:
+            error_message = str(exc)
+        await run_registry.update_run(
+            run.run_id, status="failed", error=error_message[:500]
+        )
+        content: dict[str, Any] = {"error": error_message, "run_id": run.run_id}
+        if managed_run is not None:
+            content["code"] = "provider_workload_meta_agent_internal_error"
+            content["provider_route_receipts"] = managed_run.receipt_summary().model_dump(
+                mode="json"
+            )
+        return JSONResponse(status_code=500, content=content)
 
 
 @dataclass(slots=True)

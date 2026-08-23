@@ -217,12 +217,19 @@ MODEL_CONTROL_ROUTE_AGENT_ENABLED=false
 MODEL_CONTROL_TEAM_CHAT_ENABLED=false
 ```
 
-R6B 仅接入 `agent_shadow` 数据面；其他 Agent、Workflow 和 Xpert 入口仍不能激活
-Managed Policy。`agent_shadow` 只有在 `MODEL_CONTROL_AGENT_SHADOW_ENABLED=true`、
+R6B 接入 `agent_shadow`，R6C 接入两个 Meta Agent 生成入口；其他 Workflow 和 Xpert 入口
+仍不能激活 Managed Policy。`agent_shadow` 只有在
+`MODEL_CONTROL_AGENT_SHADOW_ENABLED=true`、
 精确模型的 `chat_tools` 资格与 Binding 有效、且管理员明确批准 fail-closed 后才会接管。
 开关为 `false` 或 Policy 为 `legacy` 时继续使用原 Shadow 网关路径；已经激活但失效的
 Policy 会保持 `degraded_required`，不会自动回退。紧急回退需显式停用 Policy 或关闭该
 开关并重启 Server；保留 v16 Receipt 和 Shadow Workspace 数据。
+
+Meta Agent 只有在 `MODEL_CONTROL_META_AGENT_ENABLED=true`、精确模型的
+`chat_json_object` 资格与 Binding 有效、且管理员批准 fail-closed 后才会接管。关闭开关或
+显式停用 `meta_agent` Policy 会恢复原静态网关路径；已经激活但资格失效时保持失败关闭。
+两个生成接口在 managed 模式均返回脱敏 `provider_route_receipts`，不得从中推断或输出
+连接、URL、凭据、Prompt 或模型正文。
 
 同一清理命令从 v16 起同时报告 R5 Chat 与 R6 Workload 的过期记录；第一条仍是 dry-run，
 只有第二条显式 `--apply` 才删除已完成记录。不得对正在运行的父运行或逻辑调用执行清理。

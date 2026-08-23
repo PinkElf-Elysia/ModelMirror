@@ -84,6 +84,81 @@ def test_generic_meta_planner_keeps_hitl_scoped_to_expert_team():
     assert "output_variable" not in task_properties
 
 
+def test_task_plan_rejects_unscoped_expert_bindings_before_blueprint():
+    plan = _plan().model_copy(deep=True)
+    plan.tasks[0].agent_id = "invented_release_architect"
+
+    issues = validate_task_plan(
+        plan,
+        max_agents=3,
+        authorized_agent_ids=set(),
+    )
+
+    assert issues == [
+        "Task research binds unauthorized expert invented_release_architect."
+    ]
+
+
+def test_blueprint_and_repair_prompts_expose_typed_ir_agent_constraints():
+    request = _request()
+    plan = _plan()
+    snapshot = _snapshot()
+    plan_prompt = json.loads(MetaPlannerV2Service._plan_prompt(request))
+
+    blueprint_prompt = json.loads(
+        MetaPlannerV2Service._blueprint_prompt(request, plan, snapshot, None)
+    )
+    repair_prompt = json.loads(
+        MetaPlannerV2Service._repair_prompt(
+            request,
+            plan,
+            snapshot,
+            '{"ir_version": 2}',
+            ["Typed IR exceeds max_agents=3."],
+        )
+    )
+
+    for prompt in (blueprint_prompt, repair_prompt):
+        constraints = prompt["typed_ir_constraints"]
+        assert constraints["max_workflow_agent_nodes"] == request.max_agents
+        assert constraints["required_task_ids"] == [
+            task.task_id for task in plan.tasks
+        ]
+        assert sorted(
+            task_id
+            for group in constraints["suggested_task_groups"]
+            for task_id in group
+        ) == sorted(task.task_id for task in plan.tasks)
+        assert len(constraints["suggested_task_groups"]) <= request.max_agents
+        assert constraints["task_dependencies"] == {
+            task.task_id: task.depends_on for task in plan.tasks
+        }
+        assert constraints["task_agent_bindings"] == {
+            task.task_id: task.agent_id for task in plan.tasks
+        }
+        assert constraints["authorized_agent_ids"] == request.scope.agent_ids
+        assert constraints["workflow_agent_config_allowed_fields"] == list(
+            MetaPlannerWorkflowAgentConfig.model_fields
+        )
+        assert constraints["workflow_agent_config_forbidden_fields"] == [
+            "agent_id"
+        ]
+        assert any(
+            "group compatible task_ids" in rule
+            for rule in constraints["rules"]
+        )
+        assert prompt["default_agent_model_id"] == request.default_agent_model_id
+
+    assert repair_prompt["validation_issues"] == [
+        "Typed IR exceeds max_agents=3."
+    ]
+    assert plan_prompt["authorized_agent_ids"] == request.scope.agent_ids
+    assert any(
+        "omit agent_id or set it to null" in rule
+        for rule in plan_prompt["rules"]
+    )
+
+
 def _resource(
     resource_id: str,
     name: str,
@@ -639,6 +714,64 @@ async def test_failed_repair_persists_unapprovable_candidate_until_human_edit(
         revision=edited.revision,
     )
     assert validated.validation["valid"] is True
+
+
+@pytest.mark.asyncio
+async def test_update_revision_drift_uses_final_proposal_validation(
+    tmp_path: Path,
+):
+    proposal_store = AuthoringProposalStore(tmp_path / "runtime")
+    xpert_store = XpertStore(tmp_path / "xperts")
+    skill_store = WorkspaceSkillDraftStore(tmp_path / "skills")
+    target = xpert_store.create_xpert(name="Revision drift target")
+
+    def preflight(candidate):
+        result = validate_xpert_definition(candidate)
+        return result, candidate.draft.workflow, []
+
+    authoring = AuthoringService(
+        proposal_store,
+        xpert_store,
+        skill_store,
+        xpert_preflight=preflight,
+    )
+    original_validate = authoring.validate
+
+    def validate_after_revision_drift(proposal_id: str, *, revision: int):
+        current = xpert_store.get_xpert(target.id)
+        xpert_store.update_xpert(
+            target.id,
+            {"draft": current.draft.model_dump(mode="json")},
+        )
+        return original_validate(proposal_id, revision=revision)
+
+    authoring.validate = validate_after_revision_drift  # type: ignore[method-assign]
+    outputs = [_plan().model_dump_json(), _typed_blueprint().model_dump_json()]
+
+    async def complete(model_id, system_prompt, user_prompt, temperature, max_tokens):
+        return outputs.pop(0)
+
+    service = MetaPlannerV2Service(
+        authoring_service=authoring,
+        preflight=preflight,
+        completion=complete,
+    )
+    request = _request().model_copy(
+        update={"mode": "update", "target_xpert_id": target.id}
+    )
+
+    response = await service.generate(request, _snapshot(), target=target)
+
+    proposal = proposal_store.require(response.proposal_id)
+    assert proposal.validation["valid"] is False
+    assert response.validation["valid"] is False
+    authoring_stage = next(
+        stage
+        for stage in response.validation["stages"]
+        if stage["id"] == "authoring_proposal"
+    )
+    assert authoring_stage["valid"] is False
+    assert authoring_stage["issues"]
 
 
 @pytest.mark.asyncio

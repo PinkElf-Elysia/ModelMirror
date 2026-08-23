@@ -10,6 +10,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
 import MetaPlannerV2 from "../components/meta/MetaPlannerV2";
+import ProviderRouteReceiptSummary, {
+  type ProviderRouteReceipt,
+} from "../components/meta/ProviderRouteReceiptSummary";
 import RuntimeApprovalPanel from "../components/runtime/RuntimeApprovalPanel";
 import BrowserSessionPanel from "../components/runtime/BrowserSessionPanel";
 import ClientToolPanel from "../components/runtime/ClientToolPanel";
@@ -76,6 +79,8 @@ interface MetaAgentGenerateResponse {
   workflow: WorkflowDefinition;
   warnings: string[];
   validation: MetaAgentValidation;
+  run_id?: string | null;
+  provider_route_receipts?: ProviderRouteReceipt | null;
 }
 
 interface AgentTaskSummary {
@@ -133,14 +138,12 @@ const goalTemplates = [
   },
 ];
 
-const plannerModelOptions = models
-  .filter(
-    (model) =>
-      model.active &&
-      model.input_modalities.includes("text") &&
-      model.capabilities.includes("text"),
-  )
-  .slice(0, 120);
+export const plannerModelOptions = models.filter(
+  (model) =>
+    model.active &&
+    model.input_modalities.includes("text") &&
+    model.capabilities.includes("text"),
+);
 
 const defaultPlannerModel =
   plannerModelOptions.find((model) => model.id === "openai/gpt-5.6-sol")?.id ??
@@ -323,6 +326,7 @@ export default function MetaAgentPage() {
   const [temperature, setTemperature] = useState(0.3);
   const [maxTasks, setMaxTasks] = useState(5);
   const [result, setResult] = useState<MetaAgentGenerateResponse | null>(null);
+  const [routeReceipt, setRouteReceipt] = useState<ProviderRouteReceipt | null>(null);
   const [error, setError] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [agentTasks, setAgentTasks] = useState<AgentTaskSummary[]>([]);
@@ -788,6 +792,7 @@ export default function MetaAgentPage() {
     }
 
     setError("");
+    setRouteReceipt(null);
     setIsGenerating(true);
     try {
       const response = await fetch("/api/meta-agent/generate-workflow", {
@@ -802,13 +807,19 @@ export default function MetaAgentPage() {
       });
       const payload = (await response.json().catch(() => null)) as
         | MetaAgentGenerateResponse
-        | { error?: string; detail?: unknown }
+        | {
+            error?: string;
+            detail?: unknown;
+            provider_route_receipts?: ProviderRouteReceipt | null;
+          }
         | null;
       if (!response.ok) {
+        setRouteReceipt(payload?.provider_route_receipts ?? null);
         throw new Error(errorMessage(payload, "生成失败，请检查模型网关配置。"));
       }
       const generated = payload as MetaAgentGenerateResponse;
       setResult(generated);
+      setRouteReceipt(generated.provider_route_receipts ?? null);
       await createAgentTaskForResult(generated, trimmedGoal);
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : "生成失败。");
@@ -975,6 +986,11 @@ export default function MetaAgentPage() {
           {error ? (
             <div className="mt-4 rounded-lg border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm leading-6 text-rose-100">
               {error}
+            </div>
+          ) : null}
+          {routeReceipt ? (
+            <div className="mt-4">
+              <ProviderRouteReceiptSummary receipt={routeReceipt} />
             </div>
           ) : null}
         </section>
