@@ -501,7 +501,7 @@ class ProviderSidecarClientPool(CodingAgentProvider):
             raise ValueError("provider controller binding is invalid")
         self._controller_id = controller_id
         self._controller_generation = controller_generation
-        self._sessions: dict[str, tuple[str, str, str]] = {}
+        self._sessions: dict[tuple[str, str], tuple[str, str, str]] = {}
 
     async def capabilities(self) -> ProviderCapabilities:
         values = [
@@ -616,7 +616,7 @@ class ProviderSidecarClientPool(CodingAgentProvider):
             raise ProviderRPCError(
                 "Provider session binding is invalid.", code="provider_invalid_response"
             )
-        self._sessions[session.session_id] = (
+        self._sessions[self._session_key(session)] = (
             slot_id,
             session.task_id,
             request.workspace_id,
@@ -679,7 +679,7 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         )
 
     async def close(self, session: ProviderSession) -> None:
-        binding = self._sessions.pop(session.session_id, None)
+        binding = self._sessions.pop(self._session_key(session), None)
         if binding is None or binding[1] != session.task_id:
             return
         slot_id = binding[0]
@@ -776,12 +776,16 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         return await self._call(slot_id, action, payload)
 
     def _require_session(self, session: ProviderSession) -> str:
-        binding = self._sessions.get(session.session_id)
+        binding = self._sessions.get(self._session_key(session))
         if binding is None or binding[1] != session.task_id:
             raise ProviderRPCError(
                 "Provider session was not found.", code="session_not_found"
             )
         return binding[0]
+
+    @staticmethod
+    def _session_key(session: ProviderSession) -> tuple[str, str]:
+        return session.task_id, session.session_id
 
     async def _call(
         self, slot_id: str, action: str, payload: dict[str, Any]
