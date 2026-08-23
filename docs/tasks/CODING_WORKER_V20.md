@@ -91,8 +91,8 @@ PR B 最终候选自动证据：Coding Worker `430 passed, 5 skipped`；后端�
 
 阶段专项证据：最终供应链、标准 Driver、隔离与架构组合门禁 `39 passed`；在线 attestation 完整闭包 `93 passed`；两套镜像构建、包/Schema/运行时版本校验及无网络只读准入烟测通过。镜像实测发现并修复了源码态 `server.coding_worker` 包名无法在容器中加载、根包隐式拉入 Store/crypto、Pydantic 传递依赖漂移、Codex 拒绝面二进制残留和 health 未核验完整 manifest 等问题。
 
-PR C 最终自动证据：Coding Worker `463 passed, 5 skipped`；Agent Workspace、Coding Runtime 与 Project Host `441 passed, 9 skipped`；rebase 到包含 PR #261 的最新主线后，后端独立全量 `4101 passed, 29 skipped`；前端独立全量 `100 files / 551 tests` 与 production build 通过。主 Worker 与 evaluation Compose 静态展开、V18 compile、Fake smoke、`git diff --check`、敏感信息和禁止产物扫描均通过，Fake smoke 仍为 8 条记录、四类别齐全，摘要 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。
+PR C 最终自动证据：Coding Worker `463 passed, 5 skipped`；Agent Workspace、Coding Runtime 与 Project Host `441 passed, 9 skipped`；最终再次 rebase 到包含 PR #261、#262、#263 的主线后，后端独立全量 `4183 passed, 29 skipped`；前端独立全量 `104 files / 570 tests` 与 production build 通过。主 Worker 与 evaluation Compose 静态展开、V18 compile、Fake smoke、`git diff --check`、敏感信息和禁止产物扫描均通过，Fake smoke 仍为 8 条记录、四类别齐全，摘要 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。
 
-rebase 后首次把前后端全量并行运行时，既有 Chat/OCR 交互测试未展开面板，模型路由 p95 微基准以 `10.165ms` 略过 `10ms` 阈值。两者与 PR C Diff 无交集；停止并发后，OCR 单文件 `5/5` 通过，路由微基准连续 `3/3` 通过，随后前端和后端各自独立全量均通过。未修改这两个模块、未放宽阈值，也未用单项绿测替代最终全量证据。
+在 #261 rebase 阶段首次把前后端全量并行运行时，既有 Chat/OCR 交互测试未展开面板，模型路由 p95 微基准以 `10.165ms` 略过 `10ms` 阈值。两者与 PR C Diff 无交集；停止并发后，OCR 单文件 `5/5` 通过，路由微基准连续 `3/3` 通过，随后前端和后端各自独立全量均通过。最终 #262/#263 基线上再次独立全量通过；未修改这两个模块、未放宽阈值，也未用单项绿测替代最终全量证据。
 
 本阶段没有调用真实模型、没有运行另行授权的四次真实任务、校准或认证。因此当前只证明自动工程门禁与 evaluation conformance/准入边界完成；不能使用 V20 最终交付结论，也不形成任何能力提升、接近或等效表述。
