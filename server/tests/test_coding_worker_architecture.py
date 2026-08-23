@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 import inspect
-import json
 import subprocess
 import sys
 from importlib.util import resolve_name
@@ -13,6 +12,7 @@ from server.coding_worker.ports import (
     EvaluationAdapter,
     ExecutionBackend,
     HarnessDriver,
+    HarnessSupervisor,
     InteractionProjection,
     TaskControlPlane,
 )
@@ -75,30 +75,39 @@ def test_v19_ports_cover_control_harness_execution_projection_and_evaluation() -
     } == set(CodingSubstrateHandle.__dataclass_fields__)
     assert inspect.isclass(TaskControlPlane)
     assert inspect.isclass(InteractionProjection)
+    assert inspect.isclass(HarnessSupervisor)
     assert inspect.isclass(HarnessDriver)
     assert inspect.isclass(ExecutionBackend)
     assert inspect.isclass(EvaluationAdapter)
 
 
-def test_reference_lifecycles_fit_the_neutral_harness_driver() -> None:
-    methods = set(HarnessDriver.__dict__)
-    fixture = json.loads(
-        (ROOT / "server/tests/fixtures/coding_worker_v19_harness_lifecycles.json")
-        .read_text(encoding="utf-8")
-    )
-    assert fixture["protocol"] == "modelmirror-harness-lifecycle-traces/v1"
-    for trace in fixture["traces"]:
-        steps = trace["steps"]
-        assert [step["sequence"] for step in steps] == list(
-            range(1, len(steps) + 1)
-        )
-        assert len({step["correlation_id"] for step in steps}) == len(steps)
-        for step in steps:
-            assert step["session_id"]
-            assert step["neutral"] == "event" or step["neutral"] in methods
-    assert {"message", "steer", "interrupt_turn", "checkpoint", "close"}.issubset(
-        methods
-    )
+def test_harness_supervision_is_not_part_of_the_session_driver() -> None:
+    supervisor_methods = set(HarnessSupervisor.__dict__)
+    driver_methods = set(HarnessDriver.__dict__)
+    assert {
+        "capabilities",
+        "capabilities_for_slots",
+        "controller_generation",
+        "harness_attestations",
+        "harness_descriptors_for_slots",
+    }.issubset(supervisor_methods)
+    assert {
+        "open",
+        "message",
+        "steer",
+        "cancel",
+        "interrupt_turn",
+        "checkpoint",
+        "restore",
+        "close",
+    }.issubset(driver_methods)
+    assert {
+        "capabilities",
+        "capabilities_for_slots",
+        "controller_generation",
+        "harness_attestations",
+        "harness_descriptors_for_slots",
+    }.isdisjoint(driver_methods)
 
 
 def test_pr_a_freezes_existing_boundary_debt_without_allowing_expansion() -> None:
