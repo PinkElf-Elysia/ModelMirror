@@ -132,12 +132,12 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R15 policy", () => {
+test("machine boundary and code expose the same ordered R16 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
-  assert.equal(policy.schemaVersion, 15);
+  assert.equal(policy.schemaVersion, 16);
   assert.equal(policy.activeRound, ACTIVE_ROUND);
   assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
@@ -156,26 +156,26 @@ test("machine boundary and code expose the same ordered R15 policy", () => {
     path.join(committedModuleRoot, "scripts", "check-round-scope.mjs"),
     "utf8",
   );
-  assert.match(cli, /policy\.schemaVersion !== 15/);
-  assert.doesNotMatch(cli, /policy\.schemaVersion !== 14/);
+  assert.match(cli, /policy\.schemaVersion !== 16/);
+  assert.doesNotMatch(cli, /policy\.schemaVersion !== 15/);
 });
 
-test("accepts exact R15 files and new package prefixes in every Git status source", (t) => {
+test("accepts exact R16 files and new package prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-runtime-evidence-contracts/src/index.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-creator-qualification-contracts/src/index.mjs`, "export {};\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-runtime-evidence/src/index.mjs`, "export {};\n");
-  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-runtime-evidence/src/index.mjs`]);
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-creator-qualification/src/index.mjs`, "export {};\n");
+  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-creator-qualification/src/index.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
-  write(fixture, `${MODULE_PREFIX}/scripts/lib/runtime-evidence-core.mjs`);
-  write(fixture, `${MODULE_PREFIX}/scripts/plan-r15-replay.mjs`);
-  write(fixture, `${MODULE_PREFIX}/tests/r15-runtime-evidence.test.mjs`);
-  write(fixture, `${MODULE_PREFIX}/tests/prototype-asset-cli.test.mjs`);
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R15_ACCEPTANCE.md`);
-  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/runtime_evidence/evidence_runner.gd`, "extends Node\n");
+  write(fixture, `${MODULE_PREFIX}/scripts/lib/creator-qualification-cache-core.mjs`);
+  write(fixture, `${MODULE_PREFIX}/scripts/qualify-r16-creator.mjs`);
+  write(fixture, `${MODULE_PREFIX}/tests/r16-creator-qualification.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/tests/prototype-host.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R16_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/apps/creator-web/src/prototype-builder.ts`, "export {};\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
@@ -241,6 +241,8 @@ for (const acceptance of [
   "R11_ACCEPTANCE.md",
   "R12_ACCEPTANCE.md",
   "R13_ACCEPTANCE.md",
+  "R14_ACCEPTANCE.md",
+  "R15_ACCEPTANCE.md",
 ]) {
   test(`rejects byte changes to historical ${acceptance}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
@@ -397,21 +399,21 @@ test("rejects a caller-selected base", (t) => {
   );
 });
 
-test("round path classifier exposes stable R15 guard categories", () => {
+test("round path classifier exposes stable R16 guard categories", () => {
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-runtime-evidence-contracts/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-creator-qualification-contracts/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-runtime-evidence/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-creator-qualification/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/tests/prototype-asset-cli.test.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/tests/prototype-host.test.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/runtime_evidence/runtime_evidence_runner.gd`),
+    classifyRoundPath(`${MODULE_PREFIX}/apps/creator-web/src/prototype-builder.ts`),
     null,
   );
   assert.equal(
@@ -476,7 +478,7 @@ test("round path classifier exposes stable R15 guard categories", () => {
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/creator-web/src/App.tsx`),
-    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+    null,
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/creator-web/src/pack-loader.ts`),

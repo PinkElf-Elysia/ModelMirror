@@ -1,7 +1,8 @@
-# R15已知限制
+# R16实施前已知限制
 
 - R15已在中性与末班地铁缓存上补齐实际InputMap重放、逐节点图形、完整录像和独立300帧实时性能证据，并通过人工验收。
 - R15没有让Creator复现新profile，也没有解除MVP声明门；这些仍由R16负责。
+- R16首次资格会执行完整本地Godot证据链，耗时和仓外媒体占用高于旧Creator；只有同一已资格Solution的后续启动可跳过重新取证。
 
 - R10 panorama仅作历史来源证据；R11成功预览不渲染它。若Compute splat资格、米制对齐或30 FPS门失败，本轮停止，不回退到旧天空模式。
 - R11只支持固定SPZ→compressed PLY→gdgs Compute链，不支持HQ环境网格、SOG权威缓存、Raster回退、图片/视频输入、AI NPC、记忆、动态任务、存档、导出或父产品接入。

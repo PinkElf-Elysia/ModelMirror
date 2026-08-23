@@ -43,7 +43,7 @@ function expectCode(callback, code) {
   });
 }
 
-test("committed R15 status keeps the MVP completion claim blocked", () => {
+test("committed R16 pre-acceptance status keeps the MVP completion claim blocked", () => {
   assert.deepEqual(checkMvpClaim({ moduleRoot }), {
     status: "pending-creator-migration",
     claimAllowed: false,

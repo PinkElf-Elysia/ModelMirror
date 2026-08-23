@@ -11,15 +11,16 @@
 5. 一批只解决一个可验证目标；先验证后提交；失败不得进入下一批。
 6. 回退只使用 `git revert`，不得重置、覆盖或清理用户工作区。
 
-## R15 专属限制
+## R16 专属限制
 
-- R15只在冻结R14 Solution/Verification之上增加实际InputMap重放、运行证据、媒体采集和最多两轮候选排除；不复制求解器或物理复验器。
-- R1–R14的合同、验证器、编译器、Runtime、Scene/Spatial格式、Creator、既有Godot产品场景、vendor、ADR和历史验收全部冻结；仅R15精确白名单可修改。
-- 重放必须通过`Input.parse_input_event()`进入实际控制器、RayCast3D与Action terminal；禁止直接调用Runtime action、trace捷径、合成移动接口或直接传送玩家。
-- 自动修复仅允许排除R14 placement/station/terminal candidate并完整重求解、复验；不得改Spatial Intent语义、资产、Runtime、案例坐标或阈值。
-- 普通verify与R11/R12缓存资格均不联网、不读取供应商凭据、不产生费用。Evidence、截图、录像和日志只允许存于`C:\tmp`。
-- `docs/MVP_STATUS.json`与`check:mvp-claim`保持`pending-runtime-evidence`和`claimAllowed=false`。R15通过后只可迁移为等待R16，R15不得解除初版声明门。
-- 不push、不创建PR，直至用户明确回复“R15验收通过，可以创建PR”。
+- R16只将冻结的R13分析、R14求解/物理复验与R15运行证据接入Creator；不得复制、调参或修改其算法、Godot场景、Runtime、资产与供应商适配器。
+- R1–R15合同、验证器、编译器、Scene/Spatial格式、examples、vendor、ADR和历史验收全部冻结；仅R16精确白名单可修改。
+- 旧source、solved或evidence缓存只能作为待资格输入；只有完整、身份闭合的R16 Qualification才可成为Creator `ready`或替换current。
+- 每个唯一Solution首次必须完成R15完整证据；同一已资格Solution的缓存启动只能复验合同、身份和哈希，不得读取供应商凭据或联网。
+- R15候选修复仍限最多两轮candidate-exclusion-only；不得改Intent、阈值、资产、Runtime、案例坐标或生成新资产。
+- 普通verify、双真实缓存与合成拓扑资格均零网络、零供应商凭据、零费用；资格、媒体、日志和运行目录只允许存于`C:\tmp`。
+- R16.7前`docs/MVP_STATUS.json`保持`pending-creator-migration / claimAllowed=false`；只有用户人工确认两类真实案例后才能切换默认入口和声明门。
+- 不push、不创建PR，直至用户明确回复“R16验收通过，可以创建PR”。
 - 不删除或复用其他分支/worktree，不重建共享栈。主线前进时先报告差异，不擅自rebase。
 
 ## 提交前检查

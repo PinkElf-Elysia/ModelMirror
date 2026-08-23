@@ -1,7 +1,7 @@
 export const MODULE_PREFIX = "experiments/matrix-oasis-engine";
-export const ACTIVE_ROUND = "R15";
+export const ACTIVE_ROUND = "R16";
 export const ACTIVE_ROUND_BASELINE_SHA =
-  "4be3e9483e57f792769c079d3c985a357e99a558";
+  "7c837fe3908a4a5b60551778313624f53bcd0d1b";
 
 export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "AGENTS.md",
@@ -18,25 +18,26 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "docs/PRODUCT.md",
   "docs/V1_CRITICAL_PATH.md",
   "docs/MVP_STATUS.json",
-  "docs/R15_RUNTIME_EVIDENCE_THREAT_MODEL.md",
-  "docs/R15_TASK_CARD.md",
-  "docs/adr/0016-r15-runtime-evidence-governance.md",
-  "docs/rounds/R15_ACCEPTANCE.md",
+  "docs/R16_CREATOR_QUALIFICATION_THREAT_MODEL.md",
+  "docs/R16_TASK_CARD.md",
+  "docs/adr/0017-r16-creator-qualification-governance.md",
+  "docs/rounds/R16_ACCEPTANCE.md",
   "scripts/check-round-scope.mjs",
   "scripts/check-mvp-claim.mjs",
   "scripts/check-godot-boundary.mjs",
-  "scripts/plan-r15-replay.mjs",
-  "scripts/collect-r15-runtime-evidence.mjs",
-  "scripts/qualify-r15-runtime-evidence.mjs",
-  "scripts/preview-r15.mjs",
-  "scripts/capture-r15.mjs",
-  "scripts/verify-r15.mjs",
+  "scripts/qualify-r16-creator.mjs",
+  "scripts/preview-r16.mjs",
+  "scripts/capture-r16.mjs",
+  "scripts/verify-r16.mjs",
+  "scripts/preview-r12.mjs",
   "scripts/lib/boundary-core.mjs",
   "scripts/lib/mvp-claim-core.mjs",
   "scripts/lib/parent-scope-core.mjs",
-  "scripts/lib/runtime-evidence-core.mjs",
-  "scripts/lib/runtime-evidence-cache-core.mjs",
-  "scripts/lib/r15-preview-core.mjs",
+  "scripts/lib/prototype-host-core.mjs",
+  "scripts/lib/r12-host-core.mjs",
+  "scripts/lib/creator-qualification-cache-core.mjs",
+  "scripts/lib/r16-creator-core.mjs",
+  "scripts/lib/r16-preview-core.mjs",
   "scripts/lib/scope-policy.mjs",
   "scripts/run-verify.mjs",
   "scripts/verify-extraction.mjs",
@@ -44,23 +45,26 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "tests/godot-boundary.test.mjs",
   "tests/extraction-contract.test.mjs",
   "tests/mvp-claim.test.mjs",
-  "tests/prototype-asset-cli.test.mjs",
-  "tests/r14-preview.test.mjs",
-  "tests/r15-runtime-evidence.test.mjs",
-  "tests/r15-runtime-evidence-godot.test.mjs",
-  "tests/r15-runtime-evidence-cache.test.mjs",
-  "tests/r15-qualification.test.mjs",
+  "tests/prototype-host.test.mjs",
+  "tests/prototype-builder.test.mjs",
+  "tests/r16-creator-qualification-cache.test.mjs",
+  "tests/r16-creator-qualification.test.mjs",
+  "tests/r16-host.test.mjs",
+  "tests/r16-preview.test.mjs",
+  "tests/r16-generalization.test.mjs",
   "tests/round-scope.test.mjs",
+  "apps/creator-web/src/App.tsx",
+  "apps/creator-web/src/prototype-builder.ts",
+  "apps/creator-web/src/styles.css",
 ]);
 
 export const ROUND_ALLOWED_MODULE_PREFIXES = Object.freeze([
-  "packages/prototype-runtime-evidence-contracts",
-  "packages/prototype-runtime-evidence",
-  "apps/runtime-godot/runtime_evidence",
+  "packages/prototype-creator-qualification-contracts",
+  "packages/prototype-creator-qualification",
 ]);
 
 // Exact allowlist entries above intentionally override these broad frozen roots.
-// Everything inherited from R1-R14 therefore remains frozen unless R15 names it.
+// Everything inherited from R1-R15 therefore remains frozen unless R16 names it.
 export const ROUND_FROZEN_MODULE_PATHS = Object.freeze([
   "apps",
   "docs",
