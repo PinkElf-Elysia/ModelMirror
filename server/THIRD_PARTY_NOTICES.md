@@ -89,6 +89,27 @@ distributed under the MIT License or the Unlicense.
 
 Project: https://github.com/BurntSushi/ripgrep
 
+## V20 standard Driver evaluation images
+
+The disabled-by-default V20 evaluation profile separately packages the official
+`agent-client-protocol` Python SDK 0.12.0 and `@openai/codex` 0.149.0 under the
+Apache License 2.0. Neither package is added to the production Server
+requirements or production route catalog. The ACP wheel, Codex wrapper, Linux
+x64 runtime package and generated protocol schemas are pinned and verified by
+their published integrity values or content hashes during the image build.
+
+`@agentclientprotocol/codex-acp` 1.6.2 is recorded only as an external mapping
+oracle for the common protocol subset. It is not bundled or executed. Exact
+versions, hashes, redistribution notes, the generated-schema provenance and a
+CycloneDX inventory are retained in `server/coding_worker/EVALUATION_NOTICES.md`
+and `server/coding_worker/evaluation_sbom.cdx.json`.
+
+Projects:
+
+- https://github.com/agentclientprotocol/python-sdk
+- https://github.com/openai/codex
+- https://github.com/agentclientprotocol/codex-acp
+
 ## Coding Worker code intelligence
 
 The V15 Coding Worker Executor image installs Pyright 1.1.411 under the MIT

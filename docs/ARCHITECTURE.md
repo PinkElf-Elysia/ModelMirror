@@ -494,3 +494,7 @@ V20 将 Harness 的进程监督与会话生命周期拆为两个独立端口。`
 私有 `HarnessSessionRef`、`HarnessTurnRef` 与 `HarnessRequestRef` 将 task、route、slot、binding hash、driver generation 和协议描述符绑定到每次交互。规范化 `HarnessEventEnvelope` 使用每 generation 单调 sequence 和去重 ID；错误 generation、跨任务引用、迟到事件、重复请求结算或错误 turn 均失败关闭。供应商原始帧不能直接改变任务状态，只能映射为类型化 Harness request，再由 Control Plane 与 Tool Broker 权威结算。
 
 生产准入同时要求 capability 的 supported/available/maturity、健康窗口、Schema digest、persistence level 与 `HarnessToolOwnership=broker_only` 一致。OpenCode/Claude 的历史 Provider-v4 checkpoint 保持兼容；ACP/Codex adapter 与其 Schema 只允许由 `EvaluationAdapter` 在显式 profile 中延迟加载。公共 API、数据库、runtime protocol、Evidence 与 v13 写回协议不因 V20 改变。
+
+ACP v1.19 与 Codex App Server 0.149.0 的标准 Driver 位于独立 evaluation 镜像。镜像只包含协议核、加载器、sidecar 与对应单一 adapter，不包含 Store、Service、Workspace、生产 Provider 或另一个供应商 adapter。profile 关闭时生产启动链不导入这些模块。ACP 仅接受部署固定的单一 loopback Broker MCP；Codex 因无法证明稳定 `broker_only`，永久以 `unknown` 工具所有权和 `production_route=false` 暴露。两者均不能从任务、模块或浏览器接收 executable、cwd、环境变量、任意 MCP 或供应商选择。
+
+Evaluation sidecar 的 health 只有在 manifest 中的镜像、命令、包版本/完整性、协议版本、Schema 摘要、持久性等级和工具所有权全部与固定 Driver 契约一致时才可成功。两套镜像非 root、只读、无 Docker socket、Workspace、宿主目录或凭据挂载；Codex 镜像额外移除 Code Mode Host、内置 rg、bwrap 与 zsh 资源。本边界只证明受控协议回放与准入，不构成真实任务能力、校准或等效证据。

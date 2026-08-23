@@ -906,3 +906,36 @@ CODING_WORKER_HARNESS_V20_ENABLED=false
 关闭开关后不再创建 V20 任务；已存在且非终态的 V20 任务进入 `interrupted`，保留 capability snapshot、checkpoint、Workspace、Evidence 和 operation。任务不会降级到 Provider-v4 旧路径，也不会自动重放副作用。V14–V19 任务不带 V20 snapshot 标记，继续使用原兼容恢复路径。
 
 OpenCode 1.18.9 与 Claude Code 2.1.89 的 checkpoint 都只保存公开上下文并新开引擎会话，因此 V20 descriptor 如实标记 `session_resume`，不得写成 `durable_checkpoint`。本开关不启用 ACP/Codex evaluation，不授权真实模型测试、校准或认证。
+
+### V20 标准 Driver evaluation profile
+
+ACP/Codex 标准 Driver 使用另一个 Compose 文件，默认不属于共享栈：
+
+```env
+CODING_WORKER_ACP_EVALUATION_ENABLED=false
+CODING_WORKER_CODEX_EVALUATION_ENABLED=false
+```
+
+```powershell
+docker compose -f docker-compose.coding-worker-v20-evaluation.yml config -q
+docker build -f server/coding_worker/Dockerfile.evaluation-acp -t modelmirror-coding-worker-acp-evaluation:local .
+docker build -f server/coding_worker/Dockerfile.evaluation-codex -t modelmirror-coding-worker-codex-evaluation:local .
+```
+
+部署者必须在构建后读取精确 image ID，为每个镜像生成私有
+`EvaluationDriverManifest`，并通过 `CODING_WORKER_*_EVALUATION_MANIFEST` 只读挂载；
+同时设置同一 image ID、至少 32 字节的随机 sidecar token，以及与 manifest
+完全一致的固定 executable。相对路径、符号链接、超过 64 KiB 的 manifest、任意
+字段不匹配或同时启用两个 Driver 都会失败关闭。manifest、token、executable、cwd
+和环境变量不属于任务或公共 API 输入。
+
+两个 profile 仅连接 `internal: true` 的 evaluation 网络，不挂载 Workspace、生产
+Provider socket、Docker socket、宿主用户目录、SSH 或模型密钥。ACP SDK 只存在于
+ACP evaluation 镜像；Codex 镜像只保留 0.149.0 App Server 所需的主二进制，移除
+Code Mode Host 与内置命令资源。Codex 工具所有权固定为 `unknown`，不能注册生产
+route；ACP 的 `broker_only` 也只用于 conformance profile，不等于生产准入。
+
+回退只需停止两个 evaluation profile 并保持两个开关为 false；生产 Server、历史
+checkpoint、Workspace、Evidence 和 operation 无需迁移或删除。供应链与许可证资料见
+`server/coding_worker/EVALUATION_NOTICES.md` 和
+`server/coding_worker/evaluation_sbom.cdx.json`。
