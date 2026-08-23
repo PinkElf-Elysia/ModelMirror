@@ -655,6 +655,13 @@ async def test_v20_snapshot_binds_descriptor_and_disable_interrupts_without_down
     assert observations[0]["observation"]["descriptor"]["tool_ownership"] == (
         "broker_only"
     )
+    service.harness_supervisor.controller_generation = 8
+    with pytest.raises(WorkerConflictError) as stale_binding:
+        await service._v20_binding_for_task(
+            service.store.get_task(task.task_id), slot_id=None
+        )
+    assert stale_binding.value.code == "harness_binding_changed"
+    service.harness_supervisor.controller_generation = 7
 
     monkeypatch.setenv("CODING_WORKER_HARNESS_V20_ENABLED", "false")
     await service._interrupt_v20_tasks_if_disabled()
@@ -667,6 +674,40 @@ async def test_v20_snapshot_binds_descriptor_and_disable_interrupts_without_down
     assert resume_rejected.value.code == "harness_v20_disabled"
     assert service.store.get_task_capability_snapshot(task.task_id) == frozen
     await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v20_translation_preserves_legacy_projection_without_side_effect_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def run(label: str, *, v20: bool) -> list[dict[str, object]]:
+        provider = FakeCodingAgentProvider()
+        service = _service(tmp_path / label, provider)
+        if v20:
+            service.harness_supervisor = _V20Supervisor(provider)
+        monkeypatch.setenv(
+            "CODING_WORKER_HARNESS_V20_ENABLED", "true" if v20 else "false"
+        )
+        task = await service.create_task(
+            Origin(module="test", object_id=label), _request(label)
+        )
+        await service.wait_for(
+            task.task_id,
+            lambda item: item.state in {TaskState.BLOCKED, TaskState.COMPLETED},
+        )
+        events = [
+            event.payload
+            for event in service.store.list_events(task.task_id)
+            if event.type == "provider_event"
+        ]
+        assert service.store.list_operations(task.task_id) == []
+        await service.shutdown()
+        return events
+
+    legacy = await run("legacy-shadow", v20=False)
+    translated = await run("v20-shadow", v20=True)
+
+    assert translated == legacy
 
 
 @pytest.mark.asyncio

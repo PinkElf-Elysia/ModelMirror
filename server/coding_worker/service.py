@@ -55,10 +55,12 @@ from .provider import (
 )
 from .ports import HarnessDriver, HarnessSupervisor
 from .harness_protocol import (
+    HarnessBinding,
     HarnessDescriptorObservation,
     HarnessPersistenceLevel,
     HarnessToolOwnership,
 )
+from .harness_driver import ProviderV4HarnessTranslator
 from .store import CodingWorkerStore, WorkerConflictError
 from .changeset import ChangesetError
 from .tool_broker import ToolBroker, ToolBrokerError
@@ -137,6 +139,7 @@ class CodingWorkerService:
         self._active: dict[str, asyncio.Task[None]] = {}
         self._task_slots: dict[str, str] = {}
         self._sessions: dict[str, ProviderSession] = {}
+        self._v20_translators: dict[str, ProviderV4HarnessTranslator] = {}
         self._wake = asyncio.Event()
         self._scheduler: asyncio.Task[None] | None = None
         self._capability_refresher: asyncio.Task[None] | None = None
@@ -252,6 +255,7 @@ class CodingWorkerService:
         self._active.clear()
         self._task_slots.clear()
         self._sessions.clear()
+        self._v20_translators.clear()
         self._scheduler = None
         self._capability_refresher = None
         self._started = False
@@ -1545,6 +1549,88 @@ class CodingWorkerService:
             and snapshot.snapshot.get("harness_protocol") == "v20"
         )
 
+    async def _v20_binding_for_task(
+        self, task: TaskRecord, *, slot_id: str | None
+    ) -> HarnessBinding | None:
+        stored = self.store.get_task_capability_snapshot(task.task_id)
+        if stored is None or stored.snapshot.get("harness_protocol") != "v20":
+            return None
+        raw_descriptors = stored.snapshot.get("harness_descriptors")
+        if not isinstance(raw_descriptors, list) or not raw_descriptors:
+            raise WorkerConflictError(
+                "V20 Harness descriptor snapshot is invalid.",
+                code="harness_binding_changed",
+            )
+        descriptors: list[tuple[str, HarnessDescriptorObservation]] = []
+        try:
+            for raw in raw_descriptors:
+                if not isinstance(raw, dict) or set(raw) != {
+                    "slot_id",
+                    "observation",
+                }:
+                    raise ValueError("descriptor entry is invalid")
+                frozen_slot = raw["slot_id"]
+                if not isinstance(frozen_slot, str):
+                    raise ValueError("descriptor slot is invalid")
+                descriptors.append(
+                    (
+                        frozen_slot,
+                        HarnessDescriptorObservation.model_validate(
+                            raw["observation"]
+                        ),
+                    )
+                )
+        except (TypeError, ValueError) as exc:
+            raise WorkerConflictError(
+                "V20 Harness descriptor snapshot is invalid.",
+                code="harness_binding_changed",
+            ) from exc
+        expected_slots = (
+            self._allowed_slots(task.spec.model_route)
+            if self._route_slots is not None
+            else ("*",)
+        )
+        if expected_slots is None or tuple(item[0] for item in descriptors) != tuple(
+            expected_slots
+        ):
+            raise WorkerConflictError(
+                "V20 Harness route binding changed.",
+                code="harness_binding_changed",
+            )
+        selected_slot = slot_id if slot_id is not None else "*"
+        frozen = next(
+            (item for frozen_slot, item in descriptors if frozen_slot == selected_slot),
+            None,
+        )
+        current = (
+            await self.harness_supervisor.harness_descriptors_for_slots(
+                (selected_slot,)
+            )
+        ).get(selected_slot)
+        if frozen is None or current is None or current != frozen:
+            raise WorkerConflictError(
+                "V20 Harness sidecar binding changed.",
+                code="harness_binding_changed",
+            )
+        recalculated = self._capability_binding(
+            task.spec.model_route,
+            tuple(expected_slots),
+            tuple(descriptors),
+        )
+        if recalculated != stored.binding_sha256:
+            raise WorkerConflictError(
+                "V20 Harness capability binding changed.",
+                code="harness_binding_changed",
+            )
+        return HarnessBinding(
+            task_id=task.task_id,
+            route_id=task.spec.model_route,
+            slot_id=selected_slot if selected_slot != "*" else "default",
+            binding_sha256=stored.binding_sha256,
+            driver_generation=self.harness_supervisor.controller_generation,
+            descriptor=frozen.descriptor,
+        )
+
     async def _interrupt_v20_tasks_if_disabled(self) -> None:
         if self._v20_enabled():
             return
@@ -1586,6 +1672,26 @@ class CodingWorkerService:
         session: ProviderSession | None = None
         try:
             task = self.store.get_task(task_id)
+            if self._task_uses_v20(task_id) and not self._v20_enabled():
+                self.store.transition(
+                    task_id,
+                    TaskState.INTERRUPTED,
+                    reason="harness_v20_disabled",
+                    expected_state=TaskState.PREPARING,
+                )
+                return
+            try:
+                harness_binding = await self._v20_binding_for_task(
+                    task, slot_id=slot_id
+                )
+            except WorkerConflictError as exc:
+                self.store.transition(
+                    task_id,
+                    TaskState.BLOCKED,
+                    reason=exc.code,
+                    expected_state=TaskState.PREPARING,
+                )
+                return
             admission_required, admission = self.store.source_admission(task_id)
             if admission_required and (
                 admission is None
@@ -1711,6 +1817,10 @@ class CodingWorkerService:
                 session = await self.provider.restore(request, provider_checkpoint)
             else:
                 session = await self.provider.open(request)
+            if harness_binding is not None:
+                self._v20_translators[task_id] = ProviderV4HarnessTranslator(
+                    harness_binding, session
+                )
             self._sessions[task_id] = session
             messages = self.store.list_messages(task_id)
             if not messages:
@@ -1784,6 +1894,10 @@ class CodingWorkerService:
             if session is not None:
                 with contextlib.suppress(Exception):
                     await self.provider.close(session)
+            translator = self._v20_translators.pop(task_id, None)
+            if translator is not None:
+                with contextlib.suppress(Exception):
+                    translator.close()
 
     def _uncheckpointed_completed_turns(self, task_id: str) -> int:
         cursor = 0
@@ -1982,6 +2096,9 @@ class CodingWorkerService:
                 if resuming_turn and current_turn is not None
                 else f"turn_{uuid.uuid4().hex}"
             )
+            translator = self._v20_translators.get(task_id)
+            if translator is not None:
+                translator.start_turn(turn_id)
             if (
                 resume_phase == "waiting_approval"
                 and resuming_turn
@@ -2132,6 +2249,8 @@ class CodingWorkerService:
                             else "state_changed"
                         )
                         break
+                    if translator is not None:
+                        translator.accept(event, turn_id=turn_id)
                     self.store.append_event(
                         task_id,
                         "provider_event",
@@ -2192,6 +2311,8 @@ class CodingWorkerService:
                     task_id, turn_id=turn_id, result_state="interrupted"
                 )
                 raise
+            if outcome != "completed" and translator is not None:
+                translator.interrupt_turn(turn_id=turn_id)
             if outcome == "turn_parking":
                 try:
                     await self._park_v17_turn(
