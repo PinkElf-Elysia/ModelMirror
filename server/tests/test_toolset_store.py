@@ -281,6 +281,7 @@ def test_external_master_key_can_be_required_without_breaking_dev_default(
     external_key = Fernet.generate_key().decode("ascii")
     monkeypatch.setenv("MODEL_MIRROR_CREDENTIAL_MASTER_KEY", external_key)
     external = CredentialStore(tmp_path / "external-key")
+    assert external.remote_auth_master_key_attestation() == (True, True)
     record, _ = external.create(name="External", value="external-secret")
     assert external.resolve(record.credential_id) == "external-secret"
     assert not external.master_key_path.exists()
@@ -291,4 +292,5 @@ def test_external_master_key_can_be_required_without_breaking_dev_default(
     )
     monkeypatch.delenv("MODEL_MIRROR_CREDENTIAL_MASTER_KEY", raising=False)
     development = CredentialStore(tmp_path / "development-default")
+    assert development.remote_auth_master_key_attestation() == (False, False)
     assert development.master_key_path.exists()

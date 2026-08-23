@@ -714,6 +714,13 @@ try:
         configure_mcp_hub_trusted,
         router as mcp_hub_trusted_router,
     )
+    from server.mcp.remote_auth import (
+        LocalSubjectScopeResolver,
+        MCPRemoteAuthBroker,
+        MCPRemoteAuthStore,
+        configure_mcp_remote_auth,
+        router as mcp_remote_auth_router,
+    )
     from server.mcp.workspace import MCPCatalogWorkspaceStore
     from server.registry.tool_registry import ToolRegistry
 except ModuleNotFoundError:
@@ -749,6 +756,13 @@ except ModuleNotFoundError:
         MCPHubTrustedStore,
         configure_mcp_hub_trusted,
         router as mcp_hub_trusted_router,
+    )
+    from mcp.remote_auth import (
+        LocalSubjectScopeResolver,
+        MCPRemoteAuthBroker,
+        MCPRemoteAuthStore,
+        configure_mcp_remote_auth,
+        router as mcp_remote_auth_router,
     )
     from mcp.workspace import MCPCatalogWorkspaceStore
     from registry.tool_registry import ToolRegistry
@@ -1404,6 +1418,7 @@ app.include_router(mcp_catalog_router)
 app.include_router(mcp_hub_router)
 app.include_router(mcp_hub_review_router)
 app.include_router(mcp_hub_trusted_router)
+app.include_router(mcp_remote_auth_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -1438,6 +1453,17 @@ workflow_curated_mcp_provider = MCPToolsetProvider(tool_registry, mcp_manager)
 workflow_hub_mcp_provider = HubMCPToolsetProvider(mcp_hub_service)
 toolset_store = ToolsetStore()
 toolset_credential_store = CredentialStore(toolset_store.storage_dir)
+mcp_remote_auth_store = MCPRemoteAuthStore(mcp_hub_store.storage_dir)
+mcp_remote_auth_broker = MCPRemoteAuthBroker(
+    mcp_remote_auth_store,
+    subject_resolver=LocalSubjectScopeResolver(),
+    credential_lookup=toolset_credential_store.get_public,
+    credential_resolver=toolset_credential_store.resolve,
+    credential_security_attestor=(
+        toolset_credential_store.remote_auth_master_key_attestation
+    ),
+)
+configure_mcp_remote_auth(mcp_remote_auth_broker)
 mcp_catalog_workspace_store = MCPCatalogWorkspaceStore()
 mcp_catalog_service = MCPCatalogService(
     mcp_manager,
