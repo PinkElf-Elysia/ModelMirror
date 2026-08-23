@@ -17,6 +17,7 @@ from .models import (
     EngineShadowRunRecord,
     EngineShadowWorkspaceEntry,
 )
+from .managed_gateway import ManagedShadowGateway
 from .service import EngineShadowService, EngineShadowServiceError
 from .store import (
     EngineShadowConflict,
@@ -58,7 +59,20 @@ def is_engine_shadow_enabled() -> bool:
 def get_engine_shadow_service() -> EngineShadowService:
     global _service
     if _service is None:
-        _service = EngineShadowService()
+        try:
+            from server.model_router.api import get_model_router_service
+            from server.model_router.workload_control import (
+                ProviderWorkloadCallService,
+            )
+        except ImportError:  # pragma: no cover - container package layout
+            from model_router.api import get_model_router_service
+            from model_router.workload_control import ProviderWorkloadCallService
+
+        _service = EngineShadowService(
+            managed_gateway=ManagedShadowGateway(
+                ProviderWorkloadCallService(get_model_router_service())
+            )
+        )
     return _service
 
 

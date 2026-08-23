@@ -217,6 +217,9 @@ export default function ProviderWorkloadControlSettings({
 
   const [entryId, setEntryId] = useState<EntryId>("agent_shadow");
   const [editableBindings, setEditableBindings] = useState<EditableBinding[]>([]);
+  const [confirmActivation, setConfirmActivation] = useState(false);
+  const [confirmNoOpenP0P1, setConfirmNoOpenP0P1] = useState(false);
+  const [acknowledgeFailClosed, setAcknowledgeFailClosed] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -278,6 +281,9 @@ export default function ProviderWorkloadControlSettings({
 
   useEffect(() => {
     if (!selectedPolicy) return;
+    setConfirmActivation(false);
+    setConfirmNoOpenP0P1(false);
+    setAcknowledgeFailClosed(false);
     setEditableBindings(
       selectedPolicy.bindings.map((binding) => ({
         execution_shape: binding.execution_shape,
@@ -383,7 +389,7 @@ export default function ProviderWorkloadControlSettings({
       );
       if (!response.ok) throw new Error(await readError(response));
       setMessage(
-        "入口 Binding 已原子保存；R6A 尚未接管真实数据面，因此不会改变现有 Agent/Workflow 调用。",
+        "入口 Binding 已原子保存；只有已接入数据面的入口经过人工确认后才能激活。",
       );
       await load();
     } catch (reason) {
@@ -392,6 +398,47 @@ export default function ProviderWorkloadControlSettings({
       setBusy(false);
     }
   }, [csrfToken, editableBindings, entryId, load, selectedPolicy]);
+
+  const activate = useCallback(async () => {
+    if (!selectedPolicy || !confirmNoOpenP0P1 || !acknowledgeFailClosed) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(
+        `/api/router/workload-control/policies/${entryId}/activate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-ModelMirror-CSRF": csrfToken,
+          },
+          body: JSON.stringify({
+            expected_revision: selectedPolicy.revision,
+            no_open_p0_p1: true,
+            acknowledge_fail_closed: true,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      setMessage("该入口已激活 Managed 必经；资格漂移后将保持失败关闭。")
+      setConfirmActivation(false);
+      setConfirmNoOpenP0P1(false);
+      setAcknowledgeFailClosed(false);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "激活入口失败。")
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    acknowledgeFailClosed,
+    confirmNoOpenP0P1,
+    csrfToken,
+    entryId,
+    load,
+    selectedPolicy,
+  ]);
 
   const deactivate = useCallback(async () => {
     if (!selectedPolicy) return;
@@ -504,8 +551,8 @@ export default function ProviderWorkloadControlSettings({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 bg-sky-300/[0.04] px-5 py-5">
         <div>
           <p className="text-sm font-semibold text-sky-100">Managed Workload 控制策略</p>
-          <h2 className="mt-2 text-xl font-semibold text-white">R6A 入口、精确 Binding 与 Receipt 基础</h2>
-          <p className="mt-2 max-w-[80ch] text-sm leading-6 text-slate-300">当前子轮次只建设控制面，不接管真实 Agent/Workflow 调用。每个后续入口需完成独立 PR、真实 Smoke 与人工批准后才能激活。</p>
+          <h2 className="mt-2 text-xl font-semibold text-white">R6 入口、精确 Binding 与 Receipt</h2>
+          <p className="mt-2 max-w-[80ch] text-sm leading-6 text-slate-300">仅已完成对应数据面子轮次、资格有效且通过人工 fail-closed 确认的入口可以激活；其他入口继续保持 Legacy。</p>
         </div>
         <button className="inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200" onClick={() => void load()} type="button"><RefreshCw className="h-3.5 w-3.5" />刷新</button>
       </div>
@@ -514,7 +561,7 @@ export default function ProviderWorkloadControlSettings({
           <label className="block text-sm text-slate-300">入口<select className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-white" value={entryId} onChange={(event) => setEntryId(event.target.value as EntryId)}>{Object.entries(ENTRY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           {selectedPolicy ? <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.025] p-4">
             <div className="flex items-center justify-between gap-3"><span className="text-sm font-semibold text-white">{statusLabel(selectedPolicy.effective_status)}</span><span className="text-xs text-slate-400">revision {selectedPolicy.revision}</span></div>
-            <dl className="mt-3 grid gap-2 text-xs text-slate-300"><div className="flex justify-between"><dt>部署开关</dt><dd>{selectedPolicy.feature_enabled ? "开启" : "关闭"}</dd></div><div className="flex justify-between"><dt>数据面接入</dt><dd>{selectedPolicy.data_plane_integrated ? "已接入" : "R6A 未接入"}</dd></div><div className="flex justify-between"><dt>人工批准</dt><dd>{selectedPolicy.approval_valid ? "有效" : "未生效"}</dd></div></dl>
+            <dl className="mt-3 grid gap-2 text-xs text-slate-300"><div className="flex justify-between"><dt>部署开关</dt><dd>{selectedPolicy.feature_enabled ? "开启" : "关闭"}</dd></div><div className="flex justify-between"><dt>数据面接入</dt><dd>{selectedPolicy.data_plane_integrated ? "已接入" : "当前子轮次未接入"}</dd></div><div className="flex justify-between"><dt>人工批准</dt><dd>{selectedPolicy.approval_valid ? "有效" : "未生效"}</dd></div></dl>
             <div className="mt-3 space-y-1">{selectedPolicy.blocking_reason_codes.map((reason) => <p className="text-xs text-amber-100" key={reason}>· {REASON_LABELS[reason] ?? reason}</p>)}</div>
           </div> : null}
         </div>
@@ -526,10 +573,17 @@ export default function ProviderWorkloadControlSettings({
             <select aria-label={`Binding ${index + 1} 连接`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" value={binding.connection_id} onChange={(event) => setEditableBindings((current) => current.map((item, position) => position === index ? { ...item, connection_id: event.target.value } : item))}>{eligibleConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}</select>
             <button className="rounded-full border border-rose-300/20 px-3 py-2 text-xs text-rose-100" onClick={() => setEditableBindings((current) => current.filter((_, position) => position !== index))} type="button">移除</button>
           </div>)}{!editableBindings.length ? <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">尚未配置；没有 Binding 时不能激活。</p> : null}</div>
-          <div className="mt-4 flex flex-wrap gap-2"><button className="rounded-full bg-sky-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={busy || !selectedPolicy || editableBindings.some((item) => !item.model_id.trim() || !item.connection_id)} onClick={() => void savePolicy()} type="button">保存 Binding</button>{selectedPolicy?.configured_status !== "legacy" ? <button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" disabled={busy} onClick={() => void deactivate()} type="button">显式恢复 Legacy</button> : null}<button className="rounded-full border border-amber-300/20 px-4 py-2 text-sm text-amber-100 opacity-50" disabled type="button">激活 Managed（等待对应数据面子轮次）</button></div>
+          <div className="mt-4 flex flex-wrap gap-2"><button className="rounded-full bg-sky-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={busy || !selectedPolicy || editableBindings.some((item) => !item.model_id.trim() || !item.connection_id)} onClick={() => void savePolicy()} type="button">保存 Binding</button>{selectedPolicy?.configured_status !== "legacy" ? <button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" disabled={busy} onClick={() => void deactivate()} type="button">显式恢复 Legacy</button> : <button className="rounded-full border border-amber-300/30 px-4 py-2 text-sm text-amber-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={busy || !selectedPolicy.data_plane_integrated || !selectedPolicy.feature_enabled || selectedPolicy.blocking_reason_codes.length > 0} onClick={() => setConfirmActivation(true)} type="button">激活 Managed 必经</button>}</div>
         </div>
       </div>
-      <div className="border-t border-white/10 p-5"><h3 className="text-sm font-semibold text-white">最近脱敏 Receipt</h3><div className="mt-3 space-y-2">{receipts.length ? receipts.map((run) => <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3" key={run.run_id}><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-white">{ENTRY_LABELS[run.entry_id]} · {run.status}</p><span className="text-xs text-slate-400">{run.calls.length} 次逻辑调用</span></div><p className="mt-1 text-xs text-slate-400">仅保存模型、序号、状态、指标与用量；不保存 Prompt、消息、模型正文或工具参数。</p></div>) : <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">R6A 未接管数据面，因此当前没有 Workload Receipt。</p>}</div></div>
+      <div className="border-t border-white/10 p-5"><h3 className="text-sm font-semibold text-white">最近脱敏 Receipt</h3><div className="mt-3 space-y-2">{receipts.length ? receipts.map((run) => <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3" key={run.run_id}><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-white">{ENTRY_LABELS[run.entry_id]} · {run.status}</p><span className="text-xs text-slate-400">{run.calls.length} 次逻辑调用</span></div><p className="mt-1 text-xs text-slate-400">仅保存模型、序号、状态、指标与用量；不保存 Prompt、消息、模型正文或工具参数。</p></div>) : <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">当前入口尚无 Workload Receipt。</p>}</div></div>
+      {confirmActivation && selectedPolicy ? <div aria-modal="true" className="border-t border-amber-300/20 bg-amber-300/[0.05] p-5" role="dialog">
+        <p className="text-sm font-semibold text-amber-100">确认激活 {ENTRY_LABELS[entryId]} Managed 必经</p>
+        <p className="mt-2 text-sm leading-6 text-slate-300">激活后，Binding、资格、连接或凭据不合格时将失败关闭，不会自动回退 Legacy 或第二 Provider。</p>
+        <label className="mt-3 flex items-start gap-2 text-sm text-slate-200"><input checked={confirmNoOpenP0P1} className="mt-1" onChange={(event) => setConfirmNoOpenP0P1(event.target.checked)} type="checkbox" />确认当前没有未解决的 P0/P1 阻塞项</label>
+        <label className="mt-2 flex items-start gap-2 text-sm text-slate-200"><input checked={acknowledgeFailClosed} className="mt-1" onChange={(event) => setAcknowledgeFailClosed(event.target.checked)} type="checkbox" />理解并接受 Managed 不可用时失败关闭</label>
+        <div className="mt-4 flex gap-2"><button className="rounded-full bg-amber-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40" disabled={busy || !confirmNoOpenP0P1 || !acknowledgeFailClosed} onClick={() => void activate()} type="button">确认激活</button><button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" disabled={busy} onClick={() => setConfirmActivation(false)} type="button">取消</button></div>
+      </div> : null}
       {error ? <p className="m-5 flex items-center gap-2 rounded-lg border border-rose-300/20 bg-rose-300/10 p-3 text-sm text-rose-100"><CircleAlert className="h-4 w-4" />{error}</p> : null}
       {message ? <p className="m-5 flex items-center gap-2 rounded-lg border border-emerald-300/20 bg-emerald-300/10 p-3 text-sm text-emerald-100"><BadgeCheck className="h-4 w-4" />{message}</p> : null}
     </section>

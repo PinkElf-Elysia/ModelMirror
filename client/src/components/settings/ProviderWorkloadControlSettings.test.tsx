@@ -81,7 +81,7 @@ describe("ProviderWorkloadControlSettings", () => {
     });
   });
 
-  it("saves exact bindings with optimistic revision while activation stays blocked in R6A", async () => {
+  it("saves exact bindings with optimistic revision while an unintegrated entry stays blocked", async () => {
     const policy = {
       contract_version: "modelmirror-provider-workload-routing-v1",
       entry_id: "agent_shadow",
@@ -112,7 +112,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
-    await screen.findByText("R6A 入口、精确 Binding 与 Receipt 基础");
+    await screen.findByText("R6 入口、精确 Binding 与 Receipt");
     expect(screen.getByRole("button", { name: /激活 Managed/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "添加 Binding" }));
     fireEvent.change(screen.getByLabelText("Binding 1 模型 ID"), {
@@ -135,5 +135,87 @@ describe("ProviderWorkloadControlSettings", () => {
         connection_id: connection.id,
       }],
     });
+  });
+
+  it("requires both operator acknowledgements before activating an integrated entry", async () => {
+    const policy = {
+      contract_version: "modelmirror-provider-workload-routing-v1",
+      entry_id: "agent_shadow",
+      feature_enabled: true,
+      data_plane_integrated: true,
+      configured_status: "legacy",
+      effective_status: "legacy",
+      revision: 4,
+      policy_fingerprint: "fingerprint",
+      bindings: [{
+        execution_shape: "chat_tools",
+        model_id: "openai/gpt-test",
+        connection_id: connection.id,
+        connection_name: connection.name,
+        provider_kind: connection.kind,
+        certification_id: "cert-chat-tools",
+        valid: true,
+        reason_code: "qualified",
+      }],
+      approval_valid: false,
+      blocking_reason_codes: [],
+    };
+    let activated = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/router/workload-control/policies" && !init) {
+        return jsonResponse({
+          policies: [activated ? {
+            ...policy,
+            configured_status: "managed_required",
+            effective_status: "managed_required",
+            revision: 5,
+            approval_valid: true,
+          } : policy],
+        });
+      }
+      if (url === "/api/router/connections") return jsonResponse([connection]);
+      if (url.startsWith("/api/router/workload-control/receipts")) {
+        return jsonResponse({ runs: [] });
+      }
+      if (
+        url === "/api/router/workload-control/policies/agent_shadow/activate"
+        && init?.method === "POST"
+      ) {
+        activated = true;
+        return jsonResponse({ ...policy, configured_status: "managed_required" });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
+    await screen.findByText("R6 入口、精确 Binding 与 Receipt");
+    const activateButton = screen.getByRole("button", { name: "激活 Managed 必经" });
+    expect(activateButton).toBeEnabled();
+    fireEvent.click(activateButton);
+
+    const confirmButton = screen.getByRole("button", { name: "确认激活" });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("确认当前没有未解决的 P0/P1 阻塞项"));
+    expect(confirmButton).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("理解并接受 Managed 不可用时失败关闭"));
+    expect(confirmButton).toBeEnabled();
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/router/workload-control/policies/agent_shadow/activate",
+      expect.objectContaining({ method: "POST" }),
+    ));
+    const call = fetchMock.mock.calls.find(([url, options]) =>
+      url === "/api/router/workload-control/policies/agent_shadow/activate"
+      && options?.method === "POST"
+    );
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+      expected_revision: 4,
+      no_open_p0_p1: true,
+      acknowledge_fail_closed: true,
+    });
+    await screen.findByText("Managed 必经");
   });
 });

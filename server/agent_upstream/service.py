@@ -42,6 +42,7 @@ from .models import (
     ResolvedShadowModel,
     TERMINAL_STATUSES,
 )
+from .managed_gateway import ManagedShadowGateway
 from .port import (
     AppBuildEnginePort,
     EnginePortError,
@@ -106,6 +107,7 @@ class EngineShadowService:
         store: EngineShadowStore | None = None,
         port: AppBuildEnginePort | None = None,
         gateway: OpenAICompatibleGateway | None = None,
+        managed_gateway: ManagedShadowGateway | None = None,
         tool_bridge: UpstreamShadowToolBridge | None = None,
         catalog_provider: CatalogProvider | None = None,
         package_root: Path | None = None,
@@ -113,15 +115,33 @@ class EngineShadowService:
         self.store = store or EngineShadowStore()
         self.port = port or NodeUpstreamEnginePort(package_root=package_root)
         self.gateway = gateway or OpenAICompatibleGateway()
+        self.managed_gateway = managed_gateway
         self.tool_bridge = tool_bridge or UpstreamShadowToolBridge()
         self._catalog_provider = catalog_provider
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._histories: dict[str, list[dict[str, Any]]] = {}
+        self._managed_runs: dict[str, str] = {}
+        self._managed_call_sequences: dict[str, int] = {}
         self._history_lock = asyncio.Lock()
+        self._managed_lock = asyncio.Lock()
         self._lifecycle_lock = asyncio.Lock()
 
     async def create_run(self, payload: EngineShadowRunCreate) -> EngineShadowRunRecord:
-        model = await self.resolve_model(payload.model_base_id)
+        managed_mode = (
+            self.managed_gateway.routing_mode()
+            if self.managed_gateway is not None
+            else "legacy"
+        )
+        if managed_mode == "degraded_required":
+            raise EngineShadowServiceError(
+                "provider_workload_agent_shadow_degraded_required",
+                "Engine Shadow 的 Managed Provider 策略已失效；请重新完成资格或显式停用策略。",
+                status_code=409,
+            )
+        model = await self.resolve_model(
+            payload.model_base_id,
+            allow_managed_exact=managed_mode == "managed_required",
+        )
         try:
             record = self.store.create_run(payload, model)
             workspace = self.store.workspace(record.run_id)
@@ -142,6 +162,28 @@ class EngineShadowService:
                 except EngineShadowStoreError:
                     pass
             raise
+
+        if managed_mode == "managed_required":
+            assert self.managed_gateway is not None
+            try:
+                workload_run_id = self.managed_gateway.start_run(
+                    parent_run_reference=record.run_id
+                )
+            except Exception as exc:
+                self.store.finish(
+                    record.run_id,
+                    "failed",
+                    error_code="provider_workload_run_start_failed",
+                    public_error="Engine Shadow Managed Provider 运行无法启动。",
+                )
+                raise EngineShadowServiceError(
+                    "provider_workload_run_start_failed",
+                    "Engine Shadow Managed Provider 运行无法启动。",
+                    status_code=409,
+                ) from exc
+            async with self._managed_lock:
+                self._managed_runs[record.run_id] = workload_run_id
+                self._managed_call_sequences[record.run_id] = 0
 
         system_prompt = self._system_prompt(record.objective)
         async with self._history_lock:
@@ -177,15 +219,25 @@ class EngineShadowService:
         )
         return self.store.get_run(record.run_id)
 
-    async def resolve_model(self, requested_base_id: str) -> ResolvedShadowModel:
+    async def resolve_model(
+        self,
+        requested_base_id: str,
+        *,
+        allow_managed_exact: bool = False,
+    ) -> ResolvedShadowModel:
         clean = requested_base_id.strip()
         if not clean:
             raise EngineShadowServiceError(
                 "model_not_found", "The requested model is not registered.", status_code=404
             )
+        managed_exact = None
+        if allow_managed_exact and self.managed_gateway is not None:
+            managed_exact = self.managed_gateway.resolve_exact_model(clean)
         try:
             catalog = await self._catalog()
         except Exception as exc:
+            if managed_exact is not None:
+                return self._managed_exact_model(clean, managed_exact)
             raise EngineShadowServiceError(
                 "model_catalog_unavailable",
                 "The model catalog is currently unavailable.",
@@ -193,6 +245,8 @@ class EngineShadowService:
             ) from exc
         models = getattr(catalog, "models", None)
         if not isinstance(models, list):
+            if managed_exact is not None:
+                return self._managed_exact_model(clean, managed_exact)
             raise EngineShadowServiceError(
                 "model_catalog_unavailable",
                 "The model catalog did not return a usable model list.",
@@ -210,6 +264,8 @@ class EngineShadowService:
             if target in keys or target == suffix:
                 matches.append(candidate)
         if not matches:
+            if managed_exact is not None:
+                return self._managed_exact_model(clean, managed_exact)
             raise EngineShadowServiceError(
                 "model_not_found", "The requested model is not registered.", status_code=404
             )
@@ -233,6 +289,17 @@ class EngineShadowService:
             invocation_id=str(candidate.invocation_id),
             context_window=max(32_000, int(candidate.context_length or 128_000)),
             max_output_tokens=max(1_024, min(int(candidate.max_output_tokens or 32_000), 32_000)),
+        )
+
+    @staticmethod
+    def _managed_exact_model(
+        requested_base_id: str, invocation_id: str
+    ) -> ResolvedShadowModel:
+        return ResolvedShadowModel(
+            requested_base_id=requested_base_id,
+            invocation_id=invocation_id,
+            context_window=128_000,
+            max_output_tokens=32_000,
         )
 
     def list_runs(self, *, limit: int = 100) -> list[EngineShadowRunRecord]:
@@ -371,6 +438,7 @@ class EngineShadowService:
                 "The upstream shadow run failed.",
             )
         finally:
+            await self._finish_managed_run(spec.run_id)
             async with self._history_lock:
                 self._histories.pop(spec.run_id, None)
 
@@ -464,23 +532,77 @@ class EngineShadowService:
                 if isinstance(delta, str):
                     thinking_parts.append(delta)
 
+        workload_run_id: str | None = None
+        call_sequence = 0
         try:
-            turn = await self.gateway.stream_turn(
-                model_id=model.invocation_id,
-                messages=messages,
-                tools=self._gateway_tools(),
-                max_tokens=model.max_output_tokens,
-                thinking_level=str(request.payload.get("thinking_level") or "medium"),
-                timeout_ms=120_000,
-                on_delta=on_delta,
+            workload_run_id, call_sequence = await self._managed_call_context(
+                request.run_id
             )
+            if workload_run_id is not None:
+                assert self.managed_gateway is not None
+                turn = await self.managed_gateway.stream_turn(
+                    workload_run_id=workload_run_id,
+                    logical_call_key=request.request_id,
+                    call_sequence=call_sequence,
+                    model_id=model.invocation_id,
+                    messages=messages,
+                    tools=self._gateway_tools(),
+                    max_tokens=model.max_output_tokens,
+                    thinking_level=str(
+                        request.payload.get("thinking_level") or "medium"
+                    ),
+                    timeout_ms=120_000,
+                    on_delta=on_delta,
+                )
+            else:
+                turn = await self.gateway.stream_turn(
+                    model_id=model.invocation_id,
+                    messages=messages,
+                    tools=self._gateway_tools(),
+                    max_tokens=model.max_output_tokens,
+                    thinking_level=str(
+                        request.payload.get("thinking_level") or "medium"
+                    ),
+                    timeout_ms=120_000,
+                    on_delta=on_delta,
+                )
+        except asyncio.CancelledError:
+            self._record_provider_route_receipt(
+                request.run_id,
+                workload_run_id=workload_run_id,
+                model_id=model.invocation_id,
+                call_sequence=call_sequence,
+                status="cancelled",
+            )
+            raise
         except GatewayNotConfiguredError:
+            self._record_provider_route_receipt(
+                request.run_id,
+                workload_run_id=workload_run_id,
+                model_id=model.invocation_id,
+                call_sequence=call_sequence,
+                status="failed",
+            )
             return self._model_failure("auth", "The LLM gateway is not configured.")
         except GatewayCapabilityError:
+            self._record_provider_route_receipt(
+                request.run_id,
+                workload_run_id=workload_run_id,
+                model_id=model.invocation_id,
+                call_sequence=call_sequence,
+                status="failed",
+            )
             return self._model_failure(
                 "failed", "The selected model does not support native Tool Calling."
             )
         except GatewayRequestError:
+            self._record_provider_route_receipt(
+                request.run_id,
+                workload_run_id=workload_run_id,
+                model_id=model.invocation_id,
+                call_sequence=call_sequence,
+                status="failed",
+            )
             return self._model_failure("failed", "The model gateway request failed.")
 
         segments = self._turn_segments(turn, thinking_parts)
@@ -489,22 +611,77 @@ class EngineShadowService:
             if request.run_id in self._histories:
                 self._histories[request.run_id].extend(converted)
                 self._histories[request.run_id].append(assistant_message)
-        input_tokens = self._estimate_tokens(messages)
-        output_tokens = self._estimate_tokens(
+        input_tokens = turn.prompt_tokens or self._estimate_tokens(messages)
+        output_tokens = turn.completion_tokens or self._estimate_tokens(
             [assistant_message, {"thinking": "".join(thinking_parts)}]
         )
+        total_tokens = turn.total_tokens or input_tokens + output_tokens
         current = self.store.get_run(request.run_id)
         self._update_if_active(request.run_id, model_turns=current.model_turns + 1)
+        self._record_provider_route_receipt(
+            request.run_id,
+            workload_run_id=workload_run_id,
+            model_id=model.invocation_id,
+            call_sequence=call_sequence,
+            status="passed",
+            total_tokens=turn.total_tokens,
+        )
         return {
             "segments": segments,
             "usage": {
                 "cache_read": 0,
                 "cache_write": 0,
                 "output": output_tokens,
-                "total": input_tokens + output_tokens,
+                "total": total_tokens,
             },
             "outcome": {"status": "completed"},
         }
+
+    async def _managed_call_context(self, run_id: str) -> tuple[str | None, int]:
+        async with self._managed_lock:
+            workload_run_id = self._managed_runs.get(run_id)
+            if workload_run_id is None:
+                return None, 0
+            sequence = self._managed_call_sequences.get(run_id, 0) + 1
+            self._managed_call_sequences[run_id] = sequence
+            return workload_run_id, sequence
+
+    def _record_provider_route_receipt(
+        self,
+        run_id: str,
+        *,
+        workload_run_id: str | None,
+        model_id: str,
+        call_sequence: int,
+        status: str,
+        total_tokens: int | None = None,
+    ) -> None:
+        if workload_run_id is None:
+            return
+        payload: dict[str, Any] = {
+            "managed": True,
+            "model_id": model_id,
+            "call_sequence": call_sequence,
+            "status": status,
+        }
+        if total_tokens is not None:
+            payload["total_tokens"] = total_tokens
+        try:
+            self.store.append_event(run_id, "provider_route_receipt", payload)
+        except EngineShadowStoreError:
+            return
+
+    async def _finish_managed_run(self, run_id: str) -> None:
+        async with self._managed_lock:
+            workload_run_id = self._managed_runs.pop(run_id, None)
+            self._managed_call_sequences.pop(run_id, None)
+        if workload_run_id is None or self.managed_gateway is None:
+            return
+        try:
+            shadow_status = self.store.get_run(run_id).status
+        except EngineShadowStoreError:
+            shadow_status = "interrupted"
+        self.managed_gateway.finish_run(workload_run_id, shadow_status)
 
     async def _catalog(self) -> Any:
         if self._catalog_provider is not None:

@@ -203,9 +203,9 @@ Round 6A 在不接管 Agent/Workflow 数据面的前提下增加
 `entry_id + execution_shape + exact model_id` 精确绑定一个 Managed Connection；
 `chat_text`/`chat_tools` 复用 R5 资格，非流式文本、JSON Object 和原生 Fusion 使用各自
 独立资格。父运行与逻辑调用 Receipt 不保存 Prompt、消息、模型正文或工具参数，且重启后
-不重放 `uncertain` 调用。所有 R6 部署开关默认关闭，R6A 的数据面接入集合为空，因此
-Policy/Binding 可配置和审计但不能激活；现有 Agent、Workflow、Xpert 与 R5 Chat 调度均
-保持 legacy/原行为。后续入口只允许 Python 主进程解析凭据和调用 Provider，Worker 与工具
+不重放 `uncertain` 调用。所有 R6 部署开关默认关闭；R6B 只将 `agent_shadow` 加入数据面
+接入集合，其余 Policy/Binding 可配置和审计但不能激活；Workflow、Xpert 与 R5 Chat 调度均
+保持 legacy/原行为。接入入口只允许 Python 主进程解析凭据和调用 Provider，Worker 与工具
 执行器继续只处理模型消息、Tool Call 和脱敏结果。
 
 `/settings?section=overview|providers|routing` 共用一份 Provider 管理会话。Marble 等其他

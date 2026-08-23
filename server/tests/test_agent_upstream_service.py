@@ -52,6 +52,49 @@ class _FakeGateway:
         )
 
 
+class _FakeManagedGateway:
+    def __init__(
+        self,
+        mode: str = "managed_required",
+        *,
+        exact_model_ids: set[str] | None = None,
+    ) -> None:
+        self.mode = mode
+        self.exact_model_ids = exact_model_ids or set()
+        self.started: list[str] = []
+        self.calls: list[dict[str, object]] = []
+        self.finished: list[tuple[str, str]] = []
+
+    def routing_mode(self) -> str:
+        return self.mode
+
+    def resolve_exact_model(self, requested_model_id: str) -> str | None:
+        return (
+            requested_model_id
+            if requested_model_id in self.exact_model_ids
+            else None
+        )
+
+    def start_run(self, *, parent_run_reference: str) -> str:
+        self.started.append(parent_run_reference)
+        return f"managed-{parent_run_reference}"
+
+    async def stream_turn(self, **kwargs) -> GatewayTurn:
+        self.calls.append(kwargs)
+        return GatewayTurn(
+            content="managed private output",
+            tool_calls=(),
+            finish_reason="stop",
+            model_id=str(kwargs["model_id"]),
+            prompt_tokens=10,
+            completion_tokens=2,
+            total_tokens=12,
+        )
+
+    def finish_run(self, workload_run_id: str, shadow_status: str) -> None:
+        self.finished.append((workload_run_id, shadow_status))
+
+
 class _CandidatePort:
     def __init__(self) -> None:
         self.stopped: list[str] = []
@@ -227,6 +270,142 @@ async def test_shadow_service_produces_host_verified_candidate_without_transcrip
     assert b"private-model-output-that-must-stay-in-memory" not in raw_database
     events = service.list_events(created.run_id)
     assert all("content" not in str(event.payload).lower() for event in events)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_shadow_service_uses_exact_managed_binding_after_alias_resolution(
+    tmp_path: Path,
+) -> None:
+    legacy = _FakeGateway()
+    managed = _FakeManagedGateway()
+    service = EngineShadowService(
+        store=EngineShadowStore(tmp_path / "agent-workspace"),
+        port=_CandidatePort(),
+        gateway=legacy,
+        managed_gateway=managed,  # type: ignore[arg-type]
+        catalog_provider=_catalog,
+    )
+
+    created = await service.create_run(
+        EngineShadowRunCreate(
+            objective="Build through the exact managed model",
+            model_base_id="deepseek-v4-pro-0813",
+        )
+    )
+    finished = await _wait_terminal(service, created.run_id)
+
+    assert finished.status == "candidate_ready"
+    assert legacy.messages == []
+    assert managed.started == [created.run_id]
+    assert len(managed.calls) == 1
+    assert managed.calls[0]["workload_run_id"] == f"managed-{created.run_id}"
+    assert managed.calls[0]["logical_call_key"] == "model-1"
+    assert managed.calls[0]["call_sequence"] == 1
+    assert managed.calls[0]["model_id"] == "deepseek/deepseek-v4-pro-0813"
+    assert managed.finished == [
+        (f"managed-{created.run_id}", "candidate_ready")
+    ]
+    route_event = next(
+        event
+        for event in service.list_events(created.run_id)
+        if event.type == "provider_route_receipt"
+    )
+    assert route_event.payload == {
+        "managed": True,
+        "model_id": "deepseek/deepseek-v4-pro-0813",
+        "call_sequence": 1,
+        "status": "passed",
+        "total_tokens": 12,
+    }
+    assert b"managed private output" not in service.store.database_path.read_bytes()
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_shadow_service_accepts_valid_exact_managed_binding_when_legacy_catalog_is_empty(
+    tmp_path: Path,
+) -> None:
+    exact_model_id = "openai/gpt-4o-mini"
+    legacy = _FakeGateway()
+    managed = _FakeManagedGateway(exact_model_ids={exact_model_id})
+    service = EngineShadowService(
+        store=EngineShadowStore(tmp_path / "agent-workspace"),
+        port=_CandidatePort(),
+        gateway=legacy,
+        managed_gateway=managed,  # type: ignore[arg-type]
+        catalog_provider=lambda: SimpleNamespace(models=[]),
+    )
+
+    created = await service.create_run(
+        EngineShadowRunCreate(
+            objective="Build through an exact managed-only model",
+            model_base_id=exact_model_id,
+        )
+    )
+    finished = await _wait_terminal(service, created.run_id)
+
+    assert finished.status == "candidate_ready"
+    assert created.resolved_model_id == exact_model_id
+    assert legacy.messages == []
+    assert len(managed.calls) == 1
+    assert managed.calls[0]["model_id"] == exact_model_id
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_shadow_service_degraded_required_fails_before_workspace_or_worker(
+    tmp_path: Path,
+) -> None:
+    managed = _FakeManagedGateway("degraded_required")
+    service = EngineShadowService(
+        store=EngineShadowStore(tmp_path / "agent-workspace"),
+        port=_CandidatePort(),
+        gateway=_FakeGateway(),
+        managed_gateway=managed,  # type: ignore[arg-type]
+        catalog_provider=_catalog,
+    )
+
+    with pytest.raises(EngineShadowServiceError) as captured:
+        await service.create_run(
+            EngineShadowRunCreate(objective="Must fail before managed dispatch")
+        )
+
+    assert captured.value.code == (
+        "provider_workload_agent_shadow_degraded_required"
+    )
+    assert service.list_runs() == []
+    assert managed.started == []
+
+
+@pytest.mark.asyncio
+async def test_shadow_service_legacy_mode_does_not_touch_managed_receipts(
+    tmp_path: Path,
+) -> None:
+    legacy = _FakeGateway()
+    managed = _FakeManagedGateway("legacy")
+    service = EngineShadowService(
+        store=EngineShadowStore(tmp_path / "agent-workspace"),
+        port=_CandidatePort(),
+        gateway=legacy,
+        managed_gateway=managed,  # type: ignore[arg-type]
+        catalog_provider=_catalog,
+    )
+
+    created = await service.create_run(
+        EngineShadowRunCreate(objective="Keep the existing gateway path")
+    )
+    finished = await _wait_terminal(service, created.run_id)
+
+    assert finished.status == "candidate_ready"
+    assert len(legacy.messages) == 1
+    assert managed.started == []
+    assert managed.calls == []
+    assert managed.finished == []
+    assert not any(
+        event.type == "provider_route_receipt"
+        for event in service.list_events(created.run_id)
+    )
     await service.shutdown()
 
 

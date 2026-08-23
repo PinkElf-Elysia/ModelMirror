@@ -99,7 +99,9 @@ ENTRY_ALLOWED_SHAPES: dict[
 
 # R6A deliberately provides only the control-plane foundation. Each later data-plane
 # PR adds its entry here after its dedicated tests and real smoke are complete.
-DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset()
+DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
+    {"agent_shadow"}
+)
 
 
 def _enabled(value: str | None, *, default: bool = False) -> bool:
@@ -1424,7 +1426,7 @@ class ProviderWorkloadPreparedCall:
 
 
 class ProviderWorkloadCallService:
-    """Future data-plane seam: exact target plus one-dispatch receipt guard."""
+    """Exact managed target and one-dispatch receipt guard for R6 data planes."""
 
     def __init__(self, router_service: ModelRouterService) -> None:
         self.router_service = router_service
@@ -1607,6 +1609,50 @@ class ProviderWorkloadCallService:
                     status_code=409,
                 ) from exc
             raise
+
+    def complete_call(
+        self,
+        prepared: ProviderWorkloadPreparedCall,
+        *,
+        status: str,
+        result_class: str | None = None,
+        error_code: str | None = None,
+        actual_model: str | None = None,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> None:
+        self.repository.complete_workload_call(
+            self.router_service.tenant_id,
+            prepared.call_id,
+            status=status,
+            result_class=result_class,
+            error_code=error_code,
+            actual_model=actual_model,
+            ttft_ms=ttft_ms,
+            e2e_ms=e2e_ms,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+        )
+
+    def complete_run(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        result_class: str | None = None,
+        reason_codes: list[str] | None = None,
+    ) -> None:
+        self.repository.complete_workload_run(
+            self.router_service.tenant_id,
+            run_id,
+            status=status,
+            result_class=result_class,
+            reason_codes=reason_codes,
+        )
 
     @staticmethod
     def _ensure_active(policy: ProviderWorkloadPolicyResponse) -> None:
