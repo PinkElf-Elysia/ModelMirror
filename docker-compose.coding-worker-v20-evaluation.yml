@@ -44,7 +44,7 @@ services:
           create_host_path: false
       - coding_worker_acp_evaluation_socket:/run/modelmirror-coding-evaluation
     healthcheck:
-      test: ["CMD", "python", "-c", "import json,os,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding-evaluation/driver.sock'); s.sendall((json.dumps({'token':os.environ['CODING_WORKER_EVALUATION_TOKEN'],'action':'health'})+'\\n').encode()); assert json.loads(s.recv(65536))['ok']"]
+      test: ["CMD", "python", "-c", "import json,os,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding-evaluation/driver.sock'); s.sendall((json.dumps({'token':os.environ['CODING_WORKER_EVALUATION_TOKEN'],'action':'health'})+'\\n').encode()); response=json.loads(s.recv(65536)); assert response['ok'] and response['result']['available']"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -76,7 +76,7 @@ services:
           create_host_path: false
       - coding_worker_codex_evaluation_socket:/run/modelmirror-coding-evaluation
     healthcheck:
-      test: ["CMD", "python", "-c", "import json,os,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding-evaluation/driver.sock'); s.sendall((json.dumps({'token':os.environ['CODING_WORKER_EVALUATION_TOKEN'],'action':'health'})+'\\n').encode()); assert json.loads(s.recv(65536))['ok']"]
+      test: ["CMD", "python", "-c", "import json,os,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding-evaluation/driver.sock'); s.sendall((json.dumps({'token':os.environ['CODING_WORKER_EVALUATION_TOKEN'],'action':'health'})+'\\n').encode()); response=json.loads(s.recv(65536)); assert response['ok'] and response['result']['available']"]
       interval: 10s
       timeout: 5s
       retries: 5
