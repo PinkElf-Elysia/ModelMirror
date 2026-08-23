@@ -386,7 +386,9 @@ function appendStepOutput(
 ) {
   if (!next) return current;
   if (!current) return next;
-  if (nodeType === "llm") return `${current}${next}`;
+  if (nodeType === "llm" || nodeType === "workflow_agent") {
+    return `${current}${next}`;
+  }
   return `${current}\n${next}`;
 }
 

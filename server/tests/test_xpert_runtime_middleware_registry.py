@@ -44,6 +44,7 @@ def test_registry_list_returns_builtin_nodes() -> None:
         "xpert_authoring",
         "skill_creator",
         "datax_indicators",
+        "content_policy",
     }
     for node in nodes:
         assert node.id

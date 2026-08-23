@@ -373,9 +373,9 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     kind="question_classifier",
                     icon="CLS",
                     title="问题分类器",
-                    description="根据关键词规则把输入文本分类为预设类别。",
+                    description="按稳定分类出口分派问题，可选择规则、模型或规则后模型。",
                     category="transform",
-                    tags=["classifier", "question"],
+                    tags=["classifier", "question", "model", "stable-route"],
                 ),
                 WorkflowPaletteItem(
                     kind="code",
@@ -397,9 +397,9 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     kind="parameter_extractor",
                     icon="{}",
                     title="参数提取器",
-                    description="调用模型从文本中提取字段，输出 JSON 字符串。",
+                    description="调用模型提取字段，输出经 Schema 校验的 JSON 对象或对象列表。",
                     category="transform",
-                    tags=["json", "extract"],
+                    tags=["json", "extract", "schema", "typed-value"],
                 ),
                 WorkflowPaletteItem(
                     kind="data_aggregate",

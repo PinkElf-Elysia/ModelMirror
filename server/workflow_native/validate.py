@@ -39,6 +39,12 @@ from .secure_http import (
     is_http_request_v2,
     validate_http_request_v2_config,
 )
+from .typed_ai import (
+    WorkflowTypedAIError,
+    contract_version as typed_ai_contract_version,
+    validate_parameter_extractor_v2_config,
+    validate_question_classifier_v2_config,
+)
 from .schemas import (
     NativeWorkflowDefinition,
     NativeWorkflowEdge,
@@ -700,6 +706,49 @@ def validate_control_data_structure(
                     node_id=node.id,
                 )
             )
+        if kind == "question_classifier" and typed_ai_contract_version(node.data) == 2:
+            categories = node.data.get("categoriesV2")
+            category_ids = (
+                [
+                    str(category.get("id") or "").strip()
+                    for category in categories
+                    if isinstance(category, dict)
+                ]
+                if isinstance(categories, list)
+                else []
+            )
+            expected_handles = {*category_ids, "default"}
+            counts: dict[str, int] = defaultdict(int)
+            for edge in node_edges:
+                handle = str(edge.sourceHandle or "").strip()
+                counts[handle] += 1
+                if handle not in expected_handles:
+                    issues.append(
+                        ValidationIssue(
+                            code="question_classifier_unknown_edge_handle",
+                            message="Question classifier edge uses an unconfigured category handle.",
+                            node_id=node.id,
+                            edge_id=edge.id,
+                        )
+                    )
+            for handle in sorted(expected_handles):
+                if counts.get(handle, 0) == 0:
+                    issues.append(
+                        ValidationIssue(
+                            code="question_classifier_missing_edge",
+                            message=f"Question classifier handle '{handle}' needs exactly one outgoing edge.",
+                            node_id=node.id,
+                        )
+                    )
+                elif counts[handle] > 1:
+                    issues.append(
+                        ValidationIssue(
+                            code="question_classifier_duplicate_edge",
+                            message=f"Question classifier handle '{handle}' has more than one outgoing edge.",
+                            node_id=node.id,
+                        )
+                    )
+            continue
         if kind != "multi_route":
             continue
         routes = node.data.get("routes")
@@ -1464,7 +1513,24 @@ def validate_node_configuration(
             )
 
     if kind == "parameter_extractor":
-        if not str(data.get("inputVariable") or "").strip():
+        contract_version = typed_ai_contract_version(data)
+        if contract_version not in {1, 2}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_parameter_extractor_contract_version",
+                    message="Parameter extractor contractVersion must be 1 or 2.",
+                    node_id=node.id,
+                )
+            )
+            return issues
+        elif contract_version == 2:
+            try:
+                validate_parameter_extractor_v2_config(data)
+            except WorkflowTypedAIError as exc:
+                issues.append(
+                    ValidationIssue(code=exc.code, message=str(exc), node_id=node.id)
+                )
+        elif not str(data.get("inputVariable") or "").strip():
             issues.append(
                 ValidationIssue(
                     code="missing_parameter_extractor_input_variable",
@@ -1472,7 +1538,7 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
-        if not str(data.get("schema") or "").strip():
+        if typed_ai_contract_version(data) != 2 and not str(data.get("schema") or "").strip():
             issues.append(
                 ValidationIssue(
                     code="missing_parameter_extractor_schema",
@@ -1480,7 +1546,7 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
-        if not str(data.get("modelId") or "").strip():
+        if typed_ai_contract_version(data) != 2 and not str(data.get("modelId") or "").strip():
             issues.append(
                 ValidationIssue(
                     code="missing_parameter_extractor_model_id",
@@ -1489,7 +1555,7 @@ def validate_node_configuration(
                 )
             )
         output_variable = str(data.get("outputVariable") or "").strip()
-        if not output_variable:
+        if typed_ai_contract_version(data) != 2 and not output_variable:
             issues.append(
                 ValidationIssue(
                     code="missing_parameter_extractor_output_variable",
@@ -1497,7 +1563,7 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
-        elif not is_variable_name(output_variable):
+        elif typed_ai_contract_version(data) != 2 and not is_variable_name(output_variable):
             issues.append(
                 ValidationIssue(
                     code="invalid_parameter_extractor_output_variable",
@@ -1838,6 +1904,24 @@ def validate_node_configuration(
             )
 
     if kind == "question_classifier":
+        contract_version = typed_ai_contract_version(data)
+        if contract_version not in {1, 2}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_question_classifier_contract_version",
+                    message="Question classifier contractVersion must be 1 or 2.",
+                    node_id=node.id,
+                )
+            )
+            return issues
+        if contract_version == 2:
+            try:
+                validate_question_classifier_v2_config(data)
+            except WorkflowTypedAIError as exc:
+                issues.append(
+                    ValidationIssue(code=exc.code, message=str(exc), node_id=node.id)
+                )
+            return issues
         input_variable = str(data.get("inputVariable") or "").strip()
         if not input_variable:
             issues.append(
@@ -3151,6 +3235,23 @@ def validate_node_configuration(
 
         config = data.get("runtimeMiddlewareConfig")
         config = config if isinstance(config, dict) else {}
+        if middleware_id == "content_policy":
+            try:
+                from server.xpert_runtime.content_policy import (
+                    ContentPolicyError,
+                    validate_content_policy_config,
+                )
+            except ModuleNotFoundError:
+                from xpert_runtime.content_policy import (  # type: ignore[no-redef]
+                    ContentPolicyError,
+                    validate_content_policy_config,
+                )
+            try:
+                validate_content_policy_config(config)
+            except ContentPolicyError as exc:
+                issues.append(
+                    ValidationIssue(code=exc.code, message=str(exc), node_id=node.id)
+                )
         if middleware_id == "context_compression":
             for name, minimum, maximum in (
                 ("max_context_tokens", 2048, 200000),

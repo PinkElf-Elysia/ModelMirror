@@ -78,10 +78,20 @@ import WorkflowControlDataNodeConfig from "./WorkflowControlDataNodeConfig";
 import WorkflowHttpRequestNodeConfig from "./WorkflowHttpRequestNodeConfig";
 import WorkflowFileDataNodeConfig from "./WorkflowFileDataNodeConfig";
 import WorkflowDeploymentNodeConfig from "./WorkflowDeploymentNodeConfig";
+import WorkflowContentPolicyConfig from "./WorkflowContentPolicyConfig";
 import WorkflowNodeCard from "./WorkflowNodeCard";
 import WorkflowRun from "./WorkflowRun";
 import WorkflowVariableCenter from "./WorkflowVariableCenter";
 import WorkflowVariableField from "./WorkflowVariableField";
+import {
+  ParameterExtractorConfig,
+  QuestionClassifierConfig,
+} from "./WorkflowTypedAiNodeConfig";
+import {
+  migrateLegacyParameterExtractor,
+  migrateLegacyQuestionClassifier,
+  type TypedAiMigrationResult,
+} from "./workflowTypedAiMigration";
 import {
   analyzeWorkflowVariables,
   planWorkflowVariableRename,
@@ -620,11 +630,32 @@ export function createNodeData(
     return {
       kind,
       title: "参数提取器",
-      description: "调用模型从文本中抽取字段，返回 JSON 字符串。",
+      description: "调用模型从文本中抽取字段，输出经过 Schema 校验的 JSON。",
+      contractVersion: 2,
       inputVariable: "user_input",
-      schema: "name: 姓名\nemail_address: 邮箱地址",
+      schemaMode: "fields",
+      outputShape: "object",
+      fields: [
+        {
+          id: "field_1",
+          name: "name",
+          description: "客户姓名",
+          valueType: "string",
+          required: true,
+          nullable: false,
+        },
+        {
+          id: "field_2",
+          name: "email_address",
+          description: "客户邮箱地址",
+          valueType: "string",
+          required: false,
+          nullable: true,
+        },
+      ],
+      repairAttempts: 0,
       modelId: DEFAULT_WORKFLOW_AGENT_MODEL_ID,
-      outputVariable: "parameters_json",
+      outputVariable: "parameters",
     };
   }
 
@@ -694,17 +725,30 @@ export function createNodeData(
     return {
       kind,
       title: "问题分类",
-      description: "关键词规则分类",
+      description: "按稳定分类出口分派问题，可选模型兜底。",
+      contractVersion: 2,
       inputVariable: "user_input",
-      categories:
-        '{"投诉":["差","投诉","退款"],"咨询":["咨询","如何","怎么"],"订单":["订单","下单","购买"],"售后":["售后","退货","换"]}',
+      classificationMode: "rules_only",
+      categoriesV2: [
+        {
+          id: "category_1",
+          label: "投诉与退款",
+          description: "投诉、退款或服务不满",
+          keywords: ["投诉", "退款", "不满意"],
+          matchMode: "contains_any",
+        },
+        {
+          id: "category_2",
+          label: "产品咨询",
+          description: "产品信息、使用方法或购买咨询",
+          keywords: ["咨询", "如何", "怎么"],
+          matchMode: "contains_any",
+        },
+      ],
       outputVariable: "category",
-      defaultCategory: "未知",
-      matchMode: "contains_any",
-      caseSensitive: "false",
-      useLlmFallback: "false",
+      defaultLabel: "未分类",
+      caseSensitive: false,
       modelId: "",
-      llmFallbackPrompt: "",
     };
   }
 
@@ -2747,6 +2791,7 @@ interface NodeConfigProps {
   onSelectNode: (nodeId: string) => void;
   onOpenRunFileInput: (variableName: string) => void;
   onOpenVariableCenter: () => void;
+  onMigrateTypedAiNode: (nodeId: string) => string;
 }
 
 function NodeConfig({
@@ -2760,6 +2805,7 @@ function NodeConfig({
   onSelectNode,
   onOpenRunFileInput,
   onOpenVariableCenter,
+  onMigrateTypedAiNode,
 }: NodeConfigProps) {
   const [registryTools, setRegistryTools] = useState<RegistryToolOption[]>([]);
   const [registryToolsError, setRegistryToolsError] = useState("");
@@ -2957,8 +3003,12 @@ function NodeConfig({
     && data.runtimeMiddlewareId === "plugin_hooks";
   const pluginHookMode = String(runtimeMiddlewareConfig?.hook_mode || "legacy_argv");
   const legacyPluginHookMiddleware = pluginHookMiddleware && pluginHookMode !== "typed_v2";
+  const contentPolicyMiddleware =
+    data.kind === "runtime_middleware"
+    && data.runtimeMiddlewareId === "content_policy";
   const visibleRuntimeMiddlewareFields = (data.runtimeMiddlewareFields ?? []).filter(
     (field) => {
+      if (contentPolicyMiddleware) return false;
       if (
         skillRuntimeMiddleware
         && field.name !== "skill_ids"
@@ -3371,54 +3421,18 @@ function NodeConfig({
       ) : null}
 
       {data.kind === "parameter_extractor" ? (
-        <>
-          <Field label="待提取文本变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="inputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ inputVariable: value })}
-              value={data.inputVariable ?? ""}
-            />
-          </Field>
-          <Field label="调用模型">
-            <select
-              className={textInputClass()}
-              onChange={(event) => update({ modelId: event.target.value })}
-              value={data.modelId ?? DEFAULT_WORKFLOW_AGENT_MODEL_ID}
-            >
-              {models.map((model) => (
-                <option
-                  className="bg-slate-950 text-white"
-                  key={model.id}
-                  value={model.id}
-                >
-                  {model.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="字段描述">
-            <textarea
-              className={`${textInputClass()} min-h-28 resize-none leading-6`}
-              onChange={(event) => update({ schema: event.target.value })}
-              value={data.schema ?? ""}
-            />
-          </Field>
-          <Field label="输出变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="outputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ outputVariable: value })}
-              value={data.outputVariable ?? ""}
-            />
-          </Field>
-        </>
+        <ParameterExtractorConfig
+          contract={variableContract}
+          data={data}
+          declarations={declarations}
+          edges={edges}
+          models={models}
+          node={node}
+          nodes={nodes}
+          onChange={update}
+          onMigrate={() => onMigrateTypedAiNode(node.id)}
+          onOpenVariableCenter={onOpenVariableCenter}
+        />
       ) : null}
 
       {data.kind === "knowledge_retrieval" ? (
@@ -3646,128 +3660,18 @@ function NodeConfig({
       ) : null}
 
       {data.kind === "question_classifier" ? (
-        <>
-          <div className="rounded-lg border border-yellow-300/25 bg-yellow-300/10 px-3 py-2 text-xs leading-5 text-yellow-50">
-            默认只按关键词规则分类；LLM 回退关闭时不会产生模型调用。
-          </div>
-          <Field label="输入文本变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="inputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ inputVariable: value })}
-              value={data.inputVariable ?? ""}
-            />
-          </Field>
-          <Field label="分类规则 JSON">
-            <textarea
-              className={`${textInputClass()} min-h-36 resize-none font-mono text-xs leading-5`}
-              onChange={(event) => update({ categories: event.target.value })}
-              placeholder='{"投诉":["差","投诉","退款"],"咨询":["咨询","如何","怎么"]}'
-              value={data.categories ?? ""}
-            />
-          </Field>
-          <Field label="输出变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="outputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ outputVariable: value })}
-              value={data.outputVariable ?? ""}
-            />
-          </Field>
-          <Field label="默认类别">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ defaultCategory: event.target.value })}
-              value={data.defaultCategory ?? ""}
-            />
-          </Field>
-          <Field label="匹配模式">
-            <select
-              className={textInputClass()}
-              onChange={(event) => update({ matchMode: event.target.value })}
-              value={data.matchMode ?? "contains_any"}
-            >
-              <option className="bg-slate-950" value="contains_any">
-                任一关键词命中
-              </option>
-              <option className="bg-slate-950" value="contains_all">
-                全部关键词命中
-              </option>
-            </select>
-          </Field>
-          <Field label="大小写敏感">
-            <select
-              className={textInputClass()}
-              onChange={(event) => update({ caseSensitive: event.target.value })}
-              value={data.caseSensitive ?? "false"}
-            >
-              <option className="bg-slate-950" value="false">
-                否
-              </option>
-              <option className="bg-slate-950" value="true">
-                是
-              </option>
-            </select>
-          </Field>
-          <Field label="启用 LLM 回退">
-            <select
-              className={textInputClass()}
-              onChange={(event) => update({ useLlmFallback: event.target.value })}
-              value={data.useLlmFallback ?? "false"}
-            >
-              <option className="bg-slate-950" value="false">
-                否
-              </option>
-              <option className="bg-slate-950" value="true">
-                是
-              </option>
-            </select>
-          </Field>
-          {data.useLlmFallback === "true" ? (
-            <>
-              <Field label="回退模型">
-                <select
-                  className={textInputClass()}
-                  onChange={(event) => update({ modelId: event.target.value })}
-                  value={data.modelId ?? ""}
-                >
-                  <option className="bg-slate-950" value="">
-                    请选择模型
-                  </option>
-                  {models.map((model) => (
-                    <option
-                      className="bg-slate-950"
-                      key={model.id}
-                      value={model.id}
-                    >
-                      {model.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="LLM 回退提示词（可选，支持 {{变量}}）">
-                <WorkflowVariableField
-                  className="min-h-28 resize-none leading-6"
-                  contract={variableContract}
-                  edges={edges}
-                  fieldName="llmFallbackPrompt"
-                  multiline
-                  node={node}
-                  nodes={nodes}
-                  onChange={(value) => update({ llmFallbackPrompt: value })}
-                  placeholder="留空则使用后端默认分类提示词。"
-                  value={data.llmFallbackPrompt ?? ""}
-                />
-              </Field>
-            </>
-          ) : null}
-        </>
+        <QuestionClassifierConfig
+          contract={variableContract}
+          data={data}
+          declarations={declarations}
+          edges={edges}
+          models={models}
+          node={node}
+          nodes={nodes}
+          onChange={update}
+          onMigrate={() => onMigrateTypedAiNode(node.id)}
+          onOpenVariableCenter={onOpenVariableCenter}
+        />
       ) : null}
 
       {data.kind === "external_xpert" ||
@@ -4208,7 +4112,12 @@ function NodeConfig({
               ID：{data.runtimeMiddlewareId ?? "unknown"}
             </p>
           </div>
-          {visibleRuntimeMiddlewareFields.length === 0 ? (
+          {contentPolicyMiddleware ? (
+            <WorkflowContentPolicyConfig
+              config={runtimeMiddlewareConfig}
+              onChange={updateRuntimeMiddlewareConfig}
+            />
+          ) : visibleRuntimeMiddlewareFields.length === 0 ? (
             <p className="rounded-lg border border-dashed border-white/15 bg-white/[0.035] px-3 py-4 text-sm leading-6 text-slate-400">
               {skillCreatorMiddleware
                 ? "Creator V2 不需要额外权限配置。运行成功后由你前往 Creator 继续规划。"
@@ -4864,6 +4773,26 @@ function WorkflowCanvas({
           return;
         }
       }
+      if (
+        sourceNode?.data.kind === "question_classifier" &&
+        Number(sourceNode.data.contractVersion) === 2
+      ) {
+        const configuredHandles = new Set([
+          ...(sourceNode.data.categoriesV2 ?? []).map((category) => category.id),
+          "default",
+        ]);
+        const sourceHandle = connection.sourceHandle ?? "";
+        if (!configuredHandles.has(sourceHandle)) {
+          setErrorNotice("问题分类器只能从已配置类别或默认出口连线。");
+          return;
+        }
+        if (edges.some((edge) =>
+          edge.source === sourceNode.id && edge.sourceHandle === sourceHandle
+        )) {
+          setErrorNotice("问题分类器的每个出口只能连接一次。");
+          return;
+        }
+      }
       const middlewareBinding = connection.targetHandle === "middleware";
       const resourceBinding =
         connection.targetHandle === "expert" ||
@@ -5059,6 +4988,36 @@ function WorkflowCanvas({
           : node,
       ),
     );
+  }
+
+  function migrateTypedAiNode(nodeId: string): string {
+    const node = nodes.find((candidate) => candidate.id === nodeId);
+    if (!node) return "未找到要升级的节点。";
+    const result: TypedAiMigrationResult = node.data.kind === "parameter_extractor"
+      ? migrateLegacyParameterExtractor(node.data)
+      : node.data.kind === "question_classifier"
+        ? migrateLegacyQuestionClassifier(
+            node.data,
+            edges.filter((edge) => edge.source === nodeId),
+            edges.map((edge) => edge.id),
+          )
+        : { ok: false, message: "该节点不支持 V2 升级。" };
+    if (!result.ok || !result.patch) return result.message;
+    commitHistory();
+    setNodes((currentNodes) => currentNodes.map((candidate) =>
+      candidate.id === nodeId
+        ? { ...candidate, data: { ...candidate.data, ...result.patch } }
+        : candidate,
+    ));
+    if (result.outgoingEdges) {
+      setEdges((currentEdges) => [
+        ...currentEdges.filter((edge) => edge.source !== nodeId),
+        ...result.outgoingEdges!,
+      ]);
+    }
+    setSaveNotice(result.message);
+    window.setTimeout(() => setSaveNotice(""), 3200);
+    return result.message;
   }
 
   function updateRuntimeMiddlewareConfig(
@@ -6206,6 +6165,7 @@ function WorkflowCanvas({
               node={selectedNode}
               nodes={nodes}
               onChange={updateNodeData}
+              onMigrateTypedAiNode={migrateTypedAiNode}
               onRuntimeMiddlewareConfigChange={updateRuntimeMiddlewareConfig}
               onOpenRunFileInput={openRunFileInput}
               onOpenVariableCenter={() => setIsVariableCenterOpen(true)}

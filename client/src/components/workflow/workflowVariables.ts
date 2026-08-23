@@ -334,7 +334,9 @@ const RESOURCE_TARGET_HANDLES = new Set([
 interface OutputSpec {
   field: "outputVariable" | "codeOutputVariable" | "variableName" | "eventVariable" | "bodyVariable" | "resultVariable";
   fallback: string;
-  valueType: WorkflowVariableValueType;
+  valueType:
+    | WorkflowVariableValueType
+    | ((node: WorkflowNode) => WorkflowVariableValueType);
   conditional?: (node: WorkflowNode) => boolean;
   enabled?: (node: WorkflowNode) => boolean;
 }
@@ -376,7 +378,11 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
     { field: "outputVariable", fallback: "aggregated_output", valueType: "unknown" },
   ],
   parameter_extractor: [
-    { field: "outputVariable", fallback: "parameters_json", valueType: "text" },
+    {
+      field: "outputVariable",
+      fallback: "parameters_json",
+      valueType: (node) => Number(node.data.contractVersion) === 2 ? "json" : "text",
+    },
   ],
   knowledge_retrieval: [
     { field: "outputVariable", fallback: "knowledge_result", valueType: "json" },
@@ -580,7 +586,7 @@ function collectSources(
         spec.field,
         trimmedString(node.data[spec.field]) || spec.fallback,
         "node_output",
-        spec.valueType,
+        typeof spec.valueType === "function" ? spec.valueType(node) : spec.valueType,
         spec.conditional?.(node) ?? false,
       );
     });

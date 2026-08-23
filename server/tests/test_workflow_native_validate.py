@@ -1218,6 +1218,212 @@ async def test_validate_mcp_tool_ok_and_invalid_json(
 
 
 @pytest.mark.asyncio
+async def test_validate_parameter_extractor_v2_typed_schema(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = linear_workflow()
+    workflow["nodes"][1] = {
+        "id": "extractor",
+        "type": "parameter_extractor",
+        "data": {
+            "kind": "parameter_extractor",
+            "contractVersion": 2,
+            "inputVariable": "user_input",
+            "modelId": "test/model",
+            "outputVariable": "parameters",
+            "schemaMode": "fields",
+            "outputShape": "object",
+            "fields": [
+                {
+                    "id": "field_1",
+                    "name": "order_id",
+                    "description": "Order ID",
+                    "valueType": "string",
+                    "required": True,
+                    "nullable": False,
+                }
+            ],
+            "jsonSchema": {},
+            "repairAttempts": 0,
+        },
+    }
+    workflow["nodes"][2]["data"]["outputVariable"] = "parameters"
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "extractor"},
+        {"id": "e2", "source": "extractor", "target": "output"},
+    ]
+
+    data = await validate(client, workflow)
+    assert data["valid"] is True
+
+    workflow["nodes"][1]["data"]["fields"][0]["name"] = "not valid"
+    data = await validate(client, workflow)
+    assert data["valid"] is False
+    assert "invalid_parameter_extractor_field_name" in issue_codes(data)
+
+
+@pytest.mark.asyncio
+async def test_validate_question_classifier_v2_requires_every_stable_edge(
+    client: httpx.AsyncClient,
+) -> None:
+    classifier = {
+        "id": "classifier",
+        "type": "question_classifier",
+        "data": {
+            "kind": "question_classifier",
+            "contractVersion": 2,
+            "inputVariable": "user_input",
+            "outputVariable": "category",
+            "classificationMode": "rules_only",
+            "categoriesV2": [
+                {
+                    "id": "category_1",
+                    "label": "退款",
+                    "description": "",
+                    "keywords": ["退款"],
+                    "matchMode": "contains_any",
+                },
+                {
+                    "id": "category_2",
+                    "label": "物流",
+                    "description": "",
+                    "keywords": ["物流"],
+                    "matchMode": "contains_any",
+                },
+            ],
+            "caseSensitive": False,
+            "modelId": "",
+            "defaultLabel": "其他",
+        },
+    }
+    workflow = {
+        "id": "classifier-v2",
+        "title": "classifier-v2",
+        "nodes": [
+            {
+                "id": "input",
+                "type": "input",
+                "data": {"kind": "input", "variableName": "user_input"},
+            },
+            classifier,
+            *[
+                {
+                    "id": f"output-{index}",
+                    "type": "output",
+                    "data": {"kind": "output", "outputVariable": "category"},
+                }
+                for index in range(1, 4)
+            ],
+        ],
+        "edges": [
+            {"id": "e0", "source": "input", "target": "classifier"},
+            {
+                "id": "e1",
+                "source": "classifier",
+                "sourceHandle": "category_1",
+                "target": "output-1",
+            },
+            {
+                "id": "e2",
+                "source": "classifier",
+                "sourceHandle": "category_2",
+                "target": "output-2",
+            },
+            {
+                "id": "e3",
+                "source": "classifier",
+                "sourceHandle": "default",
+                "target": "output-3",
+            },
+        ],
+    }
+
+    data = await validate(client, workflow)
+    assert data["valid"] is True
+
+    workflow["edges"].pop()
+    data = await validate(client, workflow)
+    assert data["valid"] is False
+    assert "question_classifier_missing_edge" in issue_codes(data)
+
+    workflow["edges"].append(
+        {
+            "id": "e3-restored",
+            "source": "classifier",
+            "sourceHandle": "default",
+            "target": "output-3",
+        }
+    )
+    workflow["edges"].append(
+        {
+            "id": "e4-duplicate",
+            "source": "classifier",
+            "sourceHandle": "category_1",
+            "target": "output-2",
+        }
+    )
+    data = await validate(client, workflow)
+    assert data["valid"] is False
+    assert "question_classifier_duplicate_edge" in issue_codes(data)
+
+    workflow["edges"].pop()
+    workflow["edges"].append(
+        {
+            "id": "e5-unknown",
+            "source": "classifier",
+            "sourceHandle": "category_3",
+            "target": "output-2",
+        }
+    )
+    data = await validate(client, workflow)
+    assert data["valid"] is False
+    assert "question_classifier_unknown_edge_handle" in issue_codes(data)
+
+
+@pytest.mark.asyncio
+async def test_validate_content_policy_middleware_contract(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = linear_workflow()
+    workflow["nodes"][1] = {
+        "id": "policy",
+        "type": "runtime_middleware",
+        "data": {
+            "kind": "runtime_middleware",
+            "runtimeMiddlewareId": "content_policy",
+            "runtimeMiddlewareKind": "runtime_middleware.content_policy",
+            "runtimeMiddlewareConfig": {
+                "phase": "both",
+                "rules": [
+                    {
+                        "id": "rule_1",
+                        "label": "凭据",
+                        "detector": "secret_pattern",
+                        "action": "block",
+                        "terms": [],
+                        "caseSensitive": False,
+                    }
+                ],
+            },
+            "middlewarePriority": 100,
+        },
+    }
+    workflow["nodes"][2]["data"]["outputVariable"] = "user_input"
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "policy"},
+        {"id": "e2", "source": "policy", "target": "output"},
+    ]
+
+    data = await validate(client, workflow)
+    assert data["valid"] is True
+
+    workflow["nodes"][1]["data"]["runtimeMiddlewareConfig"]["rules"] = []
+    data = await validate(client, workflow)
+    assert data["valid"] is False
+    assert "content_policy_invalid_rules" in issue_codes(data)
+
+
+@pytest.mark.asyncio
 async def test_validate_time_tool_ok_and_invalid_operation(
     client: httpx.AsyncClient,
 ) -> None:

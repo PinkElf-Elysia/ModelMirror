@@ -67,6 +67,8 @@ PROMOTED_COMPLETE_KINDS = {
     "http_request",
     "llm",
     "list_operation",
+    "parameter_extractor",
+    "question_classifier",
     "time_tool",
 }
 
@@ -180,7 +182,7 @@ def test_r16_control_data_contracts_are_complete_local_and_not_plannable() -> No
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-    ) == 14
+    ) == 12
 
 
 def test_r17_http_condition_and_dataset_contracts_are_complete_and_not_plannable() -> None:
@@ -227,7 +229,55 @@ def test_r18_file_data_contracts_are_complete_scoped_and_not_plannable() -> None
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-    ) == 14
+    ) == 12
+
+
+def test_r19_typed_ai_contracts_are_complete_and_not_plannable() -> None:
+    extractor = workflow_node_contract_registry.require("parameter_extractor")
+    classifier = workflow_node_contract_registry.require("question_classifier")
+
+    for contract in (extractor, classifier):
+        assert contract.contract_status == "complete"
+        assert contract.execution.external_io is True
+        assert contract.execution.error_semantics == "fail_closed"
+        assert contract.planner.enabled is False
+        assert node_policy_service.decision(contract.kind, "workflow").allowed
+        assert node_policy_service.decision(contract.kind, "xpert").allowed
+    assert set(classifier.edge.allowed_source_handles) == {
+        "category_1",
+        "category_2",
+        "category_3",
+        "category_4",
+        "category_5",
+        "category_6",
+        "category_7",
+        "category_8",
+        "default",
+    }
+    legacy_configs = {
+        "parameter_extractor": {
+            "inputVariable": "user_input",
+            "schema": "topic: Topic",
+            "modelId": "test/model",
+            "outputVariable": "parameters_json",
+        },
+        "question_classifier": {
+            "inputVariable": "user_input",
+            "categories": '{"Support":["help"],"Sales":["buy"]}',
+            "outputVariable": "category",
+        },
+    }
+    for kind, config in legacy_configs.items():
+        validator = Draft202012Validator(
+            workflow_node_contract_registry.require(kind).config_schema
+        )
+        assert not list(validator.iter_errors(config))
+        for invalid_version in ("2", 3):
+            assert list(
+                validator.iter_errors(
+                    {**config, "contractVersion": invalid_version}
+                )
+            )
 
 
 @pytest.mark.parametrize(
