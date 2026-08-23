@@ -29,7 +29,9 @@ from server.coding_worker.evaluation_driver import (
     EvaluationBrokerMcp,
     EvaluationDriverError,
     EvaluationDriverManifest,
+    canonical_supplier_id,
     command_sha256,
+    safe_supplier_id,
 )
 from server.coding_worker.harness_protocol import (
     HarnessBinding,
@@ -311,6 +313,216 @@ def test_acp_v1_full_lifecycle_normalizes_without_native_side_effects() -> None:
             "session/cancel", {"sessionId": "acp-session-1"}, None
         )
     )
+    resumed = _binding(_manifest("acp"), ACP_CAPABILITIES, generation=2)
+    driver.resume_session(
+        _acp_frame(
+            "session/resume",
+            {
+                "sessionId": "acp-session-1",
+                "cwd": "/workspace",
+                "mcpServers": [driver.broker_mcp.acp_config()],
+            },
+            5,
+        ),
+        resumed_binding=resumed,
+    )
+    driver.close_session(
+        _acp_frame("session/close", {"sessionId": "acp-session-1"}, 6)
+    )
+
+
+def test_supplier_correlation_preserves_json_rpc_id_type() -> None:
+    assert canonical_supplier_id(1) != canonical_supplier_id("1")
+    assert safe_supplier_id("request", 1) != safe_supplier_id("request", "1")
+
+
+def test_rejected_event_does_not_poison_driver_sequence() -> None:
+    driver = _acp_driver()
+    _initialize_acp(driver)
+    driver.start_turn(
+        _acp_frame(
+            "session/prompt",
+            {
+                "sessionId": "acp-session-1",
+                "prompt": [{"type": "text", "text": "Inspect."}],
+            },
+            3,
+        ),
+        platform_turn_id="turn-sequence",
+    )
+    first = driver.emit(
+        supplier_event_id="same-event",
+        kind=HarnessEventKind.MESSAGE,
+    )
+    with pytest.raises(EvaluationDriverError):
+        driver.emit(
+            supplier_event_id="same-event",
+            kind=HarnessEventKind.MESSAGE,
+        )
+    recovered = driver.emit(
+        supplier_event_id="fresh-event",
+        kind=HarnessEventKind.MESSAGE,
+    )
+    assert first.sequence == 1
+    assert recovered.sequence == 2
+
+
+def test_acp_accepts_meta_and_rejects_unoffered_permission_option() -> None:
+    driver = _acp_driver()
+    driver.initialize(
+        _acp_frame(
+            "initialize",
+            {
+                "protocolVersion": 1,
+                "clientCapabilities": {},
+                "_meta": {"trace": "safe"},
+            },
+        )
+    )
+    driver.open(
+        _acp_frame(
+            "session/new",
+            {
+                "cwd": "/workspace",
+                "mcpServers": [driver.broker_mcp.acp_config()],
+                "_meta": {"trace": "safe"},
+            },
+            2,
+        ),
+        supplier_session_id="acp-session-1",
+    )
+    driver.start_turn(
+        _acp_frame(
+            "session/prompt",
+            {
+                "sessionId": "acp-session-1",
+                "prompt": [{"type": "text", "text": "Inspect."}],
+                "_meta": {"trace": "safe"},
+            },
+            3,
+        ),
+        platform_turn_id="turn-permission",
+    )
+    driver.request_permission(
+        _acp_frame(
+            "session/request_permission",
+            {
+                "sessionId": "acp-session-1",
+                "toolCall": {"toolCallId": "tool-1"},
+                "options": [
+                    {"optionId": "deny", "name": "Deny", "kind": "reject_once"}
+                ],
+                "_meta": {"trace": "safe"},
+            },
+            4,
+        )
+    )
+    with pytest.raises(EvaluationDriverError, match="not offered"):
+        driver.reply_permission(
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "result": {
+                    "outcome": {
+                        "outcome": "selected",
+                        "optionId": "admin-unlock",
+                    }
+                },
+            }
+        )
+    accepted = driver.reply_permission(
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "result": {
+                "outcome": {"outcome": "selected", "optionId": "deny"}
+            },
+        }
+    )
+    assert accepted.outcome is HarnessResponseOutcome.APPROVED
+
+
+@pytest.mark.parametrize(
+    "options",
+    (
+        [{"optionId": "allow", "kind": "allow_once"}],
+        [{"optionId": "allow", "name": "Allow", "kind": "invented"}],
+        [
+            {
+                "optionId": f"option-{index}",
+                "name": "Allow",
+                "kind": "allow_once",
+            }
+            for index in range(17)
+        ],
+    ),
+)
+def test_acp_permission_options_are_schema_bounded(
+    options: list[dict[str, str]],
+) -> None:
+    driver = _acp_driver()
+    _initialize_acp(driver)
+    driver.start_turn(
+        _acp_frame(
+            "session/prompt",
+            {
+                "sessionId": "acp-session-1",
+                "prompt": [{"type": "text", "text": "Inspect."}],
+            },
+            3,
+        ),
+        platform_turn_id="turn-invalid-options",
+    )
+    with pytest.raises(EvaluationDriverError, match="permission options"):
+        driver.request_permission(
+            _acp_frame(
+                "session/request_permission",
+                {
+                    "sessionId": "acp-session-1",
+                    "toolCall": {"toolCallId": "tool-1"},
+                    "options": options,
+                },
+                4,
+            )
+        )
+
+
+def test_acp_cancel_settles_pending_permission_before_resume() -> None:
+    driver = _acp_driver()
+    _initialize_acp(driver)
+    driver.start_turn(
+        _acp_frame(
+            "session/prompt",
+            {
+                "sessionId": "acp-session-1",
+                "prompt": [{"type": "text", "text": "Inspect."}],
+            },
+            3,
+        ),
+        platform_turn_id="turn-cancel",
+    )
+    driver.request_permission(
+        _acp_frame(
+            "session/request_permission",
+            {
+                "sessionId": "acp-session-1",
+                "toolCall": {"toolCallId": "tool-1"},
+                "options": [
+                    {"optionId": "deny", "name": "Deny", "kind": "reject_once"}
+                ],
+            },
+            4,
+        )
+    )
+    cancelled = driver.cancel_turn(
+        _acp_frame(
+            "session/cancel",
+            {"sessionId": "acp-session-1", "_meta": {"trace": "safe"}},
+            None,
+        )
+    )
+    assert len(cancelled) == 1
+    assert cancelled[0].outcome is HarnessResponseOutcome.CANCELLED
     resumed = _binding(_manifest("acp"), ACP_CAPABILITIES, generation=2)
     driver.resume_session(
         _acp_frame(
