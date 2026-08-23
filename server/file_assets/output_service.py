@@ -125,9 +125,10 @@ class FileOutputService:
     ) -> FileOutputCapabilitiesResponse:
         clean_purpose = FilePurpose(purpose)
         master_enabled = self.enabled
+        store_enabled = self.file_service.mode in {"shadow", "native"}
         chat_tool_enabled = _env_enabled("CHAT_FILE_OUTPUT_TOOL_ENABLED")
         purpose_supported = clean_purpose in _PURPOSES
-        ready = master_enabled and purpose_supported and (
+        ready = master_enabled and store_enabled and purpose_supported and (
             clean_purpose is not FilePurpose.CHAT
             or (chat_tool_enabled and verified_chat_tool is True)
         )
@@ -137,6 +138,9 @@ class FileOutputService:
         elif not master_enabled:
             status = "disabled"
             reason = "Unified output assets are disabled by configuration."
+        elif not store_enabled:
+            status = "disabled"
+            reason = "The unified file asset store is disabled."
         elif not purpose_supported:
             status = "disabled"
             reason = "This module is outside the output-asset closure scope."

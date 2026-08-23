@@ -178,6 +178,14 @@ attempt，并保留其既有 POST 后失败转向下一目标语义；OmniRoute 
 不扩展 sidecar 协议。Auto 运行固定 `primary_newapi=false`，不得计入 R5E required 门禁。
 工具、文件输出和多模态仍不进入该证据接入范围。
 
+Round 5D 将 `gateway=default` 的 MCP 工具模式和 `output_mode=allowlisted` 分别接入
+`chat_tools` 与 `chat_file_output` 路由。两者必须具备当前连接指纹、精确模型和对应能力
+认证；普通文本资格不能替代。控制面只选择并固定 Managed Provider：MCP 工具仍由
+ModelMirror Runtime 执行，文件规格仍由 allowlisted renderer 校验和落盘，Provider 不会
+获得工具凭据或本地文件权限。多步模型调用在首次派发前固定同一连接和批准 IP，后续步骤
+重新校验策略但不得切换 Provider、模型、IP 或 legacy 路径；Receipt 只保存聚合指标和
+稳定原因码，不保存消息、工具结果或生成内容。专用多模态与 Canary 行为不变。
+
 `/settings?section=overview|providers|routing` 共用一份 Provider 管理会话。Marble 等其他
 集成位于该门禁之外；newAPI 管理 UI 继续只通过安全外链访问，不嵌入或代理。
 

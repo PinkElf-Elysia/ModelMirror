@@ -14,7 +14,7 @@ import sys
 import tempfile
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -804,6 +804,7 @@ try:
         InMemoryToolAuditStore,
         ExternalXpertToolsetProvider,
         KnowledgeToolsetProvider,
+        CatalogMCPToolsetProvider,
         CompositeMCPToolsetProvider,
         HubMCPToolsetProvider,
         MCPToolsetProvider,
@@ -929,6 +930,7 @@ except ModuleNotFoundError:
         InMemoryToolAuditStore,
         ExternalXpertToolsetProvider,
         KnowledgeToolsetProvider,
+        CatalogMCPToolsetProvider,
         CompositeMCPToolsetProvider,
         HubMCPToolsetProvider,
         MCPToolsetProvider,
@@ -1434,10 +1436,6 @@ configure_mcp_hub_review(mcp_hub_review_service)
 configure_mcp_hub_trusted(mcp_hub_trusted_service)
 workflow_curated_mcp_provider = MCPToolsetProvider(tool_registry, mcp_manager)
 workflow_hub_mcp_provider = HubMCPToolsetProvider(mcp_hub_service)
-workflow_mcp_provider = CompositeMCPToolsetProvider(
-    workflow_curated_mcp_provider,
-    workflow_hub_mcp_provider,
-)
 toolset_store = ToolsetStore()
 toolset_credential_store = CredentialStore(toolset_store.storage_dir)
 mcp_catalog_workspace_store = MCPCatalogWorkspaceStore()
@@ -1455,6 +1453,16 @@ mcp_catalog_service = MCPCatalogService(
     owner_id=os.getenv("MODELMIRROR_DEFAULT_OWNER_ID", "local"),
 )
 configure_mcp_catalog(mcp_catalog_service)
+workflow_catalog_mcp_provider = CatalogMCPToolsetProvider(mcp_catalog_service)
+workflow_mcp_provider = CompositeMCPToolsetProvider(
+    workflow_curated_mcp_provider,
+    workflow_hub_mcp_provider,
+)
+chat_mcp_provider = CompositeMCPToolsetProvider(
+    workflow_curated_mcp_provider,
+    workflow_catalog_mcp_provider,
+    workflow_hub_mcp_provider,
+)
 toolset_service = ToolsetService(
     toolset_store,
     toolset_credential_store,
@@ -1802,6 +1810,11 @@ runtime_capabilities.register(
     "mcp_tools",
     workflow_mcp_provider,
     description="MCP tools runtime capability for workflow and agents.",
+)
+runtime_capabilities.register(
+    "chat_mcp_tools",
+    chat_mcp_provider,
+    description="Policy-safe MCP tools available to direct Chat Runtime.",
 )
 register_todo_toolset_capability(runtime_capabilities, workflow_todo_provider)
 register_sandbox_toolset_capability(runtime_capabilities, workflow_sandbox_provider)
@@ -3224,6 +3237,7 @@ async def validate_chat_output_request(
     payload: ChatRequest,
     *,
     gateway_url: str,
+    verify_legacy_target: bool = True,
     direct_audio_requested: bool,
     direct_video_requested: bool,
     direct_file_requested: bool,
@@ -3271,9 +3285,8 @@ async def validate_chat_output_request(
             status_code=422,
             detail="File output requires both the current Chat scope and a stable turn context.",
         )
-    if not await model_supports_chat_output_tool(
-        payload.model_id,
-        gateway_url=gateway_url,
+    if verify_legacy_target and not await model_supports_chat_output_tool(
+        payload.model_id, gateway_url=gateway_url
     ):
         raise HTTPException(
             status_code=422,
@@ -4136,6 +4149,14 @@ class ChatCompletionContentError(RuntimeError):
         self.diagnostics = diagnostics
 
 
+class ChatCompletionUpstreamError(RuntimeError):
+    """Preserve upstream status for internal routing without exposing its body."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 def chat_sse_delta(text: str) -> bytes:
     payload = json.dumps(
         {"choices": [{"delta": {"content": text}}]},
@@ -4231,6 +4252,11 @@ async def collect_chat_completion_text(
     allow_json_reasoning_fallback: bool = False,
     json_required_top_level_key: str | None = None,
     completion_diagnostics: dict[str, Any] | None = None,
+    response_sender: Callable[
+        [httpx.AsyncClient, dict[str, Any]], Awaitable[httpx.Response]
+    ]
+    | None = None,
+    client_kwargs_override: dict[str, Any] | None = None,
 ) -> str:
     if gateway_url is not None:
         url = gateway_url
@@ -4274,16 +4300,20 @@ async def collect_chat_completion_text(
     )
 
     async with execution_operation("model_call"), httpx.AsyncClient(
-        **llm_client_kwargs()
+        **(client_kwargs_override or llm_client_kwargs())
     ) as client:
-        response = await client.post(
-            url,
-            headers=llm_gateway_headers(key),
-            json=request_payload,
+        response = (
+            await response_sender(client, request_payload)
+            if response_sender is not None
+            else await client.post(
+                url,
+                headers=llm_gateway_headers(key),
+                json=request_payload,
+            )
         )
         if response.status_code >= 400:
             message, _ = parse_upstream_error(response.status_code, response.content)
-            raise RuntimeError(message)
+            raise ChatCompletionUpstreamError(response.status_code, message)
         data = response.json()
         if not isinstance(data, dict):
             raise RuntimeError("模型返回了无法解析的响应。")
@@ -4535,9 +4565,16 @@ async def stream_chat_toolset_text(
     model_id_override: str | None = None,
     gateway_url: str | None = None,
     gateway_key: str | None = None,
+    response_sender: Callable[
+        [httpx.AsyncClient, dict[str, Any]], Awaitable[httpx.Response]
+    ]
+    | None = None,
+    client_kwargs_override: dict[str, Any] | None = None,
+    actual_model_observer: Callable[[str], None] | None = None,
+    usage_observer: Callable[[dict[str, int]], None] | None = None,
 ) -> AsyncIterator[str]:
     requested_tools = parse_chat_tool_names(payload.tool_names)
-    all_tools = await workflow_mcp_provider.list_tools()
+    all_tools = await chat_mcp_provider.list_tools()
     available_tools = [
         tool
         for tool in all_tools
@@ -4584,6 +4621,10 @@ async def stream_chat_toolset_text(
                 max_tokens=payload.max_tokens,
                 gateway_url=gateway_url,
                 gateway_key=gateway_key,
+                response_sender=response_sender,
+                client_kwargs_override=client_kwargs_override,
+                actual_model_observer=actual_model_observer,
+                usage_observer=usage_observer,
             )
         ).strip()
         decision = extract_json_decision(raw_response)
@@ -4679,6 +4720,7 @@ async def stream_chat_toolset_text(
             runtime_capabilities,
             runtime_pipeline,
             tool_context,
+            capability_name="chat_mcp_tools",
             policy=workflow_tool_policy,
             audit_store=audit_store or workflow_tool_audit_store,
         )
@@ -23872,12 +23914,17 @@ async def chat(payload: ChatRequest, request: Request):
             for message in payload.messages
         )
     )
+    stable_chat_capability = (
+        "chat_file_output"
+        if payload.output_mode == "allowlisted"
+        else "chat_tools"
+        if payload.tool_mode == "mcp_tools"
+        else "chat_text"
+    )
     stable_chat_shape_requested = bool(
         stable_chat_service.control.feature_enabled()
         and payload.gateway == "default"
         and not is_omniroute_auto_model(payload.model_id)
-        and payload.tool_mode == "none"
-        and payload.output_mode == "none"
         and payload.response_audio is None
         and payload.skill_application is None
         and payload.routing is None
@@ -24024,12 +24071,126 @@ async def chat(payload: ChatRequest, request: Request):
             content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
         )
 
+    stable_chat_post_started = False
+    stable_chat_run_finalized = False
+    stable_chat_started_at: float | None = None
+    stable_capability_model_calls = 0
+
+    async def send_stable_capability_response(
+        request_client: httpx.AsyncClient,
+        request_payload: dict[str, Any],
+        *,
+        stream: bool,
+    ) -> httpx.Response:
+        """Send every step to the one preflighted target and pinned address."""
+
+        nonlocal stable_chat_post_started
+        nonlocal stable_chat_started_at
+        nonlocal stable_capability_model_calls
+        if not use_stable_chat or stable_chat_dispatch is None:
+            raise RuntimeError("provider_chat_stable_dispatch_missing")
+        if stable_chat_post_started:
+            stable_chat_service.ensure_dispatch_current(stable_chat_dispatch)
+        else:
+            stable_chat_service.mark_dispatched(stable_chat_dispatch)
+            stable_chat_post_started = True
+            stable_chat_started_at = time.perf_counter()
+        stable_capability_model_calls += 1
+        prepared_request = provider_chat_transport.build_authorized_stream_request(
+            request_client,
+            stable_chat_dispatch.target,
+            stable_chat_dispatch.authorized,
+            request_payload,
+            headers=llm_gateway_headers(stable_chat_dispatch.target.api_key),
+        )
+        return await request_client.send(
+            prepared_request,
+            stream=stream,
+            follow_redirects=False,
+        )
+
+    async def send_stable_stream_response(
+        request_client: httpx.AsyncClient,
+        request_payload: dict[str, Any],
+    ) -> httpx.Response:
+        return await send_stable_capability_response(
+            request_client, request_payload, stream=True
+        )
+
+    async def send_stable_json_response(
+        request_client: httpx.AsyncClient,
+        request_payload: dict[str, Any],
+    ) -> httpx.Response:
+        return await send_stable_capability_response(
+            request_client, request_payload, stream=False
+        )
+
+    def finalize_stable_capability(
+        *,
+        status: str,
+        result_class: str,
+        error_code: str | None = None,
+        actual_model: str | None = None,
+        client_cancelled: bool = False,
+        hard_failure: bool = False,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        request_id: str | None = None,
+        storage_already_finalized: bool = False,
+    ) -> dict[str, object] | None:
+        nonlocal stable_chat_run_finalized
+        if (
+            not use_stable_chat
+            or stable_chat_dispatch is None
+            or stable_chat_run_finalized
+        ):
+            return None
+        e2e_ms = (
+            (time.perf_counter() - stable_chat_started_at) * 1000
+            if stable_chat_started_at is not None
+            else None
+        )
+        reason_codes = [f"provider_chat_{stable_chat_capability}_managed"]
+        if stable_capability_model_calls > 1:
+            reason_codes.append("provider_chat_multi_step_same_target")
+        if error_code:
+            reason_codes.append(error_code)
+        if not storage_already_finalized:
+            stable_chat_service.complete(
+                stable_chat_dispatch,
+                status=status,
+                result_class=result_class,
+                error_code=error_code,
+                actual_model=actual_model or payload.model_id,
+                client_cancelled=client_cancelled,
+                hard_failure=hard_failure,
+                e2e_ms=e2e_ms,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                reason_codes=reason_codes,
+            )
+        stable_chat_run_finalized = True
+        return stable_chat_service.route_receipt(
+            stable_chat_dispatch,
+            requested_model=payload.model_id,
+            actual_model=actual_model or payload.model_id,
+            reason_codes=reason_codes,
+            e2e_ms=e2e_ms,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            request_id=request_id,
+        )
+
     try:
         rate_limit_or_raise(client_ip(request))
         validate_chat_file_request(payload)
         await validate_chat_output_request(
             payload,
             gateway_url=url,
+            verify_legacy_target=not stable_chat_shape_requested,
             direct_audio_requested=direct_audio_requested,
             direct_video_requested=direct_video_requested,
             direct_file_requested=direct_file_requested,
@@ -24236,7 +24397,7 @@ async def chat(payload: ChatRequest, request: Request):
     if stable_chat_shape_requested:
         try:
             stable_chat_preflight = await stable_chat_service.begin(
-                payload.model_id, "chat_text"
+                payload.model_id, stable_chat_capability
             )
         except RouterServiceError as exc:
             return JSONResponse(
@@ -24267,6 +24428,21 @@ async def chat(payload: ChatRequest, request: Request):
             use_stable_chat = True
             url = stable_chat_dispatch.target.chat_completions_url
             key = stable_chat_dispatch.target.api_key
+
+    if (
+        payload.output_mode == "allowlisted"
+        and stable_chat_shape_requested
+        and not use_stable_chat
+        and not await model_supports_chat_output_tool(
+            payload.model_id, gateway_url=url
+        )
+    ):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "The exact selected model is not currently verified for tool calling."
+            },
+        )
 
     if (
         not url
@@ -24303,11 +24479,15 @@ async def chat(payload: ChatRequest, request: Request):
 
     if payload.output_mode == "allowlisted":
         try:
-            provider_tag = verified_chat_output_provider(
-                model_id=payload.model_id,
-                gateway_url=url,
+            provider_tag = (
+                None
+                if use_stable_chat
+                else verified_chat_output_provider(
+                    model_id=payload.model_id,
+                    gateway_url=url,
+                )
             )
-            if provider_tag is None:
+            if provider_tag is None and not use_stable_chat:
                 raise ChatOutputError(
                     422,
                     "output_target_not_verified",
@@ -24317,7 +24497,11 @@ async def chat(payload: ChatRequest, request: Request):
                 url=url,
                 key=key,
                 headers=llm_gateway_headers(key),
-                client_kwargs=llm_client_kwargs(),
+                client_kwargs=(
+                    ProviderChatTransport.client_kwargs()
+                    if use_stable_chat
+                    else llm_client_kwargs()
+                ),
                 model_id=payload.model_id,
                 messages=upstream_chat_messages(payload.messages),
                 temperature=payload.temperature,
@@ -24329,36 +24513,102 @@ async def chat(payload: ChatRequest, request: Request):
                 scope_id=payload.file_scope_id or "",
                 output_context_id=payload.output_context_id or "",
                 provider_tag=provider_tag,
+                response_sender=(
+                    send_stable_stream_response if use_stable_chat else None
+                ),
             )
             await record_chat_skill_application_once()
+        except RouterServiceError as exc:
+            route_receipt = finalize_stable_capability(
+                status="failed",
+                result_class="preflight_failure",
+                error_code=exc.code,
+                storage_already_finalized=not stable_chat_post_started,
+            )
+            content: dict[str, object] = {"error": exc.hint, "code": exc.code}
+            if route_receipt is not None:
+                content["route_receipt"] = route_receipt
+            return JSONResponse(status_code=exc.status_code, content=content)
         except ChatOutputError as exc:
+            managed_error_code = None
+            managed_hard_failure = False
+            result_class = (
+                "transient_failure"
+                if exc.status_code >= 500
+                else "request_failure"
+            )
+            if use_stable_chat and exc.upstream_status_code is not None:
+                (
+                    result_class,
+                    managed_error_code,
+                    managed_hard_failure,
+                ) = stable_chat_service.classify_http_failure(
+                    exc.upstream_status_code
+                )
+            error_code = managed_error_code or exc.error_code
+            route_receipt = finalize_stable_capability(
+                status="failed",
+                result_class=result_class,
+                error_code=error_code,
+                hard_failure=managed_hard_failure,
+            )
+            content: dict[str, object] = {
+                "error": exc.message,
+                "code": error_code,
+            }
+            if route_receipt is not None:
+                content["route_receipt"] = route_receipt
             return JSONResponse(
                 status_code=exc.status_code,
-                content={"error": exc.message, "code": exc.error_code},
+                content=content,
             )
         except FileAssetServiceError as exc:
+            route_receipt = finalize_stable_capability(
+                status="failed",
+                result_class="request_failure",
+                error_code=exc.error_code,
+            )
+            content = {"error": exc.message, "code": exc.error_code}
+            if route_receipt is not None:
+                content["route_receipt"] = route_receipt
             return JSONResponse(
                 status_code=exc.status_code,
-                content={"error": exc.message, "code": exc.error_code},
+                content=content,
             )
         except Exception:
             logger.warning(
                 "Chat output request failed model=%s code=output_chat_failed",
                 payload.model_id,
             )
+            route_receipt = finalize_stable_capability(
+                status="uncertain",
+                result_class="uncertain",
+                error_code="output_chat_failed",
+            )
+            content = {
+                "error": "The selected model could not complete the file-output turn.",
+                "code": "output_chat_failed",
+            }
+            if route_receipt is not None:
+                content["route_receipt"] = route_receipt
             return JSONResponse(
                 status_code=503,
-                content={
-                    "error": "The selected model could not complete the file-output turn.",
-                    "code": "output_chat_failed",
-                },
+                content=content,
             )
 
         usage = output_result.usage
         input_tokens = usage.get("prompt_tokens") or usage.get("input_tokens")
         output_tokens = usage.get("completion_tokens") or usage.get("output_tokens")
         total_tokens = usage.get("total_tokens")
-        receipt = {
+        receipt = finalize_stable_capability(
+            status="succeeded",
+            result_class="success",
+            actual_model=output_result.actual_model,
+            prompt_tokens=input_tokens,
+            completion_tokens=output_tokens,
+            total_tokens=total_tokens,
+            request_id=output_result.request_id,
+        ) or {
             "requested_model": payload.model_id,
             "actual_model": output_result.actual_model,
             "provider": None,
@@ -24892,9 +25142,6 @@ async def chat(payload: ChatRequest, request: Request):
     chat_canary_post_started = False
     chat_canary_run_finalized = False
     chat_canary_started_at: float | None = None
-    stable_chat_post_started = False
-    stable_chat_run_finalized = False
-    stable_chat_started_at: float | None = None
     if chat_canary_requested:
         if use_chat_canary:
             try:
@@ -25140,6 +25387,26 @@ async def chat(payload: ChatRequest, request: Request):
     if payload.tool_mode == "mcp_tools":
         chat_event_store = RuntimeEventStore()
         chat_audit_store = InMemoryToolAuditStore()
+        tool_actual_model_id = payload.model_id
+        tool_usage: dict[str, int] = {}
+
+        def observe_tool_actual_model(value: str) -> None:
+            nonlocal tool_actual_model_id
+            reported_model_id = value.strip()
+            if not reported_model_id:
+                return
+            if use_stable_chat and reported_model_id != payload.model_id:
+                raise RouterServiceError(
+                    "provider_chat_actual_model_mismatch",
+                    "Managed Chat 返回了不同模型，本次工具决策未执行。",
+                    status_code=502,
+                )
+            tool_actual_model_id = reported_model_id
+
+        def observe_tool_usage(values: dict[str, int]) -> None:
+            for metric, value in values.items():
+                tool_usage[metric] = tool_usage.get(metric, 0) + max(0, int(value))
+
         requested_tools = parse_chat_tool_names(payload.tool_names)
         chat_run = await run_registry.create_run(
             "chat",
@@ -25216,8 +25483,20 @@ async def chat(payload: ChatRequest, request: Request):
                     model_id_override=(
                         actual_model_id if use_native_router else None
                     ),
-                    gateway_url=url if use_native_router else None,
-                    gateway_key=key if use_native_router else None,
+                    gateway_url=url if use_native_router or use_stable_chat else None,
+                    gateway_key=key if use_native_router or use_stable_chat else None,
+                    response_sender=(
+                        send_stable_json_response if use_stable_chat else None
+                    ),
+                    client_kwargs_override=(
+                        ProviderChatTransport.client_kwargs()
+                        if use_stable_chat
+                        else None
+                    ),
+                    actual_model_observer=(
+                        observe_tool_actual_model if use_stable_chat else None
+                    ),
+                    usage_observer=(observe_tool_usage if use_stable_chat else None),
                 ):
                     if tool_ttft_ms is None and delta:
                         tool_ttft_ms = (
@@ -25298,9 +25577,63 @@ async def chat(payload: ChatRequest, request: Request):
                             "version": "2",
                         }
                     )
+                managed_receipt = finalize_stable_capability(
+                    status="succeeded",
+                    result_class="success",
+                    actual_model=tool_actual_model_id,
+                    prompt_tokens=(
+                        tool_usage.get("prompt_tokens")
+                        or tool_usage.get("input_tokens")
+                    ),
+                    completion_tokens=(
+                        tool_usage.get("completion_tokens")
+                        or tool_usage.get("output_tokens")
+                    ),
+                    total_tokens=tool_usage.get("total_tokens"),
+                )
+                if managed_receipt is not None:
+                    yield route_receipt_sse(managed_receipt)
+            except asyncio.CancelledError:
+                runtime_status = "cancelled"
+                runtime_error = "client cancelled"
+                finalize_stable_capability(
+                    status="cancelled",
+                    result_class="client_cancelled",
+                    error_code="provider_chat_client_cancelled",
+                    actual_model=tool_actual_model_id,
+                    client_cancelled=True,
+                    prompt_tokens=(
+                        tool_usage.get("prompt_tokens")
+                        or tool_usage.get("input_tokens")
+                    ),
+                    completion_tokens=(
+                        tool_usage.get("completion_tokens")
+                        or tool_usage.get("output_tokens")
+                    ),
+                    total_tokens=tool_usage.get("total_tokens"),
+                )
+                try:
+                    await run_registry.update_run(
+                        chat_run.run_id,
+                        status="cancelled",
+                        error=runtime_error,
+                        metadata={
+                            "output_length": len("".join(accumulated_chunks))
+                        },
+                    )
+                except Exception as update_exc:
+                    logger.warning(
+                        "Chat runtime run cancellation update failed: %s",
+                        update_exc,
+                    )
+                raise
             except Exception as exc:
                 runtime_status = "error"
-                runtime_error = str(exc)
+                runtime_error = (
+                    "Managed Chat 工具路径执行失败，请检查控制面 Receipt。"
+                    if use_stable_chat
+                    else str(exc)
+                )
                 if use_native_router and native_plan is not None:
                     native_router_engine.record_outcome(
                         native_plan,
@@ -25312,12 +25645,59 @@ async def chat(payload: ChatRequest, request: Request):
                         * 1000,
                         outcome="tool_runtime_error",
                     )
-                logger.warning("Runtime chat toolset failed: %s", exc)
+                managed_result_class = "request_failure"
+                managed_hard_failure = False
+                if isinstance(exc, RouterServiceError):
+                    managed_error_code = exc.code
+                    if not stable_chat_post_started:
+                        managed_result_class = "preflight_failure"
+                elif use_stable_chat and isinstance(
+                    exc, ChatCompletionUpstreamError
+                ):
+                    (
+                        managed_result_class,
+                        managed_error_code,
+                        managed_hard_failure,
+                    ) = stable_chat_service.classify_http_failure(
+                        exc.status_code
+                    )
+                else:
+                    managed_error_code = "provider_chat_tool_runtime_error"
+                managed_receipt = finalize_stable_capability(
+                    status="failed",
+                    result_class=managed_result_class,
+                    error_code=managed_error_code,
+                    actual_model=tool_actual_model_id,
+                    hard_failure=managed_hard_failure,
+                    prompt_tokens=(
+                        tool_usage.get("prompt_tokens")
+                        or tool_usage.get("input_tokens")
+                    ),
+                    completion_tokens=(
+                        tool_usage.get("completion_tokens")
+                        or tool_usage.get("output_tokens")
+                    ),
+                    total_tokens=tool_usage.get("total_tokens"),
+                    storage_already_finalized=(
+                        isinstance(exc, RouterServiceError)
+                        and not stable_chat_post_started
+                    ),
+                )
+                if use_stable_chat:
+                    logger.warning(
+                        "Managed Chat toolset failed model=%s code=%s",
+                        payload.model_id,
+                        managed_error_code,
+                    )
+                    checkpoint_summary = managed_error_code
+                else:
+                    logger.warning("Runtime chat toolset failed: %s", exc)
+                    checkpoint_summary = str(exc)[:500]
                 await record_chat_checkpoint(
                     chat_run.run_id,
                     event_type="chat.failed",
                     title="Chat toolset failed",
-                    summary=str(exc)[:500],
+                    summary=checkpoint_summary,
                     severity="error",
                     metadata={"model_id": payload.model_id},
                 )
@@ -25330,7 +25710,9 @@ async def chat(payload: ChatRequest, request: Request):
                     )
                 except Exception as update_exc:
                     logger.warning("Chat runtime run failure update failed: %s", update_exc)
-                yield chat_sse_error(str(exc))
+                if managed_receipt is not None:
+                    yield route_receipt_sse(managed_receipt)
+                yield chat_sse_error(runtime_error)
             finally:
                 if runtime_status == "completed":
                     await record_chat_skill_application_once()
@@ -25344,7 +25726,8 @@ async def chat(payload: ChatRequest, request: Request):
                         )
                     except Exception as update_exc:
                         logger.warning("Chat runtime run completion update failed: %s", update_exc)
-                yield b"data: [DONE]\n\n"
+                if runtime_status != "cancelled":
+                    yield b"data: [DONE]\n\n"
                 await close_request_client()
                 await finalize_runtime(
                     runtime_status,

@@ -531,7 +531,7 @@ async def test_chat_tool_mode_answer_streams_final_text(
         "collect_chat_completion_text",
         fake_collect_chat_completion_text,
     )
-    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    monkeypatch.setattr(main_module, "chat_mcp_provider", provider)
     try:
         response = await client.post(
             "/api/chat",
@@ -572,7 +572,7 @@ async def test_chat_tool_mode_calls_runtime_toolset(
         "collect_chat_completion_text",
         fake_collect_chat_completion_text,
     )
-    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    monkeypatch.setattr(main_module, "chat_mcp_provider", provider)
     try:
         response = await client.post(
             "/api/chat",
@@ -642,7 +642,7 @@ async def test_chat_tool_mode_rejects_tool_outside_allowlist(
         "collect_chat_completion_text",
         fake_collect_chat_completion_text,
     )
-    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    monkeypatch.setattr(main_module, "chat_mcp_provider", provider)
     try:
         response = await client.post(
             "/api/chat",
@@ -703,7 +703,7 @@ async def test_chat_tool_mode_failure_records_failed_run(
         "collect_chat_completion_text",
         fake_collect_chat_completion_text,
     )
-    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    monkeypatch.setattr(main_module, "chat_mcp_provider", provider)
     try:
         response = await client.post(
             "/api/chat",
@@ -814,11 +814,13 @@ class FakeChatToolProvider:
 
 def _install_fake_chat_tool_provider():
     provider = FakeChatToolProvider()
-    original = main_module.runtime_capabilities.require("mcp_tools").implementation
-    main_module.runtime_capabilities.register("mcp_tools", provider)
+    original = main_module.runtime_capabilities.require(
+        "chat_mcp_tools"
+    ).implementation
+    main_module.runtime_capabilities.register("chat_mcp_tools", provider)
 
     def restore_provider() -> None:
-        main_module.runtime_capabilities.register("mcp_tools", original)
+        main_module.runtime_capabilities.register("chat_mcp_tools", original)
 
     return provider, restore_provider
 

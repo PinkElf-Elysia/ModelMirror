@@ -169,6 +169,25 @@ class ProviderChatStableService:
         )
 
     def mark_dispatched(self, dispatch: ProviderChatStableDispatch) -> None:
+        try:
+            self.ensure_dispatch_current(dispatch)
+        except RouterServiceError as exc:
+            self._complete_preflight_attempt(dispatch.attempt_id, exc.code)
+            self._repository_method("complete_chat_control_run")(
+                self.router_service.tenant_id,
+                dispatch.run_id,
+                status="failed",
+                result_class="preflight_failure",
+                reason_codes=[exc.code],
+            )
+            raise
+        self._repository_method("mark_chat_control_attempt_dispatched")(
+            self.router_service.tenant_id, dispatch.attempt_id
+        )
+
+    def ensure_dispatch_current(self, dispatch: ProviderChatStableDispatch) -> None:
+        """Fail closed if a multi-step capability drifts between model calls."""
+
         policy = self.control.get_policy()
         qualification = next(
             (
@@ -187,22 +206,11 @@ class ProviderChatStableService:
             or not qualification.valid
         ):
             code = "provider_chat_policy_or_qualification_changed"
-            self._complete_preflight_attempt(dispatch.attempt_id, code)
-            self._repository_method("complete_chat_control_run")(
-                self.router_service.tenant_id,
-                dispatch.run_id,
-                status="failed",
-                result_class="preflight_failure",
-                reason_codes=[code],
-            )
             raise RouterServiceError(
                 code,
                 "Chat 路由策略或资格已变化，请刷新设置后重试。",
                 status_code=409,
             )
-        self._repository_method("mark_chat_control_attempt_dispatched")(
-            self.router_service.tenant_id, dispatch.attempt_id
-        )
 
     def complete(
         self,

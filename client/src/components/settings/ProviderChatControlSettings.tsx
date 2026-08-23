@@ -261,7 +261,7 @@ export default function ProviderChatControlSettings({
       });
       if (!response.ok) throw new Error(await readError(response));
       setMessage(
-        "Chat 控制策略已原子保存；newapi_preferred 仅在部署总开关开启时接管白名单普通文本。",
+        "Chat 控制策略已原子保存；newapi_preferred 仅在部署总开关开启时按逐能力资格接管白名单请求。",
       );
       await load();
     } catch (reason) {
@@ -277,11 +277,11 @@ export default function ProviderChatControlSettings({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-cyan-100">Managed Chat 控制策略</p>
-            <h2 className="mt-2 text-xl font-semibold text-white">R5C 稳定路由与 Auto 证据</h2>
+            <h2 className="mt-2 text-xl font-semibold text-white">R5D 稳定路由与逐能力执行</h2>
             <p className="mt-2 max-w-[78ch] text-sm leading-6 text-slate-300">
-              newapi_preferred 只接管白名单内的 default 普通文本与已提取文本附件。
+              newapi_preferred 按独立资格接管白名单内的 default 普通文本、MCP 工具与受控文件输出；能力之间不能互借认证。
               Auto 继续沿用 Native 或 OmniRoute 的现有选路，仅在独立门禁开启时写入脱敏运行与尝试证据。
-              工具、文件输出、多模态和 Canary 仍保持各自现有路径。
+              工具执行和文件渲染仍由 ModelMirror Runtime 完成；多模态和 Canary 保持各自现有路径。
             </p>
           </div>
           <button

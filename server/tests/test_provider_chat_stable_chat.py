@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import sqlite3
@@ -26,6 +27,7 @@ from server.model_router.egress import ProviderEgressPolicy
 from server.model_router.schemas import (
     ProviderChatControlPolicyUpdate,
     ProviderChatControlRouteUpdate,
+    RouterConnectionUpdate,
 )
 
 
@@ -42,7 +44,11 @@ async def client():
 
 
 def _qualified_connection(
-    repository: SQLiteRouterRepository, *, name: str, kind: str
+    repository: SQLiteRouterRepository,
+    *,
+    name: str,
+    kind: str,
+    capabilities: tuple[str, ...] = ("chat_text",),
 ) -> str:
     connection = repository.create_connection(
         "local",
@@ -86,30 +92,36 @@ def _qualified_connection(
         catalog_fingerprint=f"catalog-{connection.id}",
         observed_at="2026-08-21T00:00:00+00:00",
     )
-    certification, created = repository.claim_chat_certification(
-        "local",
-        certification_id=f"cert-{connection.id}",
-        connection_id=connection.id,
-        connection_fingerprint=fingerprint,
-        contract_version="modelmirror-provider-chat-v1",
-        capability="chat_text",
-        requested_model=MODEL_ID,
-        idempotency_key_hash=hashlib.sha256(connection.id.encode()).hexdigest(),
-    )
-    assert created is True
-    repository.complete_chat_certification(
-        "local",
-        str(certification["id"]),
-        status="passed",
-        checks={"capability_verified": True},
-        warning_codes=[],
-        actual_model=MODEL_ID,
-    )
+    for capability in capabilities:
+        certification, created = repository.claim_chat_certification(
+            "local",
+            certification_id=f"cert-{capability}-{connection.id}",
+            connection_id=connection.id,
+            connection_fingerprint=fingerprint,
+            contract_version="modelmirror-provider-chat-v1",
+            capability=capability,
+            requested_model=MODEL_ID,
+            idempotency_key_hash=hashlib.sha256(
+                f"{capability}:{connection.id}".encode()
+            ).hexdigest(),
+        )
+        assert created is True
+        repository.complete_chat_certification(
+            "local",
+            str(certification["id"]),
+            status="passed",
+            checks={"capability_verified": True},
+            warning_codes=[],
+            actual_model=MODEL_ID,
+        )
     return connection.id
 
 
 def _service(
-    tmp_path: Path, *, block_primary: bool = False
+    tmp_path: Path,
+    *,
+    block_primary: bool = False,
+    capabilities: tuple[str, ...] = ("chat_text",),
 ) -> tuple[ModelRouterService, SQLiteRouterRepository, str, str]:
     repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
 
@@ -122,9 +134,17 @@ def _service(
         repository,
         egress_policy=ProviderEgressPolicy(resolver=resolve),
     )
-    newapi_id = _qualified_connection(repository, name="newAPI", kind="newapi")
+    newapi_id = _qualified_connection(
+        repository,
+        name="newAPI",
+        kind="newapi",
+        capabilities=capabilities,
+    )
     backup_id = _qualified_connection(
-        repository, name="OpenRouter", kind="openrouter"
+        repository,
+        name="OpenRouter",
+        kind="openrouter",
+        capabilities=capabilities,
     )
     ProviderChatControlService(service).update_policy(
         ProviderChatControlPolicyUpdate(
@@ -133,9 +153,10 @@ def _service(
             stable_model_ids=[MODEL_ID],
             routes=[
                 ProviderChatControlRouteUpdate(
-                    capability="chat_text",
+                    capability=capability,
                     connection_ids=[newapi_id, backup_id],
                 )
+                for capability in capabilities
             ],
         )
     )
@@ -190,6 +211,12 @@ def _fake_client(
     class FakeClient:
         def __init__(self, *args, **kwargs):
             self.kwargs = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return None
 
         def build_request(self, method, url, **kwargs):
             return {"method": method, "url": str(url), **kwargs}
@@ -553,3 +580,515 @@ async def test_disabled_flag_preserves_legacy_gateway_bytes_and_no_receipt(
     assert sent[0]["url"] == "https://legacy.example/v1/chat/completions"
     assert "event: route_receipt" not in response.text
     assert repository.list_chat_control_receipts("local")["runs"] == []
+
+
+@pytest.mark.asyncio
+async def test_preferred_tool_mode_uses_qualified_managed_route_and_receipt(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    service, repository, newapi_id, _backup_id = _service(
+        tmp_path, capabilities=("chat_text", "chat_tools")
+    )
+    configure_model_router(service)
+    sent: list[dict[str, Any]] = []
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("", ""))
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return None
+
+        def build_request(self, method, url, **kwargs):
+            return {"method": method, "url": str(url), **kwargs}
+
+        async def send(self, request, *, stream, follow_redirects=False):
+            sent.append({**request, "stream": stream})
+            return _FakeResponse(status_code=200, chunks=[])
+
+        async def aclose(self):
+            return None
+
+    async def fake_tool_stream(_payload, **kwargs):
+        assert kwargs["client_kwargs_override"]["trust_env"] is False
+        sender = kwargs["response_sender"]
+        assert sender is not None
+        response = await sender(
+            FakeClient(),
+            {
+                "model": MODEL_ID,
+                "messages": [{"role": "user", "content": "private tool text"}],
+            },
+        )
+        assert response.status_code == 200
+        kwargs["actual_model_observer"](MODEL_ID)
+        kwargs["usage_observer"](
+            {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3}
+        )
+        yield "managed tool final"
+
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(main_module, "stream_chat_toolset_text", fake_tool_stream)
+    try:
+        response = await client.post(
+            "/api/chat",
+            json={
+                "model_id": MODEL_ID,
+                "gateway": "default",
+                "messages": [{"role": "user", "content": "private user text"}],
+                "tool_mode": "mcp_tools",
+                "tool_names": "fetch",
+            },
+        )
+    finally:
+        configure_model_router(original_service)
+
+    assert response.status_code == 200, response.text
+    assert len(sent) == 1
+    assert sent[0]["stream"] is False
+    assert sent[0]["url"] == "https://8.8.8.8/v1/chat/completions"
+    assert sent[0]["headers"]["Host"] == "newapi.example"
+    receipt_event = next(
+        item
+        for item in response.text.split("\n\n")
+        if item.startswith("event: route_receipt")
+    )
+    receipt = json.loads(receipt_event.split("data:", 1)[1].strip())
+    assert receipt["engine"] == "newapi"
+    assert "provider_chat_chat_tools_managed" in receipt["reason_codes"]
+    stored = repository.list_chat_control_receipts("local")
+    assert stored["runs"][0]["capability"] == "chat_tools"
+    assert stored["attempts"][0]["connection_id"] == newapi_id
+    assert stored["attempts"][0]["dispatched"] == 1
+    with sqlite3.connect(repository.database_path) as database:
+        receipt_rows = repr(
+            {
+                "runs": database.execute(
+                    "SELECT * FROM provider_chat_runs"
+                ).fetchall(),
+                "attempts": database.execute(
+                    "SELECT * FROM provider_chat_attempts"
+                ).fetchall(),
+            }
+        )
+    assert "private user text" not in receipt_rows
+    assert "private tool text" not in receipt_rows
+
+
+@pytest.mark.asyncio
+async def test_preferred_tool_http_hard_failure_is_classified_and_sanitized(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    original_service = get_model_router_service()
+    service, repository, _newapi_id, _backup_id = _service(
+        tmp_path, capabilities=("chat_text", "chat_tools")
+    )
+    configure_model_router(service)
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("", ""))
+    private_error = "upstream-private-error-marker"
+
+    class FakeClient:
+        def build_request(self, method, url, **kwargs):
+            return {"method": method, "url": str(url), **kwargs}
+
+        async def send(self, _request, *, stream, follow_redirects=False):
+            return _FakeResponse(status_code=401, chunks=[])
+
+    async def failing_tool_stream(_payload, **kwargs):
+        await kwargs["response_sender"](
+            FakeClient(), {"model": MODEL_ID, "messages": []}
+        )
+        raise main_module.ChatCompletionUpstreamError(401, private_error)
+        yield "must not be reached"
+
+    monkeypatch.setattr(main_module, "stream_chat_toolset_text", failing_tool_stream)
+    caplog.set_level("WARNING")
+    try:
+        response = await client.post(
+            "/api/chat",
+            json={
+                "model_id": MODEL_ID,
+                "gateway": "default",
+                "messages": [{"role": "user", "content": "private text"}],
+                "tool_mode": "mcp_tools",
+                "tool_names": "fetch",
+            },
+        )
+    finally:
+        configure_model_router(original_service)
+
+    assert response.status_code == 200, response.text
+    assert "provider_chat_http_401" in response.text
+    assert private_error not in response.text
+    assert private_error not in caplog.text
+    run_id = response.headers["x-modelmirror-runtime-run-id"]
+    checkpoints = await main_module.run_registry.list_checkpoints(run_id)
+    assert private_error not in repr(checkpoints)
+    receipts = repository.list_chat_control_receipts("local")
+    assert receipts["runs"][0]["hard_failure"] == 1
+    assert receipts["runs"][0]["result_class"] == "hard_failure"
+    assert receipts["attempts"][0]["error_code"] == "provider_chat_http_401"
+
+
+@pytest.mark.asyncio
+async def test_preferred_tool_client_cancel_finalizes_receipt_without_done_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    service, repository, _newapi_id, _backup_id = _service(
+        tmp_path, capabilities=("chat_text", "chat_tools")
+    )
+    configure_model_router(service)
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("", ""))
+
+    class FakeClient:
+        def build_request(self, method, url, **kwargs):
+            return {"method": method, "url": str(url), **kwargs}
+
+        async def send(self, _request, *, stream, follow_redirects=False):
+            return _FakeResponse(status_code=200, chunks=[])
+
+    async def cancelled_tool_stream(_payload, **kwargs):
+        await kwargs["response_sender"](
+            FakeClient(), {"model": MODEL_ID, "messages": []}
+        )
+        raise asyncio.CancelledError
+        yield "must not be reached"
+
+    monkeypatch.setattr(main_module, "stream_chat_toolset_text", cancelled_tool_stream)
+    try:
+        request = main_module.Request(
+            {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": "/api/chat",
+                "raw_path": b"/api/chat",
+                "query_string": b"",
+                "headers": [],
+                "client": ("127.0.0.1", 12345),
+                "server": ("testserver", 80),
+            }
+        )
+        response = await main_module.chat(
+            main_module.ChatRequest.model_validate(
+                {
+                    "model_id": MODEL_ID,
+                    "gateway": "default",
+                    "messages": [{"role": "user", "content": "private text"}],
+                    "tool_mode": "mcp_tools",
+                    "tool_names": "fetch",
+                }
+            ),
+            request,
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await anext(response.body_iterator)
+    finally:
+        configure_model_router(original_service)
+
+    receipts = repository.list_chat_control_receipts("local")
+    assert receipts["runs"][0]["status"] == "cancelled"
+    assert receipts["runs"][0]["client_cancelled"] == 1
+    assert receipts["attempts"][0]["status"] == "cancelled"
+    assert receipts["attempts"][0]["dispatched"] == 1
+
+
+@pytest.mark.asyncio
+async def test_preferred_tool_mode_blocks_second_step_after_policy_drift(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    service, repository, newapi_id, backup_id = _service(
+        tmp_path, capabilities=("chat_text", "chat_tools")
+    )
+    configure_model_router(service)
+    sent: list[dict[str, Any]] = []
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("", ""))
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return None
+
+        def build_request(self, method, url, **kwargs):
+            return {"method": method, "url": str(url), **kwargs}
+
+        async def send(self, request, *, stream, follow_redirects=False):
+            sent.append(request)
+            return _FakeResponse(status_code=200, chunks=[])
+
+        async def aclose(self):
+            return None
+
+    async def drifting_tool_stream(_payload, **kwargs):
+        sender = kwargs["response_sender"]
+        assert sender is not None
+        await sender(FakeClient(), {"model": MODEL_ID, "messages": []})
+        repository.update_connection(
+            "local",
+            newapi_id,
+            RouterConnectionUpdate(base_url="https://changed.example/v1"),
+        )
+        await sender(FakeClient(), {"model": MODEL_ID, "messages": []})
+        yield "must not be reached"
+
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(
+        main_module, "stream_chat_toolset_text", drifting_tool_stream
+    )
+    try:
+        response = await client.post(
+            "/api/chat",
+            json={
+                "model_id": MODEL_ID,
+                "gateway": "default",
+                "messages": [{"role": "user", "content": "private user text"}],
+                "tool_mode": "mcp_tools",
+                "tool_names": "fetch",
+            },
+        )
+    finally:
+        configure_model_router(original_service)
+
+    assert response.status_code == 200, response.text
+    assert len(sent) == 1
+    assert "provider_chat_policy_or_qualification_changed" in response.text
+    assert "event: route_receipt" in response.text
+    receipts = repository.list_chat_control_receipts("local")
+    assert len(receipts["attempts"]) == 1
+    assert receipts["attempts"][0]["connection_id"] == newapi_id
+    assert receipts["attempts"][0]["connection_id"] != backup_id
+    assert receipts["attempts"][0]["dispatched"] == 1
+    assert receipts["runs"][0]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_preferred_tool_mode_rejects_actual_model_mismatch(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    service, repository, _newapi_id, _backup_id = _service(
+        tmp_path, capabilities=("chat_text", "chat_tools")
+    )
+    configure_model_router(service)
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("", ""))
+
+    class FakeClient:
+        def build_request(self, method, url, **kwargs):
+            return {"method": method, "url": str(url), **kwargs}
+
+        async def send(self, _request, *, stream, follow_redirects=False):
+            return _FakeResponse(status_code=200, chunks=[])
+
+    async def mismatched_tool_stream(_payload, **kwargs):
+        await kwargs["response_sender"](
+            FakeClient(), {"model": MODEL_ID, "messages": []}
+        )
+        kwargs["actual_model_observer"]("provider/substituted-model")
+        yield "must not be reached"
+
+    monkeypatch.setattr(
+        main_module, "stream_chat_toolset_text", mismatched_tool_stream
+    )
+    try:
+        response = await client.post(
+            "/api/chat",
+            json={
+                "model_id": MODEL_ID,
+                "gateway": "default",
+                "messages": [{"role": "user", "content": "private text"}],
+                "tool_mode": "mcp_tools",
+                "tool_names": "fetch",
+            },
+        )
+    finally:
+        configure_model_router(original_service)
+
+    assert response.status_code == 200, response.text
+    assert "provider_chat_actual_model_mismatch" in response.text
+    assert "must not be reached" not in response.text
+    receipts = repository.list_chat_control_receipts("local")
+    assert receipts["runs"][0]["status"] == "failed"
+    assert receipts["attempts"][0]["error_code"] == (
+        "provider_chat_actual_model_mismatch"
+    )
+
+
+@pytest.mark.asyncio
+async def test_preferred_file_output_uses_managed_target_without_vendor_hint(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    service, repository, _newapi_id, _backup_id = _service(
+        tmp_path, capabilities=("chat_text", "chat_file_output")
+    )
+    configure_model_router(service)
+    sent: list[dict[str, Any]] = []
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    monkeypatch.setenv("FILE_OUTPUT_ASSETS_ENABLED", "true")
+    monkeypatch.setenv("CHAT_FILE_OUTPUT_TOOL_ENABLED", "true")
+    _disable_runtime(monkeypatch)
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", _fake_client(sent))
+    try:
+        response = await client.post(
+            "/api/chat",
+            json={
+                "model_id": MODEL_ID,
+                "gateway": "default",
+                "messages": [{"role": "user", "content": "private file request"}],
+                "file_scope_id": "chat-session-1",
+                "output_mode": "allowlisted",
+                "output_context_id": "turn-1",
+            },
+        )
+    finally:
+        configure_model_router(original_service)
+
+    assert response.status_code == 200, response.text
+    assert len(sent) == 1
+    assert sent[0]["url"] == "https://8.8.8.8/v1/chat/completions"
+    assert sent[0]["headers"]["Host"] == "newapi.example"
+    assert "provider" not in sent[0]["json"]
+    receipt_event = next(
+        item
+        for item in response.text.split("\n\n")
+        if item.startswith("event: route_receipt")
+    )
+    receipt = json.loads(receipt_event.split("data:", 1)[1].strip())
+    assert receipt["engine"] == "newapi"
+    assert "provider_chat_chat_file_output_managed" in receipt["reason_codes"]
+    stored = repository.list_chat_control_receipts("local")
+    assert stored["runs"][0]["capability"] == "chat_file_output"
+    assert stored["attempts"][0]["dispatched"] == 1
+
+
+@pytest.mark.asyncio
+async def test_preferred_file_output_preserves_managed_http_hard_failure(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    service, repository, _newapi_id, _backup_id = _service(
+        tmp_path, capabilities=("chat_text", "chat_file_output")
+    )
+    configure_model_router(service)
+    sent: list[dict[str, Any]] = []
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    monkeypatch.setenv("FILE_OUTPUT_ASSETS_ENABLED", "true")
+    monkeypatch.setenv("CHAT_FILE_OUTPUT_TOOL_ENABLED", "true")
+    _disable_runtime(monkeypatch)
+    monkeypatch.setattr(
+        main_module.httpx,
+        "AsyncClient",
+        _fake_client(sent, status_code=401),
+    )
+    try:
+        response = await client.post(
+            "/api/chat",
+            json={
+                "model_id": MODEL_ID,
+                "gateway": "default",
+                "messages": [{"role": "user", "content": "private file request"}],
+                "file_scope_id": "chat-session-1",
+                "output_mode": "allowlisted",
+                "output_context_id": "turn-1",
+            },
+        )
+    finally:
+        configure_model_router(original_service)
+
+    assert response.status_code == 502, response.text
+    payload = response.json()
+    assert payload["code"] == "provider_chat_http_401"
+    assert payload["route_receipt"]["reason_codes"][-1] == (
+        "provider_chat_http_401"
+    )
+    receipts = repository.list_chat_control_receipts("local")
+    assert receipts["runs"][0]["hard_failure"] == 1
+    assert receipts["runs"][0]["result_class"] == "hard_failure"
+    assert receipts["attempts"][0]["error_code"] == "provider_chat_http_401"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "request_update",
+    [
+        {"tool_mode": "mcp_tools", "tool_names": "fetch"},
+        {
+            "output_mode": "allowlisted",
+            "file_scope_id": "chat-session-1",
+            "output_context_id": "turn-1",
+        },
+    ],
+)
+async def test_specialized_capabilities_never_borrow_text_qualification_or_legacy(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    request_update: dict[str, object],
+) -> None:
+    original_service = get_model_router_service()
+    service, repository, _newapi_id, _backup_id = _service(tmp_path)
+    configure_model_router(service)
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    monkeypatch.setenv("FILE_OUTPUT_ASSETS_ENABLED", "true")
+    monkeypatch.setenv("CHAT_FILE_OUTPUT_TOOL_ENABLED", "true")
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("https://legacy.example/v1/chat/completions", "legacy-secret"),
+    )
+    request = _request()
+    request.update(request_update)
+    try:
+        response = await client.post("/api/chat", json=request)
+    finally:
+        configure_model_router(original_service)
+
+    assert response.status_code == 503, response.text
+    payload = response.json()
+    assert payload["code"] == "provider_chat_no_qualified_route"
+    assert payload["route_receipt"]["engine"] == "managed_chat_blocked"
+    stored = repository.list_chat_control_receipts("local")
+    assert stored["runs"][0]["capability"] in {
+        "chat_tools",
+        "chat_file_output",
+    }
+    assert all(item["dispatched"] == 0 for item in stored["attempts"])
