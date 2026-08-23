@@ -69,6 +69,7 @@ def test_v19_ports_cover_control_harness_execution_projection_and_evaluation() -
     assert {
         "control_plane",
         "projection",
+        "harness_supervisor",
         "harness_driver",
         "execution_backend",
         "evaluation",

@@ -215,6 +215,7 @@ class CodingWorkerRuntime:
         self.substrate = CodingSubstrateHandle(
             control_plane=self.control_plane,
             projection=self.projection,
+            harness_supervisor=self.harness_driver,
             harness_driver=self.harness_driver,
             execution_backend=self.execution_backend,
             evaluation=self.evaluation,

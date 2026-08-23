@@ -362,6 +362,7 @@ class EvaluationAdapter(Protocol):
 class CodingSubstrateHandle:
     control_plane: TaskControlPlane
     projection: InteractionProjection
+    harness_supervisor: HarnessSupervisor
     harness_driver: HarnessDriver
     execution_backend: ExecutionBackend
     evaluation: EvaluationAdapter | None = None
