@@ -75,6 +75,24 @@ export interface InstalledSkillTrustFields {
   trust_acknowledgement_required: boolean;
   trust_acknowledgement_satisfied: boolean;
   trust_reason_codes: string[];
+  hook_capability?: {
+    available: boolean;
+    manifestVersion?: string | null;
+    manifestFingerprint?: string | null;
+    hookCount: number;
+    events: string[];
+    modes: string[];
+    hooks?: Array<{
+      hookId: string;
+      event: string;
+      mode: string;
+      toolNames: string[];
+      timeoutSeconds: number;
+    }>;
+    contractValid: boolean;
+    runnable: boolean;
+    errorCode?: string | null;
+  };
 }
 
 export interface SkillTrustSummaryIndex {

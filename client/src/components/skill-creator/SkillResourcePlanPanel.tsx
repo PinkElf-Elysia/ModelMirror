@@ -10,6 +10,7 @@ import {
   LoaderCircle,
   Plus,
   RefreshCw,
+  ShieldCheck,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import {
   type SkillCreatorSession,
   type SkillCreatorStatus,
   type SkillResourcePlanItem,
+  type SkillResourceHookPlanItem,
 } from "../../utils/skillCreatorApi";
 
 
@@ -74,11 +76,13 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
   const [skillName, setSkillName] = useState("");
   const [skillDescription, setSkillDescription] = useState("");
   const [resources, setResources] = useState<SkillResourcePlanItem[]>([]);
+  const [hooks, setHooks] = useState<SkillResourceHookPlanItem[]>([]);
 
   useEffect(() => {
     setSkillName(plan?.skill_name ?? "");
     setSkillDescription(plan?.skill_description ?? "");
     setResources(plan?.resources ?? []);
+    setHooks(plan?.hooks ?? []);
     setAnswers(plan?.clarification_answers ?? {});
   }, [plan?.digest]);
 
@@ -86,12 +90,17 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
     if (!plan) return false;
     return skillName !== plan.skill_name
       || skillDescription !== plan.skill_description
-      || JSON.stringify(resources) !== JSON.stringify(plan.resources);
-  }, [plan, resources, skillDescription, skillName]);
+      || JSON.stringify(resources) !== JSON.stringify(plan.resources)
+      || JSON.stringify(hooks) !== JSON.stringify(plan.hooks ?? []);
+  }, [hooks, plan, resources, skillDescription, skillName]);
   const resourcePathById = useMemo(
     () => new Map(resources.map((item) => [item.resource_id, item.path])),
     [resources],
   );
+  const hookAuthoringEnabled = status.hook_authoring_enabled !== false;
+  const hookEditingLocked = plan?.state === "confirmed" || !hookAuthoringEnabled;
+  const planEditingLocked = plan?.state === "confirmed"
+    || (!hookAuthoringEnabled && hooks.length > 0);
 
   async function run(label: string, operation: () => Promise<SkillCreatorSession>, success: string) {
     setBusy(label);
@@ -148,6 +157,7 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
         skill_name: skillName.trim(),
         skill_description: skillDescription.trim(),
         resources,
+        hooks,
       }),
       "资源计划修改已保存为新的不可变版本。",
     );
@@ -213,12 +223,78 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
   }
 
   function removeResource(index: number) {
+    const targetResource = resources[index];
+    if (targetResource) {
+      setHooks((current) => current.flatMap((hook) => {
+        if (hook.script_resource_id !== targetResource.resource_id) return [hook];
+        return hook.action === "create" ? [] : [{ ...hook, action: "delete" as const }];
+      }));
+    }
     setResources((current) => {
       const target = current[index];
       if (!target) return current;
       if (target.action === "create") {
         return current.filter((_, itemIndex) => itemIndex !== index);
       }
+      return current.map((item, itemIndex) => (
+        itemIndex === index ? { ...item, action: "delete" } : item
+      ));
+    });
+  }
+
+  function updateHook(index: number, changes: Partial<SkillResourceHookPlanItem>) {
+    const currentHook = hooks[index];
+    const nextScriptId = changes.script_resource_id ?? currentHook?.script_resource_id;
+    if (changes.script_resource_id && nextScriptId) {
+      setResources((items) => items.map((resource) => (
+        resource.resource_id === nextScriptId && resource.action === "keep"
+          ? { ...resource, action: "update" }
+          : resource
+      )));
+    }
+    setHooks((current) => current.map((item, itemIndex) => (
+      itemIndex === index
+        ? { ...item, ...changes, action: item.action === "keep" ? "update" : item.action }
+        : item
+    )));
+  }
+
+  function addHook() {
+    if (!plan || hooks.length >= 12) return;
+    const script = resources.find((item) => item.kind === "script" && item.action !== "delete");
+    if (!script) {
+      setError("先添加一个 Python 或 JavaScript 脚本，再为它配置 Hook。");
+      return;
+    }
+    if (script.action === "keep") {
+      setResources((current) => current.map((item) => (
+        item.resource_id === script.resource_id ? { ...item, action: "update" } : item
+      )));
+    }
+    const ordinal = hooks.length + 1;
+    setHooks((current) => [
+      ...current,
+      {
+        hook_id: `check_event_${ordinal}`,
+        spec_digest: "",
+        event: "pre_tool_use",
+        mode: "validation",
+        tool_names: ["sandbox_write_file"],
+        purpose: "在工具执行前验证一项明确、可测试的条件。",
+        script_resource_id: script.resource_id,
+        source_ids: ["intent"],
+        used_by_steps: plan.workflow_steps[0]?.step_id ? [plan.workflow_steps[0].step_id] : [],
+        acceptance_checks: ["合法输入通过，违反条件时返回类型化失败结果。"],
+        action: "create",
+      },
+    ]);
+  }
+
+  function removeHook(index: number) {
+    setHooks((current) => {
+      const target = current[index];
+      if (!target) return current;
+      if (target.action === "create") return current.filter((_, itemIndex) => itemIndex !== index);
       return current.map((item, itemIndex) => (
         itemIndex === index ? { ...item, action: "delete" } : item
       ));
@@ -317,6 +393,17 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
                 </div>
               )) : <p className="text-sm text-emerald-100">这个任务不需要额外资源，保持简单即可。</p>}
             </div>
+            {hooks.length ? (
+              <div className="mt-4 border-l-2 border-amber-300/40 pl-3">
+                <p className="flex items-center gap-2 text-xs font-semibold text-amber-100">
+                  <ShieldCheck aria-hidden="true" size={15} />
+                  计划包含 {hooks.filter((item) => item.action !== "delete").length} 个运行 Hook，确认后会执行离线脚本测试
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-400">
+                  Hook 只在已确认的事件边界运行，不会改写参数、安装 Skill 或获得网络权限。
+                </p>
+              </div>
+            ) : null}
             <p className="mt-4 text-xs font-semibold text-slate-300">共 {plan.workflow_steps.length} 步执行流程</p>
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
               <section className="rounded-md border border-white/10 bg-white/[0.025] p-3" aria-labelledby="creator-plan-output-heading">
@@ -340,11 +427,11 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
           <div className="grid gap-4 lg:grid-cols-2">
             <label className="block">
               <span className="text-xs font-semibold text-slate-300">Skill ID</span>
-              <input className="mt-2 min-h-11 w-full rounded-md border border-white/10 bg-ink-950/70 px-3 text-sm text-white disabled:opacity-70" disabled={plan.state === "confirmed"} onChange={(event) => setSkillName(event.target.value)} value={skillName} />
+              <input className="mt-2 min-h-11 w-full rounded-md border border-white/10 bg-ink-950/70 px-3 text-sm text-white disabled:opacity-70" disabled={planEditingLocked} onChange={(event) => setSkillName(event.target.value)} value={skillName} />
             </label>
             <label className="block">
               <span className="text-xs font-semibold text-slate-300">能力、触发场景与边界</span>
-              <textarea className="mt-2 min-h-24 w-full rounded-md border border-white/10 bg-ink-950/70 px-3 py-2 text-sm leading-6 text-white disabled:opacity-70" disabled={plan.state === "confirmed"} maxLength={1024} onChange={(event) => setSkillDescription(event.target.value)} value={skillDescription} />
+              <textarea className="mt-2 min-h-24 w-full rounded-md border border-white/10 bg-ink-950/70 px-3 py-2 text-sm leading-6 text-white disabled:opacity-70" disabled={planEditingLocked} maxLength={1024} onChange={(event) => setSkillDescription(event.target.value)} value={skillDescription} />
             </label>
           </div>
 
@@ -360,7 +447,7 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
               <h4 className="text-sm font-semibold text-white">计划资源（{resources.length}）</h4>
               <div className="flex flex-wrap items-center gap-2">
                 {resources.length === 0 ? <span className="text-xs text-emerald-200">已判断无需附加资源</span> : null}
-                {plan.state !== "confirmed" ? <button className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-white disabled:opacity-40" disabled={resources.length >= 20} onClick={addResource} type="button"><Plus aria-hidden="true" size={15} />添加必要资源</button> : null}
+                {!planEditingLocked ? <button className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-white disabled:opacity-40" disabled={resources.length >= 20} onClick={addResource} type="button"><Plus aria-hidden="true" size={15} />添加必要资源</button> : null}
               </div>
             </div>
             <div className="mt-3 space-y-3">
@@ -372,11 +459,11 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
                       <span className="rounded-md bg-white/[0.06] p-2 text-brand-100"><Icon aria-hidden="true" size={17} /></span>
                       <div className="min-w-0 flex-1 space-y-3">
                         <div className="grid gap-3 sm:grid-cols-[130px_120px_minmax(0,1fr)]">
-                          <select aria-label={`资源 ${index + 1} 类型`} className="min-h-11 rounded-md border border-white/10 bg-ink-950 px-3 text-sm text-white" disabled={plan.state === "confirmed"} onChange={(event) => changeResourceKind(index, event.target.value as SkillResourcePlanItem["kind"])} value={item.kind}>{Object.entries(KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-                          <select aria-label={`资源 ${index + 1} 操作`} className="min-h-11 rounded-md border border-white/10 bg-ink-950 px-3 text-sm text-white" disabled={plan.state === "confirmed"} onChange={(event) => updateResource(index, { action: event.target.value as SkillResourcePlanItem["action"] })} value={item.action}>{Object.entries(ACTION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-                          <input aria-label={`资源 ${index + 1} 路径`} className="min-h-11 min-w-0 rounded-md border border-white/10 bg-ink-950 px-3 font-mono text-xs text-white" disabled={plan.state === "confirmed"} onChange={(event) => updateResource(index, { path: event.target.value })} value={item.path} />
+                          <select aria-label={`资源 ${index + 1} 类型`} className="min-h-11 rounded-md border border-white/10 bg-ink-950 px-3 text-sm text-white" disabled={planEditingLocked} onChange={(event) => changeResourceKind(index, event.target.value as SkillResourcePlanItem["kind"])} value={item.kind}>{Object.entries(KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+                          <select aria-label={`资源 ${index + 1} 操作`} className="min-h-11 rounded-md border border-white/10 bg-ink-950 px-3 text-sm text-white" disabled={planEditingLocked} onChange={(event) => updateResource(index, { action: event.target.value as SkillResourcePlanItem["action"] })} value={item.action}>{Object.entries(ACTION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+                          <input aria-label={`资源 ${index + 1} 路径`} className="min-h-11 min-w-0 rounded-md border border-white/10 bg-ink-950 px-3 font-mono text-xs text-white" disabled={planEditingLocked} onChange={(event) => updateResource(index, { path: event.target.value })} value={item.path} />
                         </div>
-                        <textarea aria-label={`资源 ${index + 1} 用途`} className="min-h-20 w-full rounded-md border border-white/10 bg-ink-950 px-3 py-2 text-sm leading-6 text-white" disabled={plan.state === "confirmed"} onChange={(event) => updateResource(index, { purpose: event.target.value })} value={item.purpose} />
+                        <textarea aria-label={`资源 ${index + 1} 用途`} className="min-h-20 w-full rounded-md border border-white/10 bg-ink-950 px-3 py-2 text-sm leading-6 text-white" disabled={planEditingLocked} onChange={(event) => updateResource(index, { purpose: event.target.value })} value={item.purpose} />
                         <div className="flex flex-wrap gap-2 text-[11px] text-slate-400">
                           <span>生成成本：{COST_LABELS[item.generation_cost]}</span>
                           <span>步骤：{item.used_by_steps.join("、") || "未绑定"}</span>
@@ -385,7 +472,7 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
                         </div>
                         <p className="text-xs leading-5 text-slate-400">验收：{item.acceptance_checks.join("；")}</p>
                       </div>
-                      {plan.state !== "confirmed" ? (
+                      {!planEditingLocked ? (
                         <div className="flex gap-1">
                           <button aria-label="上移资源" className="rounded-md p-2 text-slate-300 hover:bg-white/10 disabled:opacity-30" disabled={index === 0} onClick={() => moveResource(index, -1)} type="button"><ArrowUp aria-hidden="true" size={16} /></button>
                           <button aria-label="下移资源" className="rounded-md p-2 text-slate-300 hover:bg-white/10 disabled:opacity-30" disabled={index === resources.length - 1} onClick={() => moveResource(index, 1)} type="button"><ArrowDown aria-hidden="true" size={16} /></button>
@@ -398,6 +485,104 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
               })}
             </div>
           </div>
+
+          {hookAuthoringEnabled || hooks.length ? <div className="border-t border-white/10 pt-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h4 className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <ShieldCheck aria-hidden="true" size={16} />
+                  运行 Hook（{hooks.filter((item) => item.action !== "delete").length}）
+                </h4>
+                <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-400">
+                  只有明确需要“运行前检查、运行后验证、阻止危险操作或会话提示”时才添加。普通 Skill 保持为空。
+                </p>
+              </div>
+              {plan.state !== "confirmed" && hookAuthoringEnabled ? (
+                <button
+                  className="inline-flex min-h-11 items-center gap-2 rounded-full border border-amber-200/25 px-4 py-2 text-xs font-semibold text-amber-100 disabled:opacity-40"
+                  disabled={hooks.length >= 12}
+                  onClick={addHook}
+                  type="button"
+                >
+                  <Plus aria-hidden="true" size={15} />添加 Hook
+                </button>
+              ) : null}
+            </div>
+            {!hookAuthoringEnabled ? (
+              <p className="mt-3 rounded-md border border-amber-300/20 bg-amber-300/[0.07] px-3 py-2 text-xs leading-5 text-amber-100">
+                Hook V2 当前已关闭。现有计划仅供查看，重新开启后才能修改、确认或构建。
+              </p>
+            ) : null}
+            {hooks.length === 0 ? (
+              <p className="mt-3 rounded-md border border-dashed border-white/10 px-3 py-3 text-xs leading-5 text-slate-400">
+                当前方案不需要 Hook，不会在工作流运行时额外执行脚本。
+              </p>
+            ) : (
+              <div className="mt-3 space-y-3">
+                {hooks.map((hook, index) => {
+                  const toolEvent = hook.event === "pre_tool_use" || hook.event === "post_tool_use";
+                  const scripts = resources.filter((item) => item.kind === "script" && item.action !== "delete");
+                  return (
+                    <article className="border-l-2 border-amber-300/35 bg-ink-950/35 py-3 pl-4 pr-3" key={hook.hook_id}>
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <label className="block">
+                          <span className="text-[11px] font-semibold text-slate-400">Hook ID</span>
+                          <input className="mt-1 min-h-11 w-full rounded-md border border-white/10 bg-ink-950 px-3 font-mono text-xs text-white" disabled={hookEditingLocked} onChange={(event) => updateHook(index, { hook_id: event.target.value })} value={hook.hook_id} />
+                        </label>
+                        <label className="block">
+                          <span className="text-[11px] font-semibold text-slate-400">何时运行</span>
+                          <select className="mt-1 min-h-11 w-full rounded-md border border-white/10 bg-ink-950 px-3 text-sm text-white" disabled={hookEditingLocked} onChange={(event) => {
+                            const nextEvent = event.target.value as SkillResourceHookPlanItem["event"];
+                            updateHook(index, {
+                              event: nextEvent,
+                              mode: hook.mode === "guard" && nextEvent !== "pre_tool_use" ? "validation" : hook.mode,
+                              tool_names: ["pre_tool_use", "post_tool_use"].includes(nextEvent) ? (hook.tool_names.length ? hook.tool_names : ["sandbox_write_file"]) : [],
+                            });
+                          }} value={hook.event}>
+                            <option value="session_start">会话开始</option>
+                            <option value="pre_tool_use">工具执行前</option>
+                            <option value="post_tool_use">工具执行后</option>
+                            <option value="session_end">会话结束</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <span className="text-[11px] font-semibold text-slate-400">结果策略</span>
+                          <select className="mt-1 min-h-11 w-full rounded-md border border-white/10 bg-ink-950 px-3 text-sm text-white" disabled={hookEditingLocked} onChange={(event) => {
+                            const nextMode = event.target.value as SkillResourceHookPlanItem["mode"];
+                            updateHook(index, { mode: nextMode, event: nextMode === "guard" ? "pre_tool_use" : hook.event, tool_names: nextMode === "guard" && !hook.tool_names.length ? ["sandbox_write_file"] : hook.tool_names });
+                          }} value={hook.mode}>
+                            <option value="annotation">只提示，不阻断</option>
+                            <option value="validation">验证失败时终止节点</option>
+                            <option value="guard">工具前拒绝危险调用</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <span className="text-[11px] font-semibold text-slate-400">绑定脚本</span>
+                          <select className="mt-1 min-h-11 w-full rounded-md border border-white/10 bg-ink-950 px-3 text-sm text-white" disabled={hookEditingLocked} onChange={(event) => updateHook(index, { script_resource_id: event.target.value })} value={hook.script_resource_id}>
+                            {scripts.map((item) => <option key={item.resource_id} value={item.resource_id}>{item.path}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                      {toolEvent ? (
+                        <label className="mt-3 block">
+                          <span className="text-[11px] font-semibold text-slate-400">精确工具名（逗号分隔）</span>
+                          <input className="mt-1 min-h-11 w-full rounded-md border border-white/10 bg-ink-950 px-3 font-mono text-xs text-white" disabled={hookEditingLocked} onChange={(event) => updateHook(index, { tool_names: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) })} value={hook.tool_names.join(", ")} />
+                        </label>
+                      ) : null}
+                      <label className="mt-3 block">
+                        <span className="text-[11px] font-semibold text-slate-400">为什么需要</span>
+                        <textarea className="mt-1 min-h-20 w-full rounded-md border border-white/10 bg-ink-950 px-3 py-2 text-sm leading-6 text-white" disabled={hookEditingLocked} onChange={(event) => updateHook(index, { purpose: event.target.value })} value={hook.purpose} />
+                      </label>
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+                        <span>验收：{hook.acceptance_checks.join("；")}</span>
+                        {plan.state !== "confirmed" && hookAuthoringEnabled ? <button className="inline-flex min-h-10 items-center gap-2 rounded-full px-3 text-red-200 hover:bg-red-400/10" onClick={() => removeHook(index)} type="button"><Trash2 aria-hidden="true" size={15} />移除</button> : null}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div> : null}
             </div>
           </details>
 
@@ -408,8 +593,8 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
             </div>
           ) : (
             <div className="flex flex-wrap justify-end gap-3 border-t border-white/10 pt-4">
-              <button className="min-h-11 rounded-full border border-white/15 px-5 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!planDirty || Boolean(busy)} onClick={() => void savePlan()} type="button">{busy === "save" ? "正在保存…" : "保存我的调整"}</button>
-              <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-5 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={planDirty || Boolean(busy)} onClick={() => void confirmPlan()} type="button"><CheckCircle2 aria-hidden="true" size={16} />{busy === "confirm" ? "正在确认…" : "方案没问题，开始生成"}</button>
+              <button className="min-h-11 rounded-full border border-white/15 px-5 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={planEditingLocked || !planDirty || Boolean(busy)} onClick={() => void savePlan()} type="button">{busy === "save" ? "正在保存…" : "保存我的调整"}</button>
+              <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-5 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={planEditingLocked || planDirty || Boolean(busy)} onClick={() => void confirmPlan()} type="button"><CheckCircle2 aria-hidden="true" size={16} />{busy === "confirm" ? "正在确认…" : "方案没问题，开始生成"}</button>
             </div>
           )}
         </div>

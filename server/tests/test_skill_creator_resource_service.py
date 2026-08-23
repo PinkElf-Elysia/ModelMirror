@@ -18,6 +18,7 @@ from server.skills.creator_resource_build_runtime import (
     ResourceBuildGenerationRequest,
     build_resource_builder_invocation,
 )
+from server.skills.creator_resource_build_service import SkillCreatorResourceBuildService
 from server.skills.creator_resource_runtime import (
     WorkflowCreatorResourcePlanner,
     build_resource_planner_invocation,
@@ -33,7 +34,7 @@ from server.skills.creator_store import (
     SkillCreatorSessionStore,
     SkillCreatorValidationError,
 )
-from server.skills.draft_store import WorkspaceSkillDraftStore
+from server.skills.draft_store import WorkspaceSkillDraft, WorkspaceSkillDraftStore
 from server.xpert_runtime.authoring_service import AuthoringService
 from server.xpert_runtime.authoring_store import AuthoringProposalStore
 from server.xpert_runtime import WorkflowExecutionStore
@@ -41,7 +42,7 @@ from server.xpert_runtime.run_registry import RunRegistry
 from server.xperts import XpertStore
 
 
-def _plan_payload(*, clarifications=None, resources=None):
+def _plan_payload(*, clarifications=None, resources=None, hooks=None):
     return {
         "skill_name": "review-incidents",
         "skill_description": (
@@ -60,6 +61,7 @@ def _plan_payload(*, clarifications=None, resources=None):
             {"generation_cost": "medium", **item}
             for item in (resources or [])
         ],
+        "hooks": hooks or [],
         "clarifications": clarifications or [],
     }
 
@@ -117,6 +119,74 @@ def _services(tmp_path: Path, planner, *, enabled=True):
 
 
 @pytest.mark.asyncio
+async def test_hook_build_rejects_missing_authoring_sidecar_before_persisting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SKILL_PLUGIN_HOOK_V2_ENABLED", "true")
+    script = {
+        "kind": "script",
+        "action": "create",
+        "path": "scripts/check_release.py",
+        "purpose": "Validate release filenames deterministically.",
+        "source_ids": ["intent"],
+        "used_by_steps": ["deliver"],
+        "depends_on": [],
+        "acceptance_checks": ["Writes one typed result object."],
+    }
+    hook = {
+        "hook_id": "check-release-name",
+        "event": "pre_tool_use",
+        "mode": "guard",
+        "tool_names": ["sandbox_write_file"],
+        "purpose": "Block unsafe release filenames.",
+        "script_path": script["path"],
+        "source_ids": ["intent"],
+        "used_by_steps": ["deliver"],
+        "acceptance_checks": ["Deny path traversal and executable suffixes."],
+        "action": "create",
+    }
+    creator, planning, _, session = _services(
+        tmp_path,
+        _Planner([_plan_payload(resources=[script], hooks=[hook])]),
+    )
+    plan = await planning.generate(
+        session.session_id,
+        expected_session_revision=session.session_revision,
+        expected_plan_revision=None,
+        expected_plan_digest=None,
+    )
+    session, _ = creator.get_session(session.session_id)
+    plan = planning.confirm(
+        session.session_id,
+        plan_id=plan.plan_id,
+        expected_session_revision=session.session_revision,
+        expected_plan_revision=plan.revision,
+        expected_plan_digest=plan.digest,
+    )
+    store = SkillResourceBuildStore(tmp_path / "builds")
+    service = SkillCreatorResourceBuildService(
+        creator,
+        planning,
+        store,
+        builder=None,
+        script_runner=None,
+        enabled=True,
+    )
+    with pytest.raises(SkillCreatorValidationError) as caught:
+        await service.start(
+            session.session_id,
+            plan_id=plan.plan_id,
+            expected_session_revision=session.session_revision,
+            expected_plan_revision=plan.revision,
+            expected_plan_digest=plan.digest,
+        )
+
+    assert caught.value.code == "skill_creator_sandbox_unavailable"
+    assert store.current_for_session(session.session_id) is None
+
+
+@pytest.mark.asyncio
 async def test_planning_service_clarifies_regenerates_and_confirms(tmp_path: Path) -> None:
     planner = _Planner(
         [
@@ -168,6 +238,59 @@ async def test_planning_service_clarifies_regenerates_and_confirms(tmp_path: Pat
         expected_plan_digest=second.digest,
     )
     assert confirmed.state == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_disabled_hook_authoring_strips_model_hook_and_rejects_manual_patch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SKILL_PLUGIN_HOOK_V2_ENABLED", "false")
+    script = {
+        "kind": "script",
+        "action": "create",
+        "path": "scripts/check_release.py",
+        "purpose": "Validate release filenames deterministically.",
+        "source_ids": ["intent"],
+        "used_by_steps": ["deliver"],
+        "depends_on": [],
+        "acceptance_checks": ["Returns one typed result."],
+    }
+    hook = {
+        "hook_id": "check-release-name",
+        "event": "pre_tool_use",
+        "mode": "guard",
+        "tool_names": ["sandbox_write_file"],
+        "purpose": "Block unsafe release filenames before writing.",
+        "script_path": "scripts/check_release.py",
+        "source_ids": ["intent"],
+        "used_by_steps": ["deliver"],
+        "acceptance_checks": ["Denies traversal and executable suffixes."],
+        "action": "create",
+    }
+    creator, planning, _, session = _services(
+        tmp_path,
+        _Planner([_plan_payload(resources=[script], hooks=[hook])]),
+    )
+
+    plan = await planning.generate(
+        session.session_id,
+        expected_session_revision=session.session_revision,
+        expected_plan_revision=None,
+        expected_plan_digest=None,
+    )
+
+    assert plan.hooks == []
+    session, _ = creator.get_session(session.session_id)
+    with pytest.raises(SkillCreatorValidationError) as caught:
+        planning.patch(
+            session.session_id,
+            plan_id=plan.plan_id,
+            expected_session_revision=session.session_revision,
+            expected_plan_revision=plan.revision,
+            expected_plan_digest=plan.digest,
+            changes={"hooks": [hook]},
+        )
+    assert caught.value.code == "skill_hook_v2_disabled"
 
 
 @pytest.mark.asyncio
@@ -252,6 +375,66 @@ async def test_update_plan_accounts_for_every_existing_resource(tmp_path: Path) 
     assert planning.plan_store.current_for_session(session.session_id) is None
 
 
+def test_existing_hook_actions_cannot_hide_contract_or_bound_script_changes() -> None:
+    manifest_hook = {
+        "hook_id": "check-release-name",
+        "event": "pre_tool_use",
+        "mode": "guard",
+        "tool_names": ["sandbox_write_file"],
+        "script_path": "scripts/check_release.py",
+        "purpose": "Reject unsafe release names.",
+        "acceptance_checks": ["Deny executable suffixes."],
+        "timeout_seconds": 15,
+    }
+    draft = WorkspaceSkillDraft(
+        draft_id="skilldraft_hook_actions",
+        name="release-guard",
+        slug="release-guard",
+        description="Guard release file names before publishing.",
+        skill_markdown="---\nname: release-guard\ndescription: Guard release files.\n---\n",
+        files={
+            "scripts/check_release.py": "print('fixture')\n",
+            "hooks/manifest.json": json.dumps({
+                "version": "modelmirror-hook-manifest-v2",
+                "hooks": [manifest_hook],
+            }),
+        },
+    )
+    resources = [{
+        "resource_id": "script_existing",
+        "kind": "script",
+        "action": "keep",
+        "path": "scripts/check_release.py",
+    }]
+    changed_keep = {
+        **manifest_hook,
+        "action": "keep",
+        "script_resource_id": "script_existing",
+        "purpose": "A changed contract hidden behind keep.",
+    }
+    with pytest.raises(SkillCreatorValidationError) as changed:
+        SkillCreatorResourcePlanningService._validate_actions(
+            {"resources": resources, "hooks": [changed_keep]}, draft=draft
+        )
+    assert changed.value.code == "skill_creator_hook_action_invalid"
+
+    new_hook = {
+        **manifest_hook,
+        "hook_id": "new-release-check",
+        "action": "create",
+        "script_resource_id": "script_existing",
+    }
+    with pytest.raises(SkillCreatorValidationError) as new_binding:
+        SkillCreatorResourcePlanningService._validate_actions(
+            {
+                "resources": resources,
+                "hooks": [{**manifest_hook, "action": "keep"}, new_hook],
+            },
+            draft=draft,
+        )
+    assert new_binding.value.code == "skill_creator_hook_script_invalid"
+
+
 def test_resource_planner_workflow_has_no_tools_and_strict_contract() -> None:
     request = ResourcePlanningRequest(
         session={
@@ -287,6 +470,11 @@ def test_resource_planner_workflow_has_no_tools_and_strict_contract() -> None:
         "rolePrompt"
     ].lower()
     assert "source ids are opaque server tokens" in agent["data"]["rolePrompt"].lower()
+    assert "script_path must exactly equal" in agent["data"]["rolePrompt"].lower()
+    assert (
+        '"kind":"script","action":"create","path":"scripts/check.py"'
+        in agent["data"]["rolePrompt"]
+    )
     assert "## 1. Turn the session into explicit requirements" in agent["data"][
         "rolePrompt"
     ]
@@ -375,6 +563,81 @@ async def test_workflow_resource_planner_discards_precommitted_resources_when_cl
 
     assert payload["clarifications"] == [clarification]
     assert payload["resources"] == []
+    assert payload["hooks"] == []
+
+
+@pytest.mark.asyncio
+async def test_workflow_resource_planner_only_keeps_hooks_for_explicit_event_needs() -> None:
+    hook = {
+        "hook_id": "check-release-name",
+        "event": "pre_tool_use",
+        "mode": "guard",
+        "tool_names": ["sandbox_write_file"],
+        "purpose": "Block unsafe release filenames before the write begins.",
+        "script_path": "scripts/check_release.py",
+        "source_ids": ["intent"],
+        "used_by_steps": ["deliver"],
+        "acceptance_checks": ["Denies path traversal and executable suffixes."],
+        "action": "create",
+    }
+    resource = {
+        "kind": "script",
+        "action": "create",
+        "path": "scripts/check_release.py",
+        "purpose": "Validate release filenames deterministically.",
+        "source_ids": ["intent"],
+        "used_by_steps": ["deliver"],
+        "depends_on": [],
+        "acceptance_checks": ["Writes one typed result object."],
+    }
+
+    async def runner(_invocation):
+        return json.dumps(
+            {
+                "resource_plan_version": RESOURCE_PLAN_VERSION,
+                **_plan_payload(resources=[resource], hooks=[hook]),
+            }
+        )
+
+    planner = WorkflowCreatorResourcePlanner(
+        model_id="gateway/default-text",
+        model_available=lambda: True,
+        runner=runner,
+    )
+    ordinary = ResourcePlanningRequest(
+        session={
+            "session_id": "skillcreator_ordinary",
+            "session_revision": 1,
+            "intent": "Create consistent release notes from supplied facts.",
+        },
+        target_draft=None,
+        current_plan=None,
+        allowed_source_ids=["intent"],
+    )
+    explicit = ResourcePlanningRequest(
+        session={
+            "session_id": "skillcreator_hook",
+            "session_revision": 1,
+            "intent": "Before writing a release file, block unsafe names and extensions.",
+        },
+        target_draft=None,
+        current_plan=None,
+        allowed_source_ids=["intent"],
+    )
+    explicit_zh = ResourcePlanningRequest(
+        session={
+            "session_id": "skillcreator_hook_zh",
+            "session_revision": 1,
+            "intent": "发布文件前检查命名与扩展名，发现危险后缀时阻止写入。",
+        },
+        target_draft=None,
+        current_plan=None,
+        allowed_source_ids=["intent"],
+    )
+
+    assert (await planner.plan(ordinary))["hooks"] == []
+    assert (await planner.plan(explicit))["hooks"] == [hook]
+    assert (await planner.plan(explicit_zh))["hooks"] == [hook]
 
 
 @pytest.mark.asyncio

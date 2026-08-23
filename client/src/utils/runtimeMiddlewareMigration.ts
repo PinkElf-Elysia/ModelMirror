@@ -29,11 +29,15 @@ export function reconcileRuntimeMiddlewareNodes(
     const preserveLegacySkillCreatorMode =
       middlewareId === SKILL_CREATOR_MIDDLEWARE_ID
       && existingConfig.authoring_mode === undefined;
+    const preserveLegacyPluginHookMode =
+      middlewareId === "plugin_hooks"
+      && existingConfig.hook_mode === undefined;
     definition.fields.forEach((field) => {
       if (
         preserveLegacySkillCreatorMode
         && field.name === "authoring_mode"
       ) return;
+      if (preserveLegacyPluginHookMode && field.name === "hook_mode") return;
       if (nextConfig[field.name] === undefined && field.default !== undefined) {
         nextConfig[field.name] = field.default;
       }

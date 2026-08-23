@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 
-from server.skills.creator_evaluation import SkillEvaluationStore
+from server.skills.creator_evaluation import (
+    SkillEvaluationStore,
+    SkillEvaluationValidationError,
+)
 from server.skills.creator_evaluation_suite import (
     EVALUATION_SUITE_VERSION,
     SkillEvaluationSuiteStore,
@@ -278,6 +282,139 @@ async def test_generate_freezes_model_cases_and_confirm_requires_current_facts(
 
     creator.draft.content_digest = "b" * 64
     assert service.current_projection(creator.session.session_id)["stale"] is True
+
+
+@pytest.mark.asyncio
+async def test_patch_rebases_confirmed_suite_onto_a_new_draft_revision(
+    tmp_path: Path,
+) -> None:
+    creator = _CreatorService()
+    generator = _Generator(creator)
+    suite_store = SkillEvaluationSuiteStore(tmp_path / "suite")
+    service = SkillCreatorEvaluationSuiteService(
+        creator,  # type: ignore[arg-type]
+        suite_store,
+        SkillEvaluationStore(tmp_path / "evaluation"),
+        generator=generator,
+        enabled=True,
+    )
+    generated = await service.generate(creator.session.session_id, **_expected(creator))
+    confirmed = service.confirm(
+        creator.session.session_id,
+        suite_id=generated.suite_id,
+        expected_session_revision=creator.session.session_revision,
+        expected_draft_state_revision=creator.draft.revision,
+        expected_draft_revision=creator.draft.content_revision,
+        expected_draft_digest=creator.draft.content_digest,
+        expected_suite_revision=generated.suite_revision,
+        expected_suite_digest=generated.suite_digest,
+    )
+
+    creator.session.session_revision += 1
+    creator.session.current_revision = 2
+    creator.session.current_digest = "b" * 64
+    creator.draft.revision += 1
+    creator.draft.content_revision = 2
+    creator.draft.content_digest = "b" * 64
+    assert service.current_projection(creator.session.session_id)["stale"] is True
+
+    cases = _core_cases()
+    cases[1]["assertions"] = [{"kind": "contains", "value": "Please provide"}]
+    rebased = service.patch(
+        creator.session.session_id,
+        suite_id=confirmed.suite_id,
+        expected_session_revision=creator.session.session_revision,
+        expected_draft_state_revision=creator.draft.revision,
+        expected_draft_revision=creator.draft.content_revision,
+        expected_draft_digest=creator.draft.content_digest,
+        expected_suite_revision=confirmed.suite_revision,
+        expected_suite_digest=confirmed.suite_digest,
+        cases=cases,
+        change_reason="Rebind the confirmed cases after reviewing the evolved draft.",
+    )
+
+    assert rebased.state == "draft"
+    assert rebased.based_on_revision == confirmed.suite_revision
+    assert rebased.draft_revision == creator.draft.content_revision
+    assert rebased.draft_digest == creator.draft.content_digest
+    assert service.current_projection(creator.session.session_id)["stale"] is False
+
+
+@pytest.mark.asyncio
+async def test_patch_rebases_unchanged_confirmed_suite_without_fake_user_reason(
+    tmp_path: Path,
+) -> None:
+    creator = _CreatorService()
+    generator = _Generator(creator)
+    suite_store = SkillEvaluationSuiteStore(tmp_path / "suite")
+    service = SkillCreatorEvaluationSuiteService(
+        creator,  # type: ignore[arg-type]
+        suite_store,
+        SkillEvaluationStore(tmp_path / "evaluation"),
+        generator=generator,
+        enabled=True,
+    )
+    generated = await service.generate(creator.session.session_id, **_expected(creator))
+    confirmed = service.confirm(
+        creator.session.session_id,
+        suite_id=generated.suite_id,
+        expected_session_revision=creator.session.session_revision,
+        expected_draft_state_revision=creator.draft.revision,
+        expected_draft_revision=creator.draft.content_revision,
+        expected_draft_digest=creator.draft.content_digest,
+        expected_suite_revision=generated.suite_revision,
+        expected_suite_digest=generated.suite_digest,
+    )
+
+    creator.session.session_revision += 1
+    creator.session.current_revision = 2
+    creator.session.current_digest = "b" * 64
+    creator.draft.revision += 1
+    creator.draft.content_revision = 2
+    creator.draft.content_digest = "b" * 64
+    unchanged_cases = [asdict(item) for item in confirmed.cases]
+
+    changed_cases = [dict(item) for item in unchanged_cases]
+    changed_cases[0] = {
+        **changed_cases[0],
+        "expected_behavior": "A materially different expectation.",
+    }
+    changed_cases[0].pop("case_fingerprint")
+    with pytest.raises(SkillEvaluationValidationError) as reason_error:
+        service.patch(
+            creator.session.session_id,
+            suite_id=confirmed.suite_id,
+            expected_session_revision=creator.session.session_revision,
+            expected_draft_state_revision=creator.draft.revision,
+            expected_draft_revision=creator.draft.content_revision,
+            expected_draft_digest=creator.draft.content_digest,
+            expected_suite_revision=confirmed.suite_revision,
+            expected_suite_digest=confirmed.suite_digest,
+            cases=changed_cases,
+            change_reason="",
+        )
+    assert reason_error.value.code == "skill_evaluation_suite_change_reason_required"
+
+    rebased = service.patch(
+        creator.session.session_id,
+        suite_id=confirmed.suite_id,
+        expected_session_revision=creator.session.session_revision,
+        expected_draft_state_revision=creator.draft.revision,
+        expected_draft_revision=creator.draft.content_revision,
+        expected_draft_digest=creator.draft.content_digest,
+        expected_suite_revision=confirmed.suite_revision,
+        expected_suite_digest=confirmed.suite_digest,
+        cases=unchanged_cases,
+        change_reason="",
+    )
+
+    assert rebased.state == "draft"
+    assert rebased.draft_revision == 2
+    assert rebased.draft_digest == "b" * 64
+    assert rebased.change_reason == (
+        "Rebased unchanged confirmed suite onto draft revision 2."
+    )
+    assert rebased.cases == confirmed.cases
 
 
 @pytest.mark.asyncio

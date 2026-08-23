@@ -398,6 +398,7 @@ export interface WorkflowRunEvent {
     | "sandbox_operation_finished"
     | "sandbox_artifact_published"
     | "skill_runtime_status"
+    | "skill_hook_status"
     | "skill_creator_handoff"
     | "heartbeat"
     | "node_end"
@@ -442,6 +443,9 @@ export interface WorkflowRunEvent {
   candidate_id?: string;
   activated_skill_id?: string;
   skill_id?: string;
+  hook_id?: string;
+  hook_event?: "session_start" | "pre_tool_use" | "post_tool_use" | "session_end";
+  hook_mode?: "annotation" | "validation" | "guard";
   skill_version_id?: string;
   requirement?: "required" | "available";
   required_skill_ids?: string[];

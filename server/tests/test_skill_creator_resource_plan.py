@@ -22,7 +22,7 @@ SOURCE_IDS = {
 }
 
 
-def _payload(*, resources=None, clarifications=None):
+def _payload(*, resources=None, hooks=None, clarifications=None):
     return {
         "skill_name": "review-incidents",
         "skill_description": (
@@ -41,6 +41,7 @@ def _payload(*, resources=None, clarifications=None):
             {"generation_cost": "medium", **item}
             for item in (resources or [])
         ],
+        "hooks": hooks or [],
         "clarifications": clarifications or [],
     }
 
@@ -66,6 +67,91 @@ def test_zero_resource_plan_is_ready_and_digest_survives_reload(tmp_path: Path) 
     assert len(plan.digest) == 64
     restored = SkillResourcePlanStore(tmp_path).require(plan.plan_id)
     assert restored == plan
+
+
+def test_hook_plan_binds_exact_script_and_survives_reload(tmp_path: Path) -> None:
+    store = SkillResourcePlanStore(tmp_path)
+    plan = _save(
+        store,
+        _payload(
+            resources=[
+                {
+                    "kind": "script",
+                    "action": "create",
+                    "path": "scripts/check_release.py",
+                    "purpose": "Validate release filenames before publishing.",
+                    "source_ids": ["intent"],
+                    "used_by_steps": ["deliver"],
+                    "depends_on": [],
+                    "acceptance_checks": ["Returns a typed allow or deny result."],
+                }
+            ],
+            hooks=[
+                {
+                    "hook_id": "check-release-name",
+                    "event": "pre_tool_use",
+                    "mode": "guard",
+                    "tool_names": ["sandbox_write_file"],
+                    "purpose": "Block unsafe release filenames before the write begins.",
+                    "script_path": "scripts/check_release.py",
+                    "source_ids": ["intent"],
+                    "used_by_steps": ["deliver"],
+                    "acceptance_checks": ["Denies parent traversal and executable suffixes."],
+                    "action": "create",
+                }
+            ],
+        ),
+    )
+
+    assert len(plan.hooks) == 1
+    assert plan.hooks[0].script_resource_id == plan.resources[0].resource_id
+    assert len(plan.hooks[0].spec_digest) == 64
+    assert SkillResourcePlanStore(tmp_path).require(plan.plan_id) == plan
+
+
+@pytest.mark.parametrize(
+    ("event", "mode", "tool_names"),
+    [
+        ("post_tool_use", "guard", ["sandbox_write_file"]),
+        ("session_start", "validation", ["sandbox_write_file"]),
+        ("pre_tool_use", "guard", []),
+    ],
+)
+def test_hook_plan_rejects_unsafe_event_mode_or_tool_contract(
+    tmp_path: Path, event: str, mode: str, tool_names: list[str]
+) -> None:
+    with pytest.raises(SkillCreatorValidationError):
+        _save(
+            SkillResourcePlanStore(tmp_path),
+            _payload(
+                resources=[
+                    {
+                        "kind": "script",
+                        "action": "create",
+                        "path": "scripts/check.py",
+                        "purpose": "Validate a bounded synthetic operation.",
+                        "source_ids": ["intent"],
+                        "used_by_steps": ["deliver"],
+                        "depends_on": [],
+                        "acceptance_checks": ["Returns a typed result."],
+                    }
+                ],
+                hooks=[
+                    {
+                        "hook_id": "unsafe-hook",
+                        "event": event,
+                        "mode": mode,
+                        "tool_names": tool_names,
+                        "purpose": "Exercise an invalid event contract.",
+                        "script_path": "scripts/check.py",
+                        "source_ids": ["intent"],
+                        "used_by_steps": ["deliver"],
+                        "acceptance_checks": ["Must fail before persistence."],
+                        "action": "create",
+                    }
+                ],
+            ),
+        )
 
 
 def test_failed_atomic_save_does_not_publish_an_in_memory_revision(

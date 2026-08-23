@@ -16,7 +16,7 @@ import {
   type OnConnectEnd,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Upload, X } from "lucide-react";
+import { ShieldCheck, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DEFAULT_WORKFLOW_AGENT_MODEL_ID } from "../../data/modelOptions";
@@ -394,6 +394,12 @@ function createRuntimeMiddlewareConfig(
     && config.authoring_mode === "creator_handoff"
   ) {
     return creatorHandoffMiddlewareConfig();
+  }
+  if (middlewareId === "plugin_hooks" && config.hook_mode === "typed_v2") {
+    return {
+      hook_mode: "typed_v2",
+      skill_ids: String(config.skill_ids || ""),
+    };
   }
   return config;
 }
@@ -2946,6 +2952,11 @@ function NodeConfig({
   const skillRuntimeMiddleware =
     data.kind === "runtime_middleware"
     && data.runtimeMiddlewareId === "skills_runtime";
+  const pluginHookMiddleware =
+    data.kind === "runtime_middleware"
+    && data.runtimeMiddlewareId === "plugin_hooks";
+  const pluginHookMode = String(runtimeMiddlewareConfig?.hook_mode || "legacy_argv");
+  const legacyPluginHookMiddleware = pluginHookMiddleware && pluginHookMode !== "typed_v2";
   const visibleRuntimeMiddlewareFields = (data.runtimeMiddlewareFields ?? []).filter(
     (field) => {
       if (
@@ -2960,7 +2971,15 @@ function NodeConfig({
         field.name,
       );
     },
-  );
+  ).filter((field) => {
+    if (!pluginHookMiddleware) return true;
+    if (field.name === "hook_mode") return false;
+    if (!legacyPluginHookMiddleware && field.name === "fail_closed") return false;
+    return true;
+  });
+  const selectableInstalledSkills = pluginHookMiddleware && !legacyPluginHookMiddleware
+    ? installedSkills.filter((skill) => skill.hook_capability?.runnable)
+    : installedSkills;
   const appendTrustedSkill = (skillId: string) => {
     if (!skillId || !runtimeMiddlewareConfig) return;
     onRuntimeMiddlewareConfigChange(
@@ -2971,6 +2990,17 @@ function NodeConfig({
   };
   const selectedRuntimeSkillIds = parseSkillRuntimeIds(
     runtimeMiddlewareConfig?.skill_ids,
+  );
+  const selectedHookSkills = pluginHookMiddleware
+    ? selectedRuntimeSkillIds.flatMap((skillId) => {
+        const skill = installedSkills.find((item) => item.skill_id === skillId);
+        return skill ? [skill] : [];
+      })
+    : [];
+  const hookUpgradeReady = Boolean(
+    selectedRuntimeSkillIds.length
+    && selectedHookSkills.length === selectedRuntimeSkillIds.length
+    && selectedHookSkills.every((skill) => skill.hook_capability?.runnable),
   );
   const boundMiddlewares =
     data.kind === "workflow_agent"
@@ -4114,6 +4144,40 @@ function NodeConfig({
                 })
               }
             />
+          ) : pluginHookMiddleware ? (
+            <div className={`rounded-lg border px-3 py-3 text-xs leading-5 ${legacyPluginHookMiddleware ? "border-amber-300/25 bg-amber-300/10 text-amber-50" : "border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-50"}`}>
+              <p className="flex items-center gap-2 font-semibold">
+                <ShieldCheck aria-hidden="true" size={15} />
+                {legacyPluginHookMiddleware ? "Legacy argv Hook" : "Typed Hook V2"}
+              </p>
+              <p className="mt-1">
+                {legacyPluginHookMiddleware
+                  ? "旧节点仍按可编辑 argv 配置运行。升级后，事件、模式、工具范围与故障策略全部来自已安装 Skill 的不可变 manifest。"
+                  : "Hook 只能返回 annotation、validation 或 deny；不能改写工具参数、输出、审批或权限。"}
+              </p>
+              {legacyPluginHookMiddleware ? (
+                <div className="mt-3">
+                  <button
+                    className="min-h-10 rounded-full border border-amber-200/30 px-4 text-xs font-semibold text-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={!hookUpgradeReady}
+                    onClick={() => update({
+                      runtimeMiddlewareConfig: {
+                        hook_mode: "typed_v2",
+                        skill_ids: selectedRuntimeSkillIds.join(", "),
+                      },
+                    })}
+                    type="button"
+                  >
+                    升级当前节点为 Hook V2
+                  </button>
+                  {!hookUpgradeReady ? (
+                    <p className="mt-2 text-amber-100/75">
+                      只有当前选中的每个 Skill 都具备可运行 V2 manifest 时才能升级。
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           ) : (
             <div className="rounded-lg border border-indigo-300/25 bg-indigo-300/10 px-3 py-2 text-xs leading-5 text-indigo-50">
               使用紫色端口绑定到一个 workflow_agent，或使用普通端口作为线性中间件。两种连接方式不可混用。
@@ -4153,7 +4217,11 @@ function NodeConfig({
           ) : (
             <>
               <p className="text-xs font-semibold text-slate-300">
-                {skillRuntimeMiddleware ? "必须实际应用的 Skill" : "中间件配置"}
+                {skillRuntimeMiddleware
+                  ? "必须实际应用的 Skill"
+                  : pluginHookMiddleware
+                    ? legacyPluginHookMiddleware ? "Legacy Hook 配置" : "已安装 Hook Skill"
+                    : "中间件配置"}
               </p>
               {visibleRuntimeMiddlewareFields.map((field) => (
                 <Field
@@ -4219,16 +4287,16 @@ function NodeConfig({
                   {field.type === "textarea" && field.name === "skill_ids" ? (
                     <div className="space-y-2">
                       <TrustedSkillSelect
-                        ariaLabel="添加已安装 Skill"
+                        ariaLabel={pluginHookMiddleware ? "添加已安装 Hook Skill" : "添加已安装 Skill"}
                         onChange={appendTrustedSkill}
-                        placeholder="选择一个可激活 Skill 添加"
-                        skills={installedSkills}
+                        placeholder={pluginHookMiddleware ? "选择一个可运行 Hook Skill" : "选择一个可激活 Skill 添加"}
+                        skills={selectableInstalledSkills}
                         value=""
                       />
                       {selectedRuntimeSkillIds.length > 0 ? (
                         <div className="flex flex-wrap gap-2 rounded-lg border border-white/10 bg-white/[0.035] p-2.5">
                           {selectedRuntimeSkillIds.map((skillId) => {
-                            const installed = installedSkills.find(
+                            const installed = selectableInstalledSkills.find(
                               (skill) => skill.skill_id === skillId,
                             );
                             return (
@@ -4240,7 +4308,7 @@ function NodeConfig({
                                   {installed?.name || skillId}
                                 </span>
                                 <button
-                                  aria-label={`移除必用 Skill：${installed?.name || skillId}`}
+                                  aria-label={`${pluginHookMiddleware ? "移除 Hook Skill" : "移除必用 Skill"}：${installed?.name || skillId}`}
                                   className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-cyan-100 transition hover:bg-cyan-200/15 focus-visible:outline-none"
                                   onClick={() =>
                                     updateRuntimeMiddlewareConfig(
@@ -4262,21 +4330,44 @@ function NodeConfig({
                         </div>
                       ) : (
                         <p className="rounded-lg border border-dashed border-white/15 bg-white/[0.025] px-3 py-3 text-xs leading-5 text-slate-400">
-                          尚未选择必用 Skill。选择后，Agent 必须先调用 skill_read 才能提交答案或执行副作用工具。
+                          {pluginHookMiddleware
+                            ? "尚未选择 Hook Skill。这里只显示已安装、已确认且 manifest 可运行的项目。"
+                            : "尚未选择必用 Skill。选择后，Agent 必须先调用 skill_read 才能提交答案或执行副作用工具。"}
                         </p>
                       )}
+                      {pluginHookMiddleware && !legacyPluginHookMiddleware && selectedHookSkills.length ? (
+                        <div className="space-y-3 border-l-2 border-emerald-300/25 pl-3">
+                          {selectedHookSkills.map((skill) => (
+                            <div key={skill.skill_id}>
+                              <p className="text-xs font-semibold text-slate-200">{skill.name}</p>
+                              {(skill.hook_capability?.hooks ?? []).map((hook) => (
+                                <p className="mt-1 text-[11px] leading-5 text-slate-400" key={hook.hookId}>
+                                  <span className="font-mono text-emerald-100">{hook.hookId}</span>
+                                  {` · ${hook.event} · ${hook.mode}`}
+                                  {hook.toolNames.length ? ` · ${hook.toolNames.join("、")}` : ""}
+                                  {` · ${hook.mode === "annotation" ? "技术故障告警后继续" : "技术故障失败关闭"}`}
+                                </p>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                       <p className="text-[11px] leading-5 text-slate-500">
-                        脚本不会自动运行。如 Skill 需要执行脚本，还要单独绑定 Sandbox Shell 和命令白名单。
+                        {pluginHookMiddleware
+                          ? legacyPluginHookMiddleware
+                            ? "Legacy 节点保留旧行为；fail_closed 仍由画布配置。"
+                            : "Hook 脚本由中间件在离线 Sandbox 内执行，但 sandbox_shell 不会暴露给模型。"
+                          : "脚本不会自动运行。如 Skill 需要执行脚本，还要单独绑定 Sandbox Shell 和命令白名单。"}
                       </p>
-                      <button
+                      {!pluginHookMiddleware ? <button
                         aria-expanded={showSkillAdvancedOptions}
                         className="text-left text-xs font-semibold text-slate-300 underline decoration-white/20 underline-offset-4 transition hover:text-white"
                         onClick={() => setShowSkillAdvancedOptions((current) => !current)}
                         type="button"
                       >
                         {showSkillAdvancedOptions ? "收起高级选项" : "展开高级选项"}
-                      </button>
-                      {!showSkillAdvancedOptions ? (
+                      </button> : null}
+                      {!pluginHookMiddleware && !showSkillAdvancedOptions ? (
                         <p className="text-[11px] leading-5 text-slate-500">
                           高级选项包含自动发现、目录检索和经审批安装。候选不会自动变成必用 Skill。
                         </p>

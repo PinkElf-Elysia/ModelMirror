@@ -292,11 +292,14 @@ export default function SkillCreatorStudioPage() {
     if (!hydratedProposal && value.proposal_id) {
       hydratedProposal = await readSkillCreatorProposal(value.proposal_id);
     }
-    if (!hydratedProposal && value.resource_build?.proposal_id) {
+    if (
+      value.resource_build?.proposal_id
+      && hydratedProposal?.proposal_id !== value.resource_build.proposal_id
+    ) {
       try {
         hydratedProposal = await readSkillCreatorProposal(value.resource_build.proposal_id);
       } catch {
-        hydratedProposal = null;
+        // Preserve the last readable proposal when a newer projection cannot be hydrated.
       }
     }
     let hydratedRun = value.evaluation_run ?? null;
@@ -327,6 +330,11 @@ export default function SkillCreatorStudioPage() {
       value.quality_status === "accepted" || value.quality_status === "eval_waived"
     ) restoredStep = 5;
     if (hydratedProposal?.status === "pending" && value.review_state !== "revise") restoredStep = resourceFlow ? 2 : 1;
+    const activeResourceBuild = resourceFlow
+      && value.resource_build
+      && value.resource_build.state !== "stale"
+      && value.resource_build.stale !== true;
+    if (activeResourceBuild) restoredStep = 2;
     if (!options.preserveActiveStep) {
       setActiveStep((current) => Math.max(current, restoredStep));
     }
@@ -720,7 +728,7 @@ export default function SkillCreatorStudioPage() {
           <ArrowLeft aria-hidden="true" size={16} />
           返回我的 Skill
         </Link>
-        {session ? <span className="text-xs text-slate-500">自动保存到本机</span> : null}
+        {session ? <span className="text-xs text-slate-500">自动保存，可刷新恢复</span> : null}
       </div>
 
       {statusLoading || loading ? (
@@ -943,15 +951,17 @@ export default function SkillCreatorStudioPage() {
 
           {activeStep === 2 && resourceFlow ? (
             <div className="mt-5 space-y-5">
-              <SkillResourceBuildPanel
-                onProposal={async (nextProposal) => {
-                  setProposal(nextProposal);
-                  setNotice("最终资源包已形成标准提案，请检查全包差异后批准写入草稿。");
-                }}
-                onSessionRefresh={refreshSessionInPlace}
-                session={session}
-                status={status}
-              />
+              {proposal?.status !== "pending" ? (
+                <SkillResourceBuildPanel
+                  onProposal={async (nextProposal) => {
+                    setProposal(nextProposal);
+                    setNotice("最终资源包已形成标准提案，请检查全包差异后批准写入草稿。");
+                  }}
+                  onSessionRefresh={refreshSessionInPlace}
+                  session={session}
+                  status={status}
+                />
+              ) : null}
               {proposal?.status === "pending" ? (
                 <SkillProposalReview
                   approving={busy === "approve"}

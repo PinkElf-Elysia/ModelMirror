@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from server.skills.creator_resource_build import (
+    HookScriptTestReceipt,
+    HookScriptTestResult,
     ResourceScriptTestReceipt,
     ResourceScriptTestResult,
     SkillResourceBuildStore,
 )
 from server.skills.creator_resource_plan import SkillResourcePlanStore
+from server.skills.creator_resource_build_service import SkillCreatorResourceBuildService
 from server.skills.creator_store import (
     SkillCreatorConflictError,
     SkillCreatorStorageError,
@@ -31,6 +35,7 @@ def _confirmed_plan(
     tmp_path: Path,
     *,
     resources: list[dict] | None = None,
+    hooks: list[dict] | None = None,
     draft_id: str | None = None,
     draft_revision: int | None = None,
     draft_digest: str | None = None,
@@ -58,6 +63,7 @@ def _confirmed_plan(
             "output_contract": ["Return a Chinese Markdown incident report."],
             "failure_modes": ["Mark unavailable facts as pending confirmation."],
             "resources": resources or [],
+            "hooks": hooks or [],
             "clarifications": [],
         },
     )
@@ -152,6 +158,190 @@ def test_zero_resource_build_moves_directly_to_skill_markdown(tmp_path: Path) ->
     assert generated.skill_markdown_digest
 
 
+def test_hook_manifest_is_server_generated_and_script_edit_invalidates_receipt(
+    tmp_path: Path,
+) -> None:
+    plan = _confirmed_plan(
+        tmp_path,
+        resources=[
+            {
+                "kind": "script",
+                "action": "create",
+                "generation_cost": "medium",
+                "path": "scripts/check_release.py",
+                "purpose": "Validate release filenames deterministically.",
+                "source_ids": ["intent"],
+                "used_by_steps": ["deliver"],
+                "depends_on": [],
+                "acceptance_checks": ["Returns a typed allow or deny result."],
+            }
+        ],
+        hooks=[
+            {
+                "hook_id": "check-release-name",
+                "event": "pre_tool_use",
+                "mode": "guard",
+                "tool_names": ["sandbox_write_file"],
+                "purpose": "Block unsafe release filenames before writing.",
+                "script_path": "scripts/check_release.py",
+                "source_ids": ["intent"],
+                "used_by_steps": ["deliver"],
+                "acceptance_checks": ["Denies traversal and executable suffixes."],
+                "action": "create",
+            }
+        ],
+    )
+    store = SkillResourceBuildStore(tmp_path / "build")
+    build = store.create(plan=plan)
+    script = build.resources[0]
+    content = "import json\nprint(json.dumps({'version':'modelmirror-hook-result-v1','outputs':[]}))\n"
+    generated = _append_complete(
+        store,
+        build,
+        target_id=script.resource_id,
+        content=content,
+        script_tests=[
+            {
+                "test_id": "syntax",
+                "args": [],
+                "fixtures": [],
+                "expected_exit_code": 0,
+                "stdout_contains": ["modelmirror-hook-result-v1"],
+                "stderr_contains": [],
+            }
+        ],
+    )
+    script_receipt = ResourceScriptTestReceipt(
+        receipt_id="script_receipt_hook",
+        script_digest=generated.resources[0].content_digest or "",
+        profile="skill_authoring_v1",
+        passed=True,
+        results=[
+            ResourceScriptTestResult(
+                test_id="syntax",
+                passed=True,
+                exit_code=0,
+                stdout_sha256="a" * 64,
+                stderr_sha256="b" * 64,
+                duration_ms=1,
+            )
+        ],
+    )
+    validated = store.record_validation(
+        generated.build_id,
+        expected_revision=generated.revision,
+        expected_digest=generated.digest,
+        target_id=script.resource_id,
+        issues=[],
+        script_receipt=script_receipt,
+    )
+    accepted = store.review_resource(
+        validated.build_id,
+        resource_id=script.resource_id,
+        expected_revision=validated.revision,
+        expected_digest=validated.digest,
+        decision="accept",
+    )
+    manifest, manifest_digest = SkillCreatorResourceBuildService._hook_manifest(accepted)
+    assert '"version":"modelmirror-hook-manifest-v2"' in manifest
+    assert '"script_path":"scripts/check_release.py"' in manifest
+    assert "command" not in manifest
+    receipt = HookScriptTestReceipt(
+        receipt_id="hook_receipt_test",
+        hook_id=accepted.hooks[0].hook_id,
+        hook_spec_digest=accepted.hooks[0].spec_digest,
+        script_digest=accepted.resources[0].content_digest or "",
+        manifest_digest=manifest_digest,
+        profile="skill_authoring_v1",
+        passed=True,
+        results=[
+            HookScriptTestResult(
+                case_id="safe",
+                passed=True,
+                result_types=["deny"],
+                result_digest="c" * 64,
+                duration_ms=1,
+            )
+        ],
+    )
+    prepared = store.record_hook_validation(
+        accepted.build_id,
+        expected_revision=accepted.revision,
+        expected_digest=accepted.digest,
+        manifest=manifest,
+        manifest_digest=manifest_digest,
+        receipts=[receipt],
+        issues=[],
+    )
+    assert prepared.phase == "skill_markdown"
+    assert SkillResourceBuildStore.active_files(prepared)["hooks/manifest.json"] == manifest
+
+    plan_store = SkillResourcePlanStore(tmp_path / "plan")
+    revised_plan = plan_store.patch(
+        plan.plan_id,
+        expected_revision=plan.revision,
+        expected_digest=plan.digest,
+        allowed_source_ids=SOURCE_IDS,
+        changes={
+            "resources": [
+                {
+                    "kind": "script",
+                    "action": "keep",
+                    "generation_cost": "medium",
+                    "path": "scripts/check_release.py",
+                    "purpose": "Validate release filenames deterministically.",
+                    "source_ids": ["intent"],
+                    "used_by_steps": ["deliver"],
+                    "depends_on": [],
+                    "acceptance_checks": ["Returns a typed allow or deny result."],
+                }
+            ],
+            "hooks": [
+                {
+                    "hook_id": "check-release-name",
+                    "event": "pre_tool_use",
+                    "mode": "guard",
+                    "tool_names": ["sandbox_write_file"],
+                    "purpose": "Block unsafe release filenames before writing.",
+                    "script_path": "scripts/check_release.py",
+                    "source_ids": ["intent"],
+                    "used_by_steps": ["deliver"],
+                    "acceptance_checks": ["Denies traversal and executable suffixes."],
+                    "action": "keep",
+                }
+            ],
+        },
+    )
+    revised_plan = plan_store.confirm(
+        revised_plan.plan_id,
+        expected_revision=revised_plan.revision,
+        expected_digest=revised_plan.digest,
+        session_revision=revised_plan.session_revision,
+        draft_revision=revised_plan.draft_revision,
+        draft_digest=revised_plan.draft_digest,
+    )
+    reuse_store = SkillResourceBuildStore(tmp_path / "reuse-build")
+    reused = reuse_store.create(
+        plan=revised_plan,
+        existing_files={"scripts/check_release.py": content},
+        previous_build=replace(prepared, state="stale"),
+    )
+    assert reused.phase == "skill_markdown"
+    assert reused.hook_manifest_digest == manifest_digest
+    assert reused.hooks[0].test_receipt == receipt
+
+    edited = store.replace_resource_content(
+        prepared.build_id,
+        resource_id=script.resource_id,
+        expected_revision=prepared.revision,
+        expected_digest=prepared.digest,
+        content=content + "# reviewed\n",
+    )
+    assert edited.hook_manifest is None
+    assert edited.hooks[0].test_receipt is None
+    assert edited.skill_markdown is None
+
+
 def test_stale_proposal_build_remains_loadable(tmp_path: Path) -> None:
     plan = _confirmed_plan(tmp_path)
     store = SkillResourceBuildStore(tmp_path / "build")
@@ -184,6 +374,52 @@ def test_stale_proposal_build_remains_loadable(tmp_path: Path) -> None:
     assert stale.phase == "proposal"
     assert stale.state == "stale"
     assert SkillResourceBuildStore(tmp_path / "build").require(stale.build_id) == stale
+
+
+def test_restart_keeps_multiple_session_builds_and_restores_the_latest(
+    tmp_path: Path,
+) -> None:
+    plan = _confirmed_plan(tmp_path)
+    store = SkillResourceBuildStore(tmp_path / "build")
+    generated = _append_complete(
+        store,
+        store.create(plan=plan),
+        target_id="SKILL.md",
+        content=(
+            "---\nname: review-incidents\ndescription: "
+            + plan.skill_description
+            + "\n---\n\n# First revision\n"
+        ),
+    )
+    validated = store.record_validation(
+        generated.build_id,
+        expected_revision=generated.revision,
+        expected_digest=generated.digest,
+        target_id="SKILL.md",
+        issues=[],
+    )
+    accepted = store.review_skill_markdown(
+        validated.build_id,
+        expected_revision=validated.revision,
+        expected_digest=validated.digest,
+        decision="accept",
+    )
+    first = store.mark_stale(accepted.build_id)
+    evolved_plan = replace(
+        plan,
+        revision=plan.revision + 1,
+        digest="b" * 64,
+        session_revision=plan.session_revision + 1,
+    )
+    second = store.create(plan=evolved_plan)
+
+    restored = SkillResourceBuildStore(tmp_path / "build")
+
+    assert restored.require(first.build_id) == first
+    assert restored.require(second.build_id) == second
+    assert restored.current_for_session(plan.session_id) == second
+    snapshot = json.loads(restored.snapshot_path.read_text(encoding="utf-8"))
+    assert snapshot["quarantine"] == []
 
 
 def test_skill_markdown_revision_feedback_is_cumulative(tmp_path: Path) -> None:

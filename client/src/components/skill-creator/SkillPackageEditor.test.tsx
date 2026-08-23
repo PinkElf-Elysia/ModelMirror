@@ -139,4 +139,23 @@ describe("SkillPackageEditor", () => {
     expect(window.dispatchEvent(dirtyEvent)).toBe(false);
     expect(dirtyEvent.defaultPrevented).toBe(true);
   });
+
+  it("keeps the server-generated Hook manifest read-only", async () => {
+    const manifest = JSON.stringify({
+      version: "modelmirror-hook-manifest-v2",
+      hooks: [],
+    });
+    renderEditor({
+      ...draft,
+      files: { "hooks/manifest.json": manifest },
+    });
+
+    await userEvent.click(screen.getByText("manifest.json"));
+
+    const source = screen.getByLabelText("查看 hooks/manifest.json");
+    expect(source).toHaveAttribute("readonly");
+    expect(source).toHaveValue(manifest);
+    expect(screen.getByText(/由已确认 Hook 计划生成，只读/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "删除 hooks/manifest.json" })).not.toBeInTheDocument();
+  });
 });

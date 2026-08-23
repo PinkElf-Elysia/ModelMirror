@@ -12,6 +12,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  ShieldCheck,
 } from "lucide-react";
 
 import {
@@ -66,6 +67,8 @@ interface Props {
 function Receipt({ item }: { item: SkillResourceBuildItem }) {
   if (item.kind !== "script") return null;
   const receipt = item.script_receipt;
+  const hookContractFailed = item.validation_issues.some((issue) =>
+    issue.code.startsWith("skill_creator_hook_"));
   return (
     <section className="border-t border-white/10 pt-4" aria-labelledby={`receipt-${item.resource_id}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -73,9 +76,14 @@ function Receipt({ item }: { item: SkillResourceBuildItem }) {
           <FlaskConical aria-hidden="true" size={15} />脚本实测
         </h4>
         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${receipt?.passed ? "bg-emerald-300/10 text-emerald-100" : "bg-amber-300/10 text-amber-100"}`}>
-          {receipt?.passed ? "全部通过" : "尚无有效 receipt"}
+          {receipt?.passed ? (hookContractFailed ? "基础 CLI 通过" : "全部通过") : "尚无有效 receipt"}
         </span>
       </div>
+      {hookContractFailed ? (
+        <p className="mt-2 text-xs leading-5 text-rose-100">
+          基础脚本用例已通过，但 Hook 的类型化 context/result 合同未通过，当前资源不能确认。
+        </p>
+      ) : null}
       {receipt ? (
         <div className="mt-3 space-y-2">
           <p className="font-mono text-[11px] text-slate-500">{receipt.profile} · {shortDigest(receipt.script_digest)}</p>
@@ -122,6 +130,14 @@ export default function SkillResourceBuildPanel({
       setSelectedId(build.current_resource_id);
       return;
     }
+    if (
+      build.hooks?.some((item) => item.action !== "delete")
+      && build.resources.every((item) => item.state === "accepted")
+      && !build.hook_manifest_digest
+    ) {
+      setSelectedId(null);
+      return;
+    }
     const preferred = build.resources.find((item) => item.state !== "accepted")?.resource_id
       ?? build.resources[0]?.resource_id
       ?? null;
@@ -150,6 +166,19 @@ export default function SkillResourceBuildPanel({
     ? build.resources.reduce((sum, item) => sum + byteSize(item.content), 0) + byteSize(build.skill_markdown)
     : 0;
   const builderReady = Boolean(status.resource_builder_available);
+  const activeHooks = build?.hooks?.filter((item) => item.action !== "delete") ?? [];
+  const planHasActiveHooks = Boolean(session.resource_plan?.hooks?.some((item) => item.action !== "delete"));
+  const hookBuildUnavailable = status.hook_authoring_enabled === false
+    && (planHasActiveHooks || activeHooks.length > 0);
+  const hookSandboxUnavailable = status.script_sandbox_configured === false
+    && (planHasActiveHooks || activeHooks.length > 0);
+  const canRunBuilder = builderReady && !hookBuildUnavailable && !hookSandboxUnavailable;
+  const hookValidationPending = Boolean(
+    build
+    && build.phase === "resources"
+    && activeHooks.length
+    && build.resources.every((item) => item.state === "accepted")
+  );
 
   function update(next: SkillResourceBuild, message = "") {
     setBuild(next);
@@ -204,10 +233,34 @@ export default function SkillResourceBuildPanel({
       setError("请说明需要重做的具体内容。");
       return;
     }
+    if (decision === "revise") {
+      setBusy("revise");
+      setError("");
+      setNotice("");
+      try {
+        const rejected = await reviewSkillCreatorResource(
+          session,
+          build,
+          selected.resource_id,
+          decision,
+          feedback,
+        );
+        setBuild(rejected);
+        setFeedback("");
+        setEditing(false);
+        const regenerated = await advanceSkillCreatorResourceBuild(session, rejected);
+        update(regenerated, `${selected.path} 已按反馈重新生成并完成基础检查。`);
+      } catch (caught) {
+        setError(errorMessage(caught, "资源重做失败。已保存的反馈可在重新读取后继续处理。"));
+      } finally {
+        setBusy("");
+      }
+      return;
+    }
     await run(
       decision,
       () => reviewSkillCreatorResource(session, build, selected.resource_id, decision, feedback),
-      decision === "accept" ? `已确认 ${selected.path}。` : `已记录反馈，${selected.path} 将重新生成。`,
+      `已确认 ${selected.path}。`,
     );
     setFeedback("");
     setEditing(false);
@@ -234,12 +287,20 @@ export default function SkillResourceBuildPanel({
     setNotice("");
     try {
       const result = await finalizeSkillCreatorResourceBuild(session, build, decision, feedback);
-      update(result.build, decision === "accept" ? "最终包已形成标准草稿提案。" : "已记录最终文档重做要求。");
+      if (decision === "revise") {
+        setBuild(result.build);
+        const regenerated = await advanceSkillCreatorResourceBuild(session, result.build);
+        update(regenerated, "最终 SKILL.md 已按反馈重新生成并完成校验。");
+      } else {
+        update(result.build, "最终包已形成标准草稿提案。");
+      }
       if (result.proposal) await onProposal(result.proposal);
       await onSessionRefresh();
       setFeedback("");
     } catch (caught) {
-      setError(errorMessage(caught, "最终包确认失败。"));
+      setError(errorMessage(caught, decision === "revise"
+        ? "最终文档重做失败。已保存的反馈可在重新读取后继续处理。"
+        : "最终包确认失败。"));
     } finally {
       setBusy("");
     }
@@ -273,18 +334,24 @@ export default function SkillResourceBuildPanel({
           </p>
         ) : null}
         <div className="mt-5 flex flex-wrap items-center gap-3">
-          <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40" disabled={!builderReady || Boolean(busy)} onClick={() => void start()} type="button">
+          <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canRunBuilder || Boolean(busy)} onClick={() => void start()} type="button">
             {busy === "start" ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" size={16} /> : <Play aria-hidden="true" size={16} />}
             {busy === "start" ? "正在生成第一项…" : build ? "按新方案开始生成" : "开始生成内容"}
           </button>
-          <span className="text-xs text-slate-500">共 {session.resource_plan.resources.length} 项辅助内容，最后自动整理完整使用说明</span>
+          <span className="text-xs text-slate-500">共 {session.resource_plan.resources.length} 项辅助内容{session.resource_plan.hooks?.length ? `、${session.resource_plan.hooks.length} 个 Hook` : ""}，最后自动整理完整使用说明</span>
         </div>
         {!builderReady ? <p className="mt-3 text-xs text-amber-200">模型网关不可用，当前只能查看已保存计划，不能开始生成。</p> : null}
+        {hookBuildUnavailable ? <p className="mt-3 text-xs text-amber-200">该计划包含 Hook，但 Hook V2 当前已关闭。计划仍可查看；重新开启后才能开始构建。</p> : null}
+        {hookSandboxUnavailable ? <p className="mt-3 text-xs text-amber-200">该计划包含 Hook，但离线 authoring Sidecar 不可用。修复隔离脚本实测环境后才能开始构建。</p> : null}
       </section>
     );
   }
 
-  const activeTarget = build.phase === "skill_markdown" ? "SKILL.md" : selected?.path;
+  const activeTarget = hookValidationPending
+    ? "Hook manifest 与离线 receipt"
+    : build.phase === "skill_markdown"
+      ? "SKILL.md"
+      : selected?.path;
   const canEdit = Boolean(selected && ["create", "update"].includes(selected.action) && !build.proposal_id && build.state !== "generating");
 
   return (
@@ -331,6 +398,17 @@ export default function SkillResourceBuildPanel({
             <button className={`flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left ${build.phase === "skill_markdown" || build.phase === "proposal" ? "bg-brand-300/10 text-white" : "text-slate-500"}`} onClick={() => setSelectedId(null)} type="button">
               <FileDiff aria-hidden="true" size={15} /><span><span className="block font-mono text-xs">SKILL.md</span><span className="mt-1 block text-[11px]">{build.skill_markdown ? (build.phase === "proposal" ? "已确认" : "等待确认") : "最后生成"}</span></span>
             </button>
+            {activeHooks.length ? (
+              <div className="mt-3 border-t border-white/10 pt-3">
+                <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-100">Typed Hooks</p>
+                {activeHooks.map((hook) => (
+                  <div className="mt-1 flex items-start gap-3 px-3 py-2 text-xs" key={hook.hook_id}>
+                    <ShieldCheck aria-hidden="true" className={hook.test_receipt?.passed ? "text-emerald-200" : "text-amber-200"} size={14} />
+                    <span className="min-w-0"><span className="block truncate font-mono text-slate-300">{hook.hook_id}</span><span className="mt-1 block text-[11px] text-slate-500">{hook.event} · {hook.mode} · {hook.test_receipt?.passed ? "receipt 通过" : "等待实测"}</span></span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         </nav>
 
@@ -379,7 +457,7 @@ export default function SkillResourceBuildPanel({
                   <label className="text-sm font-semibold text-white" htmlFor="resource-review-feedback">重做反馈</label>
                   <textarea className="mt-2 min-h-24 w-full rounded-md border border-white/10 bg-ink-950 px-3 py-2 text-sm leading-6 text-white" id="resource-review-feedback" maxLength={4000} onChange={(event) => setFeedback(event.target.value)} placeholder="仅在需要重做时填写具体修改要求。" value={feedback} />
                   <div className="mt-3 flex flex-wrap justify-end gap-2">
-                    <button className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!feedback.trim() || Boolean(busy)} onClick={() => void reviewResource("revise")} type="button"><RotateCcw aria-hidden="true" size={15} />按反馈重做</button>
+                    <button className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!feedback.trim() || !canRunBuilder || Boolean(busy)} onClick={() => void reviewResource("revise")} type="button"><RotateCcw aria-hidden="true" size={15} />{busy === "revise" ? "正在按反馈重做…" : "按反馈重做"}</button>
                     <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={selected.validation_issues.length > 0 || (selected.kind === "script" && !selected.script_receipt?.passed) || Boolean(busy)} onClick={() => void reviewResource("accept")} type="button"><CheckCircle2 aria-hidden="true" size={15} />确认完整资源</button>
                   </div>
                 </div>
@@ -392,6 +470,29 @@ export default function SkillResourceBuildPanel({
                 <h3 className="mt-1 text-lg font-semibold text-white">SKILL.md 与全包差异</h3>
                 <p className="mt-2 text-sm leading-6 text-slate-400">附加资源全部确认后才生成。文档应精确导航资源，并保留输出合同与失败降级。</p>
               </header>
+              {activeHooks.length ? (
+                <section className="border-y border-white/10 py-4" aria-labelledby="hook-build-heading">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="flex items-center gap-2 text-sm font-semibold text-white" id="hook-build-heading"><ShieldCheck aria-hidden="true" size={16} />Hook 合同与实测</h4>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${activeHooks.every((item) => item.test_receipt?.passed) ? "bg-emerald-300/10 text-emerald-100" : "bg-amber-300/10 text-amber-100"}`}>{activeHooks.every((item) => item.test_receipt?.passed) ? "全部通过" : "等待离线实测"}</span>
+                  </div>
+                  <div className="mt-3 space-y-3">
+                    {activeHooks.map((hook) => (
+                      <div className="border-l-2 border-amber-300/30 pl-3 text-xs" key={hook.hook_id}>
+                        <p className="font-mono text-slate-200">{hook.hook_id} · {hook.event} · {hook.mode}</p>
+                        <p className="mt-1 leading-5 text-slate-400">{hook.purpose}</p>
+                        {hook.test_receipt ? <p className={hook.test_receipt.passed ? "mt-1 text-emerald-100" : "mt-1 text-rose-100"}>{hook.test_receipt.results.length} 个类型化 fixture · {hook.test_receipt.passed ? "通过" : "失败"} · {shortDigest(hook.test_receipt.manifest_digest)}</p> : null}
+                      </div>
+                    ))}
+                  </div>
+                  {build.hook_manifest ? (
+                    <details className="mt-4">
+                      <summary className="cursor-pointer text-xs font-semibold text-slate-300">查看只读 hooks/manifest.json</summary>
+                      <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-ink-950 p-3 font-mono text-[11px] leading-5 text-slate-300">{build.hook_manifest}</pre>
+                    </details>
+                  ) : null}
+                </section>
+              ) : null}
               {build.skill_validation_issues.length ? <ul className="rounded-md border border-rose-300/20 bg-rose-300/[0.07] p-4 text-xs leading-5 text-rose-100">{build.skill_validation_issues.map((issue, index) => <li key={`${issue.code}-${index}`}>{issue.code}：{issue.message}</li>)}</ul> : null}
               {build.skill_markdown ? <pre className="max-h-[640px] overflow-auto whitespace-pre-wrap break-words rounded-md bg-ink-950 p-4 font-mono text-xs leading-6 text-slate-200">{build.skill_markdown}</pre> : <p className="rounded-md border border-dashed border-white/15 p-6 text-center text-sm text-slate-400">等待生成最终 SKILL.md。</p>}
               {build.skill_markdown ? (
@@ -407,7 +508,7 @@ export default function SkillResourceBuildPanel({
                   <label className="text-sm font-semibold text-white" htmlFor="skill-review-feedback">最终文档反馈</label>
                   <textarea className="mt-2 min-h-24 w-full rounded-md border border-white/10 bg-ink-950 px-3 py-2 text-sm leading-6 text-white" id="skill-review-feedback" maxLength={4000} onChange={(event) => setFeedback(event.target.value)} value={feedback} />
                   <div className="mt-3 flex flex-wrap justify-end gap-2">
-                    <button className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!feedback.trim() || Boolean(busy)} onClick={() => void finalize("revise")} type="button"><RotateCcw aria-hidden="true" size={15} />按反馈重做 SKILL.md</button>
+                    <button className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!feedback.trim() || !canRunBuilder || Boolean(busy)} onClick={() => void finalize("revise")} type="button"><RotateCcw aria-hidden="true" size={15} />{busy === "finalize" ? "正在按反馈重做…" : "按反馈重做 SKILL.md"}</button>
                     <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={build.skill_validation_issues.length > 0 || Boolean(busy)} onClick={() => void finalize("accept")} type="button"><CheckCircle2 aria-hidden="true" size={15} />确认最终包并形成提案</button>
                   </div>
                 </div>
@@ -419,10 +520,13 @@ export default function SkillResourceBuildPanel({
 
       {!build.stale && ["planned", "revision_requested"].includes(build.state) ? (
         <div className="sticky bottom-20 z-10 flex flex-wrap items-center justify-between gap-3 border border-white/10 bg-ink-950 px-4 py-3 sm:bottom-4">
-          <p className="text-xs text-slate-400">{build.phase === "resources" ? "生成下一个依赖已满足的完整资源" : "生成最终 SKILL.md 并执行全包校验"}</p>
-          <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-brand-200 px-5 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={!builderReady || Boolean(busy)} onClick={() => void next()} type="button">{busy === "next" ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" size={16} /> : <Play aria-hidden="true" size={16} />}{busy === "next" ? "正在分段生成并校验…" : build.phase === "resources" ? "生成下一个资源" : "生成最终 SKILL.md"}</button>
+          <p className="text-xs text-slate-400">{hookValidationPending ? "确定性生成 manifest，并在离线 Sidecar 实测每个 Hook" : build.phase === "resources" ? "生成下一个依赖已满足的完整资源" : "生成最终 SKILL.md 并执行全包校验"}</p>
+          <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-brand-200 px-5 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={!canRunBuilder || Boolean(busy)} onClick={() => void next()} type="button">{busy === "next" ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" size={16} /> : <Play aria-hidden="true" size={16} />}{busy === "next" ? "正在生成并校验…" : hookValidationPending ? "实测 Hook 并生成 SKILL.md" : build.phase === "resources" ? "生成下一个资源" : "生成最终 SKILL.md"}</button>
         </div>
       ) : null}
+
+      {hookBuildUnavailable && build ? <p className="text-xs text-amber-200">Hook V2 当前已关闭；已保存的资源和 receipt 不会丢失，重新开启后可继续。</p> : null}
+      {hookSandboxUnavailable && build ? <p className="text-xs text-amber-200">离线 authoring Sidecar 当前不可用；已保存内容不会丢失，恢复后可继续实测。</p> : null}
 
       {build.state === "generating" ? <p className="flex items-center gap-2 text-sm text-brand-100" aria-live="polite"><LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" size={16} />模型正在生成 {activeTarget}，刷新不会丢失已保存片段。</p> : null}
       {build.phase === "proposal" && build.proposal_id ? <p className="flex items-center gap-2 rounded-md border border-emerald-300/20 bg-emerald-300/[0.07] p-4 text-sm text-emerald-50"><CheckCircle2 aria-hidden="true" size={16} />最终包已确认，等待在下方审阅标准草稿提案。</p> : null}

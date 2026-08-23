@@ -9,7 +9,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 from .creator_store import (
     SkillCreatorConflictError,
@@ -30,6 +30,8 @@ ResourcePlanState = Literal[
 ResourceKind = Literal["script", "reference", "asset"]
 ResourceAction = Literal["keep", "create", "update", "delete"]
 ResourceGenerationCost = Literal["low", "medium", "high"]
+HookEvent = Literal["session_start", "pre_tool_use", "post_tool_use", "session_end"]
+HookMode = Literal["annotation", "validation", "guard"]
 
 _IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_-]{0,79}$")
 _SOURCE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$")
@@ -120,6 +122,21 @@ class SkillResourcePlanItem:
 
 
 @dataclass(frozen=True, slots=True)
+class SkillResourceHookPlanItem:
+    hook_id: str
+    spec_digest: str
+    event: HookEvent
+    mode: HookMode
+    tool_names: list[str]
+    purpose: str
+    script_resource_id: str
+    source_ids: list[str]
+    used_by_steps: list[str]
+    acceptance_checks: list[str]
+    action: ResourceAction
+
+
+@dataclass(frozen=True, slots=True)
 class SkillResourcePlan:
     plan_id: str
     session_id: str
@@ -136,6 +153,7 @@ class SkillResourcePlan:
     output_contract: list[str]
     failure_modes: list[str]
     resources: list[SkillResourcePlanItem]
+    hooks: list[SkillResourceHookPlanItem] = field(default_factory=list)
     clarifications: list[ResourcePlanQuestion] = field(default_factory=list)
     clarification_answers: dict[str, str] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
@@ -149,6 +167,7 @@ class SkillResourcePlanStore:
     MAX_PLANS = 500
     MAX_REVISIONS_PER_PLAN = 40
     MAX_RESOURCES = 20
+    MAX_HOOKS = 12
     MAX_ANSWER_BYTES = 32 * 1024
     MAX_ANSWERS_BYTES = 128 * 1024
 
@@ -316,6 +335,7 @@ class SkillResourcePlanStore:
             "output_contract",
             "failure_modes",
             "resources",
+            "hooks",
         }
         unknown = sorted(set(changes) - allowed)
         if unknown:
@@ -347,6 +367,7 @@ class SkillResourcePlanStore:
                 "output_contract": list(current.output_contract),
                 "failure_modes": list(current.failure_modes),
                 "resources": resource_payload,
+                "hooks": [asdict(item) for item in current.hooks],
                 "clarifications": [],
             }
             payload.update(changes)
@@ -500,6 +521,7 @@ class SkillResourcePlanStore:
             and current.output_contract == normalized["output_contract"]
             and current.failure_modes == normalized["failure_modes"]
             and current.resources == normalized["resources"]
+            and current.hooks == normalized["hooks"]
         )
 
     def _normalize_payload(
@@ -533,7 +555,13 @@ class SkillResourcePlanStore:
             allowed_source_ids=allowed_source_ids,
             step_ids=step_ids,
         )
-        if clarifications and resources:
+        hooks = self._hooks(
+            payload.get("hooks") or [],
+            resources=resources,
+            allowed_source_ids=allowed_source_ids,
+            step_ids=step_ids,
+        )
+        if clarifications and (resources or hooks):
             raise SkillCreatorValidationError(
                 "A plan waiting for clarification cannot pre-commit resource files.",
                 code="skill_creator_resource_plan_invalid",
@@ -546,8 +574,151 @@ class SkillResourcePlanStore:
             "output_contract": output_contract,
             "failure_modes": failure_modes,
             "resources": resources,
+            "hooks": hooks,
             "clarifications": clarifications,
         }
+
+    def _hooks(
+        self,
+        value: Any,
+        *,
+        resources: list[SkillResourcePlanItem],
+        allowed_source_ids: set[str],
+        step_ids: set[str],
+    ) -> list[SkillResourceHookPlanItem]:
+        if not isinstance(value, list) or len(value) > self.MAX_HOOKS:
+            raise SkillCreatorValidationError(
+                "Resource plan contains too many Hooks.",
+                code="skill_creator_hook_plan_invalid",
+            )
+        all_scripts_by_id = {
+            item.resource_id: item
+            for item in resources
+            if item.kind == "script"
+        }
+        script_by_path = {item.path: item for item in all_scripts_by_id.values()}
+        result: list[SkillResourceHookPlanItem] = []
+        seen_ids: set[str] = set()
+        for raw in value:
+            if not isinstance(raw, dict):
+                raise SkillCreatorValidationError(
+                    "Invalid Hook plan item.", code="skill_creator_hook_plan_invalid"
+                )
+            hook_id = self._identifier(raw.get("hook_id") or raw.get("id"), "hook_id")
+            if hook_id in seen_ids:
+                raise SkillCreatorValidationError(
+                    "Hook plan IDs must be unique.", code="skill_creator_hook_plan_invalid"
+                )
+            seen_ids.add(hook_id)
+            event = str(raw.get("event") or "").strip()
+            mode = str(raw.get("mode") or "").strip()
+            if event not in {"session_start", "pre_tool_use", "post_tool_use", "session_end"}:
+                raise SkillCreatorValidationError(
+                    "Invalid Hook event.", code="skill_creator_hook_plan_invalid"
+                )
+            if mode not in {"annotation", "validation", "guard"}:
+                raise SkillCreatorValidationError(
+                    "Invalid Hook mode.", code="skill_creator_hook_plan_invalid"
+                )
+            if mode == "guard" and event != "pre_tool_use":
+                raise SkillCreatorValidationError(
+                    "Guard Hooks must run before tool use.",
+                    code="skill_creator_hook_plan_invalid",
+                )
+            raw_script_id = str(raw.get("script_resource_id") or "").strip()
+            raw_script_path = str(raw.get("script_path") or "").strip()
+            script = all_scripts_by_id.get(raw_script_id) or script_by_path.get(raw_script_path)
+            if script is None:
+                raise SkillCreatorValidationError(
+                    "Every Hook must bind one active planned script resource.",
+                    code="skill_creator_hook_script_invalid",
+                )
+            tool_names = self._tool_names(raw.get("tool_names") or [])
+            if event in {"pre_tool_use", "post_tool_use"} and not tool_names:
+                raise SkillCreatorValidationError(
+                    "Tool Hooks must name at least one exact tool.",
+                    code="skill_creator_hook_plan_invalid",
+                )
+            if event not in {"pre_tool_use", "post_tool_use"} and tool_names:
+                raise SkillCreatorValidationError(
+                    "Session Hooks cannot declare tool names.",
+                    code="skill_creator_hook_plan_invalid",
+                )
+            action = _RESOURCE_ACTION_ALIASES.get(
+                str(raw.get("action") or "create").strip().casefold()
+            )
+            if action is None:
+                raise SkillCreatorValidationError(
+                    "Invalid Hook action.", code="skill_creator_hook_plan_invalid"
+                )
+            if action != "delete" and script.action == "delete":
+                raise SkillCreatorValidationError(
+                    "An active Hook cannot bind a deleted script resource.",
+                    code="skill_creator_hook_script_invalid",
+                )
+            source_ids = self._source_id_list(raw.get("source_ids") or [], "source_ids", 30)
+            if any(source_id not in allowed_source_ids for source_id in source_ids):
+                raise SkillCreatorValidationError(
+                    "Hook plan references an unknown source requirement.",
+                    code="skill_creator_resource_source_unknown",
+                )
+            used_by_steps = self._identifier_list(
+                raw.get("used_by_steps") or [], "used_by_steps", 20
+            )
+            if any(step_id not in step_ids for step_id in used_by_steps):
+                raise SkillCreatorValidationError(
+                    "Hook plan references an unknown workflow step."
+                )
+            purpose = self._required_text(raw.get("purpose"), "purpose", 2_000)
+            acceptance_checks = self._text_list(
+                raw.get("acceptance_checks"), "acceptance_checks", 10, 1_000
+            )
+            values = {
+                "hook_id": hook_id,
+                "event": event,
+                "mode": mode,
+                "tool_names": tool_names,
+                "purpose": purpose,
+                "script_resource_id": script.resource_id,
+                "source_ids": source_ids,
+                "used_by_steps": used_by_steps,
+                "acceptance_checks": acceptance_checks,
+                "action": action,
+            }
+            result.append(
+                SkillResourceHookPlanItem(
+                    # Lifecycle action controls how a plan migrates an existing
+                    # package; it is not part of the executable Hook contract.
+                    # Keeping it out of the spec digest lets an unchanged Hook
+                    # reuse its digest-bound offline receipt across evolution.
+                    spec_digest=self._hook_spec_digest(values),
+                    **values,  # type: ignore[arg-type]
+                )
+            )
+        return result
+
+    @staticmethod
+    def _hook_spec_digest(values: Mapping[str, Any]) -> str:
+        return SkillResourcePlanStore._resource_spec_digest(
+            **{key: value for key, value in values.items() if key != "action"}
+        )
+
+    @staticmethod
+    def _tool_names(value: Any) -> list[str]:
+        if not isinstance(value, list) or len(value) > 30:
+            raise SkillCreatorValidationError(
+                "Invalid Hook tool names.", code="skill_creator_hook_plan_invalid"
+            )
+        result: list[str] = []
+        for item in value:
+            clean = str(item or "").strip()
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", clean):
+                raise SkillCreatorValidationError(
+                    "Invalid Hook tool name.", code="skill_creator_hook_plan_invalid"
+                )
+            if clean not in result:
+                result.append(clean)
+        return result
 
     def _resources(
         self,
@@ -750,6 +921,11 @@ class SkillResourcePlanStore:
                 "clarification_answers",
             )
         }
+        # Empty Hook plans retain the v1 digest shape so existing immutable plan
+        # records remain readable. A non-empty Hook plan extends the canonical
+        # payload and therefore receives a new fingerprint.
+        if values.get("hooks"):
+            digest_payload["hooks"] = values["hooks"]
         digest = hashlib.sha256(
             json.dumps(
                 self._jsonable(digest_payload),
@@ -767,6 +943,7 @@ class SkillResourcePlanStore:
         values["workflow_steps"] = [ResourcePlanStep(**item) for item in values["workflow_steps"]]
         values["clarifications"] = [ResourcePlanQuestion(**item) for item in values["clarifications"]]
         values["resources"] = [SkillResourcePlanItem(**item) for item in values["resources"]]
+        values["hooks"] = [SkillResourceHookPlanItem(**item) for item in values.get("hooks", [])]
         return self._build_plan(**values)
 
     def _append_unlocked(self, item: SkillResourcePlan) -> SkillResourcePlan:
@@ -878,6 +1055,7 @@ class SkillResourcePlanStore:
         values["workflow_steps"] = [ResourcePlanStep(**item) for item in values.get("workflow_steps", [])]
         values["clarifications"] = [ResourcePlanQuestion(**item) for item in values.get("clarifications", [])]
         values["resources"] = [SkillResourcePlanItem(**item) for item in values.get("resources", [])]
+        values["hooks"] = [SkillResourceHookPlanItem(**item) for item in values.get("hooks", [])]
         item = SkillResourcePlan(**values)
         if item.state not in {"needs_input", "needs_regeneration", "ready", "confirmed"}:
             raise ValueError("Invalid resource plan state.")
@@ -896,6 +1074,22 @@ class SkillResourcePlanStore:
             )
             if resource.spec_digest != expected_spec_digest:
                 raise ValueError("Resource plan item digest mismatch.")
+        for hook in item.hooks:
+            expected_spec_digest = self._hook_spec_digest(
+                {
+                    "hook_id": hook.hook_id,
+                    "event": hook.event,
+                    "mode": hook.mode,
+                    "tool_names": hook.tool_names,
+                    "purpose": hook.purpose,
+                    "script_resource_id": hook.script_resource_id,
+                    "source_ids": hook.source_ids,
+                    "used_by_steps": hook.used_by_steps,
+                    "acceptance_checks": hook.acceptance_checks,
+                }
+            )
+            if hook.spec_digest != expected_spec_digest:
+                raise ValueError("Hook plan item digest mismatch.")
         rebuilt = self._build_plan(
             **{key: value for key, value in asdict(item).items() if key != "digest"}
         )
@@ -1077,6 +1271,7 @@ class SkillResourcePlanStore:
         values["workflow_steps"] = [ResourcePlanStep(**entry) for entry in values["workflow_steps"]]
         values["clarifications"] = [ResourcePlanQuestion(**entry) for entry in values["clarifications"]]
         values["resources"] = [SkillResourcePlanItem(**entry) for entry in values["resources"]]
+        values["hooks"] = [SkillResourceHookPlanItem(**entry) for entry in values.get("hooks", [])]
         return SkillResourcePlan(**values)
 
     @staticmethod
@@ -1100,5 +1295,6 @@ __all__ = [
     "ResourcePlanStep",
     "SkillResourcePlan",
     "SkillResourcePlanItem",
+    "SkillResourceHookPlanItem",
     "SkillResourcePlanStore",
 ]

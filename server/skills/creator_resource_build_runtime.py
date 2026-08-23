@@ -14,14 +14,23 @@ from .creator_resource_build import (
     MAX_SEGMENT_BYTES,
     MAX_SKILL_MARKDOWN_BYTES,
     RESOURCE_BUILD_VERSION,
+    HookScriptTestReceipt,
+    HookScriptTestResult,
     ResourceScriptTestReceipt,
     ResourceScriptTestResult,
     SkillResourceBuild,
+    SkillResourceBuildHook,
     SkillResourceBuildItem,
 )
 from .creator_runtime import CREATOR_WORKFLOW_VERSION
 from .creator_store import CREATOR_ASSISTANT_AGENT_ID, SkillCreatorValidationError
 from .package_validation import validate_skill_package
+from .hook_contract import (
+    HOOK_MANIFEST_PATH,
+    SkillHookContractError,
+    parse_hook_manifest,
+    parse_hook_result,
+)
 
 try:
     from server.xpert_runtime.sandbox_client import (
@@ -100,6 +109,17 @@ def build_resource_builder_invocation(
 ) -> ResourceBuildWorkflowInvocation:
     build = request.build
     target = _target(build, request.target_id)
+    bound_hooks = [
+        asdict(hook)
+        for hook in build.hooks
+        if hook.action != "delete"
+        and (
+            request.target_id == "SKILL.md"
+            or hook.script_resource_id == request.target_id
+        )
+    ]
+    if bound_hooks:
+        target = {**target, "bound_hooks": bound_hooks}
     dependency_ids = set(target.get("depends_on") or [])
     accepted_resources = {
         item.path: item.content
@@ -129,6 +149,7 @@ def build_resource_builder_invocation(
             for path, content in sorted(accepted_resources.items())
         ],
         "accepted_resource_content": accepted_resources,
+        "confirmed_hooks": bound_hooks,
         "generation_limits": {
             "segment_bytes_max": MAX_SEGMENT_BYTES,
             "resource_bytes_max": 24 * 1024,
@@ -378,6 +399,59 @@ def validate_final_resource_package(build: SkillResourceBuild) -> list[dict[str,
     references = [item for item in build.resources if item.kind == "reference" and item.action != "delete"]
     if (len(references) >= 2 or any(len((item.content or "").splitlines()) > _LONG_REFERENCE_LINES for item in references)) and not re.search(r"(?i)(\brg\b|sandbox_search_files)", build.skill_markdown):
         issues.append(_issue("skill_creator_reference_search_missing", "Multiple or long references require a bounded rg or sandbox_search_files example in SKILL.md.", "SKILL.md"))
+    active_hooks = [hook for hook in build.hooks if hook.action != "delete"]
+    if active_hooks:
+        if not build.hook_manifest or not build.hook_manifest_digest:
+            issues.append(
+                _issue(
+                    "skill_creator_hook_manifest_missing",
+                    "Confirmed Hooks require a deterministic manifest.",
+                    HOOK_MANIFEST_PATH,
+                )
+            )
+        else:
+            files[HOOK_MANIFEST_PATH] = build.hook_manifest
+            try:
+                parse_hook_manifest(
+                    build.hook_manifest,
+                    available_paths=files.keys(),
+                )
+            except SkillHookContractError as exc:
+                issues.append(_issue(exc.code, str(exc), HOOK_MANIFEST_PATH))
+        for hook in active_hooks:
+            receipt = hook.test_receipt
+            if (
+                receipt is None
+                or not receipt.passed
+                or receipt.hook_spec_digest != hook.spec_digest
+                or receipt.manifest_digest != build.hook_manifest_digest
+            ):
+                issues.append(
+                    _issue(
+                        "skill_creator_hook_receipt_missing",
+                        "Every active Hook requires a passing digest-bound offline receipt.",
+                        HOOK_MANIFEST_PATH,
+                    )
+                )
+        if not re.search(r"(?i)(hook|运行前|运行后|调用前|调用后|会话开始|会话结束)", build.skill_markdown):
+            issues.append(
+                _issue(
+                    "skill_creator_hook_guidance_missing",
+                    "SKILL.md must explain the confirmed Hook boundaries and failure behavior.",
+                    "SKILL.md",
+                )
+            )
+        if not _has_hook_advisory_guidance(build.skill_markdown):
+            issues.append(
+                _issue(
+                    "skill_creator_hook_advisory_guidance_missing",
+                    (
+                        "SKILL.md must explain what the Agent does when a request does not "
+                        "trigger the Hook event."
+                    ),
+                    "SKILL.md",
+                )
+            )
     validation = validate_skill_package(
         root_name=build.skill_name,
         skill_markdown=build.skill_markdown,
@@ -488,6 +562,260 @@ class SandboxCreatorScriptRunner:
             results=results,
         )
 
+    async def run_hook(
+        self,
+        item: SkillResourceBuildItem,
+        hook: SkillResourceBuildHook,
+        *,
+        manifest_digest: str,
+    ) -> HookScriptTestReceipt:
+        """Exercise a frozen Hook entry through its real file-based CLI contract."""
+
+        if item.kind != "script" or item.content is None or item.content_digest is None:
+            raise SkillCreatorValidationError(
+                "Hook script content is not ready for testing.",
+                code="skill_creator_hook_script_not_ready",
+            )
+        command = _SCRIPT_SUFFIXES.get(PurePosixPath(item.path).suffix.lower())
+        if command is None:
+            raise SkillCreatorValidationError(
+                "Unsupported Hook script language.",
+                code="skill_creator_script_language_unsupported",
+            )
+        await self.health()
+        cases = _hook_authoring_contexts(hook)
+        results: list[HookScriptTestResult] = []
+        for case_id, context_payload in cases:
+            workspace_id = f"skill-hook-authoring-{uuid.uuid4().hex}"
+            created = await self.client.request(
+                {
+                    "action": "ensure_workspace",
+                    "workspace_id": workspace_id,
+                    "profile": SKILL_AUTHORING_PROFILE,
+                }
+            )
+            capability = str(created.get("provisioning_capability") or "")
+            auth = {
+                "workspace_id": workspace_id,
+                "profile": SKILL_AUTHORING_PROFILE,
+                "provisioning_capability": capability,
+            }
+            raw_result = ""
+            result_types: list[str] = []
+            issues: list[str] = []
+            duration_ms = 0.0
+            try:
+                script_name = PurePosixPath(item.path).name
+                script_path = f"skills/authoring-resource/{script_name}"
+                context_path = f"inputs/{case_id}.json"
+                await self.client.request(
+                    {
+                        **auth,
+                        "action": "seed_file",
+                        "path": script_path,
+                        "content": item.content,
+                        "operation_id": f"seed-hook-script-{case_id}",
+                    }
+                )
+                await self.client.request(
+                    {
+                        **auth,
+                        "action": "seed_file",
+                        "path": context_path,
+                        "content": json.dumps(
+                            context_payload,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        "operation_id": f"seed-hook-context-{case_id}",
+                    }
+                )
+                await self.client.request({**auth, "action": "seal_workspace"})
+                response = await self.client.request(
+                    {
+                        **auth,
+                        "action": "shell",
+                        "argv": [
+                            command,
+                            f"../{script_path}",
+                            "--context",
+                            f"../{context_path}",
+                            "--result",
+                            f"{case_id}-result.json",
+                        ],
+                        "timeout_seconds": SCRIPT_TEST_TIMEOUT_SECONDS,
+                        "operation_id": f"run-hook-{case_id}",
+                    }
+                )
+                duration_ms = float(response.get("duration_ms") or 0)
+                if int(response.get("exit_code") or 0) != 0:
+                    issues.append("unexpected_exit_code")
+                read_result = await self.client.request(
+                    {
+                        **auth,
+                        "action": "read_file",
+                        "path": f"work/{case_id}-result.json",
+                    }
+                )
+                raw_result = str(read_result.get("content") or "")
+                parsed = parse_hook_result(
+                    raw_result,
+                    hook_event=hook.event,
+                    hook_mode=hook.mode,
+                )
+                result_types = [output.output_type for output in parsed.outputs]
+                if hook.mode == "annotation" and "annotation" not in result_types:
+                    issues.append("annotation_output_missing")
+                elif hook.event in {"pre_tool_use", "post_tool_use"}:
+                    validations = [
+                        output
+                        for output in parsed.outputs
+                        if output.output_type == "validation"
+                    ]
+                    if hook.mode == "validation":
+                        expected_passed = case_id == "safe"
+                        if not any(
+                            output.passed is expected_passed for output in validations
+                        ):
+                            issues.append(
+                                "validation_pass_missing"
+                                if expected_passed
+                                else "validation_failure_missing"
+                            )
+                    elif hook.mode == "guard":
+                        if case_id == "safe" and (
+                            "deny" in result_types
+                            or not any(output.passed is True for output in validations)
+                        ):
+                            issues.append("guard_allow_missing")
+                        if case_id == "boundary" and "deny" not in result_types:
+                            issues.append("guard_deny_missing")
+            except SkillHookContractError as exc:
+                issues.append(str(exc.code)[:120])
+            except SandboxClientError as exc:
+                issues.append(str(exc.code)[:120])
+            except Exception:
+                issues.append("skill_hook_execution_failed")
+            finally:
+                try:
+                    await self.client.request({**auth, "action": "cleanup_workspace"})
+                except Exception:
+                    pass
+            results.append(
+                HookScriptTestResult(
+                    case_id=case_id,
+                    passed=not issues,
+                    result_types=result_types,
+                    result_digest=_sha256(raw_result),
+                    duration_ms=duration_ms,
+                    issues=issues,
+                )
+            )
+        return HookScriptTestReceipt(
+            receipt_id=f"hook_receipt_{uuid.uuid4().hex}",
+            hook_id=hook.hook_id,
+            hook_spec_digest=hook.spec_digest,
+            script_digest=item.content_digest,
+            manifest_digest=manifest_digest,
+            profile=SKILL_AUTHORING_PROFILE,
+            passed=bool(results) and all(item.passed for item in results),
+            results=results,
+        )
+
+
+def _hook_authoring_contexts(
+    hook: SkillResourceBuildHook,
+) -> list[tuple[str, dict[str, Any]]]:
+    base = {
+        "version": "modelmirror-hook-context-v1",
+        "event": hook.event,
+        "skill": {
+            "skill_id": "authoring-fixture",
+            "version_id": "immutable-fixture-v1",
+            "manifest_digest": "0" * 64,
+        },
+        "hook": {"hook_id": hook.hook_id, "mode": hook.mode},
+    }
+    if hook.event in {"pre_tool_use", "post_tool_use"}:
+        tool_name = hook.tool_names[0]
+        release_path = (
+            "work/release/release-notes.md"
+            if tool_name == "sandbox_write_file"
+            else "release/release-notes.md"
+        )
+        unsafe_path = (
+            "work/release/../unsafe.exe"
+            if tool_name == "sandbox_write_file"
+            else "release/../unsafe.exe"
+        )
+        safe = {
+            **base,
+            "tool": {
+                "name": tool_name,
+                **(
+                    {
+                        "arguments": {
+                            "name": "release-notes.md",
+                            "path": release_path,
+                            "content_type": "text/markdown",
+                        }
+                    }
+                    if hook.event == "pre_tool_use"
+                    else {
+                        "success": True,
+                        "content_types": ["text/markdown"],
+                        "output_length": 120,
+                        "output_digest": "1" * 64,
+                        "artifact_paths": [release_path],
+                    }
+                ),
+            },
+        }
+        if hook.mode == "annotation":
+            return [("annotation", safe)]
+        unsafe = {
+            **base,
+            "tool": {
+                "name": tool_name,
+                **(
+                    {
+                        "arguments": {
+                            "name": unsafe_path,
+                            "path": unsafe_path,
+                            "content_type": "application/octet-stream",
+                        }
+                    }
+                    if hook.event == "pre_tool_use"
+                    else {
+                        "success": False,
+                        "content_types": ["application/octet-stream"],
+                        "output_length": 0,
+                        "output_digest": "2" * 64,
+                        "artifact_paths": [],
+                    }
+                ),
+            },
+        }
+        return [("safe", safe), ("boundary", unsafe)]
+    session = {
+        **base,
+        "session": (
+            {
+                "task_input": "Prepare one bounded synthetic result.",
+                "runtime_kind": "workflow",
+                "capabilities": {},
+            }
+            if hook.event == "session_start"
+            else {
+                "status": "completed",
+                "output_length": 120,
+                "output_digest": "3" * 64,
+            }
+        ),
+    }
+    return [("session", session)]
+
 
 def _target(build: SkillResourceBuild, target_id: str) -> dict[str, Any]:
     if target_id == "SKILL.md":
@@ -524,7 +852,22 @@ def _builder_prompt(target_id: str, target: dict[str, Any]) -> str:
             "numbered executable steps, Output contract, Failure and degradation, Quality checks, "
             "and Resources. Reference every accepted resource by exact path. For multiple or long "
             "references include a bounded rg or sandbox_search_files command. Explain when scripts "
-            "run and when assets are copied or rendered. Do not add README/eval/evals/user-meta."
+            "run and when assets are copied or rendered. If confirmed_hooks is non-empty, add a "
+            "Hook section explaining each exact event boundary, affected tool names, annotation or "
+            "blocking behavior, failure degradation, and that Hooks receive no network, Shell, or "
+            "extra Agent tool permission. The Runtime, not the Agent, automatically executes each "
+            "Hook script at its frozen event boundary. Never instruct the Agent to locate, stage, "
+            "shell, or manually run a Hook script, and never report that the script is missing when "
+            "answering an advisory request. For a request that does not itself trigger the affected "
+            "tool, explain the frozen deterministic rule directly and ask only for genuinely missing "
+            "inputs. When an advisory request supplies a path, apply path and extension rules to the "
+            "path string and return the verdict without checking whether the file exists or reading "
+            "Sandbox files, unless the frozen Skill purpose explicitly requires content inspection. "
+            "The final package validator requires an explicit advisory/outside-event sentence; do "
+            "not imply that every user question must execute the Hook script. "
+            "Distinguish advisory guidance from enforcement performed by the Runtime Hook. "
+            "Describe only checks actually implemented by the accepted script. Do not add "
+            "README/eval/evals/user-meta."
         )
     elif kind == "reference":
         specifics = " Write focused factual guidance, not a copy of SKILL.md. If the final file exceeds 100 lines, include a concise table of contents near the top."
@@ -543,6 +886,45 @@ def _builder_prompt(target_id: str, target: dict[str, Any]) -> str:
             "under inputs/; arguments run from work/, so refer to a fixture as "
             "../inputs/<path>."
         )
+        if target.get("bound_hooks"):
+            specifics += (
+                " This script is also a confirmed typed Hook implementation. It must accept only "
+                "the server-appended option-value pairs --context <path> --result <path>; parse "
+                "both named options instead of assuming fixed argv positions or a three-item argv. "
+                "Read strict UTF-8 JSON from context. The root contains version, event, skill, "
+                "hook, and an event payload. hook is an object shaped exactly like "
+                '{"hook_id":"check_release","mode":"guard"}; read the ID from '
+                "context['hook']['hook_id'] and never compare context['hook'] itself to a string. "
+                "For pre_tool_use the payload shape is exactly like "
+                '{"tool":{"name":"sandbox_write_file","arguments":{"path":"work/release/example.md"}}}; '
+                "read the path from context['tool']['arguments']['path'], never from flat "
+                "tool_name or tool_args fields. For post_tool_use, tool contains name, success, "
+                "content_types, output_length, output_digest, and artifact_paths. For session "
+                "events, read the session object instead of tool. Atomically write a result whose "
+                "root has exactly version and outputs. Use "
+                '{"version":"modelmirror-hook-result-v1","outputs":[{"type":"validation",'
+                '"code":"release_allowed","passed":true,"message":"Allowed."}]} for an allowed '
+                "validation or guard call; guard + pre_tool_use rejects with "
+                '{"version":"modelmirror-hook-result-v1","outputs":[{"type":"deny",'
+                '"code":"release_denied","message":"Denied."}]}. Build a rejected guard output '
+                "as a fresh deny object with exactly type, code, and message; never mutate a "
+                "validation object into deny and leave passed behind. Annotation outputs use exactly "
+                "type, code, severity, and message. Validation outputs use exactly type, code, "
+                "passed, and message. Deny outputs use exactly type, code, and message. "
+                "Honor every bound_hooks event/mode/tool boundary. Annotation returns annotation "
+                "outputs, validation returns typed passed decisions, and guard returns a passed "
+                "validation for an allowed call or a deny for a rejected pre_tool_use call. Do not "
+                "broaden a Hook beyond the condition stated in its purpose: when a directory, "
+                "artifact class, or other scope makes the rule inapplicable, return an explicit "
+                "passed validation instead of enforcing the scoped rule on every matching tool. "
+                "sandbox_write_file exposes the actual Sandbox-relative path and only writes under "
+                "work/; therefore a user-facing release/ scope is represented as work/release/ in "
+                "Hook context. Treat the leading work/ as the Sandbox transport root when applying "
+                "the frozen directory rule, and never let it make an in-scope path bypass validation. "
+                "Do not "
+                "print the typed result to stdout, modify tool "
+                "arguments, request permissions, use network access, or depend on host paths."
+            )
     else:
         specifics = " Write a reusable UTF-8 template or boilerplate. Make placeholders and copy/render instructions explicit; do not use the asset as a knowledge reference."
     schema = (
@@ -564,6 +946,17 @@ def _builder_prompt(target_id: str, target: dict[str, Any]) -> str:
 
 def _issue(code: str, message: str, path: str) -> dict[str, Any]:
     return {"code": code, "message": message, "path": path, "severity": "error"}
+
+
+def _has_hook_advisory_guidance(markdown: str) -> bool:
+    return bool(
+        re.search(
+            r"(?i)(advisory|without triggering|does not (?:itself )?trigger|"
+            r"outside (?:the )?(?:hook|event)|未触发|不触发|非.{0,8}事件|"
+            r"咨询|仅询问|只询问)",
+            markdown,
+        )
+    )
 
 
 def _substantive_paragraphs(value: str) -> set[str]:

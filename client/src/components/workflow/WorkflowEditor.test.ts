@@ -61,6 +61,42 @@ describe("WorkflowEditor palette defaults", () => {
     });
   });
 
+  it("creates newly dragged Skill Hook middleware in typed V2 mode", () => {
+    const data = createNodeData("runtime_middleware", {
+      kind: "runtime_middleware",
+      runtimeMiddlewareId: "plugin_hooks",
+      runtimeMiddlewareKind: "runtime_middleware.plugin_hooks",
+      title: "Skill 插件 Hook",
+      description: "在固定事件边界执行已安装 Skill 的类型化 Hook。",
+      metadata: {},
+      fields: [
+        {
+          name: "hook_mode",
+          label: "Hook 合同",
+          type: "select",
+          default: "typed_v2",
+        },
+        {
+          name: "skill_ids",
+          label: "Hook Skill",
+          type: "textarea",
+          default: "",
+        },
+        {
+          name: "fail_closed",
+          label: "Legacy 失败策略",
+          type: "boolean",
+          default: false,
+        },
+      ],
+    });
+
+    expect(data.runtimeMiddlewareConfig).toEqual({
+      hook_mode: "typed_v2",
+      skill_ids: "",
+    });
+  });
+
   it("keeps R1 deployment nodes planner-independent with safe defaults", () => {
     expect(createNodeData("scheduled_start")).toMatchObject({
       scheduleType: "interval",

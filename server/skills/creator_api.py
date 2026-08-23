@@ -36,6 +36,11 @@ from .draft_store import (
     SkillDraftStorageError,
     SkillDraftValidationError,
 )
+from .hook_contract import (
+    HOOK_MANIFEST_VERSION,
+    HOOK_RESULT_VERSION,
+    skill_plugin_hook_v2_enabled,
+)
 
 try:
     from server.xpert_runtime.authoring_store import AuthoringProposalStore
@@ -129,6 +134,7 @@ class CreatorResourcePlanPatchRequest(CreatorResourcePlanWriteRequest):
     output_contract: list[str] | None = Field(default=None, max_length=20)
     failure_modes: list[str] | None = Field(default=None, max_length=20)
     resources: list[dict[str, Any]] | None = Field(default=None, max_length=20)
+    hooks: list[dict[str, Any]] | None = Field(default=None, max_length=12)
 
 
 class CreatorResourceBuildStartRequest(CreatorResourcePlanWriteRequest):
@@ -687,6 +693,10 @@ async def get_creator_status():
             "evolution_version": None,
             "evolution_planner_available": False,
             "evolution_store_available": False,
+            "hook_authoring_enabled": False,
+            "hook_manifest_version": HOOK_MANIFEST_VERSION,
+            "hook_result_version": HOOK_RESULT_VERSION,
+            "hook_runtimes": ["python", "javascript"],
         }
     status = _service.status()
     status["evaluation_available"] = _evaluation_service is not None
@@ -733,6 +743,18 @@ async def get_creator_status():
             "evaluation_suite_version": None,
             "evaluation_suite_generator_available": False,
             "evaluation_suite_store_available": False,
+        }
+    )
+    status.update(
+        {
+            "hook_authoring_enabled": bool(
+                status.get("enabled")
+                and status.get("resource_authoring_enabled")
+                and skill_plugin_hook_v2_enabled()
+            ),
+            "hook_manifest_version": HOOK_MANIFEST_VERSION,
+            "hook_result_version": HOOK_RESULT_VERSION,
+            "hook_runtimes": ["python", "javascript"],
         }
     )
     return status
@@ -955,6 +977,7 @@ async def patch_creator_resource_plan(
                 "output_contract",
                 "failure_modes",
                 "resources",
+                "hooks",
             )
             if name in payload.model_fields_set
         }

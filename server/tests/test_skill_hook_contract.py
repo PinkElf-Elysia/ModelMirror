@@ -91,6 +91,15 @@ def test_parses_fixed_manifest_and_projects_only_bounded_metadata(
         "contractValid": True,
         "runnable": False,
         "errorCode": None,
+        "hooks": [
+            {
+                "hookId": "check-release-name",
+                "event": "pre_tool_use",
+                "mode": "guard",
+                "toolNames": ["sandbox_write_file"],
+                "timeoutSeconds": 15,
+            }
+        ],
     }
     assert "purpose" not in projection
     assert "tool_names" not in projection

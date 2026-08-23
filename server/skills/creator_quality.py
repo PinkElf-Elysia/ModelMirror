@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping, Sequence
 
+from .hook_contract import HOOK_MANIFEST_PATH
 from .package_validation import SkillPackageV2, validate_skill_package
 
 
@@ -34,8 +35,9 @@ _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _TRIGGER_RE = re.compile(
     r"(?i)(?:\buse\s+when\b|\bwhen\s+(?:the\s+)?(?:user|task|agent)\b|"
     r"\btrigger(?:s|ed|ing)?\b|适用于|用于.{0,24}(?:任务|场景|情况)|"
-    r"当.{0,40}时|触发(?:条件|场景)?)"
+    r"当.{0,40}时|在[^。；;.!?]{1,40}(?:时|前|后)|触发(?:条件|场景)?)"
 )
+_CJK_CHAR_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 _SCOPE_RE = re.compile(
     r"(?i)(?:^|\n)#{1,6}\s+(?:scope|purpose|boundaries|overview|when\s+to\s+use|"
     r"capabilit(?:y|ies)|use\s+cases?|用途|目标|概述|适用范围|适用场景|使用场景|"
@@ -81,6 +83,15 @@ _CHECK_LABELS = {
     "resource_plan": "资源计划",
     "requirement_coverage": "会话需求覆盖",
 }
+
+
+def _description_has_actionable_trigger(description: str) -> bool:
+    """Apply equivalent detail floors to compact CJK and space-delimited prose."""
+
+    text = str(description or "").strip()
+    cjk_count = len(_CJK_CHAR_RE.findall(text))
+    minimum_length = 48 if cjk_count >= 24 else 80
+    return len(text) >= minimum_length and bool(_TRIGGER_RE.search(text))
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,9 +293,7 @@ def evaluate_creator_payload(
 
     body = _markdown_body(package.skill_markdown)
     structural_body = _structural_markdown(body)
-    description_ok = len(package.description) >= 80 and bool(
-        _TRIGGER_RE.search(package.description)
-    )
+    description_ok = _description_has_actionable_trigger(package.description)
     if not description_ok:
         issues.append(
             CreatorQualityIssue(
@@ -468,9 +477,7 @@ def evaluate_creator_final_package(
     body = _markdown_body(package.skill_markdown)
     structural_body = _structural_markdown(body)
 
-    description_ok = len(package.description) >= 80 and bool(
-        _TRIGGER_RE.search(package.description)
-    )
+    description_ok = _description_has_actionable_trigger(package.description)
     if not description_ok:
         issues.append(
             CreatorQualityIssue(
@@ -753,7 +760,7 @@ def _workflow_design_items(
             items = []
             break
         clean_description = str(description).strip()
-        if len(clean_description) < 8:
+        if not _instruction_has_substance(clean_description):
             items = []
             break
         items.append(item)
@@ -797,6 +804,13 @@ def _normalized_instruction(value: str) -> str:
     return " ".join(re.findall(r"\w+", value.casefold(), re.UNICODE))
 
 
+def _instruction_has_substance(value: str) -> bool:
+    clean = value.strip()
+    if len(clean) >= 8:
+        return True
+    return len(re.findall(r"[\u3400-\u4dbf\u4e00-\u9fff]", clean)) >= 6
+
+
 def _executable_workflow_step_count(markdown: str) -> int:
     count = 0
     matches = list(_HEADING_LINE_RE.finditer(markdown))
@@ -813,7 +827,7 @@ def _executable_workflow_step_count(markdown: str) -> int:
         count += sum(
             1
             for item in re.finditer(r"(?m)^\s*\d+[.)]\s+(.+?)\s*$", section)
-            if len(item.group(1).strip()) >= 8
+            if _instruction_has_substance(item.group(1))
         )
     return count
 
@@ -826,7 +840,7 @@ def _executable_workflow_steps(markdown: str) -> list[str]:
         instructions.extend(
             item.group(1).strip()
             for item in re.finditer(r"(?m)^\s*\d+[.)]\s+(.+?)\s*$", section)
-            if len(item.group(1).strip()) >= 8
+            if _instruction_has_substance(item.group(1))
             and not _PLACEHOLDER_RE.search(item.group(1))
         )
     return instructions
@@ -945,7 +959,9 @@ def _validate_resources(
         )
 
     package_resource_paths = {
-        path for path in package.files if not path.startswith("agents/")
+        path
+        for path in package.files
+        if not path.startswith("agents/") and path != HOOK_MANIFEST_PATH
     }
     if planned_paths != package_resource_paths:
         issues.append(

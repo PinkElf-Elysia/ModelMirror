@@ -22,7 +22,7 @@ Registry 契约现包含 `config_version`、`execution_status`、`requires_tool_
 
 ## Automation（2026-07-18）
 
-`scheduler`、`ralph_loop`、`knowledge_writer` 与 `plugin_hooks` 已进入真实 Agent 执行。Scheduler 固定已发布 XpertVersion 并通过持久 Coordinator 执行单次、间隔和带时区 Cron；Ralph 对最终答案进行有界改进与严格验证；Knowledge Writer 只创建待审批 proposal；Plugin Hooks 只在无网 Sandbox 运行已安装 Skill 的显式 argv manifest。
+`scheduler`、`ralph_loop`、`knowledge_writer` 与 `plugin_hooks` 已进入真实 Agent 执行。Scheduler 固定已发布 XpertVersion 并通过持久 Coordinator 执行单次、间隔和带时区 Cron；Ralph 对最终答案进行有界改进与严格验证；Knowledge Writer 只创建待审批 proposal；Plugin Hooks 的新节点读取已安装 Skill 的类型化 `hooks/manifest.json` 并在无网 Sandbox 执行，缺少 `hook_mode` 的历史节点继续兼容显式 argv manifest。
 
 自动化 execution 具有 occurrence 幂等、重叠/误触发策略、预算、lease、重试和死信，并能在 HITL/Client Tool 等待后继续。公开 Xpert App/API 拒绝这四类私有自动化中间件。完整契约见 `docs/XPERT_AUTOMATION.md`。
 

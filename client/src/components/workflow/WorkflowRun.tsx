@@ -14,6 +14,9 @@ import SkillCreatorHandoffCard, {
 import SkillApplicationCard, {
   requiredSkillIdsFromWorkflowNodes,
 } from "../skill-runtime/SkillApplicationCard";
+import SkillHookApplicationCard, {
+  hookSkillIdsFromWorkflowNodes,
+} from "../skill-runtime/SkillHookApplicationCard";
 import { useSkillCreatorStatus } from "../../hooks/useSkillCreatorStatus";
 import {
   fetchFileOutputs,
@@ -563,7 +566,7 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
       step.output = appendStepOutput(step.output, event.message || "审批已处理，继续执行。", step.type);
       return;
     }
-    if (event.event === "skill_runtime_status") {
+    if (event.event === "skill_runtime_status" || event.event === "skill_hook_status") {
       return;
     }
     if (event.event === "client_tool_waiting") {
@@ -954,6 +957,10 @@ export default function WorkflowRun({
   }, [events]);
 
   const runSteps = useMemo(() => buildRunSteps(events), [events]);
+  const expectedHookSkillIds = useMemo(
+    () => hookSkillIdsFromWorkflowNodes(definition.nodes),
+    [definition.nodes],
+  );
   const expectedRequiredSkillIds = useMemo(
     () => requiredSkillIdsFromWorkflowNodes(definition.nodes),
     [definition.nodes],
@@ -1989,6 +1996,11 @@ export default function WorkflowRun({
           className="mb-3"
           events={events}
           expectedRequiredSkillIds={expectedRequiredSkillIds}
+        />
+        <SkillHookApplicationCard
+          className="mb-3"
+          events={events}
+          expectedSkillIds={expectedHookSkillIds}
         />
         {runHistory.length > 0 ? (
           <div className="mb-3 rounded-lg border border-white/10 bg-white/[0.03] p-3">

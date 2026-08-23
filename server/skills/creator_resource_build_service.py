@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
+import json
 import os
 import threading
 from dataclasses import asdict
@@ -14,6 +16,7 @@ from .creator_quality import (
 )
 from .creator_resource_build import (
     MAX_SEGMENT_BYTES,
+    HookScriptTestReceipt,
     SkillResourceBuild,
     SkillResourceBuildStore,
 )
@@ -33,6 +36,14 @@ from .creator_store import (
     SkillCreatorValidationError,
 )
 from .draft_store import WorkspaceSkillDraft
+from .hook_contract import (
+    DEFAULT_HOOK_TIMEOUT_SECONDS,
+    HOOK_MANIFEST_PATH,
+    HOOK_MANIFEST_VERSION,
+    SkillHookDefinitionV2,
+    parse_hook_manifest,
+    skill_plugin_hook_v2_enabled,
+)
 
 try:
     from server.xpert_runtime.authoring_store import (
@@ -136,6 +147,16 @@ class SkillCreatorResourceBuildService:
             self._require_plan(plan, session=session, draft=draft, expected_revision=expected_plan_revision, expected_digest=expected_plan_digest)
             if plan.state != "confirmed":
                 raise SkillCreatorConflictError("Confirm the resource plan before starting generation.")
+            if plan.hooks and not skill_plugin_hook_v2_enabled():
+                raise SkillCreatorValidationError(
+                    "Skill Hook V2 authoring is disabled.",
+                    code="skill_hook_v2_disabled",
+                )
+            if plan.hooks and self.script_runner is None:
+                raise SkillCreatorValidationError(
+                    "Hook authoring requires the Skill authoring Sandbox profile.",
+                    code="skill_creator_sandbox_unavailable",
+                )
             previous_build = self.build_store.current_for_session(session_id)
             if previous_build is not None and (
                 previous_build.plan_id != plan.plan_id
@@ -163,9 +184,26 @@ class SkillCreatorResourceBuildService:
         self.require_enabled()
         initial = self.build_store.require(build_id)
         async with self._lock(initial.session_id):
+            if (
+                initial.revision != int(expected_revision)
+                or initial.digest != str(expected_digest).lower()
+            ):
+                raise SkillCreatorConflictError(
+                    "Resource build changed. Reload it first."
+                )
             session, draft = self.creator_service.get_session(initial.session_id)
             self._require_session_revision(session, expected_session_revision)
             self._require_build_scope(initial, session=session, draft=draft)
+            if initial.hooks and not skill_plugin_hook_v2_enabled():
+                raise SkillCreatorValidationError(
+                    "Skill Hook V2 authoring is disabled.",
+                    code="skill_hook_v2_disabled",
+                )
+            if initial.hooks and self.script_runner is None:
+                raise SkillCreatorValidationError(
+                    "Hook authoring requires the Skill authoring Sandbox profile.",
+                    code="skill_creator_sandbox_unavailable",
+                )
             builder = self.builder
             try:
                 available = bool(builder and builder.available())
@@ -173,10 +211,15 @@ class SkillCreatorResourceBuildService:
                 raise SkillCreatorValidationError("Resource builder status is unavailable.", code="skill_creator_resource_builder_failed") from exc
             if not available or builder is None:
                 raise SkillCreatorValidationError("The Skill Creator model gateway is not configured.", code="model_gateway_unconfigured")
+            prepared = await self._prepare_hooks_if_ready(initial)
+            if prepared.phase == "resources" and prepared.state == "revision_requested" and all(
+                item.state == "accepted" for item in prepared.resources
+            ):
+                return prepared
             current = self.build_store.claim_next(
                 build_id,
-                expected_revision=expected_revision,
-                expected_digest=expected_digest,
+                expected_revision=prepared.revision,
+                expected_digest=prepared.digest,
             )
             validated = await self._generate_and_validate(current, builder=builder)
             # Static/test failures get exactly one server-controlled regeneration.
@@ -412,6 +455,29 @@ class SkillCreatorResourceBuildService:
                     receipt = await self.script_runner.run(item)
                     if not receipt.passed:
                         issues.append({"code": "skill_creator_script_test_failed", "message": "Generated script failed its offline tests.", "path": item.path, "severity": "error"})
+                    bound_hooks = [
+                        hook
+                        for hook in current.hooks
+                        if hook.action != "delete"
+                        and hook.script_resource_id == item.resource_id
+                    ]
+                    if receipt.passed and bound_hooks:
+                        manifest, manifest_digest = self._hook_manifest(current)
+                        for hook in bound_hooks:
+                            hook_receipt = await self.script_runner.run_hook(
+                                item,
+                                hook,
+                                manifest_digest=manifest_digest,
+                            )
+                            if not hook_receipt.passed:
+                                issues.append(
+                                    {
+                                        "code": "skill_creator_hook_test_failed",
+                                        "message": "Generated Hook script failed its typed offline contract tests.",
+                                        "path": item.path,
+                                        "severity": "error",
+                                    }
+                                )
         else:
             issues = validate_final_resource_package(current)
         return self.build_store.record_validation(
@@ -423,6 +489,107 @@ class SkillCreatorResourceBuildService:
             script_receipt=receipt,
             auto_repair=auto_repair,
         )
+
+    async def _prepare_hooks_if_ready(
+        self, current: SkillResourceBuild
+    ) -> SkillResourceBuild:
+        if (
+            current.phase != "resources"
+            or any(item.state != "accepted" for item in current.resources)
+            or not self.build_store.requires_hook_validation(current)
+        ):
+            return current
+        if self.script_runner is None:
+            raise SkillCreatorValidationError(
+                "Hook authoring requires the Skill authoring Sandbox profile.",
+                code="skill_creator_sandbox_unavailable",
+            )
+        manifest, manifest_digest = self._hook_manifest(current)
+        resources = {item.resource_id: item for item in current.resources}
+        receipts: list[HookScriptTestReceipt] = []
+        issues: list[dict[str, Any]] = []
+        for hook in current.hooks:
+            if hook.action == "delete":
+                continue
+            script = resources.get(hook.script_resource_id)
+            if script is None:
+                issues.append(
+                    {
+                        "code": "skill_creator_hook_script_invalid",
+                        "message": "Confirmed Hook script is unavailable.",
+                        "path": HOOK_MANIFEST_PATH,
+                        "severity": "error",
+                    }
+                )
+                continue
+            receipt = await self.script_runner.run_hook(
+                script,
+                hook,
+                manifest_digest=manifest_digest,
+            )
+            receipts.append(receipt)
+            if not receipt.passed:
+                issues.append(
+                    {
+                        "code": "skill_creator_hook_test_failed",
+                        "message": "A confirmed Hook did not satisfy the typed offline execution contract.",
+                        "path": script.path,
+                        "severity": "error",
+                    }
+                )
+        return self.build_store.record_hook_validation(
+            current.build_id,
+            expected_revision=current.revision,
+            expected_digest=current.digest,
+            manifest=manifest,
+            manifest_digest=manifest_digest,
+            receipts=receipts,
+            issues=issues,
+        )
+
+    @staticmethod
+    def _hook_manifest(build: SkillResourceBuild) -> tuple[str, str]:
+        resources = {item.resource_id: item for item in build.resources}
+        definitions = []
+        for hook in build.hooks:
+            if hook.action == "delete":
+                continue
+            script = resources.get(hook.script_resource_id)
+            if script is None:
+                raise SkillCreatorValidationError(
+                    "Confirmed Hook script is unavailable.",
+                    code="skill_creator_hook_script_invalid",
+                )
+            definitions.append(
+                SkillHookDefinitionV2(
+                    hook_id=hook.hook_id,
+                    event=hook.event,
+                    mode=hook.mode,
+                    tool_names=tuple(hook.tool_names),
+                    script_path=script.path,
+                    purpose=hook.purpose,
+                    acceptance_checks=tuple(hook.acceptance_checks),
+                    timeout_seconds=DEFAULT_HOOK_TIMEOUT_SECONDS,
+                )
+            )
+        payload = {
+            "version": HOOK_MANIFEST_VERSION,
+            "hooks": [item.to_dict() for item in definitions],
+        }
+        manifest = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ) + "\n"
+        parse_hook_manifest(
+            manifest,
+            available_paths=[
+                HOOK_MANIFEST_PATH,
+                *(item.path for item in build.resources if item.action != "delete"),
+            ],
+        )
+        return manifest, hashlib.sha256(manifest.encode("utf-8")).hexdigest()
 
     def _proposal(
         self,
@@ -510,6 +677,18 @@ class SkillCreatorResourceBuildService:
             for item in build.resources
             if item.action != "delete"
         ]
+        hooks = [
+            {
+                "hook_id": item.hook_id,
+                "event": item.event,
+                "mode": item.mode,
+                "tool_names": list(item.tool_names),
+                "purpose": item.purpose,
+                "script_resource_id": item.script_resource_id,
+            }
+            for item in build.hooks
+            if item.action != "delete"
+        ]
         workflow_steps = [
             {"id": str(item.get("step_id") or item.get("id") or f"step_{index + 1}"), "description": str(item.get("instruction") or item.get("description") or "")}
             for index, item in enumerate(build.workflow_steps)
@@ -536,6 +715,7 @@ class SkillCreatorResourceBuildService:
                 "output_contract": [{"id": f"output_{index + 1}", "description": value} for index, value in enumerate(build.output_contract)],
                 "failure_modes": [{"id": f"failure_{index + 1}", "description": value} for index, value in enumerate(build.failure_modes)],
                 "resources": resources,
+                "hooks": hooks,
                 "assumptions": ["Use only the confirmed Creator definition, selected evidence, and accepted resource contents."],
                 "requirement_coverage": copy.deepcopy(coverage),
             },
@@ -553,6 +733,7 @@ class SkillCreatorResourceBuildService:
                 "build_digest": build.digest,
                 "plan_id": build.plan_id,
                 "plan_digest": build.plan_digest,
+                "hook_manifest_digest": build.hook_manifest_digest,
             },
         }
 

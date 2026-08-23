@@ -487,6 +487,17 @@ class SkillCreatorService:
         self._require_session_revision(session, expected_session_revision)
         if not session.draft_id:
             raise SkillCreatorConflictError("Creator session has no Skill draft.")
+        current = self.draft_store.require(session.draft_id)
+        changed_files = changes.get("files")
+        if isinstance(changed_files, dict):
+            manifest_path = "hooks/manifest.json"
+            current_manifest = current.files.get(manifest_path)
+            proposed_manifest = changed_files.get(manifest_path)
+            if current_manifest != proposed_manifest:
+                raise SkillCreatorValidationError(
+                    "hooks/manifest.json is generated from the confirmed Hook plan and is read-only.",
+                    code="skill_creator_hook_manifest_read_only",
+                )
         self._cancel_pending_proposal(session)
         draft = self.draft_store.update(
             session.draft_id,

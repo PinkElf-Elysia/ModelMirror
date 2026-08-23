@@ -14,6 +14,11 @@ import {
   type SkillEvolutionPlan,
 } from "../../utils/skillCreatorApi";
 
+function currentEvolutionPlan(session: SkillCreatorSession): SkillEvolutionPlan | null {
+  const value = session.evolution_plan;
+  return value && "plan_id" in value && value.state !== "stale" ? value : null;
+}
+
 export default function SkillCreatorFinish({
   session,
   draft,
@@ -36,9 +41,7 @@ export default function SkillCreatorFinish({
   onNotice: (message: string) => void;
 }) {
   const [busy, setBusy] = useState("");
-  const [evolutionPlan, setEvolutionPlan] = useState<SkillEvolutionPlan | null>(
-    session.evolution_plan && "plan_id" in session.evolution_plan ? session.evolution_plan : null,
-  );
+  const [evolutionPlan, setEvolutionPlan] = useState<SkillEvolutionPlan | null>(() => currentEvolutionPlan(session));
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const qualityStatus = session.quality_status ?? draft.quality_status ?? "not_evaluated";
   const installState = session.install_state ?? draft.install_state ?? "not_installed";
@@ -48,7 +51,7 @@ export default function SkillCreatorFinish({
   const evolutionEnabled = Boolean(session.regression_governance?.enabled);
 
   useEffect(() => {
-    setEvolutionPlan(session.evolution_plan && "plan_id" in session.evolution_plan ? session.evolution_plan : null);
+    setEvolutionPlan(currentEvolutionPlan(session));
   }, [session.evolution_plan]);
 
   async function iterate() {

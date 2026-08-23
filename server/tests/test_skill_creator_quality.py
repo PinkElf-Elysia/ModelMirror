@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -181,6 +182,39 @@ def test_final_package_gate_accepts_complete_package_without_design_metadata() -
     assert report.ready is True
     assert report.score == 100
     assert report.issues == ()
+
+
+def test_final_package_gate_accepts_chinese_temporal_trigger_description() -> None:
+    skill = _rich_payload(with_resource=True)["skill"]
+    description = (
+        "在发布文件前检查文件名与扩展名，允许.md、.json、.csv文件，阻止路径穿越、可执行文件和未知扩展，"
+        "并用清晰的中文说明原因。"
+    )
+    markdown = skill["skill_markdown"].replace(skill["description"], description)
+
+    report = evaluate_creator_final_package(
+        root_name=skill["name"], skill_markdown=markdown, files=skill["files"]
+    )
+
+    assert report.ready is True
+    assert "creator_description_trigger_missing" not in {
+        issue.code for issue in report.issues
+    }
+
+
+def test_final_package_gate_rejects_too_short_chinese_trigger_description() -> None:
+    skill = _rich_payload(with_resource=True)["skill"]
+    description = "在写入前检查文件。"
+    markdown = skill["skill_markdown"].replace(skill["description"], description)
+
+    report = evaluate_creator_final_package(
+        root_name=skill["name"], skill_markdown=markdown, files=skill["files"]
+    )
+
+    assert report.ready is False
+    assert "creator_description_trigger_missing" in {
+        issue.code for issue in report.issues
+    }
 
 
 def test_final_package_gate_rejects_manual_scaffold_and_resource_placeholders() -> None:
@@ -404,6 +438,21 @@ def test_workflow_steps_require_unique_ids_and_materially_distinct_instructions(
     }
 
 
+def test_concise_chinese_workflow_instruction_is_not_rejected_by_english_length_gate() -> None:
+    payload = _rich_payload()
+    payload["design"]["workflow_steps"][3]["instruction"] = "阻止可执行文件"
+    payload["skill"]["skill_markdown"] = payload["skill"][
+        "skill_markdown"
+    ].replace(
+        "4. Draft actions with one accountable owner, a due date, and a verification condition.",
+        "4. 阻止可执行文件",
+    )
+
+    report = evaluate_creator_payload(payload, requirements=_requirements())
+
+    assert report.ready is True
+
+
 def test_inputs_and_preconditions_are_required_as_a_real_section() -> None:
     payload = _rich_payload()
     payload["skill"]["skill_markdown"] = payload["skill"][
@@ -478,6 +527,37 @@ def test_resources_must_match_files_be_referenced_and_bind_to_real_steps() -> No
 
     assert report.ready is False
     assert "creator_resource_plan_mismatch" in {
+        issue.code for issue in report.issues
+    }
+
+
+def test_server_generated_hook_manifest_is_not_a_planned_resource() -> None:
+    payload = _rich_payload(with_resource=True)
+    payload["skill"]["files"]["hooks/manifest.json"] = json.dumps(
+        {
+            "version": "modelmirror-hook-manifest-v2",
+            "hooks": [
+                {
+                    "hook_id": "check_report",
+                    "event": "pre_tool_use",
+                    "mode": "guard",
+                    "tool_names": ["sandbox_write_file"],
+                    "script_path": "scripts/check_report.py",
+                    "purpose": "Block an invalid report path before writing.",
+                    "acceptance_checks": [
+                        "Safe report paths pass and unsafe paths are denied."
+                    ],
+                    "timeout_seconds": 15,
+                }
+            ],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+    report = evaluate_creator_payload(payload, requirements=_requirements())
+
+    assert "creator_resource_plan_mismatch" not in {
         issue.code for issue in report.issues
     }
 

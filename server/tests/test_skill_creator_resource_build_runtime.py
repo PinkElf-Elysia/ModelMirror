@@ -10,6 +10,8 @@ import pytest
 
 from server.sandbox_sidecar.engine import SandboxEngine
 from server.skills.creator_resource_build import (
+    HookScriptTestReceipt,
+    HookScriptTestResult,
     ResourceScriptTest,
     ResourceScriptTestReceipt,
     ResourceScriptTestResult,
@@ -20,6 +22,7 @@ from server.skills.creator_resource_build_runtime import (
     ResourceBuildGenerationRequest,
     ResourceBuildSegment,
     SandboxCreatorScriptRunner,
+    _has_hook_advisory_guidance,
     build_resource_builder_invocation,
     parse_resource_build_segment,
     validate_final_resource_package,
@@ -41,7 +44,12 @@ DESCRIPTION = (
 )
 
 
-def _plan(store: SkillResourcePlanStore, *, resources: list[dict] | None = None):
+def _plan(
+    store: SkillResourcePlanStore,
+    *,
+    resources: list[dict] | None = None,
+    hooks: list[dict] | None = None,
+):
     raw = store.save_generated(
         session_id="skillcreator_resource_build",
         session_revision=1,
@@ -61,6 +69,7 @@ def _plan(store: SkillResourcePlanStore, *, resources: list[dict] | None = None)
             "output_contract": ["Return a Chinese Markdown incident review with six stable sections."],
             "failure_modes": ["Mark unavailable facts as pending confirmation and never invent them."],
             "resources": [{"generation_cost": "medium", **item} for item in (resources or [])],
+            "hooks": hooks or [],
             "clarifications": [],
         },
     )
@@ -455,6 +464,146 @@ console.log(value.toUpperCase());
     assert receipt.results[0].exit_code == 0
 
 
+def test_hook_script_runner_exercises_safe_and_boundary_contexts(tmp_path: Path) -> None:
+    plan = _plan(
+        SkillResourcePlanStore(tmp_path / "plan-hook"),
+        resources=[
+            {
+                "kind": "script",
+                "action": "create",
+                "path": "scripts/check_release.py",
+                "purpose": "Validate release filenames deterministically.",
+                "source_ids": ["intent"],
+                "used_by_steps": ["deliver"],
+                "depends_on": [],
+                "acceptance_checks": ["Returns a typed allow or deny result."],
+            }
+        ],
+        hooks=[
+            {
+                "hook_id": "check-release-name",
+                "event": "pre_tool_use",
+                "mode": "guard",
+                "tool_names": ["sandbox_write_file"],
+                "purpose": "Block unsafe release filenames before writing.",
+                "script_path": "scripts/check_release.py",
+                "source_ids": ["intent"],
+                "used_by_steps": ["deliver"],
+                "acceptance_checks": ["Denies path traversal and executable suffixes."],
+                "action": "create",
+            }
+        ],
+    )
+    build = SkillResourceBuildStore(tmp_path / "build-hook").create(plan=plan)
+    content = """import argparse
+import json
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--context', required=True)
+parser.add_argument('--result', required=True)
+args = parser.parse_args()
+with open(args.context, encoding='utf-8') as handle:
+    context = json.load(handle)
+path = str(context.get('tool', {}).get('arguments', {}).get('path', ''))
+outputs = []
+if path.startswith('work/release/') and ('..' in path or path.endswith('.exe')):
+    outputs.append({'type': 'deny', 'code': 'unsafe_release_name', 'message': 'Unsafe release filename.'})
+else:
+    outputs.append({'type': 'validation', 'code': 'release_name_allowed', 'passed': True, 'message': 'Release filename is allowed.'})
+with open(args.result, 'w', encoding='utf-8') as handle:
+    json.dump({'version': 'modelmirror-hook-result-v1', 'outputs': outputs}, handle)
+"""
+    script = replace(
+        build.resources[0],
+        state="accepted",
+        content=content,
+        content_digest=__import__("hashlib").sha256(content.encode()).hexdigest(),
+    )
+    runner = SandboxCreatorScriptRunner(
+        LocalSandboxClient(SandboxEngine(tmp_path / "sidecar-hook", require_landlock=False))
+    )
+
+    receipt = asyncio.run(
+        runner.run_hook(script, build.hooks[0], manifest_digest="d" * 64)
+    )
+
+    assert receipt.passed is True
+    assert receipt.hook_spec_digest == build.hooks[0].spec_digest
+    assert receipt.script_digest == script.content_digest
+    assert [result.case_id for result in receipt.results] == ["safe", "boundary"]
+    assert receipt.results[0].result_types == ["validation"]
+    assert receipt.results[1].result_types == ["deny"]
+
+
+def test_hook_script_runner_rejects_guard_that_never_returns_deny(tmp_path: Path) -> None:
+    plan = _plan(
+        SkillResourcePlanStore(tmp_path / "plan-hook-weak-guard"),
+        resources=[
+            {
+                "kind": "script",
+                "action": "create",
+                "path": "scripts/check_release.py",
+                "purpose": "Validate release filenames deterministically.",
+                "source_ids": ["intent"],
+                "used_by_steps": ["deliver"],
+                "depends_on": [],
+                "acceptance_checks": ["Returns a typed allow or deny result."],
+            }
+        ],
+        hooks=[
+            {
+                "hook_id": "check-release-name",
+                "event": "pre_tool_use",
+                "mode": "guard",
+                "tool_names": ["sandbox_write_file"],
+                "purpose": "Block unsafe release filenames before writing.",
+                "script_path": "scripts/check_release.py",
+                "source_ids": ["intent"],
+                "used_by_steps": ["deliver"],
+                "acceptance_checks": ["Denies path traversal and executable suffixes."],
+                "action": "create",
+            }
+        ],
+    )
+    build = SkillResourceBuildStore(tmp_path / "build-hook-weak-guard").create(plan=plan)
+    content = """import argparse
+import json
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--context', required=True)
+parser.add_argument('--result', required=True)
+args = parser.parse_args()
+with open(args.context, encoding='utf-8') as handle:
+    context = json.load(handle)
+path = str(context.get('tool', {}).get('arguments', {}).get('path', ''))
+passed = '..' not in path and not path.endswith('.exe')
+with open(args.result, 'w', encoding='utf-8') as handle:
+    json.dump({'version': 'modelmirror-hook-result-v1', 'outputs': [
+        {'type': 'validation', 'code': 'release_name_check', 'passed': passed, 'message': 'Checked.'}
+    ]}, handle)
+"""
+    script = replace(
+        build.resources[0],
+        state="accepted",
+        content=content,
+        content_digest=__import__("hashlib").sha256(content.encode()).hexdigest(),
+    )
+    runner = SandboxCreatorScriptRunner(
+        LocalSandboxClient(
+            SandboxEngine(tmp_path / "sidecar-hook-weak-guard", require_landlock=False)
+        )
+    )
+
+    receipt = asyncio.run(
+        runner.run_hook(script, build.hooks[0], manifest_digest="d" * 64)
+    )
+
+    assert receipt.passed is False
+    assert receipt.results[0].passed is True
+    assert receipt.results[1].passed is False
+    assert receipt.results[1].issues == ["guard_deny_missing"]
+
+
 @pytest.mark.parametrize(
     ("path", "content", "expected_code"),
     [
@@ -530,6 +679,39 @@ class _ScriptRunner:
             passed=True,
             results=[ResourceScriptTestResult(test_id="happy", passed=True, exit_code=0, stdout_sha256="a" * 64, stderr_sha256="b" * 64, duration_ms=1)],
         )
+
+
+class _HookScriptRunner(_ScriptRunner):
+    async def run_hook(self, item, hook, *, manifest_digest):
+        return HookScriptTestReceipt(
+            receipt_id="hook_receipt_test",
+            hook_id=hook.hook_id,
+            hook_spec_digest=hook.spec_digest,
+            script_digest=item.content_digest,
+            manifest_digest=manifest_digest,
+            profile="skill_authoring_v1",
+            passed=True,
+            results=[
+                HookScriptTestResult(
+                    case_id="safe",
+                    passed=True,
+                    result_types=["validation"],
+                    result_digest="c" * 64,
+                    duration_ms=1,
+                )
+            ],
+        )
+
+
+class _CountingBuilder(_Builder):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate(
+        self, request: ResourceBuildGenerationRequest
+    ) -> ResourceBuildSegment:
+        self.calls += 1
+        return await super().generate(request)
 
 
 class _InvalidFirstScriptBuilder(_Builder):
@@ -913,6 +1095,116 @@ def test_service_repairs_a_generated_script_contract_once(tmp_path: Path) -> Non
     assert builder.script_calls == 2
 
 
+def test_hook_build_can_regenerate_a_user_rejected_script(tmp_path: Path) -> None:
+    runtime = tmp_path / "runtime-hook-revise"
+    plan_store = SkillResourcePlanStore(runtime)
+    plan = _plan(
+        plan_store,
+        resources=[
+            {
+                "kind": "script",
+                "action": "create",
+                "path": "scripts/check_release.py",
+                "purpose": "Validate a release path before a write.",
+                "source_ids": ["intent"],
+                "used_by_steps": ["collect"],
+                "depends_on": [],
+                "acceptance_checks": ["Rejects an unsafe release path."],
+            }
+        ],
+        hooks=[
+            {
+                "hook_id": "check-release-path",
+                "event": "pre_tool_use",
+                "mode": "guard",
+                "tool_names": ["sandbox_write_file"],
+                "purpose": "Block an unsafe release path before writing.",
+                "script_path": "scripts/check_release.py",
+                "source_ids": ["intent"],
+                "used_by_steps": ["collect"],
+                "acceptance_checks": ["Safe calls pass and unsafe calls are denied."],
+                "action": "create",
+            }
+        ],
+    )
+    draft_store = WorkspaceSkillDraftStore(runtime)
+    authoring = AuthoringService(
+        AuthoringProposalStore(runtime),
+        XpertStore(tmp_path / "xperts-hook-revise"),
+        draft_store,
+        local_console_actor_id="console-test",
+    )
+    session = SkillCreatorSession(
+        session_id=plan.session_id,
+        session_revision=1,
+        intent="Check a release path before writing a file.",
+        positive_examples=["Allow release/notes.md."],
+        near_miss_examples=["Reject ../unsafe.exe."],
+        expected_output="Return a typed allow or deny decision.",
+        success_criteria=["Never write before the guard passes."],
+        evidence_confirmed=True,
+        state="editing_draft",
+    )
+    creator = SimpleNamespace(
+        authoring_service=authoring,
+        get_session=lambda _id: (session, None),
+        require_enabled=lambda: None,
+    )
+    builder = _CountingBuilder()
+    service = SkillCreatorResourceBuildService(
+        creator,
+        SimpleNamespace(plan_store=plan_store, require_enabled=lambda: None),
+        SkillResourceBuildStore(runtime),
+        builder=builder,
+        script_runner=_HookScriptRunner(),
+        enabled=True,
+    )
+    build = asyncio.run(
+        service.start(
+            session.session_id,
+            plan_id=plan.plan_id,
+            expected_session_revision=1,
+            expected_plan_revision=plan.revision,
+            expected_plan_digest=plan.digest,
+        )
+    )
+    generated = asyncio.run(
+        service.next(
+            build.build_id,
+            expected_session_revision=1,
+            expected_revision=build.revision,
+            expected_digest=build.digest,
+        )
+    )
+    assert generated.state == "awaiting_review"
+    assert generated.current_resource_id is not None
+
+    rejected = service.review_resource(
+        generated.build_id,
+        resource_id=generated.current_resource_id,
+        expected_session_revision=1,
+        expected_revision=generated.revision,
+        expected_digest=generated.digest,
+        decision="revise",
+        feedback="Keep the frozen path and regenerate the implementation.",
+    )
+    assert rejected.state == "revision_requested"
+
+    regenerated = asyncio.run(
+        service.next(
+            rejected.build_id,
+            expected_session_revision=1,
+            expected_revision=rejected.revision,
+            expected_digest=rejected.digest,
+        )
+    )
+
+    assert regenerated.state == "awaiting_review"
+    assert regenerated.current_resource_id == rejected.resources[0].resource_id
+    assert regenerated.resources[0].content is not None
+    assert builder.calls == 2
+
+
 def test_script_prompt_freezes_fixture_shape_and_limit(tmp_path: Path) -> None:
     plan = _plan(
         SkillResourcePlanStore(tmp_path),
@@ -950,6 +1242,107 @@ def test_script_prompt_freezes_fixture_shape_and_limit(tmp_path: Path) -> None:
     assert '"path":"case.txt","content":"UTF-8 text"' in role_prompt
     assert '"stdout_contains":["expected text"]' in role_prompt
     assert "are always JSON arrays" in role_prompt
+
+
+def test_hook_script_prompt_freezes_cli_context_and_result_contract(
+    tmp_path: Path,
+) -> None:
+    plan = _plan(
+        SkillResourcePlanStore(tmp_path),
+        resources=[
+            {
+                "kind": "script",
+                "action": "create",
+                "path": "scripts/check_release.py",
+                "purpose": "Validate a release path before writing.",
+                "source_ids": ["intent"],
+                "used_by_steps": ["collect"],
+                "depends_on": [],
+                "acceptance_checks": ["Rejects unsafe release paths."],
+            }
+        ],
+        hooks=[
+            {
+                "hook_id": "check-release-path",
+                "event": "pre_tool_use",
+                "mode": "guard",
+                "tool_names": ["sandbox_write_file"],
+                "purpose": "Block an unsafe release path before writing.",
+                "script_path": "scripts/check_release.py",
+                "source_ids": ["intent"],
+                "used_by_steps": ["collect"],
+                "acceptance_checks": ["Safe paths pass and unsafe paths are denied."],
+                "action": "create",
+            }
+        ],
+    )
+    store = SkillResourceBuildStore(tmp_path / "build-hook-prompt")
+    build = store.create(plan=plan)
+    claimed = store.claim_next(
+        build.build_id,
+        expected_revision=build.revision,
+        expected_digest=build.digest,
+    )
+    resource_id = claimed.current_resource_id
+    assert resource_id
+
+    invocation = build_resource_builder_invocation(
+        ResourceBuildGenerationRequest(
+            build=claimed, target_id=resource_id, segment_index=0
+        ),
+        model_id="provider/model",
+    )
+    role_prompt = invocation.workflow["nodes"][1]["data"]["rolePrompt"]
+
+    assert "--context <path> --result <path>" in role_prompt
+    assert "instead of assuming fixed argv positions" in role_prompt
+    assert (
+        '{"tool":{"name":"sandbox_write_file","arguments":{"path":"work/release/example.md"}}}'
+        in role_prompt
+    )
+    assert "only writes under work/" in role_prompt
+    assert "user-facing release/ scope is represented as work/release/" in role_prompt
+    assert "context['tool']['arguments']['path']" in role_prompt
+    assert "context['hook']['hook_id']" in role_prompt
+    assert "never compare context['hook'] itself to a string" in role_prompt
+    assert '"version":"modelmirror-hook-result-v1"' in role_prompt
+    assert '"type":"validation"' in role_prompt
+    assert '"type":"deny"' in role_prompt
+    assert "fresh deny object with exactly type, code, and message" in role_prompt
+    assert "broaden a Hook beyond the condition stated in its purpose" in role_prompt
+    assert "root has exactly version and outputs" in role_prompt
+
+    skill_invocation = build_resource_builder_invocation(
+        ResourceBuildGenerationRequest(
+            build=claimed, target_id="SKILL.md", segment_index=0
+        ),
+        model_id="provider/model",
+    )
+    skill_prompt = skill_invocation.workflow["nodes"][1]["data"]["rolePrompt"]
+    assert "Runtime, not the Agent, automatically executes" in skill_prompt
+    assert "Never instruct the Agent to locate, stage, shell" in skill_prompt
+    assert "does not itself trigger the affected tool" in skill_prompt
+    assert "without checking whether the file exists" in skill_prompt
+    assert "requires an explicit advisory/outside-event sentence" in skill_prompt
+    assert "Describe only checks actually implemented" in skill_prompt
+
+
+@pytest.mark.parametrize(
+    ("guidance", "expected"),
+    [
+        ("The Agent never manually runs this Hook script.", False),
+        (
+            "For an advisory request outside the Hook event, apply the frozen rule directly.",
+            True,
+        ),
+        ("用户仅询问路径时直接应用规则，不触发 Hook。", True),
+    ],
+)
+def test_hook_advisory_guidance_requires_explicit_outside_event_behavior(
+    guidance: str,
+    expected: bool,
+) -> None:
+    assert _has_hook_advisory_guidance(guidance) is expected
 
 
 def test_complex_build_reaches_valid_standard_proposal(tmp_path: Path) -> None:
@@ -992,6 +1385,21 @@ def test_complex_build_reaches_valid_standard_proposal(tmp_path: Path) -> None:
         build = service.review_resource(build.build_id, resource_id=resource_id, expected_session_revision=1, expected_revision=build.revision, expected_digest=build.digest, decision="accept")
     build = asyncio.run(service.next(build.build_id, expected_session_revision=1, expected_revision=build.revision, expected_digest=build.digest))
     assert build.state == "awaiting_review", build.skill_validation_issues
+    build, proposal = service.finalize(
+        build.build_id,
+        expected_session_revision=1,
+        expected_revision=build.revision,
+        expected_digest=build.digest,
+        decision="revise",
+        feedback="Keep the accepted resources and clarify the final workflow.",
+    )
+    assert proposal is None
+    assert build.phase == "skill_markdown"
+    assert build.state == "revision_requested"
+    assert build.skill_markdown is None
+    build = asyncio.run(service.next(build.build_id, expected_session_revision=1, expected_revision=build.revision, expected_digest=build.digest))
+    assert build.state == "awaiting_review", build.skill_validation_issues
+    assert build.skill_markdown == _skill_markdown()
     build, proposal = service.finalize(build.build_id, expected_session_revision=1, expected_revision=build.revision, expected_digest=build.digest, decision="accept")
     assert proposal is not None
     assert proposal.validation["valid"] is True
