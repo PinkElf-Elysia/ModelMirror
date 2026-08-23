@@ -345,6 +345,27 @@ class SkillFinder:
     def fingerprint(self) -> str:
         return str(self._load_index()["fingerprint"])
 
+    def index_metadata(self) -> dict[str, Any]:
+        """Return immutable index bindings without exposing candidate content."""
+
+        payload = self._load_index()
+        return {
+            "version": payload["version"],
+            "rankerVersion": payload["rankerVersion"],
+            "runtimeIndexFingerprint": payload["fingerprint"],
+            "directoryFingerprint": payload["catalogFingerprint"],
+            "trustIndexFingerprint": payload["trustIndexFingerprint"],
+        }
+
+    def fork_with_skill_manager(self, skill_manager: Any) -> "SkillFinder":
+        """Reuse this verified index snapshot with a different installed projection."""
+
+        payload = self._load_index()
+        fork = SkillFinder(index_path=self.index_path, skill_manager=skill_manager)
+        fork._index = payload
+        fork._catalog_by_id = dict(self._catalog_by_id)
+        return fork
+
     def _load_index(self) -> dict[str, Any]:
         if self._index is not None:
             return self._index
