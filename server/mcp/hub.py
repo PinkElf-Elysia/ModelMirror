@@ -26,9 +26,10 @@ from typing import Any, Literal
 from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, HTTPException, Query, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from .hub_contracts import HubContractRegistry, HubReviewedContractV1
+from .remote_auth import RemoteAuthError, RemoteAuthPolicyV1
 
 
 REGISTRY_BASE_URL = "https://registry.modelcontextprotocol.io"
@@ -194,6 +195,39 @@ def _has_remote_headers(remote: dict[str, Any]) -> bool:
     return bool(headers) or bool(remote.get("variables"))
 
 
+def _static_remote_auth_policy(
+    remote: dict[str, Any], normalized_url: str, origin: str
+) -> RemoteAuthPolicyV1 | None:
+    """Reduce one current Registry secret Header declaration to a fixed policy."""
+
+    if remote.get("variables"):
+        return None
+    headers = remote.get("headers")
+    if not isinstance(headers, list) or len(headers) != 1:
+        return None
+    declaration = headers[0]
+    if not isinstance(declaration, dict):
+        return None
+    if set(declaration) - {"name", "description", "isRequired", "isSecret"}:
+        return None
+    name = str(declaration.get("name") or "").strip()
+    if declaration.get("isRequired") is not True or declaration.get("isSecret") is not True:
+        return None
+    mode: Literal["static_bearer", "static_header"] = (
+        "static_bearer" if name.lower() == "authorization" else "static_header"
+    )
+    try:
+        return RemoteAuthPolicyV1(
+            mode=mode,
+            slot="registry-secret-header",
+            header_name=name,
+            origin=origin,
+            remote_url_digest=hashlib.sha256(normalized_url.encode("utf-8")).hexdigest(),
+        )
+    except RemoteAuthError:
+        return None
+
+
 def normalize_registry_remote(remote: Any) -> dict[str, Any]:
     if not isinstance(remote, dict):
         return {
@@ -206,10 +240,22 @@ def normalize_registry_remote(remote: Any) -> dict[str, Any]:
         }
     transport = _remote_transport(remote)
     raw_url = str(remote.get("url") or "").strip()
+    raw_headers = remote.get("headers")
+    identity_headers = []
+    if isinstance(raw_headers, list):
+        identity_headers = [
+            {
+                "name": str(item.get("name") or "")[:64],
+                "isRequired": item.get("isRequired") is True,
+                "isSecret": item.get("isSecret") is True,
+            }
+            for item in raw_headers[:4]
+            if isinstance(item, dict)
+        ]
     identity = {
         "transport": transport,
         "url": raw_url,
-        "headers": bool(remote.get("headers")),
+        "headers": identity_headers,
         "variables": bool(remote.get("variables")),
     }
     remote_id = "remote_" + stable_digest(identity)[:16]
@@ -232,6 +278,28 @@ def normalize_registry_remote(remote: Any) -> dict[str, Any]:
             "reason": "没有可用的 Streamable HTTP 端点",
         }
     if _has_remote_headers(remote):
+        try:
+            normalized, origin = normalize_hub_remote_url(raw_url)
+        except HubError as exc:
+            return {
+                "remote_id": remote_id,
+                "transport": "streamable-http",
+                "url": "",
+                "origin": "",
+                "eligibility": "no_remote",
+                "reason": str(exc),
+            }
+        policy = _static_remote_auth_policy(remote, normalized, origin)
+        if policy is not None:
+            return {
+                "remote_id": remote_id,
+                "transport": "streamable-http",
+                "url": normalized,
+                "origin": origin,
+                "eligibility": "static_token_candidate",
+                "reason": "可绑定一个固定 Secret Header 后进入复核",
+                "auth_policy": policy.model_dump(mode="json"),
+            }
         return {
             "remote_id": remote_id,
             "transport": "streamable-http",
@@ -291,6 +359,8 @@ def normalize_registry_entry(value: Any) -> dict[str, Any]:
         eligibility = "removed"
     elif any(item["eligibility"] == "eligible" for item in remotes):
         eligibility = "eligible"
+    elif any(item["eligibility"] == "static_token_candidate" for item in remotes):
+        eligibility = "static_token_candidate"
     elif any(item["eligibility"] == "auth_required" for item in remotes):
         eligibility = "auth_required"
     elif any(item["eligibility"] == "legacy_transport" for item in remotes):
@@ -498,6 +568,18 @@ class MCPHubStore:
                 db.execute(
                     "ALTER TABLE hub_servers ADD COLUMN categories_json TEXT NOT NULL DEFAULT '[]'"
                 )
+            candidate_columns = {
+                str(row[1])
+                for row in db.execute("PRAGMA table_info(hub_candidates)").fetchall()
+            }
+            if "auth_policy_json" not in candidate_columns:
+                db.execute(
+                    "ALTER TABLE hub_candidates ADD COLUMN auth_policy_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            if "auth_binding_id" not in candidate_columns:
+                db.execute(
+                    "ALTER TABLE hub_candidates ADD COLUMN auth_binding_id TEXT NOT NULL DEFAULT ''"
+                )
 
     def meta(self, key: str, default: str = "") -> str:
         with self._lock, self._connect() as db:
@@ -641,10 +723,19 @@ class MCPHubStore:
             candidate_id, tenant_id, owner_id, server["server_name"], server["version"],
             remote["remote_id"], "draft", remote["origin"], remote["url"],
             server["source_digest"], "", "[]", "", now, now,
+            json.dumps(remote.get("auth_policy") or {}, ensure_ascii=False, separators=(",", ":")),
+            "",
         )
         with self._lock, self._connect() as db:
             try:
-                db.execute("INSERT INTO hub_candidates VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", values)
+                db.execute(
+                    "INSERT INTO hub_candidates("
+                    "candidate_id,tenant_id,owner_id,server_name,version,remote_id,state,"
+                    "origin,remote_url,source_digest,schema_digest,tools_json,taint_reason,"
+                    "created_at,updated_at,auth_policy_json,auth_binding_id"
+                    ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    values,
+                )
             except sqlite3.IntegrityError:
                 row = db.execute(
                     "SELECT * FROM hub_candidates WHERE tenant_id=? AND owner_id=? AND server_name=? AND version=? AND remote_id=?",
@@ -659,7 +750,24 @@ class MCPHubStore:
     def _candidate(row: sqlite3.Row) -> dict[str, Any]:
         item = dict(row)
         item["tools"] = json.loads(item.pop("tools_json"))
+        item["auth_policy"] = json.loads(item.pop("auth_policy_json", "{}") or "{}")
         return item
+
+    def set_candidate_auth_binding(
+        self,
+        candidate_id: str,
+        tenant_id: str,
+        owner_id: str,
+        binding_id: str,
+    ) -> dict[str, Any]:
+        self.require_candidate(candidate_id, tenant_id, owner_id)
+        with self._lock, self._connect() as db:
+            db.execute(
+                "UPDATE hub_candidates SET auth_binding_id=?,updated_at=? "
+                "WHERE candidate_id=? AND tenant_id=? AND owner_id=?",
+                (str(binding_id), time.time(), candidate_id, tenant_id, owner_id),
+            )
+        return self.require_candidate(candidate_id, tenant_id, owner_id)
 
     def list_candidates(self, tenant_id: str, owner_id: str) -> list[dict[str, Any]]:
         with self._lock, self._connect() as db:
@@ -742,9 +850,10 @@ class MCPHubStore:
                 or current.get("status") not in {"active", "published"}
                 or current.get("source_digest") != candidate["source_digest"]
                 or remote is None
-                or remote.get("eligibility") != "eligible"
+                or remote.get("eligibility") not in {"eligible", "static_token_candidate"}
                 or remote.get("url") != candidate["remote_url"]
                 or remote.get("origin") != candidate["origin"]
+                or (remote.get("auth_policy") or {}) != candidate.get("auth_policy", {})
             ):
                 db.execute(
                     "UPDATE hub_candidates SET state='drifted',taint_reason='hub_source_drift',updated_at=? "
@@ -860,7 +969,15 @@ class MCPHubStore:
 class HubBridgeProtocol:
     async def authorize(self, candidate_id: str, url: str) -> str: ...
     async def revoke(self, capability: str) -> None: ...
-    async def open(self, candidate_id: str, url: str, capability: str, session_owner: str) -> dict[str, Any]: ...
+    async def open(
+        self,
+        candidate_id: str,
+        url: str,
+        capability: str,
+        session_owner: str,
+        *,
+        auth: dict[str, Any] | None = None,
+    ) -> dict[str, Any]: ...
     async def list_tools(self, session_id: str) -> dict[str, Any]: ...
     async def call(self, session_id: str, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
     async def close(self, session_id: str) -> None: ...
@@ -909,18 +1026,30 @@ class HubSocketBridge:
         if capability:
             await self._request(self.egress_socket, {"action": "revoke", "capability": capability}, timeout=5)
 
-    async def open(self, candidate_id: str, url: str, capability: str, session_owner: str) -> dict[str, Any]:
-        return await self._request(
-            self.remote_socket,
-            {
+    async def open(
+        self,
+        candidate_id: str,
+        url: str,
+        capability: str,
+        session_owner: str,
+        *,
+        auth: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
                 "action": "open",
                 "candidate_id": candidate_id,
                 "url": url,
                 "capability": capability,
                 "session_owner": session_owner,
-            },
-            timeout=35,
-        )
+        }
+        if auth is not None:
+            payload["auth"] = dict(auth)
+        try:
+            return await self._request(self.remote_socket, payload, timeout=35)
+        finally:
+            nested = payload.get("auth")
+            if isinstance(nested, dict):
+                nested["header_value"] = ""
 
     async def list_tools(self, session_id: str) -> dict[str, Any]:
         return await self._request(
@@ -972,6 +1101,10 @@ class MCPHubService:
         self.contract_registry = contract_registry or HubContractRegistry()
         self.review_service: Any | None = None
         self.trusted_service: Any | None = None
+        self.remote_auth_broker: Any | None = None
+        self.credential_creator: Any | None = None
+        self.credential_lookup: Any | None = None
+        self.credential_revoker: Any | None = None
         self._sync_lock = asyncio.Lock()
         self._sync_tasks: dict[str, asyncio.Task[None]] = {}
         self._refresh_task: asyncio.Task[None] | None = None
@@ -984,6 +1117,19 @@ class MCPHubService:
 
     def set_trusted_service(self, service: Any) -> None:
         self.trusted_service = service
+
+    def set_remote_auth(
+        self,
+        broker: Any,
+        *,
+        credential_creator: Any,
+        credential_lookup: Any,
+        credential_revoker: Any,
+    ) -> None:
+        self.remote_auth_broker = broker
+        self.credential_creator = credential_creator
+        self.credential_lookup = credential_lookup
+        self.credential_revoker = credential_revoker
 
     def _require_enabled(self) -> None:
         if not hub_enabled():
@@ -1245,7 +1391,7 @@ class MCPHubService:
         remote = next((item for item in server["remotes"] if item["remote_id"] == clean_remote_id), None)
         if remote is None:
             raise HubError("Registry 远程端点不存在。", code="hub_remote_not_found", status_code=404)
-        if remote["eligibility"] != "eligible":
+        if remote["eligibility"] not in {"eligible", "static_token_candidate"}:
             raise HubError("该远程端点不满足第一轮准入条件。", code="hub_remote_ineligible", status_code=409)
         return self.store.create_candidate(
             tenant_id=self.tenant_id,
@@ -1266,6 +1412,15 @@ class MCPHubService:
     def _decorate_candidate(self, item: dict[str, Any]) -> dict[str, Any]:
         output = dict(item)
         output.pop("remote_url", None)
+        output.pop("auth_binding_id", None)
+        policy = dict(output.pop("auth_policy", {}) or {})
+        output["auth_required"] = bool(policy)
+        output["auth_mode"] = str(policy.get("mode") or "")
+        output["auth_header_name"] = str(policy.get("header_name") or "")
+        output["auth_slot"] = str(policy.get("slot") or "")
+        output["auth_policy_fingerprint"] = str(
+            policy.get("policy_fingerprint") or ""
+        )
         live = self._live.get(item["candidate_id"])
         output["connected"] = bool(
             live is not None and self._live_session_current(live)
@@ -1274,6 +1429,332 @@ class MCPHubService:
         output["activation_eligible"] = eligible
         output["activation_reason"] = reason
         return output
+
+    def _candidate_auth_policy(
+        self, candidate: dict[str, Any]
+    ) -> RemoteAuthPolicyV1 | None:
+        raw = candidate.get("auth_policy")
+        if not isinstance(raw, dict) or not raw:
+            return None
+        try:
+            return RemoteAuthPolicyV1.model_validate(raw)
+        except RemoteAuthError as exc:
+            raise HubError(
+                "Registry 认证策略不再满足固定边界。",
+                code=exc.code,
+                status_code=exc.status_code,
+            ) from None
+
+    def _require_remote_auth(self) -> Any:
+        if self.remote_auth_broker is None:
+            raise HubError(
+                "远程认证 Broker 尚未配置。",
+                code="mcp_remote_auth_disabled",
+                status_code=503,
+            )
+        return self.remote_auth_broker
+
+    @staticmethod
+    def _raise_remote_auth(exc: RemoteAuthError) -> None:
+        raise HubError(str(exc), code=exc.code, status_code=exc.status_code) from None
+
+    def candidate_auth(self, candidate_id: str) -> dict[str, Any]:
+        self._require_enabled()
+        candidate = self.store.require_candidate(
+            _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id"),
+            self.tenant_id,
+            self.owner_id,
+        )
+        policy = self._candidate_auth_policy(candidate)
+        if policy is None:
+            return {"required": False, "binding": None}
+        broker = self._require_remote_auth()
+        try:
+            binding = broker.binding_for_target(
+                target_type="hub_candidate",
+                target_id=candidate["candidate_id"],
+                current_policy=policy,
+            )
+        except RemoteAuthError as exc:
+            self._raise_remote_auth(exc)
+        summary: dict[str, Any] | None = None
+        if binding is not None:
+            credential = None
+            try:
+                credential = self.credential_lookup(
+                    binding.credential_id,
+                    tenant_id=self.tenant_id,
+                    owner_id=self.owner_id,
+                )
+            except Exception:
+                credential = None
+            summary = {
+                "binding_id": binding.binding_id,
+                "revision": binding.revision,
+                "status": binding.status,
+                "masked_value": str(getattr(credential, "masked_value", "")),
+                "display_name": str(getattr(credential, "name", "")),
+            }
+        return {
+            "required": True,
+            "mode": policy.mode,
+            "slot": policy.slot,
+            "header_name": policy.header_name,
+            "origin": policy.origin,
+            "policy_fingerprint": policy.policy_fingerprint,
+            "binding": summary,
+            "single_owner_warning": True,
+        }
+
+    def create_candidate_auth_binding(
+        self,
+        candidate_id: str,
+        *,
+        slot: str,
+        display_name: str,
+        secret: str,
+    ) -> dict[str, Any]:
+        candidate = self.store.require_candidate(
+            _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id"),
+            self.tenant_id,
+            self.owner_id,
+        )
+        policy = self._candidate_auth_policy(candidate)
+        if policy is None or slot != policy.slot:
+            raise HubError(
+                "候选不满足固定静态认证策略。",
+                code="mcp_remote_auth_policy_ineligible",
+                status_code=422,
+            )
+        broker = self._require_remote_auth()
+        if not all((self.credential_creator, self.credential_lookup, self.credential_revoker)):
+            raise HubError(
+                "远程认证凭据存储尚未配置。",
+                code="mcp_remote_auth_credential_unavailable",
+                status_code=503,
+            )
+        credential = None
+        try:
+            credential, _ = self.credential_creator(
+                name=display_name,
+                value=secret,
+                kind="header",
+                tenant_id=self.tenant_id,
+                owner_id=self.owner_id,
+            )
+            binding = broker.create_binding(
+                target_type="hub_candidate",
+                target_id=candidate["candidate_id"],
+                policy=policy,
+                credential_id=credential.credential_id,
+            )
+        except RemoteAuthError as exc:
+            if credential is not None:
+                try:
+                    self.credential_revoker(
+                        credential.credential_id,
+                        tenant_id=self.tenant_id,
+                        owner_id=self.owner_id,
+                    )
+                except Exception:
+                    pass
+            self._raise_remote_auth(exc)
+        except Exception:
+            if credential is not None:
+                try:
+                    self.credential_revoker(
+                        credential.credential_id,
+                        tenant_id=self.tenant_id,
+                        owner_id=self.owner_id,
+                    )
+                except Exception:
+                    pass
+            raise HubError(
+                "远程认证凭据当前不可写入。",
+                code="mcp_remote_auth_credential_unavailable",
+                status_code=503,
+            ) from None
+        self.store.set_candidate_auth_binding(
+            candidate["candidate_id"], self.tenant_id, self.owner_id, binding.binding_id
+        )
+        return self.candidate_auth(candidate["candidate_id"])
+
+    async def rotate_candidate_auth_binding(
+        self,
+        candidate_id: str,
+        binding_id: str,
+        *,
+        secret: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        clean = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
+        async with self._candidate_locks.setdefault(clean, asyncio.Lock()):
+            return await self._rotate_candidate_auth_binding_locked(
+                clean,
+                binding_id,
+                secret=secret,
+                expected_revision=expected_revision,
+            )
+
+    async def _rotate_candidate_auth_binding_locked(
+        self,
+        candidate_id: str,
+        binding_id: str,
+        *,
+        secret: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        candidate = self.store.require_candidate(
+            _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id"),
+            self.tenant_id,
+            self.owner_id,
+        )
+        clean_binding_id = str(binding_id or "").strip()
+        if clean_binding_id != candidate.get("auth_binding_id"):
+            raise HubError(
+                "远程认证绑定不存在。",
+                code="mcp_remote_auth_binding_missing",
+                status_code=404,
+            )
+        policy = self._candidate_auth_policy(candidate)
+        if policy is None:
+            raise HubError(
+                "候选不满足固定静态认证策略。",
+                code="mcp_remote_auth_policy_ineligible",
+                status_code=422,
+            )
+        broker = self._require_remote_auth()
+        new_credential = None
+        try:
+            current = broker.get_binding(
+                clean_binding_id,
+                current_policy=policy,
+                target_type="hub_candidate",
+                target_id=candidate["candidate_id"],
+            )
+            previous = self.credential_lookup(
+                current.credential_id,
+                tenant_id=self.tenant_id,
+                owner_id=self.owner_id,
+            )
+            new_credential, _ = self.credential_creator(
+                name=str(getattr(previous, "name", "Hub MCP Token")),
+                value=secret,
+                kind="header",
+                tenant_id=self.tenant_id,
+                owner_id=self.owner_id,
+            )
+            self.credential_revoker(
+                current.credential_id,
+                tenant_id=self.tenant_id,
+                owner_id=self.owner_id,
+            )
+            binding = broker.rotate_binding(
+                clean_binding_id,
+                current_policy=policy,
+                credential_id=new_credential.credential_id,
+                expected_revision=expected_revision,
+                target_type="hub_candidate",
+                target_id=candidate["candidate_id"],
+            )
+        except RemoteAuthError as exc:
+            if new_credential is not None:
+                try:
+                    self.credential_revoker(
+                        new_credential.credential_id,
+                        tenant_id=self.tenant_id,
+                        owner_id=self.owner_id,
+                    )
+                except Exception:
+                    pass
+            self._raise_remote_auth(exc)
+        except Exception:
+            if new_credential is not None:
+                try:
+                    self.credential_revoker(
+                        new_credential.credential_id,
+                        tenant_id=self.tenant_id,
+                        owner_id=self.owner_id,
+                    )
+                except Exception:
+                    pass
+            raise HubError(
+                "远程认证凭据当前不可轮换。",
+                code="mcp_remote_auth_credential_unavailable",
+                status_code=503,
+            ) from None
+        await self._disconnect_live(candidate["candidate_id"])
+        self.store.set_candidate_auth_binding(
+            candidate["candidate_id"], self.tenant_id, self.owner_id, binding.binding_id
+        )
+        return self.candidate_auth(candidate["candidate_id"])
+
+    async def revoke_candidate_auth_binding(
+        self, candidate_id: str, binding_id: str
+    ) -> None:
+        clean = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
+        async with self._candidate_locks.setdefault(clean, asyncio.Lock()):
+            await self._revoke_candidate_auth_binding_locked(clean, binding_id)
+
+    async def _revoke_candidate_auth_binding_locked(
+        self, candidate_id: str, binding_id: str
+    ) -> None:
+        candidate = self.store.require_candidate(
+            _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id"),
+            self.tenant_id,
+            self.owner_id,
+        )
+        clean_binding_id = str(binding_id or "").strip()
+        if clean_binding_id != candidate.get("auth_binding_id"):
+            raise HubError(
+                "远程认证绑定不存在。",
+                code="mcp_remote_auth_binding_missing",
+                status_code=404,
+            )
+        broker = self._require_remote_auth()
+        policy = self._candidate_auth_policy(candidate)
+        if policy is None:
+            raise HubError(
+                "候选不满足固定静态认证策略。",
+                code="mcp_remote_auth_policy_ineligible",
+                status_code=422,
+            )
+        await self._disconnect_live(candidate["candidate_id"])
+        try:
+            current = broker.binding_metadata_for_target(
+                clean_binding_id,
+                target_type="hub_candidate",
+                target_id=candidate["candidate_id"],
+            )
+            self.credential_revoker(
+                current.credential_id,
+                tenant_id=self.tenant_id,
+                owner_id=self.owner_id,
+            )
+            broker.revoke_binding(
+                clean_binding_id,
+                target_type="hub_candidate",
+                target_id=candidate["candidate_id"],
+            )
+        except RemoteAuthError as exc:
+            self._raise_remote_auth(exc)
+        except Exception:
+            raise HubError(
+                "远程认证凭据当前无法撤销。",
+                code="mcp_remote_auth_credential_unavailable",
+                status_code=503,
+            ) from None
+        self.store.set_candidate_auth_binding(
+            candidate["candidate_id"], self.tenant_id, self.owner_id, ""
+        )
+        try:
+            self.credential_revoker(
+                current.credential_id,
+                tenant_id=self.tenant_id,
+                owner_id=self.owner_id,
+            )
+        except Exception:
+            pass
 
     def _reviewed_contract(
         self, candidate: dict[str, Any]
@@ -1314,8 +1795,40 @@ class MCPHubService:
             or current_server.get("source_digest") != candidate.get("source_digest")
             or current_remote is None
             or current_remote.get("url") != identity[2]
+            or (current_remote.get("auth_policy") or {})
+            != (candidate.get("auth_policy") or {})
         ):
             return None, "hub_source_drift"
+        policy = self._candidate_auth_policy(candidate)
+        frozen_policy = normalized.get("remote_auth_policy")
+        if policy is None:
+            if frozen_policy is not None:
+                return None, "hub_reviewed_contract_drift"
+        else:
+            if not isinstance(frozen_policy, dict):
+                return None, "hub_contract_unreviewed"
+            try:
+                contract_policy = RemoteAuthPolicyV1.model_validate(frozen_policy)
+            except RemoteAuthError:
+                return None, "hub_reviewed_contract_drift"
+            if contract_policy != policy:
+                return None, "hub_reviewed_contract_drift"
+            binding_id = str(candidate.get("auth_binding_id") or "")
+            if not binding_id or self.remote_auth_broker is None:
+                return None, "mcp_remote_auth_binding_missing"
+            try:
+                binding = self.remote_auth_broker.get_binding(
+                    binding_id,
+                    current_policy=policy,
+                    target_type="hub_candidate",
+                    target_id=str(candidate.get("candidate_id") or ""),
+                )
+            except RemoteAuthError as exc:
+                return None, exc.code
+            if binding.target_type != "hub_candidate" or binding.target_id != candidate.get(
+                "candidate_id"
+            ):
+                return None, "mcp_remote_auth_scope_denied"
         frozen_source = str(normalized.get("source_digest") or "")
         if frozen_source and frozen_source != str(candidate.get("source_digest") or ""):
             return None, "hub_contract_source_drift"
@@ -1472,12 +1985,51 @@ class MCPHubService:
                 + ":"
                 + candidate["candidate_id"]
             )
-            response = await self.bridge.open(
-                candidate["candidate_id"],
-                candidate["remote_url"],
-                capability,
-                session_owner,
-            )
+            policy = self._candidate_auth_policy(candidate)
+            if policy is None:
+                response = await self.bridge.open(
+                    candidate["candidate_id"],
+                    candidate["remote_url"],
+                    capability,
+                    session_owner,
+                )
+            else:
+                binding_id = str(candidate.get("auth_binding_id") or "")
+                if not binding_id:
+                    raise HubError(
+                        "候选尚未绑定远程认证凭据。",
+                        code="mcp_remote_auth_binding_missing",
+                        status_code=409,
+                    )
+                broker = self._require_remote_auth()
+                try:
+                    with broker.resolve_for_execution(
+                        binding_id,
+                        current_policy=policy,
+                        target_type="hub_candidate",
+                        target_id=candidate["candidate_id"],
+                    ) as envelope:
+                        auth_payload = {
+                            "binding_id": envelope.binding_id,
+                            "binding_revision": envelope.binding_revision,
+                            "header_name": envelope.header_name,
+                            "header_value": envelope.header_value,
+                            "origin": envelope.origin,
+                            "policy_fingerprint": envelope.policy_fingerprint,
+                            "target_id": candidate["candidate_id"],
+                        }
+                        try:
+                            response = await self.bridge.open(
+                                candidate["candidate_id"],
+                                candidate["remote_url"],
+                                capability,
+                                session_owner,
+                                auth=auth_payload,
+                            )
+                        finally:
+                            auth_payload["header_value"] = ""
+                except RemoteAuthError as exc:
+                    self._raise_remote_auth(exc)
             tools, digest = self._validate_tools(response.get("tools"))
             expected = str(candidate.get("schema_digest") or "")
             if expected and digest != expected:
@@ -1607,9 +2159,43 @@ class MCPHubService:
     async def delete_candidate(self, candidate_id: str) -> None:
         self._require_enabled()
         clean = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
-        self.store.require_candidate(clean, self.tenant_id, self.owner_id)
         async with self._candidate_locks.setdefault(clean, asyncio.Lock()):
+            candidate = self.store.require_candidate(clean, self.tenant_id, self.owner_id)
+            binding_id = str(candidate.get("auth_binding_id") or "")
+            credential_id = ""
+            if binding_id:
+                broker = self._require_remote_auth()
+                try:
+                    binding = broker.binding_metadata_for_target(
+                        binding_id,
+                        target_type="hub_candidate",
+                        target_id=candidate["candidate_id"],
+                    )
+                    credential_id = binding.credential_id
+                except RemoteAuthError as exc:
+                    self._raise_remote_auth(exc)
             await self._disconnect_live(clean)
+            if credential_id:
+                try:
+                    self.credential_revoker(
+                        credential_id,
+                        tenant_id=self.tenant_id,
+                        owner_id=self.owner_id,
+                    )
+                except Exception:
+                    raise HubError(
+                        "远程认证凭据当前无法撤销，候选未删除。",
+                        code="mcp_remote_auth_credential_unavailable",
+                        status_code=503,
+                    ) from None
+                try:
+                    broker.revoke_binding(
+                        binding_id,
+                        target_type="hub_candidate",
+                        target_id=candidate["candidate_id"],
+                    )
+                except RemoteAuthError as exc:
+                    self._raise_remote_auth(exc)
             self.store.delete_candidate(clean, self.tenant_id, self.owner_id)
         self._candidate_locks.pop(clean, None)
 
@@ -1835,6 +2421,19 @@ class CandidateActivateRequest(BaseModel):
     expected_schema_digest: str = Field(min_length=64, max_length=64)
 
 
+class CandidateAuthBindingCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    slot: str = Field(min_length=1, max_length=80)
+    display_name: str = Field(min_length=1, max_length=160)
+    secret: SecretStr
+
+
+class CandidateAuthBindingRotateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    secret: SecretStr
+    expected_revision: int = Field(ge=1)
+
+
 router = APIRouter(tags=["mcp-hub"])
 _hub_service: MCPHubService | None = None
 
@@ -1925,6 +2524,66 @@ async def list_hub_candidates() -> dict[str, Any]:
 async def get_hub_candidate(candidate_id: str) -> dict[str, Any]:
     try:
         return _service().get_candidate(candidate_id)
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.get("/api/mcp/hub/candidates/{candidate_id}/auth")
+async def get_hub_candidate_auth(candidate_id: str) -> dict[str, Any]:
+    try:
+        return _service().candidate_auth(candidate_id)
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.post(
+    "/api/mcp/hub/candidates/{candidate_id}/auth-bindings",
+    status_code=201,
+)
+async def create_hub_candidate_auth_binding(
+    candidate_id: str, payload: CandidateAuthBindingCreateRequest
+) -> dict[str, Any]:
+    try:
+        return _service().create_candidate_auth_binding(
+            candidate_id,
+            slot=payload.slot,
+            display_name=payload.display_name,
+            secret=payload.secret.get_secret_value(),
+        )
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.post(
+    "/api/mcp/hub/candidates/{candidate_id}/auth-bindings/{binding_id}/rotate"
+)
+async def rotate_hub_candidate_auth_binding(
+    candidate_id: str,
+    binding_id: str,
+    payload: CandidateAuthBindingRotateRequest,
+) -> dict[str, Any]:
+    try:
+        return await _service().rotate_candidate_auth_binding(
+            candidate_id,
+            binding_id,
+            secret=payload.secret.get_secret_value(),
+            expected_revision=payload.expected_revision,
+        )
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.delete(
+    "/api/mcp/hub/candidates/{candidate_id}/auth-bindings/{binding_id}",
+    status_code=204,
+    response_class=Response,
+)
+async def revoke_hub_candidate_auth_binding(
+    candidate_id: str, binding_id: str
+) -> Response:
+    try:
+        await _service().revoke_candidate_auth_binding(candidate_id, binding_id)
+        return Response(status_code=204)
     except HubError as exc:
         _raise_http(exc)
 

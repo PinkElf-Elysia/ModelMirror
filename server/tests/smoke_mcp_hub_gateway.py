@@ -1,15 +1,18 @@
 """Fixed acceptance helper for the first MCP Hub remote bridge.
 
-This script is intentionally not a general MCP client. It contains one
-Registry-reviewed anonymous endpoint and only prints fixed contract evidence.
+This script is intentionally not a general MCP client. It contains fixed
+anonymous and static-token acceptance identities and only prints bounded
+contract evidence.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from server.mcp.hub import (
@@ -20,6 +23,15 @@ from server.mcp.hub import (
     arguments_digest,
     normalize_registry_entry,
 )
+from server.mcp.remote_auth import (
+    LocalSubjectScopeResolver,
+    MCPRemoteAuthBroker,
+    MCPRemoteAuthStore,
+)
+from server.toolsets.credentials import CredentialStore
+
+
+FIXTURE_BEARER_TOKEN = "modelmirror-static-token-fixture-only"
 
 
 QT_DOCS_ENTRY: dict[str, Any] = {
@@ -64,6 +76,34 @@ TIMEOUT_ENTRY: dict[str, Any] = {
     },
 }
 
+STATIC_TOKEN_ENTRY: dict[str, Any] = {
+    "server": {
+        "name": "io.modelmirror.acceptance/hub-static-token",
+        "version": "1.0.0",
+        "title": "ModelMirror Hub Static Token Acceptance",
+        "description": "Fixed controlled Bearer Token fixture.",
+        "remotes": [
+            {
+                "type": "streamable-http",
+                "url": "https://hub-timeout.modelmirror.test/mcp",
+                "headers": [
+                    {
+                        "name": "Authorization",
+                        "isRequired": True,
+                        "isSecret": True,
+                    }
+                ],
+            }
+        ],
+    },
+    "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+            "status": "active",
+            "isLatest": True,
+        }
+    },
+}
+
 
 class DisconnectAcceptanceBridge(HubSocketBridge):
     async def call(
@@ -81,7 +121,12 @@ class DisconnectAcceptanceBridge(HubSocketBridge):
 
 async def run(mode: str) -> None:
     store = MCPHubStore()
-    entry = TIMEOUT_ENTRY if mode == "timeout-call" else QT_DOCS_ENTRY
+    if mode == "static-token-call":
+        entry = STATIC_TOKEN_ENTRY
+    elif mode == "timeout-call":
+        entry = TIMEOUT_ENTRY
+    else:
+        entry = QT_DOCS_ENTRY
     store.replace_snapshot(
         "hub_sync_accept",
         [normalize_registry_entry(entry)],
@@ -89,14 +134,37 @@ async def run(mode: str) -> None:
     )
     service = MCPHubService(
         store,
-        tenant_id="acceptance",
-        owner_id="acceptance",
+        tenant_id="local" if mode == "static-token-call" else "acceptance",
+        owner_id="local" if mode == "static-token-call" else "acceptance",
         bridge=(
             DisconnectAcceptanceBridge()
             if mode == "disconnect-call"
             else None
         ),
     )
+    if mode == "static-token-call":
+        os.environ["MCP_REMOTE_AUTH_ENABLED"] = "true"
+        os.environ["MCP_REMOTE_STATIC_TOKEN_ENABLED"] = "true"
+        os.environ["MCP_REMOTE_AUTH_LOCAL_SINGLE_OWNER_ACK"] = "true"
+        storage_dir = Path(store.storage_dir)
+        vault = CredentialStore(
+            storage_dir / "acceptance-vault",
+            master_key="static-token-acceptance-master-key",
+            require_external_master_key=True,
+        )
+        broker = MCPRemoteAuthBroker(
+            MCPRemoteAuthStore(storage_dir / "acceptance-bindings"),
+            subject_resolver=LocalSubjectScopeResolver(),
+            credential_lookup=vault.get_public,
+            credential_resolver=vault.resolve,
+            credential_security_attestor=vault.remote_auth_master_key_attestation,
+        )
+        service.set_remote_auth(
+            broker,
+            credential_creator=vault.create,
+            credential_lookup=vault.get_public,
+            credential_revoker=vault.revoke,
+        )
     await service.start()
     try:
         server = service.get_server(entry["server"]["name"], entry["server"]["version"])
@@ -105,6 +173,16 @@ async def run(mode: str) -> None:
             server["version"],
             server["remotes"][0]["remote_id"],
         )
+        binding_id = ""
+        if mode == "static-token-call":
+            auth = service.create_candidate_auth_binding(
+                candidate["candidate_id"],
+                slot="registry-secret-header",
+                display_name="Controlled acceptance token",
+                secret=FIXTURE_BEARER_TOKEN,
+            )
+            binding_id = str(auth["binding"]["binding_id"])
+            print("auth_binding=ready")
         candidate = await service.preflight(candidate["candidate_id"])
         print("preflight_state=" + candidate["state"])
         print("origin=" + candidate["origin"])
@@ -113,7 +191,7 @@ async def run(mode: str) -> None:
         if mode == "preflight":
             return
 
-        if mode == "timeout-call":
+        if mode in {"timeout-call", "static-token-call"}:
             service.reviewed_contracts = {}
             service.reviewed_contracts[
                 (
@@ -127,15 +205,34 @@ async def run(mode: str) -> None:
                     item["name"]: item["schema_digest"]
                     for item in candidate["tools"]
                 },
+                **(
+                    {"remote_auth_policy": store.require_candidate(
+                        candidate["candidate_id"], service.tenant_id, service.owner_id
+                    )["auth_policy"]}
+                    if mode == "static-token-call"
+                    else {}
+                ),
             }
 
         candidate = await service.activate(
             candidate["candidate_id"], candidate["schema_digest"]
         )
-        expected_tool = "slow_read" if mode == "timeout-call" else "qt_documentation_search"
+        expected_tool = (
+            "token_read"
+            if mode == "static-token-call"
+            else "slow_read"
+            if mode == "timeout-call"
+            else "qt_documentation_search"
+        )
         runtime = next(item for item in service.runtime_tools() if item["upstream_tool_name"] == expected_tool)
         arguments: dict[str, Any] = {
-            "query": "fixed-timeout" if mode == "timeout-call" else "QTimer singleShot"
+            "query": (
+                "fixed-authenticated-read"
+                if mode == "static-token-call"
+                else "fixed-timeout"
+                if mode == "timeout-call"
+                else "QTimer singleShot"
+            )
         }
         approval = {
             "approval_id": str(uuid.uuid4()),
@@ -194,6 +291,12 @@ async def run(mode: str) -> None:
         print("approved_call=ok")
         print("result_items=" + str(len(result.get("content") or [])))
         print("retry_on_failure=false")
+        if mode == "static-token-call":
+            await service.revoke_candidate_auth_binding(
+                candidate["candidate_id"], binding_id
+            )
+            current = service.get_candidate(candidate["candidate_id"])
+            print("auth_revoke_disconnect=" + ("ok" if not current["connected"] else "failed"))
     finally:
         await service.close()
 
@@ -202,7 +305,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
-        choices=("preflight", "approved-call", "disconnect-call", "timeout-call"),
+        choices=(
+            "preflight",
+            "approved-call",
+            "disconnect-call",
+            "timeout-call",
+            "static-token-call",
+        ),
         default="preflight",
     )
     args = parser.parse_args()

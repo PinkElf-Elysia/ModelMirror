@@ -62,6 +62,12 @@ from server.sandbox_sidecar.browser_contracts import (
     browser_query_has_sensitive_key as sidecar_browser_query_has_sensitive_key,
 )
 from server.toolsets.credentials import CredentialStore
+from server.mcp.remote_auth import (
+    LocalSubjectScopeResolver,
+    MCPRemoteAuthBroker,
+    MCPRemoteAuthStore,
+    RemoteAuthError,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -85,6 +91,7 @@ class FakeManager:
         self.call_gates: dict[str, asyncio.Event] = {}
         self.connect_gate: asyncio.Event | None = None
         self.connect_started = asyncio.Event()
+        self.connect_error: Exception | None = None
         self.disconnect_gate: asyncio.Event | None = None
         self.disconnect_error: Exception | None = None
         self.disconnect_started = asyncio.Event()
@@ -96,6 +103,8 @@ class FakeManager:
         *,
         session_owner: str = "",
     ) -> str:
+        if self.connect_error is not None:
+            raise self.connect_error
         self.commands.append(list(command))
         session_id = f"session-{len(self.commands)}"
         self.sessions.add(session_id)
@@ -1002,6 +1011,45 @@ def test_wave_nine_compose_isolates_registry_from_wave_four_token_sidecar() -> N
     assert "terraform-mcp" not in token_block
     assert "mcp-registry:\n        condition: service_healthy" in source
     assert "MCP_REGISTRY_SOCKET_PATH: /run/modelmirror-registry-mcp/registry-mcp.sock" in source
+
+
+def test_server_joins_the_shared_mcp_sidecar_socket_group() -> None:
+    source = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    server_block = source[source.index("  server:\n") : source.index("  client:\n")]
+
+    assert 'group_add:\n      - "65532"' in server_block
+    assert 'MCP_FILE_RUNTIME_GID: "65532"' in server_block
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected_code"),
+    [
+        (
+            ExceptionGroup(
+                "sdk task group",
+                [PermissionError("/run/private/socket-secret")],
+            ),
+            "mcp_sidecar_socket_permission_denied",
+        ),
+        (
+            catalog.MCPTransportUnavailableError("mcp_transport_start_failed"),
+            "mcp_transport_start_failed",
+        ),
+    ],
+)
+def test_catalog_unwraps_transport_failures_without_leaking_details(
+    exc: Exception,
+    expected_code: str,
+) -> None:
+    with pytest.raises(HTTPException) as rejected:
+        catalog._raise_http_error(exc)
+
+    assert rejected.value.status_code == 503
+    assert rejected.value.detail["code"] == expected_code
+    assert "/run/private/socket-secret" not in json.dumps(
+        rejected.value.detail,
+        ensure_ascii=False,
+    )
 
 
 @pytest.mark.asyncio
@@ -2196,6 +2244,93 @@ async def test_wave_four_adapter_resolves_secret_only_for_private_proxy() -> Non
     assert adapter["configured"] is True
     assert adapter["credential_bindings"] == {"api_key": "cred_agentql"}
     assert adapter["credential_fields"][0]["label"] == "AgentQL API Key"
+
+
+@pytest.mark.asyncio
+async def test_tavily_catalog_path_lazily_binds_broker_and_revokes_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_AUTH_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_STATIC_TOKEN_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_AUTH_LOCAL_SINGLE_OWNER_ACK", "true")
+    vault = CredentialStore(
+        tmp_path / "vault",
+        master_key="test-external-master-key",
+        require_external_master_key=True,
+    )
+    broker = MCPRemoteAuthBroker(
+        MCPRemoteAuthStore(tmp_path / "bindings"),
+        subject_resolver=LocalSubjectScopeResolver(),
+        credential_lookup=vault.get_public,
+        credential_resolver=vault.resolve,
+        credential_security_attestor=vault.remote_auth_master_key_attestation,
+    )
+    manager = FakeManager()
+    service = MCPCatalogService(  # type: ignore[arg-type]
+        manager,
+        FakeInstaller(),
+        FakeRegistry(),
+        credential_validator=vault.get_public,
+        credential_resolver=vault.resolve,
+        credential_lister=vault.list,
+        credential_creator=vault.create,
+        credential_revoker=vault.revoke,
+        remote_auth_broker=broker,
+    )
+    created = service.create_credential(
+        "tavily-mcp",
+        CatalogCredentialCreateRequest(
+            slot="api_key",
+            name="Tavily test token",
+            value="tavily-test-secret",
+        ),
+    )
+    service.configure(
+        "tavily-mcp",
+        CatalogConfigurationRequest(
+            credential_bindings={"api_key": created["credential_id"]}
+        ),
+    )
+    policy = service._catalog_remote_auth_policy(CATALOG_ADAPTERS["tavily-mcp"])
+    assert policy is not None
+    assert policy.mode == "static_bearer"
+    assert policy.header_name == "Authorization"
+    binding = broker.binding_for_target(
+        target_type="catalog_project",
+        target_id="tavily-mcp",
+        current_policy=policy,
+    )
+    assert binding is not None
+    assert binding.credential_id == created["credential_id"]
+
+    connected = await service.connect("tavily-mcp")
+    encoded = manager.profiles[0]["environment"]["MCP_TOKEN_HANDSHAKE_B64"]
+    payload = json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
+    assert payload["credentials"] == {"api_key": "tavily-test-secret"}
+    assert "Bearer " not in payload["credentials"]["api_key"]
+
+    vault_revoke = service.credential_revoker
+
+    def reject_vault_revoke(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("simulated vault failure")
+
+    service.credential_revoker = reject_vault_revoke
+    with pytest.raises(RuntimeError, match="simulated vault failure"):
+        await service.revoke_credential("tavily-mcp", created["credential_id"])
+    assert manager.disconnected == [connected["session_id"]]
+    assert broker.get_binding(
+        binding.binding_id,
+        current_policy=policy,
+        target_type="catalog_project",
+        target_id="tavily-mcp",
+    ).status == "active"
+
+    service.credential_revoker = vault_revoke
+    await service.revoke_credential("tavily-mcp", created["credential_id"])
+    assert manager.disconnected == [connected["session_id"]]
+    with pytest.raises(RemoteAuthError) as missing:
+        broker.get_binding(binding.binding_id, current_policy=policy)
+    assert missing.value.code == "mcp_remote_auth_binding_missing"
 
 
 @pytest.mark.asyncio

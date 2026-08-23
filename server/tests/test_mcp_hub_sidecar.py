@@ -135,6 +135,94 @@ def test_preflight_errors_are_reduced_to_fixed_codes(
     assert hub_server._fixed_preflight_error(error) == expected
 
 
+def test_authenticated_401_and_403_have_fixed_non_retryable_codes() -> None:
+    request = httpx.Request("POST", "https://mcp.example.com/mcp")
+    assert hub_server._fixed_preflight_error(
+        httpx.HTTPStatusError(
+            "not used", request=request, response=httpx.Response(401)
+        ),
+        authenticated=True,
+    ) == "mcp_remote_auth_unauthorized"
+    assert hub_server._fixed_preflight_error(
+        httpx.HTTPStatusError(
+            "not used", request=request, response=httpx.Response(403)
+        ),
+        authenticated=True,
+    ) == "mcp_remote_auth_forbidden"
+
+
+@pytest.mark.asyncio
+async def test_remote_auth_envelope_is_scope_bound_and_cleared_on_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = hub_server.HubRemoteService()
+    observed: list[tuple[str, str] | None] = []
+    tools = [
+        {
+            "name": "search",
+            "description": "read",
+            "input_schema": {"type": "object"},
+        }
+    ]
+
+    async def exchange(*_args: Any, **kwargs: Any) -> Any:
+        observed.append(kwargs.get("auth_header"))
+        return tools, ({"content": []} if kwargs.get("tool_name") else None)
+
+    monkeypatch.setattr(service, "_exchange", exchange)
+    candidate_id = "mcphub_" + "1" * 32
+    envelope = {
+        "binding_id": "mcpra_" + "2" * 32,
+        "binding_revision": 3,
+        "header_name": "Authorization",
+        "header_value": "Bearer sidecar-test-secret",
+        "origin": "https://mcp.example.com",
+        "policy_fingerprint": "3" * 64,
+        "target_id": candidate_id,
+    }
+    opened = await service.open(
+        candidate_id,
+        "https://mcp.example.com/mcp",
+        "a" * 64,
+        f"hub:local:local:{candidate_id}",
+        envelope,
+    )
+    session = service.sessions[opened["session_id"]]
+    assert observed == [("Authorization", "Bearer sidecar-test-secret")]
+    assert "sidecar-test-secret" not in repr(session)
+    await service.call(opened["session_id"], "search", {})
+    assert observed[-1] == ("Authorization", "Bearer sidecar-test-secret")
+    await service.close(opened["session_id"])
+    assert session.auth_header_value == ""
+
+    crossed = dict(envelope, target_id="mcphub_" + "4" * 32)
+    with pytest.raises(hub_server.HubSidecarError) as denied:
+        await service.open(
+            candidate_id,
+            "https://mcp.example.com/mcp",
+            "a" * 64,
+            f"hub:local:local:{candidate_id}",
+            crossed,
+        )
+    assert denied.value.code == "mcp_remote_auth_scope_denied"
+
+    for denied_header in (
+        "User-Agent",
+        "MCP-Protocol-Version",
+        "X-Forwarded-Host",
+        "X-Original-URL",
+    ):
+        with pytest.raises(hub_server.HubSidecarError) as denied_control:
+            await service.open(
+                candidate_id,
+                "https://mcp.example.com/mcp",
+                "a" * 64,
+                f"hub:local:local:{candidate_id}",
+                dict(envelope, header_name=denied_header),
+            )
+        assert denied_control.value.code == "mcp_remote_auth_policy_ineligible"
+
+
 @pytest.mark.asyncio
 async def test_sidecar_rejects_tool_names_outside_the_mcp_contract() -> None:
     class Client:
@@ -176,7 +264,7 @@ async def test_remote_open_preserves_final_fixed_preflight_error(
             "hub:local:owner:mcphub_" + "1" * 32,
         )
 
-    assert attempts == 2
+    assert attempts == 1
     assert captured.value.code == "hub_non_tool_capability_denied"
 
 
@@ -239,6 +327,11 @@ def test_compose_keeps_remote_offline_and_legacy_entry_disabled_by_default() -> 
     assert "mcp-hub-egress:" in compose
     assert "MCP_HUB_ENABLED: ${MCP_HUB_ENABLED:-false}" in compose
     assert "MCP_HUB_REMOTE_ENABLED: ${MCP_HUB_REMOTE_ENABLED:-false}" in compose
+    assert "MCP_REMOTE_AUTH_ENABLED: ${MCP_REMOTE_AUTH_ENABLED:-false}" in compose
+    assert (
+        "MCP_REMOTE_STATIC_TOKEN_ENABLED: "
+        "${MCP_REMOTE_STATIC_TOKEN_ENABLED:-false}"
+    ) in compose
     assert (
         "MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED: "
         "${MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED:-false}"
@@ -281,9 +374,13 @@ def test_hub_timeout_fixture_and_smoke_are_fixed_and_bounded() -> None:
 
     assert '"https://hub-timeout.modelmirror.test/mcp"' in smoke
     assert '"timeout-call"' in smoke
+    assert '"static-token-call"' in smoke
+    assert "auth_revoke_disconnect=" in smoke
     assert "18 <= elapsed <= 28" in smoke
     assert "FIXTURE_DELAY_SECONDS = 25" in fixture
     assert "stateless=True" in fixture
     assert "StreamableHTTPSessionManager" in fixture
     assert "types.ServerCapabilities(" in fixture
     assert 'Route("/mcp"' in fixture
+    assert 'parser.add_argument("--require-bearer", action="store_true")' in fixture
+    assert "headers.get(b\"authorization\") != expected" in fixture

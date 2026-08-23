@@ -7,15 +7,20 @@ import hmac
 import json
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .remote_auth import RemoteAuthPolicyV1
 
 
 SOP_VERSION = "anonymous_https_tools_v1"
 CONTRACT_SCHEMA_VERSION = "hub-reviewed-contract-v1"
 SNAPSHOT_SCHEMA_VERSION = "hub-candidate-snapshot-v1"
 EVIDENCE_SCHEMA_VERSION = "hub-evidence-bundle-v1"
+STATIC_TOKEN_SOP_VERSION = "static_token_https_tools_v1"
+CONTRACT_SCHEMA_VERSION_V2 = "hub-reviewed-contract-v2"
+EVIDENCE_SCHEMA_VERSION_V2 = "hub-evidence-bundle-v2"
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 CONTRACT_ID_RE = re.compile(r"^hubct_[0-9a-f]{32}$")
 
@@ -91,6 +96,17 @@ class HubEvidenceBundleV1(BaseModel):
         return canonical_digest(self.model_dump(mode="json"))
 
 
+class HubEvidenceBundleV2(HubEvidenceBundleV1):
+    """Secret-free evidence for the static-token SOP."""
+
+    schema_version: Literal[EVIDENCE_SCHEMA_VERSION_V2] = EVIDENCE_SCHEMA_VERSION_V2
+    sop_version: Literal[STATIC_TOKEN_SOP_VERSION] = STATIC_TOKEN_SOP_VERSION
+    auth_mode: Literal["static_bearer", "static_header"]
+    header_name: str = Field(min_length=1, max_length=64)
+    auth_policy_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    credential_revision_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class HubReviewedContractV1(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -140,10 +156,20 @@ class HubReviewedContractV1(BaseModel):
         return self.server_name, self.version, self.remote_url
 
 
-def contract_execution_fields(contract: HubReviewedContractV1 | dict[str, Any]) -> dict[str, Any]:
+class HubReviewedContractV2(HubReviewedContractV1):
+    schema_version: Literal[CONTRACT_SCHEMA_VERSION_V2] = CONTRACT_SCHEMA_VERSION_V2
+    sop_version: Literal[STATIC_TOKEN_SOP_VERSION] = STATIC_TOKEN_SOP_VERSION
+    remote_auth_policy: RemoteAuthPolicyV1
+
+
+HubReviewedContract: TypeAlias = HubReviewedContractV1 | HubReviewedContractV2
+HubEvidenceBundle: TypeAlias = HubEvidenceBundleV1 | HubEvidenceBundleV2
+
+
+def contract_execution_fields(contract: HubReviewedContract | dict[str, Any]) -> dict[str, Any]:
     payload = (
         contract.model_dump(mode="json")
-        if isinstance(contract, HubReviewedContractV1)
+        if isinstance(contract, (HubReviewedContractV1, HubReviewedContractV2))
         else dict(contract)
     )
     payload.pop("contract_fingerprint", None)
@@ -156,19 +182,21 @@ def contract_execution_fields(contract: HubReviewedContractV1 | dict[str, Any]) 
     return payload
 
 
-def contract_fingerprint(contract: HubReviewedContractV1 | dict[str, Any]) -> str:
+def contract_fingerprint(contract: HubReviewedContract | dict[str, Any]) -> str:
     return canonical_digest(contract_execution_fields(contract))
 
 
-def normalize_contract(payload: dict[str, Any]) -> HubReviewedContractV1:
+def normalize_contract(payload: dict[str, Any]) -> HubReviewedContract:
+    if payload.get("schema_version") == CONTRACT_SCHEMA_VERSION_V2:
+        return HubReviewedContractV2.model_validate(payload)
     return HubReviewedContractV1.model_validate(payload)
 
 
-def contract_export(contract: HubReviewedContractV1) -> bytes:
+def contract_export(contract: HubReviewedContract) -> bytes:
     return canonical_json_bytes(contract.model_dump(mode="json")) + b"\n"
 
 
-def contract_signature(contract: HubReviewedContractV1, signing_key: str) -> str:
+def contract_signature(contract: HubReviewedContract, signing_key: str) -> str:
     key = str(signing_key or "").encode("utf-8")
     return hmac.new(key, contract_export(contract).rstrip(b"\n"), hashlib.sha256).hexdigest()
 
@@ -195,8 +223,8 @@ class HubContractRegistry:
         self.signing_key = str(signing_key or "")
         self.repository_dir = Path(repository_dir or Path(__file__).with_name("hub_contracts"))
 
-    def _repository_contracts(self) -> list[HubReviewedContractV1]:
-        contracts: list[HubReviewedContractV1] = []
+    def _repository_contracts(self) -> list[HubReviewedContract]:
+        contracts: list[HubReviewedContract] = []
         if not self.repository_dir.exists():
             return contracts
         for path in sorted(self.repository_dir.glob("*.json")):
@@ -206,10 +234,10 @@ class HubContractRegistry:
             contracts.append(normalize_contract(raw))
         return contracts
 
-    def _local_contracts(self) -> list[HubReviewedContractV1]:
+    def _local_contracts(self) -> list[HubReviewedContract]:
         if self.local_store is None or not self.signing_key:
             return []
-        contracts: list[HubReviewedContractV1] = []
+        contracts: list[HubReviewedContract] = []
         for row in self.local_store.list_local_contract_revisions(
             self.tenant_id, self.owner_id
         ):
@@ -224,10 +252,10 @@ class HubContractRegistry:
             contracts.append(contract)
         return contracts
 
-    def all(self) -> tuple[list[HubReviewedContractV1], set[tuple[str, str, str]]]:
+    def all(self) -> tuple[list[HubReviewedContract], set[tuple[str, str, str]]]:
         repository = self._repository_contracts()
         local = self._local_contracts()
-        by_identity: dict[tuple[str, str, str], HubReviewedContractV1] = {}
+        by_identity: dict[tuple[str, str, str], HubReviewedContract] = {}
         collisions: set[tuple[str, str, str]] = set()
         for contract in [*repository, *local]:
             current = by_identity.get(contract.identity)
@@ -239,7 +267,7 @@ class HubContractRegistry:
 
     def lookup_identity(
         self, server_name: str, version: str, remote_url: str
-    ) -> tuple[HubReviewedContractV1 | None, str]:
+    ) -> tuple[HubReviewedContract | None, str]:
         identity = (server_name, version, remote_url)
         contracts, collisions = self.all()
         if identity in collisions:
@@ -253,7 +281,7 @@ class HubContractRegistry:
             return None, "hub_contract_revoked"
         return contract, ""
 
-    def get_contract(self, contract_id: str) -> tuple[HubReviewedContractV1 | None, str]:
+    def get_contract(self, contract_id: str) -> tuple[HubReviewedContract | None, str]:
         contracts, collisions = self.all()
         matches = [item for item in contracts if item.contract_id == contract_id]
         if any(item.identity in collisions for item in matches):

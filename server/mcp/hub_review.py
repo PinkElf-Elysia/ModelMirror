@@ -30,16 +30,21 @@ from .hub import (
 )
 from .hub_contracts import (
     SOP_VERSION,
+    STATIC_TOKEN_SOP_VERSION,
     HubCandidateSnapshotV1,
     HubContractRegistry,
+    HubEvidenceBundle,
     HubEvidenceBundleV1,
+    HubEvidenceBundleV2,
     HubReviewedContractV1,
+    HubReviewedContractV2,
     canonical_json_bytes,
     contract_export,
     contract_signature,
     normalize_contract,
     stable_contract_id,
 )
+from .remote_auth import RemoteAuthError, RemoteAuthPolicyV1
 
 
 MAX_REVIEW_ITEMS = 20
@@ -72,6 +77,12 @@ SOP_STAGES: tuple[tuple[str, bool], ...] = (
     ("contract_publish", False),
 )
 SAFE_TO_RETRY = dict(SOP_STAGES)
+
+
+def _normalize_evidence(value: dict[str, Any]) -> HubEvidenceBundle:
+    if value.get("sop_version") == STATIC_TOKEN_SOP_VERSION:
+        return HubEvidenceBundleV2.model_validate(value)
+    return HubEvidenceBundleV1.model_validate(value)
 
 
 def review_factory_enabled() -> bool:
@@ -872,6 +883,7 @@ class MCPHubReviewService:
             "local_publish_enabled": local_contract_publish_enabled(),
             "signing_key_configured": bool(self.signing_key),
             "sop_version": SOP_VERSION,
+            "sop_versions": [SOP_VERSION, STATIC_TOKEN_SOP_VERSION],
             "stages": [
                 {"name": stage, "safe_to_retry": safe} for stage, safe in SOP_STAGES
             ],
@@ -945,7 +957,10 @@ class MCPHubReviewService:
                 ),
                 None,
             )
-            if remote is None or remote.get("eligibility") != "eligible":
+            if remote is None or remote.get("eligibility") not in {
+                "eligible",
+                "static_token_candidate",
+            }:
                 raise HubError(
                     "复核项必须来自当前 Registry 的可试连端点。",
                     code="hub_review_remote_ineligible",
@@ -1028,6 +1043,7 @@ class MCPHubReviewService:
         item = self.store.require_item(run_id, item_id, self.tenant_id, self.owner_id)
         self.store.set_item(item_id, state="running", error_code="")
         snapshot: HubCandidateSnapshotV1 | None = None
+        binding_revision_digest = ""
         try:
             server = self.hub.get_server(item["server_name"], item["version"])
             remote = next(
@@ -1049,13 +1065,47 @@ class MCPHubReviewService:
             )
             self.store.set_item(item_id, snapshot=snapshot.model_dump(mode="json"))
             self._event(run_id, item_id, "snapshot", payload={"snapshot_digest": snapshot.snapshot_digest})
-            if server["status"] not in {"active", "published"} or remote["eligibility"] != "eligible":
+            if server["status"] not in {"active", "published"} or remote[
+                "eligibility"
+            ] not in {"eligible", "static_token_candidate"}:
                 raise HubError("候选不满足静态准入。", code="hub_review_static_policy_denied", status_code=409)
-            self._event(run_id, item_id, "static_policy", payload={"eligibility": "eligible"})
+            self._event(
+                run_id,
+                item_id,
+                "static_policy",
+                payload={"eligibility": remote["eligibility"]},
+            )
             candidate = self.hub.create_candidate(
                 snapshot.server_name, snapshot.version, snapshot.remote_id
             )
             self.store.set_item(item_id, candidate_id=candidate["candidate_id"])
+            auth_policy = self.hub._candidate_auth_policy(candidate)
+            if auth_policy is not None:
+                binding_id = str(candidate.get("auth_binding_id") or "")
+                if not binding_id or self.hub.remote_auth_broker is None:
+                    raise HubError(
+                        "静态 Token 候选必须先绑定凭据。",
+                        code="mcp_remote_auth_binding_missing",
+                        status_code=409,
+                    )
+                try:
+                    binding = self.hub.remote_auth_broker.get_binding(
+                        binding_id,
+                        current_policy=auth_policy,
+                        target_type="hub_candidate",
+                        target_id=candidate["candidate_id"],
+                    )
+                except RemoteAuthError as exc:
+                    raise HubError(
+                        str(exc), code=exc.code, status_code=exc.status_code
+                    ) from None
+                binding_revision_digest = stable_digest(
+                    {
+                        "binding_id": binding.binding_id,
+                        "revision": binding.revision,
+                        "policy_fingerprint": binding.policy_fingerprint,
+                    }
+                )
             self._event(run_id, item_id, "network_preflight", "started")
             try:
                 candidate = await self.hub.preflight(candidate["candidate_id"])
@@ -1121,16 +1171,30 @@ class MCPHubReviewService:
                     "implementation_version": "v1",
                     "error_code": "manual_call_unavailable",
                 }
-            evidence = HubEvidenceBundleV1(
-                snapshot=snapshot,
-                stages=stage_evidence,
-                capabilities=capabilities,
-                schema_digest=str(candidate["schema_digest"]),
-                tool_schema_digests=tool_digests,
-                effect_proposals=effects,
-                representative_call={},
-                cleanup={"temporary_session_closed": True, "capability_revoked": True},
-            )
+            evidence_fields: dict[str, Any] = {
+                "snapshot": snapshot,
+                "stages": stage_evidence,
+                "capabilities": capabilities,
+                "schema_digest": str(candidate["schema_digest"]),
+                "tool_schema_digests": tool_digests,
+                "effect_proposals": effects,
+                "representative_call": {},
+                "cleanup": {
+                    "temporary_session_closed": True,
+                    "capability_revoked": True,
+                },
+            }
+            evidence: HubEvidenceBundle
+            if auth_policy is None:
+                evidence = HubEvidenceBundleV1(**evidence_fields)
+            else:
+                evidence = HubEvidenceBundleV2(
+                    **evidence_fields,
+                    auth_mode=auth_policy.mode,
+                    header_name=auth_policy.header_name,
+                    auth_policy_fingerprint=auth_policy.policy_fingerprint,
+                    credential_revision_digest=binding_revision_digest,
+                )
             self.store.set_item(
                 item_id,
                 state="evidence_ready",
@@ -1162,9 +1226,9 @@ class MCPHubReviewService:
             if self._cancel_item_if_requested(run_id, item_id):
                 return
             if snapshot is not None:
-                failed_evidence = HubEvidenceBundleV1(
-                    snapshot=snapshot,
-                    stages={
+                failed_fields: dict[str, Any] = {
+                    "snapshot": snapshot,
+                    "stages": {
                         str(
                             self.store.require_item(
                                 run_id,
@@ -1179,17 +1243,38 @@ class MCPHubReviewService:
                             "error_code": exc.code,
                         }
                     },
-                    capabilities={},
-                    schema_digest="",
-                    tool_schema_digests={},
-                    effect_proposals={},
-                    representative_call={},
-                    cleanup={
+                    "capabilities": {},
+                    "schema_digest": "",
+                    "tool_schema_digests": {},
+                    "effect_proposals": {},
+                    "representative_call": {},
+                    "cleanup": {
                         "temporary_session_closed": True,
                         "capability_revoked": True,
                     },
-                    fixed_errors=[exc.code],
+                    "fixed_errors": [exc.code],
+                }
+                failed_policy = (
+                    RemoteAuthPolicyV1.model_validate(remote.get("auth_policy"))
+                    if isinstance(remote.get("auth_policy"), dict)
+                    and remote.get("auth_policy")
+                    else None
                 )
+                if failed_policy is None:
+                    failed_evidence: HubEvidenceBundle = HubEvidenceBundleV1(
+                        **failed_fields
+                    )
+                else:
+                    failed_evidence = HubEvidenceBundleV2(
+                        **failed_fields,
+                        auth_mode=failed_policy.mode,
+                        header_name=failed_policy.header_name,
+                        auth_policy_fingerprint=failed_policy.policy_fingerprint,
+                        credential_revision_digest=(
+                            binding_revision_digest
+                            or stable_digest({"binding_revision": "unavailable"})
+                        ),
+                    )
                 self.store.set_item(
                     item_id,
                     state="blocked",
@@ -1228,6 +1313,52 @@ class MCPHubReviewService:
                 schema_digest=str(tool.get("schema_digest") or ""),
             )
         return None
+
+    def _require_evidence_auth_current(
+        self,
+        item: dict[str, Any],
+        evidence: HubEvidenceBundle,
+    ) -> None:
+        if not isinstance(evidence, HubEvidenceBundleV2):
+            return
+        candidate = self.hub.store.require_candidate(
+            str(item.get("candidate_id") or ""),
+            self.tenant_id,
+            self.owner_id,
+        )
+        policy = self.hub._candidate_auth_policy(candidate)
+        binding_id = str(candidate.get("auth_binding_id") or "")
+        if policy is None or not binding_id or self.hub.remote_auth_broker is None:
+            raise HubError(
+                "静态 Token 复核凭据已失效。",
+                code="mcp_remote_auth_binding_missing",
+                status_code=409,
+            )
+        try:
+            binding = self.hub.remote_auth_broker.get_binding(
+                binding_id,
+                current_policy=policy,
+                target_type="hub_candidate",
+                target_id=candidate["candidate_id"],
+            )
+        except RemoteAuthError as exc:
+            raise HubError(str(exc), code=exc.code, status_code=exc.status_code) from None
+        current_digest = stable_digest(
+            {
+                "binding_id": binding.binding_id,
+                "revision": binding.revision,
+                "policy_fingerprint": binding.policy_fingerprint,
+            }
+        )
+        if (
+            policy.policy_fingerprint != evidence.auth_policy_fingerprint
+            or current_digest != evidence.credential_revision_digest
+        ):
+            raise HubError(
+                "静态 Token 绑定 revision 已变化，需要重新复核。",
+                code="mcp_remote_auth_binding_stale",
+                status_code=409,
+            )
 
     def generate_proposal(self, run_id: str, item_id: str) -> dict[str, Any]:
         self._require_enabled()
@@ -1268,9 +1399,10 @@ class MCPHubReviewService:
             if proposal["state"] != "proposed":
                 raise HubError("代表调用批准不可重放。", code="hub_review_call_replay", status_code=409)
             candidate_id = str(item.get("candidate_id") or "")
+            evidence = _normalize_evidence(item["evidence"])
+            self._require_evidence_auth_current(item, evidence)
             candidate = await self.hub.preflight(candidate_id)
             self._require_run_not_cancelled(run_id, item_id)
-            evidence = HubEvidenceBundleV1.model_validate(item["evidence"])
             current_tool_digests = {
                 str(tool["name"]): str(tool["schema_digest"])
                 for tool in candidate.get("tools") or []
@@ -1349,7 +1481,7 @@ class MCPHubReviewService:
                         "temporary_session_closed": True,
                         "capability_revoked": True,
                     }
-                    updated_evidence = HubEvidenceBundleV1.model_validate(evidence_payload)
+                    updated_evidence = _normalize_evidence(evidence_payload)
                     next_state = "blocked" if assertions["remote_reported_error"] else "awaiting_decision"
                     next_error = "hub_review_representative_call_error" if assertions["remote_reported_error"] else ""
                     self.store.set_item(
@@ -1427,7 +1559,8 @@ class MCPHubReviewService:
             raise HubError("复核项当前不可批准。", code="hub_review_state_conflict", status_code=409)
         if item["evidence_digest"] != expected_evidence_digest:
             raise HubError("复核证据摘要已变化。", code="hub_review_evidence_digest", status_code=409)
-        evidence = HubEvidenceBundleV1.model_validate(item["evidence"])
+        evidence = _normalize_evidence(item["evidence"])
+        self._require_evidence_auth_current(item, evidence)
         unique_tools = list(dict.fromkeys(str(name) for name in allowed_tools))
         if (
             not unique_tools
@@ -1446,39 +1579,70 @@ class MCPHubReviewService:
             evidence.snapshot.remote_url,
         )
         if existing is not None and not reason:
+            expected_policy = (
+                self.hub._candidate_auth_policy(
+                    self.hub.store.require_candidate(
+                        str(item.get("candidate_id") or ""),
+                        self.tenant_id,
+                        self.owner_id,
+                    )
+                )
+                if isinstance(evidence, HubEvidenceBundleV2)
+                else None
+            )
             if (
                 existing.schema_digest != evidence.schema_digest
                 or existing.tool_schema_digests != evidence.tool_schema_digests
                 or set(existing.allowed_tools) != set(unique_tools)
                 or existing.tool_effects != tool_effects
+                or getattr(existing, "remote_auth_policy", None) != expected_policy
             ):
                 raise HubError("同一身份的仓库契约不一致。", code="hub_contract_collision", status_code=409)
             contract = existing
         else:
-            contract = HubReviewedContractV1(
-                contract_id=stable_contract_id(
+            contract_fields: dict[str, Any] = {
+                "contract_id": stable_contract_id(
                     evidence.snapshot.server_name,
                     evidence.snapshot.version,
                     evidence.snapshot.remote_url,
                 ),
-                server_name=evidence.snapshot.server_name,
-                version=evidence.snapshot.version,
-                remote_url=evidence.snapshot.remote_url,
-                origin=evidence.snapshot.origin,
-                source_digest=evidence.snapshot.source_digest,
-                schema_digest=evidence.schema_digest,
-                tool_schema_digests=evidence.tool_schema_digests,
-                allowed_tools=sorted(unique_tools),
-                tool_effects={name: "read" for name in sorted(unique_tools)},
-                limits={
+                "server_name": evidence.snapshot.server_name,
+                "version": evidence.snapshot.version,
+                "remote_url": evidence.snapshot.remote_url,
+                "origin": evidence.snapshot.origin,
+                "source_digest": evidence.snapshot.source_digest,
+                "schema_digest": evidence.schema_digest,
+                "tool_schema_digests": evidence.tool_schema_digests,
+                "allowed_tools": sorted(unique_tools),
+                "tool_effects": {name: "read" for name in sorted(unique_tools)},
+                "limits": {
                     "max_arguments_bytes": 32 * 1024,
                     "max_result_bytes": MAX_RESULT_BYTES,
                     "call_timeout_seconds": int(CALL_TIMEOUT_SECONDS),
                     "max_concurrency": 1,
                 },
-                evidence_digest=evidence.evidence_digest,
-                published_at=0.0,
-            )
+                "evidence_digest": evidence.evidence_digest,
+                "published_at": 0.0,
+            }
+            if isinstance(evidence, HubEvidenceBundleV2):
+                candidate = self.hub.store.require_candidate(
+                    str(item.get("candidate_id") or ""),
+                    self.tenant_id,
+                    self.owner_id,
+                )
+                policy = self.hub._candidate_auth_policy(candidate)
+                if policy is None or policy.policy_fingerprint != evidence.auth_policy_fingerprint:
+                    raise HubError(
+                        "远程认证策略已漂移。",
+                        code="mcp_remote_auth_binding_stale",
+                        status_code=409,
+                    )
+                contract = HubReviewedContractV2(
+                    **contract_fields,
+                    remote_auth_policy=policy,
+                )
+            else:
+                contract = HubReviewedContractV1(**contract_fields)
         self.store.set_item(
             item_id,
             state="approved",
@@ -1505,6 +1669,10 @@ class MCPHubReviewService:
         item = self.store.require_item(run_id, item_id, self.tenant_id, self.owner_id)
         if item["state"] not in {"approved", "published"} or item["contract_fingerprint"] != expected_fingerprint:
             raise HubError("契约指纹无效或复核项未批准。", code="hub_contract_fingerprint_mismatch", status_code=409)
+        self._require_evidence_auth_current(
+            item,
+            _normalize_evidence(item["evidence"]),
+        )
         contract = normalize_contract(item["draft_contract"])
         signature = contract_signature(contract, self.signing_key)
         revision = self.store.add_local_contract_revision(
@@ -1765,6 +1933,50 @@ class MCPHubReviewService:
             publisher_counts[publisher] = publisher_counts.get(publisher, 0) + 1
             selected.append(identity)
             if len(selected) >= limit:
+                break
+        return selected
+
+    def reproducible_static_token_selection(
+        self,
+        limit: int = 1,
+        seed: str = "mcp-static-token-r1",
+    ) -> list[dict[str, str]]:
+        items, _ = self.hub.store.list_servers(limit=50_000, offset=0)
+        ranked: list[tuple[str, dict[str, str], str, str]] = []
+        for server in items:
+            if not server.get("is_latest") or server.get("status") not in {
+                "active",
+                "published",
+            }:
+                continue
+            for remote in server.get("remotes") or []:
+                if remote.get("eligibility") != "static_token_candidate":
+                    continue
+                identity = {
+                    "server_name": server["server_name"],
+                    "version": server["version"],
+                    "remote_id": remote["remote_id"],
+                }
+                publisher = str(server.get("publisher") or "").strip()
+                publisher_key = publisher or str(server["server_name"]).split("/", 1)[0]
+                rank = stable_digest(
+                    {
+                        "seed": seed,
+                        "source_digest": server["source_digest"],
+                        **identity,
+                    }
+                )
+                ranked.append((rank, identity, publisher_key, remote["origin"]))
+        selected: list[dict[str, str]] = []
+        publishers: set[str] = set()
+        origins: set[str] = set()
+        for _rank, identity, publisher, origin in sorted(ranked):
+            if publisher in publishers or origin in origins:
+                continue
+            publishers.add(publisher)
+            origins.add(origin)
+            selected.append(identity)
+            if len(selected) >= max(0, min(int(limit), MAX_REVIEW_ITEMS)):
                 break
         return selected
 

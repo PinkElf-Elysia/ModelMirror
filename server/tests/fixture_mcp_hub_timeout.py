@@ -25,6 +25,7 @@ from starlette.routing import Route
 
 FIXTURE_HOST = "hub-timeout.modelmirror.test"
 FIXTURE_DELAY_SECONDS = 25
+FIXTURE_BEARER_TOKEN = "modelmirror-static-token-fixture-only"
 
 
 server = Server("modelmirror-mcp-hub-timeout-fixture")
@@ -56,16 +57,27 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["query"],
                 "additionalProperties": False,
             },
-        )
+        ),
+        types.Tool(
+            name="token_read",
+            description="Return a fixed read result after Bearer authentication.",
+            inputSchema={
+                "type": "object",
+                "properties": {"query": {"type": "string", "maxLength": 64}},
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        ),
     ]
 
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
-    if name != "slow_read" or set(arguments) != {"query"}:
+    if name not in {"slow_read", "token_read"} or set(arguments) != {"query"}:
         raise ValueError("fixed_fixture_tool_contract_denied")
-    await asyncio.sleep(FIXTURE_DELAY_SECONDS)
-    return [types.TextContent(type="text", text="completed")]
+    if name == "slow_read":
+        await asyncio.sleep(FIXTURE_DELAY_SECONDS)
+    return [types.TextContent(type="text", text="authenticated-read-completed")]
 
 
 session_manager = StreamableHTTPSessionManager(
@@ -92,13 +104,38 @@ app = Starlette(
 )
 
 
+class FixedBearerFixture:
+    def __init__(self, wrapped: Any) -> None:
+        self.wrapped = wrapped
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") == "http":
+            headers = {
+                bytes(name).lower(): bytes(value)
+                for name, value in scope.get("headers", [])
+            }
+            expected = f"Bearer {FIXTURE_BEARER_TOKEN}".encode("ascii")
+            if headers.get(b"authorization") != expected:
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 401,
+                        "headers": [(b"content-length", b"0")],
+                    }
+                )
+                await send({"type": "http.response.body", "body": b""})
+                return
+        await self.wrapped(scope, receive, send)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cert", required=True)
     parser.add_argument("--key", required=True)
+    parser.add_argument("--require-bearer", action="store_true")
     args = parser.parse_args()
     uvicorn.run(
-        app,
+        FixedBearerFixture(app) if args.require_bearer else app,
         host="0.0.0.0",
         port=443,
         ssl_certfile=args.cert,

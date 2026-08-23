@@ -26,6 +26,12 @@ from server.mcp.hub import (
     router,
     stable_digest,
 )
+from server.mcp.remote_auth import (
+    LocalSubjectScopeResolver,
+    MCPRemoteAuthBroker,
+    MCPRemoteAuthStore,
+)
+from server.toolsets.credentials import CredentialStore
 from server.xpert_runtime.hub_toolset import HubMCPToolsetProvider
 
 
@@ -296,6 +302,243 @@ def test_registry_eligibility_is_metadata_only_and_request_forbids_url() -> None
             remote_id="remote_" + "1" * 16,
             url="https://attacker.invalid/mcp",  # type: ignore[call-arg]
         )
+
+
+def test_registry_static_token_requires_one_current_required_secret_header() -> None:
+    bearer = registry_entry()
+    bearer["server"]["remotes"][0]["headers"] = [
+        {
+            "name": "Authorization",
+            "description": "Bearer API token",
+            "isRequired": True,
+            "isSecret": True,
+        }
+    ]
+    normalized = normalize_registry_entry(bearer)
+    remote = normalized["remotes"][0]
+    assert normalized["eligibility"] == "static_token_candidate"
+    assert remote["url"] == "https://mcp.example.com/mcp"
+    assert remote["auth_policy"]["mode"] == "static_bearer"
+    assert remote["auth_policy"]["header_name"] == "Authorization"
+    assert set(remote["auth_policy"]) == {
+        "schema_version",
+        "mode",
+        "slot",
+        "header_name",
+        "origin",
+        "remote_url_digest",
+        "policy_fingerprint",
+    }
+
+    api_key = registry_entry()
+    api_key["server"]["remotes"][0]["headers"] = [
+        {"name": "X-API-Key", "isRequired": True, "isSecret": True}
+    ]
+    custom = normalize_registry_entry(api_key)["remotes"][0]
+    assert custom["eligibility"] == "static_token_candidate"
+    assert custom["auth_policy"]["mode"] == "static_header"
+    assert custom["auth_policy"]["header_name"] == "x-api-key"
+
+    denied_shapes = [
+        [{"name": "Authorization", "isRequired": False, "isSecret": True}],
+        [{"name": "Authorization", "isRequired": True, "isSecret": False}],
+        [
+            {"name": "Authorization", "isRequired": True, "isSecret": True},
+            {"name": "X-API-Key", "isRequired": True, "isSecret": True},
+        ],
+        [{"name": "Host", "isRequired": True, "isSecret": True}],
+        [{"name": "User-Agent", "isRequired": True, "isSecret": True}],
+        [{"name": "MCP-Protocol-Version", "isRequired": True, "isSecret": True}],
+        [{"name": "X-Forwarded-Host", "isRequired": True, "isSecret": True}],
+        [{"name": "X-Original-URL", "isRequired": True, "isSecret": True}],
+        [
+            {
+                "name": "Authorization",
+                "isRequired": True,
+                "isSecret": True,
+                "default": "must-not-be-accepted",
+            }
+        ],
+    ]
+    for headers in denied_shapes:
+        denied = registry_entry()
+        denied["server"]["remotes"][0]["headers"] = headers
+        assert normalize_registry_entry(denied)["eligibility"] == "auth_required"
+
+    templated = registry_entry()
+    templated["server"]["remotes"][0]["headers"] = [
+        {"name": "Authorization", "isRequired": True, "isSecret": True}
+    ]
+    templated["server"]["remotes"][0]["variables"] = {
+        "tenant": {"isRequired": True}
+    }
+    assert normalize_registry_entry(templated)["eligibility"] == "auth_required"
+
+
+@pytest.mark.asyncio
+async def test_static_token_binding_create_rotate_revoke_is_secret_free(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_AUTH_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_STATIC_TOKEN_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_AUTH_LOCAL_SINGLE_OWNER_ACK", "true")
+    vault = CredentialStore(
+        tmp_path / "vault",
+        master_key="test-external-master-key",
+        require_external_master_key=True,
+    )
+    broker = MCPRemoteAuthBroker(
+        MCPRemoteAuthStore(tmp_path / "bindings"),
+        subject_resolver=LocalSubjectScopeResolver(),
+        credential_lookup=vault.get_public,
+        credential_resolver=vault.resolve,
+        credential_security_attestor=vault.remote_auth_master_key_attestation,
+    )
+    entry = registry_entry(name="io.example/token")
+    entry["server"]["remotes"][0]["headers"] = [
+        {"name": "Authorization", "isRequired": True, "isSecret": True}
+    ]
+    store = MCPHubStore(tmp_path / "hub")
+    normalized = normalize_registry_entry(entry)
+    store.replace_snapshot("seed", [normalized], '"seed"')
+    service = MCPHubService(
+        store,
+        tenant_id="local",
+        owner_id="local",
+        bridge=FakeBridge(),
+        reviewed_contracts={},
+    )
+    service.set_remote_auth(
+        broker,
+        credential_creator=vault.create,
+        credential_lookup=vault.get_public,
+        credential_revoker=vault.revoke,
+    )
+    remote = normalized["remotes"][0]
+    candidate = service.create_candidate(
+        normalized["server_name"], normalized["version"], remote["remote_id"]
+    )
+
+    created = service.create_candidate_auth_binding(
+        candidate["candidate_id"],
+        slot="registry-secret-header",
+        display_name="Example token",
+        secret="first-secret-token",
+    )
+    assert created["binding"]["revision"] == 1
+    assert created["binding"]["masked_value"] != "first-secret-token"
+    binding_id = created["binding"]["binding_id"]
+
+    rotated = await service.rotate_candidate_auth_binding(
+        candidate["candidate_id"],
+        binding_id,
+        secret="second-secret-token",
+        expected_revision=1,
+    )
+    assert rotated["binding"]["revision"] == 2
+    assert "second-secret-token" not in str(rotated)
+
+    await service.revoke_candidate_auth_binding(candidate["candidate_id"], binding_id)
+    assert service.candidate_auth(candidate["candidate_id"])["binding"] is None
+
+    replacement = service.create_candidate_auth_binding(
+        candidate["candidate_id"],
+        slot="registry-secret-header",
+        display_name="Replacement token",
+        secret="delete-with-candidate-secret",
+    )
+    assert "auth_binding_id" not in service.get_candidate(candidate["candidate_id"])
+    replacement_binding = broker.store.get_binding(
+        replacement["binding"]["binding_id"],
+        subject=broker.subject_resolver.resolve(),
+    )
+    await service.delete_candidate(candidate["candidate_id"])
+    assert vault.get_public(
+        replacement_binding.credential_id,
+        tenant_id="local",
+        owner_id="local",
+    ).status == "revoked"
+    assert broker.store.get_binding(
+        replacement_binding.binding_id,
+        subject=broker.subject_resolver.resolve(),
+    ).status == "revoked"
+    persisted = b"".join(
+        path.read_bytes()
+        for path in (store.path, broker.store.path, vault.storage_path)
+    )
+    assert b"first-secret-token" not in persisted
+    assert b"second-secret-token" not in persisted
+    assert b"delete-with-candidate-secret" not in persisted
+
+
+@pytest.mark.asyncio
+async def test_static_token_binding_api_rejects_client_scope_and_target_injection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_AUTH_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_STATIC_TOKEN_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_AUTH_LOCAL_SINGLE_OWNER_ACK", "true")
+    vault = CredentialStore(
+        tmp_path / "vault",
+        master_key="test-external-master-key",
+        require_external_master_key=True,
+    )
+    broker = MCPRemoteAuthBroker(
+        MCPRemoteAuthStore(tmp_path / "bindings"),
+        subject_resolver=LocalSubjectScopeResolver(),
+        credential_lookup=vault.get_public,
+        credential_resolver=vault.resolve,
+        credential_security_attestor=vault.remote_auth_master_key_attestation,
+    )
+    entry = registry_entry(name="io.example/token-api")
+    entry["server"]["remotes"][0]["headers"] = [
+        {"name": "Authorization", "isRequired": True, "isSecret": True}
+    ]
+    normalized = normalize_registry_entry(entry)
+    store = MCPHubStore(tmp_path / "hub")
+    store.replace_snapshot("seed", [normalized], '"seed"')
+    service = MCPHubService(
+        store,
+        tenant_id="local",
+        owner_id="local",
+        bridge=FakeBridge(),
+        reviewed_contracts={},
+    )
+    service.set_remote_auth(
+        broker,
+        credential_creator=vault.create,
+        credential_lookup=vault.get_public,
+        credential_revoker=vault.revoke,
+    )
+    candidate = service.create_candidate(
+        normalized["server_name"],
+        normalized["version"],
+        normalized["remotes"][0]["remote_id"],
+    )
+    configure_mcp_hub(service)
+    app = FastAPI()
+    app.include_router(router)
+    injected_secret = "api-injected-secret-must-not-echo"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            f"/api/mcp/hub/candidates/{candidate['candidate_id']}/auth-bindings",
+            json={
+                "slot": "registry-secret-header",
+                "display_name": "Rejected",
+                "secret": injected_secret,
+                "tenant_id": "other",
+                "owner_id": "other",
+                "origin": "https://attacker.invalid",
+                "header_name": "X-Evil",
+                "credential_id": "credential_other",
+            },
+        )
+    assert response.status_code == 422
+    assert injected_secret not in response.text
+    assert service.candidate_auth(candidate["candidate_id"])["binding"] is None
 
 
 @pytest.mark.asyncio

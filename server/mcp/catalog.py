@@ -42,6 +42,7 @@ try:
         MCPClientError,
         MCPInstaller,
         MCPSessionNotFoundError,
+        MCPTransportUnavailableError,
     )
     from server.registry.tool_registry import ToolRegistry
     from server.mcp.workspace import (
@@ -63,6 +64,7 @@ except ModuleNotFoundError:
         MCPClientManager,
         MCPInstaller,
         MCPSessionNotFoundError,
+        MCPTransportUnavailableError,
     )
     from registry.tool_registry import ToolRegistry
     from mcp.workspace import (
@@ -76,6 +78,15 @@ except ModuleNotFoundError:
         CatalogWorkspacePolicyError,
         MCPCatalogWorkspaceStore,
     )
+
+try:
+    from server.mcp.remote_auth import (
+        MCPRemoteAuthBroker,
+        RemoteAuthError,
+        RemoteAuthPolicyV1,
+    )
+except ModuleNotFoundError:
+    from mcp.remote_auth import MCPRemoteAuthBroker, RemoteAuthError, RemoteAuthPolicyV1
 
 try:
     from server.mcp.browser_proxy import (
@@ -553,6 +564,8 @@ class CatalogAdapterManifest:
     enabled_by_default: bool = False
     operation_timeout: float = 30.0
     max_output_bytes: int = 256 * 1024
+    remote_auth_mode: Literal["", "static_bearer", "static_header"] = ""
+    remote_auth_header_name: str = ""
 
     @property
     def feature_flag(self) -> str:
@@ -1297,6 +1310,8 @@ class WaveFourAdapterSpec:
     setting_policies: tuple[CatalogSettingPolicy, ...] = ()
     network_policy: str = ""
     limitations: tuple[str, ...] = ()
+    remote_auth_mode: Literal["", "static_bearer", "static_header"] = ""
+    remote_auth_header_name: str = ""
 
 
 WAVE_FOUR_ADAPTERS: dict[str, WaveFourAdapterSpec] = {
@@ -1339,6 +1354,8 @@ WAVE_FOUR_ADAPTERS: dict[str, WaveFourAdapterSpec] = {
         (_credential("api_key", "Tavily API Key", "用于搜索、正文提取与站点地图。"),),
         network_policy="allowlist:api.tavily.com",
         limitations=("已关闭 crawl 与 research 长任务工具。",),
+        remote_auth_mode="static_bearer",
+        remote_auth_header_name="Authorization",
     ),
     "axiom-mcp": WaveFourAdapterSpec(
         "v0.05-pinned-compatible-v1",
@@ -2908,6 +2925,8 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
             enabled_by_default=True,
             operation_timeout=60.0,
             max_output_bytes=256 * 1024,
+            remote_auth_mode=spec.remote_auth_mode,
+            remote_auth_header_name=spec.remote_auth_header_name,
         )
 
     for project_id, spec in WAVE_FIVE_ADAPTERS.items():
@@ -3979,6 +3998,7 @@ class MCPCatalogService:
         credential_lister: Callable[[], list[Any]] | None = None,
         credential_creator: Callable[..., tuple[Any, str]] | None = None,
         credential_revoker: Callable[[str], Any] | None = None,
+        remote_auth_broker: MCPRemoteAuthBroker | None = None,
         workspace_store: MCPCatalogWorkspaceStore | None = None,
         browser_artifact_root: Path | None = None,
         browser_artifact_staging_root: Path | None = None,
@@ -3995,6 +4015,7 @@ class MCPCatalogService:
         self.credential_lister = credential_lister
         self.credential_creator = credential_creator
         self.credential_revoker = credential_revoker
+        self.remote_auth_broker = remote_auth_broker
         self.workspace_store = workspace_store
         catalog_storage_root = Path(
             os.getenv(
@@ -4123,6 +4144,154 @@ class MCPCatalogService:
         if accepts_keywords or "tenant_id" in parameters or "owner_id" in parameters:
             return callback(*args, **scoped)
         return callback(*args, **kwargs)
+
+    @staticmethod
+    def _remote_auth_enabled() -> bool:
+        return os.getenv("MCP_REMOTE_AUTH_ENABLED", "false").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def _catalog_remote_auth_policy(
+        self, manifest: CatalogAdapterManifest
+    ) -> RemoteAuthPolicyV1 | None:
+        if not manifest.remote_auth_mode or not manifest.remote_auth_header_name:
+            return None
+        if len(manifest.credential_policies) != 1:
+            raise CatalogAdapterPolicyError(
+                "目录远程认证仅允许一个固定凭据槽。"
+            )
+        prefix = "allowlist:"
+        if not manifest.network_policy.startswith(prefix):
+            raise CatalogAdapterPolicyError("目录远程认证缺少固定上游 Origin。")
+        hosts = [
+            item.strip().lower()
+            for item in manifest.network_policy[len(prefix) :].split(",")
+            if item.strip()
+        ]
+        if len(hosts) != 1:
+            raise CatalogAdapterPolicyError("目录远程认证只允许一个固定上游 Origin。")
+        origin = f"https://{hosts[0]}"
+        remote_identity = (
+            f"catalog:{manifest.project_id}:{manifest.adapter_version}:{origin}"
+        )
+        try:
+            return RemoteAuthPolicyV1(
+                mode=manifest.remote_auth_mode,
+                slot=manifest.credential_policies[0].key,
+                header_name=manifest.remote_auth_header_name,
+                origin=origin,
+                remote_url_digest=hashlib.sha256(
+                    remote_identity.encode("utf-8")
+                ).hexdigest(),
+            )
+        except RemoteAuthError as exc:
+            raise CatalogAdapterPolicyError(
+                "目录远程认证策略不满足固定边界。"
+            ) from exc
+
+    def _catalog_remote_auth_active(
+        self, manifest: CatalogAdapterManifest
+    ) -> bool:
+        return self._remote_auth_enabled() and self._catalog_remote_auth_policy(
+            manifest
+        ) is not None
+
+    def _reconcile_catalog_remote_auth_binding(
+        self,
+        manifest: CatalogAdapterManifest,
+        credential_id: str,
+    ) -> str:
+        policy = self._catalog_remote_auth_policy(manifest)
+        if policy is None or not self._remote_auth_enabled():
+            return ""
+        if self.remote_auth_broker is None:
+            raise CatalogAdapterUnavailableError("远程认证 Broker 尚未配置。")
+        try:
+            binding = self.remote_auth_broker.binding_for_target(
+                target_type="catalog_project",
+                target_id=manifest.project_id,
+                current_policy=policy,
+            )
+            if binding is None:
+                binding = self.remote_auth_broker.create_binding(
+                    target_type="catalog_project",
+                    target_id=manifest.project_id,
+                    policy=policy,
+                    credential_id=credential_id,
+                )
+            elif binding.credential_id != credential_id:
+                binding = self.remote_auth_broker.rotate_binding(
+                    binding.binding_id,
+                    current_policy=policy,
+                    credential_id=credential_id,
+                    expected_revision=binding.revision,
+                    target_type="catalog_project",
+                    target_id=manifest.project_id,
+                )
+            return binding.binding_id
+        except RemoteAuthError as exc:
+            raise CatalogAdapterPolicyError(str(exc)) from None
+
+    def _resolve_catalog_remote_auth_secret(
+        self,
+        manifest: CatalogAdapterManifest,
+        credential_id: str,
+    ) -> str:
+        policy = self._catalog_remote_auth_policy(manifest)
+        if policy is None or not self._remote_auth_enabled():
+            if self.credential_resolver is None:
+                raise CatalogAdapterPolicyError("目录凭据存储当前不可用。")
+            return str(self._credential_call(self.credential_resolver, credential_id))
+        binding_id = self._reconcile_catalog_remote_auth_binding(
+            manifest, credential_id
+        )
+        assert self.remote_auth_broker is not None
+        try:
+            with self.remote_auth_broker.resolve_for_execution(
+                binding_id,
+                current_policy=policy,
+                target_type="catalog_project",
+                target_id=manifest.project_id,
+            ) as envelope:
+                value = envelope.header_value
+                if policy.mode == "static_bearer":
+                    if not value.startswith("Bearer "):
+                        raise CatalogAdapterPolicyError(
+                            "目录远程认证 Bearer envelope 无效。"
+                        )
+                    value = value[7:]
+                return value
+        except RemoteAuthError as exc:
+            raise CatalogAdapterPolicyError(str(exc)) from None
+
+    def _revoke_catalog_remote_auth_binding(
+        self,
+        manifest: CatalogAdapterManifest,
+        credential_id: str,
+    ) -> None:
+        policy = self._catalog_remote_auth_policy(manifest)
+        if policy is None or not self._remote_auth_enabled():
+            return
+        if self.remote_auth_broker is None:
+            raise CatalogAdapterUnavailableError("远程认证 Broker 尚未配置。")
+        try:
+            binding = self.remote_auth_broker.binding_for_target(
+                target_type="catalog_project",
+                target_id=manifest.project_id,
+                current_policy=policy,
+            )
+            if binding is not None and binding.credential_id == credential_id:
+                self.remote_auth_broker.revoke_binding(
+                    binding.binding_id,
+                    target_type="catalog_project",
+                    target_id=manifest.project_id,
+                )
+        except RemoteAuthError as exc:
+            if exc.code != "mcp_remote_auth_binding_missing":
+                raise CatalogAdapterPolicyError(str(exc)) from None
 
     def get_manifest(self, project_id: str) -> CatalogAdapterManifest:
         manifest = self.manifests.get(str(project_id or "").strip())
@@ -4374,6 +4543,17 @@ class MCPCatalogService:
         elif workspace_id:
             raise CatalogAdapterPolicyError("该适配器不接受文件工作区配置。")
 
+        remote_auth_policy = self._catalog_remote_auth_policy(manifest)
+        if remote_auth_policy is not None and self._remote_auth_enabled():
+            credential_id = request.credential_bindings.get(
+                remote_auth_policy.slot, ""
+            )
+            if not credential_id:
+                raise CatalogAdapterPolicyError(
+                    f"缺少凭据绑定：{remote_auth_policy.slot}"
+                )
+            self._reconcile_catalog_remote_auth_binding(manifest, credential_id)
+
         normalized = request.model_copy(deep=True)
         normalized.settings = normalized_settings
         self._configurations[scope_key] = normalized
@@ -4531,10 +4711,16 @@ class MCPCatalogService:
                             raise CatalogAdapterPolicyError(
                                 "绑定凭据不属于当前目录项目或固定槽位。"
                             )
-                        secrets[policy.key] = self._credential_call(
-                            self.credential_resolver,
-                            credential_id,
-                        )
+                        if self._catalog_remote_auth_policy(manifest) is not None:
+                            secrets[policy.key] = self._resolve_catalog_remote_auth_secret(
+                                manifest,
+                                credential_id,
+                            )
+                        else:
+                            secrets[policy.key] = self._credential_call(
+                                self.credential_resolver,
+                                credential_id,
+                            )
                         snapshots[policy.key] = (
                             credential_id,
                             float(getattr(public, "updated_at", 0.0)),
@@ -6699,7 +6885,20 @@ class MCPCatalogService:
                         except MCPSessionNotFoundError:
                             self._sessions.pop(scope_key, None)
 
-                    if request.revoke_credentials:
+                    remote_auth_active = self._catalog_remote_auth_active(manifest)
+                    if request.revoke_credentials and remote_auth_active:
+                        assert self.credential_revoker is not None
+                        for credential_id in credential_ids:
+                            self._credential_call(
+                                self.credential_revoker,
+                                credential_id,
+                            )
+                            revoked += 1
+                    for credential_id in credential_ids:
+                        self._revoke_catalog_remote_auth_binding(
+                            manifest, credential_id
+                        )
+                    if request.revoke_credentials and not remote_auth_active:
                         assert self.credential_revoker is not None
                         for credential_id in credential_ids:
                             self._credential_call(
@@ -6800,8 +6999,14 @@ class MCPCatalogService:
             configuration
             and credential_id in configuration.credential_bindings.values()
         )
+        remote_auth_active = self._catalog_remote_auth_active(manifest)
         if not bound:
-            revoked = self._credential_call(self.credential_revoker, credential_id)
+            if remote_auth_active:
+                revoked = self._credential_call(self.credential_revoker, credential_id)
+                self._revoke_catalog_remote_auth_binding(manifest, credential_id)
+            else:
+                self._revoke_catalog_remote_auth_binding(manifest, credential_id)
+                revoked = self._credential_call(self.credential_revoker, credential_id)
         else:
             if scope_key in self._unbinding_scopes:
                 raise CatalogAdapterPolicyError("账号解绑或凭据撤销已经在进行中。")
@@ -6827,14 +7032,31 @@ class MCPCatalogService:
                             "远程写入仍在执行，当前不能撤销凭据。"
                         )
                     async with call_lock:
-                        # The tombstone and call lock prevent any new use of
-                        # the child while the local vault mutation is applied.
-                        # If the vault rejects the revoke, session/config stay
-                        # intact and become callable again after this method.
-                        revoked = self._credential_call(
-                            self.credential_revoker,
-                            credential_id,
-                        )
+                        # Static-token sessions must be stopped before either
+                        # the vault or Broker binding changes. A partial
+                        # failure then leaves a disconnected, fail-closed
+                        # configuration that can be retried safely.
+                        if remote_auth_active and scope_key in self._sessions:
+                            try:
+                                await self._disconnect_with_scope_locked(manifest)
+                            except MCPSessionNotFoundError:
+                                self._sessions.pop(scope_key, None)
+                        if remote_auth_active:
+                            revoked = self._credential_call(
+                                self.credential_revoker,
+                                credential_id,
+                            )
+                            self._revoke_catalog_remote_auth_binding(
+                                manifest, credential_id
+                            )
+                        else:
+                            self._revoke_catalog_remote_auth_binding(
+                                manifest, credential_id
+                            )
+                            revoked = self._credential_call(
+                                self.credential_revoker,
+                                credential_id,
+                            )
                         try:
                             if scope_key in self._sessions:
                                 await self._disconnect_with_scope_locked(manifest)
@@ -7356,7 +7578,49 @@ def get_mcp_catalog_service() -> MCPCatalogService:
     return _catalog_service
 
 
+def _catalog_error_candidate(exc: Exception) -> Exception:
+    """Find a safe, typed cause hidden by AnyIO/SDK exception groups."""
+
+    recognized = (
+        CatalogApprovalRequiredError,
+        CatalogUnknownOutcomeError,
+        CatalogProviderRejectedError,
+        CatalogBrowserPolicyRejectedError,
+        CatalogAdapterNotFoundError,
+        CatalogAdapterUnavailableError,
+        CatalogAdapterPolicyError,
+        CatalogWorkspaceNotFoundError,
+        CatalogWorkspacePolicyError,
+        CatalogWorkspaceError,
+        MCPSessionNotFoundError,
+        MCPTransportUnavailableError,
+        MCPClientError,
+        PermissionError,
+        EOFError,
+        BrokenPipeError,
+        ConnectionError,
+        OSError,
+    )
+    stack: list[BaseException] = [exc]
+    seen: set[int] = set()
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, recognized):
+            return current
+        if isinstance(current, BaseExceptionGroup):
+            stack.extend(reversed(current.exceptions))
+        if current.__cause__ is not None:
+            stack.append(current.__cause__)
+        if current.__context__ is not None:
+            stack.append(current.__context__)
+    return exc
+
+
 def _raise_http_error(exc: Exception) -> None:
+    exc = _catalog_error_candidate(exc)
     if isinstance(exc, CatalogApprovalRequiredError):
         raise HTTPException(status_code=409, detail=exc.payload) from exc
     if isinstance(exc, CatalogUnknownOutcomeError):
@@ -7403,6 +7667,49 @@ def _raise_http_error(exc: Exception) -> None:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if isinstance(exc, MCPSessionNotFoundError):
         raise HTTPException(status_code=404, detail="MCP 目录会话不存在或已断开。") from exc
+    if isinstance(exc, MCPTransportUnavailableError):
+        code = exc.code
+        message = (
+            "MCP 适配器启动超时，请确认对应隔离服务健康后重试。"
+            if code == "mcp_transport_start_timeout"
+            else "MCP 适配器无法连接对应隔离服务，请检查 sidecar 健康与套接字权限。"
+        )
+        logger.warning(
+            "MCP catalog transport unavailable error_code=%s",
+            code,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={"code": code, "message": message},
+        ) from exc
+    if isinstance(exc, PermissionError):
+        logger.warning(
+            "MCP catalog sidecar permission denied error_code=%s",
+            "mcp_sidecar_socket_permission_denied",
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "mcp_sidecar_socket_permission_denied",
+                "message": "后端无权访问 MCP 隔离服务套接字，请检查共享组配置。",
+            },
+        ) from exc
+    if isinstance(
+        exc,
+        (MCPClientError, EOFError, BrokenPipeError, ConnectionError, OSError),
+    ):
+        logger.warning(
+            "MCP catalog adapter unavailable error_code=%s root_type=%s",
+            "mcp_catalog_adapter_unavailable",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "mcp_catalog_adapter_unavailable",
+                "message": "MCP 适配器连接已中断，请确认对应隔离服务健康后重新连接。",
+            },
+        ) from exc
     logger.warning(
         "MCP catalog operation failed error_type=%s",
         type(exc).__name__,
