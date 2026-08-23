@@ -86,6 +86,19 @@ class HarnessDescriptor(StrictModel):
             raise ValueError("harness capability name is invalid")
         return self
 
+    def capability(self, name: str) -> HarnessCapabilityState:
+        if SAFE_ID.fullmatch(name) is None:
+            raise ValueError("harness capability name is invalid")
+        declared = self.capabilities.get(name)
+        if declared is not None:
+            return declared
+        return HarnessCapabilityState(
+            supported=False,
+            available=False,
+            maturity=HarnessCapabilityMaturity.EXPERIMENTAL,
+            reason="capability was not declared",
+        )
+
 
 class HarnessBinding(StrictModel):
     task_id: str

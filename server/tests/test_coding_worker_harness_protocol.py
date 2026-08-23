@@ -7,7 +7,9 @@ import pytest
 
 from server.coding_worker.harness_protocol import (
     HarnessBinding,
+    HarnessCapabilityMaturity,
     HarnessCapabilityState,
+    HarnessCheckpoint,
     HarnessDescriptor,
     HarnessEventEnvelope,
     HarnessEventKind,
@@ -214,6 +216,29 @@ def test_kernel_rejects_stale_turn_cross_task_and_noncontiguous_events() -> None
         )
 
 
+def test_resume_rejects_events_from_the_previous_driver_generation() -> None:
+    descriptor = _descriptor()
+    original = _session(descriptor)
+    original_turn = HarnessTurnRef(session=original, turn_id="turn_original")
+    resumed = _session(descriptor, generation=2)
+    kernel = HarnessLifecycleKernel()
+    kernel.initialize(descriptor)
+    kernel.open_session(original)
+    kernel.start_turn(original_turn)
+    kernel.interrupt(original_turn)
+    kernel.resume_session(original, resumed)
+
+    with pytest.raises(HarnessProtocolError, match="stale or cross-task"):
+        kernel.accept_event(
+            HarnessEventEnvelope(
+                event_id="event_late",
+                sequence=1,
+                session=original,
+                kind=HarnessEventKind.MESSAGE,
+            )
+        )
+
+
 def test_kernel_settles_each_request_exactly_once() -> None:
     descriptor = _descriptor()
     session = _session(descriptor)
@@ -311,6 +336,13 @@ def test_event_and_request_deduplication_is_scoped_to_the_exact_binding() -> Non
 
 
 def test_capabilities_and_checkpoint_fail_closed() -> None:
+    descriptor = _descriptor()
+    missing = descriptor.capability("experimental_vendor_feature")
+    assert not missing.supported
+    assert not missing.available
+    assert missing.maturity is HarnessCapabilityMaturity.EXPERIMENTAL
+    assert missing.reason == "capability was not declared"
+
     with pytest.raises(ValueError, match="must be supported"):
         HarnessCapabilityState(
             supported=False,
@@ -320,4 +352,32 @@ def test_capabilities_and_checkpoint_fail_closed() -> None:
         HarnessCapabilityState(
             supported=True,
             available=False,
+        )
+    with pytest.raises(ValueError, match="non-persistent"):
+        HarnessCheckpoint(
+            checkpoint_id="checkpoint_none",
+            session=_session(descriptor),
+            persistence=HarnessPersistenceLevel.NONE,
+            workspace_tree_hash="d" * 64,
+        )
+
+
+def test_unknown_events_and_supplier_experimental_fields_are_rejected() -> None:
+    descriptor = _descriptor()
+    session = _session(descriptor)
+    with pytest.raises(ValueError):
+        HarnessEventEnvelope.model_validate(
+            {
+                "event_id": "event_unknown",
+                "sequence": 1,
+                "session": session.model_dump(mode="json"),
+                "kind": "supplier_private_event",
+            }
+        )
+    with pytest.raises(ValueError):
+        HarnessDescriptor.model_validate(
+            {
+                **descriptor.model_dump(mode="json"),
+                "experimentalSupplierField": True,
+            }
         )
