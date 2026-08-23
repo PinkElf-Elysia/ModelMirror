@@ -352,6 +352,114 @@ def test_kernel_settles_each_request_exactly_once() -> None:
         )
 
 
+def test_pending_request_blocks_turn_exit_until_exactly_settled() -> None:
+    descriptor = _descriptor()
+    session = _session(descriptor)
+    turn = HarnessTurnRef(session=session, turn_id="turn_pending")
+    request = HarnessRequestRef(
+        turn=turn,
+        request_id="request_pending",
+        kind=HarnessRequestKind.APPROVAL,
+    )
+    kernel = HarnessLifecycleKernel()
+    kernel.initialize(descriptor)
+    kernel.open_session(session)
+    kernel.start_turn(turn)
+    kernel.accept_event(
+        HarnessEventEnvelope(
+            event_id="event_request_pending",
+            sequence=1,
+            session=session,
+            turn=turn,
+            request=request,
+            kind=HarnessEventKind.REQUEST,
+        )
+    )
+
+    with pytest.raises(HarnessProtocolError, match="pending request"):
+        kernel.accept_event(
+            HarnessEventEnvelope(
+                event_id="event_complete_early",
+                sequence=2,
+                session=session,
+                turn=turn,
+                kind=HarnessEventKind.TURN_COMPLETED,
+            )
+        )
+    with pytest.raises(HarnessProtocolError, match="pending request"):
+        kernel.interrupt(turn)
+
+    kernel.resolve_request(
+        HarnessResponse(
+            ref=request,
+            outcome=HarnessResponseOutcome.CANCELLED,
+        )
+    )
+    kernel.interrupt(turn)
+    resumed = _session(descriptor, generation=2)
+    kernel.resume_session(session, resumed)
+    kernel.close_session(resumed)
+
+
+def test_only_one_request_can_park_a_turn_at_a_time() -> None:
+    descriptor = _descriptor()
+    session = _session(descriptor)
+    turn = HarnessTurnRef(session=session, turn_id="turn_single_barrier")
+    first = HarnessRequestRef(
+        turn=turn,
+        request_id="request_first",
+        kind=HarnessRequestKind.APPROVAL,
+    )
+    second = HarnessRequestRef(
+        turn=turn,
+        request_id="request_second",
+        kind=HarnessRequestKind.USER_INPUT,
+    )
+    kernel = HarnessLifecycleKernel()
+    kernel.initialize(descriptor)
+    kernel.open_session(session)
+    kernel.start_turn(turn)
+    kernel.accept_event(
+        HarnessEventEnvelope(
+            event_id="event_first",
+            sequence=1,
+            session=session,
+            turn=turn,
+            request=first,
+            kind=HarnessEventKind.REQUEST,
+        )
+    )
+
+    with pytest.raises(HarnessProtocolError, match="pending request"):
+        kernel.accept_event(
+            HarnessEventEnvelope(
+                event_id="event_second_early",
+                sequence=2,
+                session=session,
+                turn=turn,
+                request=second,
+                kind=HarnessEventKind.REQUEST,
+            )
+        )
+
+    kernel.resolve_request(
+        HarnessResponse(
+            ref=first,
+            outcome=HarnessResponseOutcome.APPROVED,
+        )
+    )
+    kernel.accept_event(
+        HarnessEventEnvelope(
+            event_id="event_second_after_settlement",
+            sequence=2,
+            session=session,
+            turn=turn,
+            request=second,
+            kind=HarnessEventKind.REQUEST,
+        )
+    )
+
+
 def test_event_and_request_deduplication_is_scoped_to_the_exact_binding() -> None:
     descriptor = _descriptor()
     first_session = _session(

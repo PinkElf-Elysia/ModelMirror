@@ -262,7 +262,19 @@ class HarnessLifecycleKernel:
             raise HarnessProtocolError("harness event was replayed")
         if event.turn is not None:
             self._require_turn(event.turn)
+        if (
+            event.kind is HarnessEventKind.TURN_COMPLETED
+            and event.turn is not None
+            and self._has_pending_for_turn(event.turn)
+        ):
+            raise HarnessProtocolError(
+                "pending request must settle before harness turn completion"
+            )
         if event.request is not None:
+            if self._has_pending_for_turn(event.request.turn):
+                raise HarnessProtocolError(
+                    "pending request must settle before another harness request"
+                )
             request_key = self._request_key(event.request)
             if (
                 request_key in self._pending_requests
@@ -290,6 +302,10 @@ class HarnessLifecycleKernel:
 
     def interrupt(self, turn: HarnessTurnRef) -> None:
         self._require_turn(turn)
+        if self._has_pending_for_turn(turn):
+            raise HarnessProtocolError(
+                "pending request must settle before harness turn interruption"
+            )
         self._turns.pop(self._session_key(turn.session), None)
 
     def resume_session(self, previous: HarnessSessionRef, resumed: HarnessSessionRef) -> None:
@@ -307,6 +323,12 @@ class HarnessLifecycleKernel:
         previous_key = self._session_key(previous)
         if previous_key in self._turns:
             raise HarnessProtocolError("active turn must be interrupted before resume")
+        if any(
+            ref.turn.session == previous for ref in self._pending_requests.values()
+        ):
+            raise HarnessProtocolError(
+                "pending request must settle before harness session resume"
+            )
         self._sessions.pop(previous_key)
         self._sessions[self._session_key(resumed)] = resumed
 
@@ -332,6 +354,9 @@ class HarnessLifecycleKernel:
         self._require_session(turn.session)
         if self._turns.get(self._session_key(turn.session)) != turn:
             raise HarnessProtocolError("harness turn is stale or not active")
+
+    def _has_pending_for_turn(self, turn: HarnessTurnRef) -> bool:
+        return any(ref.turn == turn for ref in self._pending_requests.values())
 
     @staticmethod
     def _session_key(session: HarnessSessionRef) -> tuple[str, str]:
