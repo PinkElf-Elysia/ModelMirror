@@ -80,3 +80,19 @@ PR B 自动门禁通过前不能进入 PR C；本阶段仍未调用真实模型�
 PR B 最终候选自动证据：Coding Worker `430 passed, 5 skipped`；后端全量 `4042 passed, 29 skipped`；前端 `99 files / 534 tests` 与 production build 通过；Compose 静态展开、V18 compile、Fake smoke、`git diff --check` 通过，Fake smoke 摘要仍为 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。首次并行运行前端时有一项 Skill Creator 时序测试失败；该单文件随即 `12/12` 通过，并在后端结束后的独立完整复跑中 `534/534` 通过，未修改该模块源码。后端首次全量因新工作树尚未生成 orchestration worker 产物而在早期失败；按锁文件构建运行时后，从零全量复跑通过。
 
 收口证伪另发现并修复：只重核选中槽会遗漏同 route 其他冻结槽的 generation 漂移；Server 重启后的 controller generation 变化会让 V20 任务永久无法恢复；协议违例会落入通用 `worker_failed`。最终行为改为全 route descriptor/capability 对账，仅在用户显式 resume 且 descriptor 语义完全兼容时用现有加密 capability row 做 CAS 换代，并将协议失败归因为 `harness_protocol_invalid`。本阶段未运行四次真实任务；该额度仍需另行授权。
+
+## 9. PR C 实施边界与阶段证据
+
+- ACP v1.19 与 Codex App Server 0.149.0 adapter 只消费官方 Schema 合法帧并归一到同一生命周期核；原始 reasoning/供应商帧不进入公共事件。
+- ACP 只接受部署固定的 loopback Broker MCP；Codex 原生命令、文件审批、进程、Web、Skill、插件、认证、配置与任意 MCP 接口在创建 operation 前拒绝。Codex 工具所有权保持 `unknown`，生产能力不可用。
+- evaluation loader 仅在对应显式开关开启时动态导入单一供应商模块。Server 在 loader、sidecar、Schema 与两个 adapter 均不可导入时仍可启动。
+- 两个独立镜像固定基础镜像 digest、ACP wheel、Codex 包装包和 Linux x64 原生包完整性；只复制协议最小文件闭包，以 UID/GID 65532、只读文件系统和内部网络运行，不包含 Store、Service、Workspace、另一供应商 adapter、Docker socket 或模型凭据。
+- 许可证、复用说明与 CycloneDX 清单已纳入仓库；`codex-acp` 仅记录为未打包、未执行的共同子集映射 oracle。
+
+阶段专项证据：最终供应链、标准 Driver、隔离与架构组合门禁 `39 passed`；在线 attestation 完整闭包 `93 passed`；两套镜像构建、包/Schema/运行时版本校验及无网络只读准入烟测通过。镜像实测发现并修复了源码态 `server.coding_worker` 包名无法在容器中加载、根包隐式拉入 Store/crypto、Pydantic 传递依赖漂移、Codex 拒绝面二进制残留和 health 未核验完整 manifest 等问题。
+
+PR C 最终自动证据：Coding Worker `463 passed, 5 skipped`；Agent Workspace、Coding Runtime 与 Project Host `441 passed, 9 skipped`；最终再次 rebase 到包含 PR #261、#262、#263 的主线后，后端独立全量 `4183 passed, 29 skipped`；前端独立全量 `104 files / 570 tests` 与 production build 通过。主 Worker 与 evaluation Compose 静态展开、V18 compile、Fake smoke、`git diff --check`、敏感信息和禁止产物扫描均通过，Fake smoke 仍为 8 条记录、四类别齐全，摘要 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。
+
+在 #261 rebase 阶段首次把前后端全量并行运行时，既有 Chat/OCR 交互测试未展开面板，模型路由 p95 微基准以 `10.165ms` 略过 `10ms` 阈值。两者与 PR C Diff 无交集；停止并发后，OCR 单文件 `5/5` 通过，路由微基准连续 `3/3` 通过，随后前端和后端各自独立全量均通过。最终 #262/#263 基线上再次独立全量通过；未修改这两个模块、未放宽阈值，也未用单项绿测替代最终全量证据。
+
+本阶段没有调用真实模型、没有运行另行授权的四次真实任务、校准或认证。因此当前只证明自动工程门禁与 evaluation conformance/准入边界完成；不能使用 V20 最终交付结论，也不形成任何能力提升、接近或等效表述。

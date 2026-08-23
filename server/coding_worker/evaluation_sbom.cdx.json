@@ -1,0 +1,147 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:4e434a67-b7b0-4c75-93ca-63ad1f23d4a0",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "application",
+      "name": "modelmirror-coding-worker-v20-evaluation",
+      "version": "20",
+      "properties": [
+        {"name": "modelmirror:production-route", "value": "false"},
+        {"name": "modelmirror:network-profile", "value": "internal-only"}
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/agent-client-protocol@0.12.0",
+      "name": "agent-client-protocol",
+      "version": "0.12.0",
+      "scope": "required",
+      "hashes": [{"alg": "SHA-256", "content": "233626748034896214de118f5cf5a319484ad2186705fd595219afee92237ccc"}],
+      "licenses": [{"license": {"id": "Apache-2.0"}}],
+      "purl": "pkg:pypi/agent-client-protocol@0.12.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pydantic@2.13.4",
+      "name": "pydantic",
+      "version": "2.13.4",
+      "scope": "required",
+      "licenses": [{"license": {"id": "MIT"}}],
+      "purl": "pkg:pypi/pydantic@2.13.4"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pydantic-core@2.46.4",
+      "name": "pydantic-core",
+      "version": "2.46.4",
+      "scope": "required",
+      "licenses": [{"license": {"id": "MIT"}}],
+      "purl": "pkg:pypi/pydantic-core@2.46.4"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/annotated-types@0.8.0",
+      "name": "annotated-types",
+      "version": "0.8.0",
+      "scope": "required",
+      "licenses": [{"license": {"id": "MIT"}}],
+      "purl": "pkg:pypi/annotated-types@0.8.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/typing-extensions@4.16.0",
+      "name": "typing-extensions",
+      "version": "4.16.0",
+      "scope": "required",
+      "licenses": [{"license": {"id": "PSF-2.0"}}],
+      "purl": "pkg:pypi/typing-extensions@4.16.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/typing-inspection@0.4.4",
+      "name": "typing-inspection",
+      "version": "0.4.4",
+      "scope": "required",
+      "licenses": [{"license": {"id": "MIT"}}],
+      "purl": "pkg:pypi/typing-inspection@0.4.4"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40openai/codex@0.149.0",
+      "group": "@openai",
+      "name": "codex",
+      "version": "0.149.0",
+      "scope": "required",
+      "hashes": [{"alg": "SHA-512", "content": "8b876bca3d98d63fb4d0c6f99fed27ef51189d32bdfca0dcd9c745a3f7570f4775a13a20d9b854b2c2831083a72a69c47f9d4fd19fc72535af4cac3f507c8ebd"}],
+      "licenses": [{"license": {"id": "Apache-2.0"}}],
+      "purl": "pkg:npm/%40openai/codex@0.149.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40openai/codex@0.149.0-linux-x64?repository_url=https://registry.npmjs.org",
+      "group": "@openai",
+      "name": "codex-linux-x64",
+      "version": "0.149.0-linux-x64",
+      "scope": "required",
+      "hashes": [{"alg": "SHA-512", "content": "b995da37d24fc6ed3f8e39eaa8979377891160f9e35592b732256775f1b59878446a80ca2fb49c5877cfaaf0043a3c2c48312641294c7d4926bd8a7f08772263"}],
+      "licenses": [{"license": {"id": "Apache-2.0"}}]
+    },
+    {
+      "type": "data",
+      "bom-ref": "acp-schema-v1.19",
+      "name": "ACP schema v1.19",
+      "version": "a213df5240048f96d2b23f644984bb20c188a234",
+      "scope": "required",
+      "hashes": [{"alg": "SHA-256", "content": "998c6427fa78bf6cd39f442bf164c6172234ebdf1c04298af57c40fa716ce267"}],
+      "licenses": [{"license": {"id": "Apache-2.0"}}]
+    },
+    {
+      "type": "data",
+      "bom-ref": "codex-app-server-schema-0.149.0",
+      "name": "Codex App Server generated schema",
+      "version": "0.149.0",
+      "scope": "required",
+      "hashes": [{"alg": "SHA-256", "content": "02a4c63a638fdae4a5f6c3ad32a41a377b642c66f3abc84f6fc47c7f3d6074df"}],
+      "licenses": [{"license": {"id": "Apache-2.0"}}]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40agentclientprotocol/codex-acp@1.6.2",
+      "group": "@agentclientprotocol",
+      "name": "codex-acp",
+      "version": "1.6.2",
+      "scope": "excluded",
+      "hashes": [{"alg": "SHA-512", "content": "d9e17599bb35813aa464948b60eba7fe9143c77eec61aed6eb71ce3decc2dfb6ff47c0189ace4ed677d0bbc96ba854860ebc0366401254e47298b72a8c236ac8"}],
+      "licenses": [{"license": {"id": "Apache-2.0"}}],
+      "purl": "pkg:npm/%40agentclientprotocol/codex-acp@1.6.2",
+      "properties": [
+        {"name": "modelmirror:usage", "value": "external-mapping-oracle-only"},
+        {"name": "modelmirror:bundled", "value": "false"}
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:pypi/agent-client-protocol@0.12.0",
+      "dependsOn": ["pkg:pypi/pydantic@2.13.4"]
+    },
+    {
+      "ref": "pkg:pypi/pydantic@2.13.4",
+      "dependsOn": [
+        "pkg:pypi/pydantic-core@2.46.4",
+        "pkg:pypi/annotated-types@0.8.0",
+        "pkg:pypi/typing-extensions@4.16.0",
+        "pkg:pypi/typing-inspection@0.4.4"
+      ]
+    },
+    {
+      "ref": "pkg:npm/%40openai/codex@0.149.0",
+      "dependsOn": ["pkg:npm/%40openai/codex@0.149.0-linux-x64?repository_url=https://registry.npmjs.org"]
+    }
+  ]
+}
