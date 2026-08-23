@@ -601,6 +601,8 @@ class CodingWorkerService:
             TaskState.BUDGET_LIMITED,
         }:
             raise WorkerConflictError("Task cannot be resumed.", code="task_state_conflict")
+        if self._task_uses_v20(task_id):
+            await self._rebind_v20_task_for_explicit_resume(task)
         turn = self.store.current_turn_transaction(task_id)
         if task.runtime_protocol is RuntimeProtocol.V17 and turn is not None:
             if turn.state is TurnTransactionState.PARKING:
@@ -1598,16 +1600,24 @@ class CodingWorkerService:
                 code="harness_binding_changed",
             )
         selected_slot = slot_id if slot_id is not None else "*"
+        current_descriptors = (
+            await self.harness_supervisor.harness_descriptors_for_slots(
+                tuple(expected_slots)
+            )
+        )
+        if any(
+            current_descriptors.get(frozen_slot) != frozen
+            for frozen_slot, frozen in descriptors
+        ):
+            raise WorkerConflictError(
+                "V20 Harness sidecar binding changed.",
+                code="harness_binding_changed",
+            )
         frozen = next(
             (item for frozen_slot, item in descriptors if frozen_slot == selected_slot),
             None,
         )
-        current = (
-            await self.harness_supervisor.harness_descriptors_for_slots(
-                (selected_slot,)
-            )
-        ).get(selected_slot)
-        if frozen is None or current is None or current != frozen:
+        if frozen is None:
             raise WorkerConflictError(
                 "V20 Harness sidecar binding changed.",
                 code="harness_binding_changed",
@@ -1629,6 +1639,79 @@ class CodingWorkerService:
             binding_sha256=stored.binding_sha256,
             driver_generation=self.harness_supervisor.controller_generation,
             descriptor=frozen.descriptor,
+        )
+
+    async def _rebind_v20_task_for_explicit_resume(self, task: TaskRecord) -> None:
+        stored = self.store.get_task_capability_snapshot(task.task_id)
+        if stored is None or stored.snapshot.get("harness_protocol") != "v20":
+            return
+        observation = await self.provider_capability_observation(
+            task.spec.model_route, force=True
+        )
+        if not self._v20_route_ready(observation):
+            raise WorkerConflictError(
+                "V20 Harness route is unavailable.",
+                code="harness_v20_route_unavailable",
+            )
+        raw_frozen = stored.snapshot.get("harness_descriptors")
+        if not isinstance(raw_frozen, list):
+            raise WorkerConflictError(
+                "V20 Harness descriptor snapshot is invalid.",
+                code="harness_binding_changed",
+            )
+        try:
+            frozen = tuple(
+                (
+                    str(item["slot_id"]),
+                    HarnessDescriptorObservation.model_validate(item["observation"]),
+                )
+                for item in raw_frozen
+                if isinstance(item, dict)
+                and set(item) == {"slot_id", "observation"}
+            )
+        except (TypeError, ValueError) as exc:
+            raise WorkerConflictError(
+                "V20 Harness descriptor snapshot is invalid.",
+                code="harness_binding_changed",
+            ) from exc
+        if len(frozen) != len(raw_frozen) or tuple(
+            slot_id for slot_id, _item in frozen
+        ) != tuple(slot_id for slot_id, _item in observation.harness_descriptors):
+            raise WorkerConflictError(
+                "V20 Harness route binding changed.",
+                code="harness_binding_changed",
+            )
+        if any(
+            previous.descriptor != current.descriptor
+            for (_slot_id, previous), (_current_slot, current) in zip(
+                frozen, observation.harness_descriptors, strict=True
+            )
+        ):
+            raise WorkerConflictError(
+                "V20 Harness implementation changed.",
+                code="harness_binding_changed",
+            )
+        refreshed_snapshot = dict(stored.snapshot)
+        refreshed_snapshot["available"] = observation.capabilities is not None
+        refreshed_snapshot["capabilities"] = (
+            observation.capabilities.model_dump(mode="json")
+            if observation.capabilities is not None
+            else None
+        )
+        refreshed_snapshot["harness_descriptors"] = [
+            {
+                "slot_id": slot_id,
+                "observation": item.model_dump(mode="json"),
+            }
+            for slot_id, item in observation.harness_descriptors
+        ]
+        self.store.replace_task_capability_snapshot(
+            task.task_id,
+            expected_binding_sha256=stored.binding_sha256,
+            binding_sha256=observation.binding_sha256,
+            snapshot=refreshed_snapshot,
+            observed_at=observation.observed_at,
+            expires_at=observation.expires_at,
         )
 
     async def _interrupt_v20_tasks_if_disabled(self) -> None:

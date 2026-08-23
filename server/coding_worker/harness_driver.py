@@ -8,6 +8,7 @@ from .harness_protocol import (
     HarnessEventEnvelope,
     HarnessEventKind,
     HarnessLifecycleKernel,
+    HarnessProtocolError,
     HarnessSessionRef,
     HarnessTurnRef,
 )
@@ -32,6 +33,10 @@ _EVENT_KINDS = {
 }
 
 
+class HarnessDriverProtocolError(RuntimeError):
+    code = "harness_protocol_invalid"
+
+
 class ProviderV4HarnessTranslator:
     """Correlate Provider-v4 frames through the V20 lifecycle kernel.
 
@@ -42,29 +47,45 @@ class ProviderV4HarnessTranslator:
 
     def __init__(self, binding: HarnessBinding, session: ProviderSession) -> None:
         if session.task_id != binding.task_id:
-            raise ValueError("provider session belongs to another harness task")
-        self._kernel = HarnessLifecycleKernel()
-        self._kernel.initialize(binding.descriptor)
-        self.session = HarnessSessionRef(
-            binding=binding,
-            session_id=session.session_id,
-        )
-        self._kernel.open_session(self.session)
+            raise HarnessDriverProtocolError(
+                "provider session belongs to another harness task"
+            )
+        try:
+            self._kernel = HarnessLifecycleKernel()
+            self._kernel.initialize(binding.descriptor)
+            self.session = HarnessSessionRef(
+                binding=binding,
+                session_id=session.session_id,
+            )
+            self._kernel.open_session(self.session)
+        except (HarnessProtocolError, ValueError) as exc:
+            raise HarnessDriverProtocolError(
+                "provider session violated the V20 Harness contract"
+            ) from exc
         self._turn: HarnessTurnRef | None = None
         self._sequence = 0
 
     def start_turn(self, turn_id: str) -> HarnessTurnRef:
-        turn = HarnessTurnRef(session=self.session, turn_id=turn_id)
-        self._kernel.start_turn(turn)
+        try:
+            turn = HarnessTurnRef(session=self.session, turn_id=turn_id)
+            self._kernel.start_turn(turn)
+        except (HarnessProtocolError, ValueError) as exc:
+            raise HarnessDriverProtocolError(
+                "provider turn violated the V20 Harness contract"
+            ) from exc
         self._turn = turn
         return turn
 
     def accept(self, event: ProviderEvent, *, turn_id: str) -> HarnessEventEnvelope:
         if self._turn is None or self._turn.turn_id != turn_id:
-            raise ValueError("provider event does not match the active harness turn")
+            raise HarnessDriverProtocolError(
+                "provider event does not match the active harness turn"
+            )
         kind = _EVENT_KINDS.get(event.kind)
         if kind is None:
-            raise ValueError("provider event kind is unavailable to the V20 harness")
+            raise HarnessDriverProtocolError(
+                "provider event kind is unavailable to the V20 harness"
+            )
         self._sequence += 1
         payload = {"provider_kind": event.kind.value, "data": event.data}
         digest = hashlib.sha256(
@@ -88,7 +109,12 @@ class ProviderV4HarnessTranslator:
             kind=kind,
             payload=payload,
         )
-        self._kernel.accept_event(envelope)
+        try:
+            self._kernel.accept_event(envelope)
+        except (HarnessProtocolError, ValueError) as exc:
+            raise HarnessDriverProtocolError(
+                "provider event violated the V20 Harness contract"
+            ) from exc
         if kind is HarnessEventKind.TURN_COMPLETED:
             self._turn = None
         return envelope
@@ -97,12 +123,22 @@ class ProviderV4HarnessTranslator:
         if self._turn is None:
             return
         if self._turn.turn_id != turn_id:
-            raise ValueError("harness interrupt targets another turn")
-        self._kernel.interrupt(self._turn)
+            raise HarnessDriverProtocolError("harness interrupt targets another turn")
+        try:
+            self._kernel.interrupt(self._turn)
+        except HarnessProtocolError as exc:
+            raise HarnessDriverProtocolError(
+                "provider interrupt violated the V20 Harness contract"
+            ) from exc
         self._turn = None
 
     def close(self) -> None:
-        if self._turn is not None:
-            self._kernel.interrupt(self._turn)
-            self._turn = None
-        self._kernel.close_session(self.session)
+        try:
+            if self._turn is not None:
+                self._kernel.interrupt(self._turn)
+                self._turn = None
+            self._kernel.close_session(self.session)
+        except HarnessProtocolError as exc:
+            raise HarnessDriverProtocolError(
+                "provider close violated the V20 Harness contract"
+            ) from exc

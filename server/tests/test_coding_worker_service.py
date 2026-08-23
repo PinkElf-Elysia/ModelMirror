@@ -711,6 +711,46 @@ async def test_v20_translation_preserves_legacy_projection_without_side_effect_r
 
 
 @pytest.mark.asyncio
+async def test_v20_explicit_resume_atomically_rebinds_compatible_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blocker = asyncio.Event()
+    provider = FakeCodingAgentProvider(block=blocker)
+    service = _service(tmp_path, provider)
+    service.harness_supervisor = _V20Supervisor(provider)
+    monkeypatch.setenv("CODING_WORKER_HARNESS_V20_ENABLED", "true")
+    task = await service.create_task(
+        Origin(module="test", object_id="v20-rebind"), _request("v20-rebind")
+    )
+    await service.wait_for(task.task_id, lambda item: item.state is TaskState.RUNNING)
+    before = service.store.get_task_capability_snapshot(task.task_id)
+    assert before is not None
+    paused = await service.pause(task.task_id)
+    assert paused.state is TaskState.PAUSED
+
+    service.harness_supervisor.controller_generation = 8
+    resumed = await service.resume(task.task_id)
+
+    assert resumed.state is TaskState.QUEUED
+    after = service.store.get_task_capability_snapshot(task.task_id)
+    assert after is not None
+    assert after.binding_sha256 != before.binding_sha256
+    assert after.snapshot["harness_descriptors"] == before.snapshot[
+        "harness_descriptors"
+    ]
+    changes = [
+        event
+        for event in service.store.list_events(task.task_id)
+        if event.type == "capability_changed"
+    ]
+    assert [event.payload for event in changes] == [
+        {"binding_sha256": after.binding_sha256}
+    ]
+    await service.cancel(task.task_id)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_concurrent_idempotent_commit_wins_over_source_admission_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

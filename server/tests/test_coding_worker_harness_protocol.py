@@ -24,7 +24,10 @@ from server.coding_worker.harness_protocol import (
     HarnessToolOwnership,
     HarnessTurnRef,
 )
-from server.coding_worker.harness_driver import ProviderV4HarnessTranslator
+from server.coding_worker.harness_driver import (
+    HarnessDriverProtocolError,
+    ProviderV4HarnessTranslator,
+)
 from server.coding_worker.provider import (
     ProviderCapabilities,
     ProviderEvent,
@@ -109,7 +112,7 @@ def test_provider_v4_translator_fences_session_turn_and_sequence() -> None:
     assert first.kind is HarnessEventKind.MESSAGE
     assert completed.sequence == 2
     assert completed.kind is HarnessEventKind.TURN_COMPLETED
-    with pytest.raises(ValueError, match="active harness turn"):
+    with pytest.raises(HarnessDriverProtocolError, match="active harness turn"):
         translator.accept(
             ProviderEvent(kind=ProviderEventKind.MESSAGE, data={"text": "late"}),
             turn_id="turn_fixture",
@@ -126,7 +129,7 @@ def test_provider_v4_translator_rejects_cross_task_session() -> None:
         driver_generation=3,
         descriptor=_descriptor(),
     )
-    with pytest.raises(ValueError, match="another harness task"):
+    with pytest.raises(HarnessDriverProtocolError, match="another harness task"):
         ProviderV4HarnessTranslator(
             binding,
             ProviderSession(
