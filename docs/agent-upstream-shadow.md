@@ -30,8 +30,10 @@ entrypoint; `PLAN.md`, scratch notes, and other inspectable workspace files are
 excluded. A later multi-file delivery round must introduce a versioned manifest
 before widening this contract.
 
-The worker receives a minimal environment and a sensitive model-lease IPC
-frame. Keys are not written to SQLite, events, error messages, or reports. Its
+The worker receives a minimal environment and a host model callback: it sends
+model messages to Python and receives only model segments plus a redacted
+outcome. Provider URLs, connection identifiers, and keys never cross into the
+worker. Keys are not written to SQLite, events, error messages, or reports. Its
 stdout is protocol-only; malformed frames, sequence gaps, duplicates, unknown
 fields, and stdout pollution fail closed.
 
@@ -52,6 +54,22 @@ The feature flag `AGENT_APP_ENGINE_SHADOW_ENABLED` defaults to `0`. When enabled
 Terminal states are `candidate_ready`, `blocked`, `budget_limited`, `stopped`,
 `interrupted`, and `failed`. Active runs become `interrupted` after server
 restart. An upstream Goal marked complete maps only to `candidate_ready`.
+
+R6B adds an independently disabled Provider control-plane path. When
+`MODEL_CONTROL_AGENT_SHADOW_ENABLED=false`, Shadow model calls retain the
+existing gateway path and do not create Workload Receipts. When the flag is on,
+only an explicitly approved `agent_shadow + chat_tools + exact model` Binding
+can activate `managed_required`. An invalidated active policy becomes
+`degraded_required` and blocks before the worker starts; it never silently
+returns to the legacy gateway.
+
+Each worker `model.request` ID is the immutable logical-call key. The Python
+host resolves one pinned Provider target, records dispatch before sending, and
+allows at most one Provider POST for that key. Cancellation, connection
+ambiguity, invalid streams, model mismatch, worker crashes, and restarts do not
+trigger a second Provider, IP, model, or legacy call. Shadow events expose only
+the managed flag, exact model, call sequence, status, and available token total;
+full redacted Receipt evidence remains in Provider Settings.
 
 ## Deliberate R3R-1 exclusions
 
@@ -89,3 +107,9 @@ Evidence created by Shadow execution.
 Rollback by setting `AGENT_APP_ENGINE_SHADOW_ENABLED=0` and rebuilding only
 `server` and `client`. Data is retained. Do not silently fall back to the
 abandoned Python AppBuild engine.
+
+To roll back only R6B routing, first deactivate the `agent_shadow` Policy or set
+`MODEL_CONTROL_AGENT_SHADOW_ENABLED=false`, then restart the Server. This
+restores the pre-R6B gateway path while retaining v16 Bindings, approvals, and
+redacted Receipts. A `degraded_required` policy remains fail-closed until the
+administrator explicitly deactivates it or restores its qualification.

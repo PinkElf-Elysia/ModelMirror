@@ -217,10 +217,12 @@ MODEL_CONTROL_ROUTE_AGENT_ENABLED=false
 MODEL_CONTROL_TEAM_CHAT_ENABLED=false
 ```
 
-R6A 的入口数据面尚未接入，即使误开环境变量也不能激活 Managed Policy。管理员可以先完成
-新执行形态资格并保存精确 Binding，但 Agent、Workflow 和 Xpert 继续使用 legacy 路径。
-每个后续子轮次验收后才会把对应入口加入可激活集合。紧急回退先显式停用入口 Policy，再
-关闭对应开关并重启；保留 v16 表和 Receipt，旧代码可忽略这些表运行。
+R6B 仅接入 `agent_shadow` 数据面；其他 Agent、Workflow 和 Xpert 入口仍不能激活
+Managed Policy。`agent_shadow` 只有在 `MODEL_CONTROL_AGENT_SHADOW_ENABLED=true`、
+精确模型的 `chat_tools` 资格与 Binding 有效、且管理员明确批准 fail-closed 后才会接管。
+开关为 `false` 或 Policy 为 `legacy` 时继续使用原 Shadow 网关路径；已经激活但失效的
+Policy 会保持 `degraded_required`，不会自动回退。紧急回退需显式停用 Policy 或关闭该
+开关并重启 Server；保留 v16 Receipt 和 Shadow Workspace 数据。
 
 同一清理命令从 v16 起同时报告 R5 Chat 与 R6 Workload 的过期记录；第一条仍是 dry-run，
 只有第二条显式 `--apply` 才删除已完成记录。不得对正在运行的父运行或逻辑调用执行清理。

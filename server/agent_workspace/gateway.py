@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -11,6 +12,9 @@ import httpx
 
 
 DeltaCallback = Callable[[str, dict[str, Any]], Awaitable[None] | None]
+MAX_GATEWAY_ERROR_BYTES = 1024 * 1024
+MAX_GATEWAY_SSE_EVENT_BYTES = 256 * 1024
+MAX_GATEWAY_STREAM_BYTES = 4 * 1024 * 1024
 
 
 class GatewayError(RuntimeError):
@@ -49,6 +53,11 @@ class GatewayTurn:
     tool_calls: tuple[NativeToolCall, ...]
     finish_reason: str
     model_id: str
+    ttft_ms: float | None = None
+    e2e_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class OpenAICompatibleGateway:
@@ -101,6 +110,46 @@ class OpenAICompatibleGateway:
         on_delta: DeltaCallback,
     ) -> GatewayTurn:
         url, key, _ = self.configuration()
+        payload = self.build_stream_payload(
+            model_id=model_id,
+            messages=messages,
+            tools=tools,
+            max_tokens=max_tokens,
+            thinking_level=thinking_level,
+        )
+        timeout = httpx.Timeout(
+            connect=min(15.0, timeout_ms / 1000),
+            read=timeout_ms / 1000,
+            write=30.0,
+            pool=10.0,
+        )
+        kwargs: dict[str, Any] = {"timeout": timeout}
+        if self._transport is not None:
+            kwargs["transport"] = self._transport
+        started_at = time.monotonic()
+        async with httpx.AsyncClient(**kwargs) as client:
+            async with client.stream(
+                "POST",
+                url,
+                headers=self._headers(key),
+                json=payload,
+            ) as response:
+                return await self.consume_stream_response(
+                    response,
+                    requested_model_id=model_id,
+                    on_delta=on_delta,
+                    started_at=started_at,
+                )
+
+    @staticmethod
+    def build_stream_payload(
+        *,
+        model_id: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        max_tokens: int,
+        thinking_level: str,
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": model_id,
             "messages": messages,
@@ -112,90 +161,119 @@ class OpenAICompatibleGateway:
         }
         if thinking_level in {"low", "medium", "high", "xhigh"}:
             payload["reasoning"] = {"effort": thinking_level}
-        timeout = httpx.Timeout(
-            connect=min(15.0, timeout_ms / 1000),
-            read=timeout_ms / 1000,
-            write=30.0,
-            pool=10.0,
-        )
-        kwargs: dict[str, Any] = {"timeout": timeout}
-        if self._transport is not None:
-            kwargs["transport"] = self._transport
-        async with httpx.AsyncClient(**kwargs) as client:
-            async with client.stream(
-                "POST",
-                url,
-                headers=self._headers(key),
-                json=payload,
-            ) as response:
-                if response.status_code >= 400:
-                    body = await response.aread()
-                    self._raise_upstream(response.status_code, body)
-                content_parts: list[str] = []
-                calls: dict[int, dict[str, str]] = {}
-                finish_reason = ""
-                saw_event = False
-                async for line in response.aiter_lines():
-                    clean = line.strip()
-                    if not clean or clean.startswith(":"):
-                        continue
-                    if clean == "data: [DONE]":
-                        break
-                    raw = clean[5:].strip() if clean.startswith("data:") else clean
-                    try:
-                        event = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-                    saw_event = True
-                    if isinstance(event, dict) and isinstance(event.get("error"), dict):
-                        message = str(event["error"].get("message") or "模型流返回错误")
-                        self._raise_message(message)
-                    choices = event.get("choices") if isinstance(event, dict) else None
-                    if not isinstance(choices, list) or not choices:
-                        continue
-                    choice = choices[0] if isinstance(choices[0], dict) else {}
-                    finish_reason = str(choice.get("finish_reason") or finish_reason)
-                    delta = choice.get("delta")
-                    if not isinstance(delta, dict):
-                        message = choice.get("message")
-                        if isinstance(message, dict):
-                            delta = message
-                        else:
-                            continue
-                    text = self._text(delta.get("content"))
-                    if text:
-                        content_parts.append(text)
-                        await self._emit(on_delta, "text_delta", {"delta": text})
-                    thought = self._text(
-                        delta.get("reasoning_content", delta.get("reasoning"))
+        return payload
+
+    async def consume_stream_response(
+        self,
+        response: httpx.Response,
+        *,
+        requested_model_id: str,
+        on_delta: DeltaCallback,
+        started_at: float | None = None,
+        require_terminal: bool = False,
+    ) -> GatewayTurn:
+        if response.status_code >= 400:
+            body = bytearray()
+            async for chunk in response.aiter_bytes():
+                if len(body) + len(chunk) > MAX_GATEWAY_ERROR_BYTES:
+                    raise GatewayRequestError("模型服务错误响应超过安全上限。")
+                body.extend(chunk)
+            self._raise_upstream(response.status_code, bytes(body))
+        started = started_at if started_at is not None else time.monotonic()
+        first_delta_at: float | None = None
+        content_parts: list[str] = []
+        calls: dict[int, dict[str, str]] = {}
+        finish_reason = ""
+        actual_model = ""
+        prompt_tokens: int | None = None
+        completion_tokens: int | None = None
+        total_tokens: int | None = None
+        saw_event = False
+        saw_done = False
+        stream_bytes = 0
+        async for line in response.aiter_lines():
+            clean = line.strip()
+            if not clean or clean.startswith(":"):
+                continue
+            if clean == "data: [DONE]":
+                saw_done = True
+                break
+            encoded_size = len(clean.encode("utf-8"))
+            stream_bytes += encoded_size
+            if encoded_size > MAX_GATEWAY_SSE_EVENT_BYTES:
+                raise GatewayRequestError("模型流事件超过安全上限。")
+            if stream_bytes > MAX_GATEWAY_STREAM_BYTES:
+                raise GatewayRequestError("模型流响应超过安全上限。")
+            raw = clean[5:].strip() if clean.startswith("data:") else clean
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            saw_event = True
+            if isinstance(event, dict) and isinstance(event.get("error"), dict):
+                message = str(event["error"].get("message") or "模型流返回错误")
+                self._raise_message(message)
+            if isinstance(event, dict):
+                if event.get("model"):
+                    actual_model = str(event["model"])
+                usage = event.get("usage")
+                if isinstance(usage, dict):
+                    prompt_tokens = self._optional_int(usage.get("prompt_tokens"))
+                    completion_tokens = self._optional_int(
+                        usage.get("completion_tokens")
                     )
-                    if thought:
-                        await self._emit(on_delta, "thinking_delta", {"delta": thought})
-                    raw_calls = delta.get("tool_calls")
-                    if isinstance(raw_calls, list):
-                        for raw_call in raw_calls:
-                            if not isinstance(raw_call, dict):
-                                continue
-                            index = int(raw_call.get("index") or 0)
-                            accumulated = calls.setdefault(
-                                index, {"id": "", "name": "", "arguments": ""}
+                    total_tokens = self._optional_int(usage.get("total_tokens"))
+            choices = event.get("choices") if isinstance(event, dict) else None
+            if not isinstance(choices, list) or not choices:
+                continue
+            choice = choices[0] if isinstance(choices[0], dict) else {}
+            finish_reason = str(choice.get("finish_reason") or finish_reason)
+            delta = choice.get("delta")
+            if not isinstance(delta, dict):
+                message = choice.get("message")
+                if isinstance(message, dict):
+                    delta = message
+                else:
+                    continue
+            text = self._text(delta.get("content"))
+            if text:
+                first_delta_at = first_delta_at or time.monotonic()
+                content_parts.append(text)
+                await self._emit(on_delta, "text_delta", {"delta": text})
+            thought = self._text(
+                delta.get("reasoning_content", delta.get("reasoning"))
+            )
+            if thought:
+                first_delta_at = first_delta_at or time.monotonic()
+                await self._emit(on_delta, "thinking_delta", {"delta": thought})
+            raw_calls = delta.get("tool_calls")
+            if isinstance(raw_calls, list):
+                for raw_call in raw_calls:
+                    if not isinstance(raw_call, dict):
+                        continue
+                    first_delta_at = first_delta_at or time.monotonic()
+                    index = int(raw_call.get("index") or 0)
+                    accumulated = calls.setdefault(
+                        index, {"id": "", "name": "", "arguments": ""}
+                    )
+                    if raw_call.get("id"):
+                        accumulated["id"] = str(raw_call["id"])
+                    function = raw_call.get("function")
+                    if isinstance(function, dict):
+                        if function.get("name"):
+                            accumulated["name"] += str(function["name"])
+                        if function.get("arguments"):
+                            argument_delta = str(function["arguments"])
+                            accumulated["arguments"] += argument_delta
+                            await self._emit(
+                                on_delta,
+                                "tool_call_delta",
+                                {"index": index, "delta": argument_delta},
                             )
-                            if raw_call.get("id"):
-                                accumulated["id"] = str(raw_call["id"])
-                            function = raw_call.get("function")
-                            if isinstance(function, dict):
-                                if function.get("name"):
-                                    accumulated["name"] += str(function["name"])
-                                if function.get("arguments"):
-                                    argument_delta = str(function["arguments"])
-                                    accumulated["arguments"] += argument_delta
-                                    await self._emit(
-                                        on_delta,
-                                        "tool_call_delta",
-                                        {"index": index, "delta": argument_delta},
-                                    )
         if not saw_event:
             raise GatewayRequestError("模型没有返回可解析的流式响应。")
+        if require_terminal and not saw_done and not finish_reason:
+            raise GatewayRequestError("模型流没有返回安全终止信号。")
         tool_calls: list[NativeToolCall] = []
         for index in sorted(calls):
             item = calls[index]
@@ -214,7 +292,16 @@ class OpenAICompatibleGateway:
             content="".join(content_parts),
             tool_calls=tuple(tool_calls),
             finish_reason=finish_reason or ("tool_calls" if tool_calls else "stop"),
-            model_id=model_id,
+            model_id=actual_model or requested_model_id,
+            ttft_ms=(
+                round((first_delta_at - started) * 1000, 3)
+                if first_delta_at is not None
+                else None
+            ),
+            e2e_ms=round((time.monotonic() - started) * 1000, 3),
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
         )
 
     async def describe_image(
@@ -325,3 +412,10 @@ class OpenAICompatibleGateway:
         if isinstance(value, dict) and isinstance(value.get("text"), str):
             return value["text"]
         return ""
+
+    @staticmethod
+    def _optional_int(value: Any) -> int | None:
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
