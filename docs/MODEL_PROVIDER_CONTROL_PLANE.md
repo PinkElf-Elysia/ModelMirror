@@ -1,8 +1,8 @@
 # Model Provider Control Plane
 
-状态：Round 0–4 已合并；Round 5A 正在建设管理、资格和审计基础；默认数据面切换未批准
-Round 5A 实施基线：`origin/main@f5d2081acb444fee5de947031455b2050f259019`
-更新日期：2026-08-21
+状态：Round 0–4、Round 5A–5C 已合并；Round 5D 正在接入工具与受控文件输出；默认数据面切换未批准
+Round 5D 当前基线：`origin/main@20dd124e364701ee6ac569cc8de15d102eb1a07b`
+更新日期：2026-08-22
 
 ## 决策
 
@@ -35,6 +35,10 @@ Provider Control Plane 的会话、SQLite 或主密钥。它只加入独立外�
   不触发自动刷新、自动认证、自动路由或付费请求。
 - Round 5A 只增加 Managed Chat 的逐能力认证、稳定策略、资格和脱敏 Receipt 基础；
   不接管 `/api/chat`。真实调度从 Round 5B 开始并需独立验收。
+- Round 5B 只迁移稳定白名单内的 default 普通文本与已提取文本附件；Round 5C 只为
+  Auto 接入不改变选路的独立证据管道。
+- Round 5D 只迁移 MCP 工具和受控文件输出的 Provider 选择与 Receipt；工具执行、权限、
+  文件渲染和专用多模态协议仍由既有 Runtime 负责。
 - newAPI 是否成为强制默认数据面由后续独立决策决定。
 - 任一门禁失败时保留现有静态数据面和 SQLite，不自动迁移或删除数据。
 
@@ -156,7 +160,7 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - R4 受管 Provider 不会自动配置或接管普通 `/api/chat`。当前 default Chat 仍读取
   `LLM_GATEWAY_URL/KEY` 或 `OPENROUTER_API_KEY`；迁移和 newAPI 默认门禁属于 Round 5。
 
-## Managed Chat 策略、稳定路由与 Auto 证据（Round 5A—5C）
+## Managed Chat 策略、稳定路由与 Auto 证据（Round 5A—5D）
 
 - 内部契约版本为 `modelmirror-provider-chat-routing-v1`，将 `chat_text`、
   `chat_tools` 和 `chat_file_output` 分别认证和配置；普通文本认证不能证明工具或受控
@@ -180,8 +184,14 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   Provider 目标独立记录 attempt；OmniRoute 只记录 ModelMirror 可见的一次 sidecar
   attempt，内部重试标记 `provider_attempts_not_observed`。Auto 记录始终设置
   `primary_newapi=false`，不计入 R5E required 门禁。
-- 工具、受控文件输出、多模态与 Canary 不在 R5C 证据接入范围；
-  `newapi_required_default` 仍等待 R5E 的证据门禁与人工批准。
+- R5D 将 `gateway=default` 的 MCP 工具模式和 `output_mode=allowlisted` 分别接入
+  `chat_tools` 与 `chat_file_output`。两条路径都必须使用同一精确模型的独立当前认证；
+  缺失资格时在派发前阻断，不能借用 `chat_text` 或静默进入 legacy。
+- 工具由 ModelMirror Runtime 执行，文件由 allowlisted renderer 校验；Provider 只接收
+  既有安全模型输入，不接收 MCP 凭据或本地文件权限。需要多次模型决策时保持同一连接和
+  已批准 IP，策略漂移则失败关闭，不跨 Provider 重放。
+- 多模态与 Canary 不在 R5D 接入范围；`newapi_required_default` 仍等待 R5E 的证据门禁
+  与人工批准。
 - 清理命令 `python -m server.model_router.cleanup_chat_receipts --storage-dir <path>` 默认
   dry-run；只有显式增加 `--apply` 才会删除超过保留期的运行和尝试记录，默认保留 90 天。
 

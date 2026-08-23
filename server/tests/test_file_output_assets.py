@@ -79,6 +79,15 @@ def test_output_capability_is_fail_closed(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert workflow.interaction_status == "ready"
     assert "reuse" not in workflow_formats["png"].actions
 
+    legacy_service = FileOutputService(
+        FileAssetService(storage_dir=tmp_path / "legacy", mode="legacy")
+    )
+    legacy = legacy_service.capabilities(
+        purpose="chat", model_id="model-1", verified_chat_tool=True
+    )
+    assert legacy.interaction_status == "disabled"
+    assert legacy.status_reason == "The unified file asset store is disabled."
+
 
 def test_publish_list_preview_download_and_delete_are_scope_safe(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

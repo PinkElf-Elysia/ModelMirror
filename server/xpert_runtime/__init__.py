@@ -150,6 +150,7 @@ from .toolset import (
     ToolsetProvider,
     register_mcp_toolset_capability,
 )
+from .catalog_toolset import CatalogMCPToolsetProvider
 from .tool_runner import run_tool_with_runtime
 from .hub_toolset import HubMCPToolsetProvider
 from .sandbox_api import configure_runtime_sandbox, router as runtime_sandbox_router
@@ -313,6 +314,7 @@ __all__ = [
     "validate_goal_plan",
     "InMemoryToolAuditStore",
     "MCPToolsetProvider",
+    "CatalogMCPToolsetProvider",
     "CompositeMCPToolsetProvider",
     "HubMCPToolsetProvider",
     "KnowledgeToolsetProvider",

@@ -97,7 +97,7 @@ docker compose -f docker-compose.yml `
 ModelMirror 不得删除该目录。newAPI 上游为带附加条款的 AGPLv3 项目；本仓库不
 嵌入或修改其管理 UI，部署者仍需自行完成许可证与业务使用合规审查。
 
-### Provider Control Plane、v14 Catalog 与 R5A Chat 管理基础
+### Provider Control Plane、v14 Catalog 与 R5D Managed Chat
 
 Provider 管理面仍需外部注入至少 32 字符的
 `MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET` 和规范凭据主密钥。升级到 SQLite v14
@@ -158,7 +158,24 @@ Auto 门禁。开启后只为普通文本 Auto 写入脱敏父运行/尝试证�
 OmniRoute 选路。Native 每个实际目标分别记录；OmniRoute 只记录一次 sidecar 边界尝试，
 内部 Provider 重试标记为不可观测。若 v15 Receipt 无法在派发前建立，已开启门禁的 Auto
 请求失败关闭；关闭 `auto_enabled` 即可恢复旧 Auto 路径。Auto 记录不计入 required
-资格样本。工具、受控文件输出和多模态仍未迁移。超过 90 天的运行与尝试记录可先
+资格样本。
+
+R5D 使用同一部署开关，将 default MCP 工具模式和受控文件输出分别绑定到
+`chat_tools`、`chat_file_output` 的有序 Managed 路由。管理员必须先对每个稳定模型和
+每个目标连接完成对应能力认证；`chat_text` 认证不能替代。MCP 工具仍由 ModelMirror
+Runtime 按既有权限执行，文件仍由 allowlisted renderer 生成，Provider 不获得工具凭据
+或本地文件权限。首次 Provider 派发后，多步模型决策只能继续使用同一连接和预检批准的
+IP；连接、策略或资格漂移会失败关闭，不转向备用或 legacy。关闭
+`MODEL_CONTROL_CHAT_ENABLED` 即恢复全部旧静态路径；多模态与 Canary 不受影响。
+
+Direct Chat 可以读取已连接 MCP Catalog 中明确标记为只读、无需审批、非敏感且非终止性的
+工具；调用仍经 Catalog Service 重新执行策略校验。该接入使用独立的 Chat Runtime 能力，
+不会把 Catalog 工具加入 Workflow 或 Agent 的既有工具集合。受控文件输出还要求
+`FILE_OUTPUT_ASSETS_ENABLED=true`、`CHAT_FILE_OUTPUT_TOOL_ENABLED=true`，且
+`FILE_ASSET_STORE_MODE` 为 `shadow` 或 `native`；存储仍为 `legacy` 时能力接口失败关闭，
+不得仅因 Managed 资格通过而向前端宣称可用。
+
+超过 90 天的运行与尝试记录可先
 dry-run 检查：
 
 ```bash

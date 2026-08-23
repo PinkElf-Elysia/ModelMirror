@@ -62,9 +62,14 @@ from .service import (
 )
 
 try:
-    from server.model_router.api import get_catalog_coordinator
+    from server.model_router.api import (
+        get_catalog_coordinator,
+        get_model_router_service,
+    )
+    from server.model_router.chat_control import ProviderChatControlService
 except ModuleNotFoundError:
-    from model_router.api import get_catalog_coordinator
+    from model_router.api import get_catalog_coordinator, get_model_router_service
+    from model_router.chat_control import ProviderChatControlService
 
 
 MIB = 1024 * 1024
@@ -783,6 +788,17 @@ def _http_error(exc: FileAssetServiceError) -> HTTPException:
 
 
 async def _verified_chat_output_tool(model_id: str) -> bool:
+    if ProviderChatControlService.feature_enabled():
+        try:
+            managed_status = ProviderChatControlService(
+                get_model_router_service()
+            ).public_status(model_id, "chat_file_output")
+        except Exception:
+            # An enabled control plane fails closed when its qualification
+            # projection cannot be read; never borrow the legacy allowlist.
+            return False
+        if managed_status.effective_mode != "legacy":
+            return managed_status.available
     if verified_chat_output_provider(
         model_id=model_id,
         gateway_url=_active_chat_url(),

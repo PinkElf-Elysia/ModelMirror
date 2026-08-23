@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -18,6 +19,9 @@ OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions
 _VERIFIED_CHAT_OUTPUT_TARGETS = {
     "openai/gpt-5.6-luna": "openai",
 }
+ChatOutputResponseSender = Callable[
+    [httpx.AsyncClient, dict[str, Any]], Awaitable[httpx.Response]
+]
 _SANDBOX_MARKDOWN_LINK_RE = re.compile(
     r"\[[^\]\r\n]{0,500}\]\(\s*sandbox:[^)\r\n]{1,2000}\)",
     re.IGNORECASE,
@@ -58,11 +62,19 @@ CREATE_FILE_TOOL = {
 
 
 class ChatOutputError(RuntimeError):
-    def __init__(self, status_code: int, error_code: str, message: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        error_code: str,
+        message: str,
+        *,
+        upstream_status_code: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.error_code = error_code
         self.message = message
+        self.upstream_status_code = upstream_status_code
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +120,7 @@ async def run_chat_output_turn(
     scope_id: str,
     output_context_id: str,
     provider_tag: str | None = None,
+    response_sender: ChatOutputResponseSender | None = None,
 ) -> ChatOutputResult:
     request_payload: dict[str, Any] = {
         "model": model_id,
@@ -132,7 +145,14 @@ async def run_chat_output_turn(
         request_payload["stop"] = stop
 
     async with httpx.AsyncClient(**client_kwargs) as client:
-        first = await _stream_once(client, url=url, key=key, headers=headers, payload=request_payload)
+        first = await _stream_once(
+            client,
+            url=url,
+            key=key,
+            headers=headers,
+            payload=request_payload,
+            response_sender=response_sender,
+        )
         _require_exact_model(first.actual_model, model_id)
         if len(first.tool_calls) > 1:
             raise ChatOutputError(
@@ -222,6 +242,7 @@ async def run_chat_output_turn(
                 key=key,
                 headers=headers,
                 payload=second_payload,
+                response_sender=response_sender,
             )
         except ChatOutputError:
             text_chunks = tuple(first.text_chunks) or (
@@ -281,16 +302,26 @@ async def _stream_once(
     key: str,
     headers: dict[str, str],
     payload: dict[str, Any],
+    response_sender: ChatOutputResponseSender | None = None,
 ) -> _StreamResult:
-    response = await client.send(
-        client.build_request("POST", url, headers=headers, json=payload), stream=True
+    response = (
+        await response_sender(client, payload)
+        if response_sender is not None
+        else await client.send(
+            client.build_request("POST", url, headers=headers, json=payload),
+            stream=True,
+        )
     )
     if response.status_code >= 400:
+        upstream_status_code = response.status_code
         await response.aclose()
         raise ChatOutputError(
             502,
             "output_model_upstream_error",
             "The selected model connection rejected the file-output request.",
+            upstream_status_code=(
+                upstream_status_code if response_sender is not None else None
+            ),
         )
     text_chunks: list[str] = []
     calls: dict[int, dict[str, str]] = {}
