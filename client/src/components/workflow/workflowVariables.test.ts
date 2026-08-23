@@ -431,6 +431,27 @@ describe("analyzeWorkflowVariables", () => {
     ).toEqual(["text", "unknown"]);
   });
 
+  it("declares typed parameter extractor outputs without changing V1 text outputs", () => {
+    const version1 = analyzeWorkflowVariables(
+      [node("legacy", "parameter_extractor", {
+        outputVariable: "legacy_parameters",
+      })],
+      [],
+      null,
+    );
+    const version2 = analyzeWorkflowVariables(
+      [node("typed", "parameter_extractor", {
+        contractVersion: 2,
+        outputVariable: "typed_parameters",
+      })],
+      [],
+      null,
+    );
+
+    expect(version1.find((item) => item.name === "legacy_parameters")?.valueType).toBe("text");
+    expect(version2.find((item) => item.name === "typed_parameters")?.valueType).toBe("json");
+  });
+
   it.each([
     ["condition", "conditionVariable", "binding"],
     ["condition", "inputVariable", "binding"],

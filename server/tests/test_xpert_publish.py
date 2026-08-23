@@ -522,6 +522,182 @@ async def test_r17_typed_nodes_pass_real_xpert_publish_preflight(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind",
+    ["parameter_extractor", "question_classifier", "content_policy"],
+)
+async def test_r19_typed_ai_and_policy_pass_xpert_publish_preflight(
+    client: httpx.AsyncClient,
+    kind: str,
+) -> None:
+    created = await client.post("/api/xperts", json={"name": f"R1.9 {kind}"})
+    assert created.status_code == 200, created.text
+    xpert = created.json()
+    draft = xpert["draft"]
+    workflow = draft["workflow"]
+    base = {node["id"]: node for node in workflow["nodes"]}
+    input_node = base["input-1"]
+    agent_node = base["workflow-agent-1"]
+    output_node = base["output-1"]
+
+    if kind == "parameter_extractor":
+        workflow["nodes"] = [
+            input_node,
+            {
+                "id": "extractor-1",
+                "type": "parameter_extractor",
+                "position": {"x": 220, "y": 140},
+                "data": {
+                    "kind": "parameter_extractor",
+                    "contractVersion": 2,
+                    "inputVariable": "user_input",
+                    "modelId": "test/model",
+                    "outputVariable": "parameters",
+                    "schemaMode": "fields",
+                    "outputShape": "object",
+                    "fields": [{"id": "field_1", "name": "topic", "description": "Request topic", "valueType": "string", "required": True, "nullable": False}],
+                    "repairAttempts": 0,
+                },
+            },
+            agent_node,
+            output_node,
+        ]
+        workflow["edges"] = [
+            {"id": "input-extractor", "source": "input-1", "target": "extractor-1"},
+            {"id": "extractor-agent", "source": "extractor-1", "target": "workflow-agent-1"},
+            {"id": "agent-output", "source": "workflow-agent-1", "target": "output-1"},
+        ]
+    elif kind == "question_classifier":
+        workflow["nodes"] = [
+            input_node,
+            {
+                "id": "classifier-1",
+                "type": "question_classifier",
+                "position": {"x": 220, "y": 140},
+                "data": {
+                    "kind": "question_classifier",
+                    "contractVersion": 2,
+                    "inputVariable": "user_input",
+                    "outputVariable": "category",
+                    "classificationMode": "rules_only",
+                    "categoriesV2": [
+                        {"id": "category_1", "label": "Support", "description": "", "keywords": ["help"], "matchMode": "contains_any"},
+                        {"id": "category_2", "label": "Sales", "description": "", "keywords": ["buy"], "matchMode": "contains_any"},
+                    ],
+                    "caseSensitive": False,
+                    "modelId": "",
+                    "defaultLabel": "Other",
+                },
+            },
+            agent_node,
+            output_node,
+        ]
+        workflow["edges"] = [
+            {"id": "input-classifier", "source": "input-1", "target": "classifier-1"},
+            *[
+                {"id": f"classifier-agent-{handle}", "source": "classifier-1", "sourceHandle": handle, "target": "workflow-agent-1"}
+                for handle in ("category_1", "category_2", "default")
+            ],
+            {"id": "agent-output", "source": "workflow-agent-1", "target": "output-1"},
+        ]
+    else:
+        workflow["nodes"] = [
+            input_node,
+            {
+                "id": "policy-1",
+                "type": "runtime_middleware",
+                "position": {"x": 220, "y": 20},
+                "data": {
+                    "kind": "runtime_middleware",
+                    "runtimeMiddlewareId": "content_policy",
+                    "runtimeMiddlewareKind": "runtime_middleware.content_policy",
+                    "middlewarePriority": "100",
+                    "runtimeMiddlewareConfig": {
+                        "phase": "both",
+                        "rules": [{"id": "rule_1", "label": "Secrets", "detector": "secret_pattern", "action": "block", "terms": [], "caseSensitive": False}],
+                    },
+                },
+            },
+            agent_node,
+            output_node,
+        ]
+        workflow["edges"] = [
+            {"id": "input-agent", "source": "input-1", "target": "workflow-agent-1"},
+            {"id": "policy-agent", "source": "policy-1", "sourceHandle": "middleware-binding", "target": "workflow-agent-1", "targetHandle": "middleware"},
+            {"id": "agent-output", "source": "workflow-agent-1", "target": "output-1"},
+        ]
+
+    updated = await client.patch(f"/api/xperts/{xpert['id']}", json={"draft": draft})
+    assert updated.status_code == 200, updated.text
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+    assert published.status_code == 200, published.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["parameter_extractor", "question_classifier"])
+async def test_r19_v1_typed_ai_nodes_remain_publishable(
+    client: httpx.AsyncClient,
+    kind: str,
+) -> None:
+    created = await client.post("/api/xperts", json={"name": f"R1.9 V1 {kind}"})
+    assert created.status_code == 200, created.text
+    xpert = created.json()
+    draft = xpert["draft"]
+    workflow = draft["workflow"]
+    base = {node["id"]: node for node in workflow["nodes"]}
+    legacy_data: dict[str, Any]
+    if kind == "parameter_extractor":
+        legacy_data = {
+            "kind": kind,
+            "inputVariable": "user_input",
+            "modelId": "test/model",
+            "schema": "topic: Request topic",
+            "outputVariable": "parameters_json",
+        }
+    else:
+        legacy_data = {
+            "kind": kind,
+            "inputVariable": "user_input",
+            "outputVariable": "category",
+            "categories": '{"Support":["help"],"Sales":["buy"]}',
+            "defaultCategory": "Other",
+            "matchMode": "contains_any",
+            "caseSensitive": "false",
+            "useLlmFallback": "false",
+            "modelId": "",
+        }
+    workflow["nodes"] = [
+        base["input-1"],
+        {
+            "id": "legacy-node",
+            "type": kind,
+            "position": {"x": 220, "y": 140},
+            "data": legacy_data,
+        },
+        base["workflow-agent-1"],
+        base["output-1"],
+    ]
+    workflow["edges"] = [
+        {"id": "input-legacy", "source": "input-1", "target": "legacy-node"},
+        {
+            "id": "legacy-agent",
+            "source": "legacy-node",
+            "target": "workflow-agent-1",
+        },
+        {
+            "id": "agent-output",
+            "source": "workflow-agent-1",
+            "target": "output-1",
+        },
+    ]
+
+    updated = await client.patch(f"/api/xperts/{xpert['id']}", json={"draft": draft})
+    assert updated.status_code == 200, updated.text
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+    assert published.status_code == 200, published.text
+
+
+@pytest.mark.asyncio
 async def test_r17_secure_http_xpert_publish_is_fail_closed_by_feature_flag(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

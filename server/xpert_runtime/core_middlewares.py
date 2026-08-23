@@ -21,7 +21,18 @@ except ModuleNotFoundError:
     )
 
 from .middleware import AgentMiddleware
-from .models import MiddlewareContext, ModelCallRequest
+from .content_policy import (
+    MAX_CONTENT_POLICY_TEXT_CHARS,
+    ContentPolicyError,
+    apply_content_policy,
+    validate_content_policy_config,
+)
+from .models import (
+    MiddlewareContext,
+    ModelCallRequest,
+    ToolCallRequest,
+    ToolCallResponse,
+)
 from .toolset import RuntimeTool
 
 
@@ -196,6 +207,150 @@ def build_context_compression_middleware(
         return None
 
     return AgentMiddleware(name="context_compression", before_model=before_model)
+
+
+def build_content_policy_middleware(
+    spec: RuntimeMiddlewareSpec,
+) -> AgentMiddleware:
+    config = validate_content_policy_config(spec.config)
+
+    async def before_model(
+        request: ModelCallRequest,
+        context: MiddlewareContext,
+    ) -> dict[str, Any] | None:
+        if not config.applies_to("input"):
+            return None
+        total_chars = 0
+        changed = False
+        messages: list[dict[str, Any]] = []
+        matched_rule_ids: list[str] = []
+        match_count = 0
+        for message in request.messages:
+            current = dict(message)
+            if str(current.get("role") or "") == "system":
+                messages.append(current)
+                continue
+            content = current.get("content")
+            if isinstance(content, str):
+                total_chars += len(content)
+                if total_chars > MAX_CONTENT_POLICY_TEXT_CHARS:
+                    raise ContentPolicyError(
+                        "content_policy_input_too_large",
+                        "Content policy input text exceeds 200000 characters.",
+                        phase="input",
+                    )
+                result = apply_content_policy(content, config, phase="input")
+                current["content"] = result.text
+                changed = changed or result.text != content
+                matched_rule_ids.extend(result.rule_ids)
+                match_count += result.match_count
+            elif isinstance(content, list):
+                parts: list[Any] = []
+                for part in content:
+                    if not isinstance(part, dict) or not isinstance(part.get("text"), str):
+                        parts.append(part)
+                        continue
+                    updated_part = dict(part)
+                    part_text = str(part["text"])
+                    total_chars += len(part_text)
+                    if total_chars > MAX_CONTENT_POLICY_TEXT_CHARS:
+                        raise ContentPolicyError(
+                            "content_policy_input_too_large",
+                            "Content policy input text exceeds 200000 characters.",
+                            phase="input",
+                        )
+                    result = apply_content_policy(part_text, config, phase="input")
+                    updated_part["text"] = result.text
+                    changed = changed or result.text != part_text
+                    matched_rule_ids.extend(result.rule_ids)
+                    match_count += result.match_count
+                    parts.append(updated_part)
+                current["content"] = parts
+            messages.append(current)
+        if matched_rule_ids:
+            _record_content_policy_metadata(
+                context,
+                phase="input",
+                rule_ids=matched_rule_ids,
+                match_count=match_count,
+            )
+        return {"messages": messages} if changed else None
+
+    async def wrap_tool_call(
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[ToolCallResponse]],
+        context: MiddlewareContext,
+    ) -> ToolCallResponse:
+        response = await handler(request)
+        if not config.applies_to("input"):
+            return response
+
+        total_chars = 0
+        matched_rule_ids: list[str] = []
+        match_count = 0
+
+        def guard_text(value: str) -> str:
+            nonlocal total_chars, match_count
+            total_chars += len(value)
+            if total_chars > MAX_CONTENT_POLICY_TEXT_CHARS:
+                raise ContentPolicyError(
+                    "content_policy_input_too_large",
+                    "Content policy input text exceeds 200000 characters.",
+                    phase="input",
+                )
+            result = apply_content_policy(value, config, phase="input")
+            matched_rule_ids.extend(result.rule_ids)
+            match_count += result.match_count
+            return result.text
+
+        guarded_output = guard_text(str(response.output or ""))
+        guarded_raw = response.raw
+        if isinstance(response.raw, list):
+            guarded_items: list[Any] = []
+            for item in response.raw:
+                if not isinstance(item, dict):
+                    guarded_items.append(item)
+                    continue
+                guarded_item = dict(item)
+                if isinstance(guarded_item.get("text"), str):
+                    guarded_item["text"] = guard_text(guarded_item["text"])
+                if isinstance(guarded_item.get("content"), str):
+                    guarded_item["content"] = guard_text(guarded_item["content"])
+                guarded_items.append(guarded_item)
+            guarded_raw = guarded_items
+
+        if matched_rule_ids:
+            _record_content_policy_metadata(
+                context,
+                phase="input",
+                rule_ids=matched_rule_ids,
+                match_count=match_count,
+            )
+        return response.with_updates(output=guarded_output, raw=guarded_raw)
+
+    return AgentMiddleware(
+        name="content_policy",
+        before_model=before_model,
+        wrap_tool_call=wrap_tool_call,
+    )
+
+
+def _record_content_policy_metadata(
+    context: MiddlewareContext,
+    *,
+    phase: str,
+    rule_ids: list[str],
+    match_count: int,
+) -> None:
+    records = context.metadata.setdefault("content_policy", [])
+    if isinstance(records, list):
+        records.append(
+            {
+                "phase": phase,
+                "rule_ids": list(dict.fromkeys(rule_ids)),
+                "match_count": match_count,
+            }
+        )
 
 
 async def validate_structured_output(

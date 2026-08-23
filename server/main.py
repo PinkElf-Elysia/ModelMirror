@@ -559,6 +559,20 @@ try:
         is_http_request_v2,
         workflow_http_requests_enabled,
     )
+    from server.workflow_native.typed_ai import (
+        ClassifierSelection,
+        WorkflowTypedAIError,
+        contract_version as typed_ai_contract_version,
+        is_typed_ai_v2,
+        parameter_extractor_prompt,
+        parameter_extractor_repair_prompt,
+        parse_and_validate_extractor_output,
+        parse_question_classifier_model_output,
+        question_classifier_prompt,
+        select_question_classifier_rule,
+        validate_parameter_extractor_v2_config,
+        validate_question_classifier_v2_config,
+    )
     from server.workflow_native.values import (
         WorkflowValue,
         deserialize_workflow_value,
@@ -613,6 +627,20 @@ except ModuleNotFoundError:
         execute_workflow_http_request,
         is_http_request_v2,
         workflow_http_requests_enabled,
+    )
+    from workflow_native.typed_ai import (
+        ClassifierSelection,
+        WorkflowTypedAIError,
+        contract_version as typed_ai_contract_version,
+        is_typed_ai_v2,
+        parameter_extractor_prompt,
+        parameter_extractor_repair_prompt,
+        parse_and_validate_extractor_output,
+        parse_question_classifier_model_output,
+        question_classifier_prompt,
+        select_question_classifier_rule,
+        validate_parameter_extractor_v2_config,
+        validate_question_classifier_v2_config,
     )
     from workflow_native.values import (
         WorkflowValue,
@@ -820,6 +848,7 @@ try:
         KnowledgeToolsetProvider,
         CatalogMCPToolsetProvider,
         CompositeMCPToolsetProvider,
+        ContentPolicyError,
         HubMCPToolsetProvider,
         MCPToolsetProvider,
         MemoryToolsetProvider,
@@ -860,6 +889,8 @@ try:
         ToolPermissionPolicy,
         bound_middleware_specs,
         bound_resource_nodes,
+        apply_content_policy,
+        build_content_policy_middleware,
         build_context_compression_middleware,
         build_xpert_file_memory_middleware,
         build_human_in_the_loop_middleware,
@@ -898,6 +929,7 @@ try:
         register_external_xpert_toolset_capability,
         run_tool_with_runtime,
         runtime_middleware_registry,
+        validate_content_policy_config,
         runtime_approval_router,
         runtime_todo_router,
         runtime_sandbox_router,
@@ -946,6 +978,7 @@ except ModuleNotFoundError:
         KnowledgeToolsetProvider,
         CatalogMCPToolsetProvider,
         CompositeMCPToolsetProvider,
+        ContentPolicyError,
         HubMCPToolsetProvider,
         MCPToolsetProvider,
         MemoryToolsetProvider,
@@ -986,6 +1019,8 @@ except ModuleNotFoundError:
         ToolPermissionPolicy,
         bound_middleware_specs,
         bound_resource_nodes,
+        apply_content_policy,
+        build_content_policy_middleware,
         build_context_compression_middleware,
         build_xpert_file_memory_middleware,
         build_human_in_the_loop_middleware,
@@ -1024,6 +1059,7 @@ except ModuleNotFoundError:
         register_external_xpert_toolset_capability,
         run_tool_with_runtime,
         runtime_middleware_registry,
+        validate_content_policy_config,
         runtime_approval_router,
         runtime_todo_router,
         runtime_sandbox_router,
@@ -8347,7 +8383,62 @@ async def _run_workflow_response(
         for node in payload.workflow.nodes
     )
     model_gateway_missing = requires_model and not get_llm_gateway_config()[0]
-    if model_gateway_missing and trusted_source_kind != "workflow_deployment":
+    nodes_by_id = {node.id: node for node in payload.workflow.nodes}
+    input_block_policy_can_stop_before_model = False
+    input_content_policy_redactors = []
+    seen_input_policy_nodes: set[str] = set()
+    for candidate in payload.workflow.nodes:
+        if workflow_node_kind(candidate) != "workflow_agent":
+            continue
+        policy_spec = middleware_spec(
+            bound_middleware_specs(
+                nodes_by_id,
+                payload.workflow.edges,
+                candidate.id,
+            ),
+            "content_policy",
+        )
+        if policy_spec is None or policy_spec.node_id in seen_input_policy_nodes:
+            continue
+        try:
+            policy_config = validate_content_policy_config(policy_spec.config)
+        except ContentPolicyError:
+            continue
+        if not policy_config.applies_to("input"):
+            continue
+        seen_input_policy_nodes.add(policy_spec.node_id)
+        policy_has_block = any(
+            rule.action == "block" for rule in policy_config.rules
+        )
+        input_block_policy_can_stop_before_model = (
+            input_block_policy_can_stop_before_model
+            or policy_has_block
+        )
+        if not policy_has_block:
+            continue
+        input_content_policy_redactors.append(
+            validate_content_policy_config(
+                {
+                    "phase": "input",
+                    "rules": [
+                        {
+                            "id": rule.id,
+                            "label": rule.label,
+                            "detector": rule.detector,
+                            "action": "redact",
+                            "terms": list(rule.terms),
+                            "caseSensitive": rule.case_sensitive,
+                        }
+                        for rule in policy_config.rules
+                    ],
+                }
+            )
+        )
+    if (
+        model_gateway_missing
+        and trusted_source_kind != "workflow_deployment"
+        and not input_block_policy_can_stop_before_model
+    ):
         return JSONResponse(
             status_code=500,
             content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
@@ -8363,7 +8454,6 @@ async def _run_workflow_response(
         logger.exception("Workflow validation failed")
         return JSONResponse(status_code=500, content={"error": "工作流校验失败，请检查节点和连线。"})
 
-    nodes_by_id = {node.id: node for node in payload.workflow.nodes}
     order_index = {node_id: index for index, node_id in enumerate(order)}
     outgoing: dict[str, list[WorkflowEdgePayload]] = defaultdict(list)
     for edge in control_flow_edges(payload.workflow.edges):
@@ -8599,7 +8689,7 @@ async def _run_workflow_response(
             runtime_metadata=run_metadata,
         )
 
-    if model_gateway_missing:
+    if model_gateway_missing and not input_block_policy_can_stop_before_model:
         workflow_task_store.pop(task_id, None)
         workflow_execution_store.fail(
             task_id,
@@ -8625,6 +8715,30 @@ async def _run_workflow_response(
         queued: set[str] = task_state["queued"]
         executed: set[str] = task_state["executed"]
         final_output = ""
+
+        def safe_content_policy_value(value: Any) -> Any:
+            if not input_content_policy_redactors:
+                return value
+            if isinstance(value, str):
+                guarded = value
+                try:
+                    for policy in input_content_policy_redactors:
+                        guarded = apply_content_policy(
+                            guarded,
+                            policy,
+                            phase="input",
+                        ).text
+                except ContentPolicyError:
+                    return "[内容过长，未回显]"
+                return guarded
+            if isinstance(value, list):
+                return [safe_content_policy_value(item) for item in value]
+            if isinstance(value, dict):
+                return {
+                    key: safe_content_policy_value(item)
+                    for key, item in value.items()
+                }
+            return value
 
         def cancellation_requested() -> bool:
             if bool(task_state.get("cancel_requested")):
@@ -9032,6 +9146,9 @@ async def _run_workflow_response(
             compression = middleware_spec(specs, "context_compression")
             if compression is not None:
                 middlewares.append(build_context_compression_middleware(compression))
+            content_policy = middleware_spec(specs, "content_policy")
+            if content_policy is not None:
+                middlewares.append(build_content_policy_middleware(content_policy))
             file_memory = middleware_spec(specs, "xpert_file_memory")
             if file_memory is not None:
                 middlewares.append(
@@ -11034,6 +11151,8 @@ async def _run_workflow_response(
                         middleware_specs=middleware_specs,
                     )
                 except RuntimeInterrupt:
+                    raise
+                except ContentPolicyError:
                     raise
                 except RuntimeToolError:
                     raise
@@ -13093,6 +13212,8 @@ async def _run_workflow_response(
                             }
                         except RuntimeInterrupt:
                             raise
+                        except ContentPolicyError:
+                            raise
                         except SkillRuntimeGuidanceError:
                             raise
                         except SkillHookRuntimeError:
@@ -14543,12 +14664,87 @@ async def _run_workflow_response(
                             node.data.get("outputVariable") or "parameters_json"
                         )
                         input_variable = str(node.data.get("inputVariable") or "user_input")
-                        schema = str(node.data.get("schema") or "")
                         model_id = str(node.data.get("modelId") or TEXT_FALLBACK_MODEL)
                         input_text = workflow_value_to_text(
                             variables.get(input_variable, "")
                         )
-                        if not get_llm_gateway_config()[0]:
+                        if typed_ai_contract_version(node.data) not in {1, 2}:
+                            raise WorkflowTypedAIError(
+                                "invalid_parameter_extractor_contract_version",
+                                "Parameter extractor contractVersion must be 1 or 2.",
+                            )
+                        if is_typed_ai_v2(node.data):
+                            if not get_llm_gateway_config()[0]:
+                                raise WorkflowTypedAIError(
+                                    "parameter_extractor_gateway_unavailable",
+                                    "Parameter extractor V2 requires a configured LLM gateway.",
+                                )
+                            typed_schema = validate_parameter_extractor_v2_config(
+                                node.data
+                            )
+                            raw_text = await collect_chat_completion_text(
+                                model_id,
+                                [
+                                    ChatMessage(
+                                        role="user",
+                                        content=parameter_extractor_prompt(
+                                            input_text,
+                                            typed_schema,
+                                        ),
+                                    )
+                                ],
+                                temperature=0,
+                                max_tokens=2048,
+                            )
+                            try:
+                                typed_output = parse_and_validate_extractor_output(
+                                    raw_text,
+                                    typed_schema,
+                                )
+                            except WorkflowTypedAIError:
+                                if int(node.data.get("repairAttempts") or 0) != 1:
+                                    raise
+                                repaired_text = await collect_chat_completion_text(
+                                    model_id,
+                                    [
+                                        ChatMessage(
+                                            role="user",
+                                            content=parameter_extractor_repair_prompt(
+                                                raw_text,
+                                                typed_schema,
+                                            ),
+                                        )
+                                    ],
+                                    temperature=0,
+                                    max_tokens=2048,
+                                )
+                                typed_output = parse_and_validate_extractor_output(
+                                    repaired_text,
+                                    typed_schema,
+                                )
+                            variables[output_variable] = normalize_workflow_value(
+                                typed_output,
+                                path=f"$.variables.{output_variable}",
+                            )
+                            output = json.dumps(
+                                typed_output,
+                                ensure_ascii=False,
+                                allow_nan=False,
+                                separators=(",", ":"),
+                            )
+                            yield sse_payload(
+                                {
+                                    "event": "node_delta",
+                                    "node_id": node.id,
+                                    "node_title": title,
+                                    "node_type": kind,
+                                    "output": output,
+                                    "variable": output_variable,
+                                    "contract_version": 2,
+                                }
+                            )
+                        elif not get_llm_gateway_config()[0]:
+                            schema = str(node.data.get("schema") or "")
                             output = "{}"
                             variables[output_variable] = output
                             yield sse_payload(
@@ -14562,6 +14758,7 @@ async def _run_workflow_response(
                                 }
                             )
                         else:
+                            schema = str(node.data.get("schema") or "")
                             prompt = (
                                 "请从以下文本中严格按 JSON 格式返回指定字段 "
                                 f"{schema}；若无法提取则返回空对象 {{}}。\n\n"
@@ -14609,7 +14806,11 @@ async def _run_workflow_response(
                             )
                     except Exception as exc:
                         logger.warning("Workflow parameter_extractor node failed: %s", exc)
-                        variables[str(node.data.get("outputVariable") or "parameters_json")] = "{}"
+                        if typed_ai_contract_version(node.data) != 1:
+                            raise
+                        variables[
+                            str(node.data.get("outputVariable") or "parameters_json")
+                        ] = "{}"
                         yield sse_payload(
                             {
                                 "event": "error",
@@ -15295,28 +15496,89 @@ async def _run_workflow_response(
                         input_variable = str(
                             node.data.get("inputVariable") or "user_input"
                         )
-                        categories_json = str(node.data.get("categories") or "{}")
-                        match_mode = str(
-                            node.data.get("matchMode") or "contains_any"
-                        ).strip()
-                        case_sensitive = (
-                            str(node.data.get("caseSensitive") or "false")
-                            .strip()
-                            .lower()
-                            == "true"
-                        )
-                        use_llm_fallback = (
-                            str(node.data.get("useLlmFallback") or "false")
-                            .strip()
-                            .lower()
-                            == "true"
-                        )
-                        model_id = str(node.data.get("modelId") or "").strip()
                         text = workflow_value_to_text(
                             variables.get(input_variable, "")
                         )
-
-                        if not WORKFLOW_QUESTION_CLASSIFIER_ENABLED:
+                        if typed_ai_contract_version(node.data) not in {1, 2}:
+                            raise WorkflowTypedAIError(
+                                "invalid_question_classifier_contract_version",
+                                "Question classifier contractVersion must be 1 or 2.",
+                            )
+                        if is_typed_ai_v2(node.data):
+                            if not WORKFLOW_QUESTION_CLASSIFIER_ENABLED:
+                                raise WorkflowTypedAIError(
+                                    "question_classifier_disabled",
+                                    "Question classifier execution is disabled.",
+                                )
+                            categories = validate_question_classifier_v2_config(
+                                node.data
+                            )
+                            mode = str(
+                                node.data.get("classificationMode") or "rules_only"
+                            ).strip()
+                            selection = None
+                            if mode != "model_only":
+                                selection = select_question_classifier_rule(
+                                    text,
+                                    categories,
+                                    case_sensitive=bool(
+                                        node.data.get("caseSensitive", False)
+                                    ),
+                                )
+                            if selection is None and mode in {
+                                "rules_then_model",
+                                "model_only",
+                            }:
+                                if not get_llm_gateway_config()[0]:
+                                    raise WorkflowTypedAIError(
+                                        "question_classifier_gateway_unavailable",
+                                        "Question classifier model mode requires a configured LLM gateway.",
+                                    )
+                                model_id = str(node.data.get("modelId") or "").strip()
+                                raw_decision = await collect_chat_completion_text(
+                                    model_id,
+                                    [
+                                        ChatMessage(
+                                            role="user",
+                                            content=question_classifier_prompt(
+                                                text,
+                                                categories,
+                                            ),
+                                        )
+                                    ],
+                                    temperature=0,
+                                    max_tokens=64,
+                                )
+                                selection = parse_question_classifier_model_output(
+                                    raw_decision,
+                                    categories,
+                                    default_label=str(
+                                        node.data.get("defaultLabel") or "其他"
+                                    ).strip(),
+                                )
+                            if selection is None:
+                                selection = ClassifierSelection(
+                                    "default",
+                                    str(node.data.get("defaultLabel") or "其他").strip(),
+                                    "default",
+                                )
+                            output = selection.category_id
+                            chosen_handle = selection.category_id
+                            variables[output_variable] = output
+                            delta_event = {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": f"已分类：{selection.label}（{selection.method}）",
+                                "variable": output_variable,
+                                "category_id": selection.category_id,
+                                "category_label": selection.label,
+                                "classification_method": selection.method,
+                                "contract_version": 2,
+                            }
+                            yield sse_payload(delta_event)
+                        elif not WORKFLOW_QUESTION_CLASSIFIER_ENABLED:
                             variables[output_variable] = default_category
                             output = default_category
                             yield sse_payload(
@@ -15333,6 +15595,23 @@ async def _run_workflow_response(
                                 }
                             )
                         else:
+                            categories_json = str(node.data.get("categories") or "{}")
+                            match_mode = str(
+                                node.data.get("matchMode") or "contains_any"
+                            ).strip()
+                            case_sensitive = (
+                                str(node.data.get("caseSensitive") or "false")
+                                .strip()
+                                .lower()
+                                == "true"
+                            )
+                            use_llm_fallback = (
+                                str(node.data.get("useLlmFallback") or "false")
+                                .strip()
+                                .lower()
+                                == "true"
+                            )
+                            model_id = str(node.data.get("modelId") or "").strip()
                             try:
                                 raw_categories = json.loads(categories_json)
                             except ValueError as exc:
@@ -15462,6 +15741,8 @@ async def _run_workflow_response(
                             )
                     except Exception as exc:
                         logger.warning("Workflow question_classifier node failed: %s", exc)
+                        if typed_ai_contract_version(node.data) != 1:
+                            raise
                         output = default_category
                         variables[output_variable] = output
                         yield sse_payload(
@@ -15739,6 +16020,17 @@ async def _run_workflow_response(
                         structured_spec = middleware_spec(
                             agent_specs,
                             "structured_output",
+                        )
+                        content_policy_spec = middleware_spec(
+                            agent_specs,
+                            "content_policy",
+                        )
+                        content_policy_output_enabled = bool(
+                            content_policy_spec is not None
+                            and str(
+                                content_policy_spec.config.get("phase") or "both"
+                            ).strip()
+                            in {"output", "both"}
                         )
                         hitl_spec = middleware_spec(
                             agent_specs,
@@ -16378,6 +16670,48 @@ async def _run_workflow_response(
                                 "knowledge_resource_configs": knowledge_resource_configs,
                             }
                         )
+
+                        def guard_agent_visible_text(value: str) -> str:
+                            if not content_policy_output_enabled or content_policy_spec is None:
+                                return value
+                            policy = validate_content_policy_config(
+                                content_policy_spec.config
+                            )
+                            result = apply_content_policy(
+                                value,
+                                policy,
+                                phase="output",
+                            )
+                            if result.rule_ids:
+                                records = agent_context.metadata.setdefault(
+                                    "content_policy",
+                                    [],
+                                )
+                                if isinstance(records, list):
+                                    records.append(
+                                        {
+                                            "phase": "output",
+                                            "rule_ids": list(result.rule_ids),
+                                            "match_count": result.match_count,
+                                        }
+                                    )
+                            return result.text
+
+                        def guard_agent_visible_events(
+                            events: list[dict[str, Any]],
+                        ) -> list[dict[str, Any]]:
+                            if not content_policy_output_enabled:
+                                return events
+                            guarded_events: list[dict[str, Any]] = []
+                            for event in events:
+                                guarded = dict(event)
+                                event_output = guarded.get("output")
+                                if isinstance(event_output, str):
+                                    guarded["output"] = guard_agent_visible_text(
+                                        event_output
+                                    )
+                                guarded_events.append(guarded)
+                            return guarded_events
                         compression_spec = middleware_spec(
                             agent_specs,
                             "context_compression",
@@ -16607,11 +16941,13 @@ async def _run_workflow_response(
                             messages: list[dict[str, Any]],
                             max_tokens: int,
                         ) -> str:
-                            return await buffered_agent_model_text(
-                                call_model_id,
-                                messages,
-                                max_tokens,
-                                temperature=0,
+                            return guard_agent_visible_text(
+                                await buffered_agent_model_text(
+                                    call_model_id,
+                                    messages,
+                                    max_tokens,
+                                    temperature=0,
+                                )
                             )
 
                         last_error: Exception | None = None
@@ -16684,6 +17020,7 @@ async def _run_workflow_response(
                                 raise RuntimeMiddlewareFatalError(
                                     f"Unsupported final-output decision: {decision}."
                                 )
+                            output = guard_agent_visible_text(output)
                             if structured_spec is not None:
                                 output = await validate_structured_output(
                                     output,
@@ -16744,6 +17081,7 @@ async def _run_workflow_response(
                             )
                         ):
                             output = str(memory_reply.get("answer") or "").strip()
+                            output = guard_agent_visible_text(output)
                             success = True
                             await run_registry.record_checkpoint(
                                 workflow_agent_run.run_id,
@@ -16841,12 +17179,33 @@ async def _run_workflow_response(
                                         role_prompt,
                                         task_input,
                                     )
-                                    if structured_spec is not None or ralph_spec is not None:
+                                    if (
+                                        structured_spec is not None
+                                        or ralph_spec is not None
+                                        or content_policy_output_enabled
+                                    ):
                                         output = await buffered_agent_model_text(
                                             attempt_model_id,
                                             direct_messages,
                                             direct_agent_max_tokens,
                                         )
+                                        if (
+                                            content_policy_output_enabled
+                                            and structured_spec is None
+                                            and ralph_spec is None
+                                        ):
+                                            output = guard_agent_visible_text(output)
+                                            yield sse_payload(
+                                                {
+                                                    "event": "node_delta",
+                                                    "node_id": node.id,
+                                                    "node_title": title,
+                                                    "node_type": kind,
+                                                    "output": output,
+                                                    "variable": output_variable,
+                                                    "run_id": workflow_agent_run.run_id,
+                                                }
+                                            )
                                     else:
                                         prepared_request = await agent_pipeline.before_model(
                                             ModelCallRequest(
@@ -16986,7 +17345,7 @@ async def _run_workflow_response(
                                                 actual_model_observer=observe_actual_model,
                                             )
                                         except AgentStrategyError as strategy_exc:
-                                            for agent_event in agent_strategy_node_events(
+                                            failure_events = agent_strategy_node_events(
                                                 strategy_exc.events,
                                                 node=node,
                                                 title=title,
@@ -16994,6 +17353,9 @@ async def _run_workflow_response(
                                                 output_variable=output_variable,
                                                 run_id=workflow_agent_run.run_id,
                                                 max_iterations=max_iterations,
+                                            )
+                                            for agent_event in guard_agent_visible_events(
+                                                failure_events
                                             ):
                                                 yield sse_payload(agent_event)
                                             raise
@@ -17073,6 +17435,8 @@ async def _run_workflow_response(
                                             actual_model_observer=observe_actual_model,
                                             usage_observer=observe_token_usage,
                                         )
+                                    agent_events = guard_agent_visible_events(agent_events)
+                                    output = guard_agent_visible_text(output)
                                     for agent_event in agent_events:
                                         if agent_event.get("event") == "skill_runtime_status":
                                             workflow_execution_store.append_event(
@@ -17091,6 +17455,7 @@ async def _run_workflow_response(
                                                 "run_id": workflow_agent_run.run_id,
                                             }
                                         )
+                                output = guard_agent_visible_text(output)
                                 if ralph_spec is not None:
                                     ralph_events: list[dict[str, Any]] = []
 
@@ -17108,14 +17473,16 @@ async def _run_workflow_response(
                                             and not office_automation_enabled
                                             and not automation_enabled
                                         ):
-                                            return await buffered_agent_model_text(
-                                                attempt_model_id,
-                                                base_agent_messages(
-                                                    role_prompt,
-                                                    instruction,
-                                                ),
-                                                WORKFLOW_AGENT_MAX_TOKENS,
-                                                temperature=0.4,
+                                            return guard_agent_visible_text(
+                                                await buffered_agent_model_text(
+                                                    attempt_model_id,
+                                                    base_agent_messages(
+                                                        role_prompt,
+                                                        instruction,
+                                                    ),
+                                                    WORKFLOW_AGENT_MAX_TOKENS,
+                                                    temperature=0.4,
+                                                )
                                             )
                                         next_output, next_events = await run_react_lite_agent(
                                             node=node,
@@ -17174,7 +17541,7 @@ async def _run_workflow_response(
                                             usage_observer=observe_token_usage,
                                         )
                                         ralph_events.extend(next_events)
-                                        return next_output
+                                        return guard_agent_visible_text(next_output)
 
                                     async def ralph_checkpoint(
                                         event_type: str,
@@ -17220,6 +17587,7 @@ async def _run_workflow_response(
                                         continue_agent=ralph_continue_agent,
                                         checkpoint=ralph_checkpoint,
                                     )
+                                    ralph_events = guard_agent_visible_events(ralph_events)
                                     for ralph_event in ralph_events:
                                         yield sse_payload(ralph_event)
                                     if not ralph_result.verified:
@@ -17227,6 +17595,7 @@ async def _run_workflow_response(
                                             f"Ralph verification did not complete: {ralph_result.reason}"
                                         )
                                     output = ralph_result.output
+                                    output = guard_agent_visible_text(output)
                                     await run_registry.record_checkpoint(
                                         workflow_agent_run.run_id,
                                         event_type="middleware.ralph_loop.completed",
@@ -17333,6 +17702,8 @@ async def _run_workflow_response(
                                 break
                             except RuntimeInterrupt:
                                 raise
+                            except ContentPolicyError:
+                                raise
                             except Exception as attempt_exc:
                                 last_error = attempt_exc
                                 await run_registry.record_checkpoint(
@@ -17367,6 +17738,8 @@ async def _run_workflow_response(
                                 ):
                                     break
 
+                        if success:
+                            output = guard_agent_visible_text(output)
                         if not success:
                             if isinstance(last_error, SkillRuntimeGuidanceError):
                                 skill_failure_event = {
@@ -17666,6 +18039,36 @@ async def _run_workflow_response(
                                 agent_context
                             ):
                                 yield sse_payload(hook_event)
+                        raise
+                    except ContentPolicyError as exc:
+                        if workflow_agent_run is not None:
+                            safe_error = f"{exc.code}: phase={exc.phase or 'input'}"
+                            if exc.rule_id:
+                                safe_error = f"{safe_error}, rule_id={exc.rule_id}"
+                            try:
+                                await run_registry.update_run(
+                                    workflow_agent_run.run_id,
+                                    status="failed",
+                                    error=safe_error,
+                                )
+                                await run_registry.record_checkpoint(
+                                    workflow_agent_run.run_id,
+                                    event_type="workflow_agent.content_policy.failed",
+                                    title="Content policy stopped agent",
+                                    summary=exc.code,
+                                    severity="error",
+                                    metadata={
+                                        "node_id": node.id,
+                                        "error_code": exc.code,
+                                        "phase": exc.phase or "input",
+                                        "rule_id": exc.rule_id or None,
+                                    },
+                                )
+                            except Exception:
+                                logger.warning(
+                                    "Failed to persist workflow_agent content policy failure",
+                                    exc_info=True,
+                                )
                         raise
                     except Exception as exc:
                         if runtime_run_type == "skill_evaluation":
@@ -18458,6 +18861,7 @@ async def _run_workflow_response(
                         "tool_policy",
                         "tool_audit",
                         "context_compression",
+                        "content_policy",
                         "structured_output",
                         "todo_planner",
                         "llm_tool_selector",
@@ -18467,6 +18871,7 @@ async def _run_workflow_response(
                         )
                     if middleware_id in {
                         "context_compression",
+                        "content_policy",
                         "structured_output",
                         "todo_planner",
                         "llm_tool_selector",
@@ -18701,13 +19106,15 @@ async def _run_workflow_response(
                 yield sse_payload(
                     {
                         **node_end_event,
-                        "output": output,
-                        "variables": variables,
+                        "output": safe_content_policy_value(output),
+                        "variables": safe_content_policy_value(variables),
                     }
                 )
 
                 next_edges = outgoing[node_id]
-                if kind in {"condition", "multi_route"}:
+                if kind in {"condition", "multi_route"} or (
+                    kind == "question_classifier" and is_typed_ai_v2(node.data)
+                ):
                     matching_edges = [
                         edge
                         for edge in next_edges
@@ -18963,8 +19370,8 @@ async def _run_workflow_response(
                     "event": "workflow_end",
                     "task_id": task_id,
                     "run_id": workflow_run.run_id,
-                    "final_output": final_output,
-                    "variables": variables,
+                    "final_output": safe_content_policy_value(final_output),
+                    "variables": safe_content_policy_value(variables),
                     "suggestions": conversation_suggestions,
                     "conversation_title": generated_conversation_title or None,
                     "webhook_reply": task_state.get("webhook_reply"),
@@ -19440,6 +19847,63 @@ async def _run_workflow_response(
                     "message": exc.safe_message,
                 }
             )
+        except ContentPolicyError as exc:
+            failed_node_id = str(locals().get("node_id") or "").strip() or None
+            failed_node = nodes_by_id.get(failed_node_id) if failed_node_id else None
+            failed_node_title = (
+                workflow_node_title(failed_node) if failed_node is not None else None
+            )
+            phase = exc.phase or "input"
+            safe_message = f"内容策略在 {phase} 阶段阻止了文本。"
+            failure_error = f"{exc.code}: phase={phase}"
+            if exc.rule_id:
+                failure_error = f"{failure_error}, rule_id={exc.rule_id}"
+            logger.warning(
+                "Workflow content policy stopped workflow=%s node=%s code=%s phase=%s rule_id=%s",
+                payload.workflow.id,
+                failed_node_id,
+                exc.code,
+                phase,
+                exc.rule_id or "-",
+            )
+            try:
+                await run_registry.update_run(
+                    workflow_run.run_id,
+                    status="failed",
+                    error=failure_error,
+                )
+                await run_registry.record_checkpoint(
+                    workflow_run.run_id,
+                    event_type="workflow.content_policy.failed",
+                    title="Content policy stopped workflow",
+                    summary=exc.code,
+                    severity="error",
+                    metadata={
+                        "node_id": failed_node_id,
+                        "error_code": exc.code,
+                        "phase": phase,
+                        "rule_id": exc.rule_id or None,
+                    },
+                )
+            except Exception:
+                logger.warning("Failed to update content policy failure", exc_info=True)
+            error_event = {
+                "event": "error",
+                "task_id": task_id,
+                "run_id": workflow_run.run_id,
+                "node_id": failed_node_id,
+                "node_title": failed_node_title,
+                "code": exc.code,
+                "phase": phase,
+                "rule_id": exc.rule_id or None,
+                "message": safe_message,
+            }
+            try:
+                workflow_execution_store.fail(task_id, error=failure_error)
+                workflow_execution_store.append_event(task_id, error_event)
+            except Exception:
+                logger.warning("Failed to persist content policy failure", exc_info=True)
+            yield sse_payload(error_event)
         except Exception as exc:
             logger.exception("Workflow run failed workflow=%s", payload.workflow.id)
             failed_node_id = str(locals().get("node_id") or "").strip() or None

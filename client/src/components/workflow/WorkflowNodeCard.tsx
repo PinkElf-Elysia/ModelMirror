@@ -364,6 +364,13 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
   const multiRoutes = data.kind === "multi_route" && Array.isArray(data.routes)
     ? data.routes.filter((route) => route.id && route.label)
     : [];
+  const classifierCategories =
+    data.kind === "question_classifier" &&
+    Number(data.contractVersion) === 2 &&
+    Array.isArray(data.categoriesV2)
+      ? data.categoriesV2.filter((category) => category.id)
+      : [];
+  const hasDynamicOutputs = data.kind === "multi_route" || classifierCategories.length > 0;
   const legacySkillCreator = isLegacySkillCreatorMiddleware(data);
 
   const statusClassName =
@@ -377,8 +384,8 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
 
   return (
     <div
-      className={`relative rounded-lg border-2 bg-[#141c2e] p-2 text-slate-100 shadow-md transition duration-150 hover:bg-[#182238] active:scale-95 ${data.kind === "multi_route" ? "min-w-36" : "min-w-24"} ${statusClassName}`}
-      style={data.kind === "multi_route" ? { minHeight: `${Math.max(132, (multiRoutes.length + 1) * 34)}px` } : undefined}
+      className={`relative rounded-lg border-2 bg-[#141c2e] p-2 text-slate-100 shadow-md transition duration-150 hover:bg-[#182238] active:scale-95 ${hasDynamicOutputs ? "min-w-36" : "min-w-24"} ${statusClassName}`}
+      style={hasDynamicOutputs ? { minHeight: `${Math.max(132, ((data.kind === "multi_route" ? multiRoutes.length : classifierCategories.length) + 1) * 34)}px` } : undefined}
       onDoubleClick={() => setShowInfo((current) => !current)}
     >
       {runStatus === "running" ? (
@@ -536,6 +543,38 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
             style={{ top: `calc(${((multiRoutes.length + 1) / (multiRoutes.length + 2)) * 100}% - 7px)` }}
           >
             默认
+          </div>
+        </>
+      ) : data.kind === "question_classifier" && classifierCategories.length > 0 ? (
+        <>
+          {classifierCategories.map((category, index) => {
+            const top = `${((index + 1) / (classifierCategories.length + 2)) * 100}%`;
+            return (
+              <div key={category.id}>
+                <Handle
+                  className="!h-3 !w-3 !border-2 !border-surface-900 !bg-violet-300"
+                  id={category.id}
+                  position={Position.Right}
+                  style={{ top }}
+                  title={category.label || category.id}
+                  type="source"
+                />
+                <div className="pointer-events-none absolute left-full ml-2 max-w-24 truncate text-[10px] font-semibold text-violet-100" style={{ top: `calc(${top} - 7px)` }} title={category.label || category.id}>
+                  {category.label || category.id}
+                </div>
+              </div>
+            );
+          })}
+          <Handle
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-slate-300"
+            id="default"
+            position={Position.Right}
+            style={{ top: `${((classifierCategories.length + 1) / (classifierCategories.length + 2)) * 100}%` }}
+            title={data.defaultLabel ?? "默认出口"}
+            type="source"
+          />
+          <div className="pointer-events-none absolute left-full ml-2 max-w-24 truncate text-[10px] font-semibold text-slate-200" style={{ top: `calc(${((classifierCategories.length + 1) / (classifierCategories.length + 2)) * 100}% - 7px)` }}>
+            {data.defaultLabel ?? "默认"}
           </div>
         </>
       ) : data.kind === "condition" ? (

@@ -13,6 +13,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
 from ..interrupts import RuntimeMiddlewareFatalError
+from ..content_policy import ContentPolicyError
 from ..toolset import RuntimeTool, RuntimeToolError, RuntimeToolResult
 from .models import (
     AgentModelClient,
@@ -128,7 +129,7 @@ class AgentStrategyRunner:
                 return await self._run_react()
         except AgentStrategyError:
             raise
-        except RuntimeMiddlewareFatalError:
+        except (RuntimeMiddlewareFatalError, ContentPolicyError):
             raise
         except AgentModelError as exc:
             raise self._error(exc.message, code="model_error") from exc
@@ -525,6 +526,8 @@ class AgentStrategyRunner:
                     metadata={"error_code": exc.code},
                 ),
             )
+        except ContentPolicyError:
+            raise
         except Exception as exc:
             if hasattr(exc, "continuation") and hasattr(exc, "approval_id"):
                 raise

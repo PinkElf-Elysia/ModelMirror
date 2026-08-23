@@ -38,6 +38,7 @@ from .core_middlewares import (
     RuntimeMiddlewareSpec,
     bound_middleware_specs,
     bound_resource_nodes,
+    build_content_policy_middleware,
     build_context_compression_middleware,
     control_flow_edges,
     estimate_messages_tokens,
@@ -57,6 +58,11 @@ from .external_xpert_toolset import (
 )
 from .events import RuntimeEventStore
 from .middleware import AgentMiddleware, MiddlewarePipeline
+from .content_policy import (
+    ContentPolicyError,
+    apply_content_policy,
+    validate_content_policy_config,
+)
 from .interrupts import RuntimeInterrupt, RuntimeMiddlewareFatalError
 from .approval_store import (
     RuntimeApprovalConflictError,
@@ -384,6 +390,10 @@ __all__ = [
     "register_memory_toolset_capability",
     "register_todo_toolset_capability",
     "build_context_compression_middleware",
+    "build_content_policy_middleware",
+    "ContentPolicyError",
+    "apply_content_policy",
+    "validate_content_policy_config",
     "bound_middleware_specs",
     "bound_resource_nodes",
     "control_flow_edges",

@@ -405,6 +405,55 @@ def register_builtin_middleware_nodes(
 
     registry.register(
         RuntimeMiddlewareNode(
+            id="content_policy",
+            kind="runtime_middleware.content_policy",
+            title="内容策略",
+            description="在智能体模型调用前后执行确定性的文本阻断或脱敏规则。",
+            category="agent",
+            icon="Shield",
+            fields=[
+                RuntimeMiddlewareField(
+                    name="phase",
+                    label="检查阶段",
+                    type="select",
+                    default="both",
+                    options=["input", "output", "both"],
+                ),
+                RuntimeMiddlewareField(
+                    name="rules",
+                    label="内容规则",
+                    type="json",
+                    required=True,
+                    default=[
+                        {
+                            "id": "rule_1",
+                            "label": "疑似凭据",
+                            "detector": "secret_pattern",
+                            "action": "block",
+                            "terms": [],
+                            "caseSensitive": False,
+                        }
+                    ],
+                    description="1–20 条结构化规则；前端使用规则编辑器配置。",
+                ),
+            ],
+            tags=["agent", "policy", "guard", "before_model", "final_output"],
+            metadata={
+                "middleware_name": "content_policy",
+                "runtime_hook": "before_model,wrap_tool_call,final_output",
+                "real_execution": True,
+                "text_only": True,
+                "max_text_chars": 200000,
+            },
+            config_version=1,
+            execution_status="real",
+            app_policy="allowed",
+            security_category="content_safety",
+        )
+    )
+
+    registry.register(
+        RuntimeMiddlewareNode(
             id="xpert_file_memory",
             kind="runtime_middleware.xpert_file_memory",
             title="Xpert 文件记忆",

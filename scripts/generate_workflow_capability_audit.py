@@ -13,6 +13,36 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 DIRECT_UPDATES = {
+    "informationExtractor": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "parameter_extractor",
+        "判断说明": "自研参数提取器 V2 将字段表或受限 JSON Schema 编译为严格输出合同，写入类型化对象或对象数组；非法、缺字段、错类型和超限输出均失败关闭。",
+    },
+    "outputParserStructured": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "parameter_extractor",
+        "判断说明": "自研参数提取器 V2 对模型结果执行 JSON 解析与完整 Schema 校验，不以模型原文、空对象或部分字段伪装成功。",
+    },
+    "outputParserItemList": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "parameter_extractor",
+        "判断说明": "自研参数提取器 V2 的对象列表形态输出真正的 JSON 对象数组，并逐项按同一严格 Schema 校验。",
+    },
+    "outputParserAutofixing": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "parameter_extractor",
+        "判断说明": "用户显式启用时，自研参数提取器最多追加一次同模型修复调用；再次失败即终止且调用计入现有用量统计。",
+    },
+    "textClassifier": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "question_classifier",
+        "判断说明": "自研问题分类器 V2 提供稳定类别 ID 与默认出口，按顺序首个规则命中，并可选择固定内部提示的模型分类或规则后模型兜底。",
+    },
+    "guardrails": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "runtime_middleware",
+        "判断说明": "自研内容策略中间件对智能体文本输入和最终可见输出执行确定性字词、邮箱、保守电话与疑似凭据阻断或固定脱敏；不宣称多模态或语义安全分类。",
+    },
     "convertToFile": {
         "模镜当前状态": "已实现",
         "模镜对应节点": "file_output",
@@ -247,7 +277,7 @@ def main() -> None:
         f"{row['n8n原名参考']} | {row['模镜当前状态']} |"
         for row in direct_rows
     ]
-    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8）
+    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9）
 
 - 审计日期：2026-08-22
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
@@ -258,6 +288,7 @@ def main() -> None:
 - R1.6 结果：新增完整合同 `terminate_error`、`multi_route`、`data_aggregate`，并将 `list_operation` 提升为完整合同；自研节点总数 47、画布目录项 45、当前 18 个冻结 compatibility 合同；四类均允许经典工作流和 Xpert 使用，Planner 关闭
 - R1.7 结果：新增完整合同 `dataset_compare`，并将 `http_request`、`condition` 提升为完整合同；自研节点总数 48、画布目录项 46、当前 16 个冻结 compatibility 合同；Planner 仍固定为 7 类
 - R1.8 结果：新增完整合同 `file_output`、`object_transform`，并将 `document_extractor`、`time_tool` 提升为完整合同，同时扩展 `list_operation`；自研节点总数 {native_count}、画布目录项 {palette_count}、当前 {compatibility_count} 个冻结 compatibility 合同；文件节点仅允许经典工作流和私有 Xpert，Planner 仍固定为 {planner_count} 类
+- R1.9 结果：不新增普通节点，将 `parameter_extractor`、`question_classifier` 提升为完整 V2 合同，并在既有 `runtime_middleware` 下增加 `content_policy` 文本策略；自研节点总数 {native_count}、画布目录项 {palette_count}、当前 {compatibility_count} 个冻结 compatibility 合同，Planner 仍固定为 {planner_count} 类
 - 参考清单：563 条节点名称/类型，其中 `.ee` {ee_count} 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -292,7 +323,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1、R1.5、R1.6 和 R1.7 新增节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R1.9 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
 """
     (args.output_dir / "N8N_NODE_CAPABILITY_MATRIX.md").write_text(
         markdown,

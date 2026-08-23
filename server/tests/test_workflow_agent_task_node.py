@@ -1983,6 +1983,239 @@ def _workflow_agent_strategy_workflow(
     }
 
 
+def _bind_output_content_policy(workflow: dict[str, Any]) -> dict[str, Any]:
+    workflow["nodes"].append(
+        {
+            "id": "content-policy",
+            "type": "runtime_middleware",
+            "data": {
+                "kind": "runtime_middleware",
+                "runtimeMiddlewareId": "content_policy",
+                "runtimeMiddlewareKind": "runtime_middleware.content_policy",
+                "middlewarePriority": "100",
+                "runtimeMiddlewareConfig": {
+                    "phase": "output",
+                    "rules": [
+                        {
+                            "id": "rule_1",
+                            "label": "Synthetic sentinel",
+                            "detector": "literal_terms",
+                            "action": "redact",
+                            "terms": ["R19_SYNTHETIC_SENTINEL"],
+                            "caseSensitive": False,
+                        }
+                    ],
+                },
+            },
+        }
+    )
+    workflow["edges"].append(
+        {
+            "id": "content-policy-binding",
+            "source": "content-policy",
+            "sourceHandle": "middleware-binding",
+            "target": "workflow_agent",
+            "targetHandle": "middleware",
+        }
+    )
+    return workflow
+
+
+def _bind_input_content_policy(workflow: dict[str, Any]) -> dict[str, Any]:
+    workflow["nodes"].append(
+        {
+            "id": "content-policy",
+            "type": "runtime_middleware",
+            "data": {
+                "kind": "runtime_middleware",
+                "runtimeMiddlewareId": "content_policy",
+                "runtimeMiddlewareKind": "runtime_middleware.content_policy",
+                "middlewarePriority": "100",
+                "runtimeMiddlewareConfig": {
+                    "phase": "input",
+                    "rules": [
+                        {
+                            "id": "rule_1",
+                            "label": "Synthetic sentinel",
+                            "detector": "literal_terms",
+                            "action": "redact",
+                            "terms": ["R19_TOOL_RESULT_SENTINEL"],
+                            "caseSensitive": False,
+                        }
+                    ],
+                },
+            },
+        }
+    )
+    workflow["edges"].append(
+        {
+            "id": "content-policy-binding",
+            "source": "content-policy",
+            "sourceHandle": "middleware-binding",
+            "target": "workflow_agent",
+            "targetHandle": "middleware",
+        }
+    )
+    return workflow
+
+
+@pytest.mark.asyncio
+async def test_content_policy_guards_legacy_tool_agent_final_output_without_breaking_tool_json(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, restore_provider = _install_fake_tool_provider()
+    responses = iter(
+        [
+            '{"tool":"fetch","arguments":{"query":"guard"}}',
+            '{"answer":"R19_SYNTHETIC_SENTINEL"}',
+        ]
+    )
+
+    async def fake_collect(*args, **kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", False)
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", fake_collect)
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    workflow = _bind_output_content_policy(
+        _workflow_agent_strategy_workflow(
+            {"toolMode": "mcp_tools", "toolNames": "fetch", "maxIterations": "3"}
+        )
+    )
+    try:
+        response = await client.post(
+            "/api/workflow/run",
+            json={"workflow": workflow, "inputs": {"user_input": "use the tool"}},
+        )
+    finally:
+        restore_provider()
+
+    assert response.status_code == 200, response.text
+    assert "R19_SYNTHETIC_SENTINEL" not in response.text
+    assert "[已脱敏]" in response.text
+    assert len(provider.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_content_policy_guards_strategy_v2_final_output_after_tool_execution(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, restore_provider = _install_fake_tool_provider()
+
+    class FakeAgentModelClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.responses = iter(
+                [
+                    AgentModelTurn(
+                        content=(
+                            "Thought: use fetch\n"
+                            'Action: {"action":"fetch","action_input":{"query":"guard"}}'
+                        )
+                    ),
+                    AgentModelTurn(content="FinalAnswer: R19_SYNTHETIC_SENTINEL"),
+                ]
+            )
+
+        async def complete(self, **kwargs: Any) -> AgentModelTurn:
+            return next(self.responses)
+
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", True)
+    monkeypatch.setattr(main_module, "OpenAICompatibleAgentModelClient", FakeAgentModelClient)
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    workflow = _bind_output_content_policy(
+        _workflow_agent_strategy_workflow(
+            {"toolMode": "mcp_tools", "agentStrategy": "react", "toolNames": "fetch"}
+        )
+    )
+    try:
+        response = await client.post(
+            "/api/workflow/run",
+            json={"workflow": workflow, "inputs": {"user_input": "use the tool"}},
+        )
+    finally:
+        restore_provider()
+
+    assert response.status_code == 200, response.text
+    assert "R19_SYNTHETIC_SENTINEL" not in response.text
+    assert "[已脱敏]" in response.text
+    assert len(provider.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_content_policy_redacts_tool_result_before_legacy_agent_observes_or_records_it(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SentinelToolProvider(FakeWorkflowToolProvider):
+        async def call_tool(self, call):
+            self.calls.append(call)
+            return RuntimeToolResult(
+                output="R19_TOOL_RESULT_SENTINEL from tool",
+                content=[
+                    {"type": "text", "text": "R19_TOOL_RESULT_SENTINEL from tool"}
+                ],
+                metadata={"content_types": ["text"]},
+                is_error=False,
+            )
+
+    provider = SentinelToolProvider()
+    original_provider = main_module.runtime_capabilities.require(
+        "mcp_tools"
+    ).implementation
+    main_module.runtime_capabilities.register("mcp_tools", provider)
+    observed_model_messages: list[list[str]] = []
+    responses = iter(
+        [
+            '{"tool":"fetch","arguments":{"query":"guard"}}',
+            '{"answer":"safe final"}',
+        ]
+    )
+
+    async def fake_collect(_model_id, messages, **_kwargs):
+        observed_model_messages.append([str(message.content) for message in messages])
+        return next(responses)
+
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", False)
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", fake_collect)
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    workflow = _bind_input_content_policy(
+        _workflow_agent_strategy_workflow(
+            {"toolMode": "mcp_tools", "toolNames": "fetch", "maxIterations": "3"}
+        )
+    )
+    try:
+        response = await client.post(
+            "/api/workflow/run",
+            json={"workflow": workflow, "inputs": {"user_input": "use the tool"}},
+        )
+    finally:
+        main_module.runtime_capabilities.register("mcp_tools", original_provider)
+
+    assert response.status_code == 200, response.text
+    assert "R19_TOOL_RESULT_SENTINEL" not in response.text
+    assert len(provider.calls) == 1
+    assert len(observed_model_messages) == 2
+    assert "R19_TOOL_RESULT_SENTINEL" not in "\n".join(observed_model_messages[1])
+    assert "[已脱敏] from tool" in "\n".join(observed_model_messages[1])
+
+    workflow_meta = next(
+        event
+        for event in _parse_sse_events(response.text)
+        if event.get("event") == "workflow_meta"
+    )
+    child_run = await _workflow_agent_run(client, workflow_meta["run_id"])
+    checkpoints_response = await client.get(
+        f"/api/runtime/runs/{child_run['run_id']}/checkpoints"
+    )
+    assert checkpoints_response.status_code == 200
+    assert "R19_TOOL_RESULT_SENTINEL" not in checkpoints_response.text
+
+
 async def _workflow_agent_run(
     client: httpx.AsyncClient,
     workflow_run_id: str,

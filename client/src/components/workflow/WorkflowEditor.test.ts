@@ -232,6 +232,30 @@ describe("WorkflowEditor palette defaults", () => {
     });
   });
 
+  it("provides strict V2 defaults for typed AI nodes", () => {
+    expect(createNodeData("parameter_extractor")).toMatchObject({
+      contractVersion: 2,
+      schemaMode: "fields",
+      outputShape: "object",
+      repairAttempts: 0,
+      outputVariable: "parameters",
+      fields: [
+        expect.objectContaining({ id: "field_1", valueType: "string" }),
+        expect.objectContaining({ id: "field_2", nullable: true }),
+      ],
+    });
+    expect(createNodeData("question_classifier")).toMatchObject({
+      contractVersion: 2,
+      classificationMode: "rules_only",
+      defaultLabel: "未分类",
+      caseSensitive: false,
+      categoriesV2: [
+        expect.objectContaining({ id: "category_1" }),
+        expect.objectContaining({ id: "category_2" }),
+      ],
+    });
+  });
+
   it("repairs missing or non-finite positions from server and legacy drafts", () => {
     const nodes = [
       {

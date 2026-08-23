@@ -170,6 +170,30 @@ export interface WorkflowFileColumn {
   label: string;
 }
 
+export type WorkflowExtractorFieldType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "string_array"
+  | "number_array";
+
+export interface WorkflowExtractorField {
+  id: string;
+  name: string;
+  description: string;
+  valueType: WorkflowExtractorFieldType;
+  required: boolean;
+  nullable: boolean;
+}
+
+export interface WorkflowClassifierCategory {
+  id: string;
+  label: string;
+  description: string;
+  keywords: string[];
+  matchMode: "contains_any" | "contains_all";
+}
+
 /** 画布节点运行态视觉状态（不持久化，运行时由 WorkflowRun 写回）。 */
 export type NodeRunStatus = "running" | "done" | "error";
 
@@ -214,6 +238,11 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   variableNames?: string;
   outputTemplate?: string;
   schema?: string;
+  schemaMode?: "fields" | "json_schema";
+  outputShape?: "object" | "object_list";
+  fields?: WorkflowExtractorField[];
+  jsonSchema?: Record<string, unknown>;
+  repairAttempts?: number | string;
   queryVariable?: string;
   knowledgeBaseId?: string;
   contractVersion?: number | string;
@@ -242,10 +271,13 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   /** One-release read-only compatibility for previously saved path graphs. */
   sourcePathVariable?: string;
   categories?: string;
+  categoriesV2?: WorkflowClassifierCategory[];
+  classificationMode?: "rules_only" | "rules_then_model" | "model_only";
+  defaultLabel?: string;
   defaultCategory?: string;
   matchMode?: string;
-  caseSensitive?: string;
-  useLlmFallback?: string;
+  caseSensitive?: string | boolean;
+  useLlmFallback?: string | boolean;
   llmFallbackPrompt?: string;
   agentName?: string;
   agentMode?: string;

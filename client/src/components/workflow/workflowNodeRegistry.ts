@@ -223,8 +223,8 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         kind: "question_classifier",
         icon: "◇",
         title: "问题分类器",
-        description: "根据关键词规则把输入文本分类为预设类别。",
-        tags: ["classifier", "question"],
+        description: "按稳定分类出口分派问题，可选择规则、模型或规则后模型。",
+        tags: ["classifier", "question", "model", "stable-route"],
       },
       {
         kind: "code",
@@ -244,8 +244,8 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         kind: "parameter_extractor",
         icon: "{}",
         title: "参数提取器",
-        description: "调用模型从文本中提取字段，输出 JSON 字符串。",
-        tags: ["json", "extract"],
+        description: "调用模型提取字段，输出经 Schema 校验的 JSON 对象或对象列表。",
+        tags: ["json", "extract", "schema", "typed-value"],
       },
       {
         kind: "data_aggregate",

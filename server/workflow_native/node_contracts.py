@@ -802,6 +802,191 @@ def _complete_contracts() -> dict[str, NodeContract]:
         ),
         planner=_planner(),
     )
+    extractor_v1_schema = _object_schema(
+        {
+            "contractVersion": {"const": 1},
+            "inputVariable": {"type": "string"},
+            "schema": {"type": "string"},
+            "modelId": {"type": "string"},
+            "outputVariable": {"type": "string"},
+        },
+        required=["inputVariable", "schema", "modelId", "outputVariable"],
+    )
+    extractor_field_schema = _object_schema(
+        {
+            "id": {"type": "string", "pattern": r"^field_(?:[1-9]|[1-4][0-9]|50)$"},
+            "name": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+            "description": {"type": "string", "maxLength": 500},
+            "valueType": {
+                "type": "string",
+                "enum": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "string_array",
+                    "number_array",
+                ],
+            },
+            "required": {"type": "boolean"},
+            "nullable": {"type": "boolean"},
+        },
+        required=["id", "name", "description", "valueType", "required", "nullable"],
+        additional_properties=False,
+    )
+    extractor_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "inputVariable": {"type": "string"},
+            "modelId": {"type": "string"},
+            "outputVariable": {"type": "string"},
+            "schemaMode": {"type": "string", "enum": ["fields", "json_schema"]},
+            "outputShape": {"type": "string", "enum": ["object", "object_list"]},
+            "fields": {
+                "type": "array",
+                "items": extractor_field_schema,
+                "minItems": 1,
+                "maxItems": 50,
+            },
+            "jsonSchema": {"type": "object"},
+            "repairAttempts": {"type": "integer", "minimum": 0, "maximum": 1},
+        },
+        required=[
+            "contractVersion",
+            "inputVariable",
+            "modelId",
+            "outputVariable",
+            "schemaMode",
+            "outputShape",
+            "repairAttempts",
+        ],
+    )
+    contracts["parameter_extractor"] = NodeContract(
+        kind="parameter_extractor",
+        contract_status="complete",
+        config_schema={
+            "type": "object",
+            "anyOf": [extractor_v1_schema, extractor_v2_schema],
+        },
+        ports=(
+            NodePortContract(name="text", direction="input", value_schema=string_value, required=True),
+            NodePortContract(
+                name="result",
+                direction="output",
+                value_schema=WorkflowValueSchema(
+                    any_of=(
+                        string_value,
+                        object_value,
+                        WorkflowValueSchema(type="array"),
+                    ),
+                ),
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_read",
+            deterministic=False,
+            idempotent=True,
+            external_io=True,
+            error_semantics="fail_closed",
+            security_category="model_inference",
+        ),
+        planner=_planner(),
+    )
+    classifier_v1_schema = _object_schema(
+        {
+            "contractVersion": {"const": 1},
+            "inputVariable": {"type": "string"},
+            "categories": {"type": "string"},
+            "outputVariable": {"type": "string"},
+            "defaultCategory": {"type": "string"},
+            "matchMode": {"type": "string", "enum": ["contains_any", "contains_all"]},
+            "caseSensitive": {"type": ["string", "boolean"]},
+            "useLlmFallback": {"type": ["string", "boolean"]},
+            "modelId": {"type": "string"},
+            "llmFallbackPrompt": {"type": "string"},
+        },
+        required=["inputVariable", "categories", "outputVariable"],
+    )
+    classifier_category_schema = _object_schema(
+        {
+            "id": {"type": "string", "pattern": r"^category_[1-8]$"},
+            "label": {"type": "string", "minLength": 1, "maxLength": 100},
+            "description": {"type": "string", "maxLength": 500},
+            "keywords": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1, "maxLength": 200},
+                "maxItems": 20,
+            },
+            "matchMode": {"type": "string", "enum": ["contains_any", "contains_all"]},
+        },
+        required=["id", "label", "description", "keywords", "matchMode"],
+        additional_properties=False,
+    )
+    classifier_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "inputVariable": {"type": "string"},
+            "outputVariable": {"type": "string"},
+            "classificationMode": {
+                "type": "string",
+                "enum": ["rules_only", "rules_then_model", "model_only"],
+            },
+            "categoriesV2": {
+                "type": "array",
+                "items": classifier_category_schema,
+                "minItems": 2,
+                "maxItems": 8,
+            },
+            "caseSensitive": {"type": "boolean"},
+            "modelId": {"type": "string"},
+            "defaultLabel": {"type": "string", "minLength": 1, "maxLength": 100},
+        },
+        required=[
+            "contractVersion",
+            "inputVariable",
+            "outputVariable",
+            "classificationMode",
+            "categoriesV2",
+            "caseSensitive",
+            "defaultLabel",
+        ],
+    )
+    contracts["question_classifier"] = NodeContract(
+        kind="question_classifier",
+        contract_status="complete",
+        config_schema={
+            "type": "object",
+            "anyOf": [classifier_v1_schema, classifier_v2_schema],
+        },
+        ports=(
+            NodePortContract(name="text", direction="input", value_schema=string_value, required=True),
+            NodePortContract(name="category", direction="output", value_schema=string_value),
+        ),
+        edge=NodeEdgeContract(
+            allowed_source_handles=(
+                "category_1",
+                "category_2",
+                "category_3",
+                "category_4",
+                "category_5",
+                "category_6",
+                "category_7",
+                "category_8",
+                "default",
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_read",
+            deterministic=False,
+            idempotent=True,
+            external_io=True,
+            error_semantics="fail_closed",
+            security_category="model_inference",
+        ),
+        planner=_planner(),
+    )
     http_binding_schema = _object_schema(
         {
             "source": {"type": "string", "enum": ["literal", "variable"]},

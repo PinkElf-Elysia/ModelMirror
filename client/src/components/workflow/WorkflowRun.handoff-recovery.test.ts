@@ -11,6 +11,43 @@ afterEach(() => {
 });
 
 describe("WorkflowRun handoff recovery pointer", () => {
+  it("joins workflow agent streaming deltas without inserting line breaks", () => {
+    const steps = buildRunSteps([
+      {
+        event: "node_delta",
+        node_id: "agent",
+        node_title: "脱敏副本复述",
+        node_type: "workflow_agent",
+        output: "请",
+      },
+      {
+        event: "node_delta",
+        node_id: "agent",
+        node_title: "脱敏副本复述",
+        node_type: "workflow_agent",
+        output: "原",
+      },
+      {
+        event: "node_delta",
+        node_id: "agent",
+        node_title: "脱敏副本复述",
+        node_type: "workflow_agent",
+        output: "样",
+      },
+      {
+        event: "node_end",
+        node_id: "agent",
+        node_title: "脱敏副本复述",
+        node_type: "workflow_agent",
+        output: "请原样",
+      },
+    ]);
+
+    expect(steps).toEqual([
+      expect.objectContaining({ id: "agent", output: "请原样", status: "done" }),
+    ]);
+  });
+
   it("does not leave a completed Creator handoff as a running workflow step", () => {
     const steps = buildRunSteps([
       {

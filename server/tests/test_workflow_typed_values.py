@@ -105,6 +105,45 @@ def _json_round_trip_workflow(*, include_annotation: bool = False) -> dict:
     }
 
 
+def _classifier_v2_model_workflow(mode: str) -> dict:
+    return {
+        "id": f"classifier-v2-{mode}",
+        "title": f"classifier-v2-{mode}",
+        "nodes": [
+            {"id": "input", "type": "input", "data": {"kind": "input", "variableName": "user_input"}},
+            {
+                "id": "classifier",
+                "type": "question_classifier",
+                "data": {
+                    "kind": "question_classifier",
+                    "contractVersion": 2,
+                    "inputVariable": "user_input",
+                    "outputVariable": "category",
+                    "classificationMode": mode,
+                    "categoriesV2": [
+                        {"id": "category_1", "label": "退款", "description": "退款请求", "keywords": ["退款"], "matchMode": "contains_any"},
+                        {"id": "category_2", "label": "物流", "description": "物流查询", "keywords": ["物流"], "matchMode": "contains_any"},
+                    ],
+                    "caseSensitive": False,
+                    "modelId": "test/model",
+                    "defaultLabel": "其他",
+                },
+            },
+            *[
+                {"id": f"output-{handle}", "type": "output", "data": {"kind": "output", "outputVariable": "category"}}
+                for handle in ("category_1", "category_2", "default")
+            ],
+        ],
+        "edges": [
+            {"id": "e0", "source": "input", "target": "classifier"},
+            *[
+                {"id": f"e-{handle}", "source": "classifier", "sourceHandle": handle, "target": f"output-{handle}"}
+                for handle in ("category_1", "category_2", "default")
+            ],
+        ],
+    }
+
+
 @pytest.mark.asyncio
 async def test_json_nodes_preserve_typed_values_and_annotation_has_no_events(
     client: httpx.AsyncClient,
@@ -245,6 +284,460 @@ def test_workflow_run_request_rejects_non_json_numbers() -> None:
                 "inputs": {"user_input": float("nan")},
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_parameter_extractor_v2_repairs_once_and_writes_typed_value(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    replies = iter(["not-json", '{"order_id":"A-19","amount":42.5}'])
+    calls = 0
+
+    async def fake_collect(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return next(replies)
+
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", fake_collect)
+    workflow = {
+        "id": "extractor-v2-runtime",
+        "title": "extractor-v2-runtime",
+        "nodes": [
+            {
+                "id": "input",
+                "type": "input",
+                "data": {"kind": "input", "variableName": "user_input"},
+            },
+            {
+                "id": "extractor",
+                "type": "parameter_extractor",
+                "data": {
+                    "kind": "parameter_extractor",
+                    "contractVersion": 2,
+                    "inputVariable": "user_input",
+                    "modelId": "test/model",
+                    "outputVariable": "parameters",
+                    "schemaMode": "fields",
+                    "outputShape": "object",
+                    "fields": [
+                        {
+                            "id": "field_1",
+                            "name": "order_id",
+                            "description": "Order ID",
+                            "valueType": "string",
+                            "required": True,
+                            "nullable": False,
+                        },
+                        {
+                            "id": "field_2",
+                            "name": "amount",
+                            "description": "Amount",
+                            "valueType": "number",
+                            "required": True,
+                            "nullable": False,
+                        },
+                    ],
+                    "jsonSchema": {},
+                    "repairAttempts": 1,
+                },
+            },
+            {
+                "id": "output",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "parameters"},
+            },
+        ],
+        "edges": [
+            {"id": "e1", "source": "input", "target": "extractor"},
+            {"id": "e2", "source": "extractor", "target": "output"},
+        ],
+    }
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "Order A-19 costs 42.5"}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    completed = next(event for event in events if event.get("event") == "workflow_end")
+    assert completed["variables"]["parameters"] == {
+        "order_id": "A-19",
+        "amount": 42.5,
+    }
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_question_classifier_v2_runs_only_the_selected_stable_branch(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def unexpected_model(*args, **kwargs):
+        raise AssertionError("rules_only classifier must not call a model")
+
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", unexpected_model)
+    workflow = {
+        "id": "classifier-v2-runtime",
+        "title": "classifier-v2-runtime",
+        "nodes": [
+            {
+                "id": "input",
+                "type": "input",
+                "data": {"kind": "input", "variableName": "user_input"},
+            },
+            {
+                "id": "classifier",
+                "type": "question_classifier",
+                "data": {
+                    "kind": "question_classifier",
+                    "contractVersion": 2,
+                    "inputVariable": "user_input",
+                    "outputVariable": "category",
+                    "classificationMode": "rules_only",
+                    "categoriesV2": [
+                        {
+                            "id": "category_1",
+                            "label": "退款",
+                            "description": "",
+                            "keywords": ["退款"],
+                            "matchMode": "contains_any",
+                        },
+                        {
+                            "id": "category_2",
+                            "label": "物流",
+                            "description": "",
+                            "keywords": ["物流"],
+                            "matchMode": "contains_any",
+                        },
+                    ],
+                    "caseSensitive": False,
+                    "modelId": "",
+                    "defaultLabel": "其他",
+                },
+            },
+            *[
+                {
+                    "id": f"output-{index}",
+                    "type": "output",
+                    "data": {"kind": "output", "outputVariable": "category"},
+                }
+                for index in range(1, 4)
+            ],
+        ],
+        "edges": [
+            {"id": "e0", "source": "input", "target": "classifier"},
+            {
+                "id": "e1",
+                "source": "classifier",
+                "sourceHandle": "category_1",
+                "target": "output-1",
+            },
+            {
+                "id": "e2",
+                "source": "classifier",
+                "sourceHandle": "category_2",
+                "target": "output-2",
+            },
+            {
+                "id": "e3",
+                "source": "classifier",
+                "sourceHandle": "default",
+                "target": "output-3",
+            },
+        ],
+    }
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "请查询物流进度"}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    assert "matched_keyword" not in response.text
+    completed = next(event for event in events if event.get("event") == "workflow_end")
+    assert completed["variables"]["category"] == "category_2"
+    starts = {
+        event.get("node_id")
+        for event in events
+        if event.get("event") == "node_start"
+    }
+    assert "output-2" in starts
+    assert "output-1" not in starts
+    assert "output-3" not in starts
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model_reply", "expected_category", "expected_output"),
+    [
+        ('{"categoryId":"category_2"}', "category_2", "output-category_2"),
+        ('{"categoryId":"default"}', "default", "output-default"),
+    ],
+)
+async def test_question_classifier_v2_model_decision_uses_only_stable_ids(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    model_reply: str,
+    expected_category: str,
+    expected_output: str,
+) -> None:
+    async def fake_collect(*args, **kwargs):
+        return model_reply
+
+    monkeypatch.setattr(main_module, "WORKFLOW_QUESTION_CLASSIFIER_ENABLED", True)
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", fake_collect)
+    response = await client.post(
+        "/api/workflow/run",
+        json={
+            "workflow": _classifier_v2_model_workflow("model_only"),
+            "inputs": {"user_input": "没有规则提示的合成问题"},
+        },
+    )
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    end = next(event for event in events if event.get("event") == "workflow_end")
+    assert end["variables"]["category"] == expected_category
+    starts = {event.get("node_id") for event in events if event.get("event") == "node_start"}
+    assert expected_output in starts
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("user_input", "expected_model_calls", "expected_category"),
+    [
+        ("请查询物流", 0, "category_2"),
+        ("无法由规则识别", 1, "category_1"),
+    ],
+)
+async def test_question_classifier_v2_rules_then_model_calls_only_after_rule_miss(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    user_input: str,
+    expected_model_calls: int,
+    expected_category: str,
+) -> None:
+    calls = 0
+
+    async def fake_collect(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return '{"categoryId":"category_1"}'
+
+    monkeypatch.setattr(main_module, "WORKFLOW_QUESTION_CLASSIFIER_ENABLED", True)
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", fake_collect)
+    response = await client.post(
+        "/api/workflow/run",
+        json={
+            "workflow": _classifier_v2_model_workflow("rules_then_model"),
+            "inputs": {"user_input": user_input},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    end = next(
+        event
+        for event in _parse_sse_events(response.text)
+        if event.get("event") == "workflow_end"
+    )
+    assert end["variables"]["category"] == expected_category
+    assert calls == expected_model_calls
+
+
+@pytest.mark.asyncio
+async def test_question_classifier_v2_rules_only_uses_default_without_model(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def forbidden_model(*args, **kwargs):
+        raise AssertionError("rules_only default must not call the model")
+
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", forbidden_model)
+    response = await client.post(
+        "/api/workflow/run",
+        json={
+            "workflow": _classifier_v2_model_workflow("rules_only"),
+            "inputs": {"user_input": "无法由规则识别"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    end = next(
+        event
+        for event in _parse_sse_events(response.text)
+        if event.get("event") == "workflow_end"
+    )
+    assert end["variables"]["category"] == "default"
+
+
+@pytest.mark.asyncio
+async def test_question_classifier_v2_invalid_model_result_fails_instead_of_defaulting(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_collect(*args, **kwargs):
+        return '{"categoryId":"退款"}'
+
+    monkeypatch.setattr(main_module, "WORKFLOW_QUESTION_CLASSIFIER_ENABLED", True)
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", fake_collect)
+    response = await client.post(
+        "/api/workflow/run",
+        json={
+            "workflow": _classifier_v2_model_workflow("model_only"),
+            "inputs": {"user_input": "合成问题"},
+        },
+    )
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    assert any(event.get("event") == "error" for event in events)
+    starts = {event.get("node_id") for event in events if event.get("event") == "node_start"}
+    assert not starts.intersection({"output-category_1", "output-category_2", "output-default"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["parameter_extractor", "question_classifier"])
+async def test_typed_ai_unknown_contract_version_fails_closed_at_runtime(
+    client: httpx.AsyncClient,
+    kind: str,
+) -> None:
+    data = {
+        "kind": kind,
+        "contractVersion": 3,
+        "inputVariable": "user_input",
+        "outputVariable": "result",
+    }
+    if kind == "parameter_extractor":
+        data.update({"modelId": "test/model", "schema": "topic: Topic"})
+    else:
+        data.update(
+            {
+                "categories": '{"Support":["help"],"Sales":["buy"]}',
+                "defaultCategory": "Other",
+                "matchMode": "contains_any",
+                "caseSensitive": "false",
+                "useLlmFallback": "false",
+                "modelId": "",
+            }
+        )
+    workflow = {
+        "id": f"{kind}-unknown-contract",
+        "title": f"{kind}-unknown-contract",
+        "nodes": [
+            {
+                "id": "input",
+                "type": "input",
+                "data": {"kind": "input", "variableName": "user_input"},
+            },
+            {"id": "typed-ai", "type": kind, "data": data},
+            {
+                "id": "output",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "result"},
+            },
+        ],
+        "edges": [
+            {"id": "e1", "source": "input", "target": "typed-ai"},
+            {"id": "e2", "source": "typed-ai", "target": "output"},
+        ],
+    }
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "safe sample"}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    errors = [event for event in events if event.get("event") == "error"]
+    assert errors
+    assert "contractVersion must be 1 or 2" in errors[-1]["message"]
+    assert not any(event.get("event") == "workflow_end" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_parameter_extractor_v1_keeps_legacy_string_fallback(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("", ""))
+    workflow = {
+        "id": "extractor-v1-runtime",
+        "title": "extractor-v1-runtime",
+        "nodes": [
+            {"id": "input", "type": "input", "data": {"kind": "input", "variableName": "user_input"}},
+            {
+                "id": "extractor",
+                "type": "parameter_extractor",
+                "data": {
+                    "kind": "parameter_extractor",
+                    "inputVariable": "user_input",
+                    "modelId": "legacy/model",
+                    "schema": "name: 姓名",
+                    "outputVariable": "parameters_json",
+                },
+            },
+            {"id": "output", "type": "output", "data": {"kind": "output", "outputVariable": "parameters_json"}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "input", "target": "extractor"},
+            {"id": "e2", "source": "extractor", "target": "output"},
+        ],
+    }
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "姓名是小明"}},
+    )
+    assert response.status_code == 200, response.text
+    end = next(event for event in _parse_sse_events(response.text) if event.get("event") == "workflow_end")
+    assert end["variables"]["parameters_json"] == "{}"
+
+
+@pytest.mark.asyncio
+async def test_question_classifier_v1_keeps_name_string_and_single_outlet(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(main_module, "WORKFLOW_QUESTION_CLASSIFIER_ENABLED", True)
+    workflow = {
+        "id": "classifier-v1-runtime",
+        "title": "classifier-v1-runtime",
+        "nodes": [
+            {"id": "input", "type": "input", "data": {"kind": "input", "variableName": "user_input"}},
+            {
+                "id": "classifier",
+                "type": "question_classifier",
+                "data": {
+                    "kind": "question_classifier",
+                    "inputVariable": "user_input",
+                    "outputVariable": "category",
+                    "categories": '{"退款":["退款"],"物流":["物流"]}',
+                    "defaultCategory": "其他",
+                    "matchMode": "contains_any",
+                    "caseSensitive": "false",
+                    "useLlmFallback": "false",
+                    "modelId": "",
+                },
+            },
+            {"id": "output", "type": "output", "data": {"kind": "output", "outputVariable": "category"}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "input", "target": "classifier"},
+            {"id": "e2", "source": "classifier", "target": "output"},
+        ],
+    }
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "我要退款"}},
+    )
+    assert response.status_code == 200, response.text
+    end = next(event for event in _parse_sse_events(response.text) if event.get("event") == "workflow_end")
+    assert end["variables"]["category"] == "退款"
 
 
 def test_declared_workflow_variables_merge_constants_defaults_and_run_inputs() -> None:
