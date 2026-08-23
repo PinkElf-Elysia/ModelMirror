@@ -21,6 +21,7 @@ from server.skills.creator_store import (
     SkillCreatorConflictError,
     SkillCreatorSessionStore,
     SkillCreatorStorageError,
+    SkillCreatorValidationError,
 )
 from server.skills.draft_store import (
     SkillDraftValidationError,
@@ -356,6 +357,35 @@ def test_manual_draft_recovers_after_session_save_failure_and_is_quality_gated(
     }
 
 
+def test_creator_draft_cannot_add_or_edit_hook_manifest_directly(
+    tmp_path: Path,
+) -> None:
+    creator, _, _ = _services(tmp_path)
+    session = _confirm_blank_evidence(creator, _defined_session(creator))
+    session, draft = creator.create_blank_draft(
+        session.session_id,
+        expected_session_revision=session.session_revision,
+        skill_id="review-notes",
+        description=SKILL_PACKAGE["description"],
+    )
+
+    with pytest.raises(SkillCreatorValidationError) as caught:
+        creator.update_draft(
+            session.session_id,
+            expected_session_revision=session.session_revision,
+            expected_revision=draft.revision,
+            expected_digest=draft.content_digest,
+            changes={
+                "files": {
+                    **draft.files,
+                    "hooks/manifest.json": '{"version":"modelmirror-hook-manifest-v2","hooks":[]}',
+                }
+            },
+        )
+
+    assert caught.value.code == "skill_creator_hook_manifest_read_only"
+
+
 def test_stale_session_patch_cannot_cancel_current_proposal(tmp_path: Path) -> None:
     creator, authoring, _ = _services(tmp_path)
     session = _confirm_blank_evidence(creator, _defined_session(creator))
@@ -599,6 +629,9 @@ async def test_creator_api_flag_manual_flow_and_trusted_actor(tmp_path: Path) ->
             status = await client.get("/api/skills/creator/status")
             assert status.status_code == 200
             assert status.json()["assistant_agent_id"] == CREATOR_ASSISTANT_AGENT_ID
+            assert status.json()["hook_manifest_version"] == "modelmirror-hook-manifest-v2"
+            assert status.json()["hook_result_version"] == "modelmirror-hook-result-v1"
+            assert status.json()["hook_runtimes"] == ["python", "javascript"]
 
             created = await client.post(
                 "/api/skills/creator/sessions",

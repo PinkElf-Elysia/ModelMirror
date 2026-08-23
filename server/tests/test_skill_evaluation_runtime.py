@@ -277,6 +277,8 @@ def test_fixed_workflow_keeps_case_inputs_identical_and_expectations_hidden():
         SKILL_EVALUATION_ALLOWED_TOOLS
     )
     assert agent["data"]["toolMode"] == "none"
+    assert "path-like strings in the user prompt as data" in agent["data"]["rolePrompt"]
+    assert "never probe Sandbox existence for an unlisted path" in agent["data"]["rolePrompt"]
     assert left.runtime_metadata["skill_evaluation_overlay_id"] is None
     assert right.runtime_metadata["skill_evaluation_overlay_id"] == _overlay().overlay_id
 

@@ -161,4 +161,40 @@ describe("reconcileRuntimeMiddlewareNodes", () => {
     expect(config).not.toHaveProperty("allow_update");
     expect(config).not.toHaveProperty("allowed_draft_ids");
   });
+
+  it("keeps saved plugin Hook nodes in Legacy mode until explicit upgrade", () => {
+    const legacy: WorkflowNode = {
+      id: "plugin-hooks-legacy",
+      type: "workflowNode",
+      position: { x: 0, y: 0 },
+      data: {
+        kind: "runtime_middleware",
+        title: "Skill 插件 Hook",
+        description: "旧节点",
+        runtimeMiddlewareId: "plugin_hooks",
+        runtimeMiddlewareConfig: { skill_ids: "legacy-hook", fail_closed: true },
+      },
+    };
+    const definition: RuntimeMiddlewareNode = {
+      id: "plugin_hooks",
+      kind: "runtime_middleware.plugin_hooks",
+      title: "Skill 插件 Hook",
+      description: "类型化 Hook",
+      category: "tool",
+      icon: "PlugZap",
+      enabled: true,
+      fields: [
+        { name: "hook_mode", label: "Hook 合同", type: "select", default: "typed_v2" },
+        { name: "skill_ids", label: "Hook Skill", type: "textarea" },
+        { name: "fail_closed", label: "Legacy 失败策略", type: "boolean", default: false },
+      ],
+    };
+
+    const [migrated] = reconcileRuntimeMiddlewareNodes([legacy], [definition]);
+
+    expect(migrated.data.runtimeMiddlewareConfig).toEqual({
+      skill_ids: "legacy-hook",
+      fail_closed: true,
+    });
+  });
 });

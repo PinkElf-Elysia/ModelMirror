@@ -70,6 +70,11 @@ def test_registry_list_returns_builtin_nodes() -> None:
         "legacy_proposal",
         "creator_handoff",
     ]
+    plugin_hooks = registry.get("plugin_hooks")
+    assert plugin_hooks is not None
+    hook_mode = next(field for field in plugin_hooks.fields if field.name == "hook_mode")
+    assert hook_mode.default == "typed_v2"
+    assert hook_mode.options == ["typed_v2", "legacy_argv"]
     assert {"xpert_authoring", "skill_creator"}.issubset(
         registry.app_forbidden_ids()
     )

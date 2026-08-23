@@ -37,6 +37,7 @@ from server.skills.creator_store import (
     SkillCreatorValidationError,
 )
 from server.skills.draft_store import WorkspaceSkillDraft
+from server.skills.hook_contract import HOOK_MANIFEST_PATH
 from server.skills.package_validation import compute_package_digest
 
 
@@ -588,15 +589,63 @@ def test_evolution_runtime_is_no_tool_and_parses_one_versioned_object() -> None:
     diagnosis_spec = context["output_contract_spec"]["properties"]["diagnoses"]
     assert diagnosis_spec["minItems"] == 1
     assert diagnosis_spec["items"]["properties"]["summary"]["minLength"] == 1
+    assert "advisory evaluation output does not execute that hook" in agent[
+        "rolePrompt"
+    ].lower()
     payload = {"evolution_plan_version": EVOLUTION_PLAN_VERSION, "diagnoses": []}
     assert parse_evolution_output("Result:\n```json\n" + json.dumps(payload) + "\n```") == payload
     with pytest.raises(SkillCreatorValidationError):
         parse_evolution_output(json.dumps(payload) + json.dumps({**payload, "actions": []}))
 
 
+def test_model_cannot_rebuild_verified_hook_script_from_advisory_failure() -> None:
+    resource = SimpleNamespace(
+        resource_id="hook-script",
+        purpose="Validate release paths before writing.",
+        source_ids=("intent",),
+        used_by_steps=("validate",),
+        depends_on=(),
+        acceptance_checks=("Safe paths pass and unsafe paths are denied.",),
+    )
+    plan = SimpleNamespace(
+        resources=(resource,),
+        hooks=(SimpleNamespace(action="keep", script_resource_id="hook-script"),),
+    )
+    payload = {
+        "actions": [
+            {
+                "action_id": "update-hook",
+                "action": "update",
+                "resource_id": "hook-script",
+                "purpose": "Change the script based on advisory model output.",
+                "source_ids": ["intent"],
+                "used_by_steps": ["validate"],
+                "depends_on": [],
+                "acceptance_checks": ["Advisory output changes."],
+                "related_case_ids": ["core-normal"],
+                "expected_improvement": "Model output changes.",
+                "non_regression_case_ids": [],
+            }
+        ]
+    }
+
+    constrained = SkillCreatorEvolutionService._constrain_hook_script_actions(
+        payload,
+        plan,
+    )
+
+    action = constrained["actions"][0]
+    assert action["action"] == "keep"
+    assert action["purpose"] == resource.purpose
+    assert action["acceptance_checks"] == list(resource.acceptance_checks)
+    assert payload["actions"][0]["action"] == "update"
+
+
 def test_post_build_draft_accepts_only_the_exact_proposal_and_recomputed_package(tmp_path: Path) -> None:
     creator, resource_plan, suite, run, _planner, _service_value = _service(tmp_path)
     creator.draft.source_proposal_id = "proposal-from-build"
+    hook_manifest = '{"hooks":[],"version":"modelmirror-hook-manifest-v2"}\n'
+    creator.draft.files[HOOK_MANIFEST_PATH] = hook_manifest
     creator.draft.content_digest = compute_package_digest(
         creator.draft.skill_markdown, creator.draft.files
     )
@@ -608,6 +657,7 @@ def test_post_build_draft_accepts_only_the_exact_proposal_and_recomputed_package
         state="accepted",
         phase="proposal",
         skill_markdown=creator.draft.skill_markdown,
+        hook_manifest=hook_manifest,
         resources=[
             SimpleNamespace(action="update", path=path, content=content)
             for path, content in creator.draft.files.items()
@@ -635,6 +685,11 @@ def test_post_build_draft_accepts_only_the_exact_proposal_and_recomputed_package
     assert service._resource_plan_produced_draft(
         resource_plan, session=creator.session, draft=creator.draft
     )
+    build.hook_manifest = '{"hooks":[],"version":"modelmirror-hook-manifest-v2","tampered":true}\n'
+    assert not service._resource_plan_produced_draft(
+        resource_plan, session=creator.session, draft=creator.draft
+    )
+    build.hook_manifest = hook_manifest
     build.resources[0].content = "print('tampered')\n"
     assert not service._resource_plan_produced_draft(
         resource_plan, session=creator.session, draft=creator.draft

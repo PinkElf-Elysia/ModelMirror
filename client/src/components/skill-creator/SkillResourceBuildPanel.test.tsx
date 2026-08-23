@@ -252,4 +252,248 @@ describe("SkillResourceBuildPanel", () => {
     expect(await screen.findByRole("heading", { name: "assets/report-template.md" })).toBeVisible();
     expect(screen.getByText("# Report template")).toBeVisible();
   });
+
+  it("regenerates a rejected resource in the same user action", async () => {
+    const rejected: SkillResourceBuild = {
+      ...build,
+      revision: 6,
+      digest: "6".repeat(64),
+      state: "revision_requested",
+      current_resource_id: null,
+      resources: [{
+        ...build.resources[0],
+        state: "revision_requested",
+        content: null,
+        content_digest: null,
+        chunks: [],
+        feedback: "Keep the frozen path and improve the rule detail.",
+      }],
+    };
+    const regenerated: SkillResourceBuild = {
+      ...build,
+      revision: 8,
+      digest: "8".repeat(64),
+      resources: [{
+        ...build.resources[0],
+        content: "# Evidence policy\n\nUse explicit facts and mark every gap.\n",
+        content_digest: "9".repeat(64),
+      }],
+    };
+    const fetchMock = vi.fn<
+      (_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>
+    >((input) => String(input).endsWith("/next")
+      ? jsonResponse({ resource_build: regenerated })
+      : jsonResponse({ resource_build: rejected }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<SkillResourceBuildPanel
+      onProposal={vi.fn()}
+      onSessionRefresh={vi.fn()}
+      session={{ ...baseSession, resource_build: build }}
+      status={status}
+    />);
+    await userEvent.type(
+      screen.getByLabelText("重做反馈"),
+      "Keep the frozen path and improve the rule detail.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "按反馈重做" }));
+
+    expect(await screen.findByText(/已按反馈重新生成并完成基础检查/)).toBeVisible();
+    expect(screen.getByText(/Use explicit facts and mark every gap/)).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/review");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/next");
+  });
+
+  it("regenerates a rejected final SKILL.md in the same user action", async () => {
+    const finalBuild: SkillResourceBuild = {
+      ...build,
+      phase: "skill_markdown",
+      state: "awaiting_review",
+      current_resource_id: null,
+      resources: [{ ...build.resources[0], state: "accepted" }],
+      skill_markdown: "# First version\n",
+      skill_markdown_digest: "f".repeat(64),
+    };
+    const rejected: SkillResourceBuild = {
+      ...finalBuild,
+      revision: 6,
+      digest: "6".repeat(64),
+      state: "revision_requested",
+      skill_markdown: null,
+      skill_markdown_digest: null,
+      skill_feedback: "Describe the typed Hook output contract exactly.",
+    };
+    const regenerated: SkillResourceBuild = {
+      ...rejected,
+      revision: 8,
+      digest: "8".repeat(64),
+      state: "awaiting_review",
+      skill_markdown: "# Corrected version\n\nUse typed validation and deny outputs.\n",
+      skill_markdown_digest: "9".repeat(64),
+    };
+    const fetchMock = vi.fn<
+      (_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>
+    >((input) => String(input).endsWith("/next")
+      ? jsonResponse({ resource_build: regenerated })
+      : jsonResponse({ resource_build: rejected }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<SkillResourceBuildPanel
+      onProposal={vi.fn()}
+      onSessionRefresh={vi.fn()}
+      session={{ ...baseSession, resource_build: finalBuild }}
+      status={status}
+    />);
+    await userEvent.type(
+      screen.getByLabelText("最终文档反馈"),
+      "Describe the typed Hook output contract exactly.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "按反馈重做 SKILL.md" }));
+
+    expect(await screen.findByText(/已按反馈重新生成并完成校验/)).toBeVisible();
+    expect(screen.getByText(/Use typed validation and deny outputs/)).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/finalize");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/next");
+  });
+
+  it("does not present passing CLI fixtures as a passing Hook contract", () => {
+    const hookFailed: SkillResourceBuild = {
+      ...build,
+      state: "failed",
+      resources: [{
+        ...build.resources[0],
+        kind: "script",
+        state: "failed",
+        validation_issues: [{
+          code: "skill_creator_hook_test_failed",
+          message: "Generated Hook script failed its typed offline contract tests.",
+          path: "scripts/check.py",
+          severity: "error",
+        }],
+        script_receipt: {
+          receipt_id: "script_receipt_1",
+          script_digest: "a".repeat(64),
+          profile: "skill_authoring_v1",
+          passed: true,
+          created_at: 1,
+          results: [{
+            test_id: "case_1",
+            passed: true,
+            exit_code: 0,
+            stdout_sha256: "b".repeat(64),
+            stderr_sha256: "c".repeat(64),
+            duration_ms: 5,
+            issues: [],
+          }],
+        },
+      }],
+    };
+
+    render(<SkillResourceBuildPanel
+      onProposal={vi.fn()}
+      onSessionRefresh={vi.fn()}
+      session={{ ...baseSession, resource_build: hookFailed }}
+      status={status}
+    />);
+
+    expect(screen.getByText("基础 CLI 通过")).toBeVisible();
+    expect(screen.getByText(/Hook 的类型化 context\/result 合同未通过/)).toBeVisible();
+    expect(screen.queryByText("全部通过")).not.toBeInTheDocument();
+  });
+
+  it("shows one Hook validation boundary and keeps the manifest read-only", () => {
+    const hookBuild: SkillResourceBuild = {
+      ...build,
+      state: "planned",
+      current_resource_id: null,
+      resources: [{ ...build.resources[0], state: "accepted" }],
+      hooks: [{
+        hook_id: "check-release-name",
+        spec_digest: "1".repeat(64),
+        event: "pre_tool_use",
+        mode: "guard",
+        tool_names: ["sandbox_write_file"],
+        purpose: "Block unsafe release filenames.",
+        script_resource_id: "resource_1",
+        source_ids: ["intent"],
+        used_by_steps: ["collect"],
+        acceptance_checks: ["Deny executable suffixes."],
+        action: "create",
+      }],
+      hook_manifest: null,
+      hook_manifest_digest: null,
+    };
+
+    render(<SkillResourceBuildPanel
+      onProposal={vi.fn()}
+      onSessionRefresh={vi.fn()}
+      session={{ ...baseSession, resource_build: hookBuild }}
+      status={{ ...status, hook_authoring_enabled: true }}
+    />);
+
+    expect(screen.getByRole("heading", { name: "Hook 合同与实测" })).toBeVisible();
+    expect(screen.getByText("等待离线实测")).toBeVisible();
+    expect(screen.getByRole("button", { name: "实测 Hook 并生成 SKILL.md" })).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: /manifest/i })).not.toBeInTheDocument();
+  });
+
+  it("fails closed before starting or advancing a Hook build when Hook V2 is disabled", () => {
+    const hookPlan: SkillResourcePlan = {
+      ...plan,
+      hooks: [{
+        hook_id: "check-release-name",
+        spec_digest: "1".repeat(64),
+        event: "pre_tool_use",
+        mode: "guard",
+        tool_names: ["sandbox_write_file"],
+        purpose: "Block unsafe release filenames.",
+        script_resource_id: "resource_1",
+        source_ids: ["intent"],
+        used_by_steps: ["collect"],
+        acceptance_checks: ["Deny executable suffixes."],
+        action: "create",
+      }],
+    };
+
+    render(<SkillResourceBuildPanel
+      onProposal={vi.fn()}
+      onSessionRefresh={vi.fn()}
+      session={{ ...baseSession, resource_plan: hookPlan }}
+      status={{ ...status, hook_authoring_enabled: false }}
+    />);
+
+    expect(screen.getByRole("button", { name: "开始生成内容" })).toBeDisabled();
+    expect(screen.getByText(/该计划包含 Hook，但 Hook V2 当前已关闭/)).toBeVisible();
+  });
+
+  it("does not spend a model call when the Hook authoring Sidecar is unavailable", () => {
+    const hookPlan: SkillResourcePlan = {
+      ...plan,
+      hooks: [{
+        hook_id: "check-release-name",
+        spec_digest: "1".repeat(64),
+        event: "pre_tool_use",
+        mode: "guard",
+        tool_names: ["sandbox_write_file"],
+        purpose: "Block unsafe release filenames.",
+        script_resource_id: "resource_1",
+        source_ids: ["intent"],
+        used_by_steps: ["collect"],
+        acceptance_checks: ["Deny executable suffixes."],
+        action: "create",
+      }],
+    };
+
+    render(<SkillResourceBuildPanel
+      onProposal={vi.fn()}
+      onSessionRefresh={vi.fn()}
+      session={{ ...baseSession, resource_plan: hookPlan }}
+      status={{ ...status, hook_authoring_enabled: true, script_sandbox_configured: false }}
+    />);
+
+    expect(screen.getByRole("button", { name: "开始生成内容" })).toBeDisabled();
+    expect(screen.getByText(/离线 authoring Sidecar 不可用/)).toBeVisible();
+  });
 });

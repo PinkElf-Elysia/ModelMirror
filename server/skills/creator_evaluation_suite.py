@@ -243,6 +243,8 @@ class SkillEvaluationSuiteStore:
         session_revision: int,
         session_definition_digest: str,
         draft_state_revision: int,
+        draft_revision: int | None = None,
+        draft_digest: str | None = None,
         cases: Iterable[Mapping[str, Any]],
         change_reason: str,
         allowed_requirement_ids: Iterable[str],
@@ -265,8 +267,12 @@ class SkillEvaluationSuiteStore:
             session_definition_digest=session_definition_digest,
             draft_id=current.draft_id,
             draft_state_revision=draft_state_revision,
-            draft_revision=current.draft_revision,
-            draft_digest=current.draft_digest,
+            draft_revision=(
+                current.draft_revision
+                if draft_revision is None
+                else draft_revision
+            ),
+            draft_digest=(current.draft_digest if draft_digest is None else draft_digest),
             quality_mode=current.quality_mode,
             state="draft",
             cases=cases_tuple,
@@ -287,9 +293,10 @@ class SkillEvaluationSuiteStore:
         allowed_requirement_ids: Iterable[str],
         allowed_resource_paths: Iterable[str],
         allowed_workflow_step_ids: Iterable[str],
-    ) -> None:
+        allow_unchanged_without_reason: bool = False,
+    ) -> bool:
         """Validate a proposed revision without changing the immutable Store."""
-        self._prepare_patch(
+        current, cases_tuple, _ = self._prepare_patch(
             suite_id,
             expected_suite_revision=expected_suite_revision,
             expected_suite_digest=expected_suite_digest,
@@ -298,7 +305,9 @@ class SkillEvaluationSuiteStore:
             allowed_requirement_ids=allowed_requirement_ids,
             allowed_resource_paths=allowed_resource_paths,
             allowed_workflow_step_ids=allowed_workflow_step_ids,
+            allow_unchanged_without_reason=allow_unchanged_without_reason,
         )
+        return cases_tuple == current.cases
 
     def _prepare_patch(
         self,
@@ -311,6 +320,7 @@ class SkillEvaluationSuiteStore:
         allowed_requirement_ids: Iterable[str],
         allowed_resource_paths: Iterable[str],
         allowed_workflow_step_ids: Iterable[str],
+        allow_unchanged_without_reason: bool = False,
     ) -> tuple[SkillEvaluationSuite, tuple[SkillEvaluationSuiteCase, ...], str]:
         current = self.require(suite_id)
         self._require_expected(
@@ -319,7 +329,11 @@ class SkillEvaluationSuiteStore:
             expected_digest=expected_suite_digest,
         )
         clean_reason = self._text(change_reason, "change_reason", maximum=4_000)
-        if current.state == "confirmed" and not clean_reason:
+        if (
+            current.state == "confirmed"
+            and not clean_reason
+            and not allow_unchanged_without_reason
+        ):
             raise SkillEvaluationValidationError(
                 "Changing a confirmed evaluation suite requires a reason.",
                 code="skill_evaluation_suite_change_reason_required",
@@ -358,6 +372,15 @@ class SkillEvaluationSuiteStore:
             normalized.append(normalized_case)
         cases_tuple = tuple(normalized)
         self._validate_case_set(cases_tuple, allow_regressions=True)
+        if (
+            current.state == "confirmed"
+            and not clean_reason
+            and cases_tuple != current.cases
+        ):
+            raise SkillEvaluationValidationError(
+                "Changing a confirmed evaluation suite requires a reason.",
+                code="skill_evaluation_suite_change_reason_required",
+            )
         return current, cases_tuple, clean_reason
 
     def confirm(

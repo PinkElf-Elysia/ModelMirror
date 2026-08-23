@@ -335,9 +335,10 @@ class SkillCreatorEvaluationSuiteService:
             expected_draft_digest=expected_draft_digest,
         )
         current = self.suite_store.require(suite_id)
-        self._require_suite_scope(current, session=session, draft=draft)
+        self._require_suite_rebasable(current, session=session, draft=draft)
         coverage = self._coverage_context(session, draft)
-        self.suite_store.validate_patch(
+        stale = self._is_stale(current, session=session, draft=draft)
+        unchanged = self.suite_store.validate_patch(
             suite_id,
             expected_suite_revision=expected_suite_revision,
             expected_suite_digest=expected_suite_digest,
@@ -346,7 +347,14 @@ class SkillCreatorEvaluationSuiteService:
             allowed_requirement_ids=coverage["requirements"],
             allowed_resource_paths=coverage["resources"],
             allowed_workflow_step_ids=coverage["workflow_steps"],
+            allow_unchanged_without_reason=stale,
         )
+        effective_change_reason = change_reason
+        if current.state == "confirmed" and stale and unchanged and not change_reason.strip():
+            effective_change_reason = (
+                "Rebased unchanged confirmed suite onto draft revision "
+                f"{draft.content_revision}."
+            )
         if current.state == "confirmed" and draft.quality_status not in {
             "not_evaluated",
             "outdated",
@@ -363,8 +371,10 @@ class SkillCreatorEvaluationSuiteService:
             session_revision=session.session_revision,
             session_definition_digest=self._session_definition_digest(session),
             draft_state_revision=draft.revision,
+            draft_revision=draft.content_revision,
+            draft_digest=draft.content_digest,
             cases=cases,
-            change_reason=change_reason,
+            change_reason=effective_change_reason,
             allowed_requirement_ids=coverage["requirements"],
             allowed_resource_paths=coverage["resources"],
             allowed_workflow_step_ids=coverage["workflow_steps"],
@@ -558,6 +568,24 @@ class SkillCreatorEvaluationSuiteService:
     ) -> None:
         if SkillCreatorEvaluationSuiteService._is_stale(
             suite, session=session, draft=draft
+        ):
+            raise SkillCreatorConflictError(
+                "Evaluation suite no longer matches the current Creator session and draft."
+            )
+
+    @staticmethod
+    def _require_suite_rebasable(
+        suite: SkillEvaluationSuite,
+        *,
+        session: SkillCreatorSession,
+        draft: WorkspaceSkillDraft,
+    ) -> None:
+        if (
+            suite.session_id != session.session_id
+            or suite.session_definition_digest
+            != SkillCreatorEvaluationSuiteService._session_definition_digest(session)
+            or suite.draft_id != draft.draft_id
+            or suite.quality_mode != session.quality_mode
         ):
             raise SkillCreatorConflictError(
                 "Evaluation suite no longer matches the current Creator session and draft."

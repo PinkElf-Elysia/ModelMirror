@@ -282,6 +282,58 @@ describe("Skill Creator evaluation flow", () => {
     expect(body).toMatchObject({ evaluation_suite_revision: 2, evaluation_suite_digest: evaluationSuite.suite_digest });
   });
 
+  it("rebinds an unchanged stale suite to the evolved draft without a fake change reason", async () => {
+    const staleSuite = { ...evaluationSuite, stale: true };
+    const staleSession: SkillCreatorSession = {
+      ...session,
+      evaluation_suite: staleSuite,
+    };
+    const reboundSuite = {
+      ...staleSuite,
+      stale: false,
+      state: "draft" as const,
+      suite_revision: staleSuite.suite_revision + 1,
+      suite_digest: "c".repeat(64),
+    };
+    const reboundSession = { ...staleSession, evaluation_suite: reboundSuite };
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => (
+      jsonResponse({ session: reboundSession })
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    const onSessionChange = vi.fn();
+
+    const view = render(
+      <SkillEvaluationDesigner
+        draft={draft}
+        onError={vi.fn()}
+        onNotice={vi.fn()}
+        onRunStarted={vi.fn()}
+        onSessionChange={onSessionChange}
+        session={staleSession}
+      />,
+    );
+
+    expect(screen.getByText("草稿已更新；测试内容未变，沿用到新版本后再确认即可。")).toBeVisible();
+    expect(screen.queryByLabelText("套件修改原因")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "沿用到新版本" }));
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.change_reason).toBe("");
+    expect(body.expected_suite_revision).toBe(staleSuite.suite_revision);
+    expect(onSessionChange).toHaveBeenCalledWith(reboundSession);
+    view.rerender(
+      <SkillEvaluationDesigner
+        draft={draft}
+        onError={vi.fn()}
+        onNotice={vi.fn()}
+        onRunStarted={vi.fn()}
+        onSessionChange={onSessionChange}
+        session={reboundSession}
+      />,
+    );
+    expect(await screen.findByText("任务已保存，请确认后运行。")).toBeVisible();
+  });
+
   it("fails closed when Candidate did not read the Skill or Sandbox is unavailable", () => {
     render(
       <SkillEvaluationReview

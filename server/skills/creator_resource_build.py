@@ -20,6 +20,7 @@ from .creator_store import (
     SkillCreatorValidationError,
 )
 from .package_validation import scan_skill_package_credentials
+from .hook_contract import HOOK_MANIFEST_PATH
 
 
 RESOURCE_BUILD_VERSION = "skill-resource-build-v1"
@@ -103,6 +104,45 @@ class ResourceScriptTestReceipt:
 
 
 @dataclass(frozen=True, slots=True)
+class HookScriptTestResult:
+    case_id: str
+    passed: bool
+    result_types: list[str]
+    result_digest: str
+    duration_ms: float
+    issues: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class HookScriptTestReceipt:
+    receipt_id: str
+    hook_id: str
+    hook_spec_digest: str
+    script_digest: str
+    manifest_digest: str
+    profile: str
+    passed: bool
+    results: list[HookScriptTestResult]
+    created_at: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True, slots=True)
+class SkillResourceBuildHook:
+    hook_id: str
+    spec_digest: str
+    event: Literal["session_start", "pre_tool_use", "post_tool_use", "session_end"]
+    mode: Literal["annotation", "validation", "guard"]
+    tool_names: list[str]
+    purpose: str
+    script_resource_id: str
+    source_ids: list[str]
+    used_by_steps: list[str]
+    acceptance_checks: list[str]
+    action: Literal["keep", "create", "update", "delete"]
+    test_receipt: HookScriptTestReceipt | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SkillResourceBuildItem:
     resource_id: str
     spec_digest: str
@@ -149,6 +189,9 @@ class SkillResourceBuild:
     output_contract: list[str]
     failure_modes: list[str]
     resources: list[SkillResourceBuildItem]
+    hooks: list[SkillResourceBuildHook] = field(default_factory=list)
+    hook_manifest: str | None = None
+    hook_manifest_digest: str | None = None
     current_resource_id: str | None = None
     skill_chunks: list[str] = field(default_factory=list)
     skill_markdown: str | None = None
@@ -333,6 +376,102 @@ class SkillResourceBuildStore:
                     script_receipt=reused_receipt,
                 )
             )
+        hooks = [
+            SkillResourceBuildHook(
+                hook_id=item.hook_id,
+                spec_digest=item.spec_digest,
+                event=item.event,
+                mode=item.mode,
+                tool_names=list(item.tool_names),
+                purpose=item.purpose,
+                script_resource_id=item.script_resource_id,
+                source_ids=list(item.source_ids),
+                used_by_steps=list(item.used_by_steps),
+                acceptance_checks=list(item.acceptance_checks),
+                action=item.action,
+            )
+            for item in plan.hooks
+        ]
+        reused_hook_manifest: str | None = None
+        reused_hook_manifest_digest: str | None = None
+        if (
+            previous_build is not None
+            and previous_build.session_id == plan.session_id
+            and previous_build.hook_manifest is not None
+            and previous_build.hook_manifest_digest is not None
+        ):
+            current_resources = {item.resource_id: item for item in resources}
+            previous_resources = {
+                item.resource_id: item for item in previous_build.resources
+            }
+
+            def hook_shape(
+                hook: SkillResourceBuildHook,
+                resource_map: Mapping[str, SkillResourceBuildItem],
+            ) -> tuple[Any, ...] | None:
+                if hook.action == "delete":
+                    return None
+                script = resource_map.get(hook.script_resource_id)
+                if script is None:
+                    return None
+                return (
+                    hook.hook_id,
+                    hook.event,
+                    hook.mode,
+                    tuple(hook.tool_names),
+                    script.path,
+                    hook.purpose,
+                    tuple(hook.acceptance_checks),
+                )
+
+            current_shape = [
+                shape
+                for hook in hooks
+                if (shape := hook_shape(hook, current_resources)) is not None
+            ]
+            previous_shape = [
+                shape
+                for hook in previous_build.hooks
+                if (shape := hook_shape(hook, previous_resources)) is not None
+            ]
+            previous_hooks = {
+                hook.hook_id: hook for hook in previous_build.hooks
+            }
+            reusable_hook_receipts: dict[str, HookScriptTestReceipt] = {}
+            if current_shape and current_shape == previous_shape:
+                for hook in hooks:
+                    if hook.action == "delete":
+                        continue
+                    prior = previous_hooks.get(hook.hook_id)
+                    script = current_resources.get(hook.script_resource_id)
+                    receipt = prior.test_receipt if prior is not None else None
+                    if (
+                        prior is None
+                        or prior.spec_digest != hook.spec_digest
+                        or script is None
+                        or script.content_digest is None
+                        or receipt is None
+                        or not receipt.passed
+                        or receipt.hook_spec_digest != hook.spec_digest
+                        or receipt.script_digest != script.content_digest
+                        or receipt.manifest_digest
+                        != previous_build.hook_manifest_digest
+                    ):
+                        reusable_hook_receipts = {}
+                        break
+                    reusable_hook_receipts[hook.hook_id] = receipt
+            if reusable_hook_receipts and len(reusable_hook_receipts) == len(
+                [hook for hook in hooks if hook.action != "delete"]
+            ):
+                hooks = [
+                    replace(
+                        hook,
+                        test_receipt=reusable_hook_receipts.get(hook.hook_id),
+                    )
+                    for hook in hooks
+                ]
+                reused_hook_manifest = previous_build.hook_manifest
+                reused_hook_manifest_digest = previous_build.hook_manifest_digest
         self._ensure_package_budget(resources, skill_markdown=None)
         with self._lock:
             self._ensure_writable_unlocked()
@@ -360,7 +499,15 @@ class SkillResourceBuildStore:
                 session_id=plan.session_id,
                 revision=1,
                 state="planned",
-                phase="resources" if self._has_pending_resources(resources) else "skill_markdown",
+                phase=(
+                    "resources"
+                    if self._has_pending_resources(resources)
+                    or (
+                        any(hook.action != "delete" for hook in hooks)
+                        and reused_hook_manifest is None
+                    )
+                    else "skill_markdown"
+                ),
                 session_revision=plan.session_revision,
                 plan_id=plan.plan_id,
                 plan_revision=plan.revision,
@@ -374,6 +521,9 @@ class SkillResourceBuildStore:
                 output_contract=list(plan.output_contract),
                 failure_modes=list(plan.failure_modes),
                 resources=resources,
+                hooks=hooks,
+                hook_manifest=reused_hook_manifest,
+                hook_manifest_digest=reused_hook_manifest_digest,
                 created_at=now,
                 updated_at=now,
             )
@@ -403,6 +553,10 @@ class SkillResourceBuildStore:
                     if self._has_pending_resources(current.resources):
                         raise SkillCreatorConflictError(
                             "Resource dependencies are not ready for generation."
+                        )
+                    if self.requires_hook_validation(current):
+                        raise SkillCreatorConflictError(
+                            "Hook scripts must pass deterministic authoring tests before SKILL.md."
                         )
                     values["phase"] = "skill_markdown"
                     values["state"] = "generating"
@@ -648,6 +802,10 @@ class SkillResourceBuildStore:
             values["skill_validation_issues"] = []
             values["skill_feedback"] = ""
             values["requirement_coverage"] = []
+            values["hook_manifest"] = None
+            values["hook_manifest_digest"] = None
+            for hook in values.get("hooks", []):
+                hook["test_receipt"] = None
             values["revision"] = current.revision + 1
             values["updated_at"] = time.time()
             candidate = self._decode(values, verify_digest=False)
@@ -781,6 +939,12 @@ class SkillResourceBuildStore:
                 values["current_resource_id"] = None
                 if self._has_pending_resource_dicts(values["resources"]):
                     values["state"] = "planned"
+                elif any(
+                    hook.get("action") != "delete"
+                    for hook in values.get("hooks", [])
+                ):
+                    values["phase"] = "resources"
+                    values["state"] = "planned"
                 else:
                     values["phase"] = "skill_markdown"
                     values["state"] = "planned"
@@ -889,6 +1053,61 @@ class SkillResourceBuildStore:
             values["updated_at"] = time.time()
             return self._publish_unlocked(self._decode(values, verify_digest=False))
 
+    def record_hook_validation(
+        self,
+        build_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+        manifest: str | None,
+        manifest_digest: str | None,
+        receipts: list[HookScriptTestReceipt],
+        issues: list[Mapping[str, Any]],
+    ) -> SkillResourceBuild:
+        """Persist deterministic manifest/test facts before SKILL.md generation."""
+
+        with self._lock:
+            current = self._require_match_unlocked(
+                build_id,
+                expected_revision=expected_revision,
+                expected_digest=expected_digest,
+            )
+            if current.phase != "resources" or current.state not in {
+                "planned",
+                "revision_requested",
+            }:
+                raise SkillCreatorConflictError(
+                    "Hook validation is not at the resource-to-SKILL.md boundary."
+                )
+            if any(item.state != "accepted" for item in current.resources):
+                raise SkillCreatorConflictError(
+                    "Every resource must be accepted before Hook validation."
+                )
+            clean_issues = [copy.deepcopy(dict(item)) for item in issues[:40]]
+            receipt_by_hook = {item.hook_id: item for item in receipts}
+            values = asdict(current)
+            values["revision"] = current.revision + 1
+            values["updated_at"] = time.time()
+            values["hook_manifest"] = manifest
+            values["hook_manifest_digest"] = manifest_digest
+            for hook in values["hooks"]:
+                receipt = receipt_by_hook.get(str(hook["hook_id"]))
+                hook["test_receipt"] = asdict(receipt) if receipt is not None else None
+            if clean_issues:
+                values["state"] = "revision_requested"
+                values["skill_validation_issues"] = clean_issues
+            else:
+                values["phase"] = "skill_markdown"
+                values["state"] = "planned"
+                values["skill_validation_issues"] = []
+            candidate = self._decode(values, verify_digest=False)
+            self._ensure_package_budget(
+                candidate.resources,
+                candidate.skill_markdown,
+                hook_manifest=candidate.hook_manifest,
+            )
+            return self._publish_unlocked(candidate)
+
     def mark_stale(self, build_id: str) -> SkillResourceBuild:
         with self._lock:
             current = self._require_unlocked(build_id)
@@ -986,7 +1205,26 @@ class SkillResourceBuildStore:
             if resource.state != "accepted" or resource.content is None:
                 raise SkillCreatorConflictError("Resource package is not fully accepted.")
             result[resource.path] = resource.content
+        if any(hook.action != "delete" for hook in item.hooks):
+            if item.hook_manifest is None:
+                raise SkillCreatorConflictError("Hook manifest has not passed authoring validation.")
+            result[HOOK_MANIFEST_PATH] = item.hook_manifest
         return result
+
+    @staticmethod
+    def requires_hook_validation(item: SkillResourceBuild) -> bool:
+        active = [hook for hook in item.hooks if hook.action != "delete"]
+        return bool(
+            active
+            and (
+                item.hook_manifest is None
+                or item.hook_manifest_digest is None
+                or any(
+                    hook.test_receipt is None or not hook.test_receipt.passed
+                    for hook in active
+                )
+            )
+        )
 
     @staticmethod
     def _next_resource(resources: list[SkillResourceBuildItem]) -> SkillResourceBuildItem | None:
@@ -1048,6 +1286,10 @@ class SkillResourceBuildStore:
         item = SkillResourceBuild(digest="", **values)
         payload = asdict(item)
         payload.pop("digest", None)
+        if not item.hooks and item.hook_manifest is None:
+            payload.pop("hooks", None)
+            payload.pop("hook_manifest", None)
+            payload.pop("hook_manifest_digest", None)
         digest = self._sha256(self._canonical_json(payload))
         return replace(item, digest=digest)
 
@@ -1084,6 +1326,28 @@ class SkillResourceBuildStore:
             )
         supplied_digest = values.pop("digest", None)
         values["resources"] = resources
+        hooks: list[SkillResourceBuildHook] = []
+        for record in list(values.get("hooks") or []):
+            receipt_raw = record.get("test_receipt")
+            receipt = None
+            if isinstance(receipt_raw, dict):
+                receipt = HookScriptTestReceipt(
+                    **{
+                        **receipt_raw,
+                        "results": [
+                            HookScriptTestResult(**item)
+                            for item in receipt_raw.get("results", [])
+                        ],
+                    }
+                )
+            hooks.append(
+                SkillResourceBuildHook(
+                    **{**record, "test_receipt": receipt}
+                )
+            )
+        values["hooks"] = hooks
+        values.setdefault("hook_manifest", None)
+        values.setdefault("hook_manifest_digest", None)
         item = self._build(**values)
         if verify_digest and supplied_digest != item.digest:
             raise ValueError("resource build digest mismatch")
@@ -1171,6 +1435,59 @@ class SkillResourceBuildStore:
                 unresolved.pop(resource_id)
         if item.current_resource_id is not None and item.current_resource_id not in resource_ids:
             raise ValueError("current resource id is missing")
+        hook_ids = {hook.hook_id for hook in item.hooks}
+        if len(hook_ids) != len(item.hooks) or len(item.hooks) > 12:
+            raise ValueError("invalid Hook build item ids")
+        active_script_ids = {
+            resource.resource_id
+            for resource in item.resources
+            if resource.kind == "script" and resource.action != "delete"
+        }
+        all_script_ids = {
+            resource.resource_id
+            for resource in item.resources
+            if resource.kind == "script"
+        }
+        for hook in item.hooks:
+            if (
+                hook.event not in {"session_start", "pre_tool_use", "post_tool_use", "session_end"}
+                or hook.mode not in {"annotation", "validation", "guard"}
+                or hook.action not in {"keep", "create", "update", "delete"}
+                or (
+                    hook.script_resource_id
+                    not in (all_script_ids if hook.action == "delete" else active_script_ids)
+                )
+            ):
+                raise ValueError("invalid Hook build contract")
+            self._digest(hook.spec_digest, "hook spec digest")
+            if hook.test_receipt is not None:
+                receipt = hook.test_receipt
+                script = next(
+                    resource
+                    for resource in item.resources
+                    if resource.resource_id == hook.script_resource_id
+                )
+                expected_passed = bool(receipt.results) and all(
+                    result.passed for result in receipt.results
+                )
+                if (
+                    receipt.hook_id != hook.hook_id
+                    or receipt.hook_spec_digest != hook.spec_digest
+                    or receipt.script_digest != script.content_digest
+                    or receipt.manifest_digest != item.hook_manifest_digest
+                    or receipt.profile != SKILL_AUTHORING_PROFILE
+                    or receipt.passed != expected_passed
+                ):
+                    raise ValueError("Hook test receipt digest mismatch")
+        if item.hook_manifest is None:
+            if item.hook_manifest_digest is not None or any(
+                hook.test_receipt is not None for hook in item.hooks
+            ):
+                raise ValueError("Hook manifest state is incomplete")
+        elif item.hook_manifest_digest != self._sha256(item.hook_manifest):
+            raise ValueError("Hook manifest digest mismatch")
+        if item.phase != "resources" and self.requires_hook_validation(item):
+            raise ValueError("final phases require passing Hook receipts")
         if item.phase == "resources":
             if item.state in {"generating", "awaiting_review", "failed"} and item.current_resource_id is None:
                 raise ValueError("active resource target is missing")
@@ -1352,9 +1669,13 @@ class SkillResourceBuildStore:
 
     @staticmethod
     def _ensure_package_budget(
-        resources: list[SkillResourceBuildItem], skill_markdown: str | None
+        resources: list[SkillResourceBuildItem],
+        skill_markdown: str | None,
+        *,
+        hook_manifest: str | None = None,
     ) -> None:
         total = len((skill_markdown or "").encode("utf-8"))
+        total += len((hook_manifest or "").encode("utf-8"))
         total += sum(
             len((item.content or "").encode("utf-8"))
             for item in resources
@@ -1453,10 +1774,16 @@ class SkillResourceBuildStore:
         for index, record in enumerate(raw["items"]):
             try:
                 item = self._decode(record)
-                if item.build_id in self._builds or item.session_id in self._session_index:
-                    raise ValueError("duplicate resource build mapping")
+                if item.build_id in self._builds:
+                    raise ValueError("duplicate resource build id")
                 self._builds[item.build_id] = item
-                self._session_index[item.session_id] = item.build_id
+                current_id = self._session_index.get(item.session_id)
+                current = self._builds.get(current_id) if current_id else None
+                if current is None or (item.created_at, item.build_id) > (
+                    current.created_at,
+                    current.build_id,
+                ):
+                    self._session_index[item.session_id] = item.build_id
             except Exception as exc:
                 self._quarantine.append(self._quarantine_record(record, index, exc))
         if len(self._quarantine) != len(raw.get("quarantine", [])):

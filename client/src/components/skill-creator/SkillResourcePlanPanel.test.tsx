@@ -169,4 +169,48 @@ describe("SkillResourcePlanPanel", () => {
       used_by_steps: ["collect"],
     });
   });
+
+  it("adds a structured Hook only after a script resource exists", async () => {
+    const script = {
+      resource_id: "resource_script",
+      spec_digest: "d".repeat(64),
+      kind: "script" as const,
+      action: "keep" as const,
+      generation_cost: "medium" as const,
+      path: "scripts/check_release.py",
+      purpose: "Validate release filenames deterministically.",
+      source_ids: ["intent"],
+      used_by_steps: ["render"],
+      depends_on: [],
+      acceptance_checks: ["Returns a typed result."],
+    };
+    const hookSession = {
+      ...session,
+      resource_plan: { ...plan, resources: [script], hooks: [] },
+    };
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ session: { ...hookSession, resource_plan: { ...hookSession.resource_plan, revision: 3 } } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<SkillResourcePlanPanel onSession={vi.fn()} session={hookSession} status={status} />);
+    await userEvent.click(screen.getByText("查看并调整完整方案（可选）"));
+    await userEvent.click(screen.getByRole("button", { name: "添加 Hook" }));
+    await userEvent.click(screen.getByRole("button", { name: "保存我的调整" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.hooks).toHaveLength(1);
+    expect(body.hooks[0]).toMatchObject({
+      event: "pre_tool_use",
+      mode: "validation",
+      tool_names: ["sandbox_write_file"],
+      script_path: "scripts/check_release.py",
+      action: "create",
+    });
+    expect(body.resources[0]).toMatchObject({
+      path: "scripts/check_release.py",
+      action: "update",
+    });
+  });
 });

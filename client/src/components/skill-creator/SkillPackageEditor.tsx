@@ -6,6 +6,7 @@ import {
   FileCode2,
   FileText,
   Folder,
+  LockKeyhole,
   Plus,
   RefreshCw,
   Save,
@@ -171,6 +172,7 @@ export default function SkillPackageEditor({
   const issues = [...errorIssues, ...(draft.validation?.issues ?? [])];
   const validationCurrent = Boolean(draft.validation?.valid) && !dirty && errorIssues.length === 0;
   const currentContent = files[selectedPath] ?? "";
+  const selectedReadOnly = selectedPath === "hooks/manifest.json";
   const previewBody = useMemo(
     () => skillMarkdownBody(files["SKILL.md"] ?? ""),
     [files],
@@ -224,6 +226,7 @@ export default function SkillPackageEditor({
   }, [dirty]);
 
   function updateFile(content: string) {
+    if (selectedReadOnly) return;
     setFiles((current) => ({ ...current, [selectedPath]: content }));
   }
 
@@ -245,7 +248,7 @@ export default function SkillPackageEditor({
   }
 
   function deleteFile(path: string) {
-    if (path === "SKILL.md") return;
+    if (path === "SKILL.md" || path === "hooks/manifest.json") return;
     setFiles((current) => Object.fromEntries(Object.entries(current).filter(([item]) => item !== path)));
     setSelectedPath("SKILL.md");
   }
@@ -378,7 +381,7 @@ export default function SkillPackageEditor({
                         {path.endsWith(".md") ? <FileText aria-hidden="true" size={13} /> : <FileCode2 aria-hidden="true" size={13} />}
                         <span className="truncate">{path.split("/").at(-1)}</span>
                       </button>
-                      {path !== "SKILL.md" ? (
+                      {path !== "SKILL.md" && path !== "hooks/manifest.json" ? (
                         <button
                           aria-label={`删除 ${path}`}
                           className="mr-1 rounded p-1 text-slate-600 opacity-0 transition hover:bg-rose-300/10 hover:text-rose-200 group-hover:opacity-100 group-focus-within:opacity-100"
@@ -444,6 +447,10 @@ export default function SkillPackageEditor({
                   </button>
                 ))}
               </div>
+            ) : selectedReadOnly ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/20 bg-amber-300/[0.07] px-2.5 py-1 text-[11px] font-semibold text-amber-100">
+                <LockKeyhole aria-hidden="true" size={12} />由已确认 Hook 计划生成，只读
+              </span>
             ) : null}
           </div>
 
@@ -498,9 +505,10 @@ export default function SkillPackageEditor({
             </article>
           ) : (
             <textarea
-              aria-label={`编辑 ${selectedPath}`}
-              className="min-h-0 flex-1 resize-none bg-ink-950/55 p-4 font-mono text-[13px] leading-6 text-slate-200 outline-none focus:bg-ink-950/70"
+              aria-label={`${selectedReadOnly ? "查看" : "编辑"} ${selectedPath}`}
+              className={`min-h-0 flex-1 resize-none bg-ink-950/55 p-4 font-mono text-[13px] leading-6 text-slate-200 outline-none ${selectedReadOnly ? "cursor-default" : "focus:bg-ink-950/70"}`}
               onChange={(event) => updateFile(event.target.value)}
+              readOnly={selectedReadOnly}
               ref={textareaRef}
               spellCheck={selectedPath.endsWith(".md")}
               value={currentContent}

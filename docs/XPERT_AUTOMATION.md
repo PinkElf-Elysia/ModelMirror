@@ -44,7 +44,7 @@ Automation 通过文件 Store 原子保存到 Runtime storage。RunRegistry 使�
 
 缺少 `hook_mode` 或显式选择 `legacy_argv` 的 `plugin_hooks` 继续读取已安装 Skill 根目录的 `modelmirror-hooks.json`，保留原有 `SessionStart / PreToolUse / PostToolUse / SessionEnd` argv 行为和 `fail_closed` 配置。
 
-`hook_mode=typed_v2` 只读取标准 `hooks/manifest.json`，并受 `SKILL_PLUGIN_HOOK_V2_ENABLED` 控制。运行器固定 Python/Node、无网 `skill_authoring_v1` profile、受保护 Skill 只读目录与 `work/` 写入目录；PreToolUse 顺序固定为 Hook -> deny/validation -> HITL -> provider，PostToolUse 在 provider 后执行。Annotation 故障按告警继续，validation/guard 故障失败关闭；任何类型都不能修改参数、输出、审批或权限。运行状态写入脱敏 `skill_hook_status` 和 Application Receipt V2，不保存 context、结果正文、stdout/stderr 或模型输出。PR2 保持开关默认关闭，新节点默认值和运行卡在后续体验批次启用。
+`hook_mode=typed_v2` 只读取标准 `hooks/manifest.json`，并受默认开启的 `SKILL_PLUGIN_HOOK_V2_ENABLED` 控制。新节点默认使用 Typed V2；历史节点不会静默迁移，只有全部已选 Skill 都具备可运行 manifest 时才允许显式升级当前画布。运行器固定 Python/Node、无网 `skill_authoring_v1` profile、受保护 Skill 只读目录与 `work/` 写入目录；PreToolUse 顺序固定为 Hook -> deny/validation -> HITL -> provider，PostToolUse 在 provider 后执行。Annotation 故障按告警继续，validation/guard 故障失败关闭；任何类型都不能修改参数、输出、审批或权限。运行状态写入脱敏 `skill_hook_status` 和 Application Receipt V2，不保存 context、结果正文、stdout/stderr 或模型输出。Workflow 与私有 Xpert 使用同一稳定运行卡，并可在刷新后从持久化事件恢复。
 
 ## 管理接口
 

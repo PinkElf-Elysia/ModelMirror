@@ -505,6 +505,20 @@ export interface SkillResourcePlanItem {
   acceptance_checks: string[];
 }
 
+export interface SkillResourceHookPlanItem {
+  hook_id: string;
+  spec_digest: string;
+  event: "session_start" | "pre_tool_use" | "post_tool_use" | "session_end";
+  mode: "annotation" | "validation" | "guard";
+  tool_names: string[];
+  purpose: string;
+  script_resource_id: string;
+  source_ids: string[];
+  used_by_steps: string[];
+  acceptance_checks: string[];
+  action: "keep" | "create" | "update" | "delete";
+}
+
 export interface SkillResourcePlan {
   plan_id: string;
   session_id: string;
@@ -521,6 +535,8 @@ export interface SkillResourcePlan {
   output_contract: string[];
   failure_modes: string[];
   resources: SkillResourcePlanItem[];
+  /** Absent on read-only sessions created before Hook V2. */
+  hooks?: SkillResourceHookPlanItem[];
   clarifications: SkillResourcePlanQuestion[];
   clarification_answers: Record<string, string>;
   stale?: boolean;
@@ -554,6 +570,29 @@ export interface SkillResourceScriptReceipt {
   passed: boolean;
   results: SkillResourceScriptTestResult[];
   created_at: number;
+}
+
+export interface SkillHookScriptReceipt {
+  receipt_id: string;
+  hook_id: string;
+  hook_spec_digest: string;
+  script_digest: string;
+  manifest_digest: string;
+  profile: string;
+  passed: boolean;
+  results: Array<{
+    case_id: string;
+    passed: boolean;
+    result_types: string[];
+    result_digest: string;
+    duration_ms: number;
+    issues: string[];
+  }>;
+  created_at: number;
+}
+
+export interface SkillResourceBuildHook extends SkillResourceHookPlanItem {
+  test_receipt?: SkillHookScriptReceipt | null;
 }
 
 export interface SkillResourceBuildItem {
@@ -608,6 +647,10 @@ export interface SkillResourceBuild {
   output_contract: string[];
   failure_modes: string[];
   resources: SkillResourceBuildItem[];
+  /** Absent on read-only builds created before Hook V2. */
+  hooks?: SkillResourceBuildHook[];
+  hook_manifest?: string | null;
+  hook_manifest_digest?: string | null;
   current_resource_id?: string | null;
   skill_chunks: string[];
   skill_markdown?: string | null;
@@ -700,6 +743,10 @@ export interface SkillCreatorStatus {
   evolution_enabled?: boolean;
   evolution_version?: string | null;
   evolution_planner_available?: boolean;
+  hook_authoring_enabled?: boolean;
+  hook_manifest_version?: string | null;
+  hook_result_version?: string | null;
+  hook_runtimes?: string[];
 }
 
 export interface SkillCreatorListResponse {
@@ -1342,20 +1389,32 @@ export async function patchSkillCreatorResourcePlan(
   session: SkillCreatorSession,
   changes: Partial<Pick<SkillResourcePlan,
     "skill_name" | "skill_description" | "workflow_steps" |
-    "output_contract" | "failure_modes" | "resources">>,
+    "output_contract" | "failure_modes" | "resources" | "hooks">>,
 ) {
   const plan = session.resource_plan;
   if (!plan) throw new Error("Resource plan is unavailable.");
-  const pathById = new Map(plan.resources.map((item) => [item.resource_id, item.path]));
-  const normalized = changes.resources
-    ? {
-        ...changes,
-        resources: changes.resources.map((item) => ({
-          ...item,
-          depends_on: item.depends_on.map((value) => pathById.get(value) ?? value),
-        })),
-      }
-    : changes;
+  const pathById = new Map(
+    (changes.resources ?? plan.resources).map((item) => [item.resource_id, item.path]),
+  );
+  const normalized = {
+    ...changes,
+    ...(changes.resources
+      ? {
+          resources: changes.resources.map((item) => ({
+            ...item,
+            depends_on: item.depends_on.map((value) => pathById.get(value) ?? value),
+          })),
+        }
+      : {}),
+    ...(changes.hooks
+      ? {
+          hooks: changes.hooks.map((item) => ({
+            ...item,
+            script_path: pathById.get(item.script_resource_id),
+          })),
+        }
+      : {}),
+  };
   return unwrapSession(await request<SkillCreatorSession | {
     session: SkillCreatorSession;
     resource_plan?: SkillResourcePlan | null;

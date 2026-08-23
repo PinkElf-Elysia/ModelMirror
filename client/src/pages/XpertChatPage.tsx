@@ -12,6 +12,9 @@ import FileMemoryPanel from "../components/xpert/FileMemoryPanel";
 import SkillApplicationCard, {
   requiredSkillIdsFromWorkflowNodes,
 } from "../components/skill-runtime/SkillApplicationCard";
+import SkillHookApplicationCard, {
+  hookSkillIdsFromWorkflowNodes,
+} from "../components/skill-runtime/SkillHookApplicationCard";
 import SkillCreatorCaptureButton, {
   xpertMessageCaptureSource,
 } from "../components/skill-creator/SkillCreatorCaptureButton";
@@ -70,6 +73,10 @@ interface XpertRunEvent {
   candidate_id?: string;
   activated_skill_id?: string;
   skill_id?: string;
+  hook_id?: string;
+  hook_event?: "session_start" | "pre_tool_use" | "post_tool_use" | "session_end";
+  hook_mode?: "annotation" | "validation" | "guard";
+  code?: string;
   skill_version_id?: string;
   requirement?: "required" | "available";
   required_skill_ids?: string[];
@@ -289,6 +296,14 @@ function eventSummary(event: XpertRunEvent) {
     if (event.status === "upgrade") return `已升级并仅授权本轮使用：${event.activated_skill_id ?? "Skill"}`;
     if (event.status === "reject") return `已拒绝候选：${event.candidate_id ?? "Skill"}`;
   }
+  if (event.event === "skill_hook_status") {
+    const hook = `${event.skill_id ?? "Skill"} / ${event.hook_id ?? "Hook"}`;
+    if (event.status === "denied") return `${hook} 已阻断工具调用`;
+    if (event.status === "failed") return `${hook} 执行失败`;
+    if (event.status === "validated") return `${hook} 验证通过`;
+    if (event.status === "annotated") return `${hook} 已提供提示`;
+    return `${hook}：${event.status ?? "状态更新"}`;
+  }
   return event.output || event.message || event.node_title || event.event;
 }
 
@@ -451,6 +466,10 @@ export default function XpertChatPage() {
     () => requiredSkillIdsFromWorkflowNodes(activeVersion?.workflow.nodes ?? []),
     [activeVersion],
   );
+  const expectedHookSkillIds = useMemo(
+    () => hookSkillIdsFromWorkflowNodes(activeVersion?.workflow.nodes ?? []),
+    [activeVersion],
+  );
   const versionFeatures = activeVersion?.features ?? null;
   const openingQuestions = versionFeatures
     ? (versionFeatures.opening.enabled ? versionFeatures.opening.questions : [])
@@ -559,7 +578,7 @@ export default function XpertChatPage() {
           );
           if (response.ok) {
             const restored = parseXpertWorkflowEvents(await response.text())
-              .filter((event) => event.event === "skill_runtime_status")
+              .filter((event) => ["skill_runtime_status", "skill_hook_status"].includes(event.event))
               .slice(-80);
             if (isCurrentXpertConversationRequest(
               requestToken,
@@ -1581,6 +1600,12 @@ export default function XpertChatPage() {
             className="mt-3"
             events={events}
             expectedRequiredSkillIds={expectedRequiredSkillIds}
+          />
+
+          <SkillHookApplicationCard
+            className="mt-3"
+            events={events}
+            expectedSkillIds={expectedHookSkillIds}
           />
 
           <button

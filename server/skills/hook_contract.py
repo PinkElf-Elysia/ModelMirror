@@ -119,7 +119,7 @@ class SkillHookResultV1:
 
 
 def skill_plugin_hook_v2_enabled() -> bool:
-    return os.getenv("SKILL_PLUGIN_HOOK_V2_ENABLED", "false").strip().lower() in {
+    return os.getenv("SKILL_PLUGIN_HOOK_V2_ENABLED", "true").strip().lower() in {
         "1",
         "true",
         "yes",
@@ -361,6 +361,7 @@ def hook_capability_projection(
             "hookCount": 0,
             "events": [],
             "modes": [],
+            "hooks": [],
             "contractValid": False,
             "runnable": False,
             "errorCode": None,
@@ -375,6 +376,7 @@ def hook_capability_projection(
             "hookCount": 0,
             "events": [],
             "modes": [],
+            "hooks": [],
             "contractValid": False,
             "runnable": False,
             "errorCode": exc.code,
@@ -386,6 +388,16 @@ def hook_capability_projection(
         "hookCount": len(manifest.hooks),
         "events": sorted({hook.event for hook in manifest.hooks}),
         "modes": sorted({hook.mode for hook in manifest.hooks}),
+        "hooks": [
+            {
+                "hookId": hook.hook_id,
+                "event": hook.event,
+                "mode": hook.mode,
+                "toolNames": list(hook.tool_names),
+                "timeoutSeconds": hook.timeout_seconds,
+            }
+            for hook in manifest.hooks
+        ],
         "contractValid": True,
         "runnable": skill_plugin_hook_v2_enabled(),
         "errorCode": None,

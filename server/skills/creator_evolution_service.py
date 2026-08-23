@@ -21,6 +21,7 @@ from .creator_store import (
     SkillCreatorValidationError,
 )
 from .draft_store import WorkspaceSkillDraft
+from .hook_contract import HOOK_MANIFEST_PATH
 from .package_validation import compute_package_digest
 
 
@@ -212,6 +213,10 @@ class SkillCreatorEvolutionService:
                 )
                 session, draft, run, suite, resource_plan = facts
                 try:
+                    payload = self._constrain_hook_script_actions(
+                        payload,
+                        resource_plan,
+                    )
                     self._require_payload_evidence_links(payload, run)
                     return self.evolution_store.save_generated(
                         bindings=self._bindings(session, draft, run, suite, resource_plan),
@@ -453,6 +458,9 @@ class SkillCreatorEvolutionService:
                 if path.startswith("agents/")
             }
         )
+        hook_manifest = str(getattr(build, "hook_manifest", "") or "")
+        if hook_manifest:
+            files[HOOK_MANIFEST_PATH] = hook_manifest
         try:
             built_digest = compute_package_digest(build.skill_markdown, files)
         except (TypeError, ValueError):
@@ -589,6 +597,55 @@ class SkillCreatorEvolutionService:
             allowed_source_ids=tuple(sorted(self.resource_planning_service._source_ids(session))),
             allowed_step_ids=tuple(item.step_id for item in resource_plan.workflow_steps),
         )
+
+    @staticmethod
+    def _constrain_hook_script_actions(
+        payload: dict[str, Any],
+        resource_plan: SkillResourcePlan,
+    ) -> dict[str, Any]:
+        actions = payload.get("actions")
+        if not isinstance(actions, list):
+            return payload
+        protected_ids = {
+            hook.script_resource_id
+            for hook in resource_plan.hooks
+            if hook.action != "delete"
+        }
+        if not protected_ids:
+            return payload
+        resources = {
+            item.resource_id: item
+            for item in resource_plan.resources
+            if item.resource_id in protected_ids
+        }
+        constrained: list[Any] = []
+        for raw in actions:
+            if not isinstance(raw, Mapping):
+                constrained.append(raw)
+                continue
+            item = dict(raw)
+            resource_id = str(item.get("resource_id") or "").strip()
+            source = resources.get(resource_id)
+            if source is not None and str(item.get("action") or "").lower() in {
+                "update",
+                "delete",
+            }:
+                item.update(
+                    {
+                        "action": "keep",
+                        "purpose": source.purpose,
+                        "source_ids": list(source.source_ids),
+                        "used_by_steps": list(source.used_by_steps),
+                        "depends_on": list(source.depends_on),
+                        "acceptance_checks": list(source.acceptance_checks),
+                        "expected_improvement": (
+                            "Preserve the deterministically verified Hook script while "
+                            "regenerating the final Skill guidance."
+                        ),
+                    }
+                )
+            constrained.append(item)
+        return {**payload, "actions": constrained}
 
     @staticmethod
     def _allowed(request: EvolutionGenerationRequest, resource_plan: SkillResourcePlan) -> dict[str, Any]:
@@ -759,6 +816,32 @@ class SkillCreatorEvolutionService:
                 "depends_on": [path_by_id[item] for item in action.depends_on],
                 "acceptance_checks": list(action.acceptance_checks),
             })
+        action_by_resource = {
+            item.resource_id: item.action for item in evolution.actions
+        }
+        hooks = []
+        for hook in source.hooks:
+            resource_action = action_by_resource.get(hook.script_resource_id, "keep")
+            hooks.append(
+                {
+                    "hook_id": hook.hook_id,
+                    "event": hook.event,
+                    "mode": hook.mode,
+                    "tool_names": list(hook.tool_names),
+                    "purpose": hook.purpose,
+                    "script_resource_id": hook.script_resource_id,
+                    "source_ids": list(hook.source_ids),
+                    "used_by_steps": list(hook.used_by_steps),
+                    "acceptance_checks": list(hook.acceptance_checks),
+                    "action": (
+                        "delete"
+                        if resource_action == "delete"
+                        else "update"
+                        if resource_action in {"create", "update"}
+                        else "keep"
+                    ),
+                }
+            )
         return {
             "skill_name": source.skill_name,
             "skill_description": source.skill_description,
@@ -766,6 +849,7 @@ class SkillCreatorEvolutionService:
             "output_contract": list(evolution.output_contract),
             "failure_modes": list(evolution.failure_modes),
             "resources": resources,
+            "hooks": hooks,
         }
 
     @staticmethod
@@ -791,6 +875,7 @@ class SkillCreatorEvolutionService:
             or tuple(candidate.output_contract) != tuple(evolution.output_contract)
             or tuple(candidate.failure_modes) != tuple(evolution.failure_modes)
             or len(candidate.resources) != len(evolution.actions)
+            or len(candidate.hooks) != len(source.hooks)
         ):
             return False
         source_by_id = {item.resource_id: item for item in source.resources}
@@ -808,6 +893,34 @@ class SkillCreatorEvolutionService:
                 or tuple(actual.used_by_steps) != tuple(expected.used_by_steps)
                 or tuple(actual.depends_on) != tuple(expected.depends_on)
                 or tuple(actual.acceptance_checks) != tuple(expected.acceptance_checks)
+            ):
+                return False
+        source_hooks = {item.hook_id: item for item in source.hooks}
+        action_by_resource = {
+            item.resource_id: item.action for item in evolution.actions
+        }
+        for actual in candidate.hooks:
+            expected = source_hooks.get(actual.hook_id)
+            if expected is None:
+                return False
+            resource_action = action_by_resource.get(expected.script_resource_id, "keep")
+            expected_action = (
+                "delete"
+                if resource_action == "delete"
+                else "update"
+                if resource_action in {"create", "update"}
+                else "keep"
+            )
+            if (
+                actual.event != expected.event
+                or actual.mode != expected.mode
+                or tuple(actual.tool_names) != tuple(expected.tool_names)
+                or actual.purpose != expected.purpose
+                or actual.script_resource_id != expected.script_resource_id
+                or tuple(actual.source_ids) != tuple(expected.source_ids)
+                or tuple(actual.used_by_steps) != tuple(expected.used_by_steps)
+                or tuple(actual.acceptance_checks) != tuple(expected.acceptance_checks)
+                or actual.action != expected_action
             ):
                 return False
         return True

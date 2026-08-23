@@ -16,6 +16,12 @@ from .creator_store import (
     SkillCreatorValidationError,
 )
 from .draft_store import WorkspaceSkillDraft, WorkspaceSkillDraftStore
+from .hook_contract import (
+    HOOK_MANIFEST_PATH,
+    SkillHookContractError,
+    parse_hook_manifest,
+    skill_plugin_hook_v2_enabled,
+)
 
 
 RESOURCE_AUTHORING_VERSION = "resource-authoring-v2"
@@ -170,6 +176,13 @@ class SkillCreatorResourcePlanningService:
                 "The dedicated Skill Creator agent could not create a resource plan.",
                 code="skill_creator_resource_planner_failed",
             ) from exc
+        if payload.get("hooks") and not skill_plugin_hook_v2_enabled():
+            if self._hook_inventory(draft):
+                raise SkillCreatorValidationError(
+                    "Skill Hook V2 authoring is disabled.",
+                    code="skill_hook_v2_disabled",
+                )
+            payload = {**payload, "hooks": []}
         self._validate_actions(payload, draft=draft)
         return self.plan_store.save_generated(
             session_id=session.session_id,
@@ -220,10 +233,19 @@ class SkillCreatorResourcePlanningService:
         self._require_session_revision(session, expected_session_revision)
         current = self.plan_store.require(plan_id)
         self._require_plan_scope(current, session=session, draft=draft)
+        if (
+            (current.hooks or changes.get("hooks"))
+            and not skill_plugin_hook_v2_enabled()
+        ):
+            raise SkillCreatorValidationError(
+                "Skill Hook V2 authoring is disabled.",
+                code="skill_hook_v2_disabled",
+            )
         self._validate_actions({
             "resources": changes.get(
                 "resources", [asdict(item) for item in current.resources]
-            )
+            ),
+            "hooks": changes.get("hooks", [asdict(item) for item in current.hooks]),
         }, draft=draft)
         return self.plan_store.patch(
             plan_id,
@@ -247,6 +269,11 @@ class SkillCreatorResourcePlanningService:
         self._require_session_revision(session, expected_session_revision)
         current = self.plan_store.require(plan_id)
         self._require_plan_scope(current, session=session, draft=draft)
+        if current.hooks and not skill_plugin_hook_v2_enabled():
+            raise SkillCreatorValidationError(
+                "Skill Hook V2 authoring is disabled.",
+                code="skill_hook_v2_disabled",
+            )
         return self.plan_store.confirm(
             plan_id,
             expected_revision=expected_plan_revision,
@@ -324,6 +351,7 @@ class SkillCreatorResourcePlanningService:
             "description": draft.description,
             "skill_markdown": draft.skill_markdown[:20_000],
             "resource_inventory": files,
+            "hook_inventory": SkillCreatorResourcePlanningService._hook_inventory(draft),
         }
 
     @staticmethod
@@ -373,6 +401,107 @@ class SkillCreatorResourcePlanningService:
                 + ", ".join(missing[:10]),
                 code="skill_creator_resource_action_incomplete",
             )
+        existing_hook_inventory = SkillCreatorResourcePlanningService._hook_inventory(draft)
+        existing_hooks = {item["hook_id"]: item for item in existing_hook_inventory}
+        existing_hook_ids = set(existing_hooks)
+        resource_action_by_path = {
+            str(item.get("path") or "").strip(): str(item.get("action") or "create").strip()
+            for item in resources
+            if isinstance(item, dict)
+        }
+        resource_path_by_id = {
+            str(item.get("resource_id") or "").strip(): str(item.get("path") or "").strip()
+            for item in resources
+            if isinstance(item, dict) and str(item.get("resource_id") or "").strip()
+        }
+        planned_existing_hooks: set[str] = set()
+        hooks = payload.get("hooks") or []
+        if not isinstance(hooks, list):
+            raise SkillCreatorValidationError("Resource planner returned an invalid Hook list.")
+        for raw in hooks:
+            if not isinstance(raw, dict):
+                continue
+            hook_id = str(raw.get("hook_id") or raw.get("id") or "").strip()
+            action = str(raw.get("action") or "create").strip()
+            if action in {"keep", "update", "delete"}:
+                if hook_id not in existing_hook_ids:
+                    raise SkillCreatorValidationError(
+                        "A keep, update, or delete Hook action must target an existing Hook.",
+                        code="skill_creator_hook_action_invalid",
+                    )
+                planned_existing_hooks.add(hook_id)
+                if action == "keep":
+                    existing_hook = existing_hooks[hook_id]
+                    script_path = str(raw.get("script_path") or "").strip() or resource_path_by_id.get(
+                        str(raw.get("script_resource_id") or "").strip(), ""
+                    )
+                    current_contract = {
+                        "event": str(raw.get("event") or "").strip(),
+                        "mode": str(raw.get("mode") or "").strip(),
+                        "tool_names": list(raw.get("tool_names") or []),
+                        "script_path": script_path,
+                        "purpose": str(raw.get("purpose") or "").strip(),
+                        "acceptance_checks": list(raw.get("acceptance_checks") or []),
+                    }
+                    expected_contract = {
+                        key: existing_hook[key] for key in current_contract
+                    }
+                    if current_contract != expected_contract:
+                        raise SkillCreatorValidationError(
+                            "A changed Hook contract must use the update action.",
+                            code="skill_creator_hook_action_invalid",
+                        )
+            elif action == "create" and hook_id in existing_hook_ids:
+                raise SkillCreatorValidationError(
+                    "An existing Hook must use keep, update, or delete.",
+                    code="skill_creator_hook_action_invalid",
+                )
+            elif action == "create":
+                script_path = str(raw.get("script_path") or "").strip() or resource_path_by_id.get(
+                    str(raw.get("script_resource_id") or "").strip(), ""
+                )
+                if resource_action_by_path.get(script_path) == "keep":
+                    raise SkillCreatorValidationError(
+                        "A new Hook requires its bound existing script to use the update action.",
+                        code="skill_creator_hook_script_invalid",
+                    )
+        if planned_existing_hooks != existing_hook_ids:
+            missing = sorted(existing_hook_ids - planned_existing_hooks)
+            raise SkillCreatorValidationError(
+                "The resource plan must explicitly keep, update, or delete every existing Hook: "
+                + ", ".join(missing[:10]),
+                code="skill_creator_hook_action_incomplete",
+            )
+
+    @staticmethod
+    def _hook_inventory(draft: WorkspaceSkillDraft | None) -> list[dict[str, Any]]:
+        if draft is None:
+            return []
+        content = draft.files.get(HOOK_MANIFEST_PATH)
+        if content is None:
+            return []
+        try:
+            manifest = parse_hook_manifest(
+                content,
+                available_paths=draft.files.keys(),
+            )
+        except SkillHookContractError as exc:
+            raise SkillCreatorValidationError(
+                "The current draft Hook manifest is invalid and cannot be evolved safely.",
+                code=exc.code,
+            ) from exc
+        return [
+            {
+                "hook_id": item.hook_id,
+                "event": item.event,
+                "mode": item.mode,
+                "tool_names": list(item.tool_names),
+                "script_path": item.script_path,
+                "purpose": item.purpose,
+                "acceptance_checks": list(item.acceptance_checks),
+            }
+            for item in manifest.hooks
+        ]
 
     @staticmethod
     def _require_session_revision(

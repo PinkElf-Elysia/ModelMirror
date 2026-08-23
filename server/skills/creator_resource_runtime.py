@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
@@ -61,11 +62,16 @@ class WorkflowCreatorResourcePlanner:
         # The discarded values never reach a Store or an Authoring Proposal.
         if isinstance(payload.get("clarifications"), list) and payload["clarifications"]:
             payload["resources"] = []
+            payload["hooks"] = []
         else:
             _constrain_model_source_ids(
                 payload,
                 allowed_source_ids=set(request.allowed_source_ids),
             )
+            if payload.get("hooks") and not _definition_requests_hooks(request.session):
+                # Hook authoring is opt-in. A model cannot turn an ordinary Skill
+                # request into executable lifecycle behavior on its own.
+                payload["hooks"] = []
         return payload
 
 
@@ -99,6 +105,14 @@ def build_resource_planner_invocation(
             "resource_count_max": 20,
             "resource_kinds": ["script", "reference", "asset"],
             "resource_actions": ["keep", "create", "update", "delete"],
+            "hook_events": [
+                "session_start",
+                "pre_tool_use",
+                "post_tool_use",
+                "session_end",
+            ],
+            "hook_modes": ["annotation", "validation", "guard"],
+            "hook_count_max": 12,
             "script_languages": ["python", "javascript"],
             "assets_are_utf8_text_only": True,
             "forbidden_package_paths": ["README.md", "eval/", "evals/", "user-meta"],
@@ -212,31 +226,75 @@ def _constrain_model_source_ids(
     """
 
     resources = payload.get("resources")
-    if not isinstance(resources, list):
-        return
+    hooks = payload.get("hooks")
     fallback = "intent" if "intent" in allowed_source_ids else None
-    constrained: list[Any] = []
-    for raw in resources:
-        if not isinstance(raw, dict):
-            constrained.append(raw)
+    for key, values in (("resources", resources), ("hooks", hooks)):
+        if not isinstance(values, list):
             continue
-        source_ids = raw.get("source_ids")
-        if not isinstance(source_ids, list) or any(
-            not isinstance(source_id, str) for source_id in source_ids
-        ):
-            constrained.append(raw)
-            continue
-        retained = list(
-            dict.fromkeys(
-                source_id.strip()
-                for source_id in source_ids
-                if source_id.strip() in allowed_source_ids
+        constrained: list[Any] = []
+        for raw in values:
+            if not isinstance(raw, dict):
+                constrained.append(raw)
+                continue
+            source_ids = raw.get("source_ids")
+            if not isinstance(source_ids, list) or any(
+                not isinstance(source_id, str) for source_id in source_ids
+            ):
+                constrained.append(raw)
+                continue
+            retained = list(
+                dict.fromkeys(
+                    source_id.strip()
+                    for source_id in source_ids
+                    if source_id.strip() in allowed_source_ids
+                )
             )
-        )
-        if not retained and fallback is not None:
-            retained = [fallback]
-        constrained.append({**raw, "source_ids": retained})
-    payload["resources"] = constrained
+            if not retained and fallback is not None:
+                retained = [fallback]
+            constrained.append({**raw, "source_ids": retained})
+        payload[key] = constrained
+
+
+def _definition_requests_hooks(session: dict[str, Any]) -> bool:
+    text = "\n".join(
+        [
+            str(session.get("intent") or ""),
+            *(str(item) for item in session.get("positive_examples") or []),
+            *(str(item) for item in session.get("success_criteria") or []),
+        ]
+    ).casefold()
+    markers = (
+        "hook",
+        "运行前",
+        "运行后",
+        "调用前",
+        "调用后",
+        "工具前",
+        "工具后",
+        "会话开始",
+        "会话结束",
+        "阻止危险",
+        "阻断危险",
+        "before tool",
+        "after tool",
+        "pre-tool",
+        "post-tool",
+        "session start",
+        "session end",
+        "deny unsafe",
+        "block unsafe",
+    )
+    if any(marker in text for marker in markers):
+        return True
+    # Natural Chinese requests commonly put the checked object between the
+    # action and its event boundary (for example, "发布文件前检查命名"). Keep
+    # this deliberately narrow: both an executable lifecycle action and an
+    # explicit before/after validation or blocking intent must be present.
+    event_patterns = (
+        r"(?:写入|保存|发布|提交|执行|运行|调用|使用工具).{0,16}(?:前|之前|后|之后).{0,16}(?:检查|校验|验证|阻止|阻断|拦截)",
+        r"(?:检查|校验|验证|阻止|阻断|拦截).{0,16}(?:写入|保存|发布|提交|执行|运行|调用|使用工具).{0,8}(?:前|之前|后|之后)",
+    )
+    return any(re.search(pattern, text) for pattern in event_patterns)
 
 
 def _decode_resource_plan_json(text: str) -> Any:
@@ -302,6 +360,15 @@ def _resource_planner_prompt() -> str:
         "return at most five concise clarifications and an empty resources array. Do not invent "
         "facts. When previous_plan contains clarification_answers, use them as trusted user "
         "answers and produce a revised plan.\n\n"
+        "Hooks are optional executable lifecycle checks, not a fourth file kind. Return hooks=[] "
+        "for ordinary Skills. Propose a Hook only when the definition explicitly asks for a "
+        "session boundary, a check before or after an exact tool, a validation failure, or a "
+        "guard that blocks an unsafe tool call. Every Hook must bind script_path to one active "
+        "planned Python or JavaScript resource: script_path must exactly equal that script "
+        "resource's resources[].path, and its action must not be delete. Never emit a manifest "
+        "path, runtime, command, "
+        "argv, cwd, environment, result path, or installation action. Guard is valid only for "
+        "pre_tool_use. Session Hooks have an empty tool_names array.\n\n"
         "Use the same primary natural language as definition.intent for every human-readable "
         "field, including skill_description, workflow instructions, output contracts, failure "
         "modes, resource purposes, acceptance checks, and clarification questions. Keep only "
@@ -328,14 +395,20 @@ def _resource_planner_prompt() -> str:
         '"skill_description":"what, when, and boundary","workflow_steps":'
         '[{"id":"collect","instruction":"imperative step"}],"output_contract":'
         '["observable output"],"failure_modes":["fail-closed behavior"],"resources":'
-        '[{"kind":"reference","action":"create","path":"references/example.md",'
+        '[{"kind":"script","action":"create","path":"scripts/check.py",'
         '"generation_cost":"medium",'
-        '"purpose":"why this must be separate","source_ids":["intent"],'
+        '"purpose":"deterministic lifecycle check used by the Hook","source_ids":["intent"],'
         '"used_by_steps":["collect"],"depends_on":[],"acceptance_checks":'
-        '["observable check"]}],"clarifications":'
+        '["observable check"]}],"hooks":[{"hook_id":"check_output",'
+        '"event":"pre_tool_use","mode":"guard","tool_names":["sandbox_write_file"],'
+        '"purpose":"why this event check is necessary","script_path":"scripts/check.py",'
+        '"source_ids":["intent"],"used_by_steps":["collect"],'
+        '"acceptance_checks":["safe calls pass and unsafe calls are denied"],'
+        '"action":"create"}],"clarifications":'
         '[{"id":"source_policy","question":"specific question",'
         '"reason":"why planning cannot safely continue"}]}. '
-        "Use four to ten workflow steps. Do not include IDs, paths, or sources outside the "
+        "Use four to ten workflow steps with materially distinct executable actions. Do not "
+        "include IDs, paths, or sources outside the "
         "supplied contract. The top-level object must contain exactly the planning result "
         "fields shown above; resource_plan_version must be skill-resource-plan-v1."
     )

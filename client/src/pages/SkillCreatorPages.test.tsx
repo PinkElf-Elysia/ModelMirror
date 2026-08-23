@@ -8,6 +8,8 @@ import type {
   SkillCreatorSession,
   SkillEvaluationCase,
   SkillEvaluationRun,
+  SkillResourceBuild,
+  SkillResourcePlan,
 } from "../utils/skillCreatorApi";
 import SkillCreatorIndexPage from "./SkillCreatorIndexPage";
 import SkillCreatorStudioPage from "./SkillCreatorStudioPage";
@@ -499,6 +501,154 @@ describe("Skill Creator pages", () => {
     expect(screen.getByRole("button", { name: "批准并写入草稿" })).toBeVisible();
   });
 
+  it("shows only the pending proposal after a resource build is finalized", async () => {
+    const pending = creatorProposal("pending");
+    const resourcePlan: SkillResourcePlan = {
+      plan_id: "plan_pending_proposal",
+      session_id: baseSession.session_id,
+      revision: 2,
+      digest: "7".repeat(64),
+      state: "confirmed",
+      session_revision: baseSession.session_revision,
+      draft_id: draft.draft_id,
+      draft_revision: draft.content_revision,
+      draft_digest: draft.content_digest,
+      skill_name: draft.name,
+      skill_description: draft.description,
+      workflow_steps: [{ step_id: "collect", instruction: "Collect explicit evidence." }],
+      output_contract: ["Return a cited comparison."],
+      failure_modes: ["Mark missing evidence."],
+      resources: [],
+      clarifications: [],
+      clarification_answers: {},
+      created_at: 1,
+      updated_at: 2,
+    };
+    const resourceSession: SkillCreatorSession = {
+      ...baseSession,
+      authoring_flow: "resource",
+      evidence_confirmed: true,
+      draft_id: draft.draft_id,
+      draft,
+      current_revision: draft.content_revision,
+      current_digest: draft.content_digest,
+      proposal_id: pending.proposal_id,
+      proposal: pending,
+      resource_plan: resourcePlan,
+    };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/skills/creator/status") return jsonResponse({
+        ...status,
+        resource_authoring_enabled: true,
+        resource_builder_available: true,
+      });
+      if (url === "/api/skills/creator/sessions/creator_1" && !init?.method) {
+        return jsonResponse({
+          session: resourceSession,
+          draft,
+          proposal: pending,
+          resource_plan: resourcePlan,
+        });
+      }
+      return jsonResponse({ detail: `not found: ${url}` }, 404);
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/skills/create/creator_1"]}>
+        <Routes>
+          <Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("button", { name: "批准并写入草稿" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "准备生成内容" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "按新方案开始生成" })).not.toBeInTheDocument();
+  });
+
+  it("restores the latest resource-build proposal instead of an older approved session proposal", async () => {
+    const approved = creatorProposal("approved");
+    const pending = { ...creatorProposal("pending"), proposal_id: "proposal_evolved_pending" };
+    const completedBuild: SkillResourceBuild = {
+      build_id: "build_evolved",
+      session_id: baseSession.session_id,
+      revision: 4,
+      digest: "8".repeat(64),
+      state: "accepted",
+      phase: "proposal",
+      session_revision: baseSession.session_revision,
+      plan_id: "plan_evolved",
+      plan_revision: 3,
+      plan_digest: "7".repeat(64),
+      draft_id: draft.draft_id,
+      draft_revision: draft.content_revision,
+      draft_digest: draft.content_digest,
+      skill_name: draft.name,
+      skill_description: draft.description,
+      workflow_steps: [],
+      output_contract: [],
+      failure_modes: [],
+      resources: [],
+      hooks: [],
+      current_resource_id: null,
+      skill_chunks: [],
+      skill_markdown: draft.skill_markdown,
+      skill_markdown_digest: "6".repeat(64),
+      skill_attempt: 1,
+      skill_repair_count: 0,
+      skill_validation_issues: [],
+      skill_feedback: "",
+      requirement_coverage: [],
+      proposal_id: pending.proposal_id,
+      created_at: 1,
+      updated_at: 2,
+    };
+    const evolvedSession: SkillCreatorSession = {
+      ...baseSession,
+      authoring_flow: "resource",
+      state: "iterating",
+      review_state: "revise",
+      evidence_confirmed: true,
+      draft_id: draft.draft_id,
+      draft,
+      current_revision: draft.content_revision,
+      current_digest: draft.content_digest,
+      proposal_id: approved.proposal_id,
+      proposal: approved,
+      resource_build: completedBuild,
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/skills/creator/status") return jsonResponse({
+        ...status,
+        resource_authoring_enabled: true,
+      });
+      if (url === "/api/skills/creator/sessions/creator_1" && !init?.method) {
+        return jsonResponse({ session: evolvedSession, draft, proposal: approved, resource_build: completedBuild });
+      }
+      if (url === `/api/runtime/authoring-proposals/${pending.proposal_id}`) {
+        return jsonResponse(pending);
+      }
+      return jsonResponse({ detail: `not found: ${url}` }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <MemoryRouter initialEntries={["/skills/create/creator_1"]}>
+        <Routes>
+          <Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("button", { name: "批准并写入草稿" })).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/runtime/authoring-proposals/${pending.proposal_id}`,
+      undefined,
+    );
+  });
+
   it("rejects a pending Creator proposal, refreshes the Session, and restores retry", async () => {
     const pending = creatorProposal("pending");
     pending.validation = {
@@ -742,6 +892,54 @@ describe("Skill Creator pages", () => {
     expect(sessionReads).toBeGreaterThanOrEqual(2);
   });
 
+  it("offers a new evolution plan when the persisted plan is stale", async () => {
+    const stalePlanSession: SkillCreatorSession = {
+      ...baseSession,
+      draft_id: draft.draft_id,
+      draft,
+      current_revision: draft.content_revision,
+      current_digest: draft.content_digest,
+      state: "iterating",
+      review_state: "revise",
+      review_revision: 2,
+      evolution_plan: {
+        plan_id: "stale-evolution-plan",
+        state: "stale",
+      } as unknown as NonNullable<SkillCreatorSession["evolution_plan"]>,
+      regression_governance: {
+        version: "skill-creator-regression-v1",
+        enabled: true,
+        max_items: 72,
+        case_count: 3,
+        target_count: 3,
+        estimated_model_calls: 9,
+        max_repetitions: 3,
+        previous_revision: 1,
+        previous_digest: "b".repeat(64),
+        evolution_history_available: true,
+        revisions: [],
+        runs: [],
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/skills/creator/status") return jsonResponse(status);
+      if (url === "/api/skills/creator/sessions/creator_1" && !init?.method) {
+        return jsonResponse({ session: stalePlanSession, draft });
+      }
+      return jsonResponse({ detail: `not found: ${url}` }, 404);
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/skills/create/creator_1"]}>
+        <Routes><Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" /></Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("button", { name: "生成改进方案" })).toBeVisible();
+    expect(screen.queryByText("方案 3")).not.toBeInTheDocument();
+  });
+
   it("keeps the resource step active while starting a replacement build", async () => {
     const plan = {
       plan_id: "plan-current",
@@ -871,7 +1069,7 @@ describe("Skill Creator pages", () => {
         resource_builder_available: true,
       });
       if (url === "/api/skills/creator/sessions/creator_1" && !init?.method) {
-        return jsonResponse({ session: resourceSession, draft, resource_plan: plan, resource_build: staleBuild });
+        return jsonResponse({ session: resourceSession, draft, resource_plan: plan, resource_build: resourceSession.resource_build });
       }
       if (url.endsWith("/resource-build") && init?.method === "POST") return jsonResponse({ resource_build: startedBuild });
       if (url.endsWith("/resource-builds/build-new/next") && init?.method === "POST") return jsonResponse({ resource_build: generatedBuild });
@@ -879,7 +1077,7 @@ describe("Skill Creator pages", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
+    const view = render(
       <MemoryRouter initialEntries={["/skills/create/creator_1"]}>
         <Routes><Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" /></Routes>
       </MemoryRouter>,
@@ -896,5 +1094,16 @@ describe("Skill Creator pages", () => {
       "/api/skills/creator/resource-builds/build-new/next",
       expect.objectContaining({ method: "POST" }),
     );
+
+    resourceSession.resource_build = generatedBuild;
+    view.unmount();
+    render(
+      <MemoryRouter initialEntries={["/skills/create/creator_1"]}>
+        <Routes><Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" /></Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "逐项生成内容" })).toBeVisible();
+    expect(screen.getByText("当前步骤 3/6")).toBeVisible();
   });
 });

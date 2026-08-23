@@ -908,10 +908,26 @@ async def test_post_tool_validation_failure_reports_irreversible_boundary(
     assert provider_called is True
 
 
-def test_typed_hook_runtime_is_disabled_by_default(
+def test_typed_hook_runtime_is_enabled_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("SKILL_PLUGIN_HOOK_V2_ENABLED", raising=False)
+    root, manager = _write_skill(
+        tmp_path,
+        [_hook(hook_id="note", event="session_start", mode="annotation")],
+    )
+    middleware = _middleware(
+        manager,
+        FakeSandboxProvider(root, lambda _context, _argv: {}),
+        RealReceiptObserver(tmp_path / "receipts"),
+    )
+    assert middleware is not None
+
+
+def test_typed_hook_runtime_has_an_explicit_false_rollback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SKILL_PLUGIN_HOOK_V2_ENABLED", "false")
     root, manager = _write_skill(
         tmp_path,
         [_hook(hook_id="note", event="session_start", mode="annotation")],

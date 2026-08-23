@@ -311,6 +311,7 @@ export default function SkillEvaluationDesigner({
   const suiteConfirmed = session.evaluation_suite?.state === "confirmed" && !session.evaluation_suite.stale;
   const complete = useMemo(() => casesComplete(cases, useSuite), [cases, useSuite]);
   const dirty = JSON.stringify(cases) !== savedSignature || mode !== (session.quality_mode ?? "objective");
+  const suiteNeedsRebase = Boolean(session.evaluation_suite?.stale) && !dirty;
   const canEvaluate = complete && !dirty && (useSuite ? suiteConfirmed : Boolean(session.cases_revision));
   const maxRepetitions = session.regression_governance?.max_repetitions ?? 3;
   const targetCount = session.regression_governance?.target_count ?? 2;
@@ -438,7 +439,7 @@ export default function SkillEvaluationDesigner({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold text-white">{useSuite ? "三类任务已准备" : "还没有测试任务"}</p>
-              <p className="mt-1 text-xs leading-5 text-slate-400">{suiteConfirmed ? "当前测试已确认，可以开始运行。" : useSuite ? "请检查并保存当前修改。" : "让 AI 先生成三类任务草案，你可以再修改。"}</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">{suiteConfirmed ? "当前测试已确认，可以开始运行。" : suiteNeedsRebase ? "草稿已更新；测试内容未变，沿用到新版本后再确认即可。" : useSuite ? dirty ? "请检查并保存当前修改。" : "任务已保存，请确认后运行。" : "让 AI 先生成三类任务草案，你可以再修改。"}</p>
             </div>
             {!useSuite ? (
               <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-brand-200 px-4 py-2.5 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={Boolean(busy)} onClick={() => void generateSuite()} type="button"><Sparkles aria-hidden="true" size={15} />{busy === "suite-generate" ? "正在准备…" : session.cases_revision ? "沿用已有测试" : "让 AI 准备三个任务"}</button>
@@ -502,7 +503,7 @@ export default function SkillEvaluationDesigner({
         <div className="mt-5 flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs leading-5 text-slate-500">这次会运行约 {estimatedCalls} 次，用相同设置比较“未使用 Skill”和“使用当前 Skill”的结果。</p>
           <div className="flex flex-wrap gap-2">
-            <button className="inline-flex min-h-11 items-center gap-2 rounded-md border border-white/15 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/[0.055] disabled:cursor-not-allowed disabled:opacity-40" disabled={mustUseSuite || !complete || (useSuite && dirty && !changeReason.trim()) || Boolean(busy)} onClick={() => void saveCases()} type="button"><Save aria-hidden="true" size={15} />{busy === "save" ? "正在保存…" : mustUseSuite ? "先准备三个任务" : "保存测试任务"}</button>
+            <button className="inline-flex min-h-11 items-center gap-2 rounded-md border border-white/15 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/[0.055] disabled:cursor-not-allowed disabled:opacity-40" disabled={mustUseSuite || !complete || (useSuite && dirty && !changeReason.trim()) || Boolean(busy)} onClick={() => void saveCases()} type="button"><Save aria-hidden="true" size={15} />{busy === "save" ? "正在保存…" : mustUseSuite ? "先准备三个任务" : suiteNeedsRebase ? "沿用到新版本" : "保存测试任务"}</button>
             <button className="inline-flex min-h-11 items-center gap-2 rounded-md bg-hire-300 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500" disabled={!canEvaluate || Boolean(busy)} onClick={() => void startEvaluation()} type="button"><FlaskConical aria-hidden="true" size={15} />{busy === "start" ? "正在启动…" : "开始试用对比"}</button>
           </div>
         </div>
