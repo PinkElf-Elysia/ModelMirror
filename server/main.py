@@ -1500,6 +1500,12 @@ mcp_remote_auth_broker = MCPRemoteAuthBroker(
     ),
 )
 configure_mcp_remote_auth(mcp_remote_auth_broker)
+mcp_hub_service.set_remote_auth(
+    mcp_remote_auth_broker,
+    credential_creator=toolset_credential_store.create,
+    credential_lookup=toolset_credential_store.get_public,
+    credential_revoker=toolset_credential_store.revoke,
+)
 mcp_catalog_workspace_store = MCPCatalogWorkspaceStore()
 mcp_catalog_service = MCPCatalogService(
     mcp_manager,
@@ -1510,6 +1516,7 @@ mcp_catalog_service = MCPCatalogService(
     credential_lister=toolset_credential_store.list,
     credential_creator=toolset_credential_store.create,
     credential_revoker=toolset_credential_store.revoke,
+    remote_auth_broker=mcp_remote_auth_broker,
     workspace_store=mcp_catalog_workspace_store,
     tenant_id=os.getenv("MODELMIRROR_DEFAULT_TENANT_ID", "local"),
     owner_id=os.getenv("MODELMIRROR_DEFAULT_OWNER_ID", "local"),

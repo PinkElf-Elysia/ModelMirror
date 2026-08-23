@@ -122,6 +122,135 @@ describe("McpHubPanel", () => {
     });
   });
 
+  it("binds, rotates, and revokes a fixed Registry Token without exposing target controls", async () => {
+    const candidateId = "mcphub_" + "7".repeat(32);
+    const bindingId = "mcpra_" + "8".repeat(32);
+    let revision = 0;
+    let revoked = false;
+    const candidate = {
+      candidate_id: candidateId,
+      server_name: "io.example/token",
+      version: "1.0.0",
+      state: "draft",
+      origin: "https://token.example.com",
+      schema_digest: "",
+      tools: [],
+      connected: false,
+      taint_reason: "",
+      activation_eligible: false,
+      activation_reason: "mcp_remote_auth_binding_missing",
+      auth_required: true,
+      auth_mode: "static_bearer",
+      auth_header_name: "Authorization",
+      auth_slot: "registry-secret-header",
+      auth_policy_fingerprint: "a".repeat(64),
+    };
+    const authPayload = () => ({
+      required: true,
+      mode: "static_bearer",
+      slot: "registry-secret-header",
+      header_name: "Authorization",
+      origin: "https://token.example.com",
+      policy_fingerprint: "a".repeat(64),
+      single_owner_warning: true,
+      binding: revision > 0 && !revoked
+        ? {
+          binding_id: bindingId,
+          revision,
+          status: "active",
+          masked_value: "tok••••last",
+          display_name: "Example Token",
+        }
+        : null,
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/mcp/hub/status")) {
+        return json({ enabled: true, remote_enabled: true, source: "registry", snapshot_at: 1, snapshot_count: 1 });
+      }
+      if (url.endsWith("/api/mcp/remote-auth/status")) {
+        return json({
+          enabled: true,
+          static_token_enabled: true,
+          single_owner_acknowledged: true,
+          subject_mode: "local-single-owner",
+          external_master_key_available: true,
+          external_master_key_enforced: true,
+          storage_ready: true,
+          supported_auth_modes: ["static_bearer", "static_header"],
+          multi_tenant: false,
+        });
+      }
+      if (url.includes("/api/mcp/hub/servers?")) {
+        return json({ items: [], total: 0, next_cursor: null, categories: [] });
+      }
+      if (url.endsWith("/api/mcp/hub/candidates")) return json({ items: [candidate] });
+      if (url.endsWith(`/api/mcp/hub/candidates/${candidateId}/auth`) && !init?.method) {
+        return json(authPayload());
+      }
+      if (url.endsWith(`/api/mcp/hub/candidates/${candidateId}/auth-bindings`) && init?.method === "POST") {
+        revision = 1;
+        return json(authPayload(), 201);
+      }
+      if (url.endsWith(`/api/mcp/hub/candidates/${candidateId}/auth-bindings/${bindingId}/rotate`) && init?.method === "POST") {
+        revision = 2;
+        return json(authPayload());
+      }
+      if (url.endsWith(`/api/mcp/hub/candidates/${candidateId}/auth-bindings/${bindingId}`) && init?.method === "DELETE") {
+        revoked = true;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
+    render(<McpHubPanel />);
+
+    const card = (await screen.findByText("io.example/token")).closest("article");
+    expect(card).not.toBeNull();
+    expect(within(card!).getByText(/仅适用于本机可信运维者/)).toBeVisible();
+    expect(within(card!).getByText(/Header：Authorization/)).toBeVisible();
+    expect(within(card!).getByRole("button", { name: "安全预检" })).toBeDisabled();
+
+    fireEvent.change(within(card!).getByLabelText("凭据显示名称"), { target: { value: "Example Token" } });
+    fireEvent.change(within(card!).getByLabelText("绑定 io.example/token Token"), { target: { value: "first-secret" } });
+    fireEvent.click(within(card!).getByRole("button", { name: "保存 Token" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url, init]) => (
+        String(url).endsWith(`/api/mcp/hub/candidates/${candidateId}/auth-bindings`) &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ));
+      const body = JSON.parse(String((call?.[1] as RequestInit).body));
+      expect(body).toEqual({
+        slot: "registry-secret-header",
+        display_name: "Example Token",
+        secret: "first-secret",
+      });
+      expect(body).not.toHaveProperty("origin");
+      expect(body).not.toHaveProperty("header_name");
+      expect(body).not.toHaveProperty("tenant_id");
+      expect(body).not.toHaveProperty("owner_id");
+    });
+    expect(await within(card!).findByText("revision 1")).toBeVisible();
+    expect(within(card!).getByRole("button", { name: "安全预检" })).toBeEnabled();
+    expect(screen.queryByDisplayValue("first-secret")).not.toBeInTheDocument();
+
+    fireEvent.change(within(card!).getByLabelText("轮换 io.example/token Token"), { target: { value: "second-secret" } });
+    fireEvent.click(within(card!).getByRole("button", { name: "轮换 Token" }));
+    expect(await within(card!).findByText("revision 2")).toBeVisible();
+    const rotateCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/rotate"));
+    expect(JSON.parse(String((rotateCall?.[1] as RequestInit).body))).toEqual({
+      secret: "second-secret",
+      expected_revision: 1,
+    });
+    expect(screen.queryByDisplayValue("second-secret")).not.toBeInTheDocument();
+
+    fireEvent.click(within(card!).getByRole("button", { name: "撤销 Token" }));
+    expect(await within(card!).findByRole("button", { name: "保存 Token" })).toBeDisabled();
+    expect(within(card!).getByRole("button", { name: "安全预检" })).toBeDisabled();
+  });
+
   it("uses the preflight digest verbatim for activation", async () => {
     const candidate = {
       candidate_id: "mcphub_" + "3".repeat(32),

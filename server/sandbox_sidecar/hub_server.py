@@ -50,6 +50,52 @@ SESSION_ID_RE = re.compile(r"^hubsession_[0-9a-f]{32}$")
 CANDIDATE_ID_RE = re.compile(r"^mcphub_[0-9a-f]{32}$")
 CAPABILITY_RE = re.compile(r"^[0-9a-f]{64}$")
 SESSION_OWNER_RE = re.compile(r"^hub:[A-Za-z0-9._%~-]{1,240}:[A-Za-z0-9._%~-]{1,240}:mcphub_[0-9a-f]{32}$")
+AUTH_BINDING_RE = re.compile(r"^mcpra_[0-9a-f]{32}$")
+HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+HEADER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{0,63}$")
+DENIED_AUTH_HEADERS = frozenset(
+    {
+        "accept",
+        "accept-encoding",
+        "connection",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "cookie",
+        "expect",
+        "forwarded",
+        "from",
+        "host",
+        "mcp-protocol-version",
+        "origin",
+        "proxy-authorization",
+        "proxy-connection",
+        "referer",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        "user-agent",
+        "via",
+        "x-http-method-override",
+    }
+)
+DENIED_AUTH_HEADER_PREFIXES = (
+    "proxy-",
+    "sec-",
+    "x-forwarded-",
+    "x-original-",
+    "x-rewrite-",
+)
+SAFE_PREFLIGHT_RETRY_CODES = frozenset(
+    {
+        "hub_upstream_connect_failed",
+        "hub_upstream_rate_limited",
+        "hub_upstream_timeout",
+        "hub_upstream_transport_failed",
+        "hub_upstream_unavailable",
+    }
+)
 
 
 class HubSidecarError(RuntimeError):
@@ -58,7 +104,7 @@ class HubSidecarError(RuntimeError):
         self.code = code
 
 
-def _fixed_preflight_error(error: BaseException) -> str:
+def _fixed_preflight_error(error: BaseException, *, authenticated: bool = False) -> str:
     """Reduce SDK/HTTP failures to bounded codes without retaining content."""
 
     pending: list[BaseException] = [error]
@@ -87,6 +133,10 @@ def _fixed_preflight_error(error: BaseException) -> str:
         if not isinstance(current, httpx.HTTPStatusError):
             continue
         status = int(current.response.status_code)
+        if status == 401 and authenticated:
+            return "mcp_remote_auth_unauthorized"
+        if status == 403 and authenticated:
+            return "mcp_remote_auth_forbidden"
         if status in {401, 403}:
             return "hub_upstream_auth_required"
         if status == 404:
@@ -160,6 +210,62 @@ def _normalize_target(value: Any) -> tuple[str, str]:
     if port != 443:
         raise HubSidecarError("hub_target_port_denied")
     return f"https://{host}{parsed.path or '/'}", host
+
+
+def _validated_auth_envelope(
+    value: Any,
+    *,
+    candidate_id: str,
+    normalized_url: str,
+) -> tuple[str, str, str, int] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {
+        "binding_id",
+        "binding_revision",
+        "header_name",
+        "header_value",
+        "origin",
+        "policy_fingerprint",
+        "target_id",
+    }:
+        raise HubSidecarError("mcp_remote_auth_policy_ineligible")
+    if value.get("target_id") != candidate_id:
+        raise HubSidecarError("mcp_remote_auth_scope_denied")
+    binding_id = str(value.get("binding_id") or "")
+    policy_fingerprint = str(value.get("policy_fingerprint") or "")
+    revision = value.get("binding_revision")
+    if (
+        AUTH_BINDING_RE.fullmatch(binding_id) is None
+        or HEX64_RE.fullmatch(policy_fingerprint) is None
+        or isinstance(revision, bool)
+        or not isinstance(revision, int)
+        or revision < 1
+    ):
+        raise HubSidecarError("mcp_remote_auth_policy_ineligible")
+    parsed = urlsplit(normalized_url)
+    expected_origin = f"https://{parsed.hostname}"
+    if str(value.get("origin") or "") != expected_origin:
+        raise HubSidecarError("mcp_remote_auth_scope_denied")
+    header_name = str(value.get("header_name") or "").strip()
+    header_value = str(value.get("header_value") or "")
+    lower_name = header_name.lower()
+    if (
+        HEADER_RE.fullmatch(header_name) is None
+        or lower_name in DENIED_AUTH_HEADERS
+        or lower_name.startswith(DENIED_AUTH_HEADER_PREFIXES)
+        or not header_value
+        or len(header_value) > 20_007
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in header_value)
+    ):
+        raise HubSidecarError("mcp_remote_auth_policy_ineligible")
+    if lower_name == "authorization":
+        if not header_value.startswith("Bearer ") or not header_value[7:]:
+            raise HubSidecarError("mcp_remote_auth_policy_ineligible")
+        header_name = "Authorization"
+    else:
+        header_name = lower_name
+    return header_name, header_value, policy_fingerprint, revision
 
 
 def _peer_uid(writer: asyncio.StreamWriter) -> int:
@@ -605,6 +711,10 @@ class RemoteSession:
     url: str
     host: str
     capability: str
+    auth_header_name: str
+    auth_header_value: str = field(repr=False)
+    auth_policy_fingerprint: str
+    auth_binding_revision: int
     tools: list[dict[str, Any]]
     created_at: float
     last_activity: float
@@ -645,7 +755,14 @@ class HubRemoteService:
             for session_id in expired:
                 await self.close(session_id)
 
-    async def open(self, candidate_id: str, url: str, capability: str, session_owner: str) -> dict[str, Any]:
+    async def open(
+        self,
+        candidate_id: str,
+        url: str,
+        capability: str,
+        session_owner: str,
+        auth: Any = None,
+    ) -> dict[str, Any]:
         if (
             CANDIDATE_ID_RE.fullmatch(candidate_id) is None
             or CAPABILITY_RE.fullmatch(capability) is None
@@ -654,6 +771,11 @@ class HubRemoteService:
         ):
             raise HubSidecarError("hub_open_contract_invalid")
         normalized, host = _normalize_target(url)
+        auth_envelope = _validated_auth_envelope(
+            auth,
+            candidate_id=candidate_id,
+            normalized_url=normalized,
+        )
         async with self.lock:
             if len(self.sessions) >= MAX_SESSIONS:
                 raise HubSidecarError("hub_session_limit")
@@ -666,6 +788,7 @@ class HubRemoteService:
                     expected_tools=None,
                     tool_name=None,
                     arguments=None,
+                    auth_header=(auth_envelope[0], auth_envelope[1]) if auth_envelope else None,
                 )
                 now = time.monotonic()
                 session_id = "hubsession_" + uuid_hex()
@@ -676,6 +799,10 @@ class HubRemoteService:
                     url=normalized,
                     host=host,
                     capability=capability,
+                    auth_header_name=auth_envelope[0] if auth_envelope else "",
+                    auth_header_value=auth_envelope[1] if auth_envelope else "",
+                    auth_policy_fingerprint=auth_envelope[2] if auth_envelope else "",
+                    auth_binding_revision=auth_envelope[3] if auth_envelope else 0,
                     tools=tools,
                     created_at=now,
                     last_activity=now,
@@ -685,11 +812,13 @@ class HubRemoteService:
                 return {"session_id": session_id, "tools": tools}
             except HubSidecarError as exc:
                 last_error = exc
+                if exc.code not in SAFE_PREFLIGHT_RETRY_CODES:
+                    break
         # Keep the final bounded sidecar error code so Review Factory evidence
         # can distinguish policy, schema and transport failures.  No upstream
         # response body or exception text crosses the sidecar boundary.
         if last_error is not None:
-            raise HubSidecarError(last_error.code) from last_error
+            raise HubSidecarError(last_error.code) from None
         raise HubSidecarError("hub_upstream_preflight_failed")
 
     @staticmethod
@@ -708,6 +837,7 @@ class HubRemoteService:
         expected_tools: list[dict[str, Any]] | None,
         tool_name: str | None,
         arguments: dict[str, Any] | None,
+        auth_header: tuple[str, str] | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         """Run one complete SDK exchange without crossing asyncio tasks.
 
@@ -723,6 +853,12 @@ class HubRemoteService:
         output: tuple[list[dict[str, Any]], dict[str, Any] | None] | None = None
         try:
             await proxy.start()
+            request_headers = {
+                "User-Agent": "ModelMirror-MCP-Hub/1.0",
+                "Accept": "application/json, text/event-stream",
+            }
+            if auth_header is not None:
+                request_headers[auth_header[0]] = auth_header[1]
             async with httpx.AsyncClient(
                 proxy=f"http://127.0.0.1:{proxy.port}",
                 timeout=httpx.Timeout(
@@ -733,10 +869,7 @@ class HubRemoteService:
                 ),
                 follow_redirects=False,
                 trust_env=False,
-                headers={
-                    "User-Agent": "ModelMirror-MCP-Hub/1.0",
-                    "Accept": "application/json, text/event-stream",
-                },
+                headers=request_headers,
             ) as http_client:
                 client_session_type, streamable_http = _load_mcp_http()
                 async with streamable_http(
@@ -788,7 +921,9 @@ class HubRemoteService:
             code = (
                 "hub_upstream_unknown_outcome"
                 if tool_name is not None
-                else _fixed_preflight_error(failure)
+                else _fixed_preflight_error(
+                    failure, authenticated=auth_header is not None
+                )
             )
             raise HubSidecarError(code) from failure
         if output is None:
@@ -874,12 +1009,19 @@ class HubRemoteService:
                     expected_tools=session.tools,
                     tool_name=tool_name,
                     arguments=arguments,
+                    auth_header=(
+                        (session.auth_header_name, session.auth_header_value)
+                        if session.auth_header_name
+                        else None
+                    ),
                 )
                 if result is None:
                     raise HubSidecarError("hub_upstream_unknown_outcome")
                 return result
             except HubSidecarError:
-                self.sessions.pop(session_id, None)
+                removed = self.sessions.pop(session_id, None)
+                if removed is not None:
+                    removed.auth_header_value = ""
                 raise
 
     async def list_tools(self, session_id: str) -> list[dict[str, Any]]:
@@ -903,17 +1045,26 @@ class HubRemoteService:
                         expected_tools=None,
                         tool_name=None,
                         arguments=None,
+                        auth_header=(
+                            (session.auth_header_name, session.auth_header_value)
+                            if session.auth_header_name
+                            else None
+                        ),
                     )
                     session.tools = tools
                     session.last_activity = time.monotonic()
                     return tools
-                except Exception as exc:
+                except HubSidecarError as exc:
                     last_error = exc
+                    if exc.code not in SAFE_PREFLIGHT_RETRY_CODES:
+                        break
             raise HubSidecarError("hub_tool_recheck_failed") from last_error
 
     async def close(self, session_id: str) -> None:
         async with self.lock:
-            self.sessions.pop(session_id, None)
+            session = self.sessions.pop(session_id, None)
+            if session is not None:
+                session.auth_header_value = ""
 
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
@@ -936,6 +1087,7 @@ class HubRemoteService:
                     str(request.get("url") or ""),
                     str(request.get("capability") or ""),
                     str(request.get("session_owner") or ""),
+                    request.get("auth"),
                 )
                 response = {"ok": True, **result}
             elif action == "call":

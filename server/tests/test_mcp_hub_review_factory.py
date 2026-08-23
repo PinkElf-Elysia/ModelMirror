@@ -20,11 +20,19 @@ from server.mcp.hub import (
 from server.mcp.hub_contracts import (
     HubContractRegistry,
     HubReviewedContractV1,
+    HubReviewedContractV2,
     contract_export,
     contract_signature,
     normalize_contract,
     stable_contract_id,
 )
+from server.mcp.remote_auth import RemoteAuthPolicyV1
+from server.mcp.remote_auth import (
+    LocalSubjectScopeResolver,
+    MCPRemoteAuthBroker,
+    MCPRemoteAuthStore,
+)
+from server.toolsets.credentials import CredentialStore
 from server.mcp.hub_review import (
     MCPHubReviewService,
     MCPHubReviewStore,
@@ -88,6 +96,7 @@ class FakeBridge:
         self.closed: list[str] = []
         self.revoked: list[str] = []
         self.fail_call = False
+        self.auth_envelopes: list[dict[str, Any]] = []
 
     async def authorize(self, candidate_id: str, url: str) -> str:
         assert candidate_id.startswith("mcphub_")
@@ -103,9 +112,13 @@ class FakeBridge:
         url: str,
         capability: str,
         session_owner: str,
+        *,
+        auth: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         assert capability == "a" * 64
         assert session_owner.endswith(candidate_id)
+        if auth is not None:
+            self.auth_envelopes.append(dict(auth))
         return {"session_id": "hubsession_" + "b" * 32, "tools": self.tools}
 
     async def list_tools(self, session_id: str) -> dict[str, Any]:
@@ -275,6 +288,171 @@ def test_contract_fingerprint_hmac_collision_and_revocation(tmp_path: Path) -> N
     store.add_revocation("tenant-a", "owner-a", contract.contract_id, "revoke")
     assert valid.lookup_identity(*contract.identity)[1] == "hub_contract_revoked"
 
+
+def test_v2_contract_freezes_auth_policy_without_changing_v1_loader() -> None:
+    remote_url = "https://token.example/mcp"
+    policy = RemoteAuthPolicyV1(
+        mode="static_bearer",
+        slot="registry-secret-header",
+        header_name="Authorization",
+        origin="https://token.example",
+        remote_url_digest=stable_digest(remote_url),
+    )
+    v2 = HubReviewedContractV2(
+        contract_id=stable_contract_id("io.example/token", "1.0.0", remote_url),
+        server_name="io.example/token",
+        version="1.0.0",
+        remote_url=remote_url,
+        origin="https://token.example",
+        source_digest="1" * 64,
+        schema_digest="2" * 64,
+        tool_schema_digests={"search": "3" * 64},
+        allowed_tools=["search"],
+        tool_effects={"search": "read"},
+        limits={"max_result_bytes": 1024},
+        evidence_digest="4" * 64,
+        remote_auth_policy=policy,
+    )
+    loaded = normalize_contract(json.loads(contract_export(v2)))
+    assert isinstance(loaded, HubReviewedContractV2)
+    assert loaded.remote_auth_policy == policy
+    assert "credential" not in contract_export(v2).decode("utf-8").lower()
+
+    changed_policy = RemoteAuthPolicyV1(
+        mode="static_bearer",
+        slot="registry-secret-header",
+        header_name="Authorization",
+        origin="https://token.example",
+        remote_url_digest="5" * 64,
+    )
+    changed = HubReviewedContractV2(
+        **{
+            **v2.model_dump(mode="json", exclude={"contract_fingerprint", "remote_auth_policy"}),
+            "remote_auth_policy": changed_policy.model_dump(mode="json"),
+        }
+    )
+    assert changed.contract_fingerprint != v2.contract_fingerprint
+
+
+@pytest.mark.asyncio
+async def test_static_token_sop_requires_binding_and_publishes_v2_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_AUTH_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_STATIC_TOKEN_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_AUTH_LOCAL_SINGLE_OWNER_ACK", "true")
+    secret = "review-static-token-secret"
+    vault = CredentialStore(
+        tmp_path / "vault",
+        master_key="test-external-master-key",
+        require_external_master_key=True,
+    )
+    broker = MCPRemoteAuthBroker(
+        MCPRemoteAuthStore(tmp_path / "bindings"),
+        subject_resolver=LocalSubjectScopeResolver(),
+        credential_lookup=vault.get_public,
+        credential_resolver=vault.resolve,
+        credential_security_attestor=vault.remote_auth_master_key_attestation,
+    )
+    raw = registry_entry(name="io.example/static-token")
+    raw["server"]["remotes"][0]["headers"] = [
+        {"name": "Authorization", "isRequired": True, "isSecret": True}
+    ]
+    hub_store = MCPHubStore(tmp_path / "hub")
+    normalized = normalize_registry_entry(raw)
+    hub_store.replace_snapshot("seed", [normalized], '"seed"')
+    bridge = FakeBridge()
+    hub = MCPHubService(
+        hub_store,
+        tenant_id="local",
+        owner_id="local",
+        bridge=bridge,
+        reviewed_contracts=None,
+    )
+    hub.set_remote_auth(
+        broker,
+        credential_creator=vault.create,
+        credential_lookup=vault.get_public,
+        credential_revoker=vault.revoke,
+    )
+    review_store = MCPHubReviewStore(hub_store)
+    review = MCPHubReviewService(
+        hub,
+        review_store,
+        signing_key="review-signing-key-with-more-than-32-bytes",
+        repository_dir=tmp_path / "contracts",
+    )
+    hub.contract_registry = review.contracts
+    hub.set_review_service(review)
+    remote = normalized["remotes"][0]
+    candidate = hub.create_candidate(
+        normalized["server_name"], normalized["version"], remote["remote_id"]
+    )
+
+    run_without_binding = review.create_run(
+        [
+            {
+                "server_name": normalized["server_name"],
+                "version": normalized["version"],
+                "remote_id": remote["remote_id"],
+            }
+        ]
+    )
+    await review._tasks[run_without_binding["run_id"]]
+    missing = review.store.require_run(
+        run_without_binding["run_id"], "local", "local"
+    )["items"][0]
+    assert missing["error_code"] == "mcp_remote_auth_binding_missing"
+    assert bridge.auth_envelopes == []
+
+    hub.create_candidate_auth_binding(
+        candidate["candidate_id"],
+        slot="registry-secret-header",
+        display_name="Review token",
+        secret=secret,
+    )
+    run = review.create_run(
+        [
+            {
+                "server_name": normalized["server_name"],
+                "version": normalized["version"],
+                "remote_id": remote["remote_id"],
+            }
+        ]
+    )
+    await review._tasks[run["run_id"]]
+    item = review.store.require_run(run["run_id"], "local", "local")["items"][0]
+    assert item["state"] == "awaiting_call_approval"
+    assert item["evidence"]["sop_version"] == "static_token_https_tools_v1"
+    assert secret not in json.dumps(item["evidence"])
+    proposal = review.generate_proposal(run["run_id"], item["item_id"])
+    await review.approve_proposal(
+        run["run_id"],
+        item["item_id"],
+        proposal["proposal_id"],
+        proposal["proposal_digest"],
+    )
+    item = review.store.require_item(run["run_id"], item["item_id"], "local", "local")
+    decided = review.decide(
+        run["run_id"],
+        item["item_id"],
+        decision="approve",
+        expected_evidence_digest=item["evidence_digest"],
+        allowed_tools=["search"],
+        tool_effects={"search": "read"},
+    )
+    published = review.publish(
+        run["run_id"], item["item_id"], decided["contract_fingerprint"]
+    )
+    contract, reason = review.contracts.get_contract(published["contract_id"])
+    assert reason == ""
+    assert isinstance(contract, HubReviewedContractV2)
+    assert contract.remote_auth_policy.policy_fingerprint == remote["auth_policy"][
+        "policy_fingerprint"
+    ]
+    assert secret not in contract_export(contract).decode("utf-8")
+    assert bridge.auth_envelopes
+    assert all(envelope["target_id"] == candidate["candidate_id"] for envelope in bridge.auth_envelopes)
 
 def test_deterministic_proposal_rejects_sensitive_and_unbounded_schemas() -> None:
     assert deterministic_arguments(TOOLS[0]["input_schema"]) == {

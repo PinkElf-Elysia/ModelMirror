@@ -586,6 +586,11 @@ services:
     build:
       context: ./server
     container_name: modelmirror-server
+    # All isolated MCP sidecars create their UDS as 65532:65532/0660. Join the
+    # shared socket group explicitly so connectivity does not depend on root's
+    # DAC override capabilities.
+    group_add:
+      - "65532"
     depends_on:
       browser:
         condition: service_healthy

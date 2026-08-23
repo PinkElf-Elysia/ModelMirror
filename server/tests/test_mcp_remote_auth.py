@@ -489,6 +489,45 @@ def test_broker_resolves_only_current_scoped_binding_and_redacts_envelope(
     assert stale.value.code == "mcp_remote_auth_binding_stale"
 
 
+def test_broker_execution_and_revoke_are_bound_to_exact_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enable_remote_auth(monkeypatch)
+    service = broker(tmp_path)
+    current_policy = policy()
+    binding = service.create_binding(
+        target_type="hub_candidate",
+        target_id="candidate-a",
+        policy=current_policy,
+        credential_id="cred_test",
+    )
+
+    with pytest.raises(RemoteAuthError) as crossed_execution:
+        with service.resolve_for_execution(
+            binding.binding_id,
+            current_policy=current_policy,
+            target_type="hub_candidate",
+            target_id="candidate-b",
+        ):
+            pass
+    assert crossed_execution.value.code == "mcp_remote_auth_scope_denied"
+
+    with pytest.raises(RemoteAuthError) as crossed_type:
+        service.revoke_binding(
+            binding.binding_id,
+            target_type="catalog_project",
+            target_id="candidate-a",
+        )
+    assert crossed_type.value.code == "mcp_remote_auth_scope_denied"
+    assert service.get_binding(
+        binding.binding_id,
+        current_policy=current_policy,
+        target_type="hub_candidate",
+        target_id="candidate-a",
+    ).status == "active"
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected_code"),
     [

@@ -36,17 +36,37 @@ HEADER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{0,63}$")
 DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 DENIED_SECRET_HEADERS = frozenset(
     {
+        "accept",
+        "accept-encoding",
         "connection",
+        "content-encoding",
         "content-length",
+        "content-type",
         "cookie",
+        "expect",
+        "forwarded",
+        "from",
         "host",
+        "mcp-protocol-version",
+        "origin",
         "proxy-authorization",
         "proxy-connection",
+        "referer",
         "te",
         "trailer",
         "transfer-encoding",
         "upgrade",
+        "user-agent",
+        "via",
+        "x-http-method-override",
     }
+)
+DENIED_SECRET_HEADER_PREFIXES = (
+    "proxy-",
+    "sec-",
+    "x-forwarded-",
+    "x-original-",
+    "x-rewrite-",
 )
 
 RemoteAuthMode = Literal["static_bearer", "static_header"]
@@ -190,7 +210,11 @@ class RemoteAuthPolicyV1(BaseModel):
             if lower_header != "authorization":
                 raise ValueError("static_bearer requires Authorization")
             header = "Authorization"
-        elif lower_header == "authorization" or lower_header in DENIED_SECRET_HEADERS:
+        elif (
+            lower_header == "authorization"
+            or lower_header in DENIED_SECRET_HEADERS
+            or lower_header.startswith(DENIED_SECRET_HEADER_PREFIXES)
+        ):
             raise ValueError("static_header cannot use a reserved header")
         else:
             header = lower_header
@@ -481,6 +505,29 @@ class MCPRemoteAuthStore:
                 status_code=403,
             )
         return self._row_to_binding(row)
+
+    def active_binding_for_target(
+        self,
+        *,
+        subject: SubjectScopeV1,
+        target_type: RemoteAuthTargetType,
+        target_id: str,
+        slot: str,
+    ) -> RemoteAuthBindingV1 | None:
+        with self._lock, self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM remote_auth_bindings "
+                "WHERE tenant_id=? AND owner_id=? AND target_type=? "
+                "AND target_id=? AND slot=? AND status='active'",
+                (
+                    subject.tenant_id,
+                    subject.owner_id,
+                    target_type,
+                    str(target_id),
+                    str(slot),
+                ),
+            ).fetchone()
+        return self._row_to_binding(row) if row is not None else None
 
     def reconcile_policy(
         self,
@@ -786,6 +833,8 @@ class MCPRemoteAuthBroker:
         binding_id: str,
         *,
         current_policy: RemoteAuthPolicyV1,
+        target_type: RemoteAuthTargetType | None = None,
+        target_id: str | None = None,
     ) -> RemoteAuthBindingV1:
         with self._binding_lock(binding_id):
             subject = self._require_operational()
@@ -795,7 +844,44 @@ class MCPRemoteAuthBroker:
                 subject=subject,
                 current_policy=current_policy,
             )
+            self._require_binding_target(binding, target_type, target_id)
         return binding
+
+    def binding_for_target(
+        self,
+        *,
+        target_type: RemoteAuthTargetType,
+        target_id: str,
+        current_policy: RemoteAuthPolicyV1,
+    ) -> RemoteAuthBindingV1 | None:
+        subject = self._require_operational()
+        self._require_static_policy_enabled(current_policy)
+        binding = self.store.active_binding_for_target(
+            subject=subject,
+            target_type=target_type,
+            target_id=target_id,
+            slot=current_policy.slot,
+        )
+        if binding is None:
+            return None
+        return self.get_binding(
+            binding.binding_id,
+            current_policy=current_policy,
+        )
+
+    def binding_metadata_for_target(
+        self,
+        binding_id: str,
+        *,
+        target_type: RemoteAuthTargetType,
+        target_id: str,
+    ) -> RemoteAuthBindingV1:
+        """Return secret-free binding metadata for an exact teardown target."""
+        with self._binding_lock(binding_id):
+            subject = self._require_operational()
+            binding = self.store.get_binding(binding_id, subject=subject)
+            self._require_binding_target(binding, target_type, target_id)
+            return binding
 
     def _get_binding_locked(
         self,
@@ -829,6 +915,8 @@ class MCPRemoteAuthBroker:
         current_policy: RemoteAuthPolicyV1,
         credential_id: str,
         expected_revision: int,
+        target_type: RemoteAuthTargetType | None = None,
+        target_id: str | None = None,
     ) -> RemoteAuthBindingV1:
         with self._binding_lock(binding_id):
             subject = self._require_operational()
@@ -838,6 +926,7 @@ class MCPRemoteAuthBroker:
                 subject=subject,
                 current_policy=current_policy,
             )
+            self._require_binding_target(binding, target_type, target_id)
             self._credential_metadata(credential_id, subject=subject)
             return self.store.rotate_binding(
                 binding.binding_id,
@@ -846,9 +935,17 @@ class MCPRemoteAuthBroker:
                 expected_revision=expected_revision,
             )
 
-    def revoke_binding(self, binding_id: str) -> RemoteAuthBindingV1:
+    def revoke_binding(
+        self,
+        binding_id: str,
+        *,
+        target_type: RemoteAuthTargetType | None = None,
+        target_id: str | None = None,
+    ) -> RemoteAuthBindingV1:
         with self._binding_lock(binding_id):
             subject = self._require_operational()
+            binding = self.store.get_binding(binding_id, subject=subject)
+            self._require_binding_target(binding, target_type, target_id)
             return self.store.revoke_binding(binding_id, subject=subject)
 
     @contextmanager
@@ -857,6 +954,8 @@ class MCPRemoteAuthBroker:
         binding_id: str,
         *,
         current_policy: RemoteAuthPolicyV1,
+        target_type: RemoteAuthTargetType | None = None,
+        target_id: str | None = None,
     ) -> Iterator[RemoteAuthExecutionEnvelope]:
         with self._binding_lock(binding_id):
             subject = self._require_operational()
@@ -866,6 +965,7 @@ class MCPRemoteAuthBroker:
                 subject=subject,
                 current_policy=current_policy,
             )
+            self._require_binding_target(binding, target_type, target_id)
             self._credential_metadata(binding.credential_id, subject=subject)
             secret: Any = None
             try:
@@ -907,6 +1007,26 @@ class MCPRemoteAuthBroker:
                 yield envelope
             finally:
                 envelope.clear()
+
+    @staticmethod
+    def _require_binding_target(
+        binding: RemoteAuthBindingV1,
+        target_type: RemoteAuthTargetType | None,
+        target_id: str | None,
+    ) -> None:
+        if target_type is None and target_id is None:
+            return
+        if (
+            target_type is None
+            or target_id is None
+            or binding.target_type != target_type
+            or binding.target_id != str(target_id)
+        ):
+            raise RemoteAuthError(
+                "远程认证绑定不属于当前目标。",
+                code="mcp_remote_auth_scope_denied",
+                status_code=403,
+            )
 
     def _require_operational(self) -> SubjectScopeV1:
         if not _environment_flag("MCP_REMOTE_AUTH_ENABLED"):

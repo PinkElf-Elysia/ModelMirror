@@ -38,6 +38,19 @@ class MCPClientError(RuntimeError):
     """Base error for MCP client manager failures."""
 
 
+class MCPTransportUnavailableError(MCPClientError):
+    """Raised when an MCP transport cannot finish its startup handshake."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        message = (
+            "MCP transport initialization timed out."
+            if code == "mcp_transport_start_timeout"
+            else "MCP transport failed to initialize."
+        )
+        super().__init__(message)
+
+
 class MCPSessionNotFoundError(MCPClientError):
     """Raised when a session id is unknown or has already been disconnected."""
 
@@ -190,11 +203,18 @@ class MCPClientManager:
         managed.task = asyncio.create_task(self._session_worker(managed, ready))
         try:
             await asyncio.wait_for(ready, timeout=managed.operation_timeout)
-        except Exception:
+        except Exception as exc:
             if managed.task:
                 managed.task.cancel()
                 await asyncio.gather(managed.task, return_exceptions=True)
-            raise
+            if isinstance(exc, MCPClientError):
+                raise
+            code = (
+                "mcp_transport_start_timeout"
+                if isinstance(exc, asyncio.TimeoutError)
+                else "mcp_transport_start_failed"
+            )
+            raise MCPTransportUnavailableError(code) from exc
 
         async with self._lock:
             self._sessions[managed.session_id] = managed
@@ -600,7 +620,20 @@ class MCPClientManager:
         )
         ready: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         restarted.task = asyncio.create_task(self._session_worker(restarted, ready))
-        await asyncio.wait_for(ready, timeout=restarted.operation_timeout)
+        try:
+            await asyncio.wait_for(ready, timeout=restarted.operation_timeout)
+        except Exception as exc:
+            if restarted.task:
+                restarted.task.cancel()
+                await asyncio.gather(restarted.task, return_exceptions=True)
+            if isinstance(exc, MCPClientError):
+                raise
+            code = (
+                "mcp_transport_start_timeout"
+                if isinstance(exc, asyncio.TimeoutError)
+                else "mcp_transport_start_failed"
+            )
+            raise MCPTransportUnavailableError(code) from exc
         async with self._lock:
             self._sessions[old_session_id] = restarted
         return restarted

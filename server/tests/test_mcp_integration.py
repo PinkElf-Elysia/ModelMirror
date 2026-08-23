@@ -8,6 +8,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from server.mcp.manager import MCPClientManager, MCPTransportUnavailableError
 from server.main import (
     app,
     mcp_catalog_service,
@@ -82,6 +83,23 @@ async def test_startup_failure_returns_400(client: httpx.AsyncClient) -> None:
     )
     assert response.status_code == 400
     assert "MCP Server 启动失败" in response.text
+
+
+@pytest.mark.asyncio
+async def test_stdio_early_exit_is_normalized_as_transport_unavailable(
+    tmp_path: Path,
+) -> None:
+    manager = MCPClientManager(sandbox_root=tmp_path, operation_timeout=5)
+
+    with pytest.raises(MCPTransportUnavailableError) as failed:
+        await manager.connect_profile(
+            transport="stdio",
+            server_command=[sys.executable, "-c", "raise SystemExit(69)"],
+            reconnect_attempts=0,
+        )
+
+    assert failed.value.code == "mcp_transport_start_failed"
+    assert "ExceptionGroup" not in str(failed.value)
 
 
 @pytest.mark.asyncio
