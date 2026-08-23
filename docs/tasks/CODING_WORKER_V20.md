@@ -103,6 +103,6 @@ PR C 最终自动证据：Coding Worker `463 passed, 5 skipped`；Agent Workspac
 
 镜像级审查同时推翻了“health 即 Driver 可用”的假设：当前 evaluation sidecar 仅实现鉴权 health 与静态 adapter 装载，尚未承载 ACP/Codex 实时协议传输。sidecar 现会校验固定命令和镜像内实际 Schema 摘要，并明确返回 `available=false`、`reason=protocol_transport_unavailable`、`image_attestation=external_required`；Compose 健康检查据此 fail-closed。只有外部控制器完成真实镜像身份验证且实现协议传输后，evaluation profile 才能转为可用。
 
-本轮修复后的专项为 `52 passed`；受影响后端回归为 `912 passed, 14 skipped`；两套 evaluation 镜像重新构建并确认 UID/GID `65532:65532` 与固定 Schema 摘要。V18 compile 与 Fake smoke 通过，Fake smoke 摘要仍为 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。前端 production build 通过；完整前端套件两次均有同一个既有 Chat/OCR 时序用例失败（单文件 `5/5` 通过），因此不得记录为全量前端绿测。后端全量首个失败是隔离镜像缺少 Agency Worker 构建产物，受影响集合无失败。
+证伪修复最终重放到包含 #269 的主线 `bdd1dcda`，range-diff 与原四个逻辑提交一致。后端全量在紧邻主线 `e6a59117` 为 `4219 passed, 29 skipped`；主线继续合入 #267/#268 后，覆盖 Coding Worker、Coding Runtime、Agent Workspace 与 Project Host 的回归为 `962 passed, 14 skipped`，#269 仅修改前端竞态。最终基线专项为 `52 passed`，前端完整套件为 `104 files / 572 tests`，production build 通过。两套 evaluation 镜像重新构建并确认 UID/GID `65532:65532`，ACP 与 Codex Schema 摘要分别为 `998c6427fa78bf6cd39f442bf164c6172234ebdf1c04298af57c40fa716ce267` 和 `02a4c63a638fdae4a5f6c3ad32a41a377b642c66f3abc84f6fc47c7f3d6074df`。主/评测 Compose 静态展开、V18 compile 与 Fake smoke 通过，Fake smoke 摘要仍为 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。
 
 结论仍为 Experimental：未调用真实模型、未运行四次真实任务、校准或认证；ACP/Codex evaluation profile 尚不可用，V20 最终交付结论仍不得使用。
