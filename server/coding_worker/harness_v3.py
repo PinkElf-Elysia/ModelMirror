@@ -34,6 +34,7 @@ CODING_WORKER_HARNESS_CODE_FILES = (
     "evidence.py",
     "executor.py",
     "harness_v3.py",
+    "harness_driver.py",
     "harness_protocol.py",
     "network_policy.py",
     "opencode_provider.py",
