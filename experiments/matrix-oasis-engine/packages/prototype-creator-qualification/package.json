@@ -1,0 +1,20 @@
+{
+  "name": "@matrix-oasis/prototype-creator-qualification",
+  "version": "0.1.0-r16",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.mjs"
+    }
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@matrix-oasis/prototype-creator-qualification-contracts": "0.1.0-r16",
+    "@matrix-oasis/runtime-pack-contracts": "0.1.0-r3"
+  }
+}
