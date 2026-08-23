@@ -33,7 +33,7 @@ from .provider import (
     ProviderOpenRequest,
     ProviderSession,
 )
-from .harness_protocol import HarnessDescriptor
+from .harness_protocol import HarnessDescriptorObservation
 
 
 HarnessCapabilities = ProviderCapabilities
@@ -113,7 +113,7 @@ class HarnessSupervisor(Protocol):
 
     async def harness_descriptors_for_slots(
         self, slot_ids: Sequence[str]
-    ) -> Mapping[str, HarnessDescriptor | None]: ...
+    ) -> Mapping[str, HarnessDescriptorObservation | None]: ...
 
 
 @runtime_checkable

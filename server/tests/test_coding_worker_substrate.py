@@ -10,6 +10,7 @@ from cryptography.fernet import Fernet
 from server.coding_worker.adapters import (
     LegacyExecutionBackend,
     LegacyHarnessDriver,
+    LegacyHarnessSupervisor,
     LegacyTaskControlPlane,
     StoreInteractionProjection,
 )
@@ -44,10 +45,12 @@ def _service(tmp_path: Path) -> CodingWorkerService:
         },
         id_key=b"s" * 32,
     )
+    provider = FakeCodingAgentProvider()
     return CodingWorkerService(
         store=store,
         workspace_broker=workspace,
-        provider=LegacyHarnessDriver(FakeCodingAgentProvider()),
+        provider=LegacyHarnessDriver(provider),
+        harness_supervisor=LegacyHarnessSupervisor(provider),
     )
 
 
@@ -64,11 +67,12 @@ async def test_legacy_execution_backend_fails_closed_when_capability_is_absent()
 
 @pytest.mark.asyncio
 async def test_legacy_harness_driver_does_not_claim_native_steering() -> None:
-    driver = LegacyHarnessDriver(FakeCodingAgentProvider())
+    provider = FakeCodingAgentProvider()
+    driver = LegacyHarnessDriver(provider)
     session = ProviderSession(
         session_id="fake_session",
         task_id="task",
-        provider_capabilities=await driver.capabilities(),
+        provider_capabilities=await provider.capabilities(),
     )
 
     assert await driver.steer(session, "change direction") is False

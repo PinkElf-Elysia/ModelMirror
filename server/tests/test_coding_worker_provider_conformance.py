@@ -31,6 +31,10 @@ from server.coding_worker.provider import (
     ProviderEvent,
     ProviderOpenRequest,
 )
+from server.coding_worker.harness_protocol import (
+    HarnessPersistenceLevel,
+    HarnessToolOwnership,
+)
 
 
 def _request(route_id: str) -> ProviderOpenRequest:
@@ -231,6 +235,28 @@ def test_provider_v4_rejects_raw_or_malformed_event_data() -> None:
             kind=ProviderEventKind.MESSAGE,
             data={"text": "ok", "session_id": "supplier-session"},
         )
+
+
+@pytest.mark.parametrize("factory", [_opencode_provider, _claude_provider])
+def test_production_provider_harness_descriptors_are_broker_only_and_honest(
+    factory: ProviderFactory, tmp_path: Path
+) -> None:
+    provider, _request_value = factory(tmp_path)
+    assert isinstance(provider, (OpenCodeProvider, ClaudeCodeProvider))
+
+    descriptor = provider.harness_descriptor()
+
+    assert descriptor.protocol_id == "modelmirror-provider-v4"
+    assert descriptor.protocol_version == "4"
+    assert descriptor.tool_ownership is HarnessToolOwnership.BROKER_ONLY
+    assert descriptor.persistence is HarnessPersistenceLevel.SESSION_RESUME
+    assert descriptor.capability("checkpoint").available is True
+    assert descriptor.capability("restore").available is True
+    assert descriptor.capability("steering").available is False
+    assert descriptor.capability("steering").reason is not None
+    encoded = descriptor.model_dump_json()
+    assert "test-route-key" not in encoded
+    assert "test-secret" not in encoded
 
 
 def test_provider_capabilities_fail_closed_until_explicitly_declared() -> None:

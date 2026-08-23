@@ -100,6 +100,13 @@ class HarnessDescriptor(StrictModel):
         )
 
 
+class HarnessDescriptorObservation(StrictModel):
+    """A stable descriptor observed from one concrete sidecar generation."""
+
+    descriptor: HarnessDescriptor
+    sidecar_generation: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
 class HarnessBinding(StrictModel):
     task_id: str
     route_id: str

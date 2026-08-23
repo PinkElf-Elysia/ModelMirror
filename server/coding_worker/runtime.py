@@ -10,6 +10,7 @@ from .broker_rpc import BrokerRPCServer
 from .adapters import (
     LegacyExecutionBackend,
     LegacyHarnessDriver,
+    LegacyHarnessSupervisor,
     LegacyTaskControlPlane,
     StoreInteractionProjection,
 )
@@ -174,6 +175,7 @@ class CodingWorkerRuntime:
             controller_id=controller_id,
             controller_generation=controller_generation,
         )
+        self.harness_supervisor = LegacyHarnessSupervisor(self.provider)
         self.harness_driver = LegacyHarnessDriver(self.provider)
         self.execution_backend = LegacyExecutionBackend(executor_pool or self.provider)
         self.tool_broker.executor = self.execution_backend
@@ -186,6 +188,7 @@ class CodingWorkerRuntime:
             store=self.store,
             workspace_broker=self.workspace_broker,
             provider=self.harness_driver,
+            harness_supervisor=self.harness_supervisor,
             harness_runner=self.harness,
             max_active_tasks=max_active_tasks,
             tool_broker=self.tool_broker,
@@ -205,8 +208,8 @@ class CodingWorkerRuntime:
 
             self.evaluation = LegacyEvaluationAdapter(
                 self.service,
-                attestation_reader=self.harness_driver.harness_attestations,
-                controller_generation=lambda: self.harness_driver.controller_generation,
+                attestation_reader=self.harness_supervisor.harness_attestations,
+                controller_generation=lambda: self.harness_supervisor.controller_generation,
             )
         self.control_plane = LegacyTaskControlPlane(
             self.service, network_enabled=network_enabled
@@ -215,7 +218,7 @@ class CodingWorkerRuntime:
         self.substrate = CodingSubstrateHandle(
             control_plane=self.control_plane,
             projection=self.projection,
-            harness_supervisor=self.harness_driver,
+            harness_supervisor=self.harness_supervisor,
             harness_driver=self.harness_driver,
             execution_backend=self.execution_backend,
             evaluation=self.evaluation,

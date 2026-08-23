@@ -34,7 +34,7 @@ from .ports import (
     TaskCapabilitySnapshot,
     WorkspaceTreeProjection,
 )
-from .harness_protocol import HarnessDescriptor
+from .harness_protocol import HarnessDescriptorObservation
 from .provider import (
     CodingAgentProvider,
     ProviderCapabilities,
@@ -48,7 +48,13 @@ from .store import WorkerConflictError, WorkerNotFoundError
 
 
 class LegacyProviderBinding(CodingAgentProvider, Protocol):
+    pass
+
+
+class LegacySupervisorBinding(Protocol):
     controller_generation: int
+
+    async def capabilities(self) -> ProviderCapabilities: ...
 
     async def capabilities_for_slots(
         self, slot_ids: Sequence[str]
@@ -56,11 +62,15 @@ class LegacyProviderBinding(CodingAgentProvider, Protocol):
 
     async def harness_attestations(self) -> dict[str, dict[str, Any]]: ...
 
+    async def harness_descriptors_for_slots(
+        self, slot_ids: Sequence[str]
+    ) -> Mapping[str, HarnessDescriptorObservation | None]: ...
 
-class LegacyHarnessDriver:
-    """V19 adapter for the persisted Provider v4 private contract."""
 
-    def __init__(self, provider: LegacyProviderBinding) -> None:
+class LegacyHarnessSupervisor:
+    """V20 process, health and generation adapter for Provider v4 sidecars."""
+
+    def __init__(self, provider: LegacySupervisorBinding) -> None:
         self._provider = provider
 
     @property
@@ -81,10 +91,15 @@ class LegacyHarnessDriver:
 
     async def harness_descriptors_for_slots(
         self, slot_ids: Sequence[str]
-    ) -> Mapping[str, HarnessDescriptor | None]:
-        # PR A introduces the fail-closed supervisor port.  PR B replaces this
-        # compatibility result with signed engine descriptors per slot.
-        return {slot_id: None for slot_id in slot_ids}
+    ) -> Mapping[str, HarnessDescriptorObservation | None]:
+        return await self._provider.harness_descriptors_for_slots(slot_ids)
+
+
+class LegacyHarnessDriver:
+    """V20 session/turn adapter for the persisted Provider v4 private contract."""
+
+    def __init__(self, provider: LegacyProviderBinding) -> None:
+        self._provider = provider
 
     async def open(self, request: ProviderOpenRequest) -> ProviderSession:
         return await self._provider.open(request)
@@ -485,6 +500,7 @@ def legacy_substrate_from_service(
         if isinstance(service.provider, LegacyHarnessDriver)
         else LegacyHarnessDriver(service.provider)
     )
+    supervisor = service.harness_supervisor
     backend = LegacyExecutionBackend(
         execution_backend
         or (service.tool_broker.executor if service.tool_broker is not None else None)
@@ -495,7 +511,7 @@ def legacy_substrate_from_service(
             service, network_enabled=network_enabled
         ),
         projection=StoreInteractionProjection(service),
-        harness_supervisor=driver,
+        harness_supervisor=supervisor,
         harness_driver=driver,
         execution_backend=backend,
         evaluation=evaluation,

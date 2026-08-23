@@ -89,6 +89,7 @@ async def run() -> None:
             if os.getenv("CODING_WORKER_HARNESS_V3_ENABLED", "").lower() == "true"
             else None
         ),
+        harness_descriptor=provider.harness_descriptor(),
     )
     await server.start_unix(socket_path)
     await _wait_for_stop(server.close)

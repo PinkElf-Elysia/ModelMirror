@@ -28,6 +28,13 @@ from server.coding_worker.contracts import (
     WorkspaceSource,
 )
 from server.coding_worker.evidence import HarnessRunner
+from server.coding_worker.harness_protocol import (
+    HarnessCapabilityState,
+    HarnessDescriptor,
+    HarnessDescriptorObservation,
+    HarnessPersistenceLevel,
+    HarnessToolOwnership,
+)
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
     ProviderCapabilities,
@@ -47,6 +54,65 @@ from server.coding_worker.workspace import (
     WorkspaceError,
     WorkspaceSourceUnavailableError,
 )
+
+
+class _V20Supervisor:
+    controller_generation = 7
+
+    def __init__(self, provider: FakeCodingAgentProvider) -> None:
+        self._provider = provider
+
+    async def capabilities(self) -> ProviderCapabilities:
+        return await self._provider.capabilities()
+
+    async def capabilities_for_slots(
+        self, slot_ids: tuple[str, ...]
+    ) -> dict[str, ProviderCapabilities]:
+        return await self._provider.capabilities_for_slots(slot_ids)
+
+    async def harness_attestations(self) -> dict[str, dict[str, object]]:
+        return {}
+
+    async def harness_descriptors_for_slots(
+        self, slot_ids: tuple[str, ...]
+    ) -> dict[str, HarnessDescriptorObservation]:
+        available = HarnessCapabilityState(supported=True, available=True)
+        descriptor = HarnessDescriptor(
+            protocol_id="modelmirror-provider-v4",
+            protocol_version="4",
+            implementation_version="fake-v20",
+            schema_sha256="f" * 64,
+            tool_ownership=HarnessToolOwnership.BROKER_ONLY,
+            persistence=HarnessPersistenceLevel.SESSION_RESUME,
+            capabilities={
+                name: available
+                for name in (
+                    "cancel",
+                    "checkpoint",
+                    "interrupt",
+                    "restore",
+                    "streaming",
+                    "tool_boundaries",
+                    "usage",
+                )
+            },
+        )
+        return {
+            slot_id: HarnessDescriptorObservation(
+                descriptor=descriptor,
+                sidecar_generation=hashlib.sha256(
+                    slot_id.encode("utf-8")
+                ).hexdigest()[:32],
+            )
+            for slot_id in slot_ids
+        }
+
+
+class _NoUsageProvider(FakeCodingAgentProvider):
+    async def capabilities(self) -> ProviderCapabilities:
+        return (await super().capabilities()).model_copy(
+            update={"supports_usage": False}
+        )
 
 
 def _request(client_task_id: str) -> TaskCreateRequest:
@@ -544,6 +610,170 @@ async def test_exact_idempotent_retry_ignores_current_source_and_provider_outage
     assert request.workspace_source.source_id.encode("utf-8") not in database
     assert request.workspace_source.revision.encode("utf-8") not in database
     assert receipt.binding_sha256.encode("ascii") not in database
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v20_new_task_requires_frozen_broker_only_descriptor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_HARNESS_V20_ENABLED", "true")
+    service = _service(tmp_path, FakeCodingAgentProvider())
+
+    with pytest.raises(WorkerConflictError) as rejected:
+        await service.create_task(
+            Origin(module="test", object_id="v20-fail-closed"),
+            _request("v20-fail-closed"),
+        )
+
+    assert rejected.value.code == "harness_v20_route_unavailable"
+    assert service.store.list_tasks() == []
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v20_rejects_descriptor_capability_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_HARNESS_V20_ENABLED", "true")
+    provider = _NoUsageProvider()
+    service = _service(tmp_path, provider)
+    service.harness_supervisor = _V20Supervisor(provider)
+
+    with pytest.raises(WorkerConflictError) as rejected:
+        await service.create_task(
+            Origin(module="test", object_id="v20-capability-mismatch"),
+            _request("v20-capability-mismatch"),
+        )
+
+    assert rejected.value.code == "harness_v20_route_unavailable"
+    assert service.store.list_tasks() == []
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v20_snapshot_binds_descriptor_and_disable_interrupts_without_downgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blocker = asyncio.Event()
+    provider = FakeCodingAgentProvider(block=blocker)
+    service = _service(tmp_path, provider)
+    service.harness_supervisor = _V20Supervisor(provider)
+    monkeypatch.setenv("CODING_WORKER_HARNESS_V20_ENABLED", "true")
+    assert (await service.harness_supervisor.harness_descriptors_for_slots(("*",)))[
+        "*"
+    ].descriptor.tool_ownership is HarnessToolOwnership.BROKER_ONLY
+    observation = await service.provider_capability_observation(
+        "coding/default", force=True
+    )
+    assert service._v20_route_ready(observation), repr(observation)
+    task = await service.create_task(
+        Origin(module="test", object_id="v20-disable"),
+        _request("v20-disable"),
+    )
+    await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.RUNNING
+    )
+    frozen = service.store.get_task_capability_snapshot(task.task_id)
+    assert frozen is not None
+    assert frozen.snapshot["harness_protocol"] == "v20"
+    observations = frozen.snapshot["harness_descriptors"]
+    assert isinstance(observations, list) and len(observations) == 1
+    assert observations[0]["observation"]["descriptor"]["tool_ownership"] == (
+        "broker_only"
+    )
+    service.harness_supervisor.controller_generation = 8
+    with pytest.raises(WorkerConflictError) as stale_binding:
+        await service._v20_binding_for_task(
+            service.store.get_task(task.task_id), slot_id=None
+        )
+    assert stale_binding.value.code == "harness_binding_changed"
+    service.harness_supervisor.controller_generation = 7
+
+    monkeypatch.setenv("CODING_WORKER_HARNESS_V20_ENABLED", "false")
+    await service._interrupt_v20_tasks_if_disabled()
+    interrupted = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.INTERRUPTED
+    )
+    assert interrupted.reason == "harness_v20_disabled"
+    with pytest.raises(WorkerConflictError) as resume_rejected:
+        await service.resume(task.task_id)
+    assert resume_rejected.value.code == "harness_v20_disabled"
+    assert service.store.get_task_capability_snapshot(task.task_id) == frozen
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_v20_translation_preserves_legacy_projection_without_side_effect_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def run(label: str, *, v20: bool) -> list[dict[str, object]]:
+        provider = FakeCodingAgentProvider()
+        service = _service(tmp_path / label, provider)
+        if v20:
+            service.harness_supervisor = _V20Supervisor(provider)
+        monkeypatch.setenv(
+            "CODING_WORKER_HARNESS_V20_ENABLED", "true" if v20 else "false"
+        )
+        task = await service.create_task(
+            Origin(module="test", object_id=label), _request(label)
+        )
+        await service.wait_for(
+            task.task_id,
+            lambda item: item.state in {TaskState.BLOCKED, TaskState.COMPLETED},
+        )
+        events = [
+            event.payload
+            for event in service.store.list_events(task.task_id)
+            if event.type == "provider_event"
+        ]
+        assert service.store.list_operations(task.task_id) == []
+        await service.shutdown()
+        return events
+
+    legacy = await run("legacy-shadow", v20=False)
+    translated = await run("v20-shadow", v20=True)
+
+    assert translated == legacy
+
+
+@pytest.mark.asyncio
+async def test_v20_explicit_resume_atomically_rebinds_compatible_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blocker = asyncio.Event()
+    provider = FakeCodingAgentProvider(block=blocker)
+    service = _service(tmp_path, provider)
+    service.harness_supervisor = _V20Supervisor(provider)
+    monkeypatch.setenv("CODING_WORKER_HARNESS_V20_ENABLED", "true")
+    task = await service.create_task(
+        Origin(module="test", object_id="v20-rebind"), _request("v20-rebind")
+    )
+    await service.wait_for(task.task_id, lambda item: item.state is TaskState.RUNNING)
+    before = service.store.get_task_capability_snapshot(task.task_id)
+    assert before is not None
+    paused = await service.pause(task.task_id)
+    assert paused.state is TaskState.PAUSED
+
+    service.harness_supervisor.controller_generation = 8
+    resumed = await service.resume(task.task_id)
+
+    assert resumed.state is TaskState.QUEUED
+    after = service.store.get_task_capability_snapshot(task.task_id)
+    assert after is not None
+    assert after.binding_sha256 != before.binding_sha256
+    assert after.snapshot["harness_descriptors"] == before.snapshot[
+        "harness_descriptors"
+    ]
+    changes = [
+        event
+        for event in service.store.list_events(task.task_id)
+        if event.type == "capability_changed"
+    ]
+    assert [event.payload for event in changes] == [
+        {"binding_sha256": after.binding_sha256}
+    ]
+    await service.cancel(task.task_id)
     await service.shutdown()
 
 

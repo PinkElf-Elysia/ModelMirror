@@ -865,3 +865,17 @@ V19 不增加环境开关、数据库迁移或新 sidecar。部署继续使用 V
 4. Worker 关闭时 handoff 保持 404，Worker 已启用但底座不可用时保持 503；不存在的 task 必须先于 preview path 校验返回 404，未准备 Workspace 的评测导出保持 `workspace_not_ready`。
 
 回退不需要数据操作：恢复上一 Server 镜像或回退 PR C 即可。不得删除 Worker Store、Workspace、Evidence、Artifact、Provider checkpoint 或 v13 Recovery。评测 profile 与真实模型校准仍按 V18/V24 的独立发布窗口执行，V19 部署不授权真实模型调用。
+
+## Coding Worker V20 Harness Kernel
+
+V20 只迁移新建任务，默认关闭：
+
+```dotenv
+CODING_WORKER_HARNESS_V20_ENABLED=false
+```
+
+开启后，Server 仅在目标 route 的每个固定槽均实时提供 Provider-v4 descriptor、`broker_only` 工具所有权、`session_resume` 或更高持久性，以及完整必需能力时创建 V20 任务。冻结的 descriptor、Schema 摘要、sidecar generation 与 controller generation 会写入现有加密 capability snapshot；调度取得槽位后会再次逐项核对，任何变化都在 Provider 会话打开前阻断。
+
+关闭开关后不再创建 V20 任务；已存在且非终态的 V20 任务进入 `interrupted`，保留 capability snapshot、checkpoint、Workspace、Evidence 和 operation。任务不会降级到 Provider-v4 旧路径，也不会自动重放副作用。V14–V19 任务不带 V20 snapshot 标记，继续使用原兼容恢复路径。
+
+OpenCode 1.18.9 与 Claude Code 2.1.89 的 checkpoint 都只保存公开上下文并新开引擎会话，因此 V20 descriptor 如实标记 `session_resume`，不得写成 `durable_checkpoint`。本开关不启用 ACP/Codex evaluation，不授权真实模型测试、校准或认证。

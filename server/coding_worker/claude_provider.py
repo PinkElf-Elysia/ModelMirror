@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import os
 import secrets
@@ -16,6 +17,12 @@ from typing import Any
 from pydantic import Field
 
 from .contracts import StrictModel
+from .harness_protocol import (
+    HarnessCapabilityState,
+    HarnessDescriptor,
+    HarnessPersistenceLevel,
+    HarnessToolOwnership,
+)
 from .provider import (
     CodingAgentProvider,
     ProviderCapabilities,
@@ -49,6 +56,25 @@ CLAUDE_BUILTIN_TOOLS = (
     "Task",
     "NotebookEdit",
 )
+CLAUDE_HARNESS_SCHEMA_SHA256 = hashlib.sha256(
+    json.dumps(
+        {
+            "protocol": "modelmirror-provider-v4",
+            "version": "4",
+            "engine": f"claude-code-{CLAUDE_CODE_VERSION}",
+            "tool_ownership": "broker_only",
+            "tool_names": sorted(PROVIDER_TOOL_NAMES),
+            "builtin_tools_denied": sorted(CLAUDE_BUILTIN_TOOLS),
+            "settings_contract": {
+                "disableAllHooks": True,
+                "enabledPlugins": {},
+                "permissionMode": "dontAsk",
+            },
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+).hexdigest()
 
 
 class ClaudeCodeProviderError(RuntimeError):
@@ -131,6 +157,32 @@ class ClaudeCodeProvider(CodingAgentProvider):
 
     def unbind_broker(self, task_id: str) -> None:
         self._broker_bindings.pop(task_id, None)
+
+    def harness_descriptor(self) -> HarnessDescriptor:
+        unavailable_steer = HarnessCapabilityState(
+            supported=False,
+            available=False,
+            reason="Provider v4 applies steering only at the next durable turn boundary.",
+        )
+        available = HarnessCapabilityState(supported=True, available=True)
+        return HarnessDescriptor(
+            protocol_id="modelmirror-provider-v4",
+            protocol_version="4",
+            implementation_version=f"claude-code-{CLAUDE_CODE_VERSION}",
+            schema_sha256=CLAUDE_HARNESS_SCHEMA_SHA256,
+            tool_ownership=HarnessToolOwnership.BROKER_ONLY,
+            persistence=HarnessPersistenceLevel.SESSION_RESUME,
+            capabilities={
+                "cancel": available,
+                "checkpoint": available,
+                "interrupt": available,
+                "restore": available,
+                "steering": unavailable_steer,
+                "streaming": available,
+                "tool_boundaries": available,
+                "usage": available,
+            },
+        )
 
     async def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(

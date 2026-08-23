@@ -66,3 +66,17 @@ V20 唯一允许的最终结论是：“Harness Protocol Kernel 与标准 Driver
 证伪收口发现并修复了两项不能留给后续轮次的基础缺口：新增协议文件最初未进入 V18 在线 attestation 代码摘要；事件与请求最初按裸 ID 全局去重，两个独立任务使用相同供应商起始 ID 时会互相误判为重放。最终实现按 task、route、slot、binding、generation、session、turn、kind 与 ID 的完整私有引用隔离去重。
 
 PR A 未切换生产路径，未调用真实模型，未运行 calibration/parity/certification。ACP/Codex 仍只存在于固定协议帧和后续 evaluation 设计中；OpenCode/Claude 生产迁移属于 PR B，因而 PR A 不能使用 V20 最终交付结论。
+
+## 8. PR B 实施边界
+
+- `HarnessSupervisor` 与 `HarnessDriver` 已使用不同生产对象注入；Service 的健康、generation、capability 与 descriptor 查询只经过 Supervisor，会话、turn、interrupt、checkpoint 与 close 只经过 Driver。
+- OpenCode 1.18.9 与 Claude Code 2.1.89 显式报告固定实现版本、无密钥配置摘要、`broker_only` 和真实的 `session_resume`；安全 descriptor 由 sidecar generation 绑定。
+- `CODING_WORKER_HARNESS_V20_ENABLED=false` 默认关闭。只有新任务在创建时冻结完整 descriptor，且调度时再次核对 route、Schema、sidecar/controller generation 与 binding 后，才进入 V20 事件内核。
+- Provider-v4 事件通过相关性内核验证 session、turn 与单调 sequence 后，仍写入完全相同的持久投影；影子测试只消费同一记录帧，不执行第二次工具副作用。
+- 关闭开关会将非终态 V20 任务置为 `interrupted` 并禁止恢复；历史任务不带 V20 标记，沿用原 Provider-v4 checkpoint，既不迁移也不降级。
+
+PR B 自动门禁通过前不能进入 PR C；本阶段仍未调用真实模型，不能使用 V20 最终交付结论。
+
+PR B 最终候选自动证据：Coding Worker `430 passed, 5 skipped`；后端全量 `4042 passed, 29 skipped`；前端 `99 files / 534 tests` 与 production build 通过；Compose 静态展开、V18 compile、Fake smoke、`git diff --check` 通过，Fake smoke 摘要仍为 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。首次并行运行前端时有一项 Skill Creator 时序测试失败；该单文件随即 `12/12` 通过，并在后端结束后的独立完整复跑中 `534/534` 通过，未修改该模块源码。后端首次全量因新工作树尚未生成 orchestration worker 产物而在早期失败；按锁文件构建运行时后，从零全量复跑通过。
+
+收口证伪另发现并修复：只重核选中槽会遗漏同 route 其他冻结槽的 generation 漂移；Server 重启后的 controller generation 变化会让 V20 任务永久无法恢复；协议违例会落入通用 `worker_failed`。最终行为改为全 route descriptor/capability 对账，仅在用户显式 resume 且 descriptor 语义完全兼容时用现有加密 capability row 做 CAS 换代，并将协议失败归因为 `harness_protocol_invalid`。本阶段未运行四次真实任务；该额度仍需另行授权。

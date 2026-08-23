@@ -417,6 +417,13 @@ class FakeCodingAgentProvider:
     async def harness_attestations(self) -> dict[str, dict[str, Any]]:
         return {}
 
+    async def harness_descriptors_for_slots(
+        self, slot_ids: Sequence[str]
+    ) -> dict[str, None]:
+        # Fake Provider v4 remains a legacy/conformance route unless a test
+        # injects an explicit V20 supervisor descriptor.
+        return {slot_id: None for slot_id in slot_ids}
+
     async def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             supports_streaming=True,

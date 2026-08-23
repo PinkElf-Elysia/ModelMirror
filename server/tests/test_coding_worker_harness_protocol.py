@@ -24,6 +24,16 @@ from server.coding_worker.harness_protocol import (
     HarnessToolOwnership,
     HarnessTurnRef,
 )
+from server.coding_worker.harness_driver import (
+    HarnessDriverProtocolError,
+    ProviderV4HarnessTranslator,
+)
+from server.coding_worker.provider import (
+    ProviderCapabilities,
+    ProviderEvent,
+    ProviderEventKind,
+    ProviderSession,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -70,6 +80,64 @@ def _session(
         ),
         session_id=session_id,
     )
+
+
+def test_provider_v4_translator_fences_session_turn_and_sequence() -> None:
+    binding = HarnessBinding(
+        task_id="task_fixture",
+        route_id="coding/default",
+        slot_id="slot_a",
+        binding_sha256="b" * 64,
+        driver_generation=3,
+        descriptor=_descriptor(),
+    )
+    session = ProviderSession(
+        session_id="session_fixture",
+        task_id="task_fixture",
+        provider_capabilities=ProviderCapabilities(),
+    )
+    translator = ProviderV4HarnessTranslator(binding, session)
+    translator.start_turn("turn_fixture")
+
+    first = translator.accept(
+        ProviderEvent(kind=ProviderEventKind.MESSAGE, data={"text": "inspect"}),
+        turn_id="turn_fixture",
+    )
+    completed = translator.accept(
+        ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED),
+        turn_id="turn_fixture",
+    )
+
+    assert first.sequence == 1
+    assert first.kind is HarnessEventKind.MESSAGE
+    assert completed.sequence == 2
+    assert completed.kind is HarnessEventKind.TURN_COMPLETED
+    with pytest.raises(HarnessDriverProtocolError, match="active harness turn"):
+        translator.accept(
+            ProviderEvent(kind=ProviderEventKind.MESSAGE, data={"text": "late"}),
+            turn_id="turn_fixture",
+        )
+    translator.close()
+
+
+def test_provider_v4_translator_rejects_cross_task_session() -> None:
+    binding = HarnessBinding(
+        task_id="task_fixture",
+        route_id="coding/default",
+        slot_id="slot_a",
+        binding_sha256="b" * 64,
+        driver_generation=3,
+        descriptor=_descriptor(),
+    )
+    with pytest.raises(HarnessDriverProtocolError, match="another harness task"):
+        ProviderV4HarnessTranslator(
+            binding,
+            ProviderSession(
+                session_id="session_foreign",
+                task_id="task_foreign",
+                provider_capabilities=ProviderCapabilities(),
+            ),
+        )
 
 
 def _exercise_trace(actions: list[dict[str, object]]) -> None:

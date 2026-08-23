@@ -355,6 +355,61 @@ class CodingWorkerStore:
                 expires_at=float(row["expires_at"]),
             )
 
+    def replace_task_capability_snapshot(
+        self,
+        task_id: str,
+        *,
+        expected_binding_sha256: str,
+        binding_sha256: str,
+        snapshot: dict[str, Any],
+        observed_at: float,
+        expires_at: float,
+    ) -> StoredTaskCapabilitySnapshot:
+        for value in (expected_binding_sha256, binding_sha256):
+            if len(value) != 64 or any(
+                character not in "0123456789abcdef" for character in value
+            ):
+                raise ValueError("capability binding is invalid")
+        if expires_at <= observed_at:
+            raise ValueError("capability observation expiry is invalid")
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_task_row(connection, task_id)
+            row = connection.execute(
+                "SELECT binding_sha256 FROM worker_task_capabilities WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None or str(row["binding_sha256"]) != expected_binding_sha256:
+                raise WorkerConflictError(
+                    "Task capability binding changed.",
+                    code="harness_binding_changed",
+                )
+            connection.execute(
+                """
+                UPDATE worker_task_capabilities
+                SET binding_sha256 = ?, snapshot_ciphertext = ?,
+                    observed_at = ?, expires_at = ?
+                WHERE task_id = ?
+                """,
+                (
+                    binding_sha256,
+                    self._codec.encrypt(snapshot),
+                    observed_at,
+                    expires_at,
+                    task_id,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="capability_changed",
+                payload={"binding_sha256": binding_sha256},
+                created_at=observed_at,
+            )
+        refreshed = self.get_task_capability_snapshot(task_id)
+        assert refreshed is not None
+        return refreshed
+
     def get_task(self, task_id: str) -> TaskRecord:
         with self._connect() as connection:
             row = self._require_task_row(connection, task_id)
