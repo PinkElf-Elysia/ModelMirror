@@ -21,7 +21,11 @@ from server.coding_worker.api import (
     coding_worker_capabilities,
     configure_coding_worker_for_tests,
 )
-from server.coding_worker.adapters import legacy_substrate_from_service
+from server.coding_worker.adapters import (
+    LegacyHarnessDriver,
+    LegacyHarnessSupervisor,
+    legacy_substrate_from_service,
+)
 from server.coding_worker.provider import FakeCodingAgentProvider, ProviderEvent, ProviderEventKind
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.tool_broker import ToolBroker
@@ -200,7 +204,8 @@ def test_service_undo_redo_restores_exact_turn_tree(tmp_path: Path) -> None:
         service = CodingWorkerService(
             store=store,
             workspace_broker=broker,
-            provider=provider,
+            provider=LegacyHarnessDriver(provider),
+            harness_supervisor=LegacyHarnessSupervisor(provider),
             tool_broker=tool_broker,
         )
         task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
@@ -317,10 +322,12 @@ def test_session_control_capability_is_independently_gated(
         {"builtin": InMemoryWorkspaceSourceAdapter({})},
         id_key=b"c" * 32,
     )
+    provider = FakeCodingAgentProvider()
     service = CodingWorkerService(
         store=store,
         workspace_broker=broker,
-        provider=FakeCodingAgentProvider(),
+        provider=LegacyHarnessDriver(provider),
+        harness_supervisor=LegacyHarnessSupervisor(provider),
         tool_broker=ToolBroker(store=store, workspace_broker=broker),
     )
     configure_coding_worker_for_tests(

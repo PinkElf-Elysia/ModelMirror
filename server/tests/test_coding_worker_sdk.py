@@ -11,7 +11,11 @@ from server.coding_worker.contracts import (
     WorkspaceSource,
 )
 from server.coding_worker.provider import FakeCodingAgentProvider
-from server.coding_worker.adapters import legacy_substrate_from_service
+from server.coding_worker.adapters import (
+    LegacyHarnessDriver,
+    LegacyHarnessSupervisor,
+    legacy_substrate_from_service,
+)
 from server.coding_worker.ports import CodingSubstrateHandle
 from server.coding_worker.sdk import CodingWorkerModuleClient, CodingWorkerSDKError
 from server.coding_worker.service import CodingWorkerService
@@ -23,6 +27,7 @@ def _client(
     tmp_path: Path,
 ) -> tuple[CodingWorkerModuleClient, CodingSubstrateHandle]:
     store = CodingWorkerStore(tmp_path / "store", master_key=Fernet.generate_key())
+    provider = FakeCodingAgentProvider()
     service = CodingWorkerService(
         store=store,
         workspace_broker=WorkspaceBroker(
@@ -34,7 +39,8 @@ def _client(
             },
             id_key=b"m" * 32,
         ),
-        provider=FakeCodingAgentProvider(),
+        provider=LegacyHarnessDriver(provider),
+        harness_supervisor=LegacyHarnessSupervisor(provider),
     )
     substrate = legacy_substrate_from_service(service)
     return CodingWorkerModuleClient(

@@ -37,6 +37,7 @@ from server.coding_worker.api import (
     configure_coding_worker_for_tests,
     router,
 )
+from server.coding_worker.adapters import LegacyHarnessDriver, LegacyHarnessSupervisor
 from server.coding_worker.runtime import CodingWorkerRuntime
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.tool_broker import ToolBroker, ToolBrokerError
@@ -44,6 +45,16 @@ from server.coding_worker.workspace import (
     InMemoryWorkspaceSourceAdapter,
     WorkspaceBroker,
 )
+
+
+def _service_with_legacy_provider(
+    *, provider: FakeCodingAgentProvider, **kwargs: object
+) -> CodingWorkerService:
+    return CodingWorkerService(
+        provider=LegacyHarnessDriver(provider),
+        harness_supervisor=LegacyHarnessSupervisor(provider),
+        **kwargs,
+    )
 
 
 def _spec(client_task_id: str = "parent") -> TaskSpec:
@@ -269,7 +280,7 @@ async def test_ready_implementation_must_be_resolved_before_another_is_created(
         )},
         id_key=b"s" * 32,
     )
-    service = CodingWorkerService(
+    service = _service_with_legacy_provider(
         store=store,
         workspace_broker=broker,
         provider=FakeCodingAgentProvider(),
@@ -326,7 +337,7 @@ async def test_ready_implementation_blocks_parent_mutation_and_acceptance(
         id_key=b"s" * 32,
     )
     tool_broker = ToolBroker(store=store, workspace_broker=workspace_broker)
-    service = CodingWorkerService(
+    service = _service_with_legacy_provider(
         store=store,
         workspace_broker=workspace_broker,
         provider=FakeCodingAgentProvider(),
@@ -426,7 +437,7 @@ def test_service_parks_parent_spreads_fork_and_resumes_with_public_result(
                 "slot-b": tmp_path / "slot-b",
             },
         )
-        service = CodingWorkerService(
+        service = _service_with_legacy_provider(
             store=store,
             workspace_broker=broker,
             provider=FakeCodingAgentProvider(),
@@ -492,7 +503,7 @@ def test_terminal_subtask_failure_settles_relation_and_wakes_parent(
         workspace_broker = WorkspaceBroker(
             tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
         )
-        service = CodingWorkerService(
+        service = _service_with_legacy_provider(
             store=store,
             workspace_broker=workspace_broker,
             provider=FakeCodingAgentProvider(),
@@ -549,7 +560,7 @@ def test_equivalent_active_subtask_is_rejected(
         workspace_broker = WorkspaceBroker(
             tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
         )
-        service = CodingWorkerService(
+        service = _service_with_legacy_provider(
             store=store,
             workspace_broker=workspace_broker,
             provider=FakeCodingAgentProvider(),
@@ -598,7 +609,7 @@ def test_provider_tool_delegates_exact_idempotent_subtask(
         workspace_broker = WorkspaceBroker(
             tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
         )
-        service = CodingWorkerService(
+        service = _service_with_legacy_provider(
             store=store,
             workspace_broker=workspace_broker,
             provider=FakeCodingAgentProvider(),
@@ -667,7 +678,7 @@ def test_provider_parks_immediately_after_delegation_and_resumes_after_release(
             tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
         )
         provider = _DelegatingProvider()
-        service = CodingWorkerService(
+        service = _service_with_legacy_provider(
             store=store,
             workspace_broker=workspace_broker,
             provider=provider,
@@ -723,7 +734,7 @@ def test_inspect_parent_cannot_delegate_implementation(
         workspace_broker = WorkspaceBroker(
             tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
         )
-        service = CodingWorkerService(
+        service = _service_with_legacy_provider(
             store=store,
             workspace_broker=workspace_broker,
             provider=FakeCodingAgentProvider(),
@@ -819,7 +830,7 @@ def test_implement_subtasks_merge_non_overlapping_changes_and_conflict_on_preima
             tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
         )
         tool_broker = ToolBroker(store=store, workspace_broker=workspace_broker)
-        service = CodingWorkerService(
+        service = _service_with_legacy_provider(
             store=store,
             workspace_broker=workspace_broker,
             provider=FakeCodingAgentProvider(),
@@ -933,7 +944,7 @@ def test_merge_subtask_tool_reconciles_lost_receipt_without_replay(
         workspace_broker = WorkspaceBroker(
             tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
         )
-        service = CodingWorkerService(
+        service = _service_with_legacy_provider(
             store=store,
             workspace_broker=workspace_broker,
             provider=FakeCodingAgentProvider(),
