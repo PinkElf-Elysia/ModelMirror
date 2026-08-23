@@ -76,3 +76,7 @@ PR A 未切换生产路径，未调用真实模型，未运行 calibration/parit
 - 关闭开关会将非终态 V20 任务置为 `interrupted` 并禁止恢复；历史任务不带 V20 标记，沿用原 Provider-v4 checkpoint，既不迁移也不降级。
 
 PR B 自动门禁通过前不能进入 PR C；本阶段仍未调用真实模型，不能使用 V20 最终交付结论。
+
+PR B 最终候选自动证据：Coding Worker `430 passed, 5 skipped`；后端全量 `4042 passed, 29 skipped`；前端 `99 files / 534 tests` 与 production build 通过；Compose 静态展开、V18 compile、Fake smoke、`git diff --check` 通过，Fake smoke 摘要仍为 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。首次并行运行前端时有一项 Skill Creator 时序测试失败；该单文件随即 `12/12` 通过，并在后端结束后的独立完整复跑中 `534/534` 通过，未修改该模块源码。后端首次全量因新工作树尚未生成 orchestration worker 产物而在早期失败；按锁文件构建运行时后，从零全量复跑通过。
+
+收口证伪另发现并修复：只重核选中槽会遗漏同 route 其他冻结槽的 generation 漂移；Server 重启后的 controller generation 变化会让 V20 任务永久无法恢复；协议违例会落入通用 `worker_failed`。最终行为改为全 route descriptor/capability 对账，仅在用户显式 resume 且 descriptor 语义完全兼容时用现有加密 capability row 做 CAS 换代，并将协议失败归因为 `harness_protocol_invalid`。本阶段未运行四次真实任务；该额度仍需另行授权。
