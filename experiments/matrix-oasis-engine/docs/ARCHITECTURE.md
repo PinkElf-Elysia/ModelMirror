@@ -1,6 +1,8 @@
 # 架构
 
-状态：R14 确定性空间约束求解实施中
+状态：R15 Godot实际输入重放与运行证据实施中
+
+R15在R14 Solution/Verification之后增加独立Runtime Replay Plan与Runtime Evidence层。它只观察和重放实际产品输入，不成为新的Runtime、Scene或Spatial权威格式。
 
 ```text
 Scene Blueprint + Runtime + Asset Bounds ──→ Spatial Intent synthesizer

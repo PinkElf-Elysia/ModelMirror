@@ -164,7 +164,7 @@ test("PR boundary excludes one-off qualification scripts and preserves truthful 
   assert.match(acceptance, /显式离线[^\n]*直接R14预览/u);
   const mvpStatus = JSON.parse(mvpStatusText);
   assert.deepEqual({ status: mvpStatus.status, claimAllowed: mvpStatus.claimAllowed, blockingRound: mvpStatus.blockingRound },
-    { status: "pending-spatial-solver", claimAllowed: false, blockingRound: "R14" });
+    { status: "pending-creator-migration", claimAllowed: false, blockingRound: "R16" });
   const scripts = JSON.parse(packageText).scripts;
   assert.match(scripts["preview:r14"], /scripts\/preview-r14\.mjs/u);
   assert.doesNotMatch(scripts["preview:prototype"], /preview-r14/u);

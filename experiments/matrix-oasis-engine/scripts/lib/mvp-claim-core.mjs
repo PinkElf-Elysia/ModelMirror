@@ -40,9 +40,9 @@ export function checkMvpClaim({ moduleRoot }) {
 
   const claimPolicy = policy.mvpClaimPolicy;
   if (
-    policy.activeRound !== "R14" ||
-    claimPolicy?.blockingRound !== "R14" ||
-    claimPolicy?.acceptanceRecord !== "docs/rounds/R14_ACCEPTANCE.md" ||
+    policy.activeRound !== "R15" ||
+    claimPolicy?.blockingRound !== "R16" ||
+    claimPolicy?.acceptanceRecord !== "docs/rounds/R15_ACCEPTANCE.md" ||
     claimPolicy?.machineStatus !== "docs/MVP_STATUS.json" ||
     claimPolicy?.completionMarker !== "MATRIX_OASIS_R12_MVP_READY"
   ) {
@@ -51,7 +51,7 @@ export function checkMvpClaim({ moduleRoot }) {
 
   if (
     status.schemaVersion !== 1 ||
-    status.blockingRound !== "R14" ||
+    status.blockingRound !== "R16" ||
     status.acceptanceRecord !== claimPolicy.acceptanceRecord ||
     status.completionMarker !== claimPolicy.completionMarker ||
     status.status !== claimPolicy.status ||
@@ -63,8 +63,8 @@ export function checkMvpClaim({ moduleRoot }) {
   const acceptance = readUtf8(moduleRoot, claimPolicy.acceptanceRecord);
   if (!claimPolicy.claimAllowed) {
     if (
-      claimPolicy.status !== "pending-spatial-solver" ||
-      !acceptance.includes("状态：R14实施中")
+      claimPolicy.status !== "pending-creator-migration" ||
+      !acceptance.includes("状态：R15验收通过；等待R16 Creator迁移")
     ) {
       throw new MvpClaimError("MVP_CLAIM_PREMATURE");
     }

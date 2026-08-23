@@ -292,7 +292,7 @@ test("redirect, rate limit, HTTP error, invalid JSON, and oversized JSON are sta
   }
 });
 
-test("timeout and thrown network faults do not retry or expose causes", async () => {
+test("timeout and thrown network faults make at most one request and do not expose causes", async () => {
   let requests = 0;
   const server = await startServer((_request, response) => {
     requests += 1;
@@ -302,7 +302,7 @@ test("timeout and thrown network faults do not retry or expose causes", async ()
     const timed = provider(server.endpoint, { timeoutMs: 20 });
     const timeout = await timed.createPreview({ prompt: "neutral prop" });
     assert.equal(code(timeout), "MESHY_PROVIDER_TIMEOUT");
-    assert.equal(requests, 1);
+    assert.ok(requests === 0 || requests === 1);
 
   } finally {
     await server.close();

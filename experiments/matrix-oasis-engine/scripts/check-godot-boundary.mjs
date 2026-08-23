@@ -123,10 +123,24 @@ function hasUnsafeFileOpen(source, relativePath) {
       /^\s*path\s*,\s*FileAccess\s*\.\s*READ\s*$/u.test(args);
     const approvedVerificationWrite = relativePath === "spatial_solution_verification/solution_verifier.gd" &&
       /^\s*path\s*,\s*FileAccess\s*\.\s*WRITE\s*$/u.test(args);
+    const approvedEvidenceRead = relativePath === "runtime_evidence/runtime_evidence_runner.gd" &&
+      /^\s*path\s*,\s*FileAccess\s*\.\s*READ\s*$/u.test(args);
+    const approvedEvidenceWrite = relativePath === "runtime_evidence/runtime_evidence_runner.gd" &&
+      /^\s*OUTPUT_PATH\s*,\s*FileAccess\s*\.\s*WRITE\s*$/u.test(args);
     if (!staticResourceRead && !approvedRuntimeRead && !approvedSceneRead &&
-      !approvedAnalysisRead && !approvedAnalysisWrite && !approvedVerificationRead && !approvedVerificationWrite) {
+      !approvedAnalysisRead && !approvedAnalysisWrite && !approvedVerificationRead && !approvedVerificationWrite &&
+      !approvedEvidenceRead && !approvedEvidenceWrite) {
       return true;
     }
+  }
+  return false;
+}
+
+function hasUnsafeImageSave(source, relativePath) {
+  for (const match of source.matchAll(/\bimage\s*\.\s*save_png\s*\(([^\n)]*)/gu)) {
+    const approvedEvidencePng = relativePath === "runtime_evidence/runtime_evidence_runner.gd" &&
+      /^\s*["']res:\/\/runtime_evidence\/["']\s*\+\s*relative\s*$/u.test(match[1]);
+    if (!approvedEvidencePng) return true;
   }
   return false;
 }
@@ -149,6 +163,9 @@ export function auditGodotBoundary({ root = godotRoot } = {}) {
       violations.push({ code: "GODOT_FIRST_PARTY_DYNAMIC_LOAD", path: relativePath });
     }
     if (hasUnsafeFileOpen(source, relativePath)) {
+      violations.push({ code: "GODOT_FIRST_PARTY_FILESYSTEM_WRITE", path: relativePath });
+    }
+    if (hasUnsafeImageSave(source, relativePath)) {
       violations.push({ code: "GODOT_FIRST_PARTY_FILESYSTEM_WRITE", path: relativePath });
     }
   }

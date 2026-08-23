@@ -1,5 +1,7 @@
 # 矩阵绿洲独立实验模块
 
+R15正在冻结R14空间Solution之上建立实际Godot输入重放与运行证据。当前状态为`pending-runtime-evidence`，Creator尚未迁移，初版完成声明仍被禁止。
+
 这是模镜仓库中可拆分的AI原生3D引擎实验模块。R1–R13已建立严格Pack、确定性Runtime、真实资产、Marble空间环境、Godot可玩层与环境事实底座；R14负责解决自动组装的系统性空间偏差。
 
 ## R14目标
