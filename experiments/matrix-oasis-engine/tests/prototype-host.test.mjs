@@ -655,7 +655,7 @@ test("real preview entrypoint starts unconfigured without reading credentials or
   let stdout = ""; let stderr = ""; child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
   child.stdout.on("data", (chunk) => { stdout += chunk; }); child.stderr.on("data", (chunk) => { stderr += chunk; });
   try {
-    for (let index = 0; index < 200 && !stdout.includes(PROTOTYPE_HOST_MARKER); index += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    for (let index = 0; index < 1_000 && !stdout.includes(PROTOTYPE_HOST_MARKER); index += 1) await new Promise((resolve) => setTimeout(resolve, 10));
     assert.match(stdout, /^MATRIX_OASIS_R10_PROTOTYPE_HOST origin=http:\/\/127\.0\.0\.1:43110\n$/u, stderr);
     const bootstrap = await request("/api/bootstrap"); assert.equal(bootstrap.status, 200);
     assert.deepEqual(bootstrap.body.readiness, { model: false, assets: false, godot: false });

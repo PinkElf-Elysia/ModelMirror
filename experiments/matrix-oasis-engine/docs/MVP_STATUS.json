@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "status": "pending-creator-migration",
-  "claimAllowed": false,
-  "blockingRound": "R16",
-  "acceptanceRecord": "docs/rounds/R15_ACCEPTANCE.md",
-  "completionMarker": "MATRIX_OASIS_R12_MVP_READY"
+  "status": "r16-qualified",
+  "claimAllowed": true,
+  "blockingRound": null,
+  "acceptanceRecord": "docs/rounds/R16_ACCEPTANCE.md",
+  "completionMarker": "MATRIX_OASIS_R16_CREATOR_MVP_READY"
 }

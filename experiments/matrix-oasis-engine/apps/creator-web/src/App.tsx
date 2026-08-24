@@ -785,7 +785,7 @@ function App() {
             <span><strong>矩阵绿洲</strong><small>Matrix Oasis Engine</small></span>
           </div>
           <ModeSwitch mode={mode} onChange={setMode} />
-          <div className="round-meta" aria-label="模块状态"><span>独立模块</span><strong>R10 初版闭环</strong></div>
+          <div className="round-meta" aria-label="模块状态"><span>独立模块</span><strong>R16 初版资格</strong></div>
         </header>
         <main id="main-content" className="main-content" tabIndex={-1}>
           <span className="sr-only">{R0_MARKER} {R2_MARKER} {R3_MARKER} {PROTOTYPE_BUILDER_MARKER}</span>

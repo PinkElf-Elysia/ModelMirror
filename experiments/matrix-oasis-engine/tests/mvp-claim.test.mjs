@@ -19,7 +19,7 @@ function withFixture(t) {
     "docs/V1_CRITICAL_PATH.md",
     "docs/ARCHITECTURE.md",
     "docs/KNOWN_LIMITATIONS.md",
-    "docs/rounds/R15_ACCEPTANCE.md",
+    "docs/rounds/R16_ACCEPTANCE.md",
   ]) {
     mkdirSync(path.dirname(path.join(fixture, relativePath)), { recursive: true });
     cpSync(path.join(moduleRoot, relativePath), path.join(fixture, relativePath), {
@@ -43,38 +43,19 @@ function expectCode(callback, code) {
   });
 }
 
-test("committed R16 pre-acceptance status keeps the MVP completion claim blocked", () => {
+test("committed R16 qualification unlocks the evidence-backed MVP claim", () => {
   assert.deepEqual(checkMvpClaim({ moduleRoot }), {
-    status: "pending-creator-migration",
-    claimAllowed: false,
+    status: "r16-qualified",
+    claimAllowed: true,
     checkedDocuments: 5,
   });
 });
 
-test("rejects a stale R10 completion claim in public product docs", (t) => {
-  const fixture = withFixture(t);
-  const target = path.join(fixture, "docs", "PRODUCT.md");
-  writeFileSync(
-    target,
-    `${readFileSync(target, "utf8")}\nR10通过即定义初版完成。\n`,
-    "utf8",
-  );
-  expectCode(
-    () => checkMvpClaim({ moduleRoot: fixture }),
-    "MVP_CLAIM_PREMATURE",
-  );
-  writeFileSync(target, "# 产品状态\n\n自然语言到3D初版闭环已经完成。\n", "utf8");
-  expectCode(
-    () => checkMvpClaim({ moduleRoot: fixture }),
-    "MVP_CLAIM_PREMATURE",
-  );
-});
-
-test("rejects status or policy drift before qualification", (t) => {
+test("rejects status drift after qualification", (t) => {
   const fixture = withFixture(t);
   const target = path.join(fixture, "docs", "MVP_STATUS.json");
   const status = JSON.parse(readFileSync(target, "utf8"));
-  status.claimAllowed = true;
+  status.claimAllowed = false;
   writeFileSync(target, `${JSON.stringify(status, null, 2)}\n`, "utf8");
   expectCode(
     () => checkMvpClaim({ moduleRoot: fixture }),
@@ -82,15 +63,21 @@ test("rejects status or policy drift before qualification", (t) => {
   );
 });
 
-test("rejects an acceptance record that omits the R15 manual gate", (t) => {
+test("rejects an acceptance record that omits the R16 dual-case manual gate", (t) => {
   const fixture = withFixture(t);
   writeFileSync(
-    path.join(fixture, "docs", "rounds", "R15_ACCEPTANCE.md"),
-    "# R15验收记录\n\n状态：待记录\n",
+    path.join(fixture, "docs", "rounds", "R16_ACCEPTANCE.md"),
+    "# R16验收记录\n\n状态：待记录\n",
     "utf8",
   );
   expectCode(
     () => checkMvpClaim({ moduleRoot: fixture }),
-    "MVP_CLAIM_PREMATURE",
+    "MVP_CLAIM_EVIDENCE_MISSING",
   );
+});
+
+test("rejects public claim documents that omit the R16 completion marker", (t) => {
+  const fixture = withFixture(t);
+  writeFileSync(path.join(fixture, "README.md"), "# Matrix Oasis\n", "utf8");
+  expectCode(() => checkMvpClaim({ moduleRoot: fixture }), "MVP_CLAIM_EVIDENCE_MISSING");
 });

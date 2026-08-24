@@ -16,7 +16,7 @@
       "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/parent-scope-core.mjs",
       "scripts/lib/prototype-host-core.mjs", "scripts/lib/r12-host-core.mjs", "scripts/lib/creator-qualification-cache-core.mjs", "scripts/lib/r16-creator-core.mjs", "scripts/lib/r16-preview-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/mvp-claim.test.mjs", "tests/prototype-host.test.mjs", "tests/prototype-builder.test.mjs", "tests/r16-creator-qualification-cache.test.mjs", "tests/r16-creator-qualification.test.mjs", "tests/r16-host.test.mjs", "tests/r16-preview.test.mjs", "tests/r16-generalization.test.mjs", "tests/round-scope.test.mjs",
+      "tests/mvp-claim.test.mjs", "tests/prototype-host.test.mjs", "tests/prototype-builder.test.mjs", "tests/r16-creator-qualification-cache.test.mjs", "tests/r16-creator-qualification.test.mjs", "tests/r16-host.test.mjs", "tests/r16-preview.test.mjs", "tests/r16-generalization.test.mjs", "tests/r14-preview.test.mjs", "tests/round-scope.test.mjs",
       "apps/creator-web/src/App.tsx", "apps/creator-web/src/prototype-builder.ts", "apps/creator-web/src/styles.css"
     ],
     "allowedModulePrefixes": [
@@ -43,12 +43,12 @@
     "r16QualificationCalls": "none"
   },
   "mvpClaimPolicy": {
-    "status": "pending-creator-migration",
-    "claimAllowed": false,
-    "blockingRound": "R16",
-    "acceptanceRecord": "docs/rounds/R15_ACCEPTANCE.md",
+    "status": "r16-qualified",
+    "claimAllowed": true,
+    "blockingRound": null,
+    "acceptanceRecord": "docs/rounds/R16_ACCEPTANCE.md",
     "machineStatus": "docs/MVP_STATUS.json",
-    "completionMarker": "MATRIX_OASIS_R12_MVP_READY"
+    "completionMarker": "MATRIX_OASIS_R16_CREATOR_MVP_READY"
   },
   "prototypeGenerationPolicy": {
     "inputModes": ["text"],
@@ -287,6 +287,7 @@
     "providerCallsAllowed": false,
     "providerCredentialsAllowed": false,
     "creatorDefaultCutoverRequiresHumanAcceptance": true,
+    "creatorDefaultProfile": "matrix-oasis.creator-solved-evidence/1",
     "trackedQualificationArtifactsAllowed": false
   },
   "runtimeArtifactInputPolicy": {

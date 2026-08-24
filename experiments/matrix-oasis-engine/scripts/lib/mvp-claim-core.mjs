@@ -9,13 +9,6 @@ const PUBLIC_STATUS_DOCUMENTS = Object.freeze([
   "docs/KNOWN_LIMITATIONS.md",
 ]);
 
-const PREMATURE_CLAIM_PATTERNS = Object.freeze([
-  /R10通过即定义初版完成/u,
-  /R10以Marble panorama与collider、Meshy道具\/静态人物、确定性Scene Pack和Creator本地宿主完成初版闭环/u,
-  /初版(?:闭环)?(?:已经|已|现已)(?:完成|通过)/u,
-  /(?:MATRIX_OASIS_)?MVP_(?:COMPLETE|READY)/u,
-]);
-
 export class MvpClaimError extends Error {
   constructor(code) {
     super(code);
@@ -41,17 +34,17 @@ export function checkMvpClaim({ moduleRoot }) {
   const claimPolicy = policy.mvpClaimPolicy;
   if (
     policy.activeRound !== "R16" ||
-    claimPolicy?.blockingRound !== "R16" ||
-    claimPolicy?.acceptanceRecord !== "docs/rounds/R15_ACCEPTANCE.md" ||
+    claimPolicy?.blockingRound !== null ||
+    claimPolicy?.acceptanceRecord !== "docs/rounds/R16_ACCEPTANCE.md" ||
     claimPolicy?.machineStatus !== "docs/MVP_STATUS.json" ||
-    claimPolicy?.completionMarker !== "MATRIX_OASIS_R12_MVP_READY"
+    claimPolicy?.completionMarker !== "MATRIX_OASIS_R16_CREATOR_MVP_READY"
   ) {
     throw new MvpClaimError("MVP_CLAIM_POLICY_INVALID");
   }
 
   if (
     status.schemaVersion !== 1 ||
-    status.blockingRound !== "R16" ||
+    status.blockingRound !== null ||
     status.acceptanceRecord !== claimPolicy.acceptanceRecord ||
     status.completionMarker !== claimPolicy.completionMarker ||
     status.status !== claimPolicy.status ||
@@ -61,20 +54,25 @@ export function checkMvpClaim({ moduleRoot }) {
   }
 
   const acceptance = readUtf8(moduleRoot, claimPolicy.acceptanceRecord);
-  if (!claimPolicy.claimAllowed) {
-    if (
-      claimPolicy.status !== "pending-creator-migration" ||
-      !acceptance.includes("状态：R15验收通过；等待R16 Creator迁移")
-    ) {
-      throw new MvpClaimError("MVP_CLAIM_PREMATURE");
-    }
-    for (const relativePath of PUBLIC_STATUS_DOCUMENTS) {
-      const document = readUtf8(moduleRoot, relativePath);
-      if (PREMATURE_CLAIM_PATTERNS.some((pattern) => pattern.test(document))) {
-        throw new MvpClaimError("MVP_CLAIM_PREMATURE");
-      }
-    }
-  } else {
+  if (!claimPolicy.claimAllowed || claimPolicy.status !== "r16-qualified") {
+    throw new MvpClaimError("MVP_CLAIM_PREMATURE");
+  }
+  for (const marker of [
+    "状态：R16双真实案例人工验收通过；MVP声明门解除",
+    "60b63d9a3bd8d36592314ad6c444e8873edd189071a6f5e13664881e8f6c96ad",
+    "fda3dc97079ec02a40f1c0e5df48897e07996b60a8e9a10d57c363d40570c572",
+    "供应商请求数为零",
+  ]) {
+    if (!acceptance.includes(marker)) throw new MvpClaimError("MVP_CLAIM_EVIDENCE_MISSING");
+  }
+  const readme = readUtf8(moduleRoot, "README.md");
+  const product = readUtf8(moduleRoot, "docs/PRODUCT.md");
+  const criticalPath = readUtf8(moduleRoot, "docs/V1_CRITICAL_PATH.md");
+  if (
+    !readme.includes(claimPolicy.completionMarker) ||
+    !product.includes("初版闭环完成") ||
+    !criticalPath.includes("R16双真实案例人工验收通过")
+  ) {
     throw new MvpClaimError("MVP_CLAIM_EVIDENCE_MISSING");
   }
 

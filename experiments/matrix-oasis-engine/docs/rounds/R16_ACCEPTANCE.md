@@ -1,6 +1,6 @@
 # R16 Creator迁移验收记录
 
-状态：实施中；MVP声明门保持关闭
+状态：R16双真实案例人工验收通过；MVP声明门解除
 
 ## 固定基线
 
@@ -17,8 +17,8 @@
 | R16.3 本地资格流水线 | `3fe31cf9` | 通过 |
 | R16.4 R16宿主profile | `fe65677b` | 四级缓存、资格子阶段、失败保留与重启恢复自动验收通过 |
 | R16.5 Creator与预览 | `06017679` | Creator资格摘要、精确Evidence预览和旧缓存待资格状态通过 |
-| R16.6 零网络资格与泛化 | 本批提交 | 两份真实缓存与合成双空间自动门通过；等待人工验收 |
-| R16.7 默认切换与收口 | 人工验收后 | 未授权 |
+| R16.6 零网络资格与泛化 | `704433a5` | 两份真实缓存与合成双空间自动门通过 |
+| R16.7 默认切换与收口 | 本批提交 | 双真实案例人工验收通过；默认入口与声明门已切换 |
 
 ## R16.6零网络资格证据
 
@@ -29,10 +29,22 @@
 - 合成双空间以一面带门洞的隔断形成连通L形路径，使用同一R14求解器和Godot物理复验器通过2个zone、3个navigation polygon及307个安全floor anchor；资产、capsule、terminal和approach验证均未放宽阈值。
 - 两份真实资格与合成验证均未读取模型/Marble/Meshy凭据，供应商请求数为零；详细媒体、资格目录和日志仍只保存在仓外`C:\tmp`。
 
-## 待人工验收
+## R16.7人工验收
 
-R16.6只完成自动资格与Creator API启动证明。R16.7、`preview:prototype`默认切换和MVP声明解除仍未授权；还需用户在Creator中验收中性与末班地铁的实际交互、桌面/窄屏、重启缓存和失败保留。
+- 末班地铁qualification `fda3dc97079ec02a40f1c0e5df48897e07996b60a8e9a10d57c363d40570c572`由Creator恢复并启动；用户确认正常运行、无空间错误，验收通过。
+- 中性qualification `60b63d9a3bd8d36592314ad6c444e8873edd189071a6f5e13664881e8f6c96ad`随后由同一Creator入口恢复并启动；用户确认验收通过。
+- 两案均复用已验证本地缓存，供应商请求数为零，未读取模型、Marble或Meshy凭据，未产生费用。
+- 自动门继续覆盖桌面/窄屏、键盘、失败保留、同源cookie、300帧性能和强身份复验；人工验收确认实际Godot空间表现保持R15结果。
+
+## 最终自动验收
+
+- `npm.cmd run verify`通过25个阶段；Node测试893项全部通过，Creator production build与smoke通过。
+- `npm.cmd run verify:creator-qualification`、`verify:prototype-host`、`verify:prototype-builder`及`verify:r16`分别通过；Godot严格锁定为`4.6.3-stable`。
+- `check:round-scope`通过，记录66个检查路径及53个R16变更路径；`check:parent-scope -- --base 7c837fe3908a4a5b60551778313624f53bcd0d1b`通过，父仓范围零越界；`git diff --check`通过。
+- 父`client`在clean `npm ci`后通过104个测试文件、572项测试及production build；未运行父后端、Docker或共享栈。
+- 首次standalone extraction暴露旧R10预览入口测试仅等待2秒，冷启动在拆分仓中约3–4秒而错误判定失败；实际入口在10秒诊断窗内正常输出固定marker。修复仅将测试等待上限提高至10秒，未修改产品宿主、端口、网络或凭据行为，并要求重新执行完整extraction。
+- npm审计仍报告模块依赖2项、父`client`依赖5项既有漏洞；本轮未执行会改变锁文件或依赖图的自动修复。
 
 ## 声明门
 
-R16.7前保持`pending-creator-migration / blockingRound=R16 / claimAllowed=false`。自动绿测、旧Evidence导入或单一案例均不能替代Creator双真实案例人工验收。
+`preview:prototype`已切换至R16资格profile，`preview:r12`、`preview:r14`和`preview:r15`保留显式回退入口。机器状态更新为`r16-qualified / blockingRound=null / claimAllowed=true`，完成标识为`MATRIX_OASIS_R16_CREATOR_MVP_READY`。

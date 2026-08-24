@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
@@ -17,6 +18,14 @@ const sourceRunId = `${"a".repeat(64)}-${"b".repeat(64)}`;
 const evidenceRunId = "c".repeat(64);
 const solutionSha256 = `sha256:${"d".repeat(64)}`;
 const promptSha256 = `sha256:${"e".repeat(64)}`;
+
+test("R16 is the default prototype preview while explicit rollback entries remain", () => {
+  const scripts = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).scripts;
+  assert.match(scripts["preview:prototype"], /scripts\/preview-r16\.mjs/u);
+  for (const round of ["r12", "r14", "r15"]) {
+    assert.match(scripts[`preview:${round}`], new RegExp(`scripts/preview-${round}\\.mjs`, "u"));
+  }
+});
 
 function baseOperations(overrides = {}) {
   const value = {

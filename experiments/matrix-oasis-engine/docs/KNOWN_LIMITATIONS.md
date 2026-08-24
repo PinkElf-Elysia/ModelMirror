@@ -1,7 +1,7 @@
-# R16实施前已知限制
+# R16资格完成后的已知限制
 
 - R15已在中性与末班地铁缓存上补齐实际InputMap重放、逐节点图形、完整录像和独立300帧实时性能证据，并通过人工验收。
-- R15没有让Creator复现新profile，也没有解除MVP声明门；这些仍由R16负责。
+- R16已让Creator复现同一profile并通过双真实案例人工验收；该结论只适用于锁定的Godot 4.6.3 Windows资格profile。
 - R16首次资格会执行完整本地Godot证据链，耗时和仓外媒体占用高于旧Creator；只有同一已资格Solution的后续启动可跳过重新取证。
 
 - R10 panorama仅作历史来源证据；R11成功预览不渲染它。若Compute splat资格、米制对齐或30 FPS门失败，本轮停止，不回退到旧天空模式。
@@ -21,8 +21,8 @@
 - R13只提取Spatial Intent与Environment Facts，不输出最终placement、player spawn或Action terminal坐标，不切换Creator或产品预览，因此本轮不会直接改善R12成品体验。
 - NavigationMesh和anchor只在锁定的Godot 4.6.3 Windows工具链上要求20次canonical字节确定；不建立跨Godot版本或跨平台浮点golden。
 - wall anchor是由真实碰撞查询推导的可用表面候选，不等同于语义上的“墙面用途”。R14仍需结合Intent求解并执行最终物理复验。
-- R14.7人工验收前，Creator默认预览仍使用历史路径；新增solution和solved overlay不构成产品默认切换或初版完成声明。
+- 历史R14.7人工验收前，Creator默认预览仍使用旧路径；当时新增solution和solved overlay不构成产品默认切换或初版完成声明。
 - 求解器只支持固定R14 profile：4 zones、6个非环境placement、16个node context和每节点64 actions；超限直接失败，不部分发布。
-- 当前无明显阻塞的人工结果只证明末班地铁已验证缓存可经显式离线R14资格链和直接R14预览运行；Creator自然语言产品入口尚未接入同一求解/复验/overlay发布链，用户目前不能通过Creator复现同等结果。
-- R15已将中性真实缓存重新资格为当前合同，并与末班地铁走同一实际输入证据链；这证明双缓存运行兼容性，但第二个真实环境尚未通过R16 Creator入口复现和MVP重新资格。
+- 历史R14阶段Creator不能复现同一求解/复验/overlay发布链，第二个真实环境未从Creator入口重新资格；R16已完成迁移并通过双案例验收。
+- R15当时已将中性真实缓存重新资格为当前合同，并与末班地铁走同一实际输入证据链；R16随后让两案都通过Creator入口复现和MVP重新资格。
 - 现有通用实现不含地铁题材ID或案例坐标，但仍采用固定视觉占用阈值、单一全局支撑高度及旧walkable envelope兼容入口；非平面、多层、不同点云噪声或碰撞拓扑可能需要新合同，而不是继续调节单一样例参数。

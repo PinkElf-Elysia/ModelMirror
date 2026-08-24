@@ -89,7 +89,7 @@
     "qualify:meshy-asset": "node scripts/qualify-meshy-asset.mjs",
     "qualify:marble-environment": "node scripts/qualify-marble-environment.mjs",
     "import:prototype-cache": "node scripts/import-prototype-cache.mjs",
-    "preview:prototype": "npm run build:creator && node scripts/preview-prototype.mjs",
+    "preview:prototype": "npm run build:creator && node scripts/preview-r16.mjs",
     "import:spatial-prototype-cache": "node scripts/import-spatial-prototype-cache.mjs",
     "preview:spatial-prototype": "npm run build:creator && node scripts/preview-spatial-prototype.mjs",
     "plan:r12-call": "node scripts/plan-r12-call.mjs",

@@ -52,6 +52,7 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "tests/r16-host.test.mjs",
   "tests/r16-preview.test.mjs",
   "tests/r16-generalization.test.mjs",
+  "tests/r14-preview.test.mjs",
   "tests/round-scope.test.mjs",
   "apps/creator-web/src/App.tsx",
   "apps/creator-web/src/prototype-builder.ts",

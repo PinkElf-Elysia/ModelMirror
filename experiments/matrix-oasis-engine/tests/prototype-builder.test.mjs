@@ -323,7 +323,7 @@ test("Creator and Godot wrapper preserve old modes and expose the bounded R10 UX
   assert.match(app, /run\.assetApproval\.marble\.maxDownloads/u);
   for (const text of ["Prototype Builder", "Runtime / Parity", "当前可运行原型", "审批 1 / 2", "审批 2 / 2",
     "上一份可运行原型未改变", "已验证缓存复用", "首次完整资格", "旧缓存待资格",
-    "空间分析、求解、Godot 物理复验", "aria-live=\"polite\""]) assert.equal(app.includes(text), true);
+    "空间分析、求解、Godot 物理复验", "R16 初版资格", "aria-live=\"polite\""]) assert.equal(app.includes(text), true);
   assert.match(app, /candidate\.runs\.find\(\(item\) => !TERMINAL_RUN_STATES\.has\(item\.status\)\)/u);
   assert.match(app, /setTimeout\(poll, 1_000\)/u); assert.match(app, /clearTimeout\(timeoutId\)/u);
   assert.equal(app.includes("dangerouslySetInnerHTML"), false);
