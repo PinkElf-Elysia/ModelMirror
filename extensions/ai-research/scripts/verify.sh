@@ -6,9 +6,11 @@ MODE="${2:-full}"
 MODULE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$MODULE_ROOT/../.." && pwd)"
 COMPOSE=(docker compose -f compose.yml --profile ai-research)
-CLIENT_PROOF_DIR=""
+CLIENT_BASELINE_PROOF_DIR=""
+CLIENT_CURRENT_PROOF_DIR=""
 CLIENT_PROOF_CONTAINER=""
-CLIENT_PROOF_CONTEXT=""
+CLIENT_BASELINE_CONTEXT=""
+CLIENT_CURRENT_CONTEXT=""
 
 cd "$MODULE_ROOT"
 mkdir -p runtime/diagnostics runtime/sbom
@@ -16,11 +18,17 @@ cleanup() {
   if [[ -n "$CLIENT_PROOF_CONTAINER" ]]; then
     docker rm -f "$CLIENT_PROOF_CONTAINER" >/dev/null 2>&1 || true
   fi
-  if [[ "$CLIENT_PROOF_DIR" == "$MODULE_ROOT"/runtime/client-proof.* ]]; then
-    rm -rf -- "$CLIENT_PROOF_DIR"
+  if [[ "$CLIENT_BASELINE_PROOF_DIR" == "$MODULE_ROOT"/runtime/client-baseline-proof.* ]]; then
+    rm -rf -- "$CLIENT_BASELINE_PROOF_DIR"
   fi
-  if [[ "$CLIENT_PROOF_CONTEXT" == "$MODULE_ROOT"/runtime/client-context.* ]]; then
-    rm -rf -- "$CLIENT_PROOF_CONTEXT"
+  if [[ "$CLIENT_CURRENT_PROOF_DIR" == "$MODULE_ROOT"/runtime/client-current-proof.* ]]; then
+    rm -rf -- "$CLIENT_CURRENT_PROOF_DIR"
+  fi
+  if [[ "$CLIENT_BASELINE_CONTEXT" == "$MODULE_ROOT"/runtime/client-baseline-context.* ]]; then
+    rm -rf -- "$CLIENT_BASELINE_CONTEXT"
+  fi
+  if [[ "$CLIENT_CURRENT_CONTEXT" == "$MODULE_ROOT"/runtime/client-current-context.* ]]; then
+    rm -rf -- "$CLIENT_CURRENT_CONTEXT"
   fi
   "${COMPOSE[@]}" down >/dev/null 2>&1 || true
 }
@@ -121,26 +129,61 @@ if grep -E 'OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|PROVIDER.*(KEY|TOKEN
   exit 1
 fi
 
-CLIENT_PROOF_DIR=$(mktemp -d "$MODULE_ROOT/runtime/client-proof.XXXXXX")
-CLIENT_PROOF_CONTEXT=$(mktemp -d "$MODULE_ROOT/runtime/client-context.XXXXXX")
-CLIENT_ARCHIVE="$CLIENT_PROOF_CONTEXT/client.tar"
-git -C "$REPO_ROOT" archive --format=tar --output="$CLIENT_ARCHIVE" HEAD client
-tar -xf "$CLIENT_ARCHIVE" -C "$CLIENT_PROOF_CONTEXT"
-rm -f -- "$CLIENT_ARCHIVE"
-docker build \
-  -f "$MODULE_ROOT/scripts/client-proof.Dockerfile" \
-  -t modelmirror-ai-research-client-proof:ar0 \
-  "$CLIENT_PROOF_CONTEXT"
-CLIENT_PROOF_CONTAINER=$(docker create modelmirror-ai-research-client-proof:ar0)
+build_client_proof() {
+  local git_ref="$1"
+  local context="$2"
+  local image="$3"
+  local archive="$context/client.tar"
+  git -C "$REPO_ROOT" archive --format=tar --output="$archive" "$git_ref" client
+  tar -xf "$archive" -C "$context"
+  rm -f -- "$archive"
+  docker build \
+    -f "$MODULE_ROOT/scripts/client-proof.Dockerfile" \
+    -t "$image" \
+    "$context"
+}
+
+extract_client_proof() {
+  local image="$1"
+  local destination="$2"
+  CLIENT_PROOF_CONTAINER=$(docker create "$image")
+  docker cp "$CLIENT_PROOF_CONTAINER:$CLIENT_PROOF_SOURCE" "$destination"
+  docker rm "$CLIENT_PROOF_CONTAINER" >/dev/null
+  CLIENT_PROOF_CONTAINER=""
+}
+
+LOCKED_BASE=$(python -c "import json; print(json.load(open('source-lock.json'))['modelMirrorBaseCommit'])")
+CLIENT_BASELINE_PROOF_DIR=$(mktemp -d "$MODULE_ROOT/runtime/client-baseline-proof.XXXXXX")
+CLIENT_CURRENT_PROOF_DIR=$(mktemp -d "$MODULE_ROOT/runtime/client-current-proof.XXXXXX")
+CLIENT_BASELINE_CONTEXT=$(mktemp -d "$MODULE_ROOT/runtime/client-baseline-context.XXXXXX")
+CLIENT_CURRENT_CONTEXT=$(mktemp -d "$MODULE_ROOT/runtime/client-current-context.XXXXXX")
 CLIENT_PROOF_SOURCE="/proof/dist/."
 case "$(uname -s)" in
   MINGW*|MSYS*) CLIENT_PROOF_SOURCE="//proof/dist/." ;;
 esac
-docker cp "$CLIENT_PROOF_CONTAINER:$CLIENT_PROOF_SOURCE" "$CLIENT_PROOF_DIR"
-docker rm "$CLIENT_PROOF_CONTAINER" >/dev/null
-CLIENT_PROOF_CONTAINER=""
-python scripts/zero_footprint.py --client-dist "$CLIENT_PROOF_DIR"
-rm -rf -- "$CLIENT_PROOF_DIR"
-CLIENT_PROOF_DIR=""
-rm -rf -- "$CLIENT_PROOF_CONTEXT"
-CLIENT_PROOF_CONTEXT=""
+build_client_proof \
+  "$LOCKED_BASE" \
+  "$CLIENT_BASELINE_CONTEXT" \
+  modelmirror-ai-research-client-proof:ar0-baseline
+build_client_proof \
+  HEAD \
+  "$CLIENT_CURRENT_CONTEXT" \
+  modelmirror-ai-research-client-proof:ar0
+extract_client_proof \
+  modelmirror-ai-research-client-proof:ar0-baseline \
+  "$CLIENT_BASELINE_PROOF_DIR"
+extract_client_proof \
+  modelmirror-ai-research-client-proof:ar0 \
+  "$CLIENT_CURRENT_PROOF_DIR"
+python scripts/zero_footprint.py \
+  --baseline-client-dist "$CLIENT_BASELINE_PROOF_DIR" \
+  --client-dist "$CLIENT_CURRENT_PROOF_DIR"
+rm -rf -- \
+  "$CLIENT_BASELINE_PROOF_DIR" \
+  "$CLIENT_CURRENT_PROOF_DIR" \
+  "$CLIENT_BASELINE_CONTEXT" \
+  "$CLIENT_CURRENT_CONTEXT"
+CLIENT_BASELINE_PROOF_DIR=""
+CLIENT_CURRENT_PROOF_DIR=""
+CLIENT_BASELINE_CONTEXT=""
+CLIENT_CURRENT_CONTEXT=""

@@ -69,6 +69,22 @@ function Extract-ImageFile([string]$Image, [string]$ContainerPath, [string]$Dest
     }
 }
 
+function Build-ClientProof([string]$GitRef, [string]$Context, [string]$Image) {
+    $archive = Join-Path $Context "client.tar"
+    Invoke-Checked "git" @(
+        "-C", $repoRoot,
+        "archive", "--format=tar", "--output=$archive", $GitRef, "client"
+    )
+    Invoke-Checked "tar" @("-xf", $archive, "-C", $Context)
+    Remove-Item -LiteralPath $archive
+    Invoke-Checked "docker" @(
+        "build",
+        "-f", (Join-Path $moduleRoot "scripts/client-proof.Dockerfile"),
+        "-t", $Image,
+        $Context
+    )
+}
+
 Push-Location $moduleRoot
 try {
     Invoke-Python @("scripts/validate_boundary.py", "--base", $Base)
@@ -165,31 +181,45 @@ if unexpected:
         throw "provider credential names were exposed to module containers"
     }
 
-    $clientProof = Join-Path $runtime ("client-proof-" + [Guid]::NewGuid().ToString("N"))
-    $clientContext = Join-Path $runtime ("client-context-" + [Guid]::NewGuid().ToString("N"))
-    New-Item -ItemType Directory -Path $clientProof, $clientContext | Out-Null
+    $sourceLock = Get-Content -Raw -LiteralPath (Join-Path $moduleRoot "source-lock.json") | ConvertFrom-Json
+    $clientBaselineProof = Join-Path $runtime ("client-baseline-proof-" + [Guid]::NewGuid().ToString("N"))
+    $clientCurrentProof = Join-Path $runtime ("client-current-proof-" + [Guid]::NewGuid().ToString("N"))
+    $clientBaselineContext = Join-Path $runtime ("client-baseline-context-" + [Guid]::NewGuid().ToString("N"))
+    $clientCurrentContext = Join-Path $runtime ("client-current-context-" + [Guid]::NewGuid().ToString("N"))
+    $clientPaths = @(
+        $clientBaselineProof,
+        $clientCurrentProof,
+        $clientBaselineContext,
+        $clientCurrentContext
+    )
+    New-Item -ItemType Directory -Path $clientPaths | Out-Null
     try {
-        $clientArchive = Join-Path $clientContext "client.tar"
-        Invoke-Checked "git" @(
-            "-C", $repoRoot,
-            "archive", "--format=tar", "--output=$clientArchive", "HEAD", "client"
+        Build-ClientProof `
+            $sourceLock.modelMirrorBaseCommit `
+            $clientBaselineContext `
+            "modelmirror-ai-research-client-proof:ar0-baseline"
+        Build-ClientProof `
+            "HEAD" `
+            $clientCurrentContext `
+            "modelmirror-ai-research-client-proof:ar0"
+        Extract-ImageFile `
+            "modelmirror-ai-research-client-proof:ar0-baseline" `
+            "/proof/dist/." `
+            $clientBaselineProof
+        Extract-ImageFile `
+            "modelmirror-ai-research-client-proof:ar0" `
+            "/proof/dist/." `
+            $clientCurrentProof
+        Invoke-Python @(
+            "scripts/zero_footprint.py",
+            "--baseline-client-dist", $clientBaselineProof,
+            "--client-dist", $clientCurrentProof
         )
-        Invoke-Checked "tar" @("-xf", $clientArchive, "-C", $clientContext)
-        Remove-Item -LiteralPath $clientArchive
-        Invoke-Checked "docker" @(
-            "build",
-            "-f", (Join-Path $moduleRoot "scripts/client-proof.Dockerfile"),
-            "-t", "modelmirror-ai-research-client-proof:ar0",
-            $clientContext
-        )
-        Extract-ImageFile "modelmirror-ai-research-client-proof:ar0" "/proof/dist/." $clientProof
-        Invoke-Python @("scripts/zero_footprint.py", "--client-dist", $clientProof)
     } finally {
-        if (Test-Path -LiteralPath $clientProof) {
-            Remove-Item -LiteralPath $clientProof -Recurse -Force
-        }
-        if (Test-Path -LiteralPath $clientContext) {
-            Remove-Item -LiteralPath $clientContext -Recurse -Force
+        foreach ($clientPath in $clientPaths) {
+            if (Test-Path -LiteralPath $clientPath) {
+                Remove-Item -LiteralPath $clientPath -Recurse -Force
+            }
         }
     }
 } finally {

@@ -20,7 +20,11 @@
     "digest": "sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32"
   },
   "coreBaseline": {
-    "clientDist": {
+    "clientDistGate": {
+      "mode": "same_runner_base_vs_head",
+      "baseCommit": "e7f561c5abf65269e6be05c6b6e75f40b8f14604"
+    },
+    "clientDistReference": {
       "fileCount": 26,
       "totalBytes": 17596261,
       "aggregateSha256": "46937edea789dbdec5100e970845ae67661a857789ee09b107f29928daa48f5f"

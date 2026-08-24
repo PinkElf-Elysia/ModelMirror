@@ -48,6 +48,7 @@ def client_dist(root: Path) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--client-dist", type=Path, default=REPO_ROOT / "client" / "dist")
+    parser.add_argument("--baseline-client-dist", type=Path)
     args = parser.parse_args()
     client_dist_root = args.client_dist.resolve()
     source_lock = json.loads((MODULE_ROOT / "source-lock.json").read_text(encoding="utf-8"))
@@ -58,11 +59,14 @@ def main() -> int:
         actual = sha256(REPO_ROOT / relative)
         if actual != expected:
             failures.append(f"core tracked file drifted: {relative}")
+    expected_client_dist = baseline["clientDistReference"]
+    if args.baseline_client_dist is not None:
+        expected_client_dist = client_dist(args.baseline_client_dist.resolve())
     actual_client_dist = client_dist(client_dist_root)
-    if actual_client_dist != baseline["clientDist"]:
+    if actual_client_dist != expected_client_dist:
         failures.append(
             "client dist hash/count/size changed: "
-            f"expected={json.dumps(baseline['clientDist'], sort_keys=True)} "
+            f"expected={json.dumps(expected_client_dist, sort_keys=True)} "
             f"actual={json.dumps(actual_client_dist, sort_keys=True)}"
         )
 
@@ -85,6 +89,7 @@ def main() -> int:
         json.dumps(
             {
                 "status": "passed",
+                "baselineClientDist": expected_client_dist,
                 "clientDist": actual_client_dist,
                 "defaultServiceCount": len(services),
                 "defaultVolumeCount": len(volumes),
