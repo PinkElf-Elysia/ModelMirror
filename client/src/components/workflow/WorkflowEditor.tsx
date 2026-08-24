@@ -24,6 +24,7 @@ import { models } from "../../data/models";
 import {
   type CodeOperation,
   type NodeRunStatus,
+  type SafeTextOperation,
   type WorkflowDefinition,
   type WorkflowEdge,
   type WorkflowMcpArgumentBinding,
@@ -94,6 +95,11 @@ import {
   migrateLegacyQuestionClassifier,
   type TypedAiMigrationResult,
 } from "./workflowTypedAiMigration";
+import {
+  isSafeTextV2,
+  migrateLegacyCodeNode,
+  migrateLegacyTemplateTransform,
+} from "./workflowSafeTextMigration";
 import {
   analyzeWorkflowVariables,
   planWorkflowVariableRename,
@@ -586,15 +592,15 @@ export function createNodeData(
   if (kind === "code") {
     return {
       kind,
-      title: "安全加工",
-      description: "只执行预置字符串操作，不运行任意代码。",
-      codeOperation: "upper",
-      codeInputVariable: "user_input",
-      codeOutputVariable: "code_output",
+      title: "安全文本加工",
+      description: "把变量稳定转换为文本后，执行受控的大小写、替换或拼接操作。",
+      contractVersion: 2,
+      operation: "upper",
+      inputVariable: "user_input",
+      outputVariable: "code_output",
       replaceFrom: "",
       replaceTo: "",
       concatValue: "",
-      pythonCode: "",
     };
   }
 
@@ -2988,6 +2994,14 @@ function NodeConfig({
   const [variableNodeContracts, setVariableNodeContracts] = useState<
     Map<WorkflowNodeKind, WorkflowNodeContractProjection>
   >(new Map());
+  const migrationAvailableVariables = useMemo(
+    () => new Set(
+      analyzeWorkflowVariables(nodes, edges, node?.id ?? null, declarations)
+        .filter((variable) => variable.availability === "available")
+        .map((variable) => variable.name),
+    ),
+    [declarations, edges, node?.id, nodes],
+  );
   const [clientHosts, setClientHosts] = useState<Array<{
     host_id: string;
     name: string;
@@ -3175,6 +3189,13 @@ function NodeConfig({
     && Boolean(selectedRegistryTool)
     && data.inputSchemaChecksum !== selectedRegistryTool?.schema_checksum;
   const variableContract = variableNodeContracts.get(data.kind) ?? null;
+  const legacyCodeMigration =
+    data.kind === "code" && !isSafeTextV2(data)
+      ? migrateLegacyCodeNode(data, migrationAvailableVariables)
+      : null;
+  const legacyTemplateMigration = data.kind === "template_transform"
+    ? migrateLegacyTemplateTransform(data, migrationAvailableVariables)
+    : null;
   const runtimeMiddlewareConfig = isRecord(data.runtimeMiddlewareConfig)
     ? data.runtimeMiddlewareConfig
     : undefined;
@@ -3419,98 +3440,174 @@ function NodeConfig({
       ) : null}
 
       {data.kind === "code" ? (
-        <>
-          <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-50">
-            安全提示：MVP 不执行任意代码，仅提供 upper、lower、replace、concat 四种字符串操作。
-          </div>
-          <Field label="内置操作">
-            <select
-              className={textInputClass()}
-              onChange={(event) =>
-                update({ codeOperation: event.target.value as CodeOperation })
-              }
-              value={data.codeOperation ?? "upper"}
-            >
-              <option className="bg-slate-950" value="upper">
-                转大写
-              </option>
-              <option className="bg-slate-950" value="lower">
-                转小写
-              </option>
-              <option className="bg-slate-950" value="replace">
-                替换
-              </option>
-              <option className="bg-slate-950" value="concat">
-                拼接
-              </option>
-              <option className="bg-slate-950" value="python">
-                Python sandbox
-              </option>
-            </select>
-          </Field>
-          <Field label="输入变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="codeInputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ codeInputVariable: value })}
-              value={data.codeInputVariable ?? ""}
-            />
-          </Field>
-          <Field label="输出变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="codeOutputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ codeOutputVariable: value })}
-              value={data.codeOutputVariable ?? ""}
-            />
-          </Field>
-          {data.codeOperation === "replace" ? (
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="把">
-                <input
-                  className={textInputClass()}
-                  onChange={(event) => update({ replaceFrom: event.target.value })}
-                  value={data.replaceFrom ?? ""}
-                />
-              </Field>
-              <Field label="替换为">
-                <input
-                  className={textInputClass()}
-                  onChange={(event) => update({ replaceTo: event.target.value })}
-                  value={data.replaceTo ?? ""}
-                />
-              </Field>
+        isSafeTextV2(data) ? (
+          <>
+            <div className="rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-xs leading-5 text-cyan-50">
+              输入会按稳定规则转成文本，再执行受控操作；这里不会运行任意代码。
+              <button
+                className="ml-1 font-semibold underline underline-offset-4"
+                onClick={onOpenVariableCenter}
+                type="button"
+              >
+                打开变量中心
+              </button>
             </div>
-          ) : null}
-          {data.codeOperation === "concat" ? (
-            <Field label="追加内容">
-              <input
+            <Field label="文本操作">
+              <select
                 className={textInputClass()}
-                onChange={(event) => update({ concatValue: event.target.value })}
-                value={data.concatValue ?? ""}
+                onChange={(event) => update({ operation: event.target.value as SafeTextOperation })}
+                value={String(data.operation ?? "upper")}
+              >
+                <option className="bg-slate-950" value="upper">转为大写</option>
+                <option className="bg-slate-950" value="lower">转为小写</option>
+                <option className="bg-slate-950" value="replace">替换文本</option>
+                <option className="bg-slate-950" value="concat">追加文本</option>
+              </select>
+            </Field>
+            <Field label="输入变量">
+              <WorkflowVariableField
+                contract={variableContract}
+                edges={edges}
+                fieldName="inputVariable"
+                node={node}
+                nodes={nodes}
+                onChange={(value) => update({ inputVariable: value })}
+                value={data.inputVariable ?? ""}
               />
             </Field>
-          ) : null}
-          {data.codeOperation === "python" ? (
-            <Field label="Python 代码">
-              <textarea
-                className={`${textInputClass()} min-h-40 resize-none font-mono text-xs leading-5`}
-                onChange={(event) => update({ pythonCode: event.target.value })}
-                placeholder="print(len(input.split()))"
-                value={data.pythonCode ?? ""}
+            <Field label="输出变量">
+              <WorkflowVariableField
+                contract={variableContract}
+                edges={edges}
+                fieldName="outputVariable"
+                node={node}
+                nodes={nodes}
+                onChange={(value) => update({ outputVariable: value })}
+                value={data.outputVariable ?? ""}
               />
-              <p className="mt-2 text-xs leading-5 text-slate-400">
-                可用变量：input（输入变量内容）和 variables（全部变量字典）。请用 print() 输出结果。
+            </Field>
+            {data.operation === "replace" ? (
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="查找文本">
+                  <input
+                    className={textInputClass()}
+                    onChange={(event) => update({ replaceFrom: event.target.value })}
+                    value={data.replaceFrom ?? ""}
+                  />
+                </Field>
+                <Field label="替换为">
+                  <input
+                    className={textInputClass()}
+                    onChange={(event) => update({ replaceTo: event.target.value })}
+                    value={data.replaceTo ?? ""}
+                  />
+                </Field>
+              </div>
+            ) : null}
+            {data.operation === "concat" ? (
+              <Field label="追加文本">
+                <input
+                  className={textInputClass()}
+                  onChange={(event) => update({ concatValue: event.target.value })}
+                  value={data.concatValue ?? ""}
+                />
+              </Field>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-3 text-xs leading-5 text-amber-50">
+              <p>
+                {data.codeOperation === "python"
+                  ? "这是 Python legacy 历史配置，仅用于读取既有内容；当前草稿不能执行或发布。"
+                  : legacyCodeMigration?.ok
+                    ? "这是 Code V1 旧配置，可继续打开和手动运行；发布新版本前必须显式迁移。"
+                    : "这是无法安全解释的 Code V1 配置，当前草稿不能执行或迁移；请按下方原因修正。"}
               </p>
+              <p className="mt-1 text-amber-100/80">{legacyCodeMigration?.message}</p>
+              {legacyCodeMigration?.ok && legacyCodeMigration.data ? (
+                <button
+                  className="mt-2 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100"
+                  onClick={() => {
+                    onReplaceNodeData(node.id, legacyCodeMigration.data!);
+                    setMigrationNotice(legacyCodeMigration.message);
+                  }}
+                  type="button"
+                >
+                  升级为安全文本加工 V2
+                </button>
+              ) : null}
+            </div>
+            <Field label="旧版操作">
+              {data.codeOperation === "python" ? (
+                <div
+                  aria-label="Python legacy，只读"
+                  className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-300"
+                >
+                  Python legacy（只读）
+                </div>
+              ) : (
+                <select
+                  className={textInputClass()}
+                  onChange={(event) => update({ codeOperation: event.target.value as CodeOperation })}
+                  value={data.codeOperation ?? "upper"}
+                >
+                  <option className="bg-slate-950" value="upper">转大写</option>
+                  <option className="bg-slate-950" value="lower">转小写</option>
+                  <option className="bg-slate-950" value="replace">替换</option>
+                  <option className="bg-slate-950" value="concat">拼接</option>
+                </select>
+              )}
             </Field>
-          ) : null}
-        </>
+            <Field label="旧版输入变量">
+              <WorkflowVariableField
+                contract={variableContract}
+                edges={edges}
+                fieldName="codeInputVariable"
+                node={node}
+                nodes={nodes}
+                onChange={(value) => update({ codeInputVariable: value })}
+                value={data.codeInputVariable ?? ""}
+              />
+            </Field>
+            <Field label="旧版输出变量">
+              <WorkflowVariableField
+                contract={variableContract}
+                edges={edges}
+                fieldName="codeOutputVariable"
+                node={node}
+                nodes={nodes}
+                onChange={(value) => update({ codeOutputVariable: value })}
+                value={data.codeOutputVariable ?? ""}
+              />
+            </Field>
+            {data.codeOperation === "replace" ? (
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="把">
+                  <input className={textInputClass()} onChange={(event) => update({ replaceFrom: event.target.value })} value={data.replaceFrom ?? ""} />
+                </Field>
+                <Field label="替换为">
+                  <input className={textInputClass()} onChange={(event) => update({ replaceTo: event.target.value })} value={data.replaceTo ?? ""} />
+                </Field>
+              </div>
+            ) : null}
+            {data.codeOperation === "concat" ? (
+              <Field label="追加内容">
+                <input className={textInputClass()} onChange={(event) => update({ concatValue: event.target.value })} value={data.concatValue ?? ""} />
+              </Field>
+            ) : null}
+            {data.codeOperation === "python" ? (
+              <Field label="旧版 Python 代码">
+                <textarea
+                  className={`${textInputClass()} min-h-40 resize-none font-mono text-xs leading-5`}
+                  readOnly
+                  value={data.pythonCode ?? ""}
+                />
+              </Field>
+            ) : null}
+            {migrationNotice ? <p aria-live="polite" className="text-xs text-emerald-200">{migrationNotice}</p> : null}
+          </>
+        )
       ) : null}
 
       {data.kind === "variable_assign" ? (
@@ -3665,6 +3762,22 @@ function NodeConfig({
 
       {data.kind === "template_transform" ? (
         <>
+          <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-3 text-xs leading-5 text-amber-50">
+            <p>模板转换已退役，旧流程仍可打开和运行。发布新版本前，请迁移到变量赋值 V2 模板模式。</p>
+            <p className="mt-1 text-amber-100/80">{legacyTemplateMigration?.message}</p>
+            {legacyTemplateMigration?.ok && legacyTemplateMigration.data ? (
+              <button
+                className="mt-2 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100"
+                onClick={() => {
+                  onReplaceNodeData(node.id, legacyTemplateMigration.data!);
+                  setMigrationNotice(legacyTemplateMigration.message);
+                }}
+                type="button"
+              >
+                迁移为变量赋值 V2
+              </button>
+            ) : null}
+          </div>
           <Field label="模板内容（支持 {{变量}}）">
             <WorkflowVariableField
               className="min-h-36 resize-none leading-6"
@@ -3689,6 +3802,14 @@ function NodeConfig({
               value={data.outputVariable ?? ""}
             />
           </Field>
+          <button
+            className="text-left text-xs font-semibold text-cyan-200 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+            onClick={onOpenVariableCenter}
+            type="button"
+          >
+            打开变量中心检查引用
+          </button>
+          {migrationNotice ? <p aria-live="polite" className="text-xs text-emerald-200">{migrationNotice}</p> : null}
         </>
       ) : null}
 

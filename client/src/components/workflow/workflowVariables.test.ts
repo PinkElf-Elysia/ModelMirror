@@ -113,6 +113,28 @@ describe("analyzeWorkflowVariables", () => {
     ).toBe("declaration");
   });
 
+  it("uses the V2 Code variable fields without double-registering legacy output", () => {
+    const nodes = [
+      node("input", "input", { variableName: "source_value" }),
+      node("safe-text", "code", {
+        contractVersion: 2,
+        inputVariable: "source_value",
+        outputVariable: "clean_value",
+        operation: "upper",
+      }),
+    ];
+    const variables = analyzeWorkflowVariables(
+      nodes,
+      [edge("input", "safe-text")],
+      "safe-text",
+    );
+
+    expect(variables.find((item) => item.name === "clean_value")?.sources).toHaveLength(1);
+    expect(variables.find((item) => item.name === "source_value")?.references).toEqual([
+      expect.objectContaining({ field: "inputVariable", mode: "binding" }),
+    ]);
+  });
+
   it("distinguishes guaranteed, conditional, downstream, and unrelated outputs", () => {
     const nodes = [
       node("input", "input"),
@@ -494,6 +516,8 @@ describe("analyzeWorkflowVariables", () => {
     ["condition", "conditionVariable", "binding"],
     ["condition", "inputVariable", "binding"],
     ["code", "codeInputVariable", "binding"],
+    ["code", "inputVariable", "binding"],
+    ["code", "outputVariable", "declaration"],
     ["variable_assign", "template", "template"],
     ["variable_assign", "sourceVariable", "binding"],
     ["variable_assign", "outputVariable", "declaration"],

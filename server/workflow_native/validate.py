@@ -48,6 +48,7 @@ from .typed_ai import (
 from .r20_nodes import (
     WorkflowR20NodeError,
     contract_version as r20_contract_version,
+    validate_code_v2_config,
     validate_human_intervention_v2_config,
     validate_mcp_tool_v2_config,
     validate_variable_assign_v2_config,
@@ -1198,6 +1199,18 @@ def validate_node_configuration(
                 )
 
     if kind == "code":
+        if r20_contract_version(data) == 2:
+            try:
+                validate_code_v2_config(data)
+            except WorkflowR20NodeError as exc:
+                issues.append(
+                    ValidationIssue(
+                        code=exc.code.lower(),
+                        message=exc.safe_message,
+                        node_id=node.id,
+                    )
+                )
+            return issues
         operation = str(data.get("codeOperation") or "").strip()
         if operation and operation not in {"upper", "lower", "replace", "concat"}:
             issues.append(
@@ -3732,7 +3745,14 @@ def collect_declared_variables(
             if is_variable_name(variable):
                 variables.add(variable)
         if kind == "code":
-            variable = str(data.get("codeOutputVariable") or "").strip()
+            variable = str(
+                (
+                    data.get("outputVariable")
+                    if r20_contract_version(data) == 2
+                    else data.get("codeOutputVariable")
+                )
+                or ""
+            ).strip()
             if is_variable_name(variable):
                 variables.add(variable)
         if kind == "variable_assign":
@@ -3808,7 +3828,7 @@ def collect_node_variable_producers(
         "workflow_call_entry": ("eventVariable",),
         "invoke_workflow": ("resultVariable",),
         "llm": ("outputVariable",),
-        "code": ("codeOutputVariable",),
+        "code": ("codeOutputVariable", "outputVariable"),
         "variable_assign": ("variableName", "outputVariable"),
         "template_transform": ("outputVariable",),
         "variable_aggregator": ("outputVariable",),
@@ -3896,6 +3916,24 @@ def validate_variable_references(
                 ValidationIssue(
                     code="missing_condition_variable_reference",
                     message=f"Condition references undefined variable '{variable}'.",
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "code":
+        variable = str(
+            (
+                data.get("inputVariable")
+                if r20_contract_version(data) == 2
+                else data.get("codeInputVariable")
+            )
+            or ""
+        ).strip()
+        if variable and variable not in available_variables:
+            issues.append(
+                ValidationIssue(
+                    code="missing_code_input_variable_reference",
+                    message=f"Text processing references undefined variable '{variable}'.",
                     node_id=node.id,
                 )
             )

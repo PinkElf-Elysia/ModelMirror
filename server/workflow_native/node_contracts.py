@@ -802,6 +802,95 @@ def _complete_contracts() -> dict[str, NodeContract]:
         ),
         planner=_planner(),
     )
+    code_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "operation": {
+                "type": "string",
+                "enum": ["upper", "lower", "replace", "concat"],
+            },
+            "inputVariable": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+            "outputVariable": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+            "replaceFrom": {"type": "string", "maxLength": 100_000},
+            "replaceTo": {"type": "string", "maxLength": 100_000},
+            "concatValue": {"type": "string", "maxLength": 100_000},
+        },
+        required=["contractVersion", "operation", "inputVariable", "outputVariable"],
+    )
+    code_v2_schema["allOf"] = [
+        {
+            "if": {
+                "properties": {"operation": {"const": "replace"}},
+                "required": ["operation"],
+            },
+            "then": {"required": ["replaceFrom", "replaceTo"]},
+        },
+        {
+            "if": {
+                "properties": {"operation": {"const": "concat"}},
+                "required": ["operation"],
+            },
+            "then": {"required": ["concatValue"]},
+        },
+    ]
+    code_v2_schema["not"] = {
+        "anyOf": [
+            {"required": [field]}
+            for field in (
+                "codeOperation",
+                "codeInputVariable",
+                "codeOutputVariable",
+                "pythonCode",
+            )
+        ]
+    }
+    contracts["code"] = NodeContract(
+        kind="code",
+        contract_status="complete",
+        config_schema=code_v2_schema,
+        ports=(
+            NodePortContract(
+                name="value",
+                direction="input",
+                value_schema=any_value,
+                required=True,
+            ),
+            NodePortContract(
+                name="result",
+                direction="output",
+                value_schema=string_value,
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=True,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="data",
+        ),
+        availability=_availability(
+            app=_rule("allow"),
+            evaluation=_rule("allow"),
+            evolution=_rule("deny"),
+        ),
+        planner=_planner(
+            default_data={
+                "contractVersion": 2,
+                "operation": "upper",
+                "inputVariable": "user_input",
+                "outputVariable": "code_output",
+                "replaceFrom": "",
+                "replaceTo": "",
+                "concatValue": "",
+            }
+        ),
+    )
     variable_assign_v1_schema = _object_schema(
         {
             "variableName": {"type": "string"},
@@ -2426,6 +2515,12 @@ def build_builtin_node_contract_registry() -> NodeContractRegistry:
         update={
             "deprecated": True,
             "replacement_kind": "knowledge_retrieval",
+        }
+    )
+    contracts["template_transform"] = contracts["template_transform"].model_copy(
+        update={
+            "deprecated": True,
+            "replacement_kind": "variable_assign",
         }
     )
 

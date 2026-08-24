@@ -10,6 +10,7 @@ import type {
   WorkflowNodeContractProjection,
   WorkflowValueSchemaProjection,
 } from "./workflowNodeRegistry";
+import { isSafeTextV2 } from "./workflowSafeTextMigration";
 
 export type WorkflowVariableValueType =
   | "text"
@@ -177,6 +178,8 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("condition", "inputVariable", "binding", ANY_RENDERABLE_TYPES, "condition"),
   field("code", "codeInputVariable", "binding", ANY_RENDERABLE_TYPES, "input"),
   field("code", "codeOutputVariable", "declaration", TEXT_TYPES),
+  field("code", "inputVariable", "binding", ANY_RENDERABLE_TYPES, "input"),
+  field("code", "outputVariable", "declaration", TEXT_TYPES),
   field("variable_assign", "variableName", "declaration", TEXT_TYPES),
   field("variable_assign", "outputVariable", "declaration", ANY_RENDERABLE_TYPES),
   field("variable_assign", "sourceVariable", "binding", ANY_RENDERABLE_TYPES, "value"),
@@ -370,7 +373,20 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
     { field: "outputVariable", fallback: "resume_event", valueType: "json" },
   ],
   llm: [{ field: "outputVariable", fallback: "llm_output", valueType: "text" }],
-  code: [{ field: "codeOutputVariable", fallback: "code_output", valueType: "text" }],
+  code: [
+    {
+      field: "codeOutputVariable",
+      fallback: "code_output",
+      valueType: "text",
+      enabled: (node) => !isSafeTextV2(node.data),
+    },
+    {
+      field: "outputVariable",
+      fallback: "code_output",
+      valueType: "text",
+      enabled: (node) => isSafeTextV2(node.data),
+    },
+  ],
   variable_assign: [
     {
       field: "variableName",

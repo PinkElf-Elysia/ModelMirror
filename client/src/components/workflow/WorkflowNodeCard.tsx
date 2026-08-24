@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { type WorkflowNode } from "../../types/workflow";
 import { isLegacySkillCreatorMiddleware } from "../../utils/skillCreatorMiddleware";
+import { isSafeTextV2 } from "./workflowSafeTextMigration";
 
 const nodeMeta = {
   input: {
@@ -90,7 +91,7 @@ const nodeMeta = {
   },
   code: {
     icon: "🔧",
-    label: "加工工位",
+    label: "安全文本加工",
     border: "border-brand-300/40",
     bg: "bg-brand-300/10",
     text: "text-brand-100",
@@ -372,6 +373,9 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
       : [];
   const hasDynamicOutputs = data.kind === "multi_route" || classifierCategories.length > 0;
   const legacySkillCreator = isLegacySkillCreatorMiddleware(data);
+  const legacyCode =
+    data.kind === "code" && !isSafeTextV2(data);
+  const retiredTemplate = data.kind === "template_transform";
 
   const statusClassName =
     runStatus === "running"
@@ -493,6 +497,22 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
         {legacySkillCreator ? (
           <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-100">
             Legacy
+          </span>
+        ) : null}
+        {legacyCode ? (
+          <span
+            className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[9px] font-semibold text-amber-100"
+            title="发布新版本前需要显式迁移"
+          >
+            V1 旧版
+          </span>
+        ) : null}
+        {retiredTemplate ? (
+          <span
+            className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[9px] font-semibold text-amber-100"
+            title="请迁移为变量赋值 V2"
+          >
+            已退役
           </span>
         ) : null}
       </div>

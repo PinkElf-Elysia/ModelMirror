@@ -272,6 +272,25 @@ async def test_xpert_publish_preflight_rejects_invalid_chat_contract(
             },
             "xpert_knowledge_citation_migration_required",
         ),
+        (
+            "code",
+            {
+                "kind": "code",
+                "codeOperation": "upper",
+                "codeInputVariable": "user_input",
+                "codeOutputVariable": "clean_value",
+            },
+            "xpert_code_migration_required",
+        ),
+        (
+            "template_transform",
+            {
+                "kind": "template_transform",
+                "template": "{{user_input}}",
+                "outputVariable": "clean_value",
+            },
+            "xpert_template_transform_migration_required",
+        ),
     ],
 )
 async def test_r20_xpert_preflight_requires_explicit_legacy_node_migration(
@@ -344,6 +363,43 @@ async def test_r20_general_v2_nodes_pass_private_xpert_publish(
     )
 
     updated = await client.patch(f"/api/xperts/{xpert['id']}", json={"draft": draft})
+    assert updated.status_code == 200, updated.text
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+
+    assert published.status_code == 200, published.text
+
+
+@pytest.mark.asyncio
+async def test_r21_safe_text_v2_passes_private_xpert_publish(
+    client: httpx.AsyncClient,
+) -> None:
+    created_response = await client.post(
+        "/api/xperts", json={"name": "R2.1 safe text"}
+    )
+    assert created_response.status_code == 200, created_response.text
+    xpert = created_response.json()
+    draft = xpert["draft"]
+    draft["workflow"]["nodes"].append(
+        {
+            "id": "safe-text-v2",
+            "type": "code",
+            "position": {"x": 200, "y": 250},
+            "data": {
+                "kind": "code",
+                "contractVersion": 2,
+                "operation": "upper",
+                "inputVariable": "user_input",
+                "outputVariable": "clean_value",
+                "replaceFrom": "",
+                "replaceTo": "",
+                "concatValue": "",
+            },
+        }
+    )
+
+    updated = await client.patch(
+        f"/api/xperts/{xpert['id']}", json={"draft": draft}
+    )
     assert updated.status_code == 200, updated.text
     published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
 
