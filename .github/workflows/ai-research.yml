@@ -1,0 +1,62 @@
+name: AI Research AR0
+
+on:
+  pull_request:
+    paths:
+      - "extensions/ai-research/**"
+      - ".dockerignore"
+      - ".github/workflows/ai-research.yml"
+  push:
+    branches: [main]
+    paths:
+      - "extensions/ai-research/**"
+      - ".dockerignore"
+      - ".github/workflows/ai-research.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Boundary, contracts, images, and fixture smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Docker 29.7.2 with containerd image store
+        uses: docker/setup-docker-action@77e84dbf09b47d1e29270283c22f16145aa85ca1 # v5
+        with:
+          version: v29.7.2
+          daemon-config: |
+            {
+              "features": {
+                "containerd-snapshotter": true
+              }
+            }
+      - name: Set up Python 3.12
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12.13"
+      - name: Verify AR0
+        working-directory: extensions/ai-research
+        run: bash scripts/verify.sh origin/main full
+      - name: Preserve module logs on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ai-research-ar0-diagnostics
+          path: extensions/ai-research/runtime/diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop optional module without deleting evidence volumes
+        if: always()
+        working-directory: extensions/ai-research
+        run: docker compose -f compose.yml --profile ai-research down

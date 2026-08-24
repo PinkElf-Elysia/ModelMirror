@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "allowedExpressions": [
+    "Apache-2.0",
+    "0BSD",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "CNRI-Python",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MIT-CMU",
+    "MPL-2.0",
+    "PSF-2.0",
+    "Python-2.0",
+    "Zlib"
+  ],
+  "allowedBasePackages": [
+    "pip",
+    "setuptools"
+  ],
+  "classifierMap": {
+    "License :: OSI Approved :: Apache Software License": "Apache-2.0",
+    "License :: OSI Approved :: BSD License": "BSD-3-Clause",
+    "License :: OSI Approved :: ISC License (ISCL)": "ISC",
+    "License :: OSI Approved :: MIT License": "MIT",
+    "License :: OSI Approved :: Python Software Foundation License": "PSF-2.0"
+  },
+  "expressionAliases": {
+    "3-Clause BSD License": "BSD-3-Clause",
+    "Apache 2.0": "Apache-2.0",
+    "Apache License 2.0": "Apache-2.0",
+    "BSD": "BSD-3-Clause",
+    "BSD License": "BSD-3-Clause",
+    "MIT License": "MIT",
+    "Modified BSD License": "BSD-3-Clause",
+    "MIT license": "MIT"
+  },
+  "overrides": {
+    "agent-client-protocol": "Apache-2.0",
+    "huey": "MIT",
+    "python-dateutil": "Apache-2.0 OR BSD-3-Clause",
+    "skops": "MIT",
+    "tiktoken": "MIT",
+    "zipfile-zstd": "MIT"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "modelmirror.ai-research",
+  "moduleVersion": "0.1.0-ar0",
+  "baseCommit": "296c38a58a8274d9a80ad35b187eabaddd06ae46",
+  "claimLevel": "harness_only",
+  "packStatus": "fixture_only",
+  "parentIntegration": "none",
+  "allowedParentFiles": [
+    ".dockerignore",
+    ".github/workflows/ai-research.yml"
+  ],
+  "forbiddenParentRoots": [
+    "client",
+    "server",
+    "deploy",
+    "new-api-data"
+  ],
+  "forbiddenRuntimeReferences": [
+    "OPENROUTER_API_KEY",
+    "LLM_GATEWAY_KEY",
+    "DIFY_API_KEY",
+    "docker.sock",
+    "../client",
+    "../server"
+  ],
+  "services": [
+    "ai-research-control",
+    "ai-research-tracking",
+    "ai-research-worker"
+  ],
+  "publicBindings": [
+    "127.0.0.1:8790",
+    "127.0.0.1:8791"
+  ],
+  "workerProtocolVersion": 1,
+  "apiVersion": "v1",
+  "allowedExecutionModes": [
+    "fixture"
+  ],
+  "allowedFixtures": [
+    "success",
+    "task_error",
+    "long_running_cancel"
+  ]
+}

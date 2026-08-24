@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-23",
+  "modelMirrorBaseCommit": "296c38a58a8274d9a80ad35b187eabaddd06ae46",
+  "claimLevel": "harness_only",
+  "packStatus": "fixture_only",
+  "runtimes": {
+    "python": "3.12.13",
+    "inspectAi": "0.3.260",
+    "mlflow": "3.15.1",
+    "fastapi": "0.141.1",
+    "uvicorn": "0.52.4"
+  },
+  "baseImage": {
+    "reference": "python@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461",
+    "digest": "sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461"
+  },
+  "clientProofImage": {
+    "reference": "node@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32",
+    "digest": "sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32"
+  },
+  "coreBaseline": {
+    "clientDistGate": {
+      "mode": "same_runner_base_vs_head",
+      "baseCommit": "296c38a58a8274d9a80ad35b187eabaddd06ae46"
+    },
+    "clientDistReference": {
+      "fileCount": 26,
+      "totalBytes": 17596261,
+      "aggregateSha256": "46937edea789dbdec5100e970845ae67661a857789ee09b107f29928daa48f5f"
+    },
+    "trackedFiles": {
+      "docker-compose.yml": "594d734aea7ba39b33543266ffa63a46eb1599f894ce44489181be72bf11b338",
+      "server/requirements.txt": "2bdcee334343bfbeed372d9173ae684d0df839c209d293b780987cfc687a92a4",
+      "server/Dockerfile": "d192d823e21cd51c3a67bc35285130ab77ed22a64a0a8a0cd0083c2875927e63",
+      "client/package.json": "21ea8333343d09df2bb081e9caa05fe9e080d9c8509e71bea7fd12ae33c23ced",
+      "client/package-lock.json": "0769346386c572ab84f1be52a4882315d98896d76f7e77d21223c359c7dde476"
+    },
+    "defaultServices": [
+      "browser",
+      "client",
+      "mcp-browser",
+      "mcp-browser-egress",
+      "mcp-database",
+      "mcp-database-local",
+      "mcp-files",
+      "mcp-hub-egress",
+      "mcp-hub-remote",
+      "mcp-public",
+      "mcp-registry",
+      "mcp-remote-oauth",
+      "mcp-saas",
+      "mcp-token",
+      "sandbox",
+      "server"
+    ],
+    "defaultVolumes": [
+      "agent_workspace_data",
+      "browser_data",
+      "browser_socket",
+      "coding_socket",
+      "mcp_browser_artifact_staging",
+      "mcp_browser_egress_socket",
+      "mcp_browser_socket",
+      "mcp_database_local_socket",
+      "mcp_database_socket",
+      "mcp_file_inputs",
+      "mcp_file_outputs",
+      "mcp_files_socket",
+      "mcp_hub_egress_socket",
+      "mcp_hub_remote_socket",
+      "mcp_memory",
+      "mcp_oauth_socket",
+      "mcp_public_socket",
+      "mcp_registry_socket",
+      "mcp_saas_socket",
+      "mcp_token_socket",
+      "sandbox_socket",
+      "sandbox_workspaces"
+    ]
+  },
+  "upstreams": [
+    {
+      "name": "Inspect AI",
+      "repository": "https://github.com/UKGovernmentBEIS/inspect_ai",
+      "tag": "0.3.260",
+      "commit": "3f294e61b823d6bad5fc16706fc5825ea980c8ee",
+      "license": "MIT"
+    },
+    {
+      "name": "MLflow",
+      "repository": "https://github.com/mlflow/mlflow",
+      "tag": "v3.15.1",
+      "commit": "9a1c0d9a9827acd23c7a215f0999e4b0f97e9870",
+      "license": "Apache-2.0"
+    }
+  ],
+  "lockedFiles": {
+    "control/requirements.lock": {
+      "sizeBytes": 185467,
+      "sha256": "3fe3300729847d8e26d47fb3293f1834bda53349cf3aaf169db479fc50def9d2"
+    },
+    "worker/requirements.lock": {
+      "sizeBytes": 166181,
+      "sha256": "7e1929124d79dcf618fd1e05aa0580b473365931bc47390db973d05293263863"
+    },
+    "requirements-test.lock": {
+      "sizeBytes": 2758,
+      "sha256": "556bfbf5e71d7e76bc4d74dbb56e332d1ffa674d7d9c875416b45a74a5605b0d"
+    },
+    "worker/fixtures/offline_tasks.py": {
+      "sizeBytes": 1603,
+      "sha256": "c6095d8c3647eafc5287ed73cf976540c5d0de9b1da8810f12198bd779ed47ae"
+    },
+    "control/Dockerfile": {
+      "sizeBytes": 1858,
+      "sha256": "372bf9e02ea9a73f521026776bb12704f43e7ffeba938ed540806891c1db6bf5"
+    },
+    "worker/Dockerfile": {
+      "sizeBytes": 1736,
+      "sha256": "d96c0b01c7086dab159b631aaaa91b183feb6b8bf79f784a9382562cd2e14253"
+    },
+    "scripts/client-proof.Dockerfile": {
+      "sizeBytes": 362,
+      "sha256": "ca8ad9be55ddc67a3ef2a563e38abf354fc40b930c28d08824ee6868c6f4c34d"
+    }
+  },
+  "licenseAudit": {
+    "status": "passed",
+    "policy": "no unknown or denied runtime licenses",
+    "policySha256": "eb5e2caf6007d5c2a5fb03f3f1f17b7b672bd4b025f4abc81c1cf81ccf66b8ae",
+    "inventory": "runtime/sbom",
+    "control": {
+      "packageCount": 91,
+      "inventorySha256": "c8cfe590e8c3f33b2149fe52e33cfad53a1cd60fba823e66a873e4b173642993"
+    },
+    "worker": {
+      "packageCount": 83,
+      "inventorySha256": "7272d758ce92230ed35bf9a4030a9458a8e84cee061ce5507dae5e3fe452b08e"
+    }
+  }
+}
