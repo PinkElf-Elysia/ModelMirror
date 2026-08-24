@@ -47,12 +47,37 @@ class MetaAgentPlan(BaseModel):
     sub_tasks: list[MetaAgentSubTask] = Field(default_factory=list, max_length=8)
 
 
+class ProviderRouteCallReceipt(BaseModel):
+    call_sequence: int = Field(ge=1)
+    model_id: str
+    actual_model: str | None = None
+    dispatched: bool = True
+    status: Literal["passed", "failed", "uncertain", "cancelled"]
+    error_code: str | None = None
+    prompt_tokens: int | None = Field(default=None, ge=0)
+    completion_tokens: int | None = Field(default=None, ge=0)
+    total_tokens: int | None = Field(default=None, ge=0)
+
+
+class ProviderRouteReceiptSummary(BaseModel):
+    contract_version: str
+    entry_id: Literal["meta_agent"] = "meta_agent"
+    routing_mode: Literal["managed_required"] = "managed_required"
+    run_reference: str
+    status: Literal["running", "passed", "failed", "uncertain", "cancelled"]
+    call_count: int = Field(ge=0)
+    reason_codes: list[str] = Field(default_factory=list, max_length=20)
+    calls: list[ProviderRouteCallReceipt] = Field(default_factory=list, max_length=8)
+
+
 class MetaAgentGenerateResponse(BaseModel):
     goal: str
     plan: MetaAgentPlan
     workflow: dict[str, Any]
     warnings: list[str] = Field(default_factory=list)
     validation: dict[str, Any]
+    run_id: str | None = None
+    provider_route_receipts: ProviderRouteReceiptSummary | None = None
 
 
 class MetaPlannerScope(BaseModel):
@@ -310,3 +335,5 @@ class MetaPlannerGenerateResponse(BaseModel):
     repair_used: bool = False
     capability_snapshot_version: str
     capability_snapshot_hash: str
+    run_id: str | None = None
+    provider_route_receipts: ProviderRouteReceiptSummary | None = None

@@ -100,7 +100,7 @@ ENTRY_ALLOWED_SHAPES: dict[
 # R6A deliberately provides only the control-plane foundation. Each later data-plane
 # PR adds its entry here after its dedicated tests and real smoke are complete.
 DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
-    {"agent_shadow"}
+    {"agent_shadow", "meta_agent"}
 )
 
 

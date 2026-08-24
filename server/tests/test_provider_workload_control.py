@@ -1096,7 +1096,7 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
         )
         assert saved.status_code == 200
         assert saved.json()["revision"] == 1
-        assert saved.json()["data_plane_integrated"] is False
+        assert saved.json()["data_plane_integrated"] is True
         activation = await client.post(
             "/api/router/workload-control/policies/meta_agent/activate",
             headers={"X-ModelMirror-CSRF": csrf},

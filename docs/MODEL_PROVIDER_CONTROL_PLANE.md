@@ -226,7 +226,11 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   `agent_shadow + chat_tools` Binding；Worker `model.request` ID 是不可重放的逻辑调用键。
   Flag 关闭或 Policy 为 `legacy` 时保留原 Shadow 网关；已激活策略失效后保持
   `degraded_required` 并失败关闭。
-- 后续 R6C—R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
+- R6C 接入 `/api/meta-agent/generate-workflow` 与
+  `/api/meta-agent/generate-xpert-candidate`。两者使用 `chat_json_object` 精确 Binding；规划、
+  蓝图和最多一次修复分别记录调用序号。派发后不重试、不换 IP、连接、模型或 legacy；响应
+  只加法返回运行引用、模型、调用序号、状态和可用 usage，不返回内部连接或生成正文。
+- 后续 R6D—R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
   只能存在于 Python 主进程内存，Worker、工具执行器和浏览器不得收到 Key、URL 或连接细节。
 - Receipt 清理命令现在同时检查 R5 Chat 与 R6 Workload 记录，仍默认 dry-run；`--apply`
   才删除超过保留期的已完成运行、尝试或调用。

@@ -83,6 +83,7 @@ Use only IDs and middleware listed in the authorized capability snapshot.
 Compile the task DAG into explicit typed IR nodes, control edges, resource bindings,
 middleware bindings, and one explicit final output. A node may cover multiple tasks
 and a task may require multiple nodes. Bindings must target a workflow_agent node ref.
+Respect the supplied typed_ir_constraints, including its workflow-agent node limit.
 Never invent credentials, tools, resource IDs, node kinds, versions, or private content.
 """
 
@@ -91,6 +92,7 @@ REPAIR_SYSTEM_PROMPT = """\
 You repair a ModelMirror Meta Planner blueprint. Return one strict JSON object only.
 Make the smallest changes required by the structured validation issues. Do not add
 capabilities outside the supplied authorized snapshot. This is the only repair pass.
+Return the complete blueprint and obey every supplied typed_ir_constraint.
 """
 
 
@@ -122,10 +124,71 @@ def _safe_identifier(value: str, fallback: str) -> str:
     return normalized[:120]
 
 
+def _typed_ir_prompt_constraints(
+    request: MetaPlannerGenerateRequest,
+    plan: MetaPlannerTaskPlan,
+) -> dict[str, Any]:
+    children: dict[str, list[str]] = defaultdict(list)
+    indegree = {task.task_id: len(task.depends_on) for task in plan.tasks}
+    for task in plan.tasks:
+        for dependency in task.depends_on:
+            children[dependency].append(task.task_id)
+    queue = deque(sorted(task_id for task_id, count in indegree.items() if count == 0))
+    topological_order: list[str] = []
+    while queue:
+        current = queue.popleft()
+        topological_order.append(current)
+        for child in sorted(children[current]):
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                queue.append(child)
+
+    suggested_groups: list[list[str]] = []
+    can_group_by_order = all(
+        not task.agent_id and not task.method_skill_ids for task in plan.tasks
+    )
+    if can_group_by_order and topological_order:
+        group_count = min(request.max_agents, len(topological_order))
+        for index in range(group_count):
+            start = index * len(topological_order) // group_count
+            end = (index + 1) * len(topological_order) // group_count
+            suggested_groups.append(topological_order[start:end])
+
+    return {
+        "max_workflow_agent_nodes": request.max_agents,
+        "required_task_ids": [task.task_id for task in plan.tasks],
+        "topological_task_order": topological_order,
+        "suggested_task_groups": suggested_groups,
+        "task_dependencies": {
+            task.task_id: list(task.depends_on) for task in plan.tasks
+        },
+        "task_agent_bindings": {
+            task.task_id: task.agent_id for task in plan.tasks
+        },
+        "authorized_agent_ids": list(request.scope.agent_ids),
+        "workflow_agent_config_allowed_fields": list(
+            MetaPlannerWorkflowAgentConfig.model_fields
+        ),
+        "workflow_agent_config_forbidden_fields": ["agent_id"],
+        "rules": [
+            "Every required task_id must appear in at least one node.task_ids entry.",
+            "When the plan has more tasks than the node limit, group compatible task_ids into shared workflow_agent nodes.",
+            "Use suggested_task_groups when present unless a stricter task binding requires separate nodes.",
+            "Represent every dependency between tasks assigned to different nodes with a control edge.",
+            "Control edges must follow topological_task_order and must never form a cycle.",
+            "Node inputs may reference only user_input, conversation_history, or outputs from ancestor nodes.",
+            "Set source_agent_id only to the exact non-null task_agent_binding; otherwise omit it.",
+            "workflow_agent config accepts only workflow_agent_config_allowed_fields; agent_id belongs to the task plan and must not appear in node.config.",
+            "Return a complete typed blueprint, not a patch or partial fragment.",
+        ],
+    }
+
+
 def validate_task_plan(
     plan: MetaPlannerTaskPlan,
     *,
     max_agents: int,
+    authorized_agent_ids: set[str] | None = None,
 ) -> list[str]:
     issues: list[str] = []
     interaction_ids = [
@@ -140,6 +203,21 @@ def validate_task_plan(
     if len(task_ids) != len(set(task_ids)):
         issues.append("Task IDs must be unique.")
     known = set(task_ids)
+    assigned_agent_ids = {
+        task.agent_id for task in plan.tasks if task.agent_id is not None
+    }
+    if len(assigned_agent_ids) > max_agents:
+        issues.append(
+            f"Task plan assigns {len(assigned_agent_ids)} experts; "
+            f"max_agents={max_agents}."
+        )
+    if authorized_agent_ids is not None:
+        for task in plan.tasks:
+            if task.agent_id and task.agent_id not in authorized_agent_ids:
+                issues.append(
+                    f"Task {task.task_id} binds unauthorized expert "
+                    f"{task.agent_id}."
+                )
     graph: dict[str, list[str]] = {task_id: [] for task_id in task_ids}
     indegree = {task_id: 0 for task_id in task_ids}
     for task in plan.tasks:
@@ -372,7 +450,11 @@ def validate_blueprint_authorization(
     blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2,
     snapshot: MetaPlannerCapabilitySnapshot,
 ) -> list[str]:
-    issues = validate_task_plan(plan, max_agents=request.max_agents)
+    issues = validate_task_plan(
+        plan,
+        max_agents=request.max_agents,
+        authorized_agent_ids=set(request.scope.agent_ids),
+    )
     try:
         typed = _typed_blueprint(plan, blueprint)
     except (KeyError, ValueError, ValidationError) as exc:
@@ -1364,6 +1446,43 @@ def _validation_report(
     }
 
 
+def _authoritative_validation_report(
+    validation: dict[str, Any],
+    proposal: AuthoringProposal,
+) -> dict[str, Any]:
+    """Combine local checks with the persisted Proposal validation verdict."""
+
+    proposal_validation = (
+        proposal.validation if isinstance(proposal.validation, dict) else {}
+    )
+    authoring_valid = proposal_validation.get("valid") is True
+    raw_issues = proposal_validation.get("issues")
+    authoring_issues = (
+        [dict(issue) for issue in raw_issues[:20] if isinstance(issue, dict)]
+        if isinstance(raw_issues, list)
+        else []
+    )
+    stages = [
+        *list(validation.get("stages") or []),
+        {
+            "id": "authoring_proposal",
+            "valid": authoring_valid,
+            "issues": authoring_issues,
+        },
+    ]
+    return {
+        **validation,
+        "valid": validation.get("valid") is True and authoring_valid,
+        "stages": stages,
+        "issues": [
+            issue
+            for stage in stages
+            for issue in stage.get("issues", [])
+            if issue.get("severity", "error") == "error"
+        ],
+    }
+
+
 class MetaPlannerV2Service:
     def __init__(
         self,
@@ -1416,7 +1535,11 @@ class MetaPlannerV2Service:
             plan = MetaPlannerTaskPlan.model_validate(_json_payload(raw_plan))
         except Exception as exc:
             raise ValueError(_safe_exception_message(exc)) from exc
-        plan_issues = validate_task_plan(plan, max_agents=request.max_agents)
+        plan_issues = validate_task_plan(
+            plan,
+            max_agents=request.max_agents,
+            authorized_agent_ids=set(request.scope.agent_ids),
+        )
         if plan_issues:
             raise ValueError("; ".join(plan_issues))
 
@@ -1545,6 +1668,7 @@ class MetaPlannerV2Service:
             proposal.proposal_id,
             revision=proposal.revision,
         )
+        validation = _authoritative_validation_report(validation, proposal)
         return self._response(
             request=request,
             plan=plan,
@@ -1582,7 +1706,11 @@ class MetaPlannerV2Service:
                     + ", ".join(unsupported)
                     + "."
                 )
-        plan_issues = validate_task_plan(plan, max_agents=request.max_agents)
+        plan_issues = validate_task_plan(
+            plan,
+            max_agents=request.max_agents,
+            authorized_agent_ids=set(request.scope.agent_ids),
+        )
         blueprint_issues = validate_blueprint_authorization(
             request, plan, blueprint, snapshot
         )
@@ -1721,7 +1849,14 @@ class MetaPlannerV2Service:
                 "mode": request.mode,
                 "max_tasks": 8,
                 "max_workflow_agents": request.max_agents,
+                "authorized_agent_ids": list(request.scope.agent_ids),
                 "required_schema": required_schema,
+                "rules": [
+                    "agent_id may only use an exact value from authorized_agent_ids.",
+                    "When authorized_agent_ids is empty, omit agent_id or set it to null for every task.",
+                    "Never invent descriptive role names as agent_id values.",
+                    "Use no more than max_workflow_agents distinct non-null agent_id values.",
+                ],
             },
             ensure_ascii=False,
         )
@@ -1751,6 +1886,7 @@ class MetaPlannerV2Service:
                 "capability_snapshot": snapshot.model_dump(mode="json"),
                 "target_xpert": target_summary,
                 "required_schema": MetaPlannerTypedBlueprintV2.model_json_schema(),
+                "typed_ir_constraints": _typed_ir_prompt_constraints(request, plan),
                 "rules": [
                     "Use only executable node kinds marked compilable in the snapshot.",
                     "A workflow_agent may cover multiple task_ids and a task may use multiple nodes.",
@@ -1777,6 +1913,7 @@ class MetaPlannerV2Service:
             {
                 "goal": request.goal,
                 "task_plan": plan.model_dump(mode="json"),
+                "default_agent_model_id": request.default_agent_model_id,
                 "authorized_scope": request.scope.model_dump(mode="json"),
                 "capability_snapshot_hash": snapshot.snapshot_hash,
                 "available_resources": {
@@ -1790,6 +1927,7 @@ class MetaPlannerV2Service:
                 "invalid_blueprint": raw_blueprint[:30_000],
                 "validation_issues": issues[:30],
                 "required_schema": MetaPlannerTypedBlueprintV2.model_json_schema(),
+                "typed_ir_constraints": _typed_ir_prompt_constraints(request, plan),
             },
             ensure_ascii=False,
         )
