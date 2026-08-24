@@ -1,0 +1,4 @@
+参考主题：Entity/Component/Game Master 与行动裁决。
+可借鉴：把角色认知组件与全局裁决拆开；行动只形成提案，由 Game Master 产生可审计事件结果。
+不可照搬：其 Python/模型驱动仿真不成为游戏帧循环，也不直接拥有 Godot Runtime 状态。
+R18 约束：NPC 输出必须先落为受限意图，再由权威事件合同裁决。

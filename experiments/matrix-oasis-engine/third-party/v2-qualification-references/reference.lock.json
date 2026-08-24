@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "profile": "matrix-oasis.v2-qualification-references/1",
+  "runtimeDependency": false,
+  "trackedCandidateSource": false,
+  "trackedQualificationEvidence": false,
+  "r13ReusedReferences": {
+    "lockPath": "third-party/spatial-layout-references/reference.lock.json",
+    "lockSha256": "ca28a7888ad092c6a6a88c080c2ba4a4afd28520c44319026311fa452ba66705",
+    "names": ["Godogen", "GameCraft-Bench"]
+  },
+  "licenseText": {
+    "mitPath": "third-party/v2-qualification-references/LICENSES/Beehave-MIT.txt",
+    "mitSha256": "b7b01f5f34016e8be5ba15ec3cbf88d64de580727647e6789986f11686e7a299",
+    "apachePath": "third-party/spatial-layout-references/LICENSES/Apache-2.0.txt",
+    "apacheSha256": "527adf9d4c760f7367c2aeffed6a89afba8ba40ea1b0efbc8f56496ad30ea9cf"
+  },
+  "executableCandidates": [
+    {
+      "id": "beehave",
+      "lane": "godot-behavior-tree",
+      "repository": "https://github.com/bitbrain/beehave",
+      "tag": "v2.9.3",
+      "commit": "773a5f6dd9b3433cdb8735ab35e9043d4cd60674",
+      "gitTreeSha1": "50bc821d8b0bd8581b0876307ec976f892f06327",
+      "treeListSha256": "ccc41568ba57217f0077c6ebb4262eaf6e849c3ade939bd047462f564bb428de",
+      "license": "MIT",
+      "upstreamLicense": {"path":"LICENSE","gitBlobSha1":"caabbff9de9159885450a88d83a03291c1f240ba","byteLength":1065,"sha256":"b7b01f5f34016e8be5ba15ec3cbf88d64de580727647e6789986f11686e7a299"},
+      "sourceArchive": {"kind":"git-archive-tar","byteLength":368640,"sha256":"4293fa89eb2bf958a7874a9267d8f7266cf59e9e424e39e78f2dd0e99043431c"},
+      "keyFiles": [
+        {"path":"project.godot","gitBlobSha1":"b29313c6019d3a825c9f87aa9484ebe6261bc359","byteLength":4287,"sha256":"bc11901e6699593d8956014d398e476337e5e87248f895733b0a7db81d0f08eb"},
+        {"path":"addons/beehave/plugin.cfg","gitBlobSha1":"5355b35fd61150a87e6f57a3fba4d0a3b5df2674","byteLength":134,"sha256":"750f2fa27e8c5d621b61651215d121f6798409638bb343c7547663cff29c0123"}
+      ],
+      "dependencySurface": {"packageManagers":[],"lockfiles":[],"lifecycleScripts":false,"nativeBinaryRequired":false,"containerRequired":false,"databaseRequired":false,"defaultNetwork":"none-known"},
+      "notePath": "third-party/v2-qualification-references/beehave.reference.txt",
+      "noteSha256": "99e3b30aaeb3f0ec89c5cbea91bc236802d36557b18c1207f3079c51fbb3f41c"
+    },
+    {
+      "id": "limboai",
+      "lane": "godot-behavior-tree",
+      "repository": "https://github.com/limbonaut/limboai",
+      "tag": "v1.8.1",
+      "commit": "e45e60e976dafab7f2c15cc341ae366e4cf3352b",
+      "gitTreeSha1": "c206e59fd2be90b228947d90e62e6821e7112f07",
+      "treeListSha256": "6c61dfd61004c9defd9d70e33edfb846784691e14460d06cea640cd2504de05a",
+      "license": "MIT",
+      "upstreamLicense": {"path":"LICENSE.md","gitBlobSha1":"07c690fc328b090fe13d59a1284ce27b1641eaf2","byteLength":1110,"sha256":"beed25d187c191d7fc30cc9eed7e040571c86bfedc23bac06ccad05a99ff9b56"},
+      "sourceArchive": {"kind":"git-archive-tar","byteLength":10792960,"sha256":"c18cd0f6c3f5a064e40ad1a6d7c41f1d1d23ba509458af5c12a363da1c506da9"},
+      "keyFiles": [
+        {"path":"SConstruct","gitBlobSha1":"d7d16092d051249e4650828564aea4c380073c6f","byteLength":5451,"sha256":"2e53ecf59a02a55f3b38b30845de46635a38cd9bbf37cc08fcdd0d0d6ec14d80"},
+        {"path":"gdextension/limboai.gdextension","gitBlobSha1":"fe0e7c92f1c18fb07bceda55147816d6e2434fbe","byteLength":6741,"sha256":"159e7e29edaf5741714492529fc2693a442a1fcb6d99dd4a5e16e85b13d9fc0d"}
+      ],
+      "dependencySurface": {"packageManagers":["scons"],"lockfiles":[],"lifecycleScripts":false,"nativeBinaryRequired":true,"containerRequired":false,"databaseRequired":false,"defaultNetwork":"none-known"},
+      "notePath": "third-party/v2-qualification-references/limboai.reference.txt",
+      "noteSha256": "385c317df131cd09a97a19a219bcc20e54719962cb6facb2a493a3bfc8a387b0"
+    },
+    {
+      "id": "dialogue-manager",
+      "lane": "dialogue-presentation",
+      "repository": "https://github.com/nathanhoad/godot_dialogue_manager",
+      "tag": "v4.0.3",
+      "commit": "ffc0011a1a3ea38fc6e65729e5f987d07dac0c88",
+      "gitTreeSha1": "b1b655d1737d2ae5fb1d5a9b7f3c0b67a83e7ecf",
+      "treeListSha256": "4068944c5e6058c837546bad4e8cf34cd4a0409fb4c0e3085d5da87ac021633f",
+      "license": "MIT",
+      "upstreamLicense": {"path":"LICENSE","gitBlobSha1":"41671396f3920d148a81b93c6866a14982315815","byteLength":1132,"sha256":"273db057878fab205a1938f8a688fc2a89c87e7cc2b47e7cf897ec397d2a5bde"},
+      "sourceArchive": {"kind":"git-archive-tar","byteLength":901120,"sha256":"1fef08e3bb8433814a400422e664b8e075390322a467bc2e014ac53ffa89fe2c"},
+      "keyFiles": [
+        {"path":"project.godot","gitBlobSha1":"629026aaa6e363a81db3fc4c9176dd7e55acd46a","byteLength":2930,"sha256":"f82e15361ac10b531761ab372926d12f43fa8fea782c867094ff38623b0a5554"},
+        {"path":"addons/dialogue_manager/plugin.cfg","gitBlobSha1":"5f4a57bb869550c516501d37ecf9919631ad59ca","byteLength":148,"sha256":"a91663d1967dfb4b0254fdfae10d3cc5eb7d2e57eeecf7ee890d443fa09795fa"}
+      ],
+      "dependencySurface": {"packageManagers":[],"lockfiles":[],"lifecycleScripts":false,"nativeBinaryRequired":false,"containerRequired":false,"databaseRequired":false,"defaultNetwork":"none-known","declaredGodotFeatures":["4.7","C#"]},
+      "notePath": "third-party/v2-qualification-references/dialogue-manager.reference.txt",
+      "noteSha256": "649c12ff4b07f88f9a29cff9bcfc563afe0e4b4316675dfdb35a653d353932d6"
+    },
+    {
+      "id": "mem0",
+      "lane": "memory-adapter",
+      "repository": "https://github.com/mem0ai/mem0",
+      "tag": "ts-v3.1.6",
+      "commit": "c427a453a89c5a3fee73cdb2e4c4df6a651e1692",
+      "gitTreeSha1": "a5c7228ce2a59c2391b4e0e22dfe7463bff8c4f9",
+      "treeListSha256": "775d9658a0c60045c8b114f062df9e18be53e9c89e3361a539bcf4f9595f9c81",
+      "license": "Apache-2.0",
+      "upstreamLicense": {"path":"LICENSE","gitBlobSha1":"d20d5102c3cf97ecbee54afd65893de4a11d26fe","byteLength":11550,"sha256":"bdc813b8cc3d9cbd6b26024eacc677cba327eeb6e598e02cc291b0b63ca5b05e"},
+      "sourceArchive": {"kind":"git-archive-tar","byteLength":35891200,"sha256":"fcf05724357281de41c3a20ae16c892499b2ae5457f3b09abcbca9e17ac0e84d"},
+      "keyFiles": [
+        {"path":"mem0-ts/package.json","gitBlobSha1":"90ebebec300c0efd823fe88cfba139eee460885c","byteLength":8301,"sha256":"96205caa4d99a9b56c4913976e27259542e06ff37b39b5d62079fccb6da3cdbb"},
+        {"path":"mem0-ts/pnpm-lock.yaml","gitBlobSha1":"d0ed3d2bbb8362f2a5ab9ef049c907a22b97b97d","byteLength":353863,"sha256":"1adadb0ac21e4c7ce5e29bb3b8bad63d29aec38c40111aeb3e21407287e03c00"}
+      ],
+      "dependencySurface": {"packageManagers":["pnpm"],"lockfiles":["mem0-ts/pnpm-lock.yaml"],"lifecycleScripts":false,"nativeBinaryRequired":"optional-peer","containerRequired":false,"databaseRequired":"adapter-dependent","defaultNetwork":"provider-dependent"},
+      "notePath": "third-party/v2-qualification-references/mem0.reference.txt",
+      "noteSha256": "5d26a32c0ccded4022b150f2c8f1429cf2cbd7a8eca3dfa0e3254eb22e7d80d1"
+    },
+    {
+      "id": "letta",
+      "lane": "memory-adapter",
+      "repository": "https://github.com/letta-ai/letta",
+      "tag": "0.16.8",
+      "commit": "1131535716e8a31c9a437f8695e25ac98f203a24",
+      "gitTreeSha1": "8d53781fa7c433a2071b578fcbae67b68063fa10",
+      "treeListSha256": "d123004f2fd193789ce2096b7c83a76f1ac8d59fd072f6be3885acde0e03f24e",
+      "license": "Apache-2.0",
+      "upstreamLicense": {"path":"LICENSE","gitBlobSha1":"f75c3422907f55d71685ae59afdc28498cde5a40","byteLength":10949,"sha256":"27554527a23e7c70bea4b180d9e016b2e69e4f93c9bb303caf0c5effd7b46920"},
+      "sourceArchive": {"kind":"git-archive-tar","byteLength":24197120,"sha256":"b588ed95bd6a4d8e185acd99635b27b8adf9b7616f02f702e692518d8a902aee"},
+      "keyFiles": [
+        {"path":"pyproject.toml","gitBlobSha1":"30469e3014c050b0851201a74f7ff37017745760","byteLength":5639,"sha256":"4e775428e7e6530791f4e5906a25177b0bdb0210c74c28556e0621353982794a"},
+        {"path":"uv.lock","gitBlobSha1":"2c02da3b6ff444823bbb004584b9d88fba5c50d3","byteLength":935326,"sha256":"84b5db267028fa657632215120b028e912aca1dd1646166aa4be481cc5dff7ac"}
+      ],
+      "dependencySurface": {"packageManagers":["uv"],"lockfiles":["uv.lock"],"lifecycleScripts":false,"nativeBinaryRequired":"transitive","containerRequired":"not-for-source-fixture","databaseRequired":true,"defaultNetwork":"multiple-provider-integrations"},
+      "notePath": "third-party/v2-qualification-references/letta.reference.txt",
+      "noteSha256": "14f347294c7cebcd18147aad52864b4a8e6b57a68930929dfa495287a4bf18dd"
+    }
+  ],
+  "architectureReferences": [
+    {
+      "id":"worldx","repository":"https://github.com/YGYOOO/WorldX","commit":"d2fafb5522054d9d6fb94a48941761623a078986","gitTreeSha1":"2e99340d815c3a08b5ac1f3fc3f5f8b6583be58e","license":"MIT","archive":{"url":"https://api.github.com/repos/YGYOOO/WorldX/tarball/d2fafb5522054d9d6fb94a48941761623a078986","byteLength":55108409,"sha256":"4561986f0e18cc025fd9454d9697b518baf61f50ec2e66fa12938559a5bec04d"},"upstreamLicense":{"path":"LICENSE","gitBlobSha1":"ee28034da280f818b90bbf6730f2d48896790430","byteLength":1076,"sha256":"373cb0e64a18d72eb8c461f932ba3c584e45fd8beb0df674b4df6b8e6e685fe8"},"upstreamFiles":[{"path":"client/src/systems/EventQueue.ts","gitBlobSha1":"de00e54dd8f9e63fbe5bc7a4360cf56a7d281d7d","byteLength":1021,"sha256":"7ab92f5437dd439a3b83e0cda3ba63f98415b187d22b2ce255bea4f1809bde9c"},{"path":"client/src/scenes/WorldScene.ts","gitBlobSha1":"02c99fa72ed38d00050b994186b269eaec3db518","byteLength":34098,"sha256":"1497415e73eaafbfafbdf36cd4e6f5e9b87685e65c884c61a4a30e1287c5b571"}],"notePath":"third-party/v2-qualification-references/worldx.reference.txt","noteSha256":"8cdf02f1759c0fd35c4425874f680a81d1987479a63bd429edad5bbd7422af2f"
+    },
+    {
+      "id":"concordia","repository":"https://github.com/google-deepmind/concordia","commit":"44904ecb3ff69a2874aab2b6a1b147db13f745b2","gitTreeSha1":"3323f49851fb2cc3110a4729c2c3a5b9aebb3e3c","license":"Apache-2.0","archive":{"url":"https://api.github.com/repos/google-deepmind/concordia/tarball/44904ecb3ff69a2874aab2b6a1b147db13f745b2","byteLength":1104665,"sha256":"8417253236a4d01c1a05ba14a64e3fb47569bd1d2a27f815f13da8b5d9a69776"},"upstreamLicense":{"path":"LICENSE","gitBlobSha1":"6b0b1270ff0ca8f03867efcd09ba6ddb6392b1e1","byteLength":11359,"sha256":"8c6db340475136df3c1201d458fa5755698eace76e510471ecc9d857d6083dac"},"upstreamFiles":[{"path":"concordia/components/game_master/event_resolution.py","gitBlobSha1":"038f6eada5820684ac928f0cb73743fc2dcfb01b","byteLength":50232,"sha256":"1833e3b8c5d73f6166ae52936df530d865ae31e1ca94f34a47aa744b24b52bd9"},{"path":"concordia/agents/entity_agent.py","gitBlobSha1":"0b98187f1cf25dee08f8a2e86846df993abf5870","byteLength":8968,"sha256":"36a795f1f99b34fedaa9af3fe6103b712e27c11ac6318c9e8f754ee5315ee8c8"}],"notePath":"third-party/v2-qualification-references/concordia.reference.txt","noteSha256":"fc656808b6328de39bdf64b365bd6cd85b5e0b43dd06f2b586ea00206dd713f2"
+    },
+    {
+      "id":"ai-town","repository":"https://github.com/a16z-infra/ai-town","commit":"7b242334bfbfef02f7718bded120d431e8f307df","gitTreeSha1":"0f80a3adf652dfe7d4eb043b153ab3f093afe219","license":"MIT","archive":{"url":"https://api.github.com/repos/a16z-infra/ai-town/tarball/7b242334bfbfef02f7718bded120d431e8f307df","byteLength":13927456,"sha256":"606aeacac9ad3f8f07e7f709dfb147590926433469b18031e9a9d3969d82cb5e"},"upstreamLicense":{"path":"LICENSE","gitBlobSha1":"d13217f9a98b3be175854a02b84cfaab2de57511","byteLength":1067,"sha256":"9930be850173b81feab38afc429f798f0bb79aa50bb26138e9713d8767bec177"},"upstreamFiles":[{"path":"convex/engine/abstractGame.ts","gitBlobSha1":"0ff3662d30bb0603e602f2d69c58d275f63881db","byteLength":5955,"sha256":"9e115dacfffc46c03b2134bf20f7f21b64cff933fa74e2777881626f6669a9c1"},{"path":"convex/aiTown/world.ts","gitBlobSha1":"cbff87319f062fe90f8be7f9f1612dfea72dca60","byteLength":2260,"sha256":"3a29da734190137e1178223607029ad174242f8bf31b2129bdf37d92bf1e089f"}],"notePath":"third-party/v2-qualification-references/ai-town.reference.txt","noteSha256":"aee36de25160603290eeb1d64f839d874da23e2f116910b9538ab4a95236582a"
+    },
+    {
+      "id":"generative-agents","repository":"https://github.com/joonspk-research/generative_agents","commit":"fe05a71d3e4ed7d10bf68aa4eda6dd995ec070f4","gitTreeSha1":"549d23994ee499986f5f3b2f33622ff84a01c970","license":"Apache-2.0","archive":{"url":"https://api.github.com/repos/joonspk-research/generative_agents/tarball/fe05a71d3e4ed7d10bf68aa4eda6dd995ec070f4","byteLength":145512930,"sha256":"f7ae62a7205418d85283b0c9b101a49513bf86fed8e94c42d485226aa17a25fd"},"upstreamLicense":{"path":"LICENSE","gitBlobSha1":"e0d8210e8009de93c35050c71db7af0d88c37660","byteLength":11335,"sha256":"171fd8201c63d379bccf5a770b26c6c535f33be98f541c02b5d069937070f32b"},"upstreamFiles":[{"path":"reverie/backend_server/persona/memory_structures/associative_memory.py","gitBlobSha1":"49c496d7f1a3345336b0ce72ccefa2b2635cff14","byteLength":10692,"sha256":"bf05caf83661c1f870a26f80d326c104500763e77a54eee05368e56bd7daa791"},{"path":"reverie/backend_server/persona/cognitive_modules/reflect.py","gitBlobSha1":"2daf2fd9a0b4fc8ee670a20294bc86e63db85117","byteLength":8569,"sha256":"5e2658a90f658ce4f42f6a7c3859fe47fd08925eb77c179a4c38e9233d1c205c"}],"notePath":"third-party/v2-qualification-references/generative-agents.reference.txt","noteSha256":"ffa482cbf3c86c8bc793bef6fca67219f7f3f3d3ee9c7c8ae0fb6d92935ede5b"
+    },
+    {
+      "id":"tinytroupe","repository":"https://github.com/microsoft/TinyTroupe","commit":"a6244b358a1fe1c71bf751f7ba0f8dfa368ec5a4","gitTreeSha1":"ba09d5781c1d7a1bdeb6e49437df130f98855ca7","license":"MIT","archive":{"url":"https://api.github.com/repos/microsoft/TinyTroupe/tarball/a6244b358a1fe1c71bf751f7ba0f8dfa368ec5a4","byteLength":96997307,"sha256":"f81914f2160f974e5b0130bc124dae65aa49112da36d932b492dc14a655b8583"},"upstreamLicense":{"path":"LICENSE","gitBlobSha1":"9e841e7a26e4eb057b24511e7b92d42b257a80e5","byteLength":1141,"sha256":"c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"},"upstreamFiles":[{"path":"tinytroupe/agent/memory.py","gitBlobSha1":"09535486c424d3ff4007a1443ea8d659735992cf","byteLength":46262,"sha256":"dae3e9a4e86a77ca0c5244a3fcd640e6eece9c997ca80d91414165952f95db38"},{"path":"tinytroupe/agent/tiny_person.py","gitBlobSha1":"909e7489bdaacdde534b63061850f099df014c95","byteLength":96879,"sha256":"25cc039899b9b7326bfe5b179399a9f4789ad560cbc93690e168d19c320b083b"}],"notePath":"third-party/v2-qualification-references/tinytroupe.reference.txt","noteSha256":"63cd0728d636aa6296df1b9d1e485c770fe3a208ee7a58b0ac52cb7dd3a822f8"
+    },
+    {
+      "id":"sotopia","repository":"https://github.com/sotopia-lab/sotopia","commit":"a0aaafb440e570e5e61b7c44a44e5e417c545383","gitTreeSha1":"9a3830df65379362eb81e0e568d751e950d90afb","license":"MIT","archive":{"url":"https://codeload.github.com/sotopia-lab/sotopia/tar.gz/a0aaafb440e570e5e61b7c44a44e5e417c545383","byteLength":1293691,"sha256":"54b4e55b6b6c9d122f715fffb905988874245904ae749d8ea353c591924cc144"},"upstreamLicense":{"path":"LICENSE","gitBlobSha1":"c034b89c27e73fbbc92605955db98c88567e1a99","byteLength":1064,"sha256":"6dd21159fa800241dbf31d4941e8979a7e54d495b45aaa116e3299a95324c06e"},"upstreamFiles":[{"path":"sotopia/envs/evaluators.py","gitBlobSha1":"d7d965569024e9c27b96a3428ecf0607b2c7fc8d","byteLength":14085,"sha256":"0e9af229b84e90fe8760d0f3dff3b9f41210a568511d1440e1f9172926a491ef"},{"path":"sotopia/agents/llm_agent.py","gitBlobSha1":"0e1c0e54f99173e89bec7d4deb97e5a8f931c8a2","byteLength":7513,"sha256":"77e498ae081d064d41bcb911513ffe013ebab4acdd3692b646b1bca3d6e0f29f"}],"notePath":"third-party/v2-qualification-references/sotopia.reference.txt","noteSha256":"36bac32501d726a967be29cd620b49ddec42eb96b68b5abd6cffae62e3dc2556"
+    },
+    {
+      "id":"graphiti","repository":"https://github.com/getzep/graphiti","commit":"993e081a6d7948a0d8851c12a5fbdbeb49fed862","gitTreeSha1":"b85b98eb8fb0d1c9f0c1f943be86c7d0c5a890ac","license":"Apache-2.0","archive":{"url":"https://codeload.github.com/getzep/graphiti/tar.gz/993e081a6d7948a0d8851c12a5fbdbeb49fed862","byteLength":6996547,"sha256":"ca3bb2cfe8492af339cb07a615cb22bc432d28df254ac740670a463f2cdf1afc"},"upstreamLicense":{"path":"LICENSE","gitBlobSha1":"5feb0d9d299a1107adfa8331306b13cc0eff2d78","byteLength":11325,"sha256":"2825300b20d7b951209835a4a331f29e24725a39d65168e4b831df53aa372650"},"upstreamFiles":[{"path":"graphiti_core/graphiti.py","gitBlobSha1":"7555a1f828c4b94970911876bfd257aaa4577d4c","byteLength":71892,"sha256":"7c65051a62982d8b510ebdbf37bae4d07020e74520e1f6d9bf8a0ffb26beeccb"}],"notePath":"third-party/v2-qualification-references/graphiti.reference.txt","noteSha256":"05696cd09f5b861dc35fd0484b2a9d72bac069c8110f409d9895630cd6c4d31c"
+    },
+    {
+      "id":"voyager","repository":"https://github.com/MineDojo/Voyager","commit":"55e45a880755d0c8c66ca7fb5fe7962ac8974f89","gitTreeSha1":"66d7d2d043c5da45e1f8174cf65f953a6a7254f8","license":"MIT","archive":{"url":"https://codeload.github.com/MineDojo/Voyager/tar.gz/55e45a880755d0c8c66ca7fb5fe7962ac8974f89","byteLength":3834580,"sha256":"45660c53bba03cc9db99e93ea44bd28c3f7216df6e01e71bf6663a955a65f8da"},"upstreamLicense":{"path":"LICENSE","gitBlobSha1":"c28174867076bccdcfd1104d62d7e1d52bb7e30b","byteLength":1070,"sha256":"2319d24336f653a0438af96fb57ccbabbfc9b8a0dd9ddbbfb9854701376adc01"},"upstreamFiles":[{"path":"voyager/agents/curriculum.py","gitBlobSha1":"769c409f48536384cb16f7fe612c927e599d0d7d","byteLength":20381,"sha256":"faf58ae09c3cdd3322ab05155cab6196a7eedaa940d7fc5bb9096c0a1bdc4503"}],"notePath":"third-party/v2-qualification-references/voyager.reference.txt","noteSha256":"e523f8750e1e096d0b59d2874631f76f4368795132ab630b5cf5aa5a6a5bc269"
+    }
+  ],
+  "animationFixtures": [
+    {
+      "id":"kenney-animated-characters-retro",
+      "sourcePage":"https://kenney.nl/assets/animated-characters-retro",
+      "expectedVersion":"1.0",
+      "downloadedArchiveReportedVersion":"1.1",
+      "license":"CC0-1.0",
+      "archive":{"url":"https://kenney.nl/media/pages/assets/animated-characters-retro/93305a3c49-1774772819/kenney_animated-characters-retro.zip","byteLength":706472,"sha256":"1d03f1fb001f3cf629425b69c898df58261a316616220ea25b58bd35298e6882"},
+      "upstreamLicense":{"path":"License.txt","byteLength":692,"sha256":"eaa916e20df30c26f18a752290f93ab0e5d95c3dd1057e6887d11aa4acc0e74b"},
+      "selectedFiles":[{"path":"Animations/idle.fbx","byteLength":608188,"sha256":"c8a24e0294376ee5a195c56752a13310e1c0b5f8588a4db50e094120e3e4cc74"},{"path":"Animations/run.fbx","byteLength":572732,"sha256":"e635461fc8dace85ec67a7f7941e949a7c3f108b51ae4d2da1557e6e01749df8"},{"path":"Model/characterMedium.fbx","byteLength":167212,"sha256":"18835fef534eede635b081ee7fe647d01a885550a591d2e6bf071010906167d8"},{"path":"Skins/humanMaleA.png","byteLength":35497,"sha256":"1590e08cea37f5aecbacabb40a57c176e389e9a95d5b2a4de00086604ef23e1c"}],
+      "availableAnimationClips":["idle","jump","run"],
+      "missingRequiredClips":["walk","turn"],
+      "sourceStatus":"deferred-version-and-clip-drift",
+      "notePath":"third-party/v2-qualification-references/kenney-animated-characters-retro.reference.txt",
+      "noteSha256":"7accf2e3d7c000d41b9a54bc0e6f0c596d541f07f07d76639043b707d8bbf479"
+    }
+  ],
+  "deferredAlternatives": [
+    {"id":"kaykit-animated-character","reasonCode":"R17_FIXED_ARCHIVE_HASH_REQUIRED"}
+  ]
+}
