@@ -450,7 +450,9 @@ export interface ProviderRouteReceipt {
   entry_id:
     | "meta_agent"
     | "workflow_interactive_llm"
-    | "workflow_deployment_llm";
+    | "workflow_deployment_llm"
+    | "workflow_interactive_agent"
+    | "workflow_deployment_agent";
   routing_mode: "managed_required";
   run_reference: string;
   status: "running" | "passed" | "failed" | "uncertain" | "cancelled";

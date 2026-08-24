@@ -218,6 +218,16 @@ Round 6D 将 Classic Workflow 的交互 `llm`、`parameter_extractor`、
 自动重放。Provider 错误在 Managed 模式失败关闭，不调用第二连接、第二 IP 或 legacy；专用
 多模态、RAG、Agent、Xpert 和 `/workflow-native` 仍不属于 R6D。
 
+Round 6E 进一步把 Classic Workflow 的 `agent` 与 `workflow_agent` 模型轮次接入独立的
+`workflow_interactive_agent` / `workflow_deployment_agent` Policy。直接回答与 ReAct 使用
+`chat_text`，原生 Function Calling 使用 `chat_tools`，结构化生成、修复和 LLM Tool Selector
+使用 `chat_json_object`；每个计划内模型轮次拥有单调调用序号。Managed `auto` 在首个 POST
+前根据当前精确 Binding 选择 Function Calling 或 ReAct，不再通过真实失败探测策略。已配置
+`retryOnFailure` 或 `fallbackModelId` 的节点会在派发前阻断；任一轮派发后不切换连接、模型、
+IP 或 legacy。HITL 审批和替换复用已保存输出，只有显式 revise 才创建新的模型轮次和稳定运行
+阶段。工具执行、权限、中间件和 Workflow 编排仍由现有 Runtime 负责；Published Xpert、RAG、
+多模态与 `/workflow-native` 仍未纳入 R6E。
+
 接入入口只允许 Python 主进程解析凭据和调用 Provider，Worker 与
 工具执行器继续只处理模型消息、Tool Call 和脱敏结果。
 

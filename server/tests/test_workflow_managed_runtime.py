@@ -2,20 +2,63 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.responses import StreamingResponse
 
 import server.main as main_module
-from server.model_router.workflow_gateway import ManagedWorkflowRoutingError
+from server.model_router.workflow_gateway import (
+    ManagedWorkflowAgentRun,
+    ManagedWorkflowRoutingError,
+)
+from server.xpert_runtime.agent_strategy.models import (
+    AgentModelTurn,
+    AgentToolCall,
+    AgentUsage,
+)
 from server.xpert_runtime.execution_store import WorkflowExecutionStore
+from server.xpert_runtime.approval_store import RuntimeApprovalStore
+from server.xpert_runtime.toolset import RuntimeTool, RuntimeToolResult
 
 
 MODEL_ID = "provider/workflow-model"
 
 
-class FakeManagedNodeRun:
+class FakeManagedNodeRun(ManagedWorkflowAgentRun):
+    @property
+    def entry_id(self) -> str:
+        return self._fake_entry_id
+
+    @entry_id.setter
+    def entry_id(self, value: str) -> None:
+        self._fake_entry_id = value
+
+    @property
+    def run_id(self) -> str:
+        return self._fake_run_id
+
+    @run_id.setter
+    def run_id(self, value: str) -> None:
+        self._fake_run_id = value
+
+    @property
+    def status(self) -> str:
+        return self._fake_status
+
+    @status.setter
+    def status(self, value: str) -> None:
+        self._fake_status = value
+
+    @property
+    def calls(self) -> list[Any]:
+        return self._fake_calls
+
+    @calls.setter
+    def calls(self, value: list[Any]) -> None:
+        self._fake_calls = value
+
     def __init__(self, entry_id: str) -> None:
         self.entry_id = entry_id
         self.run_id = "workrun_fake"
@@ -23,9 +66,20 @@ class FakeManagedNodeRun:
         self.calls: list[Any] = []
         self.invocations: list[dict[str, Any]] = []
         self.json_outputs: list[str] = []
+        self.agent_turns: list[AgentModelTurn] = []
 
     async def stream_text(self, **kwargs: Any):
+        kwargs.setdefault("call_sequence", len(self.invocations) + 1)
         self.invocations.append({"shape": "chat_text", **kwargs})
+        self.calls.append(
+            SimpleNamespace(
+                status="passed",
+                actual_model=kwargs["model_id"],
+                prompt_tokens=3,
+                completion_tokens=2,
+                total_tokens=5,
+            )
+        )
         yield "managed "
         yield "answer"
 
@@ -34,10 +88,57 @@ class FakeManagedNodeRun:
         return '{"categoryId":"category_2"}'
 
     async def complete_json_object(self, **kwargs: Any) -> str:
+        kwargs.setdefault("call_sequence", len(self.invocations) + 1)
         self.invocations.append({"shape": "chat_json_object", **kwargs})
+        self.calls.append(
+            SimpleNamespace(
+                status="passed",
+                actual_model=kwargs["model_id"],
+                prompt_tokens=3,
+                completion_tokens=2,
+                total_tokens=5,
+            )
+        )
         if self.json_outputs:
             return self.json_outputs.pop(0)
         return '{"order_id":"A-1"}'
+
+    def require_shape(self, _model_id: str, _execution_shape: str) -> None:
+        return None
+
+    def resolve_strategy(
+        self, *, requested_strategy: str, model_id: str, has_tools: bool
+    ) -> str:
+        del model_id
+        if requested_strategy == "react":
+            return "react"
+        return "function_calling" if has_tools else "react"
+
+    async def complete_text(self, **kwargs: Any) -> str:
+        turn = await self.complete(**kwargs)
+        return turn.content
+
+    async def complete(self, **kwargs: Any) -> AgentModelTurn:
+        kwargs.setdefault("call_sequence", len(self.invocations) + 1)
+        shape = "chat_tools" if kwargs.get("tools") is not None else "chat_text"
+        self.invocations.append({"shape": shape, **kwargs})
+        self.calls.append(
+            SimpleNamespace(
+                status="passed",
+                actual_model=kwargs["model_id"],
+                prompt_tokens=3,
+                completion_tokens=2,
+                total_tokens=5,
+            )
+        )
+        if self.agent_turns:
+            return self.agent_turns.pop(0)
+        return AgentModelTurn(
+            content="managed answer",
+            finish_reason="stop",
+            usage=AgentUsage(prompt_tokens=3, completion_tokens=2, total_tokens=5),
+            raw={"model": kwargs["model_id"]},
+        )
 
     def finish(self, status: str, *, reason_code: str | None = None) -> None:
         self.status = status
@@ -74,6 +175,8 @@ class FakeManagedNodeRun:
 
 class FakeManagedWorkflowGateway:
     instances: list[FakeManagedWorkflowGateway] = []
+    agent_mode = "legacy"
+    agent_turns: list[AgentModelTurn] = []
 
     def __init__(self) -> None:
         self.started: list[dict[str, str]] = []
@@ -92,6 +195,13 @@ class FakeManagedWorkflowGateway:
         }.get(str(source_kind or ""))
 
     @staticmethod
+    def agent_entry_id(source_kind: str | None) -> str | None:
+        return {
+            "workflow_classic": "workflow_interactive_agent",
+            "workflow_deployment": "workflow_deployment_agent",
+        }.get(str(source_kind or ""))
+
+    @staticmethod
     def blocked_receipt(entry_id: str, reason_code: str) -> dict[str, Any]:
         return {
             "contract_version": "modelmirror-provider-workload-routing-v1",
@@ -107,11 +217,23 @@ class FakeManagedWorkflowGateway:
     def routing_mode(self, source_kind: str | None) -> str:
         return "managed_required" if self.entry_id(source_kind) else "legacy"
 
+    def agent_routing_mode(self, source_kind: str | None) -> str:
+        return self.agent_mode if self.agent_entry_id(source_kind) else "legacy"
+
     def start_node_run(self, **kwargs: str) -> FakeManagedNodeRun:
         self.started.append(dict(kwargs))
         entry_id = self.entry_id(kwargs["source_kind"])
         assert entry_id is not None
         run = FakeManagedNodeRun(entry_id)
+        self.runs.append(run)
+        return run
+
+    def start_agent_run(self, **kwargs: str) -> FakeManagedNodeRun:
+        self.started.append(dict(kwargs))
+        entry_id = self.agent_entry_id(kwargs["source_kind"])
+        assert entry_id is not None
+        run = FakeManagedNodeRun(entry_id)
+        run.agent_turns = list(self.agent_turns)
         self.runs.append(run)
         return run
 
@@ -150,6 +272,8 @@ def _isolated_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     FakeManagedWorkflowGateway.instances = []
+    FakeManagedWorkflowGateway.agent_mode = "legacy"
+    FakeManagedWorkflowGateway.agent_turns = []
     monkeypatch.setattr(
         main_module, "ManagedWorkflowGateway", FakeManagedWorkflowGateway
     )
@@ -568,6 +692,744 @@ async def test_deployment_binding_uses_stable_execution_id() -> None:
             "node_id": "llm",
         }
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("node_kind", ["agent", "workflow_agent"])
+async def test_managed_agent_nodes_do_not_read_legacy_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+    node_kind: str,
+) -> None:
+    FakeManagedWorkflowGateway.agent_mode = "managed_required"
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_ENABLED", True)
+
+    def legacy_must_not_run(*_args: Any, **_kwargs: Any):
+        raise AssertionError("legacy Agent gateway must not run")
+
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", legacy_must_not_run)
+    monkeypatch.setattr(main_module, "stream_workflow_llm_text", legacy_must_not_run)
+    monkeypatch.setattr(main_module, "stream_workflow_llm_messages", legacy_must_not_run)
+    node_data = (
+        {
+            "kind": "agent",
+            "agentMode": "direct",
+            "modelId": MODEL_ID,
+            "instruction": "Handle {{user_input}}",
+            "outputVariable": "answer",
+        }
+        if node_kind == "agent"
+        else {
+            "kind": "workflow_agent",
+            "agentName": "managed-agent",
+            "modelId": MODEL_ID,
+            "rolePrompt": "You are a managed agent.",
+            "taskInput": "Handle {{user_input}}",
+            "toolMode": "none",
+            "outputVariable": "answer",
+        }
+    )
+    response = await main_module._run_workflow_response(
+        _workflow(
+            [
+                {"id": "input", "type": "input", "data": {"kind": "input"}},
+                {"id": "agent-node", "type": node_kind, "data": node_data},
+                {
+                    "id": "output",
+                    "type": "output",
+                    "data": {"kind": "output", "outputVariable": "answer"},
+                },
+            ],
+            [
+                {"id": "e1", "source": "input", "target": "agent-node"},
+                {"id": "e2", "source": "agent-node", "target": "output"},
+            ],
+        ),
+        None,
+        runtime_execution_source_kind="workflow_classic",
+        runtime_task_id=f"managed-{node_kind}-task",
+    )
+    events = await _events(response)
+
+    agent_end = next(
+        item
+        for item in events
+        if item.get("event") == "node_end" and item.get("node_id") == "agent-node"
+    )
+    receipt = agent_end["provider_route_receipts"]
+    assert receipt["entry_id"] == "workflow_interactive_agent"
+    assert receipt["call_count"] == 1
+    assert receipt["calls"][0]["model_id"] == MODEL_ID
+    assert not [item for item in events if item.get("event") == "error"]
+    assert FakeManagedWorkflowGateway.instances[0].started == [
+        {
+            "source_kind": "workflow_classic",
+            "execution_reference": f"managed-{node_kind}-task",
+            "node_id": "agent-node",
+            "logical_phase": "initial",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_managed_deployment_agent_uses_stable_execution_id() -> None:
+    FakeManagedWorkflowGateway.agent_mode = "managed_required"
+    response = await main_module._run_workflow_response(
+        _workflow(
+            [
+                {"id": "input", "type": "input", "data": {"kind": "input"}},
+                {
+                    "id": "agent-node",
+                    "type": "workflow_agent",
+                    "data": {
+                        "kind": "workflow_agent",
+                        "agentName": "managed-deployment-agent",
+                        "modelId": MODEL_ID,
+                        "rolePrompt": "You are a managed agent.",
+                        "taskInput": "Handle {{user_input}}",
+                        "toolMode": "none",
+                    },
+                },
+            ],
+            [{"id": "e1", "source": "input", "target": "agent-node"}],
+        ),
+        None,
+        runtime_execution_source_kind="workflow_deployment",
+        runtime_metadata={
+            "workflow_deployment_execution_id": "deployment-agent-execution-1"
+        },
+        runtime_task_id="deployment-agent-task-id",
+    )
+    events = await _events(response)
+
+    agent_end = next(
+        item
+        for item in events
+        if item.get("event") == "node_end" and item.get("node_id") == "agent-node"
+    )
+    assert agent_end["provider_route_receipts"]["entry_id"] == (
+        "workflow_deployment_agent"
+    )
+    assert FakeManagedWorkflowGateway.instances[0].started == [
+        {
+            "source_kind": "workflow_deployment",
+            "execution_reference": "deployment-agent-execution-1",
+            "node_id": "agent-node",
+            "logical_phase": "initial",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_managed_workflow_agent_structured_output_uses_json_qualification() -> None:
+    FakeManagedWorkflowGateway.agent_mode = "managed_required"
+    response = await main_module._run_workflow_response(
+        _workflow(
+            [
+                {"id": "input", "type": "input", "data": {"kind": "input"}},
+                {
+                    "id": "agent-node",
+                    "type": "workflow_agent",
+                    "data": {
+                        "kind": "workflow_agent",
+                        "agentName": "managed-structured-agent",
+                        "modelId": MODEL_ID,
+                        "rolePrompt": "Return JSON.",
+                        "taskInput": "Extract {{user_input}}",
+                        "toolMode": "none",
+                        "outputVariable": "answer",
+                    },
+                },
+                {
+                    "id": "structured",
+                    "type": "runtime_middleware",
+                    "data": {
+                        "kind": "runtime_middleware",
+                        "runtimeMiddlewareId": "structured_output",
+                        "runtimeMiddlewareKind": "runtime_middleware.structured_output",
+                        "middlewarePriority": "20",
+                        "runtimeMiddlewareConfig": {
+                            "schema_json": {
+                                "type": "object",
+                                "required": ["order_id"],
+                                "properties": {"order_id": {"type": "string"}},
+                                "additionalProperties": False,
+                            },
+                            "repair_attempts": 0,
+                        },
+                    },
+                },
+            ],
+            [
+                {"id": "e1", "source": "input", "target": "agent-node"},
+                {
+                    "id": "bind-structured",
+                    "source": "structured",
+                    "target": "agent-node",
+                    "sourceHandle": "middleware-binding",
+                    "targetHandle": "middleware",
+                },
+            ],
+        ),
+        None,
+        runtime_execution_source_kind="workflow_classic",
+        runtime_task_id="managed-structured-agent-task",
+    )
+    events = await _events(response)
+
+    agent_end = next(
+        item
+        for item in events
+        if item.get("event") == "node_end" and item.get("node_id") == "agent-node"
+    )
+    managed_run = FakeManagedWorkflowGateway.instances[0].runs[0]
+    assert json.loads(agent_end["output"]) == {"order_id": "A-1"}
+    assert [item["shape"] for item in managed_run.invocations] == [
+        "chat_json_object"
+    ]
+    assert agent_end["provider_route_receipts"]["call_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_managed_agent_provider_failure_never_calls_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    FakeManagedWorkflowGateway.agent_mode = "managed_required"
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_ENABLED", True)
+    legacy_calls: list[str] = []
+
+    async def legacy_must_not_run(*_args: Any, **_kwargs: Any) -> str:
+        legacy_calls.append("legacy")
+        return "legacy answer"
+
+    async def fail_after_dispatch(
+        self: FakeManagedNodeRun, **kwargs: Any
+    ) -> AgentModelTurn:
+        kwargs.setdefault("call_sequence", len(self.invocations) + 1)
+        self.invocations.append({"shape": "chat_text", **kwargs})
+        self.calls.append(
+            SimpleNamespace(
+                status="uncertain",
+                actual_model=None,
+                prompt_tokens=None,
+                completion_tokens=None,
+                total_tokens=None,
+            )
+        )
+        error = ManagedWorkflowRoutingError(
+            "provider_workload_transport_error",
+            "Managed Provider dispatch failed closed.",
+        )
+        error.receipt = self.receipt_summary()
+        raise error
+
+    monkeypatch.setattr(
+        main_module, "collect_chat_completion_text", legacy_must_not_run
+    )
+    monkeypatch.setattr(FakeManagedNodeRun, "complete", fail_after_dispatch)
+    response = await main_module._run_workflow_response(
+        _workflow(
+            [
+                {"id": "input", "type": "input", "data": {"kind": "input"}},
+                {
+                    "id": "agent-node",
+                    "type": "agent",
+                    "data": {
+                        "kind": "agent",
+                        "agentMode": "direct",
+                        "modelId": MODEL_ID,
+                        "instruction": "Handle {{user_input}}",
+                    },
+                },
+            ],
+            [{"id": "e1", "source": "input", "target": "agent-node"}],
+        ),
+        None,
+        runtime_execution_source_kind="workflow_classic",
+        runtime_task_id="managed-agent-failure-task",
+    )
+    events = await _events(response)
+
+    error = next(item for item in events if item.get("event") == "error")
+    assert error["code"] == "provider_workload_transport_error"
+    assert error["provider_route_receipts"]["call_count"] == 1
+    assert error["provider_route_receipts"]["calls"][0]["dispatched"] is True
+    assert legacy_calls == []
+    assert len(FakeManagedWorkflowGateway.instances[0].runs[0].invocations) == 1
+
+
+@pytest.mark.asyncio
+async def test_managed_agent_runtime_failure_finalizes_provider_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    FakeManagedWorkflowGateway.agent_mode = "managed_required"
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_ENABLED", True)
+
+    async def fail_after_model_turn(
+        self: FakeManagedNodeRun, **kwargs: Any
+    ) -> AgentModelTurn:
+        kwargs.setdefault("call_sequence", len(self.invocations) + 1)
+        self.invocations.append({"shape": "chat_text", **kwargs})
+        self.calls.append(
+            SimpleNamespace(
+                status="passed",
+                actual_model=kwargs["model_id"],
+                prompt_tokens=3,
+                completion_tokens=2,
+                total_tokens=5,
+            )
+        )
+        raise RuntimeError("synthetic runtime post-processing failure")
+
+    monkeypatch.setattr(FakeManagedNodeRun, "complete", fail_after_model_turn)
+    response = await main_module._run_workflow_response(
+        _workflow(
+            [
+                {"id": "input", "type": "input", "data": {"kind": "input"}},
+                {
+                    "id": "agent-node",
+                    "type": "agent",
+                    "data": {
+                        "kind": "agent",
+                        "agentMode": "direct",
+                        "modelId": MODEL_ID,
+                        "instruction": "Handle {{user_input}}",
+                    },
+                },
+            ],
+            [{"id": "e1", "source": "input", "target": "agent-node"}],
+        ),
+        None,
+        runtime_execution_source_kind="workflow_classic",
+        runtime_task_id="managed-agent-runtime-failure",
+    )
+    events = await _events(response)
+
+    managed_run = FakeManagedWorkflowGateway.instances[0].runs[0]
+    assert managed_run.status == "failed"
+    node_end = next(
+        item
+        for item in events
+        if item.get("event") == "node_end" and item.get("node_id") == "agent-node"
+    )
+    assert node_end["provider_route_receipts"]["status"] == "failed"
+    assert node_end["provider_route_receipts"]["call_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_managed_output_policy_block_finalizes_provider_run() -> None:
+    FakeManagedWorkflowGateway.agent_mode = "managed_required"
+    response = await main_module._run_workflow_response(
+        _workflow(
+            [
+                {"id": "input", "type": "input", "data": {"kind": "input"}},
+                {
+                    "id": "agent-node",
+                    "type": "workflow_agent",
+                    "data": {
+                        "kind": "workflow_agent",
+                        "agentName": "managed-policy-agent",
+                        "modelId": MODEL_ID,
+                        "rolePrompt": "You are a managed agent.",
+                        "taskInput": "Handle {{user_input}}",
+                        "toolMode": "none",
+                    },
+                },
+                {
+                    "id": "content-policy",
+                    "type": "runtime_middleware",
+                    "data": {
+                        "kind": "runtime_middleware",
+                        "runtimeMiddlewareId": "content_policy",
+                        "runtimeMiddlewareKind": "runtime_middleware.content_policy",
+                        "middlewarePriority": "100",
+                        "runtimeMiddlewareConfig": {
+                            "phase": "output",
+                            "rules": [
+                                {
+                                    "id": "rule_1",
+                                    "label": "Synthetic block",
+                                    "detector": "literal_terms",
+                                    "action": "block",
+                                    "terms": ["managed answer"],
+                                    "caseSensitive": False,
+                                }
+                            ],
+                        },
+                    },
+                },
+            ],
+            [
+                {"id": "e1", "source": "input", "target": "agent-node"},
+                {
+                    "id": "bind-policy",
+                    "source": "content-policy",
+                    "target": "agent-node",
+                    "sourceHandle": "middleware-binding",
+                    "targetHandle": "middleware",
+                },
+            ],
+        ),
+        None,
+        runtime_execution_source_kind="workflow_classic",
+        runtime_task_id="managed-agent-policy-block",
+    )
+    events = await _events(response)
+
+    managed_run = FakeManagedWorkflowGateway.instances[0].runs[0]
+    assert managed_run.status == "failed"
+    error = next(item for item in events if item.get("event") == "error")
+    assert error["provider_route_receipts"]["status"] == "failed"
+    assert error["provider_route_receipts"]["call_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_managed_workflow_agent_blocks_legacy_retry_before_dispatch() -> None:
+    FakeManagedWorkflowGateway.agent_mode = "managed_required"
+    response = await main_module._run_workflow_response(
+        _workflow(
+            [
+                {"id": "input", "type": "input", "data": {"kind": "input"}},
+                {
+                    "id": "agent-node",
+                    "type": "workflow_agent",
+                    "data": {
+                        "kind": "workflow_agent",
+                        "agentName": "managed-agent",
+                        "modelId": MODEL_ID,
+                        "rolePrompt": "You are a managed agent.",
+                        "taskInput": "Handle {{user_input}}",
+                        "toolMode": "none",
+                        "retryOnFailure": True,
+                        "fallbackModelId": "provider/fallback-model",
+                    },
+                },
+            ],
+            [{"id": "e1", "source": "input", "target": "agent-node"}],
+        ),
+        None,
+        runtime_execution_source_kind="workflow_classic",
+        runtime_task_id="managed-agent-retry-block",
+    )
+    events = await _events(response)
+
+    error = next(item for item in events if item.get("event") == "error")
+    assert error["code"] == "provider_workload_legacy_retry_fallback_configured"
+    assert error["provider_route_receipts"]["call_count"] == 0
+    assert FakeManagedWorkflowGateway.instances[0].started == []
+    assert not any(
+        item.get("event") == "node_end" and item.get("node_id") == "agent-node"
+        for item in events
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("requested_strategy", "model_text", "expected_shape", "expected_output"),
+    [
+        (
+            "auto",
+            "managed function answer",
+            "chat_tools",
+            "managed function answer",
+        ),
+        (
+            "react",
+            "FinalAnswer: managed react answer",
+            "chat_text",
+            "managed react answer",
+        ),
+    ],
+)
+async def test_managed_agent_strategy_is_selected_before_first_post(
+    monkeypatch: pytest.MonkeyPatch,
+    requested_strategy: str,
+    model_text: str,
+    expected_shape: str,
+    expected_output: str,
+) -> None:
+    FakeManagedWorkflowGateway.agent_mode = "managed_required"
+    FakeManagedWorkflowGateway.agent_turns = [
+        AgentModelTurn(
+            content=model_text,
+            finish_reason="stop",
+            usage=AgentUsage(prompt_tokens=4, completion_tokens=2, total_tokens=6),
+            raw={"model": MODEL_ID},
+        )
+    ]
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_ENABLED", True)
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", True)
+
+    class OneToolProvider:
+        async def list_tools(self) -> list[RuntimeTool]:
+            return [
+                RuntimeTool(
+                    name="lookup",
+                    description="Read-only lookup",
+                    input_schema={"type": "object", "properties": {}},
+                )
+            ]
+
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", OneToolProvider())
+    response = await main_module._run_workflow_response(
+        _workflow(
+            [
+                {"id": "input", "type": "input", "data": {"kind": "input"}},
+                {
+                    "id": "agent-node",
+                    "type": "agent",
+                    "data": {
+                        "kind": "agent",
+                        "agentMode": "tool_first",
+                        "agentStrategy": requested_strategy,
+                        "modelId": MODEL_ID,
+                        "instruction": "Handle {{user_input}}",
+                        "outputVariable": "answer",
+                    },
+                },
+            ],
+            [{"id": "e1", "source": "input", "target": "agent-node"}],
+        ),
+        None,
+        runtime_execution_source_kind="workflow_classic",
+        runtime_task_id=f"managed-agent-{requested_strategy}",
+    )
+    events = await _events(response)
+
+    agent_end = next(
+        item
+        for item in events
+        if item.get("event") == "node_end" and item.get("node_id") == "agent-node"
+    )
+    managed_run = FakeManagedWorkflowGateway.instances[0].runs[0]
+    assert [item["shape"] for item in managed_run.invocations] == [expected_shape]
+    assert agent_end["provider_route_receipts"]["call_count"] == 1
+    assert agent_end["output"] == expected_output
+
+
+@pytest.mark.asyncio
+async def test_managed_function_calling_records_each_model_round_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    FakeManagedWorkflowGateway.agent_mode = "managed_required"
+    FakeManagedWorkflowGateway.agent_turns = [
+        AgentModelTurn(
+            content="",
+            tool_calls=[
+                AgentToolCall(
+                    call_id="call_lookup_1",
+                    name="lookup",
+                    raw_arguments='{"q":"value"}',
+                )
+            ],
+            finish_reason="tool_calls",
+            usage=AgentUsage(prompt_tokens=4, completion_tokens=2, total_tokens=6),
+            raw={"model": MODEL_ID},
+        ),
+        AgentModelTurn(
+            content="managed tool answer",
+            finish_reason="stop",
+            usage=AgentUsage(prompt_tokens=6, completion_tokens=3, total_tokens=9),
+            raw={"model": MODEL_ID},
+        ),
+    ]
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_ENABLED", True)
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", True)
+
+    class ToolProvider:
+        def __init__(self) -> None:
+            self.tool = RuntimeTool(
+                name="lookup",
+                description="Read-only lookup",
+                input_schema={
+                    "type": "object",
+                    "properties": {"q": {"type": "string"}},
+                    "required": ["q"],
+                },
+                read_only=True,
+            )
+            self.calls: list[Any] = []
+
+        async def list_tools(self) -> list[RuntimeTool]:
+            return [self.tool]
+
+        async def find_tool(self, tool_name: str) -> RuntimeTool | None:
+            return self.tool if tool_name == self.tool.name else None
+
+        async def call_tool(self, call: Any) -> RuntimeToolResult:
+            self.calls.append(call)
+            return RuntimeToolResult(
+                output="lookup result",
+                content=[{"type": "text", "text": "lookup result"}],
+                metadata={"content_types": ["text"]},
+                is_error=False,
+            )
+
+    provider = ToolProvider()
+    original_provider = main_module.runtime_capabilities.require(
+        "mcp_tools"
+    ).implementation
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    main_module.runtime_capabilities.register("mcp_tools", provider)
+    try:
+        response = await main_module._run_workflow_response(
+            _workflow(
+                [
+                    {"id": "input", "type": "input", "data": {"kind": "input"}},
+                    {
+                        "id": "agent-node",
+                        "type": "agent",
+                        "data": {
+                            "kind": "agent",
+                            "agentMode": "tool_first",
+                            "agentStrategy": "function_calling",
+                            "modelId": MODEL_ID,
+                            "instruction": "Use lookup for {{user_input}}",
+                            "toolNames": "lookup",
+                            "outputVariable": "answer",
+                        },
+                    },
+                ],
+                [{"id": "e1", "source": "input", "target": "agent-node"}],
+            ),
+            None,
+            runtime_execution_source_kind="workflow_classic",
+            runtime_task_id="managed-agent-tool-loop",
+        )
+        events = await _events(response)
+    finally:
+        main_module.runtime_capabilities.register("mcp_tools", original_provider)
+
+    agent_end = next(
+        item
+        for item in events
+        if item.get("event") == "node_end" and item.get("node_id") == "agent-node"
+    )
+    managed_run = FakeManagedWorkflowGateway.instances[0].runs[0]
+    assert agent_end["output"] == "managed tool answer"
+    assert [item["shape"] for item in managed_run.invocations] == [
+        "chat_tools",
+        "chat_tools",
+    ]
+    assert agent_end["provider_route_receipts"]["call_count"] == 2
+    assert [
+        item["call_sequence"]
+        for item in agent_end["provider_route_receipts"]["calls"]
+    ] == [1, 2]
+    assert len(provider.calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("decision", ["replace", "revise"])
+async def test_managed_hitl_resume_dispatches_only_explicit_revision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    decision: str,
+) -> None:
+    FakeManagedWorkflowGateway.agent_mode = "managed_required"
+    approvals = RuntimeApprovalStore(tmp_path / "approvals")
+    executions = WorkflowExecutionStore(tmp_path / "hitl-executions")
+    monkeypatch.setattr(main_module, "runtime_approval_store", approvals)
+    monkeypatch.setattr(main_module, "workflow_execution_store", executions)
+    workflow = _workflow(
+        [
+            {"id": "input", "type": "input", "data": {"kind": "input"}},
+            {
+                "id": "agent-node",
+                "type": "workflow_agent",
+                "data": {
+                    "kind": "workflow_agent",
+                    "agentName": "managed-agent",
+                    "modelId": MODEL_ID,
+                    "rolePrompt": "You are a managed agent.",
+                    "taskInput": "Handle {{user_input}}",
+                    "toolMode": "none",
+                    "outputVariable": "answer",
+                },
+            },
+            {
+                "id": "hitl",
+                "type": "runtime_middleware",
+                "data": {
+                    "kind": "runtime_middleware",
+                    "runtimeMiddlewareId": "human_in_the_loop",
+                    "runtimeMiddlewareKind": "runtime_middleware.human_in_the_loop",
+                    "middlewarePriority": "40",
+                    "runtimeMiddlewareConfig": {
+                        "interrupt_on_tools": "",
+                        "final_confirmation": True,
+                        "max_revision_rounds": 1,
+                        "timeout_seconds": 3600,
+                    },
+                },
+            },
+            {
+                "id": "output",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "answer"},
+            },
+        ],
+        [
+            {"id": "e1", "source": "input", "target": "agent-node"},
+            {"id": "e2", "source": "agent-node", "target": "output"},
+            {
+                "id": "bind-hitl",
+                "source": "hitl",
+                "target": "agent-node",
+                "sourceHandle": "middleware-binding",
+                "targetHandle": "middleware",
+            },
+        ],
+    )
+    response = await main_module._run_workflow_response(
+        workflow,
+        None,
+        runtime_execution_source_kind="workflow_classic",
+        runtime_task_id="managed-hitl-task",
+    )
+    events = await _events(response)
+    pending = next(
+        item for item in events if item.get("event") == "runtime_approval_pending"
+    )
+    approval = approvals.require(pending["approval_id"])
+    decided = approvals.decide(
+        approval.approval_id,
+        revision=approval.revision,
+        decision=decision,
+        operator="tester",
+        replacement_text="approved answer" if decision == "replace" else None,
+        message="revise once" if decision == "revise" else None,
+    )
+    executions.mark_ready(pending["task_id"], approval_id=approval.approval_id)
+    claimed = executions.claim(pending["task_id"], worker_id="test-worker")
+    await main_module.resume_runtime_approval_execution(claimed, decided)
+
+    completed = executions.require(pending["task_id"])
+    assert len(FakeManagedWorkflowGateway.instances) == 2
+    assert len(FakeManagedWorkflowGateway.instances[0].runs) == 1
+    if decision == "replace":
+        agent_end = next(
+            item
+            for item in completed.events
+            if item.get("event") == "node_end"
+            and item.get("node_id") == "agent-node"
+        )
+        assert completed.status == "completed"
+        assert completed.result == "approved answer"
+        assert agent_end["provider_route_receipts"]["call_count"] == 1
+        assert FakeManagedWorkflowGateway.instances[1].started == []
+    else:
+        assert completed.status == "waiting"
+        assert len(FakeManagedWorkflowGateway.instances[1].runs) == 1
+        resumed_run = FakeManagedWorkflowGateway.instances[1].runs[0]
+        assert resumed_run.receipt_summary()["call_count"] == 1
+        assert FakeManagedWorkflowGateway.instances[1].started[0][
+            "logical_phase"
+        ].startswith("resume:")
+        assert sum(
+            1
+            for item in completed.events
+            if item.get("event") == "runtime_approval_pending"
+        ) == 2
 
 
 def test_durable_event_sanitizes_provider_receipt(tmp_path: Path) -> None:

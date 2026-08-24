@@ -105,6 +105,8 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "meta_agent",
         "workflow_interactive_llm",
         "workflow_deployment_llm",
+        "workflow_interactive_agent",
+        "workflow_deployment_agent",
     }
 )
 

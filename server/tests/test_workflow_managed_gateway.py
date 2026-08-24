@@ -88,31 +88,36 @@ def _qualified_router(tmp_path: Path) -> tuple[ModelRouterService, str]:
         catalog_fingerprint="workflow-catalog",
         observed_at="2026-08-23T00:00:00+00:00",
     )
-    chat_cert, created = repository.claim_chat_certification(
-        "local",
-        certification_id="workflow-chat-text-cert",
-        connection_id=connection.id,
-        connection_fingerprint=fingerprint,
-        contract_version=PROVIDER_CHAT_CONTRACT_VERSION,
-        capability="chat_text",
-        requested_model=MODEL_ID,
-        idempotency_key_hash=hashlib.sha256(b"workflow-chat-text").hexdigest(),
-    )
-    assert created is True
-    repository.complete_chat_certification(
-        "local",
-        str(chat_cert["id"]),
-        status="passed",
-        checks={
-            "catalog_contains_model": True,
-            "http_2xx": True,
-            "content_observed": True,
-            "response_complete": True,
-            "terminal_observed": True,
-        },
-        warning_codes=[],
-        actual_model=MODEL_ID,
-    )
+    for capability in ("chat_text", "chat_tools"):
+        chat_cert, created = repository.claim_chat_certification(
+            "local",
+            certification_id=f"workflow-{capability}-cert",
+            connection_id=connection.id,
+            connection_fingerprint=fingerprint,
+            contract_version=PROVIDER_CHAT_CONTRACT_VERSION,
+            capability=capability,
+            requested_model=MODEL_ID,
+            idempotency_key_hash=hashlib.sha256(
+                f"workflow-{capability}".encode("utf-8")
+            ).hexdigest(),
+        )
+        assert created is True
+        repository.complete_chat_certification(
+            "local",
+            str(chat_cert["id"]),
+            status="passed",
+            checks={
+                "catalog_contains_model": True,
+                "http_2xx": True,
+                "content_observed": True,
+                "response_complete": True,
+                "terminal_observed": True,
+                "tool_call_observed": capability == "chat_tools",
+                "tool_call_arguments_valid": capability == "chat_tools",
+            },
+            warning_codes=[],
+            actual_model=MODEL_ID,
+        )
     for execution_shape in ("chat_text_unary", "chat_json_object"):
         profile, profile_fingerprint = _profile(execution_shape)
         certification, created = repository.claim_workload_certification(
@@ -155,6 +160,12 @@ def _activate(
     service: ModelRouterService,
     connection_id: str,
     entry_id: str,
+    *,
+    shapes: tuple[str, ...] = (
+        "chat_text",
+        "chat_text_unary",
+        "chat_json_object",
+    ),
 ) -> None:
     control = ProviderWorkloadControlService(service)
     saved = control.update_policy(
@@ -167,7 +178,7 @@ def _activate(
                     model_id=MODEL_ID,
                     connection_id=connection_id,
                 )
-                for shape in ("chat_text", "chat_text_unary", "chat_json_object")
+                for shape in shapes
             ],
         ),
     )
@@ -202,6 +213,250 @@ def qualified_interactive(
     )
     _activate(service, connection_id, "workflow_interactive_llm")
     return service, connection_id
+
+
+@pytest.fixture
+def qualified_interactive_agent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[ModelRouterService, str]:
+    service, connection_id = _qualified_router(tmp_path)
+    monkeypatch.setenv("MODEL_CONTROL_WORKFLOW_AGENT_ENABLED", "true")
+    _activate(
+        service,
+        connection_id,
+        "workflow_interactive_agent",
+        shapes=("chat_text", "chat_tools", "chat_json_object"),
+    )
+    return service, connection_id
+
+
+@pytest.mark.asyncio
+async def test_agent_run_resolves_auto_before_dispatch_and_records_each_round(
+    qualified_interactive_agent: tuple[ModelRouterService, str],
+) -> None:
+    service, _ = qualified_interactive_agent
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        body = json.loads(request.content)
+        if body.get("response_format") == {"type": "json_object"}:
+            return httpx.Response(
+                200,
+                json={
+                    "model": MODEL_ID,
+                    "choices": [{"message": {"content": '{"ok":true}'}}],
+                },
+            )
+        if body.get("tools"):
+            return httpx.Response(
+                200,
+                content=(
+                    b'data: {"model":"provider/workflow-model","choices":'
+                    b'[{"delta":{"tool_calls":[{"index":0,"id":"call_1",'
+                    b'"function":{"name":"lookup","arguments":"{\\"q\\":"}}]},'
+                    b'"finish_reason":null}]}\n\n'
+                    b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,'
+                    b'"function":{"arguments":"\\"value\\"}"}}]},'
+                    b'"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":8,'
+                    b'"completion_tokens":3,"total_tokens":11}}\n\n'
+                    b"data: [DONE]\n\n"
+                ),
+            )
+        return httpx.Response(
+            200,
+            content=(
+                b'data: {"model":"provider/workflow-model","choices":'
+                b'[{"delta":{"content":"final answer"},"finish_reason":"stop"}],'
+                b'"usage":{"prompt_tokens":5,"completion_tokens":2,'
+                b'"total_tokens":7}}\n\n'
+                b"data: [DONE]\n\n"
+            ),
+        )
+
+    gateway = ManagedWorkflowGateway.for_router(
+        service,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=False,
+            trust_env=False,
+        ),
+    )
+    run = gateway.start_agent_run(
+        source_kind="workflow_classic",
+        execution_reference="agent-task-1",
+        node_id="agent-node",
+    )
+
+    assert run.resolve_strategy(
+        requested_strategy="auto", model_id=MODEL_ID, has_tools=True
+    ) == "function_calling"
+    tool_turn = await run.complete(
+        model_id=MODEL_ID,
+        messages=[{"role": "user", "content": "private tool prompt"}],
+        temperature=0.2,
+        max_tokens=128,
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "lookup",
+                    "parameters": {"type": "object"},
+                },
+            }
+        ],
+    )
+    text_turn = await run.complete(
+        model_id=MODEL_ID,
+        messages=[{"role": "user", "content": "private react prompt"}],
+        temperature=0.2,
+        max_tokens=128,
+    )
+    json_text = await run.complete_json_object(
+        purpose="structured_repair",
+        model_id=MODEL_ID,
+        messages=[{"role": "user", "content": "private json prompt"}],
+        temperature=0,
+        max_tokens=128,
+    )
+    run.finish("passed")
+
+    assert tool_turn.tool_calls[0].name == "lookup"
+    assert json.loads(tool_turn.tool_calls[0].raw_arguments) == {"q": "value"}
+    assert text_turn.content == "final answer"
+    assert json.loads(json_text) == {"ok": True}
+    assert [item.call_sequence for item in run.calls] == [1, 2, 3]
+    assert len(requests) == 3
+    assert all(json.loads(item.content)["stream"] is (index < 2) for index, item in enumerate(requests))
+    database = service.repository.database_path.read_bytes()
+    assert b"private tool prompt" not in database
+    assert b"private react prompt" not in database
+    assert b"private json prompt" not in database
+    assert PROVIDER_SECRET.encode() not in database
+
+
+def test_agent_auto_uses_only_prequalified_shape_without_probe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, connection_id = _qualified_router(tmp_path)
+    monkeypatch.setenv("MODEL_CONTROL_WORKFLOW_AGENT_ENABLED", "true")
+    _activate(
+        service,
+        connection_id,
+        "workflow_interactive_agent",
+        shapes=("chat_text",),
+    )
+    run = ManagedWorkflowGateway.for_router(service).start_agent_run(
+        source_kind="workflow_classic",
+        execution_reference="agent-task-react",
+        node_id="agent-node",
+    )
+
+    assert run.resolve_strategy(
+        requested_strategy="auto", model_id=MODEL_ID, has_tools=True
+    ) == "react"
+    with pytest.raises(ManagedWorkflowRoutingError) as blocked:
+        run.resolve_strategy(
+            requested_strategy="function_calling",
+            model_id=MODEL_ID,
+            has_tools=True,
+        )
+    run.finish("failed", reason_code=blocked.value.code)
+
+    assert blocked.value.code == "provider_workload_binding_missing"
+    assert run.receipt_summary()["call_count"] == 0
+
+    with pytest.raises(ManagedWorkflowRoutingError) as no_tools:
+        run.resolve_strategy(
+            requested_strategy="function_calling",
+            model_id=MODEL_ID,
+            has_tools=False,
+        )
+    assert no_tools.value.code == "provider_workload_agent_tools_required"
+    assert run.receipt_summary()["call_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_agent_text_shape_rejects_unrequested_tool_call(
+    qualified_interactive_agent: tuple[ModelRouterService, str],
+) -> None:
+    service, _ = qualified_interactive_agent
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            content=(
+                b'data: {"model":"provider/workflow-model","choices":'
+                b'[{"delta":{"tool_calls":[{"index":0,"id":"call_1",'
+                b'"function":{"name":"lookup","arguments":"{}"}}]},'
+                b'"finish_reason":"tool_calls"}]}\n\n'
+                b"data: [DONE]\n\n"
+            ),
+        )
+
+    run = ManagedWorkflowGateway.for_router(
+        service,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=False,
+            trust_env=False,
+        ),
+    ).start_agent_run(
+        source_kind="workflow_classic",
+        execution_reference="agent-text-shape",
+        node_id="agent-node",
+    )
+
+    with pytest.raises(ManagedWorkflowRoutingError) as blocked:
+        await run.complete_text(
+            purpose="agent_text",
+            model_id=MODEL_ID,
+            messages=[{"role": "user", "content": "plain text only"}],
+            temperature=0,
+            max_tokens=64,
+        )
+    run.finish("failed", reason_code=blocked.value.code)
+
+    assert blocked.value.code == "provider_workload_execution_shape_mismatch"
+    assert len(requests) == 1
+    assert run.receipt_summary()["call_count"] == 1
+    assert run.receipt_summary()["calls"][0]["dispatched"] is True
+
+
+def test_agent_phase_blocks_implicit_replay_but_allows_explicit_revision(
+    qualified_interactive_agent: tuple[ModelRouterService, str],
+) -> None:
+    service, _ = qualified_interactive_agent
+    gateway = ManagedWorkflowGateway.for_router(service)
+    initial = gateway.start_agent_run(
+        source_kind="workflow_classic",
+        execution_reference="agent-task-hitl",
+        node_id="agent-node",
+        logical_phase="initial",
+    )
+    initial.finish("failed", reason_code="test_pause")
+
+    with pytest.raises(ManagedWorkflowRoutingError) as replay:
+        gateway.start_agent_run(
+            source_kind="workflow_classic",
+            execution_reference="agent-task-hitl",
+            node_id="agent-node",
+            logical_phase="initial",
+        )
+    revision = gateway.start_agent_run(
+        source_kind="workflow_classic",
+        execution_reference="agent-task-hitl",
+        node_id="agent-node",
+        logical_phase="revision:1",
+    )
+    revision.finish("failed", reason_code="test_no_paid_call")
+
+    assert replay.value.code == "provider_workload_logical_run_replay_blocked"
+    assert len(service.repository.list_workload_receipts("local")["runs"]) == 2
 
 
 def test_stable_node_run_blocks_recovery_replay(
