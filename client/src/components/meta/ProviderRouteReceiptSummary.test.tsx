@@ -75,4 +75,34 @@ describe("ProviderRouteReceiptSummary", () => {
     expect(screen.getByText("未派发")).toBeInTheDocument();
     expect(screen.queryByText("调用 1")).not.toBeInTheDocument();
   });
+
+  it("renders a compact workflow-safe summary without internal evidence", () => {
+    render(
+      <ProviderRouteReceiptSummary
+        compact
+        receipt={{
+          contract_version: "modelmirror-provider-workload-routing-v1",
+          entry_id: "workflow_interactive_llm",
+          routing_mode: "managed_required",
+          run_reference: "workrun_internal_reference",
+          status: "failed",
+          call_count: 0,
+          reason_codes: ["provider_workload_binding_missing"],
+          calls: [{
+            call_sequence: 1,
+            model_id: "provider/unbound-model",
+            dispatched: false,
+            status: "failed",
+            error_code: "provider_workload_binding_missing",
+          }],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("发送前已阻断")).toBeInTheDocument();
+    expect(screen.getByText("调用 1")).toBeInTheDocument();
+    expect(screen.getByText("provider/unbound-model")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("workrun_internal_reference");
+    expect(document.body.textContent).not.toContain("provider_workload_binding_missing");
+  });
 });

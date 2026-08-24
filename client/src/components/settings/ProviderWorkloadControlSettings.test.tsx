@@ -218,4 +218,65 @@ describe("ProviderWorkloadControlSettings", () => {
     });
     await screen.findByText("Managed 必经");
   });
+
+  it("keeps connection and call evidence in the authenticated settings view", async () => {
+    const policy = {
+      contract_version: "modelmirror-provider-workload-routing-v1",
+      entry_id: "workflow_interactive_llm",
+      feature_enabled: true,
+      data_plane_integrated: true,
+      configured_status: "managed_required",
+      effective_status: "managed_required",
+      revision: 2,
+      policy_fingerprint: "fingerprint",
+      bindings: [],
+      approval_valid: true,
+      blocking_reason_codes: [],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/router/workload-control/policies") {
+        return jsonResponse({ policies: [policy] });
+      }
+      if (url === "/api/router/connections") return jsonResponse([connection]);
+      if (url.startsWith("/api/router/workload-control/receipts")) {
+        return jsonResponse({ runs: [{
+          run_id: "workrun-1",
+          entry_id: "workflow_interactive_llm",
+          status: "passed",
+          parent_run_reference: "interactive:task-1:node-1",
+          result_class: "workflow_node_passed",
+          reason_codes: [],
+          created_at: "2026-08-23T00:00:00Z",
+          calls: [{
+            call_id: "call-1",
+            execution_shape: "chat_text",
+            model_id: "openai/gpt-test",
+            actual_model: "openai/gpt-test",
+            connection_id: "connection-internal-ref",
+            call_sequence: 1,
+            dispatched: true,
+            status: "passed",
+            result_class: "provider_workload_success",
+            ttft_ms: 125,
+            e2e_ms: 480,
+            total_tokens: 17,
+          }],
+        }] });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
+    await screen.findByText("R6 入口、精确 Binding 与 Receipt");
+    fireEvent.click(screen.getByText("Workflow 交互 LLM · passed"));
+
+    expect(screen.getByText("请求模型：openai/gpt-test")).toBeInTheDocument();
+    expect(screen.getByText("连接引用：connection-internal-ref")).toBeInTheDocument();
+    expect(screen.getByText("TTFT 125 ms")).toBeInTheDocument();
+    expect(screen.getByText("17 tokens")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("private prompt");
+    expect(document.body.textContent).not.toContain("api_key");
+  });
 });

@@ -1,25 +1,9 @@
-export interface ProviderRouteCallReceipt {
-  call_sequence: number;
-  model_id: string;
-  actual_model?: string | null;
-  dispatched?: boolean;
-  status: "passed" | "failed" | "uncertain" | "cancelled";
-  error_code?: string | null;
-  prompt_tokens?: number | null;
-  completion_tokens?: number | null;
-  total_tokens?: number | null;
-}
+import type {
+  ProviderRouteCallReceipt,
+  ProviderRouteReceipt,
+} from "../../types/workflow";
 
-export interface ProviderRouteReceipt {
-  contract_version: string;
-  entry_id: "meta_agent";
-  routing_mode: "managed_required";
-  run_reference: string;
-  status: "running" | "passed" | "failed" | "uncertain" | "cancelled";
-  call_count: number;
-  reason_codes: string[];
-  calls: ProviderRouteCallReceipt[];
-}
+export type { ProviderRouteCallReceipt, ProviderRouteReceipt } from "../../types/workflow";
 
 const statusLabels: Record<ProviderRouteReceipt["status"], string> = {
   running: "调用中",
@@ -45,8 +29,10 @@ function statusClass(status: ProviderRouteReceipt["status"]) {
 
 export default function ProviderRouteReceiptSummary({
   receipt,
+  compact = false,
 }: {
   receipt: ProviderRouteReceipt | null | undefined;
+  compact?: boolean;
 }) {
   if (!receipt) return null;
   const modelCount = new Set(
@@ -54,6 +40,31 @@ export default function ProviderRouteReceiptSummary({
       .filter((call) => call.dispatched !== false)
       .map((call) => call.model_id),
   ).size;
+
+  if (compact) {
+    const summaryLabel = receipt.call_count === 0 && receipt.status === "failed"
+      ? "发送前已阻断"
+      : statusLabels[receipt.status];
+    return (
+      <div className="rounded-md border border-white/10 bg-slate-950/35 px-2.5 py-2 text-[11px] text-slate-300">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded-full border px-2 py-0.5 font-semibold ${statusClass(receipt.status)}`}>
+            {summaryLabel}
+          </span>
+          {receipt.calls.map((call) => (
+            <span className="flex min-w-0 items-center gap-1.5" key={`${call.call_sequence}-${call.model_id}`}>
+              <span>调用 {call.call_sequence}</span>
+              <span className="max-w-48 truncate font-mono text-[10px] text-slate-400">
+                {call.model_id}
+              </span>
+              <span>{callStatusLabels[call.status]}</span>
+              {call.total_tokens != null ? <span className="text-slate-500">{call.total_tokens} tokens</span> : null}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <details className="rounded-lg border border-white/10 bg-white/[0.035] text-xs text-slate-300">

@@ -230,7 +230,13 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   `/api/meta-agent/generate-xpert-candidate`。两者使用 `chat_json_object` 精确 Binding；规划、
   蓝图和最多一次修复分别记录调用序号。派发后不重试、不换 IP、连接、模型或 legacy；响应
   只加法返回运行引用、模型、调用序号、状态和可用 usage，不返回内部连接或生成正文。
-- 后续 R6D—R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
+- R6D 接入受信任的 Classic Workflow 交互与部署执行。`llm`、参数提取和分类模型回退分别
+  使用 `chat_text`、`chat_json_object` 和 `chat_text_unary` 精确 Binding；规则命中不创建
+  Provider 调用。每个模型节点以入口、Workflow task/部署 execution 和 node ID 形成稳定运行，
+  自动恢复遇到既有派发或不确定证据时失败关闭，显式新执行才可创建新的可计费调用。
+  缺省 `modelId` 在 Managed 模式规范化为现有 `TEXT_FALLBACK_MODEL`，仍须具备该精确模型的
+  Inventory、资格和 Binding。Provider 失败不再返回旧 `{}` 或默认分类；legacy 模式保持原行为。
+- 后续 R6E—R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
   只能存在于 Python 主进程内存，Worker、工具执行器和浏览器不得收到 Key、URL 或连接细节。
 - Receipt 清理命令现在同时检查 R5 Chat 与 R6 Workload 记录，仍默认 dry-run；`--apply`
   才删除超过保留期的已完成运行、尝试或调用。

@@ -79,6 +79,44 @@ describe("WorkflowRun handoff recovery pointer", () => {
     expect(steps.some((step) => step.status === "running")).toBe(false);
   });
 
+  it("keeps a redacted managed receipt on its node and does not overwrite an error", () => {
+    const receipt = {
+      contract_version: "modelmirror-provider-workload-routing-v1",
+      entry_id: "workflow_interactive_llm" as const,
+      routing_mode: "managed_required" as const,
+      run_reference: "workrun-safe",
+      status: "failed" as const,
+      call_count: 0,
+      reason_codes: ["provider_workload_binding_missing"],
+      calls: [],
+    };
+    const steps = buildRunSteps([
+      {
+        event: "error",
+        node_id: "llm-1",
+        node_title: "LLM",
+        node_type: "llm",
+        message: "发送前已阻断。",
+        provider_route_receipts: receipt,
+      },
+      {
+        event: "node_end",
+        node_id: "llm-1",
+        node_title: "LLM",
+        node_type: "llm",
+        output: "",
+      },
+    ]);
+
+    expect(steps).toEqual([
+      expect.objectContaining({
+        id: "llm-1",
+        status: "error",
+        providerRouteReceipt: receipt,
+      }),
+    ]);
+  });
+
   it("stores only bounded task and run ids for page refresh recovery", () => {
     const taskId = "a".repeat(32);
     const runId = "123e4567-e89b-42d3-a456-426614174000";

@@ -17,6 +17,7 @@ import SkillApplicationCard, {
 import SkillHookApplicationCard, {
   hookSkillIdsFromWorkflowNodes,
 } from "../skill-runtime/SkillHookApplicationCard";
+import ProviderRouteReceiptSummary from "../meta/ProviderRouteReceiptSummary";
 import { useSkillCreatorStatus } from "../../hooks/useSkillCreatorStatus";
 import {
   fetchFileOutputs,
@@ -27,6 +28,7 @@ import {
   type NodeRunStatus,
   type WorkflowDefinition,
   type WorkflowRunEvent,
+  type ProviderRouteReceipt,
   type WorkflowValue,
   type WorkflowVariableDeclaration,
 } from "../../types/workflow";
@@ -225,6 +227,7 @@ interface WorkflowRunStep {
   status: RunStepStatus;
   output: string;
   variable?: string;
+  providerRouteReceipt?: ProviderRouteReceipt;
 }
 
 function serializeWorkflow(definition: WorkflowDefinition) {
@@ -585,8 +588,9 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
       return;
     }
     if (event.event === "node_end") {
-      step.status = "done";
+      if (step.status !== "error") step.status = "done";
       step.variable = event.variable ?? step.variable;
+      step.providerRouteReceipt = event.provider_route_receipts ?? step.providerRouteReceipt;
       if (!step.output) {
         step.output = appendStepOutput(step.output, event.output, step.type);
       }
@@ -595,6 +599,7 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
     if (event.event === "error") {
       step.status = "error";
       step.output = appendStepOutput(step.output, event.message, step.type);
+      step.providerRouteReceipt = event.provider_route_receipts ?? step.providerRouteReceipt;
     }
   });
 
@@ -2069,13 +2074,13 @@ export default function WorkflowRun({
             </div>
           ) : (
             runSteps.map((step) => (
-              <button
-                className="w-full rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-left transition hover:border-brand-300/40 hover:bg-white/[0.07]"
-                key={step.id}
-                onClick={() => onStepSelect?.(step.id)}
-                title="在画布上定位该节点"
-                type="button"
-              >
+              <div className="rounded-lg border border-white/10 bg-white/[0.045]" key={step.id}>
+                <button
+                  className="w-full px-3 py-2 text-left transition hover:bg-white/[0.025]"
+                  onClick={() => onStepSelect?.(step.id)}
+                  title="在画布上定位该节点"
+                  type="button"
+                >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-xs font-semibold text-slate-200">
@@ -2099,7 +2104,13 @@ export default function WorkflowRun({
                     </p>
                   </>
                 ) : null}
-              </button>
+                </button>
+                {step.providerRouteReceipt ? (
+                  <div className="px-3 pb-2">
+                    <ProviderRouteReceiptSummary compact receipt={step.providerRouteReceipt} />
+                  </div>
+                ) : null}
+              </div>
             ))
           )}
         </div>
