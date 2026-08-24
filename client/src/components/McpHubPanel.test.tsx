@@ -49,13 +49,15 @@ describe("McpHubPanel", () => {
       taint_reason: "",
       activation_eligible: false,
       activation_reason: "hub_preflight_required",
+      oauth_discovery_available: true,
+      registry_eligibility: "oauth_discovery_candidate",
     };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/mcp/hub/status")) {
         return json({
           enabled: true,
-          remote_enabled: true,
+          remote_enabled: false,
           source: "https://registry.modelcontextprotocol.io",
           snapshot_at: 1,
           snapshot_count: 1,
@@ -70,14 +72,14 @@ describe("McpHubPanel", () => {
               title: "Public Example",
               description: "Public metadata",
               status: "active",
-              eligibility: "eligible",
+              eligibility: "oauth_discovery_candidate",
               remotes: [
                 {
                   remote_id: "remote_1111111111111111",
                   transport: "streamable-http",
                   origin: "https://mcp.example.com",
-                  eligibility: "eligible",
-                  reason: "可进行匿名只读远程试连",
+                  eligibility: "oauth_discovery_candidate",
+                  reason: "可进行 OAuth 元数据发现",
                 },
               ],
             },
@@ -288,6 +290,188 @@ describe("McpHubPanel", () => {
     });
   });
 
+  it("discovers OAuth metadata and registers only a public client without enabling runtime", async () => {
+    const candidateId = "mcphub_" + "a".repeat(32);
+    const sourceDigest = "b".repeat(64);
+    const discoveryFingerprint = "c".repeat(64);
+    let discovered = false;
+    let registered = false;
+    const candidate = {
+      candidate_id: candidateId,
+      server_name: "io.example/oauth",
+      version: "1.0.0",
+      state: "draft",
+      origin: "https://oauth-mcp.example.com",
+      source_digest: sourceDigest,
+      schema_digest: "",
+      tools: [],
+      connected: false,
+      taint_reason: "",
+      activation_eligible: false,
+      activation_reason: "hub_preflight_required",
+      auth_required: false,
+      oauth_discovery_available: true,
+      registry_eligibility: "oauth_discovery_candidate",
+    };
+    const oauthPayload = () => ({
+      discovery: discovered ? {
+        discovery_id: "mcpoauthdisc_" + "d".repeat(32),
+        status: "active",
+        discovery_fingerprint: discoveryFingerprint,
+        resource_uri: "https://oauth-mcp.example.com/mcp",
+        protected_resource_metadata_url: "https://oauth-mcp.example.com/.well-known/oauth-protected-resource/mcp",
+        issuer: "https://auth.example.com/",
+        authorization_endpoint: "https://auth.example.com/authorize",
+        token_endpoint_origin: "https://auth.example.com",
+        registration_endpoint_available: false,
+        registration_endpoint: "",
+        revocation_endpoint_available: true,
+        pkce_method: "S256",
+        scopes_supported: ["mcp:read"],
+        policy_fingerprint: "e".repeat(64),
+      } : null,
+      registration: registered ? {
+        registration_id: "mcpoauthreg_" + "f".repeat(32),
+        mode: "pre_registered",
+        client_id: "operator-public-client",
+        revision: 1,
+        status: "active",
+        discovery_fingerprint: discoveryFingerprint,
+      } : null,
+      authorization_enabled: false,
+      token_storage_enabled: false,
+      local_single_owner_warning: true,
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/mcp/hub/status")) {
+        return json({ enabled: true, remote_enabled: true, source: "registry", snapshot_at: 1, snapshot_count: 1 });
+      }
+      if (url.endsWith("/api/mcp/remote-auth/oauth/status")) {
+        return json({
+          enabled: true,
+          dynamic_registration_enabled: false,
+          remote_auth_enabled: true,
+          single_owner_acknowledged: true,
+          external_master_key_available: true,
+          external_master_key_enforced: true,
+          storage_ready: true,
+          client_metadata_document_configured: false,
+          supported_registration_modes: ["pre_registered"],
+          authorization_enabled: false,
+          token_storage_enabled: false,
+          multi_tenant: false,
+        });
+      }
+      if (url.includes("/api/mcp/hub/servers?")) return json({ items: [], total: 0, next_cursor: null, categories: [] });
+      if (url.endsWith("/api/mcp/hub/candidates")) return json({ items: [candidate] });
+      if (url.endsWith(`/api/mcp/hub/candidates/${candidateId}/oauth`) && !init?.method) return json(oauthPayload());
+      if (url.endsWith(`/api/mcp/hub/candidates/${candidateId}/oauth/discover`) && init?.method === "POST") {
+        discovered = true;
+        return json(oauthPayload());
+      }
+      if (url.endsWith(`/api/mcp/hub/candidates/${candidateId}/oauth/registrations`) && init?.method === "POST") {
+        registered = true;
+        return json(oauthPayload(), 201);
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<McpHubPanel />);
+
+    const card = (await screen.findByText("io.example/oauth")).closest("article");
+    expect(card).not.toBeNull();
+    expect(within(card!).getByText(/不会打开授权页面、接收回调、保存 Token/)).toBeVisible();
+    expect(within(card!).getByRole("button", { name: "安全预检" })).toBeDisabled();
+    fireEvent.click(within(card!).getByRole("button", { name: "检查并冻结 OAuth 元数据" }));
+
+    expect(await within(card!).findByText(/Issuer：https:\/\/auth.example.com\//)).toBeVisible();
+    expect(within(card!).getByText(/PKCE：S256/)).toBeVisible();
+    expect(within(card!).getByRole("button", { name: "安全预检" })).toBeDisabled();
+    expect(within(card!).getByRole("button", { name: "激活" })).toBeDisabled();
+    const discoverCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/oauth/discover"));
+    expect(JSON.parse(String((discoverCall?.[1] as RequestInit).body))).toEqual({
+      expected_source_digest: sourceDigest,
+    });
+
+    fireEvent.change(within(card!).getByLabelText("io.example/oauth 预登记 public client ID"), {
+      target: { value: "operator-public-client" },
+    });
+    fireEvent.click(within(card!).getByRole("button", { name: "登记已有 Client ID" }));
+    expect(await within(card!).findByText(/Public client 已登记/)).toBeVisible();
+    const registrationCall = fetchMock.mock.calls.find(([url, init]) => (
+      String(url).endsWith("/oauth/registrations") && (init as RequestInit | undefined)?.method === "POST"
+    ));
+    expect(JSON.parse(String((registrationCall?.[1] as RequestInit).body))).toEqual({
+      expected_discovery_fingerprint: discoveryFingerprint,
+      mode: "pre_registered",
+      client_id: "operator-public-client",
+    });
+    expect(JSON.stringify(JSON.parse(String((registrationCall?.[1] as RequestInit).body)))).not.toContain("client_secret");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("callback"))).toBe(false);
+  });
+
+  it("keeps OAuth summary failures visible with their fixed error code", async () => {
+    const candidateId = "mcphub_" + "e".repeat(32);
+    const candidate = {
+      candidate_id: candidateId,
+      server_name: "io.example/oauth-summary",
+      version: "1.0.0",
+      state: "draft",
+      origin: "https://oauth-summary.example.com",
+      source_digest: "a".repeat(64),
+      schema_digest: "",
+      tools: [],
+      connected: false,
+      taint_reason: "",
+      activation_eligible: false,
+      activation_reason: "hub_preflight_required",
+      auth_required: false,
+      oauth_discovery_available: true,
+      registry_eligibility: "oauth_discovery_candidate",
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/mcp/hub/status")) {
+        return json({ enabled: true, remote_enabled: false, source: "registry", snapshot_at: 1, snapshot_count: 1 });
+      }
+      if (url.endsWith("/api/mcp/remote-auth/oauth/status")) {
+        return json({
+          enabled: true,
+          dynamic_registration_enabled: false,
+          remote_auth_enabled: true,
+          single_owner_acknowledged: true,
+          external_master_key_available: true,
+          external_master_key_enforced: true,
+          storage_ready: true,
+          client_metadata_document_configured: false,
+          supported_registration_modes: ["pre_registered"],
+          authorization_enabled: false,
+          token_storage_enabled: false,
+          multi_tenant: false,
+        });
+      }
+      if (url.includes("/api/mcp/hub/servers?")) return json({ items: [], total: 0, next_cursor: null, categories: [] });
+      if (url.endsWith("/api/mcp/hub/candidates")) return json({ items: [candidate] });
+      if (url.endsWith(`/api/mcp/hub/candidates/${candidateId}/oauth`)) {
+        return json({
+          detail: {
+            code: "mcp_remote_oauth_discovery_stale",
+            error: "OAuth 发现快照已过期或发生漂移。",
+          },
+        }, 409);
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<McpHubPanel />);
+
+    const card = (await screen.findByText("io.example/oauth-summary")).closest("article");
+    expect(card).not.toBeNull();
+    expect(await within(card!).findByRole("alert")).toHaveTextContent("OAuth 发现快照已过期");
+    expect(within(card!).getByRole("alert")).toHaveTextContent("错误码：mcp_remote_oauth_discovery_stale");
+  });
+
   it("keeps an unreviewed verified candidate visible but not activatable", async () => {
     const candidate = {
       candidate_id: "mcphub_" + "9".repeat(32),
@@ -391,7 +575,12 @@ describe("McpHubPanel", () => {
       }
       if (url.endsWith(`/api/mcp/hub/candidates/${candidate.candidate_id}/preflight`)) {
         preflightFailed = true;
-        return json({ detail: { error: "远程 Schema 校验失败" } }, 409);
+        return json({
+          detail: {
+            code: "hub_dns_private_or_synthetic_denied",
+            error: "远程 Schema 校验失败",
+          },
+        }, 409);
       }
       throw new Error(`unexpected URL: ${url}`);
     });
@@ -402,6 +591,7 @@ describe("McpHubPanel", () => {
     const candidateCard = screen.getByText("io.example/public").closest("article");
     expect(candidateCard).not.toBeNull();
     expect(await within(candidateCard!).findByRole("alert")).toHaveTextContent("远程 Schema 校验失败");
+    expect(within(candidateCard!).getByRole("alert")).toHaveTextContent("错误码：hub_dns_private_or_synthetic_denied");
     expect(within(candidateCard!).getByText(/目标解析到了私网或合成地址/)).toBeVisible();
     expect(within(candidateCard!).getByText(/错误码：hub_dns_private_or_synthetic_denied/)).toBeVisible();
     expect(within(candidateCard!).getByRole("button", { name: "安全预检" })).toBeEnabled();

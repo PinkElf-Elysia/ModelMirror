@@ -461,6 +461,48 @@ services:
       retries: 8
       start_period: 20s
 
+  mcp-remote-oauth:
+    build:
+      context: ./server/sandbox_sidecar
+      dockerfile: Dockerfile.hub
+    image: modelmirror-mcp-hub:oauth-r2a-v1
+    container_name: modelmirror-mcp-remote-oauth
+    command: ["python", "-m", "sandbox_sidecar.oauth_server"]
+    network_mode: none
+    depends_on:
+      mcp-hub-egress:
+        condition: service_healthy
+    environment:
+      MCP_REMOTE_OAUTH_SOCKET_PATH: /run/modelmirror-oauth/oauth.sock
+      MCP_HUB_EGRESS_SOCKET_PATH: /run/modelmirror-hub-egress/hub-egress.sock
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_oauth_socket:/run/modelmirror-oauth
+      - mcp_hub_egress_socket:/run/modelmirror-hub-egress
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-oauth/oauth.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
   mcp-database:
     build:
       context: ./server/sandbox_sidecar
@@ -612,6 +654,8 @@ services:
         condition: service_healthy
       mcp-hub-remote:
         condition: service_healthy
+      mcp-remote-oauth:
+        condition: service_healthy
       mcp-database:
         condition: service_healthy
       mcp-database-local:
@@ -721,6 +765,11 @@ services:
       MCP_REMOTE_AUTH_ENABLED: ${MCP_REMOTE_AUTH_ENABLED:-false}
       MCP_REMOTE_STATIC_TOKEN_ENABLED: ${MCP_REMOTE_STATIC_TOKEN_ENABLED:-false}
       MCP_REMOTE_AUTH_LOCAL_SINGLE_OWNER_ACK: ${MCP_REMOTE_AUTH_LOCAL_SINGLE_OWNER_ACK:-false}
+      MCP_REMOTE_OAUTH_ENABLED: ${MCP_REMOTE_OAUTH_ENABLED:-false}
+      MCP_REMOTE_OAUTH_DYNAMIC_REGISTRATION_ENABLED: ${MCP_REMOTE_OAUTH_DYNAMIC_REGISTRATION_ENABLED:-false}
+      MCP_REMOTE_OAUTH_CLIENT_METADATA_URL: ${MCP_REMOTE_OAUTH_CLIENT_METADATA_URL:-}
+      MCP_REMOTE_OAUTH_REDIRECT_URI: ${MCP_REMOTE_OAUTH_REDIRECT_URI:-}
+      MCP_REMOTE_OAUTH_SOCKET_PATH: /run/modelmirror-oauth/oauth.sock
       MCP_HUB_REMOTE_SOCKET_PATH: /run/modelmirror-hub-mcp/hub-mcp.sock
       MCP_HUB_EGRESS_SOCKET_PATH: /run/modelmirror-hub-egress/hub-egress.sock
       MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED: ${MCP_LEGACY_UNRESTRICTED_CONNECT_ENABLED:-false}
@@ -773,6 +822,7 @@ services:
       - mcp_browser_artifact_staging:/app/mcp-browser-staging
       - mcp_hub_remote_socket:/run/modelmirror-hub-mcp
       - mcp_hub_egress_socket:/run/modelmirror-hub-egress
+      - mcp_oauth_socket:/run/modelmirror-oauth
       - mcp_database_socket:/run/modelmirror-database-mcp
       - mcp_database_local_socket:/run/modelmirror-database-local-mcp
       - mcp_file_inputs:/app/mcp-file-inputs
@@ -941,6 +991,7 @@ volumes:
   mcp_browser_socket:
   mcp_browser_egress_socket:
   mcp_hub_remote_socket:
+  mcp_oauth_socket:
   mcp_hub_egress_socket:
   mcp_browser_artifact_staging:
     driver: local

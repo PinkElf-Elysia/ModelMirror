@@ -814,6 +814,12 @@ try:
         configure_mcp_remote_auth,
         router as mcp_remote_auth_router,
     )
+    from server.mcp.remote_oauth import (
+        MCPRemoteOAuthService,
+        MCPRemoteOAuthStore,
+        configure_mcp_remote_oauth,
+        router as mcp_remote_oauth_router,
+    )
     from server.mcp.workspace import MCPCatalogWorkspaceStore
     from server.registry.tool_registry import ToolRegistry
 except ModuleNotFoundError:
@@ -856,6 +862,12 @@ except ModuleNotFoundError:
         MCPRemoteAuthStore,
         configure_mcp_remote_auth,
         router as mcp_remote_auth_router,
+    )
+    from mcp.remote_oauth import (
+        MCPRemoteOAuthService,
+        MCPRemoteOAuthStore,
+        configure_mcp_remote_oauth,
+        router as mcp_remote_oauth_router,
     )
     from mcp.workspace import MCPCatalogWorkspaceStore
     from registry.tool_registry import ToolRegistry
@@ -1525,6 +1537,7 @@ app.include_router(mcp_hub_router)
 app.include_router(mcp_hub_review_router)
 app.include_router(mcp_hub_trusted_router)
 app.include_router(mcp_remote_auth_router)
+app.include_router(mcp_remote_oauth_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -1586,9 +1599,10 @@ workflow_hub_mcp_provider = HubMCPToolsetProvider(mcp_hub_service)
 toolset_store = ToolsetStore()
 toolset_credential_store = CredentialStore(toolset_store.storage_dir)
 mcp_remote_auth_store = MCPRemoteAuthStore(mcp_hub_store.storage_dir)
+mcp_subject_scope_resolver = LocalSubjectScopeResolver()
 mcp_remote_auth_broker = MCPRemoteAuthBroker(
     mcp_remote_auth_store,
-    subject_resolver=LocalSubjectScopeResolver(),
+    subject_resolver=mcp_subject_scope_resolver,
     credential_lookup=toolset_credential_store.get_public,
     credential_resolver=toolset_credential_store.resolve,
     credential_security_attestor=(
@@ -1596,6 +1610,14 @@ mcp_remote_auth_broker = MCPRemoteAuthBroker(
     ),
 )
 configure_mcp_remote_auth(mcp_remote_auth_broker)
+mcp_remote_oauth_store = MCPRemoteOAuthStore(mcp_hub_store.storage_dir)
+mcp_remote_oauth_service = MCPRemoteOAuthService(
+    mcp_remote_oauth_store,
+    subject_resolver=mcp_subject_scope_resolver,
+    remote_auth_status=mcp_remote_auth_broker.status,
+)
+configure_mcp_remote_oauth(mcp_remote_oauth_service)
+mcp_hub_service.set_remote_oauth(mcp_remote_oauth_service)
 mcp_hub_service.set_remote_auth(
     mcp_remote_auth_broker,
     credential_creator=toolset_credential_store.create,

@@ -339,9 +339,25 @@ def test_registry_static_token_requires_one_current_required_secret_header() -> 
     assert custom["auth_policy"]["mode"] == "static_header"
     assert custom["auth_policy"]["header_name"] == "x-api-key"
 
+    oauth = registry_entry()
+    oauth["server"]["remotes"][0]["headers"] = [
+        {
+            "name": "Authorization",
+            "description": "OAuth bearer token discovered by the client",
+            "isSecret": True,
+        }
+    ]
+    oauth_remote = normalize_registry_entry(oauth)["remotes"][0]
+    assert oauth_remote["eligibility"] == "oauth_discovery_candidate"
+    assert oauth_remote["url"] == "https://mcp.example.com/mcp"
+    assert "auth_policy" not in oauth_remote
+
     denied_shapes = [
-        [{"name": "Authorization", "isRequired": False, "isSecret": True}],
         [{"name": "Authorization", "isRequired": True, "isSecret": False}],
+        [{"name": "Authorization", "isRequired": "false", "isSecret": True}],
+        [{"name": "Authorization", "isRequired": None, "isSecret": True}],
+        [{"name": "Authorization", "isRequired": 0, "isSecret": True}],
+        [{"name": "X-API-Key", "isRequired": False, "isSecret": True}],
         [
             {"name": "Authorization", "isRequired": True, "isSecret": True},
             {"name": "X-API-Key", "isRequired": True, "isSecret": True},
@@ -354,7 +370,7 @@ def test_registry_static_token_requires_one_current_required_secret_header() -> 
         [
             {
                 "name": "Authorization",
-                "isRequired": True,
+                "isRequired": False,
                 "isSecret": True,
                 "default": "must-not-be-accepted",
             }
@@ -452,6 +468,23 @@ async def test_static_token_binding_create_rotate_revoke_is_secret_free(
         replacement["binding"]["binding_id"],
         subject=broker.subject_resolver.resolve(),
     )
+    configure_mcp_hub(service)
+    app = FastAPI()
+    app.include_router(router)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        rejected_delete = await client.request(
+            "DELETE",
+            f"/api/mcp/hub/candidates/{candidate['candidate_id']}/auth-bindings/"
+            f"{replacement_binding.binding_id}?owner_id=other",
+            json={"secret": "delete-secret-must-not-echo"},
+        )
+    assert rejected_delete.status_code == 422
+    assert "delete-secret-must-not-echo" not in rejected_delete.text
+    assert service.candidate_auth(candidate["candidate_id"])["binding"][
+        "binding_id"
+    ] == replacement_binding.binding_id
     await service.delete_candidate(candidate["candidate_id"])
     assert vault.get_public(
         replacement_binding.credential_id,
@@ -518,7 +551,7 @@ async def test_static_token_binding_api_rejects_client_scope_and_target_injectio
     configure_mcp_hub(service)
     app = FastAPI()
     app.include_router(router)
-    injected_secret = "api-injected-secret-must-not-echo"
+    injected_secret = "api-injected-secret-must-not-echo-" + ("x" * 12_000)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://testserver",
@@ -538,6 +571,12 @@ async def test_static_token_binding_api_rejects_client_scope_and_target_injectio
         )
     assert response.status_code == 422
     assert injected_secret not in response.text
+    assert response.json() == {
+        "detail": {
+            "code": "hub_invalid_request",
+            "message": "Invalid MCP Hub request.",
+        }
+    }
     assert service.candidate_auth(candidate["candidate_id"])["binding"] is None
 
 
@@ -1053,16 +1092,24 @@ async def test_hub_api_uses_registry_ids_and_digest_activation(tmp_path: Path) -
         assert detail.status_code == 200, detail.text
         remote_id = detail.json()["remotes"][0]["remote_id"]
 
+        injected_marker = "candidate-secret-must-not-echo-" + ("z" * 12_000)
         rejected = await client.post(
             "/api/mcp/hub/candidates",
             json={
                 "server_name": "io.example/public",
                 "version": "1.2.3",
                 "remote_id": remote_id,
-                "url": "https://attacker.invalid/mcp",
+                "url": "https://attacker.invalid/" + injected_marker,
             },
         )
         assert rejected.status_code == 422
+        assert injected_marker not in rejected.text
+        assert rejected.json() == {
+            "detail": {
+                "code": "hub_invalid_request",
+                "message": "Invalid MCP Hub request.",
+            }
+        }
 
         created = await client.post(
             "/api/mcp/hub/candidates",
