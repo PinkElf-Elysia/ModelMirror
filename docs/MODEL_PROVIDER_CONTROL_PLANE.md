@@ -236,7 +236,13 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   自动恢复遇到既有派发或不确定证据时失败关闭，显式新执行才可创建新的可计费调用。
   缺省 `modelId` 在 Managed 模式规范化为现有 `TEXT_FALLBACK_MODEL`，仍须具备该精确模型的
   Inventory、资格和 Binding。Provider 失败不再返回旧 `{}` 或默认分类；legacy 模式保持原行为。
-- 后续 R6E—R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
+- R6E 接入 Classic Workflow 的 `agent` 与 `workflow_agent`。交互和部署使用独立 Policy；
+  直接回答/ReAct、Function Calling、结构化输出及中间模型调用分别要求 `chat_text`、
+  `chat_tools`、`chat_json_object` 精确 Binding。`auto` 在派发前按资格确定策略，Managed 模式
+  禁止 `retryOnFailure`、`fallbackModelId` 和 Function Calling 失败后转 ReAct。HITL 恢复复用
+  已保存输出，只有显式 revise 创建新的稳定阶段和模型轮次。工具调用仍由 Runtime 执行，Receipt
+  不保存工具参数、Prompt 或模型正文。
+- 后续 R6F—R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
   只能存在于 Python 主进程内存，Worker、工具执行器和浏览器不得收到 Key、URL 或连接细节。
 - Receipt 清理命令现在同时检查 R5 Chat 与 R6 Workload 记录，仍默认 dry-run；`--apply`
   才删除超过保留期的已完成运行、尝试或调用。

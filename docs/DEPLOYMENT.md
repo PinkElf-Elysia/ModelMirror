@@ -218,7 +218,8 @@ MODEL_CONTROL_TEAM_CHAT_ENABLED=false
 ```
 
 R6B 接入 `agent_shadow`，R6C 接入两个 Meta Agent 生成入口，R6D 接入 Classic Workflow
-交互与部署 LLM；其他 Workflow Agent 和 Xpert 入口仍不能激活 Managed Policy。`agent_shadow` 只有在
+交互与部署 LLM，R6E 接入 Classic Workflow 的 `agent` 与 `workflow_agent`；Xpert 等后续入口
+仍不能激活 Managed Policy。`agent_shadow` 只有在
 `MODEL_CONTROL_AGENT_SHADOW_ENABLED=true`、
 精确模型的 `chat_tools` 资格与 Binding 有效、且管理员明确批准 fail-closed 后才会接管。
 开关为 `false` 或 Policy 为 `legacy` 时继续使用原 Shadow 网关路径；已经激活但失效的
@@ -237,6 +238,14 @@ Classic Workflow 交互接管要求 `MODEL_CONTROL_WORKFLOW_LLM_ENABLED=true`，
 各自的 Policy。关闭对应开关并重启可恢复 legacy；已经激活但资格或 Binding 漂移时保持
 `degraded_required` 并失败关闭。恢复部署执行不得自动重放已有模型节点；应由操作者确认后
 创建显式新执行。交互节点仅显示脱敏摘要，完整调用证据在管理员 Settings 查看。
+
+Workflow Agent 接管要求 `MODEL_CONTROL_WORKFLOW_AGENT_ENABLED=true`；部署执行还同时要求
+`MODEL_CONTROL_WORKFLOW_DEPLOYMENT_ENABLED=true`。交互与部署入口须分别批准精确模型的
+`chat_text`、`chat_tools` 或 `chat_json_object` Binding。Managed 节点不得保留
+`retryOnFailure` 或 `fallbackModelId`，否则在第一个 Provider POST 前失败关闭。`auto` 策略只
+依据当前资格选择 Function Calling 或 ReAct，不通过真实失败探测；派发后不重试、不切换模型、
+连接、IP 或 legacy。HITL approve/replace 不产生新调用，只有 revise 创建新模型轮次。关闭 Agent
+开关并重启会恢复该入口的 legacy 路径；已激活但资格漂移时保持 `degraded_required`。
 
 同一清理命令从 v16 起同时报告 R5 Chat 与 R6 Workload 的过期记录；第一条仍是 dry-run，
 只有第二条显式 `--apply` 才删除已完成记录。不得对正在运行的父运行或逻辑调用执行清理。

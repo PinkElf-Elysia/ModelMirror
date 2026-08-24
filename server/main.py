@@ -1281,12 +1281,14 @@ except ModuleNotFoundError:
 try:
     from server.model_router.workflow_gateway import (
         ManagedWorkflowGateway,
+        ManagedWorkflowAgentRun,
         ManagedWorkflowNodeRun,
         ManagedWorkflowRoutingError,
     )
 except ModuleNotFoundError:
     from model_router.workflow_gateway import (
         ManagedWorkflowGateway,
+        ManagedWorkflowAgentRun,
         ManagedWorkflowNodeRun,
         ManagedWorkflowRoutingError,
     )
@@ -9001,11 +9003,25 @@ async def _run_workflow_response(
     workflow_managed_mode = workflow_managed_gateway.routing_mode(
         trusted_source_kind
     )
+    workflow_agent_managed_mode = workflow_managed_gateway.agent_routing_mode(
+        trusted_source_kind
+    )
     requires_legacy_model = any(
-        (node.data.get("kind") if isinstance(node.data.get("kind"), str) else node.type)
-        == "workflow_agent"
+        (
+            (
+                node.data.get("kind")
+                if isinstance(node.data.get("kind"), str)
+                else node.type
+            )
+            in {"agent", "workflow_agent"}
+            and workflow_agent_managed_mode == "legacy"
+        )
         or (
-            (node.data.get("kind") if isinstance(node.data.get("kind"), str) else node.type)
+            (
+                node.data.get("kind")
+                if isinstance(node.data.get("kind"), str)
+                else node.type
+            )
             == "llm"
             and workflow_managed_mode == "legacy"
         )
@@ -9399,8 +9415,41 @@ async def _run_workflow_response(
                 node_id=node_id,
             )
 
+        def start_managed_agent_run(
+            node_id: str,
+            *,
+            logical_phase: str = "initial",
+        ) -> ManagedWorkflowAgentRun | None:
+            if workflow_agent_managed_mode == "legacy":
+                return None
+            entry_id = workflow_managed_gateway.agent_entry_id(trusted_source_kind)
+            if entry_id is None:
+                return None
+            if workflow_agent_managed_mode == "degraded_required":
+                code = "provider_workload_workflow_agent_degraded_required"
+                raise ManagedWorkflowRoutingError(
+                    code,
+                    "Workflow Agent 的 Managed Provider 策略已失效，当前节点失败关闭。",
+                    status_code=409,
+                    receipt=workflow_managed_gateway.blocked_receipt(entry_id, code),
+                )
+            execution_reference = (
+                str(
+                    run_metadata.get("workflow_deployment_execution_id")
+                    or task_id
+                )
+                if trusted_source_kind == "workflow_deployment"
+                else task_id
+            )
+            return workflow_managed_gateway.start_agent_run(
+                source_kind=trusted_source_kind,  # type: ignore[arg-type]
+                execution_reference=execution_reference,
+                node_id=node_id,
+                logical_phase=logical_phase,
+            )
+
         def finish_managed_node_failure(
-            managed_run: ManagedWorkflowNodeRun,
+            managed_run: ManagedWorkflowNodeRun | ManagedWorkflowAgentRun,
             code: str,
         ) -> dict[str, Any]:
             status = "failed"
@@ -11509,6 +11558,7 @@ async def _run_workflow_response(
             selector_spec: RuntimeMiddlewareSpec | None = None,
             history_messages: list[dict[str, Any]] | None = None,
             actual_model_observer: Callable[[str], None] | None = None,
+            managed_agent_run: ManagedWorkflowAgentRun | None = None,
         ) -> AgentStrategyResult:
             runtime_metadata = dict(task_state.get("runtime_metadata") or {})
             agent_max_tokens = workflow_agent_token_budget(runtime_metadata)
@@ -11542,6 +11592,24 @@ async def _run_workflow_response(
                 middleware_specs=middleware_specs,
                 apply_policy_filter=selector_spec is not None,
             )
+            resolved_strategy = strategy
+            if managed_agent_run is not None:
+                if selector_spec is not None and available_tools:
+                    selector_model_id = str(
+                        selector_spec.config.get("selector_model_id") or model_id
+                    ).strip() or model_id
+                    managed_agent_run.require_shape(
+                        selector_model_id,
+                        "chat_json_object",
+                    )
+                    # The selector may conservatively return no tools. Preflight
+                    # the direct text shape before paying for the selector call.
+                    managed_agent_run.require_shape(model_id, "chat_text")
+                resolved_strategy = managed_agent_run.resolve_strategy(
+                    requested_strategy=strategy,
+                    model_id=model_id,
+                    has_tools=bool(available_tools),
+                )
             selector_skills_spec = middleware_spec(
                 middleware_specs or [], "skills_runtime"
             )
@@ -11632,24 +11700,53 @@ async def _run_workflow_response(
                         20,
                     ),
                     required_tools=required_tools,
-                    model_text=middleware_model_text,
+                    model_text=(
+                        (
+                            lambda selected_model_id, messages, selected_max_tokens: (
+                                managed_agent_run.complete_json_object(
+                                    purpose="tool_selector",
+                                    model_id=selected_model_id,
+                                    messages=messages,
+                                    temperature=0,
+                                    max_tokens=selected_max_tokens,
+                                    cancel_event=task_state["provider_cancel_event"],
+                                )
+                            )
+                        )
+                        if managed_agent_run is not None
+                        else middleware_model_text
+                    ),
                 )
                 if middleware_context is not None:
                     middleware_context.metadata["tool_selection"] = selector_metadata
 
-            gateway_url, gateway_key = get_llm_gateway_config()
-            if not gateway_url:
-                raise ValueError(LLM_GATEWAY_NOT_CONFIGURED_MESSAGE)
-            base_model_client = OpenAICompatibleAgentModelClient(
-                endpoint=gateway_url,
-                headers=llm_gateway_headers(gateway_key),
-                client_kwargs=llm_client_kwargs(),
-            )
+            if managed_agent_run is not None:
+                if not available_tools:
+                    managed_agent_run.require_shape(model_id, "chat_text")
+                base_model_client = managed_agent_run
+            else:
+                gateway_url, gateway_key = get_llm_gateway_config()
+                if not gateway_url:
+                    raise ValueError(LLM_GATEWAY_NOT_CONFIGURED_MESSAGE)
+                base_model_client = OpenAICompatibleAgentModelClient(
+                    endpoint=gateway_url,
+                    headers=llm_gateway_headers(gateway_key),
+                    client_kwargs=llm_client_kwargs(),
+                )
+
+            async def complete_base_model(**kwargs: Any) -> AgentModelTurn:
+                if managed_agent_run is not None:
+                    return await managed_agent_run.complete(
+                        **kwargs,
+                        purpose="agent_strategy_model_round",
+                        cancel_event=task_state["provider_cancel_event"],
+                    )
+                return await base_model_client.complete(**kwargs)
 
             class MiddlewareAgentModelClient:
                 async def complete(self, **kwargs: Any) -> AgentModelTurn:
                     if pipeline is None or middleware_context is None:
-                        turn = await base_model_client.complete(**kwargs)
+                        turn = await complete_base_model(**kwargs)
                         if actual_model_observer is not None:
                             raw_model = turn.raw.get("model")
                             actual_model_observer(
@@ -11662,7 +11759,7 @@ async def _run_workflow_response(
                     async def handler(request: ModelCallRequest) -> ModelCallResponse:
                         nonlocal captured_turn, observed_turn
                         params = dict(request.params or {})
-                        captured_turn = await base_model_client.complete(
+                        captured_turn = await complete_base_model(
                             model_id=request.model_id,
                             messages=list(request.messages),
                             temperature=float(
@@ -11743,7 +11840,11 @@ async def _run_workflow_response(
                     raise AgentStrategyError(
                         "模型没有返回直接回答。", code="empty_model_response"
                     )
-                active_strategy = "react" if strategy == "react" else "function_calling"
+                active_strategy = (
+                    resolved_strategy
+                    if resolved_strategy in {"function_calling", "react"}
+                    else "function_calling"
+                )
                 result = AgentStrategyResult(
                     answer=answer,
                     strategy=active_strategy,
@@ -11880,7 +11981,7 @@ async def _run_workflow_response(
                     model_id=model_id,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
-                    strategy=strategy,  # type: ignore[arg-type]
+                    strategy=resolved_strategy,  # type: ignore[arg-type]
                     max_iterations=max_iterations,
                     temperature=temperature,
                     max_tokens=agent_max_tokens,
@@ -11955,6 +12056,7 @@ async def _run_workflow_response(
             resume_state: dict[str, Any] | None = None,
             actual_model_observer: Callable[[str], None] | None = None,
             usage_observer: Callable[[dict[str, int]], None] | None = None,
+            managed_agent_run: ManagedWorkflowAgentRun | None = None,
         ) -> tuple[str, list[dict[str, Any]]]:
             max_tool_concurrency = min(max(int(max_tool_concurrency), 1), 8)
             max_tool_calls = min(max(int(max_tool_calls), 1), 50)
@@ -11995,6 +12097,16 @@ async def _run_workflow_response(
                 middleware_specs=middleware_specs,
                 apply_policy_filter=selector_spec is not None,
             )
+            if managed_agent_run is not None:
+                managed_agent_run.require_shape(model_id, "chat_text")
+                if selector_spec is not None and available_tools:
+                    selector_model_id = str(
+                        selector_spec.config.get("selector_model_id") or model_id
+                    ).strip() or model_id
+                    managed_agent_run.require_shape(
+                        selector_model_id,
+                        "chat_json_object",
+                    )
             if selector_spec is not None and available_tools:
                 required_tools = (
                     {"todo_list", "todo_create", "todo_update"}
@@ -12058,7 +12170,22 @@ async def _run_workflow_response(
                         20,
                     ),
                     required_tools=required_tools,
-                    model_text=middleware_model_text,
+                    model_text=(
+                        (
+                            lambda selected_model_id, messages, selected_max_tokens: (
+                                managed_agent_run.complete_json_object(
+                                    purpose="tool_selector",
+                                    model_id=selected_model_id,
+                                    messages=messages,
+                                    temperature=0,
+                                    max_tokens=selected_max_tokens,
+                                    cancel_event=task_state["provider_cancel_event"],
+                                )
+                            )
+                        )
+                        if managed_agent_run is not None
+                        else middleware_model_text
+                    ),
                 )
                 if middleware_context is not None:
                     middleware_context.metadata["tool_selection"] = selector_metadata
@@ -12111,34 +12238,65 @@ async def _run_workflow_response(
                     if usage_observer is not None:
                         usage_observer(reported_usage)
 
-                if pipeline is None or middleware_context is None:
+                async def invoke_provider(
+                    call_model_id: str,
+                    call_messages: list[ChatMessage],
+                    *,
+                    call_temperature: float,
+                    call_max_tokens: int,
+                ) -> str:
+                    if managed_agent_run is not None:
+                        text = await managed_agent_run.complete_text(
+                            purpose="react_model_round",
+                            model_id=call_model_id,
+                            messages=[message.model_dump() for message in call_messages],
+                            temperature=call_temperature,
+                            max_tokens=call_max_tokens,
+                            cancel_event=task_state["provider_cancel_event"],
+                        )
+                        receipt = managed_agent_run.calls[-1]
+                        capture_actual_model(receipt.actual_model or call_model_id)
+                        capture_usage(
+                            {
+                                "prompt_tokens": receipt.prompt_tokens or 0,
+                                "completion_tokens": receipt.completion_tokens or 0,
+                                "total_tokens": receipt.total_tokens or 0,
+                            }
+                        )
+                        return text
                     return await collect_chat_completion_text(
-                        model_id,
-                        messages,
-                        temperature=temperature,
-                        max_tokens=agent_max_tokens,
+                        call_model_id,
+                        call_messages,
+                        temperature=call_temperature,
+                        max_tokens=call_max_tokens,
                         actual_model_observer=capture_actual_model,
                         usage_observer=capture_usage,
                     )
 
+                if pipeline is None or middleware_context is None:
+                    return await invoke_provider(
+                        model_id,
+                        messages,
+                        call_temperature=temperature,
+                        call_max_tokens=agent_max_tokens,
+                    )
+
                 async def handler(request: ModelCallRequest) -> ModelCallResponse:
-                    text = await collect_chat_completion_text(
+                    text = await invoke_provider(
                         request.model_id,
                         [
                             ChatMessage.model_validate(message)
                             for message in request.messages
                         ],
-                        temperature=float(
+                        call_temperature=float(
                             request.params.get("temperature", temperature)
                         ),
-                        max_tokens=int(
+                        call_max_tokens=int(
                             request.params.get(
                                 "max_tokens",
                                 agent_max_tokens,
                             )
                         ),
-                        actual_model_observer=capture_actual_model,
-                        usage_observer=capture_usage,
                     )
                     return ModelCallResponse(
                         text=text,
@@ -14488,7 +14646,9 @@ async def _run_workflow_response(
 
                 chosen_handle: str | None = None
                 output = ""
-                node_provider_run: ManagedWorkflowNodeRun | None = None
+                node_provider_run: (
+                    ManagedWorkflowNodeRun | ManagedWorkflowAgentRun | None
+                ) = None
                 node_provider_receipt: dict[str, Any] | None = None
 
                 if kind == "input":
@@ -17015,8 +17175,26 @@ async def _run_workflow_response(
                             parallel_tool_calls = workflow_truthy(
                                 node.data.get("parallelToolCalls")
                             )
+                            if workflow_agent_managed_mode != "legacy":
+                                node_provider_run = start_managed_agent_run(node.id)
 
                             async def run_direct_agent() -> str:
+                                if isinstance(
+                                    node_provider_run,
+                                    ManagedWorkflowAgentRun,
+                                ):
+                                    return await node_provider_run.complete_text(
+                                        purpose="agent_direct",
+                                        model_id=model_id,
+                                        messages=[
+                                            {"role": "user", "content": instruction}
+                                        ],
+                                        temperature=temperature,
+                                        max_tokens=WORKFLOW_AGENT_MAX_TOKENS,
+                                        cancel_event=task_state[
+                                            "provider_cancel_event"
+                                        ],
+                                    )
                                 if not get_llm_gateway_config()[0]:
                                     raise ValueError(LLM_GATEWAY_NOT_CONFIGURED_MESSAGE)
                                 return await collect_chat_completion_text(
@@ -17057,6 +17235,14 @@ async def _run_workflow_response(
                                             output_variable=output_variable,
                                             run_id=workflow_run.run_id,
                                             checkpoint_prefix="agent",
+                                            managed_agent_run=(
+                                                node_provider_run
+                                                if isinstance(
+                                                    node_provider_run,
+                                                    ManagedWorkflowAgentRun,
+                                                )
+                                                else None
+                                            ),
                                         )
                                     except AgentStrategyError as strategy_exc:
                                         for agent_event in agent_strategy_node_events(
@@ -17092,6 +17278,14 @@ async def _run_workflow_response(
                                         max_iterations=max_iterations,
                                         temperature=temperature,
                                         output_variable=output_variable,
+                                        managed_agent_run=(
+                                            node_provider_run
+                                            if isinstance(
+                                                node_provider_run,
+                                                ManagedWorkflowAgentRun,
+                                            )
+                                            else None
+                                        ),
                                     )
                                 variables[output_variable] = output
                                 for agent_event in agent_events:
@@ -17108,7 +17302,25 @@ async def _run_workflow_response(
                                 )
                             else:
                                 raise ValueError(f"Agent 模式不支持：{agent_mode}")
+                            if isinstance(node_provider_run, ManagedWorkflowAgentRun):
+                                node_provider_run.finish("passed")
+                                node_provider_receipt = (
+                                    node_provider_run.receipt_summary()
+                                )
+                    except ManagedWorkflowRoutingError as exc:
+                        if isinstance(node_provider_run, ManagedWorkflowAgentRun):
+                            node_provider_receipt = finish_managed_node_failure(
+                                node_provider_run,
+                                exc.code,
+                            )
+                            exc.receipt = node_provider_receipt
+                        raise
                     except Exception as exc:
+                        if isinstance(node_provider_run, ManagedWorkflowAgentRun):
+                            node_provider_receipt = finish_managed_node_failure(
+                                node_provider_run,
+                                "provider_workload_agent_runtime_failed",
+                            )
                         logger.warning("Workflow agent node failed: %s", exc)
                         output = ""
                         variables[output_variable] = output
@@ -17134,6 +17346,61 @@ async def _run_workflow_response(
                         model_id = str(
                             node.data.get("modelId") or TEXT_FALLBACK_MODEL
                         ).strip() or TEXT_FALLBACK_MODEL
+                        managed_agent_phase = "initial"
+                        restored_agent_state = task_state.get("agent_resume_state")
+                        if (
+                            workflow_agent_managed_mode != "legacy"
+                            and isinstance(restored_agent_state, dict)
+                            and restored_agent_state
+                        ):
+                            resolved = task_state.get("resolved_approval")
+                            phase_material = json.dumps(
+                                {
+                                    "type": restored_agent_state.get("type"),
+                                    "approval_id": (
+                                        resolved.get("approval_id")
+                                        if isinstance(resolved, dict)
+                                        else None
+                                    ),
+                                    "revision_round": restored_agent_state.get(
+                                        "revision_round"
+                                    ),
+                                },
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            )
+                            managed_agent_phase = (
+                                "resume:"
+                                + hashlib.sha256(
+                                    phase_material.encode("utf-8")
+                                ).hexdigest()[:16]
+                            )
+                            restored_receipt = restored_agent_state.get(
+                                "provider_route_receipts"
+                            )
+                            if isinstance(restored_receipt, dict):
+                                node_provider_receipt = dict(restored_receipt)
+
+                        def ensure_workflow_agent_provider_run(
+                        ) -> ManagedWorkflowAgentRun | None:
+                            nonlocal node_provider_run
+                            if workflow_agent_managed_mode == "legacy":
+                                return None
+                            if node_provider_run is None:
+                                node_provider_run = start_managed_agent_run(
+                                    node.id,
+                                    logical_phase=managed_agent_phase,
+                                )
+                            if not isinstance(
+                                node_provider_run,
+                                ManagedWorkflowAgentRun,
+                            ):
+                                raise ManagedWorkflowRoutingError(
+                                    "provider_workload_agent_run_type_invalid",
+                                    "Workflow Agent 的 Managed Provider 运行状态无效。",
+                                    status_code=500,
+                                )
+                            return node_provider_run
                         agent_specs = agent_middleware_specs(node.id)
                         todo_spec = middleware_spec(agent_specs, "todo_planner")
                         sandbox_files_spec = middleware_spec(
@@ -17702,6 +17969,29 @@ async def _run_workflow_response(
                         fallback_model_id = str(
                             node.data.get("fallbackModelId") or ""
                         ).strip()
+                        if workflow_agent_managed_mode != "legacy" and (
+                            retry_on_failure or fallback_model_id
+                        ):
+                            entry_id = workflow_managed_gateway.agent_entry_id(
+                                trusted_source_kind
+                            )
+                            code = "provider_workload_legacy_retry_fallback_configured"
+                            raise ManagedWorkflowRoutingError(
+                                code,
+                                (
+                                    "Managed Workflow Agent 禁止派发后重试或备用模型；"
+                                    "请先关闭 retryOnFailure 并移除 fallbackModelId。"
+                                ),
+                                status_code=409,
+                                receipt=(
+                                    workflow_managed_gateway.blocked_receipt(
+                                        entry_id,
+                                        code,
+                                    )
+                                    if entry_id is not None
+                                    else None
+                                ),
+                            )
                         exception_handling = str(
                             node.data.get("exceptionHandling") or "none"
                         ).strip() or "none"
@@ -18096,6 +18386,7 @@ async def _run_workflow_response(
                             max_tokens: int,
                             *,
                             temperature: float = 0.7,
+                            execution_shape: str = "chat_text",
                         ) -> str:
                             async def handler(
                                 request: ModelCallRequest,
@@ -18103,24 +18394,73 @@ async def _run_workflow_response(
                                 def capture_actual_model(reported_model_id: str) -> None:
                                     observe_actual_model(reported_model_id)
 
-                                text = await collect_chat_completion_text(
-                                    request.model_id,
-                                    [
-                                        ChatMessage.model_validate(message)
-                                        for message in request.messages
-                                    ],
-                                    temperature=float(
+                                managed_run = ensure_workflow_agent_provider_run()
+                                if managed_run is not None:
+                                    call_temperature = float(
                                         request.params.get(
                                             "temperature",
                                             temperature,
                                         )
-                                    ),
-                                    max_tokens=int(
+                                    )
+                                    call_max_tokens = int(
                                         request.params.get("max_tokens", max_tokens)
-                                    ),
-                                    actual_model_observer=capture_actual_model,
-                                    usage_observer=observe_token_usage,
-                                )
+                                    )
+                                    if execution_shape == "chat_json_object":
+                                        text = await managed_run.complete_json_object(
+                                            purpose="structured_model_round",
+                                            model_id=request.model_id,
+                                            messages=list(request.messages),
+                                            temperature=call_temperature,
+                                            max_tokens=call_max_tokens,
+                                            cancel_event=task_state[
+                                                "provider_cancel_event"
+                                            ],
+                                        )
+                                    else:
+                                        text = await managed_run.complete_text(
+                                            purpose="agent_text_model_round",
+                                            model_id=request.model_id,
+                                            messages=list(request.messages),
+                                            temperature=call_temperature,
+                                            max_tokens=call_max_tokens,
+                                            cancel_event=task_state[
+                                                "provider_cancel_event"
+                                            ],
+                                        )
+                                    receipt = managed_run.calls[-1]
+                                    capture_actual_model(
+                                        receipt.actual_model or request.model_id
+                                    )
+                                    observe_token_usage(
+                                        {
+                                            "prompt_tokens": receipt.prompt_tokens or 0,
+                                            "completion_tokens": (
+                                                receipt.completion_tokens or 0
+                                            ),
+                                            "total_tokens": receipt.total_tokens or 0,
+                                        }
+                                    )
+                                else:
+                                    text = await collect_chat_completion_text(
+                                        request.model_id,
+                                        [
+                                            ChatMessage.model_validate(message)
+                                            for message in request.messages
+                                        ],
+                                        temperature=float(
+                                            request.params.get(
+                                                "temperature",
+                                                temperature,
+                                            )
+                                        ),
+                                        max_tokens=int(
+                                            request.params.get(
+                                                "max_tokens", max_tokens
+                                            )
+                                        ),
+                                        actual_model_observer=capture_actual_model,
+                                        usage_observer=observe_token_usage,
+                                    )
                                 return ModelCallResponse(
                                     text=text,
                                     metadata={"model_id": request.model_id},
@@ -18151,6 +18491,7 @@ async def _run_workflow_response(
                                     messages,
                                     max_tokens,
                                     temperature=0,
+                                    execution_shape="chat_json_object",
                                 )
                             )
 
@@ -18392,6 +18733,11 @@ async def _run_workflow_response(
                                             attempt_model_id,
                                             direct_messages,
                                             direct_agent_max_tokens,
+                                            execution_shape=(
+                                                "chat_json_object"
+                                                if structured_spec is not None
+                                                else "chat_text"
+                                            ),
                                         )
                                         if (
                                             content_policy_output_enabled
@@ -18427,7 +18773,34 @@ async def _run_workflow_response(
                                             ChatMessage.model_validate(message)
                                             for message in prepared_request.messages
                                         ]
-                                        if (
+                                        managed_run = (
+                                            ensure_workflow_agent_provider_run()
+                                        )
+                                        if managed_run is not None:
+                                            model_stream = managed_run.stream_text(
+                                                purpose="agent_direct_stream",
+                                                model_id=prepared_request.model_id,
+                                                messages=[
+                                                    message.model_dump()
+                                                    for message in prepared_messages
+                                                ],
+                                                temperature=float(
+                                                    prepared_request.params.get(
+                                                        "temperature",
+                                                        agent_temperature,
+                                                    )
+                                                ),
+                                                max_tokens=int(
+                                                    prepared_request.params.get(
+                                                        "max_tokens",
+                                                        direct_agent_max_tokens,
+                                                    )
+                                                ),
+                                                cancel_event=task_state[
+                                                    "provider_cancel_event"
+                                                ],
+                                            )
+                                        elif (
                                             direct_agent_max_tokens
                                             != WORKFLOW_AGENT_MAX_TOKENS
                                         ):
@@ -18476,6 +18849,28 @@ async def _run_workflow_response(
                                         )
                                         if isinstance(stream_usage, dict) and stream_usage:
                                             observe_token_usage(stream_usage)
+                                        elif (
+                                            managed_run is not None
+                                            and managed_run.calls
+                                        ):
+                                            receipt = managed_run.calls[-1]
+                                            observe_actual_model(
+                                                receipt.actual_model
+                                                or prepared_request.model_id
+                                            )
+                                            observe_token_usage(
+                                                {
+                                                    "prompt_tokens": (
+                                                        receipt.prompt_tokens or 0
+                                                    ),
+                                                    "completion_tokens": (
+                                                        receipt.completion_tokens or 0
+                                                    ),
+                                                    "total_tokens": (
+                                                        receipt.total_tokens or 0
+                                                    ),
+                                                }
+                                            )
                                         await agent_pipeline.after_model(
                                             ModelCallResponse(
                                                 text=output,
@@ -18547,6 +18942,9 @@ async def _run_workflow_response(
                                                 selector_spec=selector_spec,
                                                 history_messages=history_messages,
                                                 actual_model_observer=observe_actual_model,
+                                                managed_agent_run=(
+                                                    ensure_workflow_agent_provider_run()
+                                                ),
                                             )
                                         except AgentStrategyError as strategy_exc:
                                             failure_events = agent_strategy_node_events(
@@ -18638,6 +19036,9 @@ async def _run_workflow_response(
                                             ),
                                             actual_model_observer=observe_actual_model,
                                             usage_observer=observe_token_usage,
+                                            managed_agent_run=(
+                                                ensure_workflow_agent_provider_run()
+                                            ),
                                         )
                                     agent_events = guard_agent_visible_events(agent_events)
                                     output = guard_agent_visible_text(output)
@@ -18743,6 +19144,9 @@ async def _run_workflow_response(
                                             history_messages=history_messages,
                                             actual_model_observer=observe_actual_model,
                                             usage_observer=observe_token_usage,
+                                            managed_agent_run=(
+                                                ensure_workflow_agent_provider_run()
+                                            ),
                                         )
                                         ralph_events.extend(next_events)
                                         return guard_agent_visible_text(next_output)
@@ -19237,14 +19641,59 @@ async def _run_workflow_response(
                                 ),
                             },
                         )
-                    except RuntimeInterrupt:
+                        if isinstance(node_provider_run, ManagedWorkflowAgentRun):
+                            node_provider_run.finish("passed")
+                            node_provider_receipt = (
+                                node_provider_run.receipt_summary()
+                            )
+                    except RuntimeInterrupt as interrupt:
+                        if isinstance(node_provider_run, ManagedWorkflowAgentRun):
+                            if any(
+                                call.status == "passed"
+                                for call in node_provider_run.calls
+                            ):
+                                node_provider_run.finish("passed")
+                            else:
+                                node_provider_run.finish(
+                                    "failed",
+                                    reason_code=(
+                                        "provider_workload_agent_interrupted_before_call"
+                                    ),
+                                )
+                            node_provider_receipt = (
+                                node_provider_run.receipt_summary()
+                            )
+                            continuation_state = dict(
+                                interrupt.continuation.get("agent_state") or {}
+                            )
+                            continuation_state["provider_route_receipts"] = (
+                                node_provider_receipt
+                            )
+                            interrupt.continuation["agent_state"] = (
+                                continuation_state
+                            )
                         if agent_context is not None:
                             for hook_event in drain_skill_hook_status_events(
                                 agent_context
                             ):
                                 yield sse_payload(hook_event)
                         raise
+                    except ManagedWorkflowRoutingError as exc:
+                        if isinstance(node_provider_run, ManagedWorkflowAgentRun):
+                            node_provider_receipt = finish_managed_node_failure(
+                                node_provider_run,
+                                exc.code,
+                            )
+                            exc.receipt = node_provider_receipt
+                        elif exc.receipt is not None:
+                            node_provider_receipt = exc.receipt
+                        raise
                     except ContentPolicyError as exc:
+                        if isinstance(node_provider_run, ManagedWorkflowAgentRun):
+                            node_provider_receipt = finish_managed_node_failure(
+                                node_provider_run,
+                                exc.code,
+                            )
                         if workflow_agent_run is not None:
                             safe_error = f"{exc.code}: phase={exc.phase or 'input'}"
                             if exc.rule_id:
@@ -19275,6 +19724,11 @@ async def _run_workflow_response(
                                 )
                         raise
                     except Exception as exc:
+                        if isinstance(node_provider_run, ManagedWorkflowAgentRun):
+                            node_provider_receipt = finish_managed_node_failure(
+                                node_provider_run,
+                                "provider_workload_agent_runtime_failed",
+                            )
                         if runtime_run_type == "skill_evaluation":
                             logger.exception(
                                 "Skill evaluation workflow_agent node failed: %s",
@@ -21372,6 +21826,9 @@ async def _run_workflow_response(
                 "rule_id": exc.rule_id or None,
                 "message": safe_message,
             }
+            provider_receipt = locals().get("node_provider_receipt")
+            if isinstance(provider_receipt, dict):
+                error_event["provider_route_receipts"] = provider_receipt
             try:
                 workflow_execution_store.fail(task_id, error=failure_error)
                 workflow_execution_store.append_event(task_id, error_event)
