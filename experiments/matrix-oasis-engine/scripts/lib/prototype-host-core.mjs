@@ -1,19 +1,26 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer as createNodeServer } from "node:http";
+import { validatePrototypeCreatorQualificationJson } from "@matrix-oasis/prototype-creator-qualification-contracts";
+import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 
 export const PROTOTYPE_HOST = "127.0.0.1";
 export const PROTOTYPE_HOST_PORT = 43_110;
 export const PROTOTYPE_HOST_ORIGIN = `http://${PROTOTYPE_HOST}:${PROTOTYPE_HOST_PORT}`;
 export const PROTOTYPE_HOST_MARKER = "MATRIX_OASIS_R10_PROTOTYPE_HOST";
+export const R16_PROTOTYPE_HOST_MARKER = "MATRIX_OASIS_R16_PROTOTYPE_HOST";
 
 const TERMINAL = new Set(["ready", "failed"]);
 const STATES = new Set([
   "awaiting_model_approval", "generating", "awaiting_asset_approval", "acquiring",
-  "normalizing", "spatializing", "assembling", "ready", "failed",
+  "normalizing", "spatializing", "assembling", "qualifying", "ready", "failed",
 ]);
+const R16_CACHE_LEVELS = new Set(["qualified", "evidence-only", "solved-only", "source-only"]);
+const R16_QUALIFICATION_SUBPHASES = Object.freeze(["analyzing", "solving", "verifying", "evidencing"]);
 const COOKIE_NAME = "matrix_oasis_r10_session";
 const RUN_ID = /^r10-run-[1-9][0-9]*$/u;
 const HASH = /^sha256:[0-9a-f]{64}$/u;
+const HASH_ID = /^[0-9a-f]{64}$/u;
+const SOURCE_RUN_ID = /^[0-9a-f]{64}-[0-9a-f]{64}$/u;
 const CODE = /^[A-Z][A-Z0-9_]{2,127}$/u;
 const POINTER = /^(?:\/(?:[^~/]|~0|~1)*)*$/u;
 const SAFE_MODEL = /^[A-Za-z0-9._/-]{1,128}$/u;
@@ -76,10 +83,15 @@ function parseConfiguration(value) {
 function parseOperations(value, profile) {
   const baseNames = ["findCache", "generate", "describeAssets", "acquire", "publish", "launch", "recover", "stopLaunch"];
   const pendingNames = ["persistPending", "recoverPending", "discardPending"];
+  const qualificationNames = ["qualify"];
   const names = [...baseNames, ...pendingNames];
+  const r16Names = [...names, ...qualificationNames];
   const baseOnly = exactKeys(value, baseNames) && baseNames.every((name) => typeof value[name] === "function");
   const withPending = exactKeys(value, names) && names.every((name) => typeof value[name] === "function");
-  if ((!baseOnly && !withPending) || (profile === "r12" && !withPending)) throw new PrototypeHostOperationalError();
+  const withQualification = exactKeys(value, r16Names) && r16Names.every((name) => typeof value[name] === "function");
+  if (profile === "r16" ? !withQualification : ((!baseOnly && !withPending) || (profile === "r12" && !withPending))) {
+    throw new PrototypeHostOperationalError();
+  }
   return value;
 }
 
@@ -107,8 +119,20 @@ function publicApproval(value) {
   return { ...value.summary, approvalHash: value.hash, approved: value.approved };
 }
 
-function publicRun(run) {
-  return frozen({
+function publicQualification(value) {
+  return value === null ? null : frozen({
+    profile: "matrix-oasis.creator-solved-evidence/1",
+    cacheLevel: value.cacheLevel,
+    subphase: value.subphase,
+    attempt: value.attempt,
+    reusedQualification: value.reusedQualification,
+    solutionSha256: value.summary?.solutionSha256 ?? null,
+    evidence: value.summary?.evidence ?? null,
+  });
+}
+
+function publicRun(run, profile) {
+  const value = {
     id: run.id,
     status: run.status,
     cacheHit: run.cacheHit,
@@ -116,7 +140,9 @@ function publicRun(run) {
     modelApproval: publicApproval(run.modelApproval),
     assetApproval: publicApproval(run.assetApproval),
     resultRunId: run.resultRunId,
-  });
+  };
+  if (profile === "r16") value.qualification = publicQualification(run.qualification);
+  return frozen(value);
 }
 
 function sessionCookie(token) {
@@ -298,9 +324,66 @@ function sanitizePendingRecovered(value, model) {
   return output;
 }
 
+function sanitizeR16Qualification(value) {
+  let canonical;
+  try { canonical = canonicalizeJsonValue(value); } catch { return null; }
+  const report = validatePrototypeCreatorQualificationJson(canonical);
+  if (report?.valid !== true || !Array.isArray(report.diagnostics) || report.diagnostics.length !== 0 ||
+      value.evidence.medianFpsMilli !== Math.floor(1_000_000_000 / value.evidence.medianFrameMicros)) return null;
+  return frozen({ promptSha256: value.promptSha256, model: value.model, sourceRunId: value.sourceRunId,
+    solutionSha256: value.hashes.spatialSolutionSha256, evidence: { ...value.evidence },
+    qualificationRunId: hash(encode(canonical)).slice(7) });
+}
+
+function sanitizeR16Cache(value) {
+  if (value?.ok !== true || !R16_CACHE_LEVELS.has(value.cacheLevel)) return null;
+  if (value.cacheLevel === "qualified") {
+    if (!exactKeys(value, ["ok", "cacheLevel", "qualificationRunId", "qualification"]) ||
+        !HASH_ID.test(value.qualificationRunId)) return null;
+    const summary = sanitizeR16Qualification(value.qualification);
+    return summary === null || summary.qualificationRunId !== value.qualificationRunId ? null : frozen({ cacheLevel: value.cacheLevel,
+      qualificationRunId: value.qualificationRunId, summary });
+  }
+  if (!exactKeys(value, ["ok", "cacheLevel", "sourceRunId", "expectedSolutionSha256"]) ||
+      !SOURCE_RUN_ID.test(value.sourceRunId) ||
+      (value.expectedSolutionSha256 !== null && !HASH.test(value.expectedSolutionSha256))) return null;
+  return frozen({ cacheLevel: value.cacheLevel, sourceRunId: value.sourceRunId,
+    expectedSolutionSha256: value.expectedSolutionSha256 });
+}
+
+function sanitizeR16QualificationResult(value) {
+  if (!exactKeys(value, ["ok", "cacheLevel", "reusedQualification", "qualificationRunId", "qualification"]) ||
+      value.ok !== true || !R16_CACHE_LEVELS.has(value.cacheLevel) || typeof value.reusedQualification !== "boolean" ||
+      !HASH_ID.test(value.qualificationRunId)) return null;
+  const summary = sanitizeR16Qualification(value.qualification);
+  return summary === null || summary.qualificationRunId !== value.qualificationRunId ? null : frozen({ cacheLevel: value.cacheLevel, reusedQualification: value.reusedQualification,
+    qualificationRunId: value.qualificationRunId, summary });
+}
+
+function sanitizeR16Recovered(value, model) {
+  if (!exactKeys(value, ["currentRunId", "runs"]) ||
+      (value.currentRunId !== null && !HASH_ID.test(value.currentRunId)) ||
+      !Array.isArray(value.runs) || value.runs.length > 100) return { currentRunId: null, runs: [] };
+  const output = [];
+  let partialSeen = false;
+  for (const item of value.runs) {
+    if (!exactKeys(item, ["promptSha256", "model", "cache"]) || !HASH.test(item.promptSha256) ||
+        item.model !== model) continue;
+    const cache = sanitizeR16Cache(item.cache);
+    if (cache === null || (cache.cacheLevel === "qualified" &&
+        (cache.summary.promptSha256 !== item.promptSha256 || cache.summary.model !== item.model)) ||
+        (cache.cacheLevel !== "qualified" && partialSeen)) continue;
+    if (cache.cacheLevel !== "qualified") partialSeen = true;
+    output.push(frozen({ promptSha256: item.promptSha256, model: item.model, cache }));
+  }
+  const qualifiedIds = output.filter((item) => item.cache.cacheLevel === "qualified")
+    .map((item) => item.cache.qualificationRunId);
+  return frozen({ currentRunId: qualifiedIds.includes(value.currentRunId) ? value.currentRunId : null, runs: output });
+}
+
 export function createPrototypeHost({ configuration, operations, webAssets, profile = "r10", createServer = createNodeServer,
   port = PROTOTYPE_HOST_PORT, recovery = undefined, worldDiscovery = undefined }) {
-  if (!["r10", "r12"].includes(profile)) throw new PrototypeHostOperationalError();
+  if (!["r10", "r12", "r16"].includes(profile)) throw new PrototypeHostOperationalError();
   const config = parseConfiguration(configuration); const op = parseOperations(operations, profile);
   if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new PrototypeHostOperationalError();
   const hostHeader = `${PROTOTYPE_HOST}:${port}`;
@@ -310,7 +393,7 @@ export function createPrototypeHost({ configuration, operations, webAssets, prof
   const creatorAssets = parseWebAssets(webAssets);
   if (typeof createServer !== "function") throw new PrototypeHostOperationalError();
   let server = null; let sessionToken = null; let runCounter = 0; let currentRunId = null;
-  let background = Promise.resolve(); let launchActive = false;
+  let background = Promise.resolve(); let godotActive = false;
   const runs = new Map();
   const recoveryState = recoveryConfig === null ? null : {
     status: "awaiting_approval", approved: false, diagnostics: Object.freeze([]),
@@ -403,17 +486,79 @@ export function createPrototypeHost({ configuration, operations, webAssets, prof
 
   const failRun = (run, diagnostics, fallback) => {
     run.status = "failed"; run.diagnostics = staticDiagnostics(diagnostics, fallback);
-    run.prompt = null; run.artifacts = null; run.acquisition = null;
+    run.prompt = null; run.artifacts = null; run.acquisition = null; run.qualificationSource = null;
+  };
+
+  const qualificationState = (cacheLevel) => ({
+    cacheLevel,
+    subphase: null,
+    attempt: 0,
+    reusedQualification: false,
+    summary: null,
+  });
+
+  const finishQualification = async (run, qualificationSource) => {
+    if (profile !== "r16" || godotActive || !qualificationSource ||
+        qualificationSource.cacheLevel === "qualified") {
+      return failRun(run, null, godotActive ? "PROTOTYPE_HOST_GODOT_ACTIVE" : "PROTOTYPE_HOST_QUALIFICATION_FAILED");
+    }
+    const phaseOrder = new Map(R16_QUALIFICATION_SUBPHASES.map((name, index) => [name, index]));
+    const firstPhase = qualificationSource.cacheLevel === "source-only" ? "analyzing" : "verifying";
+    let lastPhase = -1;
+    let lastAttempt = 0;
+    run.status = "qualifying";
+    run.qualification = qualificationState(qualificationSource.cacheLevel);
+    godotActive = true;
+    try {
+      const qualified = await op.qualify({
+        sourceRunId: qualificationSource.sourceRunId,
+        expectedSolutionSha256: qualificationSource.expectedSolutionSha256,
+        onStage(stage) {
+          if (!exactKeys(stage, ["stage", "subphase", "attempt"]) || stage.stage !== "qualifying" ||
+              !phaseOrder.has(stage.subphase) || !Number.isInteger(stage.attempt) || stage.attempt < 0 || stage.attempt > 2) {
+            throw new PrototypeHostOperationalError("PROTOTYPE_HOST_QUALIFICATION_STAGE_INVALID");
+          }
+          const nextPhase = phaseOrder.get(stage.subphase);
+          if ((lastPhase === -1 && stage.subphase !== firstPhase) || nextPhase < lastPhase ||
+              (nextPhase === lastPhase && (stage.attempt < lastAttempt || stage.attempt > lastAttempt + 1)) ||
+              (nextPhase > lastPhase && stage.subphase === "evidencing" && stage.attempt !== 0)) {
+            throw new PrototypeHostOperationalError("PROTOTYPE_HOST_QUALIFICATION_STAGE_INVALID");
+          }
+          lastPhase = nextPhase;
+          lastAttempt = stage.attempt;
+          run.qualification.subphase = stage.subphase;
+          run.qualification.attempt = stage.attempt;
+        },
+      });
+      if (!qualified?.ok) return failRun(run, qualified?.diagnostics, "PROTOTYPE_HOST_QUALIFICATION_FAILED");
+      const safe = sanitizeR16QualificationResult(qualified);
+      if (safe === null || safe.cacheLevel !== qualificationSource.cacheLevel || safe.reusedQualification || lastPhase < 0 ||
+          safe.summary.sourceRunId !== qualificationSource.sourceRunId || safe.summary.promptSha256 !== run.promptSha256 ||
+          safe.summary.model !== run.model) {
+        return failRun(run, null, "PROTOTYPE_HOST_QUALIFICATION_FAILED");
+      }
+      run.status = "ready";
+      run.resultRunId = safe.qualificationRunId;
+      run.cacheHit = false;
+      run.qualification = { cacheLevel: safe.cacheLevel, subphase: null,
+        attempt: safe.summary.evidence.attempt, reusedQualification: false, summary: safe.summary };
+      currentRunId = safe.qualificationRunId;
+      run.prompt = null; run.artifacts = null; run.acquisition = null; run.qualificationSource = null;
+    } catch {
+      failRun(run, null, "PROTOTYPE_HOST_QUALIFICATION_FAILED");
+    } finally {
+      godotActive = false;
+    }
   };
 
   const assetApprovalSummary = (description) => {
-    const recoveredEnvironment = profile === "r12" && description.environmentCached === true;
-    const recoveredAssets = profile === "r12" && description.assetsCached === true;
+    const recoveredEnvironment = profile !== "r10" && description.environmentCached === true;
+    const recoveredAssets = profile !== "r10" && description.assetsCached === true;
     return {
       blueprintSha256: description.blueprintSha256,
       marble: { model: "marble-1.1", environmentPrompt: description.environmentPrompt, recovered: recoveredEnvironment,
         maxCreates: recoveredEnvironment ? 0 : 1, maxPolls: recoveredEnvironment ? 0 : 180,
-        maxDownloads: recoveredEnvironment ? 0 : profile === "r12" ? 3 : 2,
+        maxDownloads: recoveredEnvironment ? 0 : profile === "r10" ? 2 : 3,
         creditLimit: recoveredEnvironment ? 0 : 1600, usdLimitCents: recoveredEnvironment ? 0 : 150 },
       meshy: { model: "meshy-6", briefs: description.briefs.map((brief) => ({ id: brief.id, kind: brief.kind, prompt: brief.prompt })),
         maxTasks: recoveredAssets ? 0 : description.briefs.length * 2,
@@ -432,7 +577,7 @@ export function createPrototypeHost({ configuration, operations, webAssets, prof
       }
       run.artifacts = generated.artifacts;
       const summary = assetApprovalSummary(description);
-      if (profile === "r12") await op.persistPending({ promptSha256: run.promptSha256, model: run.model,
+      if (profile !== "r10") await op.persistPending({ promptSha256: run.promptSha256, model: run.model,
         artifacts: run.artifacts, approval: summary });
       run.assetApproval = { summary: frozen(summary), hash: approvalHash(summary), approved: false };
       run.status = "awaiting_asset_approval";
@@ -441,7 +586,7 @@ export function createPrototypeHost({ configuration, operations, webAssets, prof
 
   const finishAssets = async (run) => {
     const reject = async (diagnostics, fallback) => {
-      if (profile === "r12") {
+      if (profile !== "r10") {
         let summary = run.assetApproval.summary;
         try {
           const description = await op.describeAssets({ artifacts: run.artifacts });
@@ -470,12 +615,18 @@ export function createPrototypeHost({ configuration, operations, webAssets, prof
       if (!published?.ok || typeof published.runId !== "string" || !/^[0-9a-f]{64}-[0-9a-f]{64}$/u.test(published.runId)) {
         return reject(published?.diagnostics, "PROTOTYPE_HOST_ASSEMBLY_FAILED");
       }
-      if (profile === "r12") {
+      if (profile !== "r10") {
         try { await op.discardPending({ promptSha256: run.promptSha256, model: run.model }); }
         catch { /* a verified ready run wins over a stale pending checkpoint during recovery */ }
       }
-      run.status = "ready"; run.resultRunId = published.runId; run.cacheHit = false; currentRunId = published.runId;
-      run.prompt = null; run.artifacts = null; run.acquisition = null;
+      if (profile === "r16") {
+        run.qualificationSource = frozen({ cacheLevel: "source-only", sourceRunId: published.runId,
+          expectedSolutionSha256: null });
+        await finishQualification(run, run.qualificationSource);
+      } else {
+        run.status = "ready"; run.resultRunId = published.runId; run.cacheHit = false; currentRunId = published.runId;
+        run.prompt = null; run.artifacts = null; run.acquisition = null;
+      }
     } catch { await reject(null, "PROTOTYPE_HOST_INTERNAL_ERROR"); }
   };
 
@@ -489,26 +640,48 @@ export function createPrototypeHost({ configuration, operations, webAssets, prof
     try { promptBytes = encode(body.prompt); } catch { return failure("PROTOTYPE_HOST_PROMPT_INVALID"); }
     if (promptBytes.length < 1 || promptBytes.length > PROMPT_LIMIT || body.prompt.trim().length < 1 ||
         new TextDecoder("utf-8", { fatal: true }).decode(promptBytes) !== body.prompt) return failure("PROTOTYPE_HOST_PROMPT_INVALID");
-    if ([...runs.values()].some((run) => !TERMINAL.has(run.status))) return failure("PROTOTYPE_HOST_RUN_ACTIVE", 409);
+    if ([...runs.values()].some((run) => !TERMINAL.has(run.status)) || (profile === "r16" && godotActive)) {
+      return failure(godotActive ? "PROTOTYPE_HOST_GODOT_ACTIVE" : "PROTOTYPE_HOST_RUN_ACTIVE", 409);
+    }
     const id = `r10-run-${++runCounter}`; const promptSha256 = hash(promptBytes);
     let cached;
     try {
-      cached = await op.findCache(profile === "r12"
+      cached = await op.findCache(profile !== "r10"
         ? { promptSha256, model: config.model, prompt: body.prompt }
         : { promptSha256, model: config.model });
     }
     catch { return failure("PROTOTYPE_HOST_INTERNAL_ERROR", 500); }
     const run = { id, status: "awaiting_model_approval", cacheHit: false, diagnostics: Object.freeze([]),
       modelApproval: null, assetApproval: null, resultRunId: null, prompt: body.prompt, promptSha256,
-      model: config.model, artifacts: null, acquisition: null };
-    if (cached?.ok && typeof cached.runId === "string" && /^[0-9a-f]{64}-[0-9a-f]{64}$/u.test(cached.runId)) {
+      model: config.model, artifacts: null, acquisition: null,
+      qualification: profile === "r16" ? qualificationState(null) : null, qualificationSource: null };
+    const r16Cache = profile === "r16" ? sanitizeR16Cache(cached) : null;
+    if (profile === "r16" && cached?.ok && r16Cache === null) return failure("PROTOTYPE_HOST_CACHE_INVALID", 500);
+    if (r16Cache?.cacheLevel === "qualified" && r16Cache.summary.promptSha256 === promptSha256 &&
+        r16Cache.summary.model === config.model) {
+      run.status = "ready"; run.cacheHit = true; run.resultRunId = r16Cache.qualificationRunId;
+      run.qualification = { cacheLevel: "qualified", subphase: null, attempt: r16Cache.summary.evidence.attempt,
+        reusedQualification: true, summary: r16Cache.summary };
+      run.prompt = null; currentRunId = r16Cache.qualificationRunId;
+    } else if (r16Cache?.cacheLevel === "qualified") {
+      return failure("PROTOTYPE_HOST_CACHE_INVALID", 500);
+    } else if (r16Cache !== null) {
+      run.status = "qualifying";
+      run.qualification = qualificationState(r16Cache.cacheLevel);
+      run.qualificationSource = r16Cache;
+      run.prompt = null;
+    } else if (cached?.ok && typeof cached.runId === "string" && SOURCE_RUN_ID.test(cached.runId)) {
       run.status = "ready"; run.cacheHit = true; run.resultRunId = cached.runId; run.prompt = null; currentRunId = cached.runId;
     } else {
       const summary = { endpointHost: config.endpointHost, model: config.model, maxRequests: 3,
         maxUsdCents: 100, prompt: body.prompt, promptSha256 };
       run.modelApproval = { summary: frozen(summary), hash: approvalHash(summary), approved: false };
     }
-    runs.set(id, run); return { status: 201, body: { ok: true, run: publicRun(run) } };
+    runs.set(id, run);
+    if (r16Cache !== null && r16Cache.cacheLevel !== "qualified") {
+      startBackground(() => finishQualification(run, r16Cache));
+    }
+    return { status: 201, body: { ok: true, run: publicRun(run, profile) } };
   }
 
   function approveModel(run, body) {
@@ -516,7 +689,7 @@ export function createPrototypeHost({ configuration, operations, webAssets, prof
     if (run.status !== "awaiting_model_approval" || run.modelApproval?.approved) return failure("PROTOTYPE_HOST_APPROVAL_INVALID", 409);
     if (!exactKeys(body, ["approvalHash"]) || body.approvalHash !== run.modelApproval.hash) return failure("PROTOTYPE_HOST_APPROVAL_STALE", 409);
     run.modelApproval.approved = true; run.status = "generating"; startBackground(() => finishGeneration(run));
-    return { status: 202, body: { ok: true, run: publicRun(run) } };
+    return { status: 202, body: { ok: true, run: publicRun(run, profile) } };
   }
 
   function approveAssets(run, body) {
@@ -525,20 +698,23 @@ export function createPrototypeHost({ configuration, operations, webAssets, prof
     if (!config.assetsReady && !offlineOnly) return failure("PROTOTYPE_HOST_ASSET_CONFIG_NOT_READY", 409);
     if (!exactKeys(body, ["approvalHash"]) || body.approvalHash !== run.assetApproval.hash) return failure("PROTOTYPE_HOST_APPROVAL_STALE", 409);
     run.assetApproval.approved = true; run.diagnostics = []; run.status = "acquiring"; startBackground(() => finishAssets(run));
-    return { status: 202, body: { ok: true, run: publicRun(run) } };
+    return { status: 202, body: { ok: true, run: publicRun(run, profile) } };
   }
 
   async function launch(run) {
     if (!config.godotReady) return failure("PROTOTYPE_HOST_GODOT_NOT_READY", 409);
     if (run.status !== "ready" || !run.resultRunId) return failure("PROTOTYPE_HOST_RUN_NOT_READY", 409);
-    if (launchActive) return failure("PROTOTYPE_HOST_GODOT_ACTIVE", 409);
-    launchActive = true;
+    if (godotActive) return failure("PROTOTYPE_HOST_GODOT_ACTIVE", 409);
+    if (profile === "r16" && [...runs.values()].some((item) => !TERMINAL.has(item.status))) {
+      return failure("PROTOTYPE_HOST_RUN_ACTIVE", 409);
+    }
+    godotActive = true;
     try {
       const result = await op.launch({ runId: run.resultRunId });
       if (!result?.ok) return failure("PROTOTYPE_HOST_GODOT_FAILED", 502);
       return { status: 202, body: { ok: true, runId: run.resultRunId } };
     } catch { return failure("PROTOTYPE_HOST_GODOT_FAILED", 502); }
-    finally { launchActive = false; }
+    finally { godotActive = false; }
   }
 
   async function route(request) {
@@ -558,9 +734,11 @@ export function createPrototypeHost({ configuration, operations, webAssets, prof
     }
     if (request.method === "GET" && url.pathname === "/api/bootstrap") {
       sessionToken ??= randomBytes(32).toString("hex");
-      const body = { marker: PROTOTYPE_HOST_MARKER,
+      const body = { marker: profile === "r16" ? R16_PROTOTYPE_HOST_MARKER : PROTOTYPE_HOST_MARKER,
         readiness: { model: config.modelReady, assets: config.assetsReady, godot: config.godotReady }, currentRunId,
-        runs: [...runs.values()].filter((run) => run.status === "ready" || !TERMINAL.has(run.status)).map(publicRun) };
+        runs: [...runs.values()].filter((run) => run.status === "ready" || !TERMINAL.has(run.status))
+          .map((run) => publicRun(run, profile)) };
+      if (profile === "r16") body.qualificationProfile = "matrix-oasis.creator-solved-evidence/1";
       if (profile === "r12") {
         body.recovery = publicRecovery();
         body.worldDiscovery = publicWorldDiscovery();
@@ -570,7 +748,7 @@ export function createPrototypeHost({ configuration, operations, webAssets, prof
     if (!safeEqual(cookieValue(request.headers.cookie), sessionToken)) return failure("PROTOTYPE_HOST_SESSION_INVALID", 401);
     if (request.method === "GET" && url.pathname === "/api/runs/current") {
       const run = [...runs.values()].findLast((item) => item.resultRunId === currentRunId && item.status === "ready") ?? null;
-      return { status: 200, body: { ok: true, currentRunId, run: run ? publicRun(run) : null } };
+      return { status: 200, body: { ok: true, currentRunId, run: run ? publicRun(run, profile) : null } };
     }
     if (request.method === "POST" && url.pathname === "/api/recovery/approve") {
       if (recoveryState === null) return failure("PROTOTYPE_HOST_ROUTE_INVALID", 404);
@@ -626,7 +804,7 @@ export function createPrototypeHost({ configuration, operations, webAssets, prof
     }
     const match = /^\/api\/runs\/(r10-run-[1-9][0-9]*)(?:\/(approve-model|approve-assets|launch))?$/u.exec(url.pathname);
     if (request.method === "GET" && match && !match[2]) {
-      const run = runs.get(match[1]); return run ? { status: 200, body: { ok: true, run: publicRun(run) } } : failure("PROTOTYPE_HOST_RUN_UNKNOWN", 404);
+      const run = runs.get(match[1]); return run ? { status: 200, body: { ok: true, run: publicRun(run, profile) } } : failure("PROTOTYPE_HOST_RUN_UNKNOWN", 404);
     }
     if (request.method === "POST" && url.pathname === "/api/runs") {
       const parsed = await readJsonBody(request); return parsed.ok ? createRun(parsed.value) : parsed;
@@ -654,26 +832,55 @@ export function createPrototypeHost({ configuration, operations, webAssets, prof
   return Object.freeze({
     async start() {
       if (server) throw new PrototypeHostOperationalError();
-      const restored = await op.recover(); const safe = sanitizeRecovered(restored?.runs);
-      for (const resultRunId of safe) {
-        const id = `r10-run-${++runCounter}`;
-        runs.set(id, { id, status: "ready", cacheHit: true, diagnostics: Object.freeze([]), modelApproval: null,
-          assetApproval: null, resultRunId, prompt: null, promptSha256: null, model: config.model,
-          artifacts: null, acquisition: null });
+      const restored = await op.recover();
+      let recoveredPartial = null;
+      if (profile === "r16") {
+        const safe = sanitizeR16Recovered(restored, config.model);
+        for (const item of safe.runs.filter(({ cache }) => cache.cacheLevel === "qualified")) {
+          const id = `r10-run-${++runCounter}`;
+          runs.set(id, { id, status: "ready", cacheHit: true, diagnostics: Object.freeze([]), modelApproval: null,
+            assetApproval: null, resultRunId: item.cache.qualificationRunId, prompt: null,
+            promptSha256: item.promptSha256, model: item.model, artifacts: null, acquisition: null,
+            qualification: { cacheLevel: "qualified", subphase: null, attempt: item.cache.summary.evidence.attempt,
+              reusedQualification: true, summary: item.cache.summary }, qualificationSource: null });
+        }
+        currentRunId = safe.currentRunId;
+        recoveredPartial = safe.runs.find(({ cache }) => cache.cacheLevel !== "qualified") ?? null;
+      } else {
+        const safe = sanitizeRecovered(restored?.runs);
+        for (const resultRunId of safe) {
+          const id = `r10-run-${++runCounter}`;
+          runs.set(id, { id, status: "ready", cacheHit: true, diagnostics: Object.freeze([]), modelApproval: null,
+            assetApproval: null, resultRunId, prompt: null, promptSha256: null, model: config.model,
+            artifacts: null, acquisition: null, qualification: null, qualificationSource: null });
+        }
+        currentRunId = typeof restored?.currentRunId === "string" && safe.includes(restored.currentRunId) ? restored.currentRunId : null;
       }
-      currentRunId = typeof restored?.currentRunId === "string" && safe.includes(restored.currentRunId) ? restored.currentRunId : null;
-      if (profile === "r12") {
+      if (profile !== "r10") {
         const pending = sanitizePendingRecovered(await op.recoverPending(), config.model);
         for (const item of pending) {
           const id = `r10-run-${++runCounter}`;
           runs.set(id, { id, status: "awaiting_asset_approval", cacheHit: false, diagnostics: Object.freeze([]),
             modelApproval: null, assetApproval: { summary: item.approval, hash: approvalHash(item.approval), approved: false },
             resultRunId: null, prompt: null, promptSha256: item.promptSha256, model: item.model,
-            artifacts: item.artifacts, acquisition: null });
+            artifacts: item.artifacts, acquisition: null,
+            qualification: profile === "r16" ? qualificationState(null) : null, qualificationSource: null });
+        }
+        if (profile === "r16" && pending.length === 0 && recoveredPartial !== null) {
+          const id = `r10-run-${++runCounter}`;
+          runs.set(id, { id, status: "qualifying", cacheHit: false, diagnostics: Object.freeze([]), modelApproval: null,
+            assetApproval: null, resultRunId: null, prompt: null, promptSha256: recoveredPartial.promptSha256,
+            model: recoveredPartial.model, artifacts: null, acquisition: null,
+            qualification: qualificationState(recoveredPartial.cache.cacheLevel),
+            qualificationSource: recoveredPartial.cache });
         }
       }
       server = createServer((request, response) => { void handle(request, response); });
       await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, PROTOTYPE_HOST, resolve); });
+      if (profile === "r16") {
+        const pendingQualification = [...runs.values()].find((run) => run.status === "qualifying");
+        if (pendingQualification) startBackground(() => finishQualification(pendingQualification, pendingQualification.qualificationSource));
+      }
       return frozen({ host: PROTOTYPE_HOST, port, origin: hostOrigin });
     },
     async stop() {
