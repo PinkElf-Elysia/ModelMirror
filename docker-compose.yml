@@ -465,7 +465,7 @@ services:
     build:
       context: ./server/sandbox_sidecar
       dockerfile: Dockerfile.hub
-    image: modelmirror-mcp-hub:oauth-r2a-v1
+    image: modelmirror-mcp-hub:oauth-r2b-v1
     container_name: modelmirror-mcp-remote-oauth
     command: ["python", "-m", "sandbox_sidecar.oauth_server"]
     network_mode: none
@@ -766,6 +766,8 @@ services:
       MCP_REMOTE_STATIC_TOKEN_ENABLED: ${MCP_REMOTE_STATIC_TOKEN_ENABLED:-false}
       MCP_REMOTE_AUTH_LOCAL_SINGLE_OWNER_ACK: ${MCP_REMOTE_AUTH_LOCAL_SINGLE_OWNER_ACK:-false}
       MCP_REMOTE_OAUTH_ENABLED: ${MCP_REMOTE_OAUTH_ENABLED:-false}
+      MCP_REMOTE_OAUTH_AUTHORIZATION_ENABLED: ${MCP_REMOTE_OAUTH_AUTHORIZATION_ENABLED:-false}
+      MCP_REMOTE_OAUTH_TOKEN_STORAGE_ENABLED: ${MCP_REMOTE_OAUTH_TOKEN_STORAGE_ENABLED:-false}
       MCP_REMOTE_OAUTH_DYNAMIC_REGISTRATION_ENABLED: ${MCP_REMOTE_OAUTH_DYNAMIC_REGISTRATION_ENABLED:-false}
       MCP_REMOTE_OAUTH_CLIENT_METADATA_URL: ${MCP_REMOTE_OAUTH_CLIENT_METADATA_URL:-}
       MCP_REMOTE_OAUTH_REDIRECT_URI: ${MCP_REMOTE_OAUTH_REDIRECT_URI:-}

@@ -55,6 +55,29 @@ class Bridge:
         raise AssertionError("dynamic registration must remain disabled")
 
 
+class AuthorizationService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def create_authorization(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(kwargs)
+        return {
+            "authorization_session": {"session_id": "mcpoauthsession_" + "1" * 32},
+            "authorization_url": "https://auth.example.net/authorize?server-owned=1",
+        }
+
+    def status(self) -> dict[str, Any]:
+        return {"authorization_enabled": True, "token_storage_enabled": True}
+
+    def summary(self, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "authorization_enabled": True,
+            "token_storage_enabled": True,
+            "authorization_session": None,
+            "token": None,
+        }
+
+
 def entry() -> dict[str, Any]:
     return {
         "server": {
@@ -302,3 +325,68 @@ async def test_oauth_revoke_rejects_query_and_body_without_revoking(
     assert service.candidate_oauth(candidate["candidate_id"])["registration"][
         "registration_id"
     ] == registration_id
+
+
+@pytest.mark.asyncio
+async def test_oauth_authorization_api_accepts_only_server_owned_target_and_scopes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, candidate = make_service(tmp_path, monkeypatch)
+    discovered = await service.discover_candidate_oauth(
+        candidate["candidate_id"],
+        expected_source_digest=candidate["source_digest"],
+    )
+    registered = await service.register_candidate_oauth_client(
+        candidate["candidate_id"],
+        expected_discovery_fingerprint=discovered["discovery"][
+            "discovery_fingerprint"
+        ],
+        mode="pre_registered",
+        client_id="public-client",
+    )
+    authorization = AuthorizationService()
+    service.remote_oauth_service.set_authorization_service(authorization)
+    configure_mcp_hub(service)
+    app = FastAPI()
+    app.include_router(router)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        payload = {
+            "expected_discovery_fingerprint": registered["discovery"][
+                "discovery_fingerprint"
+            ],
+            "expected_registration_revision": registered["registration"][
+                "revision"
+            ],
+            "scopes": ["mcp:read"],
+        }
+        response = await client.post(
+            f"/api/mcp/hub/candidates/{candidate['candidate_id']}/oauth/authorization-sessions",
+            json=payload,
+        )
+        assert response.status_code == 201
+        for injected in (
+            {"url": "https://attacker.example/token"},
+            {"headers": {"Authorization": "secret"}},
+            {"tenant_id": "other"},
+            {"client_id": "attacker-client"},
+            {"code": "attacker-code"},
+        ):
+            denied = await client.post(
+                f"/api/mcp/hub/candidates/{candidate['candidate_id']}/oauth/authorization-sessions",
+                json={**payload, **injected},
+            )
+            assert denied.status_code == 422
+    assert authorization.calls == [
+        {
+            "target_type": "hub_candidate",
+            "target_id": candidate["candidate_id"],
+            "source_digest": candidate["source_digest"],
+            "expected_discovery_fingerprint": registered["discovery"][
+                "discovery_fingerprint"
+            ],
+            "expected_registration_revision": 1,
+            "scopes": ["mcp:read"],
+        }
+    ]

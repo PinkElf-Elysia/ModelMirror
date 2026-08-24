@@ -258,6 +258,156 @@ async def test_dynamic_registration_marks_confidential_response_without_returnin
 
 
 @pytest.mark.asyncio
+async def test_token_exchange_contract_rejects_arbitrary_header_and_client_secret() -> None:
+    service = oauth_server.OAuthMetadataService()
+    valid = {
+        "grant_type": "authorization_code",
+        "code": "one-time-code",
+        "client_id": "public-client",
+        "redirect_uri": "http://127.0.0.1:8765/oauth/callback",
+        "code_verifier": "v" * 64,
+    }
+    for injected in (
+        {**valid, "client_secret": "secret"},
+        {**valid, "headers": "Authorization: attacker"},
+        {**valid, "token_endpoint": "https://attacker.example/token"},
+    ):
+        with pytest.raises(oauth_server.HubSidecarError) as denied:
+            await service.exchange_token(
+                "exchange_authorization_code",
+                "https://auth.example.com/token",
+                "auth.example.com",
+                "a" * 64,
+                injected,
+            )
+        assert denied.value.code == "mcp_remote_oauth_token_request_invalid"
+
+
+@pytest.mark.asyncio
+async def test_token_exchange_dispatches_once_and_projects_bounded_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, str]] = []
+
+    class Proxy:
+        async def close(self) -> None:
+            pass
+
+    class Response:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+
+        async def aiter_bytes(self):
+            yield (
+                b'{"access_token":"access","refresh_token":"refresh",'
+                b'"token_type":"Bearer","expires_in":300,"scope":"mcp.read",'
+                b'"remote_log":"must-not-cross-boundary"}'
+            )
+
+    class Stream:
+        async def __aenter__(self) -> Response:
+            return Response()
+
+        async def __aexit__(self, *_args: Any) -> None:
+            pass
+
+    class Client:
+        def stream(self, *_args: Any, **kwargs: Any) -> Stream:
+            calls.append(dict(kwargs["data"]))
+            return Stream()
+
+        async def aclose(self) -> None:
+            pass
+
+    service = oauth_server.OAuthMetadataService()
+
+    async def fake_client(*_args: Any) -> tuple[Proxy, Client]:
+        return Proxy(), Client()
+
+    monkeypatch.setattr(service, "_client", fake_client)
+    result = await service.exchange_token(
+        "exchange_authorization_code",
+        "https://auth.example.com/token",
+        "auth.example.com",
+        "a" * 64,
+        {
+            "grant_type": "authorization_code",
+            "code": "one-time-code",
+            "client_id": "public-client",
+            "redirect_uri": "http://127.0.0.1:8765/oauth/callback",
+            "code_verifier": "v" * 64,
+        },
+    )
+    assert calls == [
+        {
+            "grant_type": "authorization_code",
+            "code": "one-time-code",
+            "client_id": "public-client",
+            "redirect_uri": "http://127.0.0.1:8765/oauth/callback",
+            "code_verifier": "v" * 64,
+        }
+    ]
+    assert result == {
+        "access_token": "access",
+        "token_type": "Bearer",
+        "expires_in": 300,
+        "refresh_token": "refresh",
+        "scope": "mcp.read",
+    }
+    assert "remote_log" not in result
+
+
+@pytest.mark.asyncio
+async def test_refresh_timeout_is_unknown_outcome_and_never_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    class Proxy:
+        async def close(self) -> None:
+            pass
+
+    class Stream:
+        async def __aenter__(self) -> Any:
+            nonlocal calls
+            calls += 1
+            import httpx
+
+            raise httpx.ReadTimeout("ambiguous")
+
+        async def __aexit__(self, *_args: Any) -> None:
+            pass
+
+    class Client:
+        def stream(self, *_args: Any, **_kwargs: Any) -> Stream:
+            return Stream()
+
+        async def aclose(self) -> None:
+            pass
+
+    service = oauth_server.OAuthMetadataService()
+
+    async def fake_client(*_args: Any) -> tuple[Proxy, Client]:
+        return Proxy(), Client()
+
+    monkeypatch.setattr(service, "_client", fake_client)
+    with pytest.raises(oauth_server.HubSidecarError) as unknown:
+        await service.exchange_token(
+            "refresh_access_token",
+            "https://auth.example.com/token",
+            "auth.example.com",
+            "a" * 64,
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": "refresh",
+                "client_id": "public-client",
+            },
+        )
+    assert unknown.value.code == "mcp_remote_oauth_refresh_unknown_outcome"
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("status_code", "body", "content_type"),
     [

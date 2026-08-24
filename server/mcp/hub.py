@@ -1627,6 +1627,109 @@ class MCPHubService:
             except RemoteOAuthError as exc:
                 self._raise_remote_oauth(exc)
 
+    def _require_oauth_authorization(self) -> Any:
+        oauth = self._require_remote_oauth()
+        service = getattr(oauth, "authorization_service", None)
+        if service is None:
+            raise HubError(
+                "OAuth 用户授权尚未配置。",
+                code="mcp_remote_oauth_authorization_unconfigured",
+                status_code=503,
+            )
+        return service
+
+    async def create_candidate_oauth_authorization(
+        self,
+        candidate_id: str,
+        *,
+        expected_discovery_fingerprint: str,
+        expected_registration_revision: int,
+        scopes: list[str],
+    ) -> dict[str, Any]:
+        self._require_enabled()
+        clean = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
+        async with self._candidate_locks.setdefault(clean, asyncio.Lock()):
+            candidate = self.store.require_candidate(
+                clean, self.tenant_id, self.owner_id
+            )
+            self._require_oauth_candidate(candidate)
+            try:
+                return self._require_oauth_authorization().create_authorization(
+                    target_type="hub_candidate",
+                    target_id=candidate["candidate_id"],
+                    source_digest=candidate["source_digest"],
+                    expected_discovery_fingerprint=expected_discovery_fingerprint,
+                    expected_registration_revision=expected_registration_revision,
+                    scopes=scopes,
+                )
+            except RemoteOAuthError as exc:
+                self._raise_remote_oauth(exc)
+
+    async def cancel_candidate_oauth_authorization(
+        self, candidate_id: str, session_id: str
+    ) -> dict[str, Any]:
+        self._require_enabled()
+        clean = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
+        async with self._candidate_locks.setdefault(clean, asyncio.Lock()):
+            candidate = self.store.require_candidate(
+                clean, self.tenant_id, self.owner_id
+            )
+            self._require_oauth_candidate(candidate)
+            try:
+                self._require_oauth_authorization().cancel(
+                    target_type="hub_candidate",
+                    target_id=candidate["candidate_id"],
+                    session_id=session_id,
+                )
+                return self.candidate_oauth(clean)
+            except RemoteOAuthError as exc:
+                self._raise_remote_oauth(exc)
+
+    async def refresh_candidate_oauth_token(
+        self,
+        candidate_id: str,
+        token_id: str,
+        *,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        self._require_enabled()
+        clean = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
+        async with self._candidate_locks.setdefault(clean, asyncio.Lock()):
+            candidate = self.store.require_candidate(
+                clean, self.tenant_id, self.owner_id
+            )
+            self._require_oauth_candidate(candidate)
+            try:
+                await self._require_oauth_authorization().refresh(
+                    target_type="hub_candidate",
+                    target_id=candidate["candidate_id"],
+                    token_id=token_id,
+                    expected_revision=expected_revision,
+                )
+                return self.candidate_oauth(clean)
+            except RemoteOAuthError as exc:
+                self._raise_remote_oauth(exc)
+
+    async def revoke_candidate_oauth_token(
+        self, candidate_id: str, token_id: str
+    ) -> dict[str, Any]:
+        self._require_enabled()
+        clean = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
+        async with self._candidate_locks.setdefault(clean, asyncio.Lock()):
+            candidate = self.store.require_candidate(
+                clean, self.tenant_id, self.owner_id
+            )
+            self._require_oauth_candidate(candidate)
+            try:
+                self._require_oauth_authorization().revoke(
+                    target_type="hub_candidate",
+                    target_id=candidate["candidate_id"],
+                    token_id=token_id,
+                )
+                return self.candidate_oauth(clean)
+            except RemoteOAuthError as exc:
+                self._raise_remote_oauth(exc)
+
     def _candidate_auth_policy(
         self, candidate: dict[str, Any]
     ) -> RemoteAuthPolicyV1 | None:
@@ -2283,7 +2386,7 @@ class MCPHubService:
         )
         if (current_remote or {}).get("eligibility") == "oauth_discovery_candidate":
             raise HubError(
-                "该候选必须先完成 OAuth 授权；R2A 只允许元数据发现与客户端登记。",
+                "R2B 可完成 OAuth 授权与加密存储，但尚未开放 MCP 资源调用；请等待 R2C 契约复核。",
                 code="mcp_remote_oauth_authorization_not_implemented",
                 status_code=409,
             )
@@ -2665,6 +2768,18 @@ class CandidateOAuthRegistrationRequest(BaseModel):
     client_id: str = Field(default="", max_length=2048)
 
 
+class CandidateOAuthAuthorizationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    expected_discovery_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_registration_revision: int = Field(ge=1)
+    scopes: list[str] = Field(min_length=1, max_length=20)
+
+
+class CandidateOAuthTokenRefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    expected_revision: int = Field(ge=1)
+
+
 router = APIRouter(tags=["mcp-hub"])
 _hub_service: MCPHubService | None = None
 
@@ -2880,6 +2995,76 @@ async def revoke_hub_candidate_oauth_client(
         return await _service().revoke_candidate_oauth_client(
             candidate_id, registration_id
         )
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.post(
+    "/api/mcp/hub/candidates/{candidate_id}/oauth/authorization-sessions",
+    status_code=201,
+)
+async def create_hub_candidate_oauth_authorization(
+    candidate_id: str, request: Request
+) -> dict[str, Any]:
+    payload = await _redacted_request_model(
+        request, CandidateOAuthAuthorizationRequest
+    )
+    assert isinstance(payload, CandidateOAuthAuthorizationRequest)
+    try:
+        return await _service().create_candidate_oauth_authorization(
+            candidate_id,
+            expected_discovery_fingerprint=payload.expected_discovery_fingerprint,
+            expected_registration_revision=payload.expected_registration_revision,
+            scopes=payload.scopes,
+        )
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.delete(
+    "/api/mcp/hub/candidates/{candidate_id}/oauth/authorization-sessions/{session_id}"
+)
+async def cancel_hub_candidate_oauth_authorization(
+    candidate_id: str, session_id: str, request: Request
+) -> dict[str, Any]:
+    await _require_empty_write_request(request)
+    try:
+        return await _service().cancel_candidate_oauth_authorization(
+            candidate_id, session_id
+        )
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.post(
+    "/api/mcp/hub/candidates/{candidate_id}/oauth/tokens/{token_id}/refresh"
+)
+async def refresh_hub_candidate_oauth_token(
+    candidate_id: str, token_id: str, request: Request
+) -> dict[str, Any]:
+    payload = await _redacted_request_model(
+        request, CandidateOAuthTokenRefreshRequest
+    )
+    assert isinstance(payload, CandidateOAuthTokenRefreshRequest)
+    try:
+        return await _service().refresh_candidate_oauth_token(
+            candidate_id,
+            token_id,
+            expected_revision=payload.expected_revision,
+        )
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.delete(
+    "/api/mcp/hub/candidates/{candidate_id}/oauth/tokens/{token_id}"
+)
+async def revoke_hub_candidate_oauth_token(
+    candidate_id: str, token_id: str, request: Request
+) -> dict[str, Any]:
+    await _require_empty_write_request(request)
+    try:
+        return await _service().revoke_candidate_oauth_token(candidate_id, token_id)
     except HubError as exc:
         _raise_http(exc)
 
