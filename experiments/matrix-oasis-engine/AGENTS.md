@@ -11,16 +11,16 @@
 5. 一批只解决一个可验证目标；先验证后提交；失败不得进入下一批。
 6. 回退只使用 `git revert`，不得重置、覆盖或清理用户工作区。
 
-## R16 专属限制
+## R17 专属限制
 
-- R16只将冻结的R13分析、R14求解/物理复验与R15运行证据接入Creator；不得复制、调参或修改其算法、Godot场景、Runtime、资产与供应商适配器。
-- R1–R15合同、验证器、编译器、Scene/Spatial格式、examples、vendor、ADR和历史验收全部冻结；仅R16精确白名单可修改。
-- 旧source、solved或evidence缓存只能作为待资格输入；只有完整、身份闭合的R16 Qualification才可成为Creator `ready`或替换current。
-- 每个唯一Solution首次必须完成R15完整证据；同一已资格Solution的缓存启动只能复验合同、身份和哈希，不得读取供应商凭据或联网。
-- R15候选修复仍限最多两轮candidate-exclusion-only；不得改Intent、阈值、资产、Runtime、案例坐标或生成新资产。
-- 普通verify、双真实缓存与合成拓扑资格均零网络、零供应商凭据、零费用；资格、媒体、日志和运行目录只允许存于`C:\tmp`。
-- R16.7前`docs/MVP_STATUS.json`保持`pending-creator-migration / claimAllowed=false`；只有用户人工确认两类真实案例后才能切换默认入口和声明门。
-- 不push、不创建PR，直至用户明确回复“R16验收通过，可以创建PR”。
+- R17只建立第二版候选来源、许可证、仓外资格证据和推荐矩阵；不得开发AI NPC、记忆、对话、动态事件或新的Creator功能。
+- R1–R16合同、验证器、编译器、Creator产品路径、Godot产品场景、Scene/Spatial格式、examples、vendor、供应商适配器、ADR和历史验收全部冻结；仅R17精确白名单可修改。
+- 候选完整源码、依赖、二进制、容器、模型和动画资产只允许位于`C:\tmp`；Git只保存来源锁、许可证、原创适配笔记、脱敏摘要和证据哈希。
+- 普通verify必须离线；真实OpenAI、Marble和Meshy调用、父凭据读取、共享栈、父Docker及其他worktree均禁止。
+- 候选默认禁止Docker。若关键结论确实依赖容器，必须先披露镜像、digest、端口、卷、网络和清理方式并取得当次批准。
+- `docs/MVP_STATUS.json`继续保留R16已资格结论；`docs/V2_STATUS.json`在R24前必须保持`claimAllowed=false`。
+- R17只输出推荐、备选、延后或拒绝及切换条件，不把任何候选正式接入产品运行时。
+- 不push、不创建PR，直至用户明确回复“R17验收通过，可以创建PR”。
 - 不删除或复用其他分支/worktree，不重建共享栈。主线前进时先报告差异，不擅自rebase。
 
 ## 提交前检查

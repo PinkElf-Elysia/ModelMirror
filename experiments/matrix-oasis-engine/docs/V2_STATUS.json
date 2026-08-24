@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "status": "r17-selection-in-progress",
+  "claimAllowed": false,
+  "blockingRound": "R24",
+  "qualificationProfile": "matrix-oasis.v2-qualification/1"
+}

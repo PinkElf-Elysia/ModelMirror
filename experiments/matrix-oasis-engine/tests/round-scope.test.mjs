@@ -132,12 +132,12 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R16 policy", () => {
+test("machine boundary and code expose the same ordered R17 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
-  assert.equal(policy.schemaVersion, 16);
+  assert.equal(policy.schemaVersion, 17);
   assert.equal(policy.activeRound, ACTIVE_ROUND);
   assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
@@ -156,31 +156,29 @@ test("machine boundary and code expose the same ordered R16 policy", () => {
     path.join(committedModuleRoot, "scripts", "check-round-scope.mjs"),
     "utf8",
   );
-  assert.match(cli, /policy\.schemaVersion !== 16/);
-  assert.doesNotMatch(cli, /policy\.schemaVersion !== 15/);
+  assert.match(cli, /policy\.schemaVersion !== 17/);
+  assert.doesNotMatch(cli, /policy\.schemaVersion !== 16/);
 });
 
-test("accepts exact R16 files and new package prefixes in every Git status source", (t) => {
+test("accepts exact R17 files and new qualification prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-creator-qualification-contracts/src/index.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/packages/v2-qualification-contracts/src/index.mjs`, "export {};\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/packages/prototype-creator-qualification/src/index.mjs`, "export {};\n");
-  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-creator-qualification/src/index.mjs`]);
+  write(fixture, `${MODULE_PREFIX}/packages/v2-qualification-harness/src/index.mjs`, "export {};\n");
+  git(fixture, ["add", `${MODULE_PREFIX}/packages/v2-qualification-harness/src/index.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
-  write(fixture, `${MODULE_PREFIX}/scripts/lib/creator-qualification-cache-core.mjs`);
-  write(fixture, `${MODULE_PREFIX}/scripts/qualify-r16-creator.mjs`);
-  write(fixture, `${MODULE_PREFIX}/tests/r16-creator-qualification.test.mjs`);
-  write(fixture, `${MODULE_PREFIX}/tests/prototype-host.test.mjs`);
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R16_ACCEPTANCE.md`);
-  write(fixture, `${MODULE_PREFIX}/apps/creator-web/src/prototype-builder.ts`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/scripts/check-v2-claim.mjs`);
+  write(fixture, `${MODULE_PREFIX}/tests/r17-qualification.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R17_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/third-party/v2-qualification-references/reference.lock.json`, "{}\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
   assert.equal(result.mode, "parent");
-  assert.equal(result.uniqueChangedPaths, 9);
+  assert.equal(result.uniqueChangedPaths, 7);
 });
 
 test("rejects a committed R1 contracts change", (t) => {
@@ -399,21 +397,21 @@ test("rejects a caller-selected base", (t) => {
   );
 });
 
-test("round path classifier exposes stable R16 guard categories", () => {
+test("round path classifier exposes stable R17 guard categories", () => {
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-creator-qualification-contracts/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/v2-qualification-contracts/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-creator-qualification/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/v2-qualification-harness/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/tests/prototype-host.test.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/tests/r17-qualification.test.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/apps/creator-web/src/prototype-builder.ts`),
+    classifyRoundPath(`${MODULE_PREFIX}/third-party/v2-qualification-references/reference.lock.json`),
     null,
   );
   assert.equal(
@@ -478,7 +476,7 @@ test("round path classifier exposes stable R16 guard categories", () => {
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/creator-web/src/App.tsx`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/creator-web/src/pack-loader.ts`),

@@ -11,6 +11,7 @@ const steps = [
   ["round-scope", ["run", "check:round-scope"]],
   ["boundary", ["run", "check:boundary"]],
   ["mvp-claim", ["run", "check:mvp-claim"]],
+  ["v2-claim", ["run", "check:v2-claim"]],
   ["godot-foundation", ["run", "verify:godot"]],
   ["pack-examples", ["run", "validate:examples"]],
   ["runtime-pack", ["run", "verify:runtime-pack"]],
