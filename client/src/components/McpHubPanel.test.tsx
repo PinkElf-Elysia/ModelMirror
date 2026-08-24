@@ -296,6 +296,7 @@ describe("McpHubPanel", () => {
     const discoveryFingerprint = "c".repeat(64);
     let discovered = false;
     let registered = false;
+    let authorizationPending = false;
     const candidate = {
       candidate_id: candidateId,
       server_name: "io.example/oauth",
@@ -338,8 +339,19 @@ describe("McpHubPanel", () => {
         status: "active",
         discovery_fingerprint: discoveryFingerprint,
       } : null,
-      authorization_enabled: false,
-      token_storage_enabled: false,
+      authorization_session: authorizationPending ? {
+        session_id: "mcpoauthsession_" + "1".repeat(32),
+        status: "pending",
+        scopes: ["mcp:read"],
+        scope_digest: "2".repeat(64),
+        error_code: "",
+        token_id: "",
+        created_at: 1,
+        expires_at: 9999999999,
+      } : null,
+      token: null,
+      authorization_enabled: true,
+      token_storage_enabled: true,
       local_single_owner_warning: true,
     });
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -358,8 +370,8 @@ describe("McpHubPanel", () => {
           storage_ready: true,
           client_metadata_document_configured: false,
           supported_registration_modes: ["pre_registered"],
-          authorization_enabled: false,
-          token_storage_enabled: false,
+          authorization_enabled: true,
+          token_storage_enabled: true,
           multi_tenant: false,
         });
       }
@@ -374,6 +386,13 @@ describe("McpHubPanel", () => {
         registered = true;
         return json(oauthPayload(), 201);
       }
+      if (url.endsWith(`/api/mcp/hub/candidates/${candidateId}/oauth/authorization-sessions`) && init?.method === "POST") {
+        authorizationPending = true;
+        return json({
+          authorization_session: oauthPayload().authorization_session,
+          authorization_url: "https://auth.example.com/authorize?state=server-owned",
+        }, 201);
+      }
       throw new Error(`unexpected URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -381,7 +400,7 @@ describe("McpHubPanel", () => {
 
     const card = (await screen.findByText("io.example/oauth")).closest("article");
     expect(card).not.toBeNull();
-    expect(within(card!).getByText(/不会打开授权页面、接收回调、保存 Token/)).toBeVisible();
+    expect(within(card!).getByText(/可创建一次性授权、接收固定回调并加密保存 Token/)).toBeVisible();
     expect(within(card!).getByRole("button", { name: "安全预检" })).toBeDisabled();
     fireEvent.click(within(card!).getByRole("button", { name: "检查并冻结 OAuth 元数据" }));
 
@@ -408,7 +427,28 @@ describe("McpHubPanel", () => {
       client_id: "operator-public-client",
     });
     expect(JSON.stringify(JSON.parse(String((registrationCall?.[1] as RequestInit).body)))).not.toContain("client_secret");
+    fireEvent.click(within(card!).getByRole("checkbox", { name: "mcp:read" }));
+    fireEvent.click(within(card!).getByRole("button", { name: "创建授权链接" }));
+    const authorizationLink = await within(card!).findByRole("link", { name: "打开授权页面" });
+    expect(authorizationLink).toHaveAttribute("href", "https://auth.example.com/authorize?state=server-owned");
+    expect(authorizationLink.getAttribute("rel")).toContain("noreferrer");
+    const authorizationCall = fetchMock.mock.calls.find(([url, init]) => (
+      String(url).endsWith("/oauth/authorization-sessions") && (init as RequestInit | undefined)?.method === "POST"
+    ));
+    expect(JSON.parse(String((authorizationCall?.[1] as RequestInit).body))).toEqual({
+      expected_discovery_fingerprint: discoveryFingerprint,
+      expected_registration_revision: 1,
+      scopes: ["mcp:read"],
+    });
+    expect(String((authorizationCall?.[1] as RequestInit).body)).not.toMatch(/code|verifier|token_endpoint|client_id/);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("callback"))).toBe(false);
+    const oauthSummaryCalls = () => fetchMock.mock.calls.filter(([url, init]) => (
+      String(url).endsWith(`/api/mcp/hub/candidates/${candidateId}/oauth`) && !init?.method
+    )).length;
+    const beforeRefresh = oauthSummaryCalls();
+    fireEvent.click(within(card!).getByRole("button", { name: "刷新授权状态" }));
+    await waitFor(() => expect(oauthSummaryCalls()).toBeGreaterThan(beforeRefresh));
+    expect(await screen.findByRole("status")).toHaveTextContent("io.example/oauth 的 OAuth 授权状态已刷新");
   });
 
   it("keeps OAuth summary failures visible with their fixed error code", async () => {

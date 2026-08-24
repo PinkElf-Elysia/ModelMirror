@@ -96,7 +96,7 @@ def main() -> None:
 
     health = request(OAUTH_SOCKET, {"action": "health"})
     assert health == {
-        "authorization_enabled": False,
+        "authorization_enabled": True,
         "ok": True,
         "protocol": "modelmirror-mcp-remote-oauth-v1",
         "token_storage_enabled": False,
@@ -147,7 +147,7 @@ def main() -> None:
         raise RuntimeError("docker_oauth_response_unsupported")
 
     evidence = {
-        "authorization_enabled": False,
+        "authorization_enabled": True,
         "authorization_server_metadata_digest": metadata_digest,
         "authorization_server_metadata_url": metadata_url,
         "issuer": issuer,

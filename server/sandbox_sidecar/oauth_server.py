@@ -1,4 +1,4 @@
-"""Network-less, metadata-only OAuth discovery sidecar for remote MCP."""
+"""Network-less OAuth discovery and fixed token-exchange sidecar for remote MCP."""
 
 from __future__ import annotations
 
@@ -42,6 +42,7 @@ DOCUMENT_KINDS = frozenset(
 RESOURCE_METADATA_RE = re.compile(
     r'(?:^|[\s,])resource_metadata="([^"\\]{1,4096})"', re.IGNORECASE
 )
+PKCE_VERIFIER_RE = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
 
 
 def _contract(
@@ -345,6 +346,155 @@ class OAuthMetadataService:
             await client.aclose()
             await proxy.close()
 
+    @staticmethod
+    def _token_request(action: str, request_body: Any) -> dict[str, str]:
+        if not isinstance(request_body, dict):
+            raise HubSidecarError("mcp_remote_oauth_token_request_invalid")
+        if action == "exchange_authorization_code":
+            expected = {
+                "grant_type",
+                "code",
+                "client_id",
+                "redirect_uri",
+                "code_verifier",
+            }
+            if (
+                set(request_body) != expected
+                or request_body.get("grant_type") != "authorization_code"
+                or not _valid_redirect_uri(request_body.get("redirect_uri"))
+                or PKCE_VERIFIER_RE.fullmatch(
+                    str(request_body.get("code_verifier") or "")
+                )
+                is None
+            ):
+                raise HubSidecarError("mcp_remote_oauth_token_request_invalid")
+            secret_fields = ("code", "code_verifier")
+        elif action == "refresh_access_token":
+            expected = {"grant_type", "refresh_token", "client_id"}
+            if (
+                set(request_body) != expected
+                or request_body.get("grant_type") != "refresh_token"
+            ):
+                raise HubSidecarError("mcp_remote_oauth_token_request_invalid")
+            secret_fields = ("refresh_token",)
+        else:
+            raise HubSidecarError("hub_action_denied")
+        normalized: dict[str, str] = {}
+        for key in expected:
+            value = request_body.get(key)
+            if (
+                not isinstance(value, str)
+                or not value
+                or len(value) > 20_000
+                or any(ord(char) < 0x20 or ord(char) == 0x7F for char in value)
+            ):
+                raise HubSidecarError("mcp_remote_oauth_token_request_invalid")
+            normalized[key] = value
+        if any(len(normalized[key]) > 4096 for key in expected - set(secret_fields)):
+            raise HubSidecarError("mcp_remote_oauth_token_request_invalid")
+        if len(_json_bytes(normalized)) > 48 * 1024:
+            raise HubSidecarError("mcp_remote_oauth_token_request_invalid")
+        return normalized
+
+    async def exchange_token(
+        self,
+        action: str,
+        url: str,
+        host: str,
+        capability: str,
+        request_body: Any,
+    ) -> dict[str, Any]:
+        body = self._token_request(action, request_body)
+        proxy, client = await self._client(capability, host)
+        dispatched = False
+        try:
+            dispatched = True
+            async with client.stream(
+                "POST",
+                url,
+                data=body,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json",
+                },
+            ) as response:
+                if 300 <= response.status_code < 400:
+                    raise HubSidecarError("hub_upstream_redirect_denied")
+                if response.status_code in {400, 401}:
+                    raise HubSidecarError(
+                        "mcp_remote_oauth_authorization_rejected"
+                        if action == "exchange_authorization_code"
+                        else "mcp_remote_oauth_unauthorized"
+                    )
+                if response.status_code == 403:
+                    raise HubSidecarError("mcp_remote_oauth_forbidden")
+                if response.status_code == 429:
+                    raise HubSidecarError("mcp_remote_oauth_rate_limited")
+                if response.status_code != 200:
+                    raise HubSidecarError(
+                        "mcp_remote_oauth_token_exchange_unknown_outcome"
+                        if action == "exchange_authorization_code"
+                        else "mcp_remote_oauth_refresh_unknown_outcome"
+                    )
+                content_type = (
+                    response.headers.get("content-type", "")
+                    .split(";", 1)[0]
+                    .strip()
+                    .lower()
+                )
+                if content_type != "application/json" and not content_type.endswith(
+                    "+json"
+                ):
+                    raise HubSidecarError(
+                        "mcp_remote_oauth_token_exchange_unknown_outcome"
+                        if action == "exchange_authorization_code"
+                        else "mcp_remote_oauth_refresh_unknown_outcome"
+                    )
+                raw = await _bounded_body(response)
+            try:
+                document = json.loads(raw.decode("utf-8"))
+            except (UnicodeError, json.JSONDecodeError) as exc:
+                raise HubSidecarError(
+                    "mcp_remote_oauth_token_exchange_unknown_outcome"
+                    if action == "exchange_authorization_code"
+                    else "mcp_remote_oauth_refresh_unknown_outcome"
+                ) from exc
+            if not isinstance(document, dict):
+                raise HubSidecarError(
+                    "mcp_remote_oauth_token_exchange_unknown_outcome"
+                    if action == "exchange_authorization_code"
+                    else "mcp_remote_oauth_refresh_unknown_outcome"
+                )
+            return {
+                key: document[key]
+                for key in ("access_token", "token_type", "expires_in", "refresh_token", "scope")
+                if key in document
+            }
+        except HubSidecarError as exc:
+            if dispatched and exc.code in {
+                "mcp_remote_oauth_upstream_timeout",
+                "mcp_remote_oauth_upstream_unavailable",
+                "hub_upstream_redirect_denied",
+            }:
+                raise HubSidecarError(
+                    "mcp_remote_oauth_token_exchange_unknown_outcome"
+                    if action == "exchange_authorization_code"
+                    else "mcp_remote_oauth_refresh_unknown_outcome"
+                ) from exc
+            raise
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            raise HubSidecarError(
+                "mcp_remote_oauth_token_exchange_unknown_outcome"
+                if action == "exchange_authorization_code"
+                else "mcp_remote_oauth_refresh_unknown_outcome"
+            ) from exc
+        finally:
+            for key in ("code", "code_verifier", "refresh_token"):
+                if key in body:
+                    body[key] = ""
+            await client.aclose()
+            await proxy.close()
+
     async def handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
@@ -356,7 +506,7 @@ class OAuthMetadataService:
                 response = {
                     "ok": True,
                     "protocol": "modelmirror-mcp-remote-oauth-v1",
-                    "authorization_enabled": False,
+                    "authorization_enabled": True,
                     "token_storage_enabled": False,
                 }
             elif uid != 0:
@@ -388,6 +538,20 @@ class OAuthMetadataService:
                     "ok": True,
                     **await self.register_public_client(
                         url, host, capability, request.get("request_body")
+                    ),
+                }
+            elif action in {"exchange_authorization_code", "refresh_access_token"}:
+                url, host, capability = _contract(
+                    request, action=action, extra=frozenset({"request_body"})
+                )
+                response = {
+                    "ok": True,
+                    **await self.exchange_token(
+                        action,
+                        url,
+                        host,
+                        capability,
+                        request.get("request_body"),
                     ),
                 }
             else:

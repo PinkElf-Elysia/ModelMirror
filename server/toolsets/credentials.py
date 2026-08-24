@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -80,6 +81,7 @@ class CredentialStore:
         *,
         name: str,
         value: str,
+        credential_id: str = "",
         kind: Literal["header", "environment", "provider_key", "generic"] = "generic",
         tenant_id: str = "local",
         owner_id: str = "local",
@@ -92,6 +94,11 @@ class CredentialStore:
         clean_owner_id = self._scope_text(owner_id, "owner_id", 160)
         clean_catalog_project_id = str(catalog_project_id or "").strip()
         clean_catalog_slot = str(catalog_slot or "").strip()
+        clean_credential_id = str(credential_id or "").strip()
+        if clean_credential_id and re.fullmatch(
+            r"cred_[0-9a-f]{32}", clean_credential_id
+        ) is None:
+            raise CredentialStoreError("credential_id is invalid.")
         if bool(clean_catalog_project_id) != bool(clean_catalog_slot):
             raise CredentialStoreError(
                 "catalog_project_id and catalog_slot must be supplied together."
@@ -100,7 +107,7 @@ class CredentialStore:
             raise CredentialStoreError("Catalog credential scope is too long.")
         now = time.time()
         record = CredentialRecord(
-            credential_id=f"cred_{uuid.uuid4().hex}",
+            credential_id=clean_credential_id or f"cred_{uuid.uuid4().hex}",
             name=clean_name,
             kind=kind,
             prefix=self._prefix(clean_value),
@@ -115,6 +122,8 @@ class CredentialStore:
         )
         with self._lock:
             items = self._read_unlocked()
+            if any(item.credential_id == record.credential_id for item in items):
+                raise CredentialStoreError("Credential already exists.")
             items.append(record)
             self._write_unlocked(items)
         return self._public(record), clean_value

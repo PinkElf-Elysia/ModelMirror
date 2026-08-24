@@ -227,6 +227,14 @@ class RemoteOAuthBridgeProtocol(Protocol):
         self, target_id: str, url: str, *, request_body: dict[str, Any]
     ) -> dict[str, Any]: ...
 
+    async def exchange_authorization_code(
+        self, target_id: str, url: str, *, request_body: dict[str, str]
+    ) -> dict[str, Any]: ...
+
+    async def refresh_access_token(
+        self, target_id: str, url: str, *, request_body: dict[str, str]
+    ) -> dict[str, Any]: ...
+
 
 class RemoteOAuthSocketBridge:
     """Backend control client for the network-less OAuth metadata sidecar."""
@@ -385,6 +393,35 @@ class RemoteOAuthSocketBridge:
             timeout=20,
             ambiguous_after_write=True,
         )
+
+    async def exchange_authorization_code(
+        self, target_id: str, url: str, *, request_body: dict[str, str]
+    ) -> dict[str, Any]:
+        try:
+            return await self._exchange(
+                target_id,
+                url,
+                {"action": "exchange_authorization_code", "request_body": request_body},
+                timeout=20,
+                ambiguous_after_write=True,
+            )
+        finally:
+            request_body["code"] = ""
+            request_body["code_verifier"] = ""
+
+    async def refresh_access_token(
+        self, target_id: str, url: str, *, request_body: dict[str, str]
+    ) -> dict[str, Any]:
+        try:
+            return await self._exchange(
+                target_id,
+                url,
+                {"action": "refresh_access_token", "request_body": request_body},
+                timeout=20,
+                ambiguous_after_write=True,
+            )
+        finally:
+            request_body["refresh_token"] = ""
 
 
 class MCPRemoteOAuthStore:
@@ -1109,7 +1146,11 @@ class MCPRemoteOAuthService:
         self.subject_resolver = subject_resolver
         self.remote_auth_status = remote_auth_status
         self.bridge = bridge or RemoteOAuthSocketBridge()
+        self.authorization_service: Any | None = None
         self._locks = tuple(asyncio.Lock() for _ in range(64))
+
+    def set_authorization_service(self, service: Any) -> None:
+        self.authorization_service = service
 
     def status(self) -> dict[str, Any]:
         base = self.remote_auth_status()
@@ -1122,6 +1163,11 @@ class MCPRemoteOAuthService:
             client_metadata_configured = True
         except RemoteOAuthError:
             client_metadata_configured = False
+        authorization = (
+            self.authorization_service.status()
+            if self.authorization_service is not None
+            else {"authorization_enabled": False, "token_storage_enabled": False}
+        )
         return {
             "enabled": _flag("MCP_REMOTE_OAUTH_ENABLED"),
             "dynamic_registration_enabled": _flag(
@@ -1151,8 +1197,12 @@ class MCPRemoteOAuthService:
                     else []
                 ),
             ],
-            "authorization_enabled": False,
-            "token_storage_enabled": False,
+            "authorization_enabled": bool(
+                authorization.get("authorization_enabled")
+            ),
+            "token_storage_enabled": bool(
+                authorization.get("token_storage_enabled")
+            ),
             "multi_tenant": False,
         }
 
@@ -1193,6 +1243,28 @@ class MCPRemoteOAuthService:
             )
         return self.subject_resolver.resolve()
 
+    def authorization_state(
+        self,
+        *,
+        subject: SubjectScopeV1,
+        target_type: OAuthTargetType,
+        target_id: str,
+    ) -> tuple[
+        RemoteOAuthDiscoverySnapshotV1 | None,
+        RemoteOAuthClientRegistrationV1 | None,
+    ]:
+        discovery, registration, evidence = self.store.active_state(
+            subject=subject, target_type=target_type, target_id=target_id
+        )
+        if registration is not None and not self._registration_evidence_current(
+            registration, evidence
+        ):
+            self.store.mark_registration_stale(
+                registration.registration_id, subject=subject
+            )
+            registration = None
+        return discovery, registration
+
     async def discover(
         self,
         *,
@@ -1215,6 +1287,11 @@ class MCPRemoteOAuthService:
             % len(self._locks)
         ]
         async with lock:
+            previous = self.store.active_discovery(
+                subject=subject,
+                target_type=target_type,
+                target_id=clean_target,
+            )
             metadata_hint = ""
             try:
                 probe = await self.bridge.probe_resource(clean_target, resource)
@@ -1270,13 +1347,22 @@ class MCPRemoteOAuthService:
                 metadata=metadata,
                 metadata_digest=metadata_digest,
             )
-            return self.store.save_discovery(
+            saved = self.store.save_discovery(
                 subject=subject,
                 target_type=target_type,
                 target_id=clean_target,
                 source_digest=source_digest,
                 policy=policy,
             )
+            if (
+                previous is not None
+                and previous.discovery_fingerprint != saved.discovery_fingerprint
+                and self.authorization_service is not None
+            ):
+                self.authorization_service.invalidate_target(
+                    target_type=target_type, target_id=clean_target
+                )
+            return saved
 
     async def _first_document(
         self,
@@ -1432,26 +1518,34 @@ class MCPRemoteOAuthService:
         source_digest: str,
     ) -> dict[str, Any]:
         subject = self._require_operational()
-        discovery, registration, evidence = self.store.active_state(
+        discovery, registration = self.authorization_state(
             subject=subject, target_type=target_type, target_id=target_id
         )
         if discovery is not None and discovery.source_digest != source_digest:
             discovery = None
             registration = None
-        if registration is not None and not self._registration_evidence_current(
-            registration, evidence
-        ):
-            self.store.mark_registration_stale(
-                registration.registration_id, subject=subject
+        authorization = (
+            self.authorization_service.summary(
+                target_type=target_type,
+                target_id=target_id,
+                source_digest=source_digest,
             )
-            registration = None
+            if self.authorization_service is not None
+            else {"authorization_session": None, "token": None}
+        )
         return {
             "discovery": self._public_discovery(discovery) if discovery else None,
             "registration": (
                 self._public_registration(registration) if registration else None
             ),
-            "authorization_enabled": False,
-            "token_storage_enabled": False,
+            "authorization_session": authorization.get("authorization_session"),
+            "token": authorization.get("token"),
+            "authorization_enabled": bool(
+                authorization.get("authorization_enabled")
+            ),
+            "token_storage_enabled": bool(
+                authorization.get("token_storage_enabled")
+            ),
             "local_single_owner_warning": True,
         }
 
@@ -1752,6 +1846,10 @@ class MCPRemoteOAuthService:
         target_id: str,
     ) -> RemoteOAuthClientRegistrationV1:
         subject = self._require_operational()
+        if self.authorization_service is not None:
+            self.authorization_service.invalidate_target(
+                target_type=target_type, target_id=target_id
+            )
         return self.store.revoke_registration(
             registration_id,
             subject=subject,
@@ -1765,6 +1863,10 @@ class MCPRemoteOAuthService:
         """Revoke local registration on target deletion even when OAuth is off."""
 
         subject = self.subject_resolver.resolve()
+        if self.authorization_service is not None:
+            self.authorization_service.invalidate_target(
+                target_type=target_type, target_id=target_id
+            )
         registration = self.store.active_registration(
             subject=subject, target_type=target_type, target_id=target_id
         )

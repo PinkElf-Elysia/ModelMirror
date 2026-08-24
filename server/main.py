@@ -822,6 +822,12 @@ try:
         configure_mcp_remote_oauth,
         router as mcp_remote_oauth_router,
     )
+    from server.mcp.remote_oauth_authorization import (
+        MCPRemoteOAuthAuthorizationService,
+        MCPRemoteOAuthAuthorizationStore,
+        configure_mcp_remote_oauth_authorization,
+        router as mcp_remote_oauth_authorization_router,
+    )
     from server.mcp.workspace import MCPCatalogWorkspaceStore
     from server.registry.tool_registry import ToolRegistry
 except ModuleNotFoundError:
@@ -870,6 +876,12 @@ except ModuleNotFoundError:
         MCPRemoteOAuthStore,
         configure_mcp_remote_oauth,
         router as mcp_remote_oauth_router,
+    )
+    from mcp.remote_oauth_authorization import (
+        MCPRemoteOAuthAuthorizationService,
+        MCPRemoteOAuthAuthorizationStore,
+        configure_mcp_remote_oauth_authorization,
+        router as mcp_remote_oauth_authorization_router,
     )
     from mcp.workspace import MCPCatalogWorkspaceStore
     from registry.tool_registry import ToolRegistry
@@ -1553,6 +1565,7 @@ app.include_router(mcp_hub_review_router)
 app.include_router(mcp_hub_trusted_router)
 app.include_router(mcp_remote_auth_router)
 app.include_router(mcp_remote_oauth_router)
+app.include_router(mcp_remote_oauth_authorization_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -1630,6 +1643,29 @@ mcp_remote_oauth_service = MCPRemoteOAuthService(
     mcp_remote_oauth_store,
     subject_resolver=mcp_subject_scope_resolver,
     remote_auth_status=mcp_remote_auth_broker.status,
+)
+mcp_remote_oauth_authorization_store = MCPRemoteOAuthAuthorizationStore(
+    mcp_hub_store.storage_dir
+)
+mcp_remote_oauth_authorization_service = MCPRemoteOAuthAuthorizationService(
+    mcp_remote_oauth_authorization_store,
+    metadata_store=mcp_remote_oauth_store,
+    metadata_state=mcp_remote_oauth_service.authorization_state,
+    subject_resolver=mcp_subject_scope_resolver,
+    remote_auth_status=mcp_remote_auth_broker.status,
+    redirect_uri=mcp_remote_oauth_service._redirect_uri,
+    bridge=mcp_remote_oauth_service.bridge,
+    credential_creator=toolset_credential_store.create,
+    credential_lookup=toolset_credential_store.get_public,
+    credential_resolver=toolset_credential_store.resolve,
+    credential_rotator=toolset_credential_store.rotate,
+    credential_revoker=toolset_credential_store.revoke,
+)
+mcp_remote_oauth_service.set_authorization_service(
+    mcp_remote_oauth_authorization_service
+)
+configure_mcp_remote_oauth_authorization(
+    mcp_remote_oauth_authorization_service
 )
 configure_mcp_remote_oauth(mcp_remote_oauth_service)
 mcp_hub_service.set_remote_oauth(mcp_remote_oauth_service)
