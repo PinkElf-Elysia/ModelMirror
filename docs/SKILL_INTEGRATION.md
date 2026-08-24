@@ -253,7 +253,7 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 
 触发描述闭环由 `SkillTriggerSuiteV1`、`SkillTriggerReceiptV1` 和纯本地 `SkillTriggerEvaluator` 提供。验证器把 Creator 草稿作为内存中的 `workspace_draft` 候选，直接复用生产 Finder/Router 的 Top 6 与 Top 24 词典排序，不写入安装目录或全局索引；凭据绑定套件、描述、ranker 及 Runtime/Trust/目录指纹。固定私有 Trigger Optimizer 只接收 Creator 意图、冻结正反例、当前描述和有界公共竞争候选摘要，使用 `toolMode=none` 一次提出最多三个描述；模型不能提交名次、候选 ID、指纹或门禁结论。服务端逐项重跑生产排序并按最差正例名次、正例名次总和、反例安全距离、长度和摘要确定稳定推荐项。
 
-用户也可在没有模型 Key 时手工维护正反例与单行描述，再调用同一个本地验证器。主动进入该流程的 Session 必须先确认一个通过描述，随后资源计划确认、资源构建提案和 Workspace draft 安装会在服务端重新验证；资源内容变化但 Skill 名称、描述与触发套件不变时可复用确认，描述或合同变化则失效。旧 Session、既有 Creator 安装、Git、本地导入和插件不追溯阻断。`SKILL_CREATOR_TRIGGER_OPTIMIZATION_ENABLED` 在本批仍默认 `false`，因此尚不改变默认 Creator 体验；正式工作台与新 Session 默认迁移留给下一批。
+用户也可在没有模型 Key 时手工维护正反例与单行描述，再调用同一个本地验证器。新建资源化 Creator Session 默认必须先确认一个通过描述，随后资源计划确认、资源构建提案和 Workspace draft 安装都会在服务端重新验证；资源内容变化但 Skill 名称、描述与触发套件不变时可复用确认，描述或合同变化则失效。Step 2 默认只展示正例命中、反例避开与唯一下一步，Top 6/24、匹配词和竞争候选收进折叠诊断。旧 Session 只有用户主动启用时才迁移，既有 Creator 安装、Git、本地导入和插件不追溯阻断。`SKILL_CREATOR_TRIGGER_OPTIMIZATION_ENABLED=false` 可完整回退原 Creator 流程，已保存的触发 Store 数据不会删除。
 
 社区资源卡片同时显示原始来源与收录索引。安装第三方条目只会复制目录，不会在安装阶段自动执行脚本；用户仍需在激活前检查依赖、外部服务和凭据要求。
 

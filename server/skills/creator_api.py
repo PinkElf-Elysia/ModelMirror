@@ -753,7 +753,9 @@ def _session_response(
         except SkillCreatorStorageError:
             response.update(
                 {
-                    "trigger_required": False,
+                    "trigger_required": bool(
+                        getattr(session, "trigger_required", False)
+                    ),
                     "trigger_suite": None,
                     "trigger_attempt": None,
                     "trigger_receipt": None,

@@ -97,11 +97,11 @@ def confirmed_suite(store: SkillTriggerStore, *, session_id: str = "session-one"
     )
 
 
-def test_trigger_flag_defaults_off(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_trigger_flag_defaults_on_with_explicit_rollback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SKILL_CREATOR_TRIGGER_OPTIMIZATION_ENABLED", raising=False)
-    assert trigger_optimization_enabled() is False
-    monkeypatch.setenv("SKILL_CREATOR_TRIGGER_OPTIMIZATION_ENABLED", "true")
     assert trigger_optimization_enabled() is True
+    monkeypatch.setenv("SKILL_CREATOR_TRIGGER_OPTIMIZATION_ENABLED", "false")
+    assert trigger_optimization_enabled() is False
 
 
 @pytest.mark.parametrize(
@@ -389,6 +389,42 @@ def test_evaluator_uses_production_finder_and_router_windows(tmp_path: Path) -> 
     with pytest.raises(SkillTriggerNotFoundError):
         non_finite.require_receipt(stored.receipt_id)
     assert non_finite.status()["quarantine_count"] == 3
+
+
+def test_evaluator_uses_one_ranking_pass_per_case_and_domain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = SkillTriggerStore(tmp_path)
+    suite = confirmed_suite(store)
+    evaluator = SkillTriggerEvaluator(
+        SkillFinder(index_path=INDEX_PATH, skill_manager=StubSkillManager())
+    )
+    recall_calls: list[tuple[str, bool]] = []
+    original_recall = SkillFinder.recall
+
+    def counting_recall(self, query, *, limit=24, router_eligible_only=False):
+        recall_calls.append((query, router_eligible_only))
+        return original_recall(
+            self,
+            query,
+            limit=limit,
+            router_eligible_only=router_eligible_only,
+        )
+
+    monkeypatch.setattr(SkillFinder, "recall", counting_recall)
+    evaluator.evaluate(
+        suite=suite,
+        skill_id="incident-timeline-guide",
+        skill_name=SKILL_NAME,
+        description=DESCRIPTION,
+    )
+
+    assert recall_calls == [
+        (case.text, router)
+        for case in suite.cases
+        for router in (False, True)
+    ]
 
 
 def test_evaluator_exposes_top_24_diagnostics_without_weakening_top_6_gate(

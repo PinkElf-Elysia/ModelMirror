@@ -98,10 +98,34 @@ function creatorProposal(
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe("Skill Creator pages", () => {
+  it("resets preserved page scroll when a Creator session opens", async () => {
+    vi.spyOn(window, "scrollX", "get").mockReturnValue(0);
+    vi.spyOn(window, "scrollY", "get").mockReturnValue(240);
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/skills/creator/status") return jsonResponse(status);
+      if (url === "/api/skills/creator/sessions/creator_1") return jsonResponse({ session: baseSession });
+      return jsonResponse({ detail: `not found: ${url}` }, 404);
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/skills/create/creator_1"]}>
+        <Routes>
+          <Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", { name: "把你的做法变成可复用的 Skill" });
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: "auto" });
+  });
+
   it("opens trusted workflow evidence after saving the handoff requirement", async () => {
     let currentSession: SkillCreatorSession = {
       ...baseSession,
@@ -565,6 +589,74 @@ describe("Skill Creator pages", () => {
     expect(await screen.findByRole("button", { name: "批准并写入草稿" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "准备生成内容" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "按新方案开始生成" })).not.toBeInTheDocument();
+  });
+
+  it("enters the resource build step only after plan confirmation succeeds", async () => {
+    let currentScrollY = 0;
+    vi.spyOn(window, "scrollX", "get").mockReturnValue(0);
+    vi.spyOn(window, "scrollY", "get").mockImplementation(() => currentScrollY);
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {
+      currentScrollY = 0;
+    });
+    const readyPlan: SkillResourcePlan = {
+      plan_id: "plan_ready_to_confirm",
+      session_id: baseSession.session_id,
+      revision: 2,
+      digest: "9".repeat(64),
+      state: "ready",
+      session_revision: baseSession.session_revision,
+      skill_name: "compare-pdf",
+      skill_description: "比较 PDF 并保留证据页码。",
+      workflow_steps: [{ step_id: "collect", instruction: "Collect cited evidence." }],
+      output_contract: ["Return a cited comparison."],
+      failure_modes: ["Mark missing evidence."],
+      resources: [],
+      clarifications: [],
+      clarification_answers: {},
+      created_at: 1,
+      updated_at: 2,
+    };
+    const readySession: SkillCreatorSession = {
+      ...baseSession,
+      authoring_flow: "resource",
+      evidence_confirmed: true,
+      resource_plan: readyPlan,
+    };
+    const confirmedSession: SkillCreatorSession = {
+      ...readySession,
+      session_revision: readySession.session_revision + 1,
+      resource_plan: { ...readyPlan, revision: 3, state: "confirmed" },
+    };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/skills/creator/status") return jsonResponse({
+        ...status,
+        resource_authoring_enabled: true,
+        resource_builder_available: true,
+      });
+      if (url === "/api/skills/creator/sessions/creator_1" && !init?.method) {
+        return jsonResponse({ session: readySession, resource_plan: readyPlan });
+      }
+      if (url.endsWith("/resource-plan/confirm") && init?.method === "POST") {
+        return jsonResponse({ session: confirmedSession, resource_plan: confirmedSession.resource_plan });
+      }
+      return jsonResponse({ detail: `not found: ${url}` }, 404);
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/skills/create/creator_1"]}>
+        <Routes><Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" /></Routes>
+      </MemoryRouter>,
+    );
+
+    const confirmButton = await screen.findByRole("button", { name: "确认方案，进入生成" });
+    currentScrollY = 620;
+    await userEvent.click(confirmButton);
+
+    const buildHeading = await screen.findByRole("heading", { name: "准备生成内容" });
+    expect(screen.getByText("当前步骤 3/6")).toBeVisible();
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, left: 0, behavior: "auto" });
+    expect(buildHeading).toHaveFocus();
   });
 
   it("restores the latest resource-build proposal instead of an older approved session proposal", async () => {

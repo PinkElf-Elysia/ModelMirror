@@ -1944,6 +1944,9 @@ skill_creator_trigger_optimization_service = SkillCreatorTriggerOptimizationServ
     SkillTriggerEvaluator(SkillFinder(skill_manager=get_skill_manager())),
     actor_id=authoring_service.local_console_actor_id,
 )
+skill_creator_service.resource_trigger_required = (
+    skill_creator_trigger_optimization_service.enabled
+)
 skill_creator_resource_planning_service.confirmation_gate = (
     skill_creator_trigger_optimization_service.require_plan_gate
 )
@@ -1999,28 +2002,28 @@ def require_creator_trigger_proposal_approval(proposal) -> None:
         return
     if proposal.source_type != "skill_creator" or not proposal.creator_session_id:
         return
-    session = skill_creator_session_store.require(proposal.creator_session_id)
-    if not skill_trigger_optimization_store.is_required(session.session_id):
-        return
-    plan = skill_creator_resource_plan_store.current_for_session(session.session_id)
-    resource_binding = proposal.payload.get("creator_resource_build")
-    skill_payload = proposal.payload.get("skill")
-    if (
-        plan is None
-        or plan.state != "confirmed"
-        or not isinstance(resource_binding, dict)
-        or resource_binding.get("plan_id") != plan.plan_id
-        or resource_binding.get("plan_digest") != plan.digest
-        or not isinstance(skill_payload, dict)
-        or skill_payload.get("name") != plan.skill_name
-        or skill_payload.get("slug") != plan.skill_name
-        or skill_payload.get("description") != plan.skill_description
-    ):
-        raise AuthoringProposalValidationError(
-            "The Creator proposal no longer matches its trigger-gated resource plan.",
-            code="skill_trigger_receipt_stale",
-        )
     try:
+        session = skill_creator_session_store.require(proposal.creator_session_id)
+        if not skill_creator_trigger_optimization_service.requires_trigger(session):
+            return
+        plan = skill_creator_resource_plan_store.current_for_session(session.session_id)
+        resource_binding = proposal.payload.get("creator_resource_build")
+        skill_payload = proposal.payload.get("skill")
+        if (
+            plan is None
+            or plan.state != "confirmed"
+            or not isinstance(resource_binding, dict)
+            or resource_binding.get("plan_id") != plan.plan_id
+            or resource_binding.get("plan_digest") != plan.digest
+            or not isinstance(skill_payload, dict)
+            or skill_payload.get("name") != plan.skill_name
+            or skill_payload.get("slug") != plan.skill_name
+            or skill_payload.get("description") != plan.skill_description
+        ):
+            raise AuthoringProposalValidationError(
+                "The Creator proposal no longer matches its trigger-gated resource plan.",
+                code="skill_trigger_receipt_stale",
+            )
         _, draft = skill_creator_service.get_session(session.session_id)
         skill_creator_trigger_optimization_service.require_plan_gate(
             session, plan, draft

@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
 import SkillCreatorFinish from "../components/skill-creator/SkillCreatorFinish";
@@ -258,6 +258,7 @@ export default function SkillCreatorStudioPage() {
   const [sourcePreview, setSourcePreview] = useState<SkillCreatorSourcePreview | null>(null);
   const [selectedEvidence, setSelectedEvidence] = useState<Set<string>>(new Set());
   const [activeStep, setActiveStep] = useState(0);
+  const previousActiveStepRef = useRef(activeStep);
   const [intent, setIntent] = useState("");
   const [positiveExamples, setPositiveExamples] = useState("");
   const [nearMissExamples, setNearMissExamples] = useState("");
@@ -369,6 +370,18 @@ export default function SkillCreatorStudioPage() {
       document.removeEventListener("visibilitychange", refreshVisibleSession);
     };
   }, [loadSession, status]);
+
+  useLayoutEffect(() => {
+    const stepChanged = previousActiveStepRef.current !== activeStep;
+    if (window.scrollX !== 0 || window.scrollY !== 0) {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }
+    if (stepChanged && activeStep === 2) {
+      document.getElementById("resource-build-start-heading")?.focus();
+      document.getElementById("resource-build-heading")?.focus();
+    }
+    previousActiveStepRef.current = activeStep;
+  }, [activeStep, sessionId]);
 
   const intentComplete = definitionMode === "simple"
     ? Boolean(intent.trim())
@@ -884,7 +897,12 @@ export default function SkillCreatorStudioPage() {
               )}
 
               {status.resource_authoring_enabled ? (
-                <SkillResourcePlanPanel onSession={acceptHydratedSession} session={session} status={status} />
+                <SkillResourcePlanPanel
+                  onPlanConfirmed={() => setActiveStep(2)}
+                  onSession={acceptHydratedSession}
+                  session={session}
+                  status={status}
+                />
               ) : null}
 
               {!resourceFlow && proposal?.status !== "pending" ? (

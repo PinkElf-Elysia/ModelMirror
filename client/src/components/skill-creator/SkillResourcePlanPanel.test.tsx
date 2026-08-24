@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,9 +10,9 @@ import type {
 } from "../../utils/skillCreatorApi";
 import SkillResourcePlanPanel from "./SkillResourcePlanPanel";
 
-function jsonResponse(payload: unknown) {
+function jsonResponse(payload: unknown, responseStatus = 200) {
   return Promise.resolve(new Response(JSON.stringify(payload), {
-    status: 200,
+    status: responseStatus,
     headers: { "Content-Type": "application/json" },
   }));
 }
@@ -86,6 +87,11 @@ const session: SkillCreatorSession = {
   updated_at: 2,
 };
 
+function Harness({ initial, currentStatus = status }: { initial: SkillCreatorSession; currentStatus?: SkillCreatorStatus }) {
+  const [current, setCurrent] = useState(initial);
+  return <SkillResourcePlanPanel onSession={setCurrent} session={current} status={currentStatus} />;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -99,6 +105,76 @@ describe("SkillResourcePlanPanel", () => {
     expect(screen.getByRole("heading", { name: "遇到信息不足时" })).toBeVisible();
     expect(screen.getByText(/Mark missing facts as unconfirmed\./)).toBeVisible();
     expect(screen.getByText("共 4 步执行流程")).toBeVisible();
+  });
+
+  it("keeps plan confirmation disabled until a required trigger check passes", () => {
+    render(<SkillResourcePlanPanel
+      onSession={vi.fn()}
+      session={{ ...session, trigger_required: true, trigger_stale_reason: "skill_trigger_suite_required" }}
+      status={{
+        ...status,
+        trigger_optimization_enabled: true,
+        trigger_optimizer_available: false,
+        trigger_store_available: true,
+      }}
+    />);
+
+    expect(screen.getByRole("button", { name: "先完成触发检查" })).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "先确认什么时候该使用这个 Skill" })).toBeVisible();
+  });
+
+  it("requires unsaved plan edits to be saved before trigger mutations are available", async () => {
+    const triggerSession = {
+      ...session,
+      trigger_required: true,
+      trigger_stale_reason: "skill_trigger_suite_required",
+    };
+    const savedPlan = {
+      ...plan,
+      revision: plan.revision + 1,
+      digest: "9".repeat(64),
+      skill_description: "Review incidents from evidence; do not use for ordinary summaries.",
+    };
+    const savedSession = {
+      ...triggerSession,
+      session_revision: triggerSession.session_revision + 1,
+      resource_plan: savedPlan,
+    };
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ session: savedSession, resource_plan: savedPlan }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<Harness
+      currentStatus={{
+        ...status,
+        trigger_optimization_enabled: true,
+        trigger_optimizer_available: true,
+        trigger_store_available: true,
+      }}
+      initial={triggerSession}
+    />);
+    await userEvent.click(screen.getByRole("button", { name: "手工填写" }));
+    const unsavedTriggerCase = screen.getByRole("textbox", { name: "应该触发用例 1" });
+    await userEvent.type(unsavedTriggerCase, "，并列出证据缺口");
+    await userEvent.click(screen.getByText("查看并调整完整方案（可选）"));
+    const description = screen.getByRole("textbox", { name: "能力、触发场景与边界" });
+    await userEvent.clear(description);
+    await userEvent.type(description, savedPlan.skill_description);
+
+    expect(screen.getByText("先保存方案调整")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "先确认什么时候该使用这个 Skill" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "AI 提出测试边界" })).toBeDisabled();
+    expect(unsavedTriggerCase).toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "保存我的调整" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/resource-plan$/);
+    expect(await screen.findByRole("heading", { name: "先确认什么时候该使用这个 Skill" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "AI 提出测试边界" })).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "应该触发用例 1" })).toHaveValue("Turn this incident log into a review.，并列出证据缺口");
   });
 
   it("generates a plan without writing resource files", async () => {
@@ -212,5 +288,48 @@ describe("SkillResourcePlanPanel", () => {
       path: "scripts/check_release.py",
       action: "update",
     });
+  });
+
+  it("moves forward only after the resource plan is confirmed successfully", async () => {
+    const confirmedSession = {
+      ...session,
+      session_revision: 4,
+      resource_plan: { ...plan, revision: 3, state: "confirmed" as const },
+    };
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({
+      session: confirmedSession,
+      resource_plan: confirmedSession.resource_plan,
+    })));
+    const onSession = vi.fn();
+    const onPlanConfirmed = vi.fn();
+
+    render(<SkillResourcePlanPanel
+      onPlanConfirmed={onPlanConfirmed}
+      onSession={onSession}
+      session={session}
+      status={status}
+    />);
+    await userEvent.click(screen.getByRole("button", { name: "确认方案，进入生成" }));
+
+    await waitFor(() => expect(onSession).toHaveBeenCalledWith(confirmedSession));
+    expect(onPlanConfirmed).toHaveBeenCalledWith(confirmedSession);
+  });
+
+  it("does not move forward when plan confirmation fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({
+      detail: { code: "skill_creator_revision_conflict", message: "Creator session changed." },
+    }, 409)));
+    const onPlanConfirmed = vi.fn();
+
+    render(<SkillResourcePlanPanel
+      onPlanConfirmed={onPlanConfirmed}
+      onSession={vi.fn()}
+      session={session}
+      status={status}
+    />);
+    await userEvent.click(screen.getByRole("button", { name: "确认方案，进入生成" }));
+
+    expect(await screen.findByText("会话或方案已更新，请重新加载页面后再继续。")).toBeVisible();
+    expect(onPlanConfirmed).not.toHaveBeenCalled();
   });
 });

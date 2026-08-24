@@ -324,7 +324,7 @@ export default function SkillResourceBuildPanel({
   if (!build || !buildMatchesCurrentPlan) {
     return (
       <section className="rounded-lg border border-white/10 bg-surface-900/80 p-5 sm:p-6" aria-labelledby="resource-build-start-heading">
-        <h2 className="text-xl font-semibold text-white" id="resource-build-start-heading">
+        <h2 className="text-xl font-semibold text-white focus:outline-none" id="resource-build-start-heading" tabIndex={-1}>
           {build ? "按新方案重新生成" : "准备生成内容"}
         </h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">点击后会立即生成第一项内容。每项完成基础检查后只请你确认一次，不会用内部生成片段反复打扰。</p>
@@ -359,7 +359,7 @@ export default function SkillResourceBuildPanel({
       <div className="border-y border-white/10 py-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-white" id="resource-build-heading">逐项生成内容</h2>
+            <h2 className="text-xl font-semibold text-white focus:outline-none" id="resource-build-heading" tabIndex={-1}>逐项生成内容</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{activeTarget ? `正在处理：${activeTarget}` : "辅助内容已完成，准备整理最终使用说明。"}</p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">

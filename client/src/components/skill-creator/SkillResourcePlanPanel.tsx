@@ -20,11 +20,13 @@ import {
   confirmSkillCreatorResourcePlan,
   generateSkillCreatorResourcePlan,
   patchSkillCreatorResourcePlan,
+  SkillCreatorApiError,
   type SkillCreatorSession,
   type SkillCreatorStatus,
   type SkillResourcePlanItem,
   type SkillResourceHookPlanItem,
 } from "../../utils/skillCreatorApi";
+import SkillTriggerOptimizationPanel, { skillTriggerGateReady } from "./SkillTriggerOptimizationPanel";
 
 
 const KIND_LABELS = {
@@ -56,17 +58,21 @@ interface Props {
   session: SkillCreatorSession;
   status: SkillCreatorStatus;
   onSession: (session: SkillCreatorSession) => void | Promise<void>;
+  onPlanConfirmed?: (session: SkillCreatorSession) => void;
 }
 
 function errorMessage(value: unknown, fallback: string) {
-  return value instanceof Error && value.message ? value.message : fallback;
+  if (value instanceof SkillCreatorApiError && value.status === 409) {
+    return "会话或方案已更新，请重新加载页面后再继续。";
+  }
+  return fallback;
 }
 
 function summaryItem(value: string) {
   return value.replace(/^\s*[-•]\s*/, "").trim();
 }
 
-export default function SkillResourcePlanPanel({ session, status, onSession }: Props) {
+export default function SkillResourcePlanPanel({ session, status, onSession, onPlanConfirmed }: Props) {
   const plan = session.resource_plan ?? null;
   const legacyFlow = session.authoring_flow !== "resource";
   const [busy, setBusy] = useState("");
@@ -101,6 +107,7 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
   const hookEditingLocked = plan?.state === "confirmed" || !hookAuthoringEnabled;
   const planEditingLocked = plan?.state === "confirmed"
     || (!hookAuthoringEnabled && hooks.length > 0);
+  const triggerGateReady = skillTriggerGateReady(session, status);
 
   async function run(label: string, operation: () => Promise<SkillCreatorSession>, success: string) {
     setBusy(label);
@@ -168,11 +175,16 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
       setError("请先保存当前修改，再确认资源计划。");
       return;
     }
-    await run(
+    if (!triggerGateReady) {
+      setError("请先完成下方的触发检查，再确认资源计划。");
+      return;
+    }
+    const updated = await run(
       "confirm",
       () => confirmSkillCreatorResourcePlan(session),
       "资源计划已冻结。后续生成只能使用这些已确认路径和来源。",
     );
+    if (updated) onPlanConfirmed?.(updated);
   }
 
   function updateResource(index: number, changes: Partial<SkillResourcePlanItem>) {
@@ -586,6 +598,22 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
             </div>
           </details>
 
+          {planDirty ? (
+            <div className="rounded-md border border-amber-300/25 bg-amber-300/[0.08] p-4" id="creator-plan-save-before-trigger" role="status">
+              <p className="text-sm font-semibold text-amber-100">先保存方案调整</p>
+              <p className="mt-1 text-xs leading-5 text-amber-100/75">
+                当前名称、描述或资源还有未保存内容。保存后再做触发检查，避免验证旧描述或覆盖你的修改。
+              </p>
+            </div>
+          ) : null}
+          <fieldset
+            aria-describedby={planDirty ? "creator-plan-save-before-trigger" : undefined}
+            className={`m-0 min-w-0 border-0 p-0 ${planDirty || busy ? "opacity-60" : ""}`}
+            disabled={planDirty || Boolean(busy)}
+          >
+            <SkillTriggerOptimizationPanel onSession={onSession} session={session} status={status} />
+          </fieldset>
+
           {plan.state === "confirmed" ? (
             <div className="rounded-md border border-emerald-300/20 bg-emerald-300/[0.08] p-4">
               <p className="flex items-center gap-2 text-sm font-semibold text-emerald-100"><CheckCircle2 aria-hidden="true" size={17} />方案已确认</p>
@@ -594,7 +622,7 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
           ) : (
             <div className="flex flex-wrap justify-end gap-3 border-t border-white/10 pt-4">
               <button className="min-h-11 rounded-full border border-white/15 px-5 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={planEditingLocked || !planDirty || Boolean(busy)} onClick={() => void savePlan()} type="button">{busy === "save" ? "正在保存…" : "保存我的调整"}</button>
-              <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-5 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={planEditingLocked || planDirty || Boolean(busy)} onClick={() => void confirmPlan()} type="button"><CheckCircle2 aria-hidden="true" size={16} />{busy === "confirm" ? "正在确认…" : "方案没问题，开始生成"}</button>
+              <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-5 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={planEditingLocked || planDirty || !triggerGateReady || Boolean(busy)} onClick={() => void confirmPlan()} type="button"><CheckCircle2 aria-hidden="true" size={16} />{busy === "confirm" ? "正在确认…" : triggerGateReady ? "确认方案，进入生成" : "先完成触发检查"}</button>
             </div>
           )}
         </div>
