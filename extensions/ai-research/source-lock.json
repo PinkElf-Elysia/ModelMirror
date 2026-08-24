@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedAt": "2026-08-23",
-  "modelMirrorBaseCommit": "e7f561c5abf65269e6be05c6b6e75f40b8f14604",
+  "modelMirrorBaseCommit": "296c38a58a8274d9a80ad35b187eabaddd06ae46",
   "claimLevel": "harness_only",
   "packStatus": "fixture_only",
   "runtimes": {
@@ -22,7 +22,7 @@
   "coreBaseline": {
     "clientDistGate": {
       "mode": "same_runner_base_vs_head",
-      "baseCommit": "e7f561c5abf65269e6be05c6b6e75f40b8f14604"
+      "baseCommit": "296c38a58a8274d9a80ad35b187eabaddd06ae46"
     },
     "clientDistReference": {
       "fileCount": 26,

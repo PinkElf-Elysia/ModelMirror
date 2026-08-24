@@ -9,7 +9,7 @@
 
 | 结论 | 等级 | 证据路径或命令 |
 | --- | --- | --- |
-| 当前实施基线是 `origin/main@e7f561c5abf65269e6be05c6b6e75f40b8f14604` | 已证实事实 | `git rev-parse HEAD` |
+| 当前实施基线是 `origin/main@296c38a58a8274d9a80ad35b187eabaddd06ae46` | 已证实事实 | `git rev-parse origin/main` |
 | 当前主检出区存在大量用户修改，必须使用独立 worktree | 已证实事实 | 主检出区 `git status --short` |
 | Inspect 0.3.260 的单次 eval 可能在任务 error 时退出 0 | 已证实事实 | G0 固定版本运行证据与公开 EvalLog/CLI 契约 |
 | Inspect 0.3.260 在 Linux 无网容器支持 detach、ctl list 与 cancel | 已证实事实 | G0 Linux 容器运行证据 |

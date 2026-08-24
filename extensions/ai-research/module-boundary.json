@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "moduleId": "modelmirror.ai-research",
   "moduleVersion": "0.1.0-ar0",
-  "baseCommit": "e7f561c5abf65269e6be05c6b6e75f40b8f14604",
+  "baseCommit": "296c38a58a8274d9a80ad35b187eabaddd06ae46",
   "claimLevel": "harness_only",
   "packStatus": "fixture_only",
   "parentIntegration": "none",
