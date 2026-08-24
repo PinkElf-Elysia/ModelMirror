@@ -126,6 +126,7 @@ class SkillCreatorService:
         enabled: bool | None = None,
         source_provider: CreatorSourceProvider | None = None,
         generation_executor: CreatorGenerationExecutor | None = None,
+        resource_trigger_required: bool = False,
     ) -> None:
         self.session_store = session_store
         self.draft_store = draft_store
@@ -138,6 +139,7 @@ class SkillCreatorService:
         )
         self.source_provider = source_provider
         self.generation_executor = generation_executor
+        self.resource_trigger_required = bool(resource_trigger_required)
         self._generation_locks_guard = threading.RLock()
         self._generation_locks: dict[str, asyncio.Lock] = {}
 
@@ -212,6 +214,9 @@ class SkillCreatorService:
                 source_conversation_id=source_conversation_id,
                 source_message_id=source_message_id,
                 authoring_flow=authoring_flow,
+                trigger_required=(
+                    self.resource_trigger_required and authoring_flow == "resource"
+                ),
             )
         return self.session_store.create(
             mode=mode,
@@ -227,6 +232,9 @@ class SkillCreatorService:
             source_conversation_id=source_conversation_id,
             source_message_id=source_message_id,
             authoring_flow=authoring_flow,
+            trigger_required=(
+                self.resource_trigger_required and authoring_flow == "resource"
+            ),
         )
 
     def create_or_get_workflow_handoff(
@@ -262,6 +270,7 @@ class SkillCreatorService:
             success_criteria=success_criteria,
             source_task_id=source.source_task_id,
             source_run_id=source.source_run_id,
+            trigger_required=self.resource_trigger_required,
         )
 
     def list_sessions(self, *, limit: int) -> list[SkillCreatorSession]:

@@ -61,6 +61,7 @@ class SkillCreatorSession:
     mode: CreatorMode = "blank"
     assistant_agent_id: str = CREATOR_ASSISTANT_AGENT_ID
     authoring_flow: CreatorAuthoringFlow = "legacy"
+    trigger_required: bool = False
     intent: str = ""
     positive_examples: list[str] = field(default_factory=list)
     near_miss_examples: list[str] = field(default_factory=list)
@@ -99,7 +100,8 @@ class SkillCreatorSession:
 class SkillCreatorSessionStore:
     """Atomic, fail-closed persistence for recoverable Creator sessions."""
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
+    READABLE_SCHEMA_VERSIONS = frozenset({1, SCHEMA_VERSION})
     MAX_SESSIONS = 500
     MAX_TEXT_BYTES = 64 * 1024
 
@@ -134,6 +136,7 @@ class SkillCreatorSessionStore:
         source_conversation_id: str | None = None,
         source_message_id: str | None = None,
         authoring_flow: CreatorAuthoringFlow = "legacy",
+        trigger_required: bool = False,
     ) -> SkillCreatorSession:
         session = self._new_session(
             mode=mode,
@@ -149,6 +152,7 @@ class SkillCreatorSessionStore:
             source_conversation_id=source_conversation_id,
             source_message_id=source_message_id,
             authoring_flow=authoring_flow,
+            trigger_required=trigger_required,
         )
         with self._lock:
             self._insert_unlocked(session)
@@ -164,6 +168,7 @@ class SkillCreatorSessionStore:
         success_criteria: list[str],
         source_task_id: str,
         source_run_id: str,
+        trigger_required: bool = False,
     ) -> SkillCreatorSession:
         """Atomically create one resource-authoring session per trusted run.
 
@@ -183,6 +188,7 @@ class SkillCreatorSessionStore:
             source_task_id=source_task_id,
             source_run_id=source_run_id,
             authoring_flow="resource",
+            trigger_required=trigger_required,
         )
         with self._lock:
             self._ensure_writable_unlocked()
@@ -204,6 +210,7 @@ class SkillCreatorSessionStore:
                 if self._is_pristine_run_capture(existing):
                     previous = self._copy(existing)
                     existing.authoring_flow = "resource"
+                    existing.trigger_required = candidate.trigger_required
                     existing.intent = candidate.intent
                     existing.positive_examples = candidate.positive_examples
                     existing.near_miss_examples = candidate.near_miss_examples
@@ -239,6 +246,7 @@ class SkillCreatorSessionStore:
         source_conversation_id: str | None = None,
         source_message_id: str | None = None,
         authoring_flow: CreatorAuthoringFlow = "legacy",
+        trigger_required: bool = False,
     ) -> SkillCreatorSession:
         """Make the existing completed-run capture API idempotent by source."""
 
@@ -256,6 +264,7 @@ class SkillCreatorSessionStore:
             source_conversation_id=source_conversation_id,
             source_message_id=source_message_id,
             authoring_flow=authoring_flow,
+            trigger_required=trigger_required,
         )
         with self._lock:
             self._ensure_writable_unlocked()
@@ -296,11 +305,19 @@ class SkillCreatorSessionStore:
         source_conversation_id: str | None = None,
         source_message_id: str | None = None,
         authoring_flow: CreatorAuthoringFlow = "legacy",
+        trigger_required: bool = False,
     ) -> SkillCreatorSession:
+        if not isinstance(trigger_required, bool):
+            raise SkillCreatorValidationError("trigger_required must be boolean.")
+        if trigger_required and authoring_flow != "resource":
+            raise SkillCreatorValidationError(
+                "Only resource Creator sessions can require trigger validation."
+            )
         session = SkillCreatorSession(
             session_id=f"skillcreator_{uuid.uuid4().hex}",
             mode=self._mode(mode),
             authoring_flow=self._authoring_flow(authoring_flow),
+            trigger_required=trigger_required,
             intent=self._text(intent, "intent", maximum=8_000),
             positive_examples=self._text_list(
                 positive_examples or [], "positive_examples", maximum_items=10
@@ -401,6 +418,8 @@ class SkillCreatorSessionStore:
     def _is_pristine_run_capture(item: SkillCreatorSession) -> bool:
         return (
             item.mode == "run"
+            and item.authoring_flow == "legacy"
+            and not item.trigger_required
             and item.session_revision == 1
             and not item.intent
             and not item.positive_examples
@@ -1066,12 +1085,12 @@ class SkillCreatorSessionStore:
                 return
             if (
                 not isinstance(raw, dict)
-                or raw.get("version") != self.SCHEMA_VERSION
+                or raw.get("version") not in self.READABLE_SCHEMA_VERSIONS
                 or not isinstance(raw.get("items"), list)
             ):
                 self._load_error = "Skill Creator storage has an unsupported structure."
                 return
-            sanitized = False
+            sanitized = raw["version"] != self.SCHEMA_VERSION
             for index, record in enumerate(raw["items"]):
                 try:
                     item = self._decode_item(record)
@@ -1103,6 +1122,10 @@ class SkillCreatorSessionStore:
             raise ValueError("Creator assistant identity is immutable.")
         item.mode = self._mode(item.mode)
         item.authoring_flow = self._authoring_flow(item.authoring_flow)
+        if not isinstance(item.trigger_required, bool):
+            raise ValueError("Invalid Creator trigger requirement.")
+        if item.trigger_required and item.authoring_flow != "resource":
+            raise ValueError("Legacy Creator sessions cannot require trigger validation.")
         item.source_kind = self._source_kind(item.source_kind)
         item.quality_mode = self._quality_mode(item.quality_mode)
         item.review_state = self._review_state(item.review_state)

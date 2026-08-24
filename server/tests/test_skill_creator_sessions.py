@@ -187,6 +187,155 @@ def _confirm_blank_evidence(service: SkillCreatorService, session):
     )
 
 
+def test_resource_trigger_requirement_is_atomic_without_secondary_store(
+    tmp_path: Path,
+) -> None:
+    creator, _authoring, _drafts = _services(tmp_path)
+    creator.resource_trigger_required = True
+
+    created = creator.create_session(
+        mode="blank",
+        intent="Create a reusable checklist.",
+        positive_examples=[],
+        near_miss_examples=[],
+        expected_output="",
+        success_criteria=[],
+        authoring_flow="resource",
+    )
+    restored = SkillCreatorSessionStore(
+        creator.session_store.storage_dir
+    ).require(created.session_id)
+
+    assert restored.trigger_required is True
+    assert restored.authoring_flow == "resource"
+
+
+def test_resource_trigger_requirement_is_atomic_for_runtime_sources(
+    tmp_path: Path,
+) -> None:
+    creator, _authoring, _drafts = _services(tmp_path)
+    creator.source_provider = SimpleNamespace(validate_source=lambda _source: None)
+    creator.resource_trigger_required = True
+    definition = {
+        "intent": "Turn a completed run into a reusable review.",
+        "positive_examples": ["Review the completed workflow output."],
+        "near_miss_examples": ["Rewrite unrelated prose."],
+        "expected_output": "A bounded review.",
+        "success_criteria": ["Do not invent evidence."],
+    }
+
+    captured = creator.create_session(
+        mode="run",
+        source_kind="workflow_classic",
+        source_task_id="task-atomic-capture",
+        source_run_id="run-atomic-capture",
+        authoring_flow="resource",
+        **definition,
+    )
+    captured_again = creator.create_session(
+        mode="run",
+        source_kind="workflow_classic",
+        source_task_id="task-atomic-capture",
+        source_run_id="run-atomic-capture",
+        authoring_flow="resource",
+        **definition,
+    )
+    handed_off = creator.create_or_get_workflow_handoff(
+        source_task_id="task-atomic-handoff",
+        source_run_id="run-atomic-handoff",
+        **definition,
+    )
+    handed_off_again = creator.create_or_get_workflow_handoff(
+        source_task_id="task-atomic-handoff",
+        source_run_id="run-atomic-handoff",
+        **definition,
+    )
+
+    assert captured_again.session_id == captured.session_id
+    assert handed_off_again.session_id == handed_off.session_id
+    assert captured.trigger_required is True
+    assert handed_off.trigger_required is True
+
+
+def test_invalid_persisted_trigger_requirement_is_quarantined(tmp_path: Path) -> None:
+    store = SkillCreatorSessionStore(tmp_path / "sessions")
+    created = store.create(
+        intent="Create a reusable checklist.",
+        authoring_flow="resource",
+        trigger_required=True,
+    )
+    payload = json.loads(store.snapshot_path.read_text(encoding="utf-8"))
+    payload["items"][0]["trigger_required"] = "false"
+    store.snapshot_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    restored = SkillCreatorSessionStore(tmp_path / "sessions")
+    assert restored.list() == []
+    assert restored.list_quarantined()[0]["reason_code"] == "blocked_or_invalid_session"
+    with pytest.raises(SkillCreatorValidationError):
+        store.create(
+            intent="Invalid legacy requirement.",
+            authoring_flow="legacy",
+            trigger_required=True,
+        )
+    assert created.trigger_required is True
+
+
+def test_workflow_handoff_cannot_downgrade_existing_required_resource_session(
+    tmp_path: Path,
+) -> None:
+    creator, _authoring, _drafts = _services(tmp_path)
+    creator.source_provider = SimpleNamespace(validate_source=lambda _source: None)
+    creator.resource_trigger_required = True
+    existing = creator.create_session(
+        mode="run",
+        source_kind="workflow_classic",
+        source_task_id="task-required-empty",
+        source_run_id="run-required-empty",
+        intent="",
+        positive_examples=[],
+        near_miss_examples=[],
+        expected_output="",
+        success_criteria=[],
+        authoring_flow="resource",
+    )
+    creator.resource_trigger_required = False
+
+    with pytest.raises(SkillCreatorConflictError):
+        creator.create_or_get_workflow_handoff(
+            source_task_id="task-required-empty",
+            source_run_id="run-required-empty",
+            intent="Turn the run into a reusable review.",
+            positive_examples=["Review the completed workflow output."],
+            near_miss_examples=["Rewrite unrelated prose."],
+            expected_output="A bounded review.",
+            success_criteria=["Do not invent evidence."],
+        )
+
+    restored = creator.session_store.require(existing.session_id)
+    assert restored.authoring_flow == "resource"
+    assert restored.trigger_required is True
+
+
+def test_disabled_trigger_feature_persists_no_requirement_on_new_resource_session(
+    tmp_path: Path,
+) -> None:
+    creator, _authoring, _drafts = _services(tmp_path)
+    creator.resource_trigger_required = False
+
+    created = creator.create_session(
+        mode="blank",
+        intent="Create a reusable checklist.",
+        positive_examples=[],
+        near_miss_examples=[],
+        expected_output="",
+        success_criteria=[],
+        authoring_flow="resource",
+    )
+
+    assert created.authoring_flow == "resource"
+    assert created.trigger_required is False
+
+
 def test_session_store_is_atomic_fail_closed_and_secret_safe(tmp_path: Path) -> None:
     store = SkillCreatorSessionStore(tmp_path / "sessions")
     session = store.create(intent="Draft a reusable review workflow.")
@@ -224,6 +373,37 @@ def test_session_store_is_atomic_fail_closed_and_secret_safe(tmp_path: Path) -> 
     with pytest.raises(SkillCreatorStorageError):
         corrupt.create(intent="must not overwrite")
     assert (corrupt_dir / "skill_creator_sessions.json").read_text() == "{not-json"
+
+
+def test_session_store_migrates_v1_and_preserves_unknown_schema_snapshot(
+    tmp_path: Path,
+) -> None:
+    storage_dir = tmp_path / "schema-migration"
+    store = SkillCreatorSessionStore(storage_dir)
+    created = store.create(
+        intent="Draft a reusable review workflow.",
+        authoring_flow="resource",
+    )
+    payload = json.loads(store.snapshot_path.read_text(encoding="utf-8"))
+    payload["version"] = 1
+    payload["items"][0].pop("trigger_required")
+    store.snapshot_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    migrated = SkillCreatorSessionStore(storage_dir)
+
+    assert migrated.require(created.session_id).trigger_required is False
+    migrated_payload = json.loads(store.snapshot_path.read_text(encoding="utf-8"))
+    assert migrated_payload["version"] == SkillCreatorSessionStore.SCHEMA_VERSION
+    assert migrated_payload["items"][0]["trigger_required"] is False
+
+    unsupported = {**migrated_payload, "version": 999}
+    unsupported_bytes = json.dumps(unsupported).encode("utf-8")
+    store.snapshot_path.write_bytes(unsupported_bytes)
+    future = SkillCreatorSessionStore(storage_dir)
+
+    with pytest.raises(SkillCreatorStorageError):
+        future.list()
+    assert store.snapshot_path.read_bytes() == unsupported_bytes
 
 
 def test_legacy_session_resource_authoring_opt_in_is_explicit_and_durable(

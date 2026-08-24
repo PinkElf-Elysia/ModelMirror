@@ -24,7 +24,6 @@ from .creator_store import (
     SkillCreatorValidationError,
 )
 from .draft_store import WorkspaceSkillDraft
-from .finder import RANKER_VERSION
 from .package_validation import scan_skill_package_credentials
 from .trigger_contract import (
     SkillTriggerEvaluator,
@@ -142,6 +141,48 @@ class SkillTriggerOptimizationStore:
             attempts = [items[-1] for items in self._attempts.values() if items and items[-1].session_id == clean]
             attempts.sort(key=lambda item: (item.created_at, item.attempt_id), reverse=True)
             return copy.deepcopy(attempts[0]) if attempts else None
+
+    def current_for_scope(
+        self,
+        *,
+        session_id: str,
+        plan_id: str,
+        plan_revision: int,
+        plan_digest: str,
+        suite_id: str,
+        suite_revision: int,
+        suite_digest: str,
+    ) -> SkillTriggerDescriptionAttempt | None:
+        expected = (
+            _identifier(session_id, "session_id"),
+            _identifier(plan_id, "plan_id"),
+            int(plan_revision),
+            _digest(plan_digest, "plan_digest"),
+            _identifier(suite_id, "suite_id"),
+            int(suite_revision),
+            _digest(suite_digest, "suite_digest"),
+        )
+        with self._lock:
+            self._ensure_readable_unlocked()
+            matches = [
+                items[-1]
+                for items in self._attempts.values()
+                if items
+                and (
+                    items[-1].session_id,
+                    items[-1].plan_id,
+                    items[-1].plan_revision,
+                    items[-1].plan_digest,
+                    items[-1].suite_id,
+                    items[-1].suite_revision,
+                    items[-1].suite_digest,
+                )
+                == expected
+            ]
+            matches.sort(
+                key=lambda item: (item.created_at, item.attempt_id), reverse=True
+            )
+            return copy.deepcopy(matches[0]) if matches else None
 
     def require(self, attempt_id: str) -> SkillTriggerDescriptionAttempt:
         clean = _identifier(attempt_id, "attempt_id")
@@ -388,6 +429,17 @@ class SkillCreatorTriggerOptimizationService:
                 "Skill trigger optimization is disabled.",
                 code="skill_trigger_gate_required",
             )
+
+    def requires_trigger(self, session: SkillCreatorSession) -> bool:
+        """Resolve the atomic new-session fact before legacy opt-in state."""
+
+        if session.trigger_required:
+            return True
+        if self.optimization_store.is_required(session.session_id):
+            return True
+        if self.optimization_store.current_for_session(session.session_id) is not None:
+            return True
+        return self.trigger_store.current_for_session(session.session_id) is not None
 
     def status(self) -> dict[str, Any]:
         try:
@@ -667,7 +719,7 @@ class SkillCreatorTriggerOptimizationService:
     ) -> SkillTriggerReceiptV1 | None:
         if not self.enabled:
             return None
-        if not self.optimization_store.is_required(session.session_id):
+        if not self.requires_trigger(session):
             return None
         suite = self._current_confirmed_suite(session, skill_name=plan.skill_name)
         self._require_confirmed_description(
@@ -687,13 +739,18 @@ class SkillCreatorTriggerOptimizationService:
     def require_draft_install_gate(self, draft: WorkspaceSkillDraft) -> SkillTriggerReceiptV1 | None:
         if not self.enabled:
             return None
-        sessions = [item for item in self.creator_service.session_store.list(limit=500) if item.draft_id == draft.draft_id]
-        if not sessions:
+        if draft.creator_session_id is None:
             return None
-        if len(sessions) != 1:
-            raise SkillCreatorConflictError("Multiple Creator sessions reference this draft.")
-        session = sessions[0]
-        if not self.optimization_store.is_required(session.session_id):
+        session, bound_draft = self.creator_service.get_session(draft.creator_session_id)
+        if (
+            session.draft_id != draft.draft_id
+            or bound_draft is None
+            or bound_draft.draft_id != draft.draft_id
+        ):
+            raise SkillCreatorConflictError(
+                "The Creator draft no longer matches its owning session."
+            )
+        if not self.requires_trigger(session):
             return None
         suite = self._current_confirmed_suite(session, skill_name=draft.slug)
         plan = self.planning_service.plan_store.current_for_session(session.session_id)
@@ -755,9 +812,9 @@ class SkillCreatorTriggerOptimizationService:
                 "trigger_receipt": None,
                 "trigger_stale_reason": None,
             }
-        required = self.optimization_store.is_required(session.session_id)
+        required = self.requires_trigger(session)
         suite = self.trigger_store.current_for_session(session.session_id)
-        attempt = self.optimization_store.current_for_session(session.session_id)
+        attempt = None
         stale_reason = None
         receipt = None
         if required and suite is None:
@@ -783,26 +840,33 @@ class SkillCreatorTriggerOptimizationService:
                 )
                 if confirmation is None:
                     stale_reason = "description_unconfirmed"
-                else:
-                    candidate = next(
-                        item
-                        for item in confirmation.candidates
-                        if item.description_digest == description_digest
+                    attempt = self.optimization_store.current_for_scope(
+                        session_id=session.session_id,
+                        plan_id=plan.plan_id,
+                        plan_revision=plan.revision,
+                        plan_digest=plan.digest,
+                        suite_id=suite.suite_id,
+                        suite_revision=suite.suite_revision,
+                        suite_digest=suite.suite_digest,
                     )
-                    receipt = self.trigger_store.require_receipt(candidate.receipt_id)
-                    metadata = self.evaluator.finder.index_metadata()
-                    if (
-                        receipt.ranker_version != RANKER_VERSION
-                        or receipt.runtime_index_fingerprint
-                        != metadata["runtimeIndexFingerprint"]
-                        or receipt.directory_fingerprint
-                        != metadata["directoryFingerprint"]
-                        or receipt.trust_index_fingerprint
-                        != metadata["trustIndexFingerprint"]
-                    ):
-                        receipt = self._evaluate_and_save(
-                            suite, plan.skill_name, plan.skill_description
+                    if attempt is not None and attempt.candidates:
+                        diagnostic = next(
+                            (
+                                item
+                                for item in attempt.candidates
+                                if item.description_digest
+                                == attempt.recommended_description_digest
+                            ),
+                            attempt.candidates[0],
                         )
+                        receipt = self.trigger_store.require_receipt(
+                            diagnostic.receipt_id
+                        )
+                else:
+                    attempt = confirmation
+                    receipt = self._evaluate_and_save(
+                        suite, plan.skill_name, plan.skill_description
+                    )
                     if not receipt.passed:
                         stale_reason = "description_failed"
             except SkillCreatorError as exc:

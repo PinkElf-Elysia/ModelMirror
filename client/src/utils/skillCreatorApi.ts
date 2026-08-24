@@ -666,6 +666,116 @@ export interface SkillResourceBuild {
   updated_at: number;
 }
 
+export type SkillTriggerCaseKind = "should_trigger" | "should_not_trigger" | "exact_name_smoke";
+
+export interface SkillTriggerCase {
+  case_id: string;
+  kind: SkillTriggerCaseKind;
+  text: string;
+  source: "model" | "user" | "migrated";
+  case_hash: string;
+}
+
+export interface SkillTriggerSuite {
+  suite_id: string;
+  version: string;
+  suite_revision: number;
+  suite_digest: string;
+  session_id: string;
+  session_revision: number;
+  definition_digest: string;
+  skill_name: string;
+  state: "draft" | "confirmed";
+  cases: SkillTriggerCase[];
+  change_reason: string;
+  based_on_revision?: number | null;
+  confirmed_actor_id?: string | null;
+  confirmed_at?: number | null;
+  created_at: number;
+}
+
+export interface SkillTriggerMatchReason {
+  reason_type: string;
+  origin: string;
+  matched_terms: string[];
+}
+
+export interface SkillTriggerCompetitor {
+  candidate_id: string;
+  candidate_fingerprint: string;
+  rank: number;
+}
+
+export interface SkillTriggerDomainResult {
+  rank_top_6?: number | null;
+  rank_top_24?: number | null;
+  in_top_6: boolean;
+  in_top_24: boolean;
+  score?: number | null;
+  reasons: SkillTriggerMatchReason[];
+  competitors: SkillTriggerCompetitor[];
+}
+
+export interface SkillTriggerCaseResult {
+  case_id: string;
+  case_hash: string;
+  kind: SkillTriggerCaseKind;
+  finder: SkillTriggerDomainResult;
+  router: SkillTriggerDomainResult;
+  passed: boolean;
+}
+
+export interface SkillTriggerReceipt {
+  receipt_id: string;
+  version: string;
+  suite_id: string;
+  suite_revision: number;
+  suite_digest: string;
+  session_id: string;
+  skill_name: string;
+  description_digest: string;
+  ranker_version: string;
+  runtime_index_fingerprint: string;
+  directory_fingerprint: string;
+  trust_index_fingerprint: string;
+  candidate_fingerprint: string;
+  candidate_set_fingerprint: string;
+  passed: boolean;
+  case_results: SkillTriggerCaseResult[];
+  created_at: number;
+}
+
+export interface SkillTriggerDescriptionCandidate {
+  description: string;
+  description_digest: string;
+  receipt_id: string;
+  passed: boolean;
+  worst_positive_rank: number;
+  positive_rank_sum: number;
+  negative_safety_distance: number;
+}
+
+export interface SkillTriggerDescriptionAttempt {
+  attempt_id: string;
+  version: string;
+  revision: number;
+  digest: string;
+  session_id: string;
+  session_revision: number;
+  plan_id: string;
+  plan_revision: number;
+  plan_digest: string;
+  suite_id: string;
+  suite_revision: number;
+  suite_digest: string;
+  state: "evaluated" | "confirmed";
+  candidates: SkillTriggerDescriptionCandidate[];
+  recommended_description_digest?: string | null;
+  selected_description_digest?: string | null;
+  created_at: number;
+  confirmed_at?: number | null;
+}
+
 export interface SkillCreatorSession {
   session_id: string;
   session_revision: number;
@@ -717,6 +827,11 @@ export interface SkillCreatorSession {
   evaluation_suite?: SkillEvaluationSuite | null;
   evolution_plan?: SkillEvolutionPlan | SkillUnavailableProjection | null;
   regression_governance?: SkillRegressionGovernance | null;
+  trigger_required?: boolean;
+  trigger_suite?: SkillTriggerSuite | null;
+  trigger_attempt?: SkillTriggerDescriptionAttempt | null;
+  trigger_receipt?: SkillTriggerReceipt | null;
+  trigger_stale_reason?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -747,6 +862,10 @@ export interface SkillCreatorStatus {
   hook_manifest_version?: string | null;
   hook_result_version?: string | null;
   hook_runtimes?: string[];
+  trigger_optimization_enabled?: boolean;
+  trigger_optimization_version?: string | null;
+  trigger_optimizer_available?: boolean;
+  trigger_store_available?: boolean;
 }
 
 export interface SkillCreatorListResponse {
@@ -841,6 +960,11 @@ function unwrapSession(
         evaluation_suite?: SkillEvaluationSuite | null;
         evolution_plan?: SkillEvolutionPlan | SkillUnavailableProjection | null;
         regression_governance?: SkillRegressionGovernance | null;
+        trigger_required?: boolean;
+        trigger_suite?: SkillTriggerSuite | null;
+        trigger_attempt?: SkillTriggerDescriptionAttempt | null;
+        trigger_receipt?: SkillTriggerReceipt | null;
+        trigger_stale_reason?: string | null;
       },
 ): SkillCreatorSession {
   if (!("session" in payload)) return payload;
@@ -856,6 +980,11 @@ function unwrapSession(
     evaluation_suite: payload.evaluation_suite ?? payload.session.evaluation_suite,
     evolution_plan: payload.evolution_plan ?? payload.session.evolution_plan,
     regression_governance: payload.regression_governance ?? payload.session.regression_governance,
+    trigger_required: payload.trigger_required ?? payload.session.trigger_required,
+    trigger_suite: payload.trigger_suite ?? payload.session.trigger_suite,
+    trigger_attempt: payload.trigger_attempt ?? payload.session.trigger_attempt,
+    trigger_receipt: payload.trigger_receipt ?? payload.session.trigger_receipt,
+    trigger_stale_reason: payload.trigger_stale_reason ?? payload.session.trigger_stale_reason,
   };
 }
 
@@ -1368,6 +1497,115 @@ function resourcePlanWritePayload(session: SkillCreatorSession, plan: SkillResou
     expected_plan_revision: plan.revision,
     expected_plan_digest: plan.digest,
   };
+}
+
+function triggerSessionResponse(payload: SkillCreatorSession | {
+  session: SkillCreatorSession;
+  resource_plan?: SkillResourcePlan | null;
+  trigger_required?: boolean;
+  trigger_suite?: SkillTriggerSuite | null;
+  trigger_attempt?: SkillTriggerDescriptionAttempt | null;
+  trigger_receipt?: SkillTriggerReceipt | null;
+  trigger_stale_reason?: string | null;
+}) {
+  return unwrapSession(payload);
+}
+
+function triggerSuitePayload(session: SkillCreatorSession) {
+  const plan = session.resource_plan;
+  if (!plan) throw new Error("Resource plan is unavailable.");
+  const suite = session.trigger_suite;
+  return {
+    ...resourcePlanWritePayload(session, plan),
+    expected_suite_revision: suite?.suite_revision ?? null,
+    expected_suite_digest: suite?.suite_digest ?? null,
+  };
+}
+
+function confirmedTriggerSuitePayload(session: SkillCreatorSession) {
+  const suite = session.trigger_suite;
+  if (!suite || suite.state !== "confirmed") {
+    throw new Error("Trigger suite is not confirmed.");
+  }
+  return {
+    ...triggerSuitePayload(session),
+    suite_id: suite.suite_id,
+    expected_suite_revision: suite.suite_revision,
+    expected_suite_digest: suite.suite_digest,
+  };
+}
+
+export async function generateSkillCreatorTriggerSuite(session: SkillCreatorSession) {
+  return triggerSessionResponse(await request<Parameters<typeof triggerSessionResponse>[0]>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/trigger-suite/generate`,
+    jsonRequest("POST", triggerSuitePayload(session)),
+  ));
+}
+
+export async function saveSkillCreatorTriggerSuite(
+  session: SkillCreatorSession,
+  cases: Array<Pick<SkillTriggerCase, "kind" | "text">>,
+  changeReason: string,
+) {
+  return triggerSessionResponse(await request<Parameters<typeof triggerSessionResponse>[0]>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/trigger-suite`,
+    jsonRequest("PATCH", {
+      ...triggerSuitePayload(session),
+      cases: cases.map((item) => ({ kind: item.kind, text: item.text.trim() })),
+      change_reason: changeReason.trim(),
+    }),
+  ));
+}
+
+export async function confirmSkillCreatorTriggerSuite(session: SkillCreatorSession) {
+  const suite = session.trigger_suite;
+  if (!suite) throw new Error("Trigger suite is unavailable.");
+  return triggerSessionResponse(await request<Parameters<typeof triggerSessionResponse>[0]>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/trigger-suite/confirm`,
+    jsonRequest("POST", {
+      ...triggerSuitePayload(session),
+      suite_id: suite.suite_id,
+      expected_suite_revision: suite.suite_revision,
+      expected_suite_digest: suite.suite_digest,
+    }),
+  ));
+}
+
+export async function optimizeSkillCreatorTriggerDescriptions(session: SkillCreatorSession) {
+  return triggerSessionResponse(await request<Parameters<typeof triggerSessionResponse>[0]>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/trigger-descriptions/optimize`,
+    jsonRequest("POST", confirmedTriggerSuitePayload(session)),
+  ));
+}
+
+export async function evaluateSkillCreatorTriggerDescription(
+  session: SkillCreatorSession,
+  description: string,
+) {
+  return triggerSessionResponse(await request<Parameters<typeof triggerSessionResponse>[0]>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/trigger-descriptions/evaluate`,
+    jsonRequest("POST", {
+      ...confirmedTriggerSuitePayload(session),
+      description: description.trim(),
+    }),
+  ));
+}
+
+export async function confirmSkillCreatorTriggerDescription(
+  session: SkillCreatorSession,
+  descriptionDigest: string,
+) {
+  const attempt = session.trigger_attempt;
+  if (!attempt) throw new Error("Trigger description attempt is unavailable.");
+  return triggerSessionResponse(await request<Parameters<typeof triggerSessionResponse>[0]>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/trigger-descriptions/${encodeURIComponent(attempt.attempt_id)}/confirm`,
+    jsonRequest("POST", {
+      ...confirmedTriggerSuitePayload(session),
+      expected_attempt_revision: attempt.revision,
+      expected_attempt_digest: attempt.digest,
+      selected_description_digest: descriptionDigest,
+    }),
+  ));
 }
 
 export async function answerSkillCreatorResourcePlan(

@@ -151,7 +151,7 @@ class SkillTriggerReceiptV1:
 
 
 def trigger_optimization_enabled() -> bool:
-    return os.getenv("SKILL_CREATOR_TRIGGER_OPTIMIZATION_ENABLED", "false").strip().lower() in {
+    return os.getenv("SKILL_CREATOR_TRIGGER_OPTIMIZATION_ENABLED", "true").strip().lower() in {
         "1",
         "true",
         "yes",
@@ -725,8 +725,11 @@ def _evaluate_domain(
     target_id: str,
     router: bool,
 ) -> SkillTriggerDomainResult:
-    top_6 = finder.find(query, limit=MAX_RESULTS, router_eligible_only=router)["results"]
     top_24 = finder.recall(query, limit=MAX_RECALL_RESULTS, router_eligible_only=router)["results"]
+    # Finder and recall share the same stable production ranker; the public
+    # Top 6 window is the prefix of the diagnostic Top 24 window. Reusing the
+    # single ranking pass avoids doubling every suite evaluation.
+    top_6 = top_24[:MAX_RESULTS]
     top_6_rank = next((index for index, item in enumerate(top_6, 1) if item["candidateId"] == target_id), None)
     top_24_rank = next((index for index, item in enumerate(top_24, 1) if item["candidateId"] == target_id), None)
     target = next((item for item in top_24 if item["candidateId"] == target_id), None)
