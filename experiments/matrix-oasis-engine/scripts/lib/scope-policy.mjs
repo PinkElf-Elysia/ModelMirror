@@ -43,6 +43,7 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "scripts/lib/r17-qualification-core.mjs",
   "scripts/lib/r17-evidence-core.mjs",
   "scripts/lib/r17-godot-qualification-core.mjs",
+  "scripts/lib/r17-agent-qualification-core.mjs",
   "scripts/lib/parent-scope-core.mjs",
   "scripts/lib/scope-policy.mjs",
   "scripts/run-verify.mjs",
@@ -56,6 +57,7 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "tests/r17-qualification.test.mjs",
   "tests/r17-evidence.test.mjs",
   "tests/r17-godot-qualification.test.mjs",
+  "tests/r17-agent-qualification.test.mjs",
   "tests/round-scope.test.mjs",
 ]);
 

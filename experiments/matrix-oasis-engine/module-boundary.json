@@ -15,9 +15,9 @@
       "docs/adr/0018-r17-v2-qualification-governance.md", "docs/rounds/R17_ACCEPTANCE.md",
       "scripts/check-round-scope.mjs", "scripts/check-mvp-claim.mjs", "scripts/check-v2-claim.mjs", "scripts/check-godot-boundary.mjs",
       "scripts/plan-r17-qualification.mjs", "scripts/qualify-r17.mjs", "scripts/verify-r17-evidence.mjs", "scripts/verify-r17-references.mjs", "scripts/verify-r17.mjs",
-      "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r17-reference-core.mjs", "scripts/lib/r17-qualification-core.mjs", "scripts/lib/r17-evidence-core.mjs", "scripts/lib/r17-godot-qualification-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/scope-policy.mjs",
+      "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r17-reference-core.mjs", "scripts/lib/r17-qualification-core.mjs", "scripts/lib/r17-evidence-core.mjs", "scripts/lib/r17-godot-qualification-core.mjs", "scripts/lib/r17-agent-qualification-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/mvp-claim.test.mjs", "tests/v2-claim.test.mjs", "tests/r17-reference.test.mjs", "tests/r17-qualification.test.mjs", "tests/r17-evidence.test.mjs", "tests/r17-godot-qualification.test.mjs", "tests/round-scope.test.mjs"
+      "tests/mvp-claim.test.mjs", "tests/v2-claim.test.mjs", "tests/r17-reference.test.mjs", "tests/r17-qualification.test.mjs", "tests/r17-evidence.test.mjs", "tests/r17-godot-qualification.test.mjs", "tests/r17-agent-qualification.test.mjs", "tests/round-scope.test.mjs"
     ],
     "allowedModulePrefixes": [
       "packages/v2-qualification-contracts",
