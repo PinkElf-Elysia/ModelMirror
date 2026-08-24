@@ -164,10 +164,10 @@ test("PR boundary excludes one-off qualification scripts and preserves truthful 
   assert.match(acceptance, /显式离线[^\n]*直接R14预览/u);
   const mvpStatus = JSON.parse(mvpStatusText);
   assert.deepEqual({ status: mvpStatus.status, claimAllowed: mvpStatus.claimAllowed, blockingRound: mvpStatus.blockingRound },
-    { status: "pending-creator-migration", claimAllowed: false, blockingRound: "R16" });
+    { status: "r16-qualified", claimAllowed: true, blockingRound: null });
   const scripts = JSON.parse(packageText).scripts;
   assert.match(scripts["preview:r14"], /scripts\/preview-r14\.mjs/u);
-  assert.doesNotMatch(scripts["preview:prototype"], /preview-r14/u);
+  assert.match(scripts["preview:prototype"], /scripts\/preview-r16\.mjs/u);
 });
 
 test("publishes, recovers, and loads an isolated solved overlay with full identity revalidation", async () => {

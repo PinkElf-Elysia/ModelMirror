@@ -1,28 +1,27 @@
 {
-  "schemaVersion": 15,
+  "schemaVersion": 16,
   "moduleId": "matrix-oasis-engine",
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
-  "activeRound": "R15",
-  "activeRoundBaselineSha": "4be3e9483e57f792769c079d3c985a357e99a558",
+  "activeRound": "R16",
+  "activeRoundBaselineSha": "7c837fe3908a4a5b60551778313624f53bcd0d1b",
   "activeRoundChangePolicy": {
     "allowedModuleFiles": [
       "AGENTS.md", "README.md", ".gitattributes", ".gitignore", "module-boundary.json", "package-lock.json", "package.json",
       "docs/ARCHITECTURE.md", "docs/BOUNDARIES.md", "docs/DEPENDENCIES_AND_LICENSES.md", "docs/KNOWN_LIMITATIONS.md",
-      "docs/PRODUCT.md", "docs/V1_CRITICAL_PATH.md", "docs/MVP_STATUS.json", "docs/R15_RUNTIME_EVIDENCE_THREAT_MODEL.md", "docs/R15_TASK_CARD.md",
-      "docs/adr/0016-r15-runtime-evidence-governance.md", "docs/rounds/R15_ACCEPTANCE.md",
+      "docs/PRODUCT.md", "docs/V1_CRITICAL_PATH.md", "docs/MVP_STATUS.json", "docs/R16_CREATOR_QUALIFICATION_THREAT_MODEL.md", "docs/R16_TASK_CARD.md",
+      "docs/adr/0017-r16-creator-qualification-governance.md", "docs/rounds/R16_ACCEPTANCE.md",
       "scripts/check-round-scope.mjs", "scripts/check-mvp-claim.mjs", "scripts/check-godot-boundary.mjs",
-      "scripts/plan-r15-replay.mjs", "scripts/collect-r15-runtime-evidence.mjs", "scripts/qualify-r15-runtime-evidence.mjs",
-      "scripts/preview-r15.mjs", "scripts/capture-r15.mjs", "scripts/verify-r15.mjs",
+      "scripts/qualify-r16-creator.mjs", "scripts/preview-r16.mjs", "scripts/capture-r16.mjs", "scripts/verify-r16.mjs", "scripts/preview-r12.mjs",
       "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/parent-scope-core.mjs",
-      "scripts/lib/runtime-evidence-core.mjs", "scripts/lib/runtime-evidence-cache-core.mjs", "scripts/lib/r15-preview-core.mjs", "scripts/lib/scope-policy.mjs",
+      "scripts/lib/prototype-host-core.mjs", "scripts/lib/r12-host-core.mjs", "scripts/lib/creator-qualification-cache-core.mjs", "scripts/lib/r16-creator-core.mjs", "scripts/lib/r16-preview-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/mvp-claim.test.mjs", "tests/prototype-asset-cli.test.mjs", "tests/r14-preview.test.mjs", "tests/r15-runtime-evidence.test.mjs", "tests/r15-runtime-evidence-godot.test.mjs", "tests/r15-runtime-evidence-cache.test.mjs", "tests/r15-qualification.test.mjs", "tests/round-scope.test.mjs"
+      "tests/mvp-claim.test.mjs", "tests/prototype-host.test.mjs", "tests/prototype-builder.test.mjs", "tests/r16-creator-qualification-cache.test.mjs", "tests/r16-creator-qualification.test.mjs", "tests/r16-host.test.mjs", "tests/r16-preview.test.mjs", "tests/r16-generalization.test.mjs", "tests/r14-preview.test.mjs", "tests/round-scope.test.mjs",
+      "apps/creator-web/src/App.tsx", "apps/creator-web/src/prototype-builder.ts", "apps/creator-web/src/styles.css"
     ],
     "allowedModulePrefixes": [
-      "packages/prototype-runtime-evidence-contracts",
-      "packages/prototype-runtime-evidence",
-      "apps/runtime-godot/runtime_evidence"
+      "packages/prototype-creator-qualification-contracts",
+      "packages/prototype-creator-qualification"
     ],
     "frozenModulePaths": [
       "apps", "docs", "examples", "packages", "scripts", "tests", "third-party"
@@ -40,15 +39,16 @@
     "r12QualificationCalls": "human-approved-only",
     "r13AnalysisCalls": "none",
     "r14SolverCalls": "none",
-    "r15EvidenceCalls": "none"
+    "r15EvidenceCalls": "none",
+    "r16QualificationCalls": "none"
   },
   "mvpClaimPolicy": {
-    "status": "pending-creator-migration",
-    "claimAllowed": false,
-    "blockingRound": "R16",
-    "acceptanceRecord": "docs/rounds/R15_ACCEPTANCE.md",
+    "status": "r16-qualified",
+    "claimAllowed": true,
+    "blockingRound": null,
+    "acceptanceRecord": "docs/rounds/R16_ACCEPTANCE.md",
     "machineStatus": "docs/MVP_STATUS.json",
-    "completionMarker": "MATRIX_OASIS_R12_MVP_READY"
+    "completionMarker": "MATRIX_OASIS_R16_CREATOR_MVP_READY"
   },
   "prototypeGenerationPolicy": {
     "inputModes": ["text"],
@@ -269,6 +269,26 @@
     "directPlayerTeleportAllowed": false,
     "creatorIntegrationAllowed": false,
     "trackedEvidenceArtifactsAllowed": false
+  },
+  "r16CreatorQualificationPolicy": {
+    "qualificationFormat": "matrix-oasis.prototype-creator-qualification",
+    "formatVersion": "0.1.0",
+    "profile": "matrix-oasis.creator-solved-evidence/1",
+    "canonicalization": "matrix-oasis.canonical-json/1",
+    "godotVersion": "4.6.3",
+    "renderer": "forward_plus",
+    "firstQualificationRequiresFullEvidence": true,
+    "qualifiedCacheReuseMode": "canonical-identity-and-hash-revalidation",
+    "sourceOnlyReadyAllowed": false,
+    "solvedOnlyReadyAllowed": false,
+    "evidenceOnlyReadyAllowed": false,
+    "maxEvidenceAttempts": 2,
+    "networkAllowed": false,
+    "providerCallsAllowed": false,
+    "providerCredentialsAllowed": false,
+    "creatorDefaultCutoverRequiresHumanAcceptance": true,
+    "creatorDefaultProfile": "matrix-oasis.creator-solved-evidence/1",
+    "trackedQualificationArtifactsAllowed": false
   },
   "runtimeArtifactInputPolicy": {
     "mode": "paired-local-files-only",

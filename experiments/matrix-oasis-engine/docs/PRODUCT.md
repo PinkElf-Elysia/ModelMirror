@@ -1,6 +1,6 @@
 # Product
 
-R15已验证两类已求解场景可由实际控制器、射线和Action terminal完成运行路径；Creator迁移与重新资格属于R16，因此`claimAllowed=false`。
+R16双真实案例已从Creator入口完成资格、启动和人工验收；当前Godot 4.6.3 Windows资格profile下的自然语言到可玩3D初版闭环完成，`claimAllowed=true`。
 
 ## Register
 
@@ -12,7 +12,7 @@ product
 
 ## Product Purpose
 
-提供案例无关、可拆分的AI原生3D游戏引擎实验模块。R12证明技术链可达但空间布局不自然；R13建立可复验事实，R14以通用求解消除布局阻断，R15以真实Godot输入和运行证据完成双案例验收。Creator按同一profile复现并通过R16重新资格前不允许初版完成声明。
+提供案例无关、可拆分的AI原生3D游戏引擎实验模块。R12证明技术链可达但空间布局不自然；R13建立可复验事实，R14以通用求解消除布局阻断，R15以真实Godot输入和运行证据完成双案例验收，R16最终使Creator按同一profile复现并重新资格。
 
 ## Brand Personality
 

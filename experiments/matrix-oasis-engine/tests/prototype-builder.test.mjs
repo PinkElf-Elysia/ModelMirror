@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   PROTOTYPE_BUILDER_MARKER,
+  R16_PROTOTYPE_BUILDER_MARKER,
   PrototypeBuilderClient,
   PrototypeBuilderClientError,
 } from "../apps/creator-web/src/prototype-builder.ts";
@@ -12,6 +13,7 @@ import { prototypeGodotArguments } from "../scripts/preview-prototype.mjs";
 const HASH_A = `sha256:${"a".repeat(64)}`;
 const HASH_B = `sha256:${"b".repeat(64)}`;
 const RESULT_RUN = `${"c".repeat(64)}-${"d".repeat(64)}`;
+const QUALIFIED_RUN = "f".repeat(64);
 
 function response(value, status = 200, headers = { "content-type": "application/json" }) {
   return new Response(JSON.stringify(value), { status, headers });
@@ -57,6 +59,18 @@ function run(overrides = {}) {
     modelApproval: modelApproval(), assetApproval: null, resultRunId: null, ...overrides };
 }
 
+function qualification(overrides = {}) {
+  return { profile: "matrix-oasis.creator-solved-evidence/1", cacheLevel: "qualified", subphase: null,
+    attempt: 1, reusedQualification: true, solutionSha256: HASH_B,
+    evidence: { runId: "e".repeat(64), attempt: 1, replayCount: 4, screenshotCount: 8,
+      videoCount: 1, sampleCount: 300, medianFrameMicros: 20_000, medianFpsMilli: 50_000 }, ...overrides };
+}
+
+function r16Run(overrides = {}) {
+  return { ...run({ status: "ready", cacheHit: true, modelApproval: null, assetApproval: null,
+    resultRunId: QUALIFIED_RUN }), qualification: qualification(), ...overrides };
+}
+
 test("client uses only relative same-origin requests and rebuilds the fixed public surface", async () => {
   const calls = [];
   const client = new PrototypeBuilderClient(async (input, init) => {
@@ -83,6 +97,44 @@ test("client uses only relative same-origin requests and rebuilds the fixed publ
     assert.equal(call.init.cache, "no-store");
   }
   assert.deepEqual(Object.keys(ready), ["id", "status", "cacheHit", "diagnostics", "modelApproval", "assetApproval", "resultRunId"]);
+});
+
+test("client accepts the exact R16 qualification profile and launches only its 64-hex qualification id", async () => {
+  const ready = r16Run();
+  const client = new PrototypeBuilderClient(async (input) => {
+    if (input === "/api/bootstrap") return response({ marker: "MATRIX_OASIS_R16_PROTOTYPE_HOST",
+      readiness: { model: false, assets: false, godot: true }, currentRunId: QUALIFIED_RUN,
+      runs: [ready], qualificationProfile: "matrix-oasis.creator-solved-evidence/1" });
+    if (String(input).endsWith("/launch")) return response({ ok: true, runId: QUALIFIED_RUN }, 202);
+    return response({ ok: true, run: ready });
+  });
+  const bootstrap = await client.bootstrap();
+  assert.equal(bootstrap.marker, "MATRIX_OASIS_R16_PROTOTYPE_HOST");
+  assert.equal(bootstrap.qualificationProfile, "matrix-oasis.creator-solved-evidence/1");
+  assert.equal(bootstrap.runs[0].qualification?.evidence?.sampleCount, 300);
+  assert.equal(await client.launch(bootstrap.runs[0]), QUALIFIED_RUN);
+  assert.equal(R16_PROTOTYPE_BUILDER_MARKER, "MATRIX_OASIS_R16_CREATOR_MVP_READY");
+});
+
+test("client rejects profile confusion, malformed performance evidence, and old-result ids in R16", async () => {
+  const cases = [
+    { marker: "MATRIX_OASIS_R10_PROTOTYPE_HOST", readiness: { model: false, assets: false, godot: true },
+      currentRunId: QUALIFIED_RUN, runs: [r16Run()], qualificationProfile: "matrix-oasis.creator-solved-evidence/1" },
+    { marker: "MATRIX_OASIS_R16_PROTOTYPE_HOST", readiness: { model: false, assets: false, godot: true },
+      currentRunId: QUALIFIED_RUN, runs: [r16Run({ qualification: qualification({
+        evidence: { ...qualification().evidence, medianFpsMilli: 49_999 },
+      }) })], qualificationProfile: "matrix-oasis.creator-solved-evidence/1" },
+    { marker: "MATRIX_OASIS_R16_PROTOTYPE_HOST", readiness: { model: false, assets: false, godot: true },
+      currentRunId: RESULT_RUN, runs: [r16Run({ resultRunId: RESULT_RUN })],
+      qualificationProfile: "matrix-oasis.creator-solved-evidence/1" },
+    { marker: "MATRIX_OASIS_R16_PROTOTYPE_HOST", readiness: { model: false, assets: false, godot: true },
+      currentRunId: QUALIFIED_RUN, runs: [r16Run({ qualification: null })],
+      qualificationProfile: "matrix-oasis.creator-solved-evidence/1" },
+  ];
+  for (const value of cases) {
+    const client = new PrototypeBuilderClient(async () => response(value));
+    await assert.rejects(() => client.bootstrap(), PrototypeBuilderClientError);
+  }
 });
 
 test("client exposes the exact R12 recovery approval without a raw world identifier", async () => {
@@ -264,18 +316,21 @@ test("Creator and Godot wrapper preserve old modes and expose the bounded R10 UX
   const lab = await readFile(new URL("../apps/runtime-godot/prototype_builder/prototype_lab.gd", import.meta.url), "utf8");
   const loader = await readFile(new URL("../apps/runtime-godot/prototype_builder/environment_bundle_loader.gd", import.meta.url), "utf8");
   assert.equal(PROTOTYPE_BUILDER_MARKER, "MATRIX_OASIS_R10_PROTOTYPE_BUILDER");
+  assert.equal(R16_PROTOTYPE_BUILDER_MARKER, "MATRIX_OASIS_R16_CREATOR_MVP_READY");
   for (const marker of ["MATRIX_OASIS_R0_ISOLATED_SHELL", "MATRIX_OASIS_R2_REFERENCE_SIMULATOR",
     "MATRIX_OASIS_R3_RUNTIME_PARITY"]) assert.equal(app.includes(marker), true);
   assert.equal(client.includes(PROTOTYPE_BUILDER_MARKER), true);
   assert.match(app, /run\.assetApproval\.marble\.maxDownloads/u);
   for (const text of ["Prototype Builder", "Runtime / Parity", "当前可运行原型", "审批 1 / 2", "审批 2 / 2",
-    "上一份可运行原型未改变", "已复用真实资格缓存", "aria-live=\"polite\""]) assert.equal(app.includes(text), true);
+    "上一份可运行原型未改变", "已验证缓存复用", "首次完整资格", "旧缓存待资格",
+    "空间分析、求解、Godot 物理复验", "R16 初版资格", "aria-live=\"polite\""]) assert.equal(app.includes(text), true);
   assert.match(app, /candidate\.runs\.find\(\(item\) => !TERMINAL_RUN_STATES\.has\(item\.status\)\)/u);
   assert.match(app, /setTimeout\(poll, 1_000\)/u); assert.match(app, /clearTimeout\(timeoutId\)/u);
   assert.equal(app.includes("dangerouslySetInnerHTML"), false);
   for (const forbidden of ["API-Key", "任务 ID", "JSON 编辑", "gradient", "backdrop-filter", "animation:"])
     assert.equal(`${app}\n${client}\n${css}`.includes(forbidden), false);
   assert.match(css, /@media \(max-width: 640px\)/u); assert.match(css, /min-width: 320px/u);
+  assert.match(css, /\.qualification-summary[\s\S]*max-height: 18rem[\s\S]*overflow-y: auto/u);
   assert.match(css, /\.upload-summary ul[\s\S]*max-height: 18rem[\s\S]*overflow-y: auto/u);
   assert.equal(lab.includes("PanoramaSkyMaterial"), true); assert.equal(lab.includes('get_node_or_null("Visual")'), true);
   assert.equal(lab.includes(".visible = false"), true); assert.equal(lab.includes("MATRIX_OASIS_R10_PROTOTYPE_READY"), true);

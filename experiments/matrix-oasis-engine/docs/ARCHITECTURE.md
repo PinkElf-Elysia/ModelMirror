@@ -1,8 +1,8 @@
 # 架构
 
-状态：R15 Godot实际输入重放与运行证据实施中
+状态：R16 Creator迁移与MVP重新资格完成
 
-R15在R14 Solution/Verification之后增加独立Runtime Replay Plan与Runtime Evidence层。它只观察和重放实际产品输入，不成为新的Runtime、Scene或Spatial权威格式。
+R15在R14 Solution/Verification之后增加独立Runtime Replay Plan与Runtime Evidence层。R16在其外增加Creator Qualification层，绑定source、Solution、Verification和Evidence；它只定义Creator `ready`资格，不成为新的Runtime、Scene或Spatial权威格式。默认`preview:prototype`现在进入R16层，历史R12/R14/R15入口保持显式可回退。
 
 ```text
 Scene Blueprint + Runtime + Asset Bounds ──→ Spatial Intent synthesizer

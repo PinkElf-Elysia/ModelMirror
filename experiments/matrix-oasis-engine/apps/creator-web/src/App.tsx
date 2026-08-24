@@ -39,6 +39,7 @@ const RUN_STATE_LABELS: Readonly<Record<PrototypeRunStatus, string>> = {
   normalizing: "规范化 3D 资产",
   spatializing: "生成空间环境",
   assembling: "组装 Scene Pack",
+  qualifying: "本地空间资格验证",
   ready: "原型可运行",
   failed: "本次生成失败",
 };
@@ -203,8 +204,10 @@ function PrototypeBuilderPanel() {
       setCurrentRunId(candidate.resultRunId);
     }
     setAnnouncement(
-      candidate.cacheHit && candidate.status === "ready"
-        ? "已复用真实资格缓存，未读取凭据或发起外部请求。"
+      candidate.qualification?.reusedQualification && candidate.status === "ready"
+        ? "已验证缓存复用：合同、身份与媒体哈希已重新校验，未读取供应商凭据。"
+        : candidate.status === "failed" && currentRunId
+          ? "本次资格失败，上一份已资格原型未改变。"
         : RUN_STATE_LABELS[candidate.status],
     );
   }
@@ -457,12 +460,12 @@ function PrototypeBuilderPanel() {
         <div>
           <p className="context-line">当前可运行原型</p>
           <h2 id="current-title">
-            {currentRunId ? "已验证 run 可随时重新启动" : "尚无可运行原型"}
+            {currentRunId ? "已资格 run 可随时重新启动" : "尚无已资格原型"}
           </h2>
           <p>
             {currentRunId
-              ? "新候选只有在完整验证和原子发布成功后才会替换这里。"
-              : "首次成功组装后，此处会成为失败保护的稳定回退点。"}
+              ? "新候选只有在空间分析、求解、物理复验与完整运行证据全部通过后才会替换这里。"
+              : "首次完整资格成功后，此处会成为失败保护的稳定回退点。"}
           </p>
         </div>
         {currentRun ? (
@@ -598,7 +601,12 @@ function PrototypeBuilderPanel() {
                     {RUN_STATE_LABELS[run.status]}
                   </h2>
                 </div>
-                {run.cacheHit ? <span className="cache-label">已复用真实资格缓存</span> : null}
+                {run.qualification ? (
+                  <span className="cache-label">
+                    {run.qualification.reusedQualification ? "已验证缓存复用" :
+                      run.qualification.cacheLevel === "qualified" ? "首次完整资格" : "旧缓存待资格"}
+                  </span>
+                ) : run.cacheHit ? <span className="cache-label">已复用真实资格缓存</span> : null}
               </div>
               <ol className="stage-list" aria-label="生成阶段">
                 {PROTOTYPE_RUN_STATES.filter((state) => state !== "failed").map((state) => {
@@ -613,6 +621,21 @@ function PrototypeBuilderPanel() {
                   );
                 })}
               </ol>
+              {run.qualification ? (
+                <dl className="qualification-summary" aria-label="Creator 空间资格状态">
+                  <div><dt>Profile</dt><dd>{run.qualification.profile}</dd></div>
+                  <div><dt>缓存级别</dt><dd>{run.qualification.cacheLevel ?? "尚无源缓存"}</dd></div>
+                  <div><dt>本地阶段</dt><dd>{run.qualification.subphase ?? (run.status === "ready" ? "已完成" : "等待")}</dd></div>
+                  <div><dt>证据尝试</dt><dd>{run.qualification.attempt} / 2</dd></div>
+                  {run.qualification.solutionSha256 ? <div><dt>Solution</dt><dd><code>{run.qualification.solutionSha256}</code></dd></div> : null}
+                  {run.qualification.evidence ? (
+                    <>
+                      <div><dt>运行证据</dt><dd>{run.qualification.evidence.replayCount} 次重放 · {run.qualification.evidence.screenshotCount} 张截图 · {run.qualification.evidence.videoCount} 段录像</dd></div>
+                      <div><dt>性能</dt><dd>{(run.qualification.evidence.medianFpsMilli / 1000).toFixed(3)} FPS 中位 · {run.qualification.evidence.sampleCount} 帧</dd></div>
+                    </>
+                  ) : null}
+                </dl>
+              ) : null}
             </section>
           ) : null}
 
@@ -672,8 +695,11 @@ function PrototypeBuilderPanel() {
           {run?.status === "ready" ? (
             <div className="ready-actions">
               <div>
-                <strong>{run.cacheHit ? "缓存已复验" : "原型已组装"}</strong>
-                <span>Scene Pack、环境、资产与 Runtime 身份均已通过离线复验。</span>
+                <strong>{run.qualification?.reusedQualification ? "已验证缓存复用" :
+                  run.qualification ? "首次完整资格" : run.cacheHit ? "缓存已复验" : "原型已组装"}</strong>
+                <span>{run.qualification
+                  ? "空间分析、求解、Godot 物理复验、重放、截图、录像与 300 帧性能门均已通过。"
+                  : "Scene Pack、环境、资产与 Runtime 身份均已通过离线复验。"}</span>
               </div>
               <button className="primary-button" type="button" disabled={busy || bootstrap?.readiness.godot !== true} onClick={() => void launch(run)}>
                 启动预览
@@ -700,7 +726,9 @@ function PrototypeBuilderPanel() {
               <ul className="run-history">
                 {successfulRuns.map((item) => (
                   <li key={item.resultRunId ?? item.id} data-current={item.resultRunId === currentRunId}>
-                    <div><strong>{item.resultRunId === currentRunId ? "当前" : "历史"}</strong><span>{item.cacheHit ? "缓存" : "新生成"}</span></div>
+                    <div><strong>{item.resultRunId === currentRunId ? "当前" : "历史"}</strong><span>{item.qualification
+                      ? item.qualification.reusedQualification ? "资格缓存" : "完整资格"
+                      : item.cacheHit ? "缓存" : "新生成"}</span></div>
                     <code>{item.resultRunId}</code>
                     <button type="button" className="text-button" disabled={busy || bootstrap?.readiness.godot !== true} onClick={() => void launch(item)}>
                       启动此原型
@@ -710,7 +738,7 @@ function PrototypeBuilderPanel() {
               </ul>
             ) : <p className="empty-state">尚无成功 run。失败候选不会写入此列表。</p>}
           </section>
-          <p className="builder-scope-note">环境为 360° panorama 加独立 collider，不具备视差环境网格。浏览器仅访问同源 loopback 宿主。</p>
+          <p className="builder-scope-note">R16 已资格预览绑定 R15 的精确运行证据；旧 source、solved 或 evidence 缓存仅显示为待资格。浏览器仅访问同源 loopback 宿主。</p>
         </aside>
       </div>
     </>
@@ -757,7 +785,7 @@ function App() {
             <span><strong>矩阵绿洲</strong><small>Matrix Oasis Engine</small></span>
           </div>
           <ModeSwitch mode={mode} onChange={setMode} />
-          <div className="round-meta" aria-label="模块状态"><span>独立模块</span><strong>R10 初版闭环</strong></div>
+          <div className="round-meta" aria-label="模块状态"><span>独立模块</span><strong>R16 初版资格</strong></div>
         </header>
         <main id="main-content" className="main-content" tabIndex={-1}>
           <span className="sr-only">{R0_MARKER} {R2_MARKER} {R3_MARKER} {PROTOTYPE_BUILDER_MARKER}</span>

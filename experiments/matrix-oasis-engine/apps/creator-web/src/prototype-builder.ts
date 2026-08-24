@@ -1,5 +1,7 @@
 export const PROTOTYPE_BUILDER_MARKER =
   "MATRIX_OASIS_R10_PROTOTYPE_BUILDER";
+export const R16_PROTOTYPE_BUILDER_MARKER =
+  "MATRIX_OASIS_R16_CREATOR_MVP_READY";
 
 export const PROTOTYPE_RUN_STATES = Object.freeze([
   "awaiting_model_approval",
@@ -9,6 +11,7 @@ export const PROTOTYPE_RUN_STATES = Object.freeze([
   "normalizing",
   "spatializing",
   "assembling",
+  "qualifying",
   "ready",
   "failed",
 ] as const);
@@ -68,6 +71,28 @@ export interface PrototypeRun {
   readonly modelApproval: PrototypeModelApproval | null;
   readonly assetApproval: PrototypeAssetApproval | null;
   readonly resultRunId: string | null;
+  readonly qualification?: PrototypeQualification | null;
+}
+
+export interface PrototypeQualificationEvidence {
+  readonly runId: string;
+  readonly attempt: 0 | 1 | 2;
+  readonly replayCount: number;
+  readonly screenshotCount: number;
+  readonly videoCount: 1;
+  readonly sampleCount: 300;
+  readonly medianFrameMicros: number;
+  readonly medianFpsMilli: number;
+}
+
+export interface PrototypeQualification {
+  readonly profile: "matrix-oasis.creator-solved-evidence/1";
+  readonly cacheLevel: "qualified" | "evidence-only" | "solved-only" | "source-only" | null;
+  readonly subphase: "analyzing" | "solving" | "verifying" | "evidencing" | null;
+  readonly attempt: 0 | 1 | 2;
+  readonly reusedQualification: boolean;
+  readonly solutionSha256: string | null;
+  readonly evidence: PrototypeQualificationEvidence | null;
 }
 
 export interface PrototypeRecovery {
@@ -131,7 +156,7 @@ export interface PrototypeWorldDiscovery {
 }
 
 export interface PrototypeBootstrap {
-  readonly marker: "MATRIX_OASIS_R10_PROTOTYPE_HOST";
+  readonly marker: "MATRIX_OASIS_R10_PROTOTYPE_HOST" | "MATRIX_OASIS_R16_PROTOTYPE_HOST";
   readonly readiness: Readonly<{
     model: boolean;
     assets: boolean;
@@ -141,6 +166,7 @@ export interface PrototypeBootstrap {
   readonly runs: readonly PrototypeRun[];
   readonly recovery?: PrototypeRecovery | null;
   readonly worldDiscovery?: PrototypeWorldDiscovery | null;
+  readonly qualificationProfile?: "matrix-oasis.creator-solved-evidence/1";
 }
 
 type FetchLike = (
@@ -150,6 +176,7 @@ type FetchLike = (
 
 const RUN_ID = /^r10-run-[1-9][0-9]*$/u;
 const RESULT_RUN_ID = /^[0-9a-f]{64}-[0-9a-f]{64}$/u;
+const QUALIFICATION_RUN_ID = /^[0-9a-f]{64}$/u;
 const HASH = /^sha256:[0-9a-f]{64}$/u;
 const CODE = /^[A-Z][A-Z0-9_]{2,127}$/u;
 const POINTER = /^(?:\/(?:[^~/]|~0|~1)*)*$/u;
@@ -360,17 +387,45 @@ function parseAssetApproval(value: unknown): PrototypeAssetApproval | null {
   });
 }
 
-function parseRun(value: unknown): PrototypeRun | null {
+function parseQualificationEvidence(value: unknown): PrototypeQualificationEvidence | null {
+  if (!exactKeys(value, ["runId", "attempt", "replayCount", "screenshotCount", "videoCount", "sampleCount",
+    "medianFrameMicros", "medianFpsMilli"]) || typeof value.runId !== "string" || !QUALIFICATION_RUN_ID.test(value.runId) ||
+      typeof value.attempt !== "number" || ![0, 1, 2].includes(value.attempt) || typeof value.replayCount !== "number" ||
+      !Number.isSafeInteger(value.replayCount) || value.replayCount < 1 || value.replayCount > 32 ||
+      typeof value.screenshotCount !== "number" || !Number.isSafeInteger(value.screenshotCount) ||
+      value.screenshotCount < value.replayCount || value.screenshotCount > 512 || value.videoCount !== 1 || value.sampleCount !== 300 ||
+      typeof value.medianFrameMicros !== "number" || !Number.isSafeInteger(value.medianFrameMicros) || value.medianFrameMicros < 1 || value.medianFrameMicros > 10_000_000 ||
+      typeof value.medianFpsMilli !== "number" || !Number.isSafeInteger(value.medianFpsMilli) || value.medianFpsMilli < 30_000 || value.medianFpsMilli > 1_000_000 ||
+      value.medianFpsMilli !== Math.floor(1_000_000_000 / value.medianFrameMicros)) return null;
+  return Object.freeze({
+    runId: value.runId,
+    attempt: value.attempt as 0 | 1 | 2,
+    replayCount: value.replayCount,
+    screenshotCount: value.screenshotCount,
+    videoCount: 1,
+    sampleCount: 300,
+    medianFrameMicros: value.medianFrameMicros,
+    medianFpsMilli: value.medianFpsMilli,
+  });
+}
+
+function parseQualification(value: unknown): PrototypeQualification | null {
+  if (!exactKeys(value, ["profile", "cacheLevel", "subphase", "attempt", "reusedQualification", "solutionSha256", "evidence"]) ||
+      value.profile !== "matrix-oasis.creator-solved-evidence/1" ||
+      ![null, "qualified", "evidence-only", "solved-only", "source-only"].includes(value.cacheLevel as string | null) ||
+      ![null, "analyzing", "solving", "verifying", "evidencing"].includes(value.subphase as string | null) ||
+      typeof value.attempt !== "number" || ![0, 1, 2].includes(value.attempt) || typeof value.reusedQualification !== "boolean" ||
+      (value.solutionSha256 !== null && (typeof value.solutionSha256 !== "string" || !HASH.test(value.solutionSha256)))) return null;
+  const evidence = value.evidence === null ? null : parseQualificationEvidence(value.evidence);
+  if (value.evidence !== null && evidence === null) return null;
+  return Object.freeze({ ...value, evidence }) as PrototypeQualification;
+}
+
+function parseRun(value: unknown, r16 = false): PrototypeRun | null {
+  const keys = ["id", "status", "cacheHit", "diagnostics", "modelApproval", "assetApproval", "resultRunId"];
+  if (r16) keys.push("qualification");
   if (
-    !exactKeys(value, [
-      "id",
-      "status",
-      "cacheHit",
-      "diagnostics",
-      "modelApproval",
-      "assetApproval",
-      "resultRunId",
-    ]) ||
+    !exactKeys(value, keys) ||
     typeof value.id !== "string" ||
     !RUN_ID.test(value.id) ||
     typeof value.status !== "string" ||
@@ -378,7 +433,7 @@ function parseRun(value: unknown): PrototypeRun | null {
     typeof value.cacheHit !== "boolean" ||
     (value.resultRunId !== null &&
       (typeof value.resultRunId !== "string" ||
-        !RESULT_RUN_ID.test(value.resultRunId)))
+        !(r16 ? QUALIFICATION_RUN_ID : RESULT_RUN_ID).test(value.resultRunId)))
   ) {
     return null;
   }
@@ -391,10 +446,20 @@ function parseRun(value: unknown): PrototypeRun | null {
     value.assetApproval === null
       ? null
       : parseAssetApproval(value.assetApproval);
+  const qualification = r16
+    ? (value.qualification === null ? null : parseQualification(value.qualification))
+    : undefined;
   if (
     safeDiagnostics === null ||
     (value.modelApproval !== null && modelApproval === null) ||
-    (value.assetApproval !== null && assetApproval === null)
+    (value.assetApproval !== null && assetApproval === null) ||
+    (r16 && qualification === null) ||
+    (r16 && value.status === "ready" && (value.resultRunId === null || qualification?.solutionSha256 === null ||
+      qualification?.evidence === null || qualification?.subphase !== null || qualification?.attempt !== qualification?.evidence?.attempt)) ||
+    (r16 && value.status === "qualifying" && (value.resultRunId !== null || qualification?.cacheLevel === null ||
+      qualification?.evidence !== null || qualification?.solutionSha256 !== null)) ||
+    (r16 && qualification?.reusedQualification === true &&
+      (value.status !== "ready" || qualification.cacheLevel !== "qualified" || value.cacheHit !== true))
   ) {
     return null;
   }
@@ -406,10 +471,28 @@ function parseRun(value: unknown): PrototypeRun | null {
     modelApproval,
     assetApproval,
     resultRunId: value.resultRunId as string | null,
+    ...(r16 ? { qualification } : {}),
   });
 }
 
 function parseBootstrap(value: unknown): PrototypeBootstrap | null {
+  const r16 = isRecord(value) && value.marker === "MATRIX_OASIS_R16_PROTOTYPE_HOST";
+  if (r16) {
+    if (!exactKeys(value, ["marker", "readiness", "currentRunId", "runs", "qualificationProfile"]) ||
+        value.qualificationProfile !== "matrix-oasis.creator-solved-evidence/1" ||
+        !exactKeys(value.readiness, ["model", "assets", "godot"]) ||
+        [value.readiness.model, value.readiness.assets, value.readiness.godot].some((ready) => typeof ready !== "boolean") ||
+        (value.currentRunId !== null && (typeof value.currentRunId !== "string" || !QUALIFICATION_RUN_ID.test(value.currentRunId))) ||
+        !Array.isArray(value.runs) || value.runs.length > 100) return null;
+    const runs = value.runs.map((run) => parseRun(run, true));
+    if (runs.some((run) => run === null)) return null;
+    if (value.currentRunId !== null && !(runs as PrototypeRun[]).some((run) =>
+      run.status === "ready" && run.resultRunId === value.currentRunId)) return null;
+    return Object.freeze({ marker: "MATRIX_OASIS_R16_PROTOTYPE_HOST",
+      readiness: Object.freeze({ model: value.readiness.model as boolean, assets: value.readiness.assets as boolean,
+        godot: value.readiness.godot as boolean }), currentRunId: value.currentRunId as string | null,
+      runs: Object.freeze(runs as PrototypeRun[]), qualificationProfile: "matrix-oasis.creator-solved-evidence/1" });
+  }
   const bootstrapKeys = ["marker", "readiness", "currentRunId", "runs"];
   if (isRecord(value) && Object.hasOwn(value, "recovery")) bootstrapKeys.push("recovery");
   if (isRecord(value) && Object.hasOwn(value, "worldDiscovery")) bootstrapKeys.push("worldDiscovery");
@@ -430,7 +513,7 @@ function parseBootstrap(value: unknown): PrototypeBootstrap | null {
   ) {
     return null;
   }
-  const runs = value.runs.map(parseRun);
+  const runs = value.runs.map((run) => parseRun(run, false));
   if (runs.some((run) => run === null)) {
     return null;
   }
@@ -680,7 +763,7 @@ export class PrototypeBuilderClient {
       !exactKeys(value, ["ok", "runId"]) ||
       value.ok !== true ||
       typeof value.runId !== "string" ||
-      !RESULT_RUN_ID.test(value.runId)
+      !(run.qualification === undefined ? RESULT_RUN_ID : QUALIFICATION_RUN_ID).test(value.runId)
     ) {
       throw new PrototypeBuilderClientError();
     }
@@ -691,7 +774,7 @@ export class PrototypeBuilderClient {
     if (!exactKeys(value, ["ok", "run"]) || value.ok !== true) {
       throw new PrototypeBuilderClientError();
     }
-    const run = parseRun(value.run);
+    const run = parseRun(value.run, isRecord(value.run) && Object.hasOwn(value.run, "qualification"));
     if (!run) {
       throw new PrototypeBuilderClientError();
     }
