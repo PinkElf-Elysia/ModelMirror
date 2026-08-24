@@ -237,6 +237,9 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("list_operation", "outputVariable", "declaration", ["json", "unknown"]),
   field("data_aggregate", "inputVariable", "binding", JSON_TYPES, "rows"),
   field("data_aggregate", "outputVariable", "declaration", JSON_TYPES),
+  field("data_merge", "leftVariable", "binding", JSON_TYPES, "left"),
+  field("data_merge", "rightVariable", "binding", JSON_TYPES, "right"),
+  field("data_merge", "outputVariable", "declaration", JSON_TYPES),
   field("dataset_compare", "leftVariable", "binding", JSON_TYPES, "left"),
   field("dataset_compare", "rightVariable", "binding", JSON_TYPES, "right"),
   field("dataset_compare", "outputVariable", "declaration", JSON_TYPES),
@@ -347,6 +350,20 @@ interface OutputSpec {
   enabled?: (node: WorkflowNode) => boolean;
 }
 
+function variableAssignV2OutputType(node: WorkflowNode): WorkflowVariableValueType {
+  const source = String(node.data.valueSource ?? "template");
+  if (source === "template") return "text";
+  if (source !== "literal") return "unknown";
+  const value = node.data.literalValue;
+  if (typeof value === "string") return "text";
+  if (typeof value === "number" && Number.isFinite(value)) return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (value === null || Array.isArray(value) || (value && typeof value === "object")) {
+    return "json";
+  }
+  return "unknown";
+}
+
 const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
   scheduled_start: [
     { field: "eventVariable", fallback: "schedule_event", valueType: "json" },
@@ -397,7 +414,7 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
     {
       field: "outputVariable",
       fallback: "assigned_value",
-      valueType: "unknown",
+      valueType: variableAssignV2OutputType,
       enabled: (node) => String(node.data.contractVersion ?? "1") === "2",
     },
   ],
@@ -484,6 +501,9 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
   ],
   data_aggregate: [
     { field: "outputVariable", fallback: "aggregate_result", valueType: "json" },
+  ],
+  data_merge: [
+    { field: "outputVariable", fallback: "merged_rows", valueType: "json" },
   ],
   dataset_compare: [
     { field: "outputVariable", fallback: "dataset_difference", valueType: "json" },
@@ -1096,6 +1116,87 @@ export function analyzeWorkflowVariables(
       } satisfies WorkflowVariableDescriptor;
     })
     .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+}
+
+/**
+ * data_merge 的左右输入来自两条独立控制流。通用变量分析会要求生产者
+ * 支配整个汇合节点，因此会把合法的单侧变量误判为条件可用。这里只对
+ * 对应 Handle 的绑定字段收窄判断范围，其余节点仍使用通用门禁。
+ */
+export function analyzeWorkflowVariablesForField(
+  node: WorkflowNode,
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[],
+  descriptor: WorkflowVariableFieldDescriptor,
+  declarations: WorkflowVariableDeclaration[] = [],
+): WorkflowVariableDescriptor[] {
+  const inventory = analyzeWorkflowVariables(
+    nodes,
+    edges,
+    node.id,
+    declarations,
+  );
+  if (
+    node.data.kind !== "data_merge" ||
+    (descriptor.portName !== "left" && descriptor.portName !== "right")
+  ) {
+    return inventory;
+  }
+
+  const matchingEdges = edges.filter(
+    (edge) =>
+      isWorkflowControlFlowEdge(edge) &&
+      edge.target === node.id &&
+      edge.targetHandle === descriptor.portName,
+  );
+  const matchingEdge = matchingEdges.length === 1 ? matchingEdges[0] : null;
+  const graph = controlFlowGraph(nodes, edges);
+
+  return inventory.map((variable) => {
+    if (
+      variable.availability === "conflict" ||
+      variable.sources.every((source) => source.sourceKind !== "node_output")
+    ) {
+      return variable;
+    }
+    const source = variable.sources.find(
+      (candidate) => candidate.sourceKind === "node_output",
+    );
+    if (!source) return variable;
+    if (!matchingEdge) {
+      return {
+        ...variable,
+        availability: "unavailable",
+        availabilityReason: `请先为“${descriptor.portName === "left" ? "左侧数据" : "右侧数据"}”连接唯一入边。`,
+      };
+    }
+    if (source.nodeId === node.id) {
+      return {
+        ...variable,
+        availability: "unavailable",
+        availabilityReason: "当前节点尚未产生自己的输出。",
+      };
+    }
+    if (!reachable(source.nodeId, matchingEdge.source, graph.successors)) {
+      return {
+        ...variable,
+        availability: "unavailable",
+        availabilityReason: `变量不来自“${descriptor.portName === "left" ? "左侧数据" : "右侧数据"}”入边的来源路径。`,
+      };
+    }
+    if (source.conditional) {
+      return {
+        ...variable,
+        availability: "conditional",
+        availabilityReason: "变量仅在对应输入路径的特定运行配置下产生。",
+      };
+    }
+    return {
+      ...variable,
+      availability: "available",
+      availabilityReason: `变量由“${descriptor.portName === "left" ? "左侧数据" : "右侧数据"}”入边的来源路径产生。`,
+    };
+  });
 }
 
 function escapeRegExp(value: string) {

@@ -13,6 +13,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 DIRECT_UPDATES = {
+    "merge": {
+        "模镜当前状态": "已实现",
+        "模镜对应节点": "data_merge",
+        "判断说明": "自研数据合流依赖边到达账本，等待左右路径解析后执行；支持有界数组拼接和按 1–3 个顶层复合键的一对一 inner join，不宣称外连接或多对多 Join。",
+    },
     "function": {
         "模镜建议节点名": "安全文本加工（遗留函数场景）",
         "模镜当前状态": "部分实现",
@@ -352,9 +357,9 @@ def main() -> None:
         f"{row['n8n原名参考']} | {row['模镜当前状态']} |"
         for row in direct_rows
     ]
-    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1 PR1）
+    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1）
 
-- 审计日期：2026-08-23
+- 审计日期：2026-08-24
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
 - R0 基线事实：NodeContract V3、37 个 `NativeNodeKind`、35 个画布目录项、20 个冻结 compatibility 合同
 - R1 结果：新增 4 个完整合同，并将既有 `llm` 提升为完整合同；自研节点总数 41、画布目录项 39、当前 19 个冻结 compatibility 合同；四节点与 `llm` Planner 均关闭
@@ -365,7 +370,8 @@ def main() -> None:
 - R1.8 结果：新增完整合同 `file_output`、`object_transform`，并将 `document_extractor`、`time_tool` 提升为完整合同，同时扩展 `list_operation`；自研节点总数 50、画布目录项 48、当前 14 个冻结 compatibility 合同；文件节点仅允许经典工作流和私有 Xpert，Planner 仍固定为 7 类
 - R1.9 结果：不新增普通节点，将 `parameter_extractor`、`question_classifier` 提升为完整 V2 合同，并在既有 `runtime_middleware` 下增加 `content_policy` 文本策略；自研节点总数 50、画布目录项 48、当前 12 个冻结 compatibility 合同，Planner 仍固定为 7 类
 - R2.0 结果：不新增普通节点，将 `human_intervention`、`mcp_tool`、`variable_assign` 提升为完整 V2 合同，并退役旧知识引用新增入口；当前 50 Native、48 个可新增 Palette 项、41 个完整合同、9 个 compatibility 合同、7 个 Planner 节点
-- R2.1 PR1 结果：不新增 `NativeNodeKind`，将 `code` 提升为只执行预定义操作的“安全文本加工 V2”完整合同，并从 Palette 移除退役 `template_transform`；旧草稿和既有激活版本继续兼容，模板文本能力由 `variable_assign` V2 承接；当前 {native_count} Native、{palette_count} 个可新增 Palette 项、{complete_count} 个完整合同、{compatibility_count} 个 compatibility 合同、{planner_count} 个 Planner 节点
+- R2.1 PR1 结果：不新增 `NativeNodeKind`，将 `code` 提升为只执行预定义操作的“安全文本加工 V2”完整合同，并从 Palette 移除退役 `template_transform`；旧草稿和既有激活版本继续兼容，模板文本能力由 `variable_assign` V2 承接；当时 50 Native、47 个可新增 Palette 项、42 个完整合同、8 个 compatibility 合同、7 个 Planner 节点
+- R2.1 PR2 结果：新增完整合同 `data_merge`，并将经典运行器升级为带持久化边到达账本的 Scheduler V2；支持可靠 Fan-in、有界数组拼接和受限一对一 inner join；当前 {native_count} Native、{palette_count} 个可新增 Palette 项、{complete_count} 个完整合同、{compatibility_count} 个 compatibility 合同、{planner_count} 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` {ee_count} 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -400,7 +406,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.1 PR1 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.1 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
 """
     (args.output_dir / "N8N_NODE_CAPABILITY_MATRIX.md").write_text(
         markdown,

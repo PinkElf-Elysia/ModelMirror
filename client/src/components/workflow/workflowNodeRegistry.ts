@@ -248,6 +248,13 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["aggregate", "group", "measure", "typed-value"],
       },
       {
+        kind: "data_merge",
+        icon: "MERGE",
+        title: "数据合流",
+        description: "等待左右路径到达，再拼接数组或按复合键一对一合并。",
+        tags: ["merge", "fan-in", "join", "typed-value"],
+      },
+      {
         kind: "dataset_compare",
         icon: "DIFF",
         title: "数据集对照",

@@ -159,4 +159,38 @@ describe("WorkflowVariableField", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(trigger).toHaveFocus());
   });
+
+  it("accepts a variable produced on the matching data merge branch", () => {
+    const start = node("start", "input", { variableName: "request" });
+    const left = node("left", "list_operation", { outputVariable: "left_rows" });
+    const right = node("right", "list_operation", { outputVariable: "right_rows" });
+    const merge = node("merge", "data_merge", { leftVariable: "left_rows" });
+    const edges: WorkflowEdge[] = [
+      edge("start", "left"),
+      edge("start", "right"),
+      { ...edge("left", "merge"), id: "left-merge", targetHandle: "left" },
+      { ...edge("right", "merge"), id: "right-merge", targetHandle: "right" },
+    ];
+
+    render(
+      <WorkflowVariableField
+        edges={edges}
+        fieldName="leftVariable"
+        node={merge}
+        nodes={[start, left, right, merge]}
+        onChange={vi.fn()}
+        value="left_rows"
+      />,
+    );
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /绑定变量/ }));
+    expect(screen.getByRole("button", { name: /left_rows/ })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    expect(screen.getByRole("button", { name: /right_rows/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
 });

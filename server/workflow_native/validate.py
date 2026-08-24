@@ -53,6 +53,7 @@ from .r20_nodes import (
     validate_mcp_tool_v2_config,
     validate_variable_assign_v2_config,
 )
+from .r21_nodes import WorkflowR21Error, validate_data_merge_config
 from .schemas import (
     NativeWorkflowDefinition,
     NativeWorkflowEdge,
@@ -136,6 +137,8 @@ NODE_KIND_ALIASES = {
     "list-operator": "list_operation",
     "data_aggregate": "data_aggregate",
     "data-aggregate": "data_aggregate",
+    "data_merge": "data_merge",
+    "data-merge": "data_merge",
     "dataset_compare": "dataset_compare",
     "dataset-compare": "dataset_compare",
     "object_transform": "object_transform",
@@ -434,6 +437,21 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
             )
         )
 
+    edge_ids: set[str] = set()
+    duplicate_edge_ids: set[str] = set()
+    for edge in workflow.edges:
+        if edge.id in edge_ids:
+            duplicate_edge_ids.add(edge.id)
+        edge_ids.add(edge.id)
+    for edge_id in sorted(duplicate_edge_ids):
+        issues.append(
+            ValidationIssue(
+                code="duplicate_edge_id",
+                message=f"Edge id '{edge_id}' is duplicated.",
+                edge_id=edge_id,
+            )
+        )
+
     kinds_by_id = {node.id: node_kind(node) for node in workflow.nodes}
     for node in workflow.nodes:
         kind = kinds_by_id[node.id]
@@ -545,6 +563,14 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
         valid_edges,
         issues,
         kinds_by_id=kinds_by_id,
+    )
+    validate_data_merge_structure(
+        workflow.nodes,
+        valid_edges,
+        issues,
+        kinds_by_id=kinds_by_id,
+        declaration_names=set(declaration_names),
+        producers=node_variable_producers,
     )
     validate_sandbox_middleware_bindings(
         workflow.nodes,
@@ -793,6 +819,88 @@ def validate_control_data_structure(
                     ValidationIssue(
                         code="multi_route_duplicate_edge",
                         message=f"Multi route handle '{handle}' has more than one outgoing edge.",
+                        node_id=node.id,
+                    )
+                )
+
+
+def validate_data_merge_structure(
+    nodes: list[NativeWorkflowNode],
+    edges: list[NativeWorkflowEdge],
+    issues: list[ValidationIssue],
+    *,
+    kinds_by_id: dict[str, str],
+    declaration_names: set[str],
+    producers: dict[str, list[str]],
+) -> None:
+    control_edges = [edge for edge in edges if not is_non_control_binding_edge(edge)]
+    parents: dict[str, set[str]] = defaultdict(set)
+    incoming: dict[str, list[NativeWorkflowEdge]] = defaultdict(list)
+    for edge in control_edges:
+        parents[edge.target].add(edge.source)
+        incoming[edge.target].append(edge)
+
+    def ancestors_including(node_id: str) -> set[str]:
+        ancestors = {node_id}
+        stack = list(parents.get(node_id, set()))
+        while stack:
+            current = stack.pop()
+            if current in ancestors:
+                continue
+            ancestors.add(current)
+            stack.extend(parents.get(current, set()))
+        return ancestors
+
+    for node in nodes:
+        if kinds_by_id.get(node.id) != "data_merge":
+            continue
+        by_handle: dict[str, list[NativeWorkflowEdge]] = defaultdict(list)
+        for edge in incoming.get(node.id, []):
+            by_handle[str(edge.targetHandle or "").strip()].append(edge)
+        if set(by_handle) != {"left", "right"} or any(
+            len(by_handle[handle]) != 1 for handle in ("left", "right")
+        ):
+            issues.append(
+                ValidationIssue(
+                    code="data_merge_input_edges_invalid",
+                    message=(
+                        "Data merge requires exactly one control edge for each "
+                        "left and right target handle, with no extra input edges."
+                    ),
+                    node_id=node.id,
+                )
+            )
+            continue
+
+        for handle, variable_field in (
+            ("left", "leftVariable"),
+            ("right", "rightVariable"),
+        ):
+            variable = str(node.data.get(variable_field) or "").strip()
+            if not variable or variable in declaration_names:
+                continue
+            producer_ids = producers.get(variable, [])
+            if len(producer_ids) != 1:
+                issues.append(
+                    ValidationIssue(
+                        code="data_merge_variable_producer_invalid",
+                        message=(
+                            f"Data merge {handle} variable '{variable}' must have "
+                            "exactly one producer or be declared globally."
+                        ),
+                        node_id=node.id,
+                    )
+                )
+                continue
+            source_id = by_handle[handle][0].source
+            if producer_ids[0] not in ancestors_including(source_id):
+                issues.append(
+                    ValidationIssue(
+                        code="data_merge_variable_not_on_input_path",
+                        message=(
+                            f"Data merge {handle} variable '{variable}' must be produced "
+                            f"on the {handle} input path."
+                        ),
                         node_id=node.id,
                     )
                 )
@@ -3080,6 +3188,18 @@ def validate_node_configuration(
                 )
             )
 
+    if kind == "data_merge":
+        try:
+            validate_data_merge_config(data)
+        except WorkflowR21Error as exc:
+            issues.append(
+                ValidationIssue(
+                    code=exc.code.lower(),
+                    message=exc.safe_message,
+                    node_id=node.id,
+                )
+            )
+
     if kind == "object_transform":
         try:
             validate_object_transform_config(data)
@@ -3786,6 +3906,7 @@ def collect_declared_variables(
             "http_request",
             "list_operation",
             "data_aggregate",
+            "data_merge",
             "dataset_compare",
             "object_transform",
             "file_output",
@@ -3849,6 +3970,7 @@ def collect_node_variable_producers(
         "http_request": ("outputVariable",),
         "list_operation": ("outputVariable",),
         "data_aggregate": ("outputVariable",),
+        "data_merge": ("outputVariable",),
         "dataset_compare": ("outputVariable",),
         "object_transform": ("outputVariable",),
         "file_output": ("outputVariable",),
@@ -4441,6 +4563,18 @@ def validate_variable_references(
                     node_id=node.id,
                 )
             )
+
+    if kind == "data_merge":
+        for field_name in ("leftVariable", "rightVariable"):
+            variable = str(data.get(field_name) or "").strip()
+            if variable and variable not in available_variables:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_data_merge_variable_reference",
+                        message=f"Data merge references undefined variable '{variable}'.",
+                        node_id=node.id,
+                    )
+                )
 
     if kind == "iteration":
         input_variable = str(data.get("inputVariable") or "").strip()

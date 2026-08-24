@@ -738,6 +738,82 @@ async def test_r17_typed_nodes_pass_real_xpert_publish_preflight(
 
 
 @pytest.mark.asyncio
+async def test_r21_data_merge_passes_real_xpert_publish_preflight(
+    client: httpx.AsyncClient,
+) -> None:
+    created = await client.post("/api/xperts", json={"name": "R2.1 data merge"})
+    assert created.status_code == 200, created.text
+    xpert = created.json()
+    draft = xpert["draft"]
+    workflow = draft["workflow"]
+    base_nodes = {node["id"]: node for node in workflow["nodes"]}
+    workflow["variables"] = [
+        {
+            "id": "left-rows",
+            "name": "left_rows",
+            "kind": "constant",
+            "valueType": "json",
+            "defaultValue": [{"id": 1}],
+        },
+        {
+            "id": "right-rows",
+            "name": "right_rows",
+            "kind": "constant",
+            "valueType": "json",
+            "defaultValue": [{"id": 2}],
+        },
+    ]
+    workflow["nodes"] = [
+        base_nodes["input-1"],
+        {
+            "id": "merge-1",
+            "type": "data_merge",
+            "position": {"x": 220, "y": 140},
+            "data": {
+                "kind": "data_merge",
+                "contractVersion": 1,
+                "mergeMode": "append",
+                "leftVariable": "left_rows",
+                "rightVariable": "right_rows",
+                "outputVariable": "merged_rows",
+                "keyFields": [],
+            },
+        },
+        base_nodes["workflow-agent-1"],
+        base_nodes["output-1"],
+    ]
+    workflow["edges"] = [
+        {
+            "id": "input-merge-left",
+            "source": "input-1",
+            "target": "merge-1",
+            "targetHandle": "left",
+        },
+        {
+            "id": "input-merge-right",
+            "source": "input-1",
+            "target": "merge-1",
+            "targetHandle": "right",
+        },
+        {
+            "id": "merge-agent",
+            "source": "merge-1",
+            "target": "workflow-agent-1",
+        },
+        {
+            "id": "agent-output",
+            "source": "workflow-agent-1",
+            "target": "output-1",
+        },
+    ]
+
+    updated = await client.patch(f"/api/xperts/{xpert['id']}", json={"draft": draft})
+    assert updated.status_code == 200, updated.text
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+    assert published.status_code == 200, published.text
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "kind",
     ["parameter_extractor", "question_classifier", "content_policy"],

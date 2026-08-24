@@ -37,6 +37,7 @@ export type WorkflowNodeKind =
   | "multi_route"
   | "list_operation"
   | "data_aggregate"
+  | "data_merge"
   | "dataset_compare"
   | "object_transform"
   | "file_output"
@@ -209,7 +210,7 @@ export interface WorkflowClassifierCategory {
 }
 
 /** 画布节点运行态视觉状态（不持久化，运行时由 WorkflowRun 写回）。 */
-export type NodeRunStatus = "running" | "done" | "error";
+export type NodeRunStatus = "running" | "done" | "skipped" | "error";
 
 export interface WorkflowNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
@@ -402,6 +403,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   operations?: WorkflowObjectOperation[];
   groupByFields?: string[];
   measures?: WorkflowAggregateMeasure[];
+  mergeMode?: "append" | "keyed_join";
   leftVariable?: string;
   rightVariable?: string;
   keyFields?: string[];
@@ -482,6 +484,7 @@ export interface WorkflowRunEvent {
     | "skill_creator_handoff"
     | "heartbeat"
     | "node_end"
+    | "node_skipped"
     | "workflow_cancelled"
     | "workflow_end"
     | "error";

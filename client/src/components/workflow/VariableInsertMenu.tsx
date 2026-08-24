@@ -9,6 +9,7 @@ import type {
 import type { WorkflowNodeContractProjection } from "./workflowNodeRegistry";
 import {
   analyzeWorkflowVariables,
+  analyzeWorkflowVariablesForField,
   resolveWorkflowVariableFieldTypes,
   type WorkflowVariableAvailability,
   type WorkflowVariableFieldDescriptor,
@@ -50,9 +51,18 @@ export function collectWorkflowVariableOptions(
   declarations: WorkflowVariableDeclaration[] = [],
 ): InsertableVariable[] {
   if (!nodeId) return [];
+  const selectedNode = nodes.find((candidate) => candidate.id === nodeId);
   const nodeOrder = new Map(nodes.map((node, index) => [node.id, index]));
   const acceptedTypes = new Set(resolveWorkflowVariableFieldTypes(descriptor, contract));
-  const globals = analyzeWorkflowVariables(nodes, edges, nodeId, declarations)
+  const globals = (selectedNode
+    ? analyzeWorkflowVariablesForField(
+        selectedNode,
+        nodes,
+        edges,
+        descriptor,
+        declarations,
+      )
+    : analyzeWorkflowVariables(nodes, edges, nodeId, declarations))
     .sort(
       (left, right) =>
         availabilityOrder.indexOf(left.availability) -
@@ -77,7 +87,6 @@ export function collectWorkflowVariableOptions(
     });
 
   const localVariables = (descriptor.localVariables ?? []).map((local) => {
-    const selectedNode = nodes.find((candidate) => candidate.id === nodeId);
     const name =
       local.name === "item"
         ? String(selectedNode?.data.iterationVariable ?? "").trim() || local.name

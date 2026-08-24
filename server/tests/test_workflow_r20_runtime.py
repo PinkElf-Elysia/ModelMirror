@@ -70,6 +70,33 @@ def _human_workflow(mode: str) -> dict:
     }
 
 
+def _two_human_workflow() -> dict:
+    workflow = _human_workflow("approval")
+    workflow["id"] = "human-legacy-continuation"
+    workflow["nodes"].insert(
+        2,
+        {
+            "id": "human-second",
+            "type": "human_intervention",
+            "data": {
+                "kind": "human_intervention",
+                "contractVersion": 2,
+                "interactionMode": "approval",
+                "prompt": "Second review",
+                "outputVariable": "human_result_second",
+                "timeoutSeconds": 3600,
+            },
+        },
+    )
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "human"},
+        {"id": "e2", "source": "human", "target": "human-second"},
+        {"id": "e3", "source": "human-second", "target": "output"},
+    ]
+    workflow["nodes"][-1]["data"]["outputVariable"] = "human_result_second"
+    return workflow
+
+
 class _ExactMCPProvider:
     def __init__(self, *, server_id: str, tool_name: str, input_schema: dict) -> None:
         self.tool = RuntimeTool(
@@ -195,6 +222,9 @@ async def test_human_intervention_v2_resumes_once_with_typed_mode_result(
     waiting = executions.require(task_id)
     assert waiting.status == "waiting"
     assert waiting.continuation["agent_state"]["interaction_mode"] == mode
+    assert waiting.continuation["scheduler"]["version"] == 2
+    assert len(waiting.continuation["scheduler"]["graph_checksum"]) == 64
+    assert waiting.continuation["scheduler"]["edge_outcomes"] == {"e1": "arrived"}
 
     approval = approvals.require(pending["approval_id"])
     decided = approvals.decide(
@@ -213,6 +243,49 @@ async def test_human_intervention_v2_resumes_once_with_typed_mode_result(
     assert completed.result == expected
     assert completed.continuation == {}
     assert sum(event.get("event") == "workflow_end" for event in completed.events) == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_continuation_stays_on_scheduler_v1_after_waiting_again(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    approvals = RuntimeApprovalStore(tmp_path / "approvals")
+    executions = WorkflowExecutionStore(tmp_path / "executions")
+    monkeypatch.setattr(main_module, "runtime_approval_store", approvals)
+    monkeypatch.setattr(main_module, "workflow_execution_store", executions)
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={
+            "workflow": _two_human_workflow(),
+            "inputs": {"user_input": "synthetic order"},
+        },
+    )
+    first_pending = next(
+        event
+        for event in _events(response)
+        if event.get("event") == "runtime_approval_pending"
+    )
+    waiting = executions.require(first_pending["task_id"])
+    waiting.continuation.pop("scheduler")
+
+    first_approval = approvals.require(first_pending["approval_id"])
+    decided = approvals.decide(
+        first_approval.approval_id,
+        revision=first_approval.revision,
+        decision="approve",
+        operator="tester",
+    )
+    executions.mark_ready(waiting.task_id, approval_id=first_approval.approval_id)
+    claimed = executions.claim(waiting.task_id, worker_id="legacy-test-worker")
+    await main_module.resume_runtime_approval_execution(claimed, decided)
+
+    waiting_again = executions.require(waiting.task_id)
+    assert waiting_again.status == "waiting"
+    assert waiting_again.wait_id != first_approval.approval_id
+    assert waiting_again.continuation["scheduler"] == {"version": 1}
 
 
 @pytest.mark.asyncio

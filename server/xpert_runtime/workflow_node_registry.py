@@ -403,6 +403,15 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     metadata={"planner_enabled": False},
                 ),
                 WorkflowPaletteItem(
+                    kind="data_merge",
+                    icon="MERGE",
+                    title="数据合流",
+                    description="等待左右路径到达，再拼接数组或按复合键一对一合并。",
+                    category="transform",
+                    tags=["merge", "fan-in", "join", "typed-value"],
+                    metadata={"planner_enabled": False},
+                ),
+                WorkflowPaletteItem(
                     kind="dataset_compare",
                     icon="DIFF",
                     title="数据集对照",

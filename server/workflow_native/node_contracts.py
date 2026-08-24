@@ -1853,6 +1853,77 @@ def _complete_contracts() -> dict[str, NodeContract]:
         ),
         planner=_planner(),
     )
+    contracts["data_merge"] = NodeContract(
+        kind="data_merge",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "contractVersion": {"const": 1},
+                "mergeMode": {
+                    "type": "string",
+                    "enum": ["append", "keyed_join"],
+                },
+                "leftVariable": {
+                    "type": "string",
+                    "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+                },
+                "rightVariable": {
+                    "type": "string",
+                    "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+                },
+                "outputVariable": {
+                    "type": "string",
+                    "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+                },
+                "keyFields": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                    },
+                    "maxItems": 3,
+                    "uniqueItems": True,
+                },
+            },
+            required=[
+                "contractVersion",
+                "mergeMode",
+                "leftVariable",
+                "rightVariable",
+                "outputVariable",
+                "keyFields",
+            ],
+        ),
+        ports=(
+            NodePortContract(
+                name="left",
+                direction="input",
+                value_schema=WorkflowValueSchema(type="array"),
+                required=True,
+            ),
+            NodePortContract(
+                name="right",
+                direction="input",
+                value_schema=WorkflowValueSchema(type="array"),
+                required=True,
+            ),
+            NodePortContract(
+                name="result",
+                direction="output",
+                value_schema=WorkflowValueSchema(type="array"),
+            ),
+        ),
+        edge=NodeEdgeContract(allowed_target_handles=("left", "right")),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=True,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="transform",
+        ),
+        planner=_planner(),
+    )
     contracts["dataset_compare"] = NodeContract(
         kind="dataset_compare",
         contract_status="complete",

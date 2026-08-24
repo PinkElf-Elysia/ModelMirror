@@ -103,7 +103,8 @@ describe("NodePalette disabled workflow nodes", () => {
       }),
     );
 
-    render(createElement(NodePalette));
+    const onAddNode = vi.fn();
+    render(createElement(NodePalette, { onAddNode }));
 
     const reason = await screen.findByText(
       /Workflow 文件资产变量当前未启用。/,
@@ -114,6 +115,11 @@ describe("NodePalette disabled workflow nodes", () => {
     expect(
       screen.queryByRole("button", { name: /文档提取器/ }),
     ).not.toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "添加节点：触发器" }),
+    );
+    expect(onAddNode).toHaveBeenCalledOnce();
+    expect(onAddNode).toHaveBeenCalledWith("input");
   });
 
   it("blocks middleware dragging when the authoritative registry fails", async () => {

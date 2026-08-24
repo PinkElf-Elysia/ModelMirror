@@ -258,11 +258,13 @@ function RuleEditor({
 }
 
 function SmallButton({
+  ariaLabel,
   children,
   disabled,
   onClick,
   title,
 }: {
+  ariaLabel?: string;
   children: ReactNode;
   disabled?: boolean;
   onClick: () => void;
@@ -270,6 +272,7 @@ function SmallButton({
 }) {
   return (
     <button
+      aria-label={ariaLabel}
       className="rounded-md border border-white/15 px-2 py-1 text-[11px] font-medium text-slate-200 transition hover:border-white/30 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
       disabled={disabled}
       onClick={onClick}
@@ -789,6 +792,123 @@ export default function WorkflowControlDataNodeConfig({
     );
   }
 
+  if (data.kind === "data_merge") {
+    const mergeMode = data.mergeMode ?? "append";
+    const keyFields = data.keyFields ?? [];
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.07] px-3 py-2 text-xs leading-5 text-cyan-50">
+          节点会等待“左侧数据”和“右侧数据”两条路径都到达后执行。请让每个入口只连接一条线，并选择该路径实际生成的变量。
+        </div>
+        <ConfigField label="合流方式">
+          <select
+            className={inputClass}
+            onChange={(event) => {
+              const nextMode = event.target.value as "append" | "keyed_join";
+              onChange({
+                mergeMode: nextMode,
+                keyFields: nextMode === "append"
+                  ? []
+                  : keyFields.length > 0 ? keyFields : ["id"],
+              });
+            }}
+            value={mergeMode}
+          >
+            <option className="bg-slate-950" value="append">顺序拼接两个数组</option>
+            <option className="bg-slate-950" value="keyed_join">按字段匹配两侧记录</option>
+          </select>
+        </ConfigField>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ConfigField
+            hint="必须由连接到左侧入口的路径生成，或来自全局输入/常量。"
+            label="左侧数组变量"
+          >
+            <WorkflowVariableField
+              contract={contract}
+              declarations={declarations}
+              edges={edges}
+              fieldName="leftVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => onChange({ leftVariable: value })}
+              value={data.leftVariable ?? ""}
+            />
+          </ConfigField>
+          <ConfigField
+            hint="必须由连接到右侧入口的路径生成，或来自全局输入/常量。"
+            label="右侧数组变量"
+          >
+            <WorkflowVariableField
+              contract={contract}
+              declarations={declarations}
+              edges={edges}
+              fieldName="rightVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => onChange({ rightVariable: value })}
+              value={data.rightVariable ?? ""}
+            />
+          </ConfigField>
+        </div>
+        <div className="flex justify-end"><VariableCenterShortcut onOpen={onOpenVariableCenter} /></div>
+        {mergeMode === "keyed_join" ? (
+          <div className="space-y-3">
+            <SectionHeader
+              detail="使用 1 至 3 个两侧共有的顶层字段组成键。每侧键必须唯一，只输出能一对一匹配的记录。"
+              title="匹配键"
+            />
+            {keyFields.map((field, index) => (
+              <div className="flex gap-2" key={`merge-key-${index}`}>
+                <input
+                  aria-label={`合流匹配键 ${index + 1}`}
+                  className={compactInputClass}
+                  onChange={(event) => onChange({
+                    keyFields: keyFields.map((item, itemIndex) =>
+                      itemIndex === index ? event.target.value : item
+                    ),
+                  })}
+                  placeholder="例如 id"
+                  value={field}
+                />
+                <SmallButton
+                  ariaLabel={`删除合流匹配键 ${index + 1}`}
+                  disabled={keyFields.length <= 1}
+                  onClick={() => onChange({
+                    keyFields: keyFields.filter((_, itemIndex) => itemIndex !== index),
+                  })}
+                >
+                  删除
+                </SmallButton>
+              </div>
+            ))}
+            <SmallButton
+              disabled={keyFields.length >= 3}
+              onClick={() => onChange({ keyFields: [...keyFields, ""] })}
+            >
+              添加匹配键
+            </SmallButton>
+          </div>
+        ) : (
+          <p className="text-xs leading-5 text-slate-300">
+            输出按左侧数组、右侧数组的顺序拼接；不会修改两侧原变量。
+          </p>
+        )}
+        <ConfigField label="合流结果变量">
+          <WorkflowVariableField
+            contract={contract}
+            declarations={declarations}
+            edges={edges}
+            fieldName="outputVariable"
+            node={node}
+            nodes={nodes}
+            onChange={(value) => onChange({ outputVariable: value })}
+            value={data.outputVariable ?? ""}
+          />
+        </ConfigField>
+      </div>
+    );
+  }
+
   if (data.kind === "dataset_compare") {
     const keyFields = data.keyFields ?? [];
     return (
@@ -808,7 +928,7 @@ export default function WorkflowControlDataNodeConfig({
           {keyFields.map((field, index) => (
             <div className="flex gap-2" key={`dataset-key-${index}`}>
               <input aria-label={`匹配键 ${index + 1}`} className={compactInputClass} onChange={(event) => onChange({ keyFields: keyFields.map((item, itemIndex) => itemIndex === index ? event.target.value : item) })} placeholder="顶层字段" value={field} />
-              <SmallButton disabled={keyFields.length <= 1} onClick={() => onChange({ keyFields: keyFields.filter((_, itemIndex) => itemIndex !== index) })}>删除</SmallButton>
+              <SmallButton ariaLabel={`删除数据集匹配键 ${index + 1}`} disabled={keyFields.length <= 1} onClick={() => onChange({ keyFields: keyFields.filter((_, itemIndex) => itemIndex !== index) })}>删除</SmallButton>
             </div>
           ))}
           <SmallButton disabled={keyFields.length >= 3} onClick={() => onChange({ keyFields: [...keyFields, ""] })}>添加匹配键</SmallButton>

@@ -46,12 +46,20 @@ function paletteCardClass(disabled = false) {
   return "group w-full rounded-lg border border-white/10 bg-[#101828] p-3 text-left transition duration-200 hover:border-white/25 hover:bg-[#151f33] focus:outline-none focus:ring-2 focus:ring-brand-300/30";
 }
 
-function NormalNodeButton({ item }: { item: WorkflowPaletteItem }) {
+function NormalNodeButton({
+  item,
+  onAdd,
+}: {
+  item: WorkflowPaletteItem;
+  onAdd?: (kind: WorkflowNodeKind) => void;
+}) {
   return (
     <button
+      aria-label={`添加节点：${item.title}`}
       className={paletteCardClass()}
       draggable
       key={item.kind}
+      onClick={() => onAdd?.(item.kind)}
       onDragStart={(event) => {
         event.dataTransfer.setData("application/modelmirror-node", item.kind);
         event.dataTransfer.effectAllowed = "move";
@@ -160,8 +168,12 @@ export function disabledPaletteItem(
 
 export default function NodePalette({
   excludeKinds = [],
+  onAddNode,
+  onAddRuntimeMiddleware,
 }: {
   excludeKinds?: WorkflowNodeKind[];
+  onAddNode?: (kind: WorkflowNodeKind) => void;
+  onAddRuntimeMiddleware?: (node: RuntimeMiddlewareNode) => void;
 }) {
   const [activeTab, setActiveTab] = useState<PaletteTab>("workflow");
   const [searchQuery, setSearchQuery] = useState("");
@@ -345,7 +357,11 @@ export default function NodePalette({
                 </div>
                 <div className="space-y-2">
                   {section.items.map((item) => (
-                    <NormalNodeButton item={item} key={item.kind} />
+                    <NormalNodeButton
+                      item={item}
+                      key={item.kind}
+                      onAdd={onAddNode}
+                    />
                   ))}
                   {(section.placeholders ?? []).map((item) => (
                     <PlaceholderCard item={item} key={item.id} />
@@ -392,9 +408,11 @@ export default function NodePalette({
             <div className="space-y-2">
               {filteredMiddlewareNodes.map((node) => (
                 <button
+                  aria-label={`添加中间件：${node.title}`}
                   className={paletteCardClass()}
                   draggable
                   key={node.id}
+                  onClick={() => onAddRuntimeMiddleware?.(node)}
                   onDragStart={(event) => {
                     const payload = {
                       kind: "runtime_middleware",
@@ -455,7 +473,11 @@ export default function NodePalette({
             ) : (
               <div className="space-y-2">
                 {filteredKnowledgeItems.map((item) => (
-                  <NormalNodeButton item={item} key={item.kind} />
+                  <NormalNodeButton
+                    item={item}
+                    key={item.kind}
+                    onAdd={onAddNode}
+                  />
                 ))}
               </div>
             )}

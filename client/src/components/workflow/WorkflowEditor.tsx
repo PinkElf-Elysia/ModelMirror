@@ -143,6 +143,30 @@ export function parseSkillRuntimeIds(value: unknown): string[] {
   )];
 }
 
+export function dataMergeConnectionError(
+  targetKind: WorkflowNodeKind | undefined,
+  targetNodeId: string | null,
+  targetHandle: string | null,
+  edges: WorkflowEdge[],
+): string | null {
+  const handle = targetHandle ?? "";
+  if (targetKind === "data_merge") {
+    if (!new Set(["left", "right"]).has(handle)) {
+      return "数据合流必须连接到“左侧数据”或“右侧数据”入口。";
+    }
+    if (targetNodeId && edges.some((edge) =>
+      edge.target === targetNodeId && edge.targetHandle === handle
+    )) {
+      return `数据合流的${handle === "left" ? "左侧" : "右侧"}入口只能连接一次。`;
+    }
+    return null;
+  }
+  if (["left", "right"].includes(handle)) {
+    return "左右数据入口只属于数据合流节点。";
+  }
+  return null;
+}
+
 export function updateSkillRuntimeIds(
   value: unknown,
   skillId: string,
@@ -172,7 +196,7 @@ async function cachedFetchResource<T>(
 
 /** MiniMap 节点按 kind 大类着色，与 WorkflowNodeCard 的 nodeMeta 配色呼应。 */
 function minimapNodeColor(kind: string): string {
-  if (["llm", "code", "variable_assign", "template_transform", "variable_aggregator", "parameter_extractor", "data_aggregate", "json_serialize", "json_deserialize"].includes(kind)) {
+  if (["llm", "code", "variable_assign", "template_transform", "variable_aggregator", "parameter_extractor", "data_aggregate", "data_merge", "json_serialize", "json_deserialize"].includes(kind)) {
     return "#22d3ee"; // brand 青
   }
   if (["condition", "multi_route", "terminate_error", "iteration"].includes(kind)) return "#fbbf24"; // amber
@@ -1024,6 +1048,20 @@ export function createNodeData(
     };
   }
 
+  if (kind === "data_merge") {
+    return {
+      kind,
+      title: "数据合流",
+      description: "等待左右两条路径都到达，再拼接数组或按键一对一合并。",
+      contractVersion: 1,
+      mergeMode: "append",
+      leftVariable: "left_rows",
+      rightVariable: "right_rows",
+      outputVariable: "merged_rows",
+      keyFields: [],
+    };
+  }
+
   if (kind === "dataset_compare") {
     return {
       kind,
@@ -1420,9 +1458,11 @@ function defaultLiteralForSchema(schema: unknown): WorkflowValue {
 function JsonLiteralEditor({
   value,
   onChange,
+  ariaLabel,
 }: {
   value: WorkflowValue;
   onChange: (value: WorkflowValue) => void;
+  ariaLabel: string;
 }) {
   const [draft, setDraft] = useState(() => JSON.stringify(value, null, 2));
   const [error, setError] = useState("");
@@ -1435,6 +1475,7 @@ function JsonLiteralEditor({
   return (
     <>
       <textarea
+        aria-label={ariaLabel}
         className={`${textInputClass()} min-h-28 resize-y font-mono text-xs leading-5`}
         onBlur={() => {
           try {
@@ -3367,7 +3408,7 @@ function NodeConfig({
         />
       ) : null}
 
-      {["condition", "terminate_error", "multi_route", "list_operation", "data_aggregate", "dataset_compare", "object_transform"].includes(data.kind) ? (
+      {["condition", "terminate_error", "multi_route", "list_operation", "data_aggregate", "data_merge", "dataset_compare", "object_transform"].includes(data.kind) ? (
         <WorkflowControlDataNodeConfig
           contract={variableContract}
           data={data}
@@ -3708,6 +3749,7 @@ function NodeConfig({
                   ) : (
                     <div className="mt-2">
                       <JsonLiteralEditor
+                        ariaLabel="固定 JSON 值"
                         onChange={(value) => update({ literalValue: value })}
                         value={(data.literalValue ?? {}) as WorkflowValue}
                       />
@@ -4593,6 +4635,7 @@ function NodeConfig({
                       ) : (
                         <div className="mt-2">
                           <JsonLiteralEditor
+                            ariaLabel={`${item.name || `参数 ${index + 1}`}固定 JSON 值`}
                             onChange={(value) => {
                               const next = [...(data.argumentBindings ?? [])];
                               next[index] = { ...item, binding: { source: "literal", value } };
@@ -5489,6 +5532,16 @@ function WorkflowCanvas({
           return;
         }
       }
+      const mergeConnectionError = dataMergeConnectionError(
+        targetNode?.data.kind,
+        connection.target,
+        connection.targetHandle,
+        edges,
+      );
+      if (mergeConnectionError) {
+        setErrorNotice(mergeConnectionError);
+        return;
+      }
       const middlewareBinding = connection.targetHandle === "middleware";
       const resourceBinding =
         connection.targetHandle === "expert" ||
@@ -6178,6 +6231,66 @@ function WorkflowCanvas({
     window.setTimeout(() => setSaveNotice(""), 2600);
   }
 
+  const paletteInsertPosition = useCallback(
+    () => screenToFlowPosition({
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+    }),
+    [screenToFlowPosition],
+  );
+
+  const handlePaletteAddNode = useCallback(
+    (kind: WorkflowNodeKind) => {
+      if (onSave && INDEPENDENT_DEPLOYMENT_NODE_KINDS.has(kind)) {
+        setErrorNotice("Xpert 内嵌画布不能使用独立部署节点。");
+        return;
+      }
+      const position = paletteInsertPosition();
+      try {
+        const nextNode = createNode(kind, position.x, position.y);
+        commitHistory();
+        setNodes((currentNodes) => [...currentNodes, nextNode]);
+        setSelectedNodeId(nextNode.id);
+        setIsNodePaletteOpen(false);
+        setSaveNotice("");
+        setErrorNotice("");
+      } catch (error) {
+        setErrorNotice(
+          error instanceof Error ? error.message : "无法创建该工作流节点。",
+        );
+      }
+    },
+    [commitHistory, onSave, paletteInsertPosition, setNodes],
+  );
+
+  const handlePaletteAddRuntimeMiddleware = useCallback(
+    (middleware: RuntimeMiddlewareNode) => {
+      const position = paletteInsertPosition();
+      const payload: RuntimeMiddlewareDragPayload = {
+        kind: "runtime_middleware",
+        runtimeMiddlewareId: middleware.id,
+        runtimeMiddlewareKind: middleware.kind,
+        title: middleware.title,
+        description: middleware.description,
+        fields: middleware.fields,
+        metadata: middleware.metadata ?? {},
+      };
+      const nextNode = createNode(
+        "runtime_middleware",
+        position.x,
+        position.y,
+        payload,
+      );
+      commitHistory();
+      setNodes((currentNodes) => [...currentNodes, nextNode]);
+      setSelectedNodeId(nextNode.id);
+      setIsNodePaletteOpen(false);
+      setSaveNotice("");
+      setErrorNotice("");
+    },
+    [commitHistory, paletteInsertPosition, setNodes],
+  );
+
   function onDrop(event: React.DragEvent<HTMLDivElement>) {
     event.preventDefault();
     const position = screenToFlowPosition({
@@ -6346,6 +6459,8 @@ function WorkflowCanvas({
           <div className="mt-4">
             <NodePalette
               excludeKinds={onSave ? Array.from(INDEPENDENT_DEPLOYMENT_NODE_KINDS) : []}
+              onAddNode={handlePaletteAddNode}
+              onAddRuntimeMiddleware={handlePaletteAddRuntimeMiddleware}
             />
           </div>
         </aside>
