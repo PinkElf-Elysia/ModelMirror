@@ -23,6 +23,7 @@ WorkflowExecutionSourceKind = Literal[
     "workflow_classic",
     "workflow_deployment",
     "xpert_chat",
+    "xpert_app",
     "expert_team_agency",
 ]
 
@@ -690,6 +691,10 @@ class WorkflowExecutionStore:
         allowed_entries = {
             "workflow_interactive_llm",
             "workflow_deployment_llm",
+            "workflow_interactive_agent",
+            "workflow_deployment_agent",
+            "xpert",
+            "xpert_app",
         }
         allowed_statuses = {
             "running",
@@ -784,12 +789,15 @@ class WorkflowExecutionStore:
         if not clean:
             return None
         expected_run_types = {
-            "workflow_classic": "workflow",
-            "workflow_deployment": "workflow",
-            "xpert_chat": "xpert",
-            "expert_team_agency": "expert_team",
+            "workflow_classic": {"workflow"},
+            "workflow_deployment": {"workflow"},
+            "xpert_chat": {"xpert"},
+            # A root App run uses xpert_app; a server-controlled child Xpert
+            # keeps its xpert run type while inheriting the App control plane.
+            "xpert_app": {"xpert_app", "xpert"},
+            "expert_team_agency": {"expert_team"},
         }
-        if clean not in expected_run_types or expected_run_types[clean] != str(run_type):
+        if clean not in expected_run_types or str(run_type) not in expected_run_types[clean]:
             if strict:
                 raise WorkflowExecutionConflictError(
                     "Workflow execution source kind does not match its run type."

@@ -242,7 +242,12 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   禁止 `retryOnFailure`、`fallbackModelId` 和 Function Calling 失败后转 ReAct。HITL 恢复复用
   已保存输出，只有显式 revise 创建新的稳定阶段和模型轮次。工具调用仍由 Runtime 执行，Receipt
   不保存工具参数、Prompt 或模型正文。
-- 后续 R6F—R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
+- R6F 接入直接 Published Xpert 与已部署 Xpert App，分别使用 `xpert`、`xpert_app` Policy。
+  工作流内文本、工具与结构化轮次复用 R6E Call Service；Xpert Chat 和 App 响应只增加脱敏
+  Receipt，不改变回答正文或会话历史。受控子 Xpert/Handoff 显式继承 `xpert` 上下文，Managed
+  失败不自动重放；Automation、Goal、评测、进化、记忆候选、后台增强与 Skill 流程保持排除。
+  文件仅使用既有抽取文本，多模态继续专用 Adapter。
+- 后续 R6G—R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
   只能存在于 Python 主进程内存，Worker、工具执行器和浏览器不得收到 Key、URL 或连接细节。
 - Receipt 清理命令现在同时检查 R5 Chat 与 R6 Workload 记录，仍默认 dry-run；`--apply`
   才删除超过保留期的已完成运行、尝试或调用。

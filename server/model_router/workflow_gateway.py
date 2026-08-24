@@ -32,12 +32,19 @@ except ImportError:  # pragma: no cover - direct server package execution
 
 
 WorkflowRoutingMode = Literal["legacy", "managed_required", "degraded_required"]
-WorkflowSourceKind = Literal["workflow_classic", "workflow_deployment"]
+WorkflowSourceKind = Literal[
+    "workflow_classic",
+    "workflow_deployment",
+    "xpert_chat",
+    "xpert_app",
+]
 WorkflowEntryId = Literal[
     "workflow_interactive_llm",
     "workflow_deployment_llm",
     "workflow_interactive_agent",
     "workflow_deployment_agent",
+    "xpert",
+    "xpert_app",
 ]
 WorkflowCallStatus = Literal[
     "passed", "failed", "uncertain", "cancelled"
@@ -114,10 +121,20 @@ class ManagedWorkflowGateway:
     _ENTRY_BY_SOURCE: dict[WorkflowSourceKind, WorkflowEntryId] = {
         "workflow_classic": "workflow_interactive_llm",
         "workflow_deployment": "workflow_deployment_llm",
+        "xpert_chat": "xpert",
+        "xpert_app": "xpert_app",
     }
     _AGENT_ENTRY_BY_SOURCE: dict[WorkflowSourceKind, WorkflowEntryId] = {
         "workflow_classic": "workflow_interactive_agent",
         "workflow_deployment": "workflow_deployment_agent",
+        "xpert_chat": "xpert",
+        "xpert_app": "xpert_app",
+    }
+    _SOURCE_PREFIX: dict[WorkflowSourceKind, str] = {
+        "workflow_classic": "interactive",
+        "workflow_deployment": "deployment",
+        "xpert_chat": "xpert",
+        "xpert_app": "xpert_app",
     }
 
     def __init__(
@@ -202,8 +219,7 @@ class ManagedWorkflowGateway:
                 status_code=409,
             )
         parent_reference = (
-            f"{'interactive' if source_kind == 'workflow_classic' else 'deployment'}:"
-            f"{clean_execution}:{clean_node}"
+            f"{self._SOURCE_PREFIX[source_kind]}:{clean_execution}:{clean_node}"
         )
         try:
             run_id = self.call_service.start_stable_run(
@@ -244,8 +260,8 @@ class ManagedWorkflowGateway:
                 status_code=409,
             )
         parent_reference = (
-            f"{'interactive' if source_kind == 'workflow_classic' else 'deployment'}:"
-            f"{clean_execution}:{clean_node}:agent:{clean_phase}"
+            f"{self._SOURCE_PREFIX[source_kind]}:{clean_execution}:{clean_node}:"
+            f"agent:{clean_phase}"
         )
         try:
             run_id = self.call_service.start_stable_run(

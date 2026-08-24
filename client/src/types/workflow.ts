@@ -452,7 +452,9 @@ export interface ProviderRouteReceipt {
     | "workflow_interactive_llm"
     | "workflow_deployment_llm"
     | "workflow_interactive_agent"
-    | "workflow_deployment_agent";
+    | "workflow_deployment_agent"
+    | "xpert"
+    | "xpert_app";
   routing_mode: "managed_required";
   run_reference: string;
   status: "running" | "passed" | "failed" | "uncertain" | "cancelled";

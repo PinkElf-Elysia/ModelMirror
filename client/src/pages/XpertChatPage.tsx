@@ -9,6 +9,9 @@ import SandboxWorkspacePanel from "../components/runtime/SandboxWorkspacePanel";
 import DataXResultCard from "../components/datax/DataXResultCard";
 import FileOutputTray from "../components/FileOutputTray";
 import FileMemoryPanel from "../components/xpert/FileMemoryPanel";
+import ProviderRouteReceiptSummary, {
+  type ProviderRouteReceipt,
+} from "../components/meta/ProviderRouteReceiptSummary";
 import SkillApplicationCard, {
   requiredSkillIdsFromWorkflowNodes,
 } from "../components/skill-runtime/SkillApplicationCard";
@@ -89,6 +92,18 @@ interface XpertRunEvent {
   sequence?: number;
   suggestions?: string[];
   conversation_title?: string;
+  provider_route_receipts?: ProviderRouteReceipt;
+}
+
+export function latestXpertProviderReceipt(
+  events: XpertRunEvent[],
+): ProviderRouteReceipt | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index]?.provider_route_receipts) {
+      return events[index].provider_route_receipts ?? null;
+    }
+  }
+  return null;
 }
 
 export function selectedXpertFilesAfterConversationRestore(
@@ -337,6 +352,7 @@ export default function XpertChatPage() {
   const [messages, setMessages] = useState<XpertConversationMessage[]>([]);
   const [input, setInput] = useState("");
   const [events, setEvents] = useState<XpertRunEvent[]>([]);
+  const [providerReceipt, setProviderReceipt] = useState<ProviderRouteReceipt | null>(null);
   const [runId, setRunId] = useState("");
   const [taskId, setTaskId] = useState("");
   const [trace, setTrace] = useState<TraceBundle | null>(null);
@@ -538,6 +554,7 @@ export default function XpertChatPage() {
     setFileOutputs([]);
     setSelectedFileIds([]);
     setEvents([]);
+    setProviderReceipt(null);
     setContextLoading(true);
     setError("");
     try {
@@ -577,7 +594,8 @@ export default function XpertChatPage() {
             `/api/workflow/run/${encodeURIComponent(linkedMessage.source_task_id)}/stream?after_sequence=0`,
           );
           if (response.ok) {
-            const restored = parseXpertWorkflowEvents(await response.text())
+            const restoredEvents = parseXpertWorkflowEvents(await response.text());
+            const restored = restoredEvents
               .filter((event) => ["skill_runtime_status", "skill_hook_status"].includes(event.event))
               .slice(-80);
             if (isCurrentXpertConversationRequest(
@@ -585,7 +603,10 @@ export default function XpertChatPage() {
               conversationRequestTokenRef.current,
               nextConversationId,
               conversationIdRef.current,
-            )) setEvents(restored);
+            )) {
+              setEvents(restored);
+              setProviderReceipt(latestXpertProviderReceipt(restoredEvents));
+            }
           }
         } catch {
           // Historical Skill status is best-effort; the conversation stays usable.
@@ -1039,6 +1060,7 @@ export default function XpertChatPage() {
     setInput("");
     setSelectedFileIds(nextSelectedFileIds);
     setEvents([]);
+    setProviderReceipt(null);
     setTrace(null);
     setRunId("");
     setTaskId("");
@@ -1078,6 +1100,9 @@ export default function XpertChatPage() {
           if (!raw) continue;
           const event = JSON.parse(raw) as XpertRunEvent;
           setEvents((current) => [...current.slice(-79), event]);
+          if (event.provider_route_receipts) {
+            setProviderReceipt(event.provider_route_receipts);
+          }
           if (event.run_id) {
             nextRunId = event.run_id;
             setRunId(event.run_id);
@@ -1160,6 +1185,7 @@ export default function XpertChatPage() {
       let finalSuggestions: string[] = [];
       let finalConversationTitle = "";
       setEvents([]);
+      setProviderReceipt(null);
 
       const processBlock = (block: string) => {
         for (const line of block.split(/\r?\n/)) {
@@ -1168,6 +1194,9 @@ export default function XpertChatPage() {
           if (!raw) continue;
           const event = JSON.parse(raw) as XpertRunEvent;
           setEvents((current) => [...current.slice(-79), event]);
+          if (event.provider_route_receipts) {
+            setProviderReceipt(event.provider_route_receipts);
+          }
           if (event.run_id) {
             nextRunId = event.run_id;
             setRunId(event.run_id);
@@ -1595,6 +1624,12 @@ export default function XpertChatPage() {
             <div className="rounded-lg border border-white/10 bg-white/[0.04] p-3"><dt className="text-slate-500">状态</dt><dd className="mt-1 font-semibold text-white">{running ? "运行中" : trace?.run?.status ?? "待运行"}</dd></div>
             <div className="col-span-2 rounded-lg border border-white/10 bg-white/[0.04] p-3"><dt className="text-slate-500">Run ID</dt><dd className="mt-1 break-all font-mono text-[11px] text-slate-300">{runId || "-"}</dd></div>
           </dl>
+
+          {providerReceipt ? (
+            <div className="mt-3">
+              <ProviderRouteReceiptSummary compact receipt={providerReceipt} />
+            </div>
+          ) : null}
 
           <SkillApplicationCard
             className="mt-3"

@@ -9,8 +9,10 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
+from fastapi.responses import StreamingResponse
 
 import server.main as main_module
+import server.xperts.app_api as app_api_module
 from server.main import app
 from server.xperts import (
     XpertAppStore,
@@ -75,6 +77,152 @@ async def _create_deployed_app(
     )
     assert deploy.status_code == 200, deploy.text
     return created, deploy.json()["app"], created_app["share_token"]
+
+
+@pytest.mark.asyncio
+async def test_public_app_forwards_only_sanitized_provider_receipt(
+    client: httpx.AsyncClient,
+    stores,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    xpert_store, _ = stores
+    _, deployed, share_token = await _create_deployed_app(
+        client,
+        xpert_store,
+        slug="managed-receipt-app",
+    )
+    receipt = {
+        "contract_version": "modelmirror-provider-workload-routing-v1",
+        "entry_id": "xpert_app",
+        "routing_mode": "managed_required",
+        "run_reference": "workrun-public-safe",
+        "status": "passed",
+        "call_count": 1,
+        "reason_codes": [],
+        "connection_id": "must-not-survive",
+        "base_url": "https://private-provider.invalid/v1",
+        "prompt": "private prompt",
+        "calls": [
+            {
+                "call_sequence": 1,
+                "model_id": "provider/public-model",
+                "actual_model": "provider/public-model",
+                "dispatched": True,
+                "status": "passed",
+                "error_code": None,
+                "prompt_tokens": 3,
+                "completion_tokens": 2,
+                "total_tokens": 5,
+                "connection_id": "must-not-survive",
+                "output": "private model output",
+            }
+        ],
+    }
+
+    async def fake_runtime(*_args: Any, **_kwargs: Any) -> StreamingResponse:
+        async def body():
+            for event in (
+                {"event": "workflow_meta", "run_id": "run-public-safe"},
+                {
+                    "event": "node_end",
+                    "node_id": "agent",
+                    "provider_route_receipts": receipt,
+                },
+                {
+                    "event": "workflow_end",
+                    "run_id": "run-public-safe",
+                    "final_output": "public managed answer",
+                },
+            ):
+                yield "data: " + json.dumps(event) + "\n\n"
+
+        return StreamingResponse(body(), media_type="text/event-stream")
+
+    monkeypatch.setattr(app_api_module, "_runtime_callback", fake_runtime)
+    headers = {"X-ModelMirror-App-Token": share_token}
+    non_stream = await client.post(
+        f"/api/v1/xpert-apps/{deployed['slug']}/chat/completions",
+        headers=headers,
+        json={"messages": [{"role": "user", "content": "hello"}]},
+    )
+    streamed = await client.post(
+        f"/api/v1/xpert-apps/{deployed['slug']}/chat/completions",
+        headers=headers,
+        json={
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": True,
+        },
+    )
+
+    assert non_stream.status_code == 200, non_stream.text
+    public_receipt = non_stream.json()["modelmirror"]["provider_route_receipts"]
+    assert non_stream.json()["modelmirror"]["run_id"] == "run-public-safe"
+    assert public_receipt["entry_id"] == "xpert_app"
+    assert public_receipt["calls"][0]["model_id"] == "provider/public-model"
+    assert streamed.status_code == 200, streamed.text
+    assert '"entry_id": "xpert_app"' in streamed.text
+    for forbidden in (
+        "connection_id",
+        "base_url",
+        "private-provider",
+        "private prompt",
+        "private model output",
+    ):
+        assert forbidden not in json.dumps(non_stream.json())
+        assert forbidden not in streamed.text
+
+
+@pytest.mark.asyncio
+async def test_public_app_non_stream_failure_preserves_sanitized_provider_receipt(
+    client: httpx.AsyncClient,
+    stores,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    xpert_store, _ = stores
+    _, deployed, share_token = await _create_deployed_app(
+        client,
+        xpert_store,
+        slug="managed-failure-receipt-app",
+    )
+    receipt = {
+        "entry_id": "xpert_app",
+        "status": "failed",
+        "reason_codes": ["provider_workload_policy_not_active"],
+        "connection_id": "must-not-survive",
+        "calls": [],
+    }
+
+    async def fake_runtime(*_args: Any, **_kwargs: Any) -> StreamingResponse:
+        async def body():
+            yield "data: " + json.dumps(
+                {"event": "workflow_meta", "run_id": "run-public-failed"}
+            ) + "\n\n"
+            yield "data: " + json.dumps(
+                {
+                    "event": "error",
+                    "message": "Managed Provider policy blocked the call.",
+                    "provider_route_receipts": receipt,
+                }
+            ) + "\n\n"
+
+        return StreamingResponse(body(), media_type="text/event-stream")
+
+    monkeypatch.setattr(app_api_module, "_runtime_callback", fake_runtime)
+    response = await client.post(
+        f"/api/v1/xpert-apps/{deployed['slug']}/chat/completions",
+        headers={"X-ModelMirror-App-Token": share_token},
+        json={"messages": [{"role": "user", "content": "hello"}]},
+    )
+
+    assert response.status_code == 500, response.text
+    payload = response.json()
+    assert payload["modelmirror"]["run_id"] == "run-public-failed"
+    public_receipt = payload["modelmirror"]["provider_route_receipts"]
+    assert public_receipt["entry_id"] == "xpert_app"
+    assert public_receipt["reason_codes"] == [
+        "provider_workload_policy_not_active"
+    ]
+    assert "connection_id" not in json.dumps(payload)
 
 
 def test_xpert_app_store_persists_hashes_deployments_and_rollback(

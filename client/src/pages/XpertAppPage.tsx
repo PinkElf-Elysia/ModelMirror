@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import ProviderRouteReceiptSummary, {
+  type ProviderRouteReceipt,
+} from "../components/meta/ProviderRouteReceiptSummary";
 import { type XpertAppManifest } from "../types/xpert";
 
 interface AppMessage {
@@ -26,6 +29,16 @@ function readError(payload: unknown, fallback: string) {
   return fallback;
 }
 
+export function xpertAppProviderReceipt(payload: unknown): ProviderRouteReceipt | null {
+  if (!payload || typeof payload !== "object") return null;
+  const modelmirror = (payload as { modelmirror?: unknown }).modelmirror;
+  if (!modelmirror || typeof modelmirror !== "object") return null;
+  const receipt = (modelmirror as { provider_route_receipts?: unknown })
+    .provider_route_receipts;
+  if (!receipt || typeof receipt !== "object") return null;
+  return receipt as ProviderRouteReceipt;
+}
+
 export default function XpertAppPage() {
   const { appSlug = "" } = useParams();
   const [manifest, setManifest] = useState<XpertAppManifest | null>(null);
@@ -36,6 +49,7 @@ export default function XpertAppPage() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+  const [providerReceipt, setProviderReceipt] = useState<ProviderRouteReceipt | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -111,6 +125,13 @@ export default function XpertAppPage() {
     setAccessDraft("");
     setManifest(null);
     setError("");
+    setProviderReceipt(null);
+  }
+
+  function clearConversation() {
+    setMessages([]);
+    setProviderReceipt(null);
+    localStorage.removeItem(historyKey(appSlug));
   }
 
   async function sendMessage(value = input) {
@@ -123,6 +144,7 @@ export default function XpertAppPage() {
     setInput("");
     setRunning(true);
     setError("");
+    setProviderReceipt(null);
     try {
       const response = await fetch(`/api/v1/xpert-apps/${appSlug}/chat/completions`, {
         method: "POST",
@@ -161,7 +183,10 @@ export default function XpertAppPage() {
             const payload = JSON.parse(raw) as {
               error?: { message?: string };
               choices?: Array<{ delta?: { content?: string } }>;
+              modelmirror?: { provider_route_receipts?: ProviderRouteReceipt | null };
             };
+            const receipt = xpertAppProviderReceipt(payload);
+            if (receipt) setProviderReceipt(receipt);
             if (payload.error) throw new Error(payload.error.message || "App 运行失败");
             const delta = payload.choices?.[0]?.delta?.content || "";
             if (!delta) continue;
@@ -229,7 +254,7 @@ export default function XpertAppPage() {
             <p className="mt-1 line-clamp-2 max-w-3xl text-xs leading-5 text-slate-400">{manifest.description || "已发布的模镜 Agent App"}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <button className="rounded-md border border-white/10 px-3 py-2 text-xs text-slate-300 hover:bg-white/[0.05]" onClick={() => { setMessages([]); localStorage.removeItem(historyKey(appSlug)); }} type="button">清空对话</button>
+            <button className="rounded-md border border-white/10 px-3 py-2 text-xs text-slate-300 hover:bg-white/[0.05]" onClick={clearConversation} type="button">清空对话</button>
             <button className="rounded-md px-3 py-2 text-xs text-slate-500 hover:text-slate-200" onClick={resetAccess} type="button">退出分享</button>
           </div>
         </header>
@@ -275,6 +300,11 @@ export default function XpertAppPage() {
 
         <footer className="border-t border-white/10 bg-ink-950/55 p-4 sm:px-6">
           <div className="mx-auto max-w-3xl">
+            {providerReceipt ? (
+              <div className="mb-2">
+                <ProviderRouteReceiptSummary compact receipt={providerReceipt} />
+              </div>
+            ) : null}
             {error ? <p className="mb-2 text-xs text-rose-200">{error}</p> : null}
             <div className="flex items-end gap-2">
               <textarea

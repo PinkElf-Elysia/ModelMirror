@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 import pytest
+from fastapi.responses import StreamingResponse
 
 import server.main as main_module
 from server.main import app
@@ -96,6 +97,118 @@ async def test_handoff_claim_is_atomic_and_manual_targets_are_not_executable() -
     with pytest.raises(ValueError, match="already leased"):
         await store.claim_handoff(automatic.handoff_id, worker_id="worker-b")
     assert await store.list_executable_handoffs() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_kind", "entry_id"),
+    (("xpert_chat", "xpert"), ("xpert_app", "xpert_app")),
+)
+async def test_managed_handoff_failure_is_permanent_and_inherits_xpert_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_kind: str,
+    entry_id: str,
+) -> None:
+    xpert_store = XpertStore(tmp_path / "xperts-managed-handoff")
+    task_store = AgentTaskStore(storage_dir=tmp_path / "managed-handoff-tasks")
+    set_xpert_store_for_tests(xpert_store)
+    monkeypatch.setattr(main_module, "agent_task_store", task_store)
+    specialist = xpert_store.create_xpert(name="Specialist", slug="specialist")
+    xpert_store.publish_xpert(
+        specialist.id,
+        expected_revision=specialist.draft_revision,
+    )
+    task = await task_store.create_task("Managed handoff", "private task")
+    handoff = await task_store.create_handoff(
+        task.task_id,
+        "manager",
+        "xpert:specialist",
+        "delegate",
+        metadata={
+            "execution_mode": "xpert_auto",
+            "ready_for_execution": True,
+            "provider_workload_source_kind": source_kind,
+        },
+    )
+    captured: dict[str, Any] = {}
+
+    async def fake_run(*_args: Any, **kwargs: Any) -> StreamingResponse:
+        captured.update(kwargs)
+
+        async def body():
+            yield main_module.sse_payload(
+                {
+                    "event": "error",
+                    "message": "Managed Provider call failed.",
+                    "provider_route_receipts": {
+                        "contract_version": "modelmirror-provider-workload-routing-v1",
+                        "entry_id": entry_id,
+                        "routing_mode": "managed_required",
+                        "run_reference": "workrun-managed-handoff",
+                        "status": "uncertain",
+                        "call_count": 1,
+                        "reason_codes": ["provider_workload_stream_interrupted"],
+                        "calls": [],
+                    },
+                }
+            )
+
+        return StreamingResponse(body(), media_type="text/event-stream")
+
+    monkeypatch.setattr(main_module, "_run_workflow_response", fake_run)
+    try:
+        with pytest.raises(
+            HandoffPermanentError,
+            match="automatic replay is disabled",
+        ):
+            await main_module.execute_xpert_handoff_target(handoff, task, None)
+        assert captured["runtime_execution_source_kind"] == source_kind
+    finally:
+        set_xpert_store_for_tests(None)
+
+
+@pytest.mark.asyncio
+async def test_excluded_handoff_does_not_inherit_managed_xpert_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    xpert_store = XpertStore(tmp_path / "xperts-legacy-handoff")
+    task_store = AgentTaskStore(storage_dir=tmp_path / "legacy-handoff-tasks")
+    set_xpert_store_for_tests(xpert_store)
+    monkeypatch.setattr(main_module, "agent_task_store", task_store)
+    specialist = xpert_store.create_xpert(name="Legacy Specialist", slug="legacy-specialist")
+    xpert_store.publish_xpert(
+        specialist.id,
+        expected_revision=specialist.draft_revision,
+    )
+    task = await task_store.create_task("Legacy handoff", "private")
+    handoff = await task_store.create_handoff(
+        task.task_id,
+        "automation",
+        "xpert:legacy-specialist",
+        "delegate",
+        metadata={"execution_mode": "xpert_auto", "ready_for_execution": True},
+    )
+    captured: dict[str, Any] = {}
+
+    async def fake_run(*_args: Any, **kwargs: Any) -> StreamingResponse:
+        captured.update(kwargs)
+
+        async def body():
+            yield main_module.sse_payload(
+                {"event": "workflow_end", "final_output": "legacy result"}
+            )
+
+        return StreamingResponse(body(), media_type="text/event-stream")
+
+    monkeypatch.setattr(main_module, "_run_workflow_response", fake_run)
+    try:
+        result = await main_module.execute_xpert_handoff_target(handoff, task, None)
+        assert result.output == "legacy result"
+        assert captured["runtime_execution_source_kind"] is None
+    finally:
+        set_xpert_store_for_tests(None)
 
 
 @pytest.mark.asyncio

@@ -31,8 +31,10 @@ from .models import XpertConversationMessage, XpertRunRequest, XpertVersion
 from .store import XpertNotFoundError, XpertStoreError
 
 try:
+    from server.xpert_runtime.execution_store import WorkflowExecutionStore
     from server.xpert_runtime.middleware_registry import runtime_middleware_registry
 except ModuleNotFoundError:
+    from xpert_runtime.execution_store import WorkflowExecutionStore
     from xpert_runtime.middleware_registry import runtime_middleware_registry
 
 
@@ -40,6 +42,19 @@ router = APIRouter(tags=["xpert-apps"])
 _app_store: XpertAppStore | None = None
 _access_controller: XpertAppAccessController | None = None
 _runtime_callback: Callable[..., Awaitable[Any]] | None = None
+
+
+class _XpertAppExecutionFailure(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        run_id: str,
+        provider_receipt: dict[str, Any] | None,
+    ) -> None:
+        super().__init__(message)
+        self.run_id = run_id
+        self.provider_receipt = provider_receipt
 
 
 class XpertAppCreateRequest(BaseModel):
@@ -668,11 +683,18 @@ async def _iter_internal_events(response: Any) -> AsyncIterator[dict[str, Any]]:
                     yield event
 
 
-async def _consume_final_output(response: Any) -> tuple[str, str]:
+async def _consume_final_output(
+    response: Any,
+) -> tuple[str, str, dict[str, Any] | None]:
     final_output = ""
     run_id = ""
     error = ""
+    provider_receipt: dict[str, Any] | None = None
     async for event in _iter_internal_events(response):
+        if isinstance(event.get("provider_route_receipts"), dict):
+            provider_receipt = WorkflowExecutionStore._safe_provider_route_receipt(
+                event["provider_route_receipts"]
+            )
         if event.get("event") == "workflow_meta":
             run_id = str(event.get("run_id") or "")
         elif event.get("event") == "workflow_end":
@@ -680,11 +702,16 @@ async def _consume_final_output(response: Any) -> tuple[str, str]:
             run_id = str(event.get("run_id") or run_id)
         elif event.get("event") == "error":
             error = str(event.get("message") or "Xpert App execution failed.")
+            run_id = str(event.get("run_id") or run_id)
     if error:
-        raise RuntimeError(error)
+        raise _XpertAppExecutionFailure(
+            error,
+            run_id=run_id,
+            provider_receipt=provider_receipt,
+        )
     if not final_output:
         raise RuntimeError("Xpert App completed without a final answer.")
-    return final_output, run_id
+    return final_output, run_id, provider_receipt
 
 
 def _prepare_openai_run(payload: OpenAIChatCompletionsRequest, version: int) -> XpertRunRequest:
@@ -970,7 +997,9 @@ async def run_public_xpert_app(
                 headers["X-ModelMirror-Runtime-Run-Id"] = internal_run_id
         if not payload.stream:
             try:
-                output, run_id = await _consume_final_output(internal_response)
+                output, run_id, provider_receipt = await _consume_final_output(
+                    internal_response
+                )
             finally:
                 await controller.release(grant)
                 grant = None
@@ -989,6 +1018,10 @@ async def run_public_xpert_app(
                         }
                     ],
                     "usage": None,
+                    "modelmirror": {
+                        "run_id": run_id,
+                        "provider_route_receipts": provider_receipt,
+                    },
                 },
                 headers=headers,
             )
@@ -996,6 +1029,7 @@ async def run_public_xpert_app(
         async def stream_openai() -> AsyncIterator[str]:
             run_id = ""
             completed = False
+            provider_receipt: dict[str, Any] | None = None
             try:
                 yield "data: " + json.dumps(
                     {
@@ -1010,6 +1044,12 @@ async def run_public_xpert_app(
                     ensure_ascii=False,
                 ) + "\n\n"
                 async for event in _iter_internal_events(internal_response):
+                    if isinstance(event.get("provider_route_receipts"), dict):
+                        provider_receipt = (
+                            WorkflowExecutionStore._safe_provider_route_receipt(
+                                event["provider_route_receipts"]
+                            )
+                        )
                     if event.get("event") == "workflow_meta":
                         run_id = str(event.get("run_id") or run_id)
                     elif event.get("event") == "error":
@@ -1019,7 +1059,11 @@ async def run_public_xpert_app(
                                 "type": "modelmirror_app_error",
                                 "param": None,
                                 "code": "app_execution_failed",
-                            }
+                            },
+                            "modelmirror": {
+                                "run_id": run_id,
+                                "provider_route_receipts": provider_receipt,
+                            },
                         }
                         yield "data: " + json.dumps(error_payload, ensure_ascii=False) + "\n\n"
                         yield "data: [DONE]\n\n"
@@ -1038,7 +1082,10 @@ async def run_public_xpert_app(
                                     "choices": [
                                         {"index": 0, "delta": {"content": output}, "finish_reason": None}
                                     ],
-                                    "modelmirror": {"run_id": run_id},
+                                    "modelmirror": {
+                                        "run_id": run_id,
+                                        "provider_route_receipts": provider_receipt,
+                                    },
                                 },
                                 ensure_ascii=False,
                             ) + "\n\n"
@@ -1065,7 +1112,10 @@ async def run_public_xpert_app(
                         "choices": [
                             {"index": 0, "delta": {}, "finish_reason": "stop"}
                         ],
-                        "modelmirror": {"run_id": run_id},
+                        "modelmirror": {
+                            "run_id": run_id,
+                            "provider_route_receipts": provider_receipt,
+                        },
                     },
                     ensure_ascii=False,
                 ) + "\n\n"
@@ -1088,6 +1138,18 @@ async def run_public_xpert_app(
         response = _openai_error(str(exc), status_code=429, code="rate_limit_exceeded")
         response.headers["Retry-After"] = "60"
         return response
+    except _XpertAppExecutionFailure as exc:
+        response = _openai_error(
+            str(exc),
+            status_code=500,
+            code="app_execution_failed",
+        )
+        payload = json.loads(bytes(response.body).decode("utf-8"))
+        payload["modelmirror"] = {
+            "run_id": exc.run_id,
+            "provider_route_receipts": exc.provider_receipt,
+        }
+        return JSONResponse(status_code=response.status_code, content=payload)
     except (XpertNotFoundError, XpertStoreError, RuntimeError) as exc:
         return _openai_error(str(exc), status_code=500, code="app_execution_failed")
     finally:
