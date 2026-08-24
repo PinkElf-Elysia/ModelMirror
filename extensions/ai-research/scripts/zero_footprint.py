@@ -30,6 +30,9 @@ def command(*args: str) -> str:
 def client_dist(root: Path) -> dict[str, object]:
     if not root.is_dir():
         raise BaselineFailure(f"client dist is missing: {root}")
+    entries = list(root.iterdir())
+    if len(entries) == 1 and entries[0].name == "dist" and entries[0].is_dir():
+        root = entries[0]
     files = sorted(path for path in root.rglob("*") if path.is_file())
     pairs = b""
     for path in files:
@@ -57,7 +60,11 @@ def main() -> int:
             failures.append(f"core tracked file drifted: {relative}")
     actual_client_dist = client_dist(client_dist_root)
     if actual_client_dist != baseline["clientDist"]:
-        failures.append("client dist hash/count/size changed")
+        failures.append(
+            "client dist hash/count/size changed: "
+            f"expected={json.dumps(baseline['clientDist'], sort_keys=True)} "
+            f"actual={json.dumps(actual_client_dist, sort_keys=True)}"
+        )
 
     services = sorted(command("docker", "compose", "config", "--services").splitlines())
     if services != baseline["defaultServices"]:
