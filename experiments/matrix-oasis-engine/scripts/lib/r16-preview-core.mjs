@@ -35,6 +35,16 @@ function qualificationRunId(qualification) {
   return createHash("sha256").update(canonicalizeJsonValue(qualification), "utf8").digest("hex");
 }
 
+function evidenceSolutionSha256(evidence) {
+  try {
+    const parsed = JSON.parse(evidence.canonicalEvidenceJson);
+    return SHA_256.test(parsed?.identity?.spatialSolutionSha256 ?? "")
+      ? parsed.identity.spatialSolutionSha256 : null;
+  } catch {
+    return null;
+  }
+}
+
 function rootsFromOptions(options) {
   return Object.freeze({
     prototypeRunRoot: options.prototypeRunRoot,
@@ -59,27 +69,55 @@ function publicCache(discovered) {
 }
 
 export function parseR16PreviewArguments(args, temporaryRoot) {
-  if (!Array.isArray(args) || ![2, 4].includes(args.length) || args[0] !== "--run-root" ||
-      typeof args[1] !== "string" || !path.isAbsolute(args[1]) || args[1].includes("\0")) {
+  if (!Array.isArray(args) || args.length < 2 || args.length > 12 || args.length % 2 !== 0) {
     fail("R16_PREVIEW_ARGUMENT_INVALID");
   }
-  const prototypeRunRoot = path.resolve(args[1]);
+  const names = Object.freeze({
+    "--run-root": "prototypeRunRoot",
+    "--spatial-run-root": "spatialRunRoot",
+    "--solved-run-root": "solvedRunRoot",
+    "--evidence-run-root": "evidenceRunRoot",
+    "--qualified-run-root": "qualifiedRunRoot",
+    "--port": "port",
+  });
+  const values = Object.create(null);
+  for (let index = 0; index < args.length; index += 2) {
+    const name = names[args[index]];
+    const value = args[index + 1];
+    if (!name || Object.hasOwn(values, name) || typeof value !== "string" || value.includes("\0")) {
+      fail("R16_PREVIEW_ARGUMENT_INVALID");
+    }
+    values[name] = value;
+  }
+  if (typeof values.prototypeRunRoot !== "string" || !path.isAbsolute(values.prototypeRunRoot)) {
+    fail("R16_PREVIEW_ARGUMENT_INVALID");
+  }
+  const prototypeRunRoot = path.resolve(values.prototypeRunRoot);
   const root = path.resolve(temporaryRoot);
   if (path.dirname(prototypeRunRoot) !== root || /-(?:spatial|solved|evidence|qualified)$/u.test(prototypeRunRoot)) {
     fail("R16_PREVIEW_ARGUMENT_INVALID");
   }
+  const overrideNames = ["spatialRunRoot", "solvedRunRoot", "evidenceRunRoot", "qualifiedRunRoot"];
+  const overrideCount = overrideNames.filter((name) => Object.hasOwn(values, name)).length;
+  if (![0, overrideNames.length].includes(overrideCount)) fail("R16_PREVIEW_ARGUMENT_INVALID");
+  const cacheRoots = overrideCount === 0
+    ? [`${prototypeRunRoot}-spatial`, `${prototypeRunRoot}-solved`, `${prototypeRunRoot}-evidence`,
+      `${prototypeRunRoot}-qualified`]
+    : overrideNames.map((name) => path.resolve(values[name]));
+  if (cacheRoots.some((value) => path.dirname(value) !== root) ||
+      new Set([prototypeRunRoot, ...cacheRoots]).size !== 5) fail("R16_PREVIEW_ARGUMENT_INVALID");
   let port;
-  if (args.length === 4) {
-    if (args[2] !== "--port" || !/^[0-9]{4,5}$/u.test(args[3])) fail("R16_PREVIEW_ARGUMENT_INVALID");
-    port = Number(args[3]);
+  if (values.port !== undefined) {
+    if (!/^[0-9]{4,5}$/u.test(values.port)) fail("R16_PREVIEW_ARGUMENT_INVALID");
+    port = Number(values.port);
     if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) fail("R16_PREVIEW_ARGUMENT_INVALID");
   }
   return Object.freeze({
     prototypeRunRoot,
-    spatialRunRoot: `${prototypeRunRoot}-spatial`,
-    solvedRunRoot: `${prototypeRunRoot}-solved`,
-    evidenceRunRoot: `${prototypeRunRoot}-evidence`,
-    qualifiedRunRoot: `${prototypeRunRoot}-qualified`,
+    spatialRunRoot: cacheRoots[0],
+    solvedRunRoot: cacheRoots[1],
+    evidenceRunRoot: cacheRoots[2],
+    qualifiedRunRoot: cacheRoots[3],
     temporaryRoot: root,
     ...(port === undefined ? {} : { port }),
   });
@@ -105,7 +143,7 @@ export async function selectR16QualifiedEvidence({ qualifiedRunRoot, temporaryRo
   const evidence = await selectEvidence({ evidenceRunRoot: roots.evidenceRunRoot, temporaryRoot: root,
     runId: selectedQualification.qualification.evidence.runId });
   if (evidence.runId !== selectedQualification.qualification.evidence.runId ||
-      evidence.solutionSha256 !== selectedQualification.qualification.hashes.spatialSolutionSha256) {
+      evidenceSolutionSha256(evidence) !== selectedQualification.qualification.hashes.spatialSolutionSha256) {
     fail("R16_PREVIEW_REFERENCE_INVALID");
   }
   return Object.freeze({ qualificationRunId: selectedId, qualification: selectedQualification.qualification, evidence });
@@ -207,7 +245,7 @@ export function createR16PreviewOperations(options, dependencies = {}) {
       const selected = await selectEvidence({ evidenceRunRoot: roots.evidenceRunRoot,
         temporaryRoot: roots.temporaryRoot, runId: loaded.qualification.evidence.runId });
       if (selected.runId !== loaded.qualification.evidence.runId ||
-          selected.solutionSha256 !== loaded.qualification.hashes.spatialSolutionSha256) {
+          evidenceSolutionSha256(selected) !== loaded.qualification.hashes.spatialSolutionSha256) {
         fail("R16_PREVIEW_REFERENCE_INVALID");
       }
       launched = await launchEvidence({ selected, godot: options.godot, moduleRoot: options.moduleRoot });

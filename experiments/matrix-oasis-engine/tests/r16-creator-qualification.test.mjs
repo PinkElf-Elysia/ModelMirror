@@ -110,7 +110,7 @@ async function runLevel(cacheLevel, operationOptions = {}, optionOverrides = {})
   return { calls, result, stages };
 }
 
-test("R16 CLI parses exactly five direct-child roots and no run id", () => {
+test("R16 CLI parses five direct-child roots and an optional explicit source run", () => {
   const parsed = parseR16CreatorQualificationArguments([
     "--prototype-run-root", roots.prototypeRunRoot,
     "--spatial-run-root", roots.spatialRunRoot,
@@ -119,12 +119,28 @@ test("R16 CLI parses exactly five direct-child roots and no run id", () => {
     "--qualified-run-root", roots.qualifiedRunRoot,
   ], temporaryRoot);
   assert.deepEqual(parsed, { ...roots, temporaryRoot });
+  assert.deepEqual(parseR16CreatorQualificationArguments([
+    "--prototype-run-root", roots.prototypeRunRoot,
+    "--spatial-run-root", roots.spatialRunRoot,
+    "--solved-run-root", roots.solvedRunRoot,
+    "--evidence-run-root", roots.evidenceRunRoot,
+    "--qualified-run-root", roots.qualifiedRunRoot,
+    "--source-run-id", source().runId,
+  ], temporaryRoot), { ...roots, sourceRunId: source().runId, temporaryRoot });
   assert.throws(() => parseR16CreatorQualificationArguments([
     "--prototype-run-root", roots.prototypeRunRoot,
     "--spatial-run-root", roots.spatialRunRoot,
     "--solved-run-root", roots.solvedRunRoot,
     "--evidence-run-root", roots.evidenceRunRoot,
     "--run-id", source().runId,
+  ], temporaryRoot), { code: "R16_CREATOR_QUALIFICATION_ARGUMENT_INVALID" });
+  assert.throws(() => parseR16CreatorQualificationArguments([
+    "--prototype-run-root", roots.prototypeRunRoot,
+    "--spatial-run-root", roots.spatialRunRoot,
+    "--solved-run-root", roots.solvedRunRoot,
+    "--evidence-run-root", roots.evidenceRunRoot,
+    "--qualified-run-root", roots.qualifiedRunRoot,
+    "--source-run-id", "not-a-source-run",
   ], temporaryRoot), { code: "R16_CREATOR_QUALIFICATION_ARGUMENT_INVALID" });
   assert.throws(() => parseR16CreatorQualificationArguments([
     "--prototype-run-root", roots.prototypeRunRoot,

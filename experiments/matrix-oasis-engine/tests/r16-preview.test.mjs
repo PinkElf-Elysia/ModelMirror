@@ -61,6 +61,15 @@ function qualification() {
   };
 }
 
+function selectedEvidence(runId = evidenceRunId) {
+  return {
+    runId,
+    canonicalEvidenceJson: canonicalizeJsonValue({
+      identity: { spatialSolutionSha256: solutionSha256 },
+    }),
+  };
+}
+
 test("R16 preview arguments derive five isolated direct-child cache roots", () => {
   const parsed = parseR16PreviewArguments(["--run-root", runRoot, "--port", "43116"], temporaryRoot);
   assert.equal(parsed.prototypeRunRoot, runRoot);
@@ -70,8 +79,25 @@ test("R16 preview arguments derive five isolated direct-child cache roots", () =
   assert.equal(parsed.qualifiedRunRoot, `${runRoot}-qualified`);
   assert.equal(parsed.port, 43116);
   assert.equal(R16_PREVIEW_READY_MARKER, "MATRIX_OASIS_R16_CREATOR_MVP_READY");
+  const migratedRoots = ["legacy-spatial", "legacy-solved", "legacy-evidence", "legacy-qualified"]
+    .map((name) => path.join(temporaryRoot, name));
+  assert.deepEqual(parseR16PreviewArguments([
+    "--run-root", runRoot,
+    "--spatial-run-root", migratedRoots[0],
+    "--solved-run-root", migratedRoots[1],
+    "--evidence-run-root", migratedRoots[2],
+    "--qualified-run-root", migratedRoots[3],
+  ], temporaryRoot), {
+    prototypeRunRoot: runRoot,
+    spatialRunRoot: migratedRoots[0],
+    solvedRunRoot: migratedRoots[1],
+    evidenceRunRoot: migratedRoots[2],
+    qualifiedRunRoot: migratedRoots[3],
+    temporaryRoot,
+  });
   for (const invalid of [[], ["--run-root", "relative"], ["--run-root", `${runRoot}-solved`],
-    ["--run-root", runRoot, "--port", "80"]]) {
+    ["--run-root", runRoot, "--port", "80"],
+    ["--run-root", runRoot, "--spatial-run-root", migratedRoots[0]]]) {
     assert.throws(() => parseR16PreviewArguments(invalid, temporaryRoot), /R16_PREVIEW_ARGUMENT_INVALID/u);
   }
 });
@@ -87,7 +113,7 @@ test("R16 capture accepts only one qualified root and a new direct-child output"
     createR16QualificationReferenceVerifier: () => async () => true,
     recoverQualifiedCreatorRuns: async () => ({ currentQualificationRunId: "f".repeat(64),
       runs: [{ qualificationRunId: "f".repeat(64), qualification: qualified }] }),
-    selectR15EvidenceRun: async ({ runId }) => ({ runId, solutionSha256 }),
+    selectR15EvidenceRun: async ({ runId }) => selectedEvidence(runId),
   });
   assert.equal(selected.qualificationRunId, "f".repeat(64));
   assert.equal(selected.evidence.runId, evidenceRunId);
@@ -134,7 +160,7 @@ test("R16 launch revalidates qualification and selects its exact R15 evidence pr
     },
     selectR15EvidenceRun: async ({ runId }) => {
       selectedId = runId;
-      return { runId, solutionSha256 };
+      return selectedEvidence(runId);
     },
     launchR15EvidencePreview: async ({ selected }) => ({ child: {}, project: {},
       cleanup: async () => { assert.equal(selected.runId, evidenceRunId); cleanupCount += 1; } }),

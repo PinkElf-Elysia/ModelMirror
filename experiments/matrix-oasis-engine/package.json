@@ -157,10 +157,12 @@
     "test:r16-creator-qualification-contracts": "node --test packages/prototype-creator-qualification-contracts/tests/contracts.test.mjs",
     "test:r16-creator-qualification-cache": "node --test packages/prototype-creator-qualification/tests/qualification-cache.test.mjs tests/r16-creator-qualification-cache.test.mjs",
     "test:r16-creator-qualification-pipeline": "node --test packages/prototype-creator-qualification/tests/qualification-orchestrator.test.mjs tests/r16-creator-qualification.test.mjs",
+    "qualify:r16-creator": "node scripts/qualify-r16-creator.mjs",
     "test:r16-preview": "node --test tests/r16-preview.test.mjs tests/prototype-builder.test.mjs",
     "preview:r16": "npm run build:creator && node scripts/preview-r16.mjs",
     "capture:r16": "node scripts/capture-r16.mjs",
     "verify:creator-qualification": "npm run test:r16-creator-qualification-contracts && npm run test:r16-creator-qualification-cache && npm run test:r16-creator-qualification-pipeline",
-    "verify:r16": "npm run verify:creator-qualification && npm run test:r16-host && npm run test:r16-preview"
+    "verify:r16-generalization": "node tests/r16-generalization.test.mjs",
+    "verify:r16": "npm run verify:creator-qualification && npm run test:r16-host && npm run test:r16-preview && npm run verify:r16-generalization"
   }
 }

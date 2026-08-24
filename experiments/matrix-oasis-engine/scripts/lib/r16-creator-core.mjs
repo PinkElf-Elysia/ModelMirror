@@ -135,13 +135,16 @@ function exactDirectChildren(temporaryRoot, values) {
 }
 
 export function parseR16CreatorQualificationArguments(args, temporaryRoot = defaultTemporaryRoot) {
-  if (!Array.isArray(args) || args.length !== 10) fail("R16_CREATOR_QUALIFICATION_ARGUMENT_INVALID");
+  if (!Array.isArray(args) || ![10, 12].includes(args.length)) {
+    fail("R16_CREATOR_QUALIFICATION_ARGUMENT_INVALID");
+  }
   const names = Object.freeze({
     "--prototype-run-root": "prototypeRunRoot",
     "--spatial-run-root": "spatialRunRoot",
     "--solved-run-root": "solvedRunRoot",
     "--evidence-run-root": "evidenceRunRoot",
     "--qualified-run-root": "qualifiedRunRoot",
+    "--source-run-id": "sourceRunId",
   });
   const values = Object.create(null);
   for (let index = 0; index < args.length; index += 2) {
@@ -151,11 +154,13 @@ export function parseR16CreatorQualificationArguments(args, temporaryRoot = defa
         value.length === 0 || value.includes("\0")) {
       fail("R16_CREATOR_QUALIFICATION_ARGUMENT_INVALID");
     }
-    values[key] = path.resolve(value);
+    values[key] = key === "sourceRunId" ? value : path.resolve(value);
   }
   const root = path.resolve(temporaryRoot);
-  const roots = Object.values(values);
-  if (roots.length !== 5 || !exactDirectChildren(root, roots)) {
+  const roots = [values.prototypeRunRoot, values.spatialRunRoot, values.solvedRunRoot,
+    values.evidenceRunRoot, values.qualifiedRunRoot];
+  if (roots.some((value) => typeof value !== "string") || !exactDirectChildren(root, roots) ||
+      (values.sourceRunId !== undefined && !SOURCE_RUN_ID.test(values.sourceRunId))) {
     fail("R16_CREATOR_QUALIFICATION_ARGUMENT_INVALID");
   }
   return Object.freeze({ ...values, temporaryRoot: root });
