@@ -1496,6 +1496,7 @@ AUTOMATION_COORDINATOR_MAX_CONCURRENCY = env_int(
     "AUTOMATION_COORDINATOR_MAX_CONCURRENCY", 2, 1
 )
 HANDOFF_MAX_DELEGATION_DEPTH = 5
+_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY = "provider_workload_source_kind"
 MAX_IMAGE_DATA_URL_BYTES = 5 * 1024 * 1024
 AGENTS_DATA_PATH = Path(__file__).parent / "data" / "agents.json"
 MAX_AGENT_PROMPT_CHARS = 6000
@@ -8929,7 +8930,7 @@ def _trusted_workflow_execution_source_kind(
     *,
     runtime_run_type: str,
     resume_execution: WorkflowExecution | None,
-) -> Literal["workflow_classic", "xpert_chat"] | None:
+) -> Literal["workflow_classic", "xpert_chat", "xpert_app"] | None:
     if resume_execution is not None:
         return resume_execution.source_kind
     if request is None:
@@ -9162,6 +9163,13 @@ async def _run_workflow_response(
         if resume_execution is not None
         else (runtime_metadata or {})
     )
+    # Only trusted Published Xpert and Xpert App entries may pass their managed
+    # routing context to child Xperts and handoffs. Never accept this marker
+    # from caller-provided runtime metadata or from excluded Xpert workloads.
+    if trusted_source_kind in {"xpert_chat", "xpert_app"}:
+        run_metadata[_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY] = trusted_source_kind
+    else:
+        run_metadata.pop(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY, None)
     workflow_run = (
         await run_registry.get_run(resume_execution.run_id)
         if resume_execution is not None
@@ -10601,6 +10609,9 @@ async def _run_workflow_response(
                         "run_id": effective_context.metadata.get("run_id"),
                         "workflow_id": run_context.get("workflow_id"),
                         "runtime_run_type": runtime_run_type,
+                        _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY: run_context.get(
+                            _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY
+                        ),
                         "xpert_id": run_context.get("xpert_id"),
                         "xpert_slug": run_context.get("xpert_slug"),
                         "xpert_version": run_context.get("xpert_version"),
@@ -19971,6 +19982,9 @@ async def _run_workflow_response(
                                 "result_variable": result_variable,
                                 "wait_timeout_seconds": wait_timeout_seconds,
                                 "ready_for_execution": False,
+                                _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY: run_metadata.get(
+                                    _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY
+                                ),
                                 "handoff_depth": int(
                                     run_metadata.get("handoff_depth") or 0
                                 ),
@@ -20209,6 +20223,9 @@ async def _run_workflow_response(
                                 "result_variable": result_variable,
                                 "wait_timeout_seconds": wait_timeout_seconds,
                                 "ready_for_execution": False,
+                                _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY: run_metadata.get(
+                                    _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY
+                                ),
                                 "handoff_depth": int(
                                     run_metadata.get("handoff_depth") or 0
                                 ),
@@ -21990,12 +22007,14 @@ class WorkflowStreamFailure(RuntimeError):
         run_id: str | None = None,
         failed_node_id: str | None = None,
         failed_node_title: str | None = None,
+        provider_route_receipts: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.task_id = task_id
         self.run_id = run_id
         self.failed_node_id = failed_node_id
         self.failed_node_title = failed_node_title
+        self.provider_route_receipts = provider_route_receipts
 
 
 async def consume_workflow_stream(response: Any) -> dict[str, Any]:
@@ -22009,6 +22028,12 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
             str(message or "Xpert workflow could not start."),
             task_id=response.headers.get("X-ModelMirror-Runtime-Task-Id"),
             run_id=response.headers.get("X-ModelMirror-Runtime-Run-Id"),
+            provider_route_receipts=(
+                dict(payload.get("provider_route_receipts"))
+                if isinstance(payload, dict)
+                and isinstance(payload.get("provider_route_receipts"), dict)
+                else None
+            ),
         )
     if not isinstance(response, StreamingResponse):
         raise RuntimeError("Xpert workflow returned an unsupported response.")
@@ -22021,6 +22046,7 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
     error_run_id: str | None = None
     failed_node_id: str | None = None
     failed_node_title: str | None = None
+    provider_route_receipts: dict[str, Any] | None = None
     buffer = ""
     async for chunk in response.body_iterator:
         if isinstance(chunk, bytes):
@@ -22045,6 +22071,10 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                     failed_node_title = (
                         str(event.get("node_title") or "").strip() or None
                     )
+                    if isinstance(event.get("provider_route_receipts"), dict):
+                        provider_route_receipts = dict(
+                            event["provider_route_receipts"]
+                        )
                 elif event.get("event") == "workflow_end":
                     final_event = event
                 elif event.get("event") == "runtime_approval_pending":
@@ -22062,6 +22092,7 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
             run_id=error_run_id,
             failed_node_id=failed_node_id,
             failed_node_title=failed_node_title,
+            provider_route_receipts=provider_route_receipts,
         )
     if pending_wait_event is not None:
         return pending_wait_event
@@ -22584,6 +22615,12 @@ async def execute_external_xpert_resource(
         runtime_source_id=prepared.xpert.id,
         runtime_metadata=prepared.runtime_metadata,
         runtime_parent_run_id=parent_run_id,
+        runtime_execution_source_kind=(
+            str(call.metadata.get(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY))
+            if call.metadata.get(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY)
+            in {"xpert_chat", "xpert_app"}
+            else None
+        ),
     )
     final_event = await consume_workflow_stream(response)
     if final_event.get("event") in {
@@ -22688,6 +22725,13 @@ async def execute_xpert_handoff_target(
             "handoff_depth": source_depth,
         },
     )
+    managed_parent_source = str(
+        handoff.metadata.get(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY) or ""
+    )
+    managed_parent_entry = {
+        "xpert_chat": "xpert",
+        "xpert_app": "xpert_app",
+    }.get(managed_parent_source)
     response = await _run_workflow_response(
         prepared.request,
         None,
@@ -22700,8 +22744,23 @@ async def execute_xpert_handoff_target(
             "source_agent": handoff.source_agent,
         },
         runtime_parent_run_id=handoff_run_id,
+        runtime_execution_source_kind=(
+            managed_parent_source if managed_parent_entry is not None else None
+        ),
     )
-    final_event = await consume_workflow_stream(response)
+    try:
+        final_event = await consume_workflow_stream(response)
+    except WorkflowStreamFailure as exc:
+        receipt = exc.provider_route_receipts
+        if (
+            managed_parent_entry is not None
+            and isinstance(receipt, dict)
+            and receipt.get("entry_id") == managed_parent_entry
+        ):
+            raise HandoffPermanentError(
+                "Managed Xpert handoff failed; automatic replay is disabled."
+            ) from exc
+        raise
     if final_event.get("event") == "runtime_approval_pending":
         return HandoffExecutionResult(
             output="",
@@ -23690,6 +23749,7 @@ async def run_deployed_xpert_app(
             "file_count": 0,
             "memory_write_enabled": False,
         },
+        runtime_execution_source_kind="xpert_app",
     )
 
 
@@ -25640,6 +25700,9 @@ async def create_agent_handoff(task_id: str, payload: dict[str, Any]):
         "execution_mode": execution_mode,
         "ready_for_execution": False,
     }
+    # The managed-parent marker is server-owned.  Public handoff callers may
+    # not opt an otherwise excluded workload into the Xpert control plane.
+    handoff_metadata.pop(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY, None)
     handoff = await agent_task_store.create_handoff(
         task_id,
         source_agent=source_agent or "workflow",

@@ -6,6 +6,7 @@ import {
   consumeSelectedXpertFiles,
   fileOutputsForRun,
   isCurrentXpertConversationRequest,
+  latestXpertProviderReceipt,
   parseXpertWorkflowEvents,
   selectedXpertFilesAfterConversationRestore,
   selectedXpertFilesAfterRefresh,
@@ -15,6 +16,29 @@ import {
   xpertMessageInputLocked,
   xpertOutputScopeId,
 } from "./XpertChatPage";
+
+describe("latestXpertProviderReceipt", () => {
+  it("returns the latest sanitized route receipt without touching message storage", () => {
+    const receipt = {
+      contract_version: "modelmirror-provider-workload-routing-v1",
+      entry_id: "xpert" as const,
+      routing_mode: "managed_required" as const,
+      run_reference: "workrun-1",
+      status: "passed" as const,
+      call_count: 1,
+      reason_codes: [],
+      calls: [],
+    };
+
+    expect(latestXpertProviderReceipt([
+      { event: "workflow_meta" },
+      { event: "node_end", provider_route_receipts: receipt },
+      { event: "workflow_end" },
+    ])).toEqual(receipt);
+    expect(latestXpertProviderReceipt([])).toBeNull();
+    expect(latestXpertProviderReceipt([{ event: "workflow_end" }])).toBeNull();
+  });
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();

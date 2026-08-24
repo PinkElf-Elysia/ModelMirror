@@ -228,6 +228,14 @@ IP 或 legacy。HITL 审批和替换复用已保存输出，只有显式 revise 
 阶段。工具执行、权限、中间件和 Workflow 编排仍由现有 Runtime 负责；Published Xpert、RAG、
 多模态与 `/workflow-native` 仍未纳入 R6E。
 
+Round 6F 复用同一执行服务，将直接 Published Xpert 与已部署 Xpert App 分别接入 `xpert` /
+`xpert_app` Policy。Xpert 工作流内的文本、Tool Calling 与结构化模型轮次仍按
+`chat_text`、`chat_tools`、`chat_json_object` 精确 Binding 执行；用户侧只显示脱敏 Receipt，
+回答正文和会话存储不改变。主 Xpert 发起的受控子 Xpert 与自动 Handoff 显式继承 `xpert`
+上下文；Managed Handoff 失败不会进入现有自动重试。Automation、Goal、评测、进化、记忆候选
+和 Skill 流程不携带该上下文，继续使用原路径。文件仅在既有抽取流程转成文本后进入 R6F；
+视觉、音频及其他专用操作仍由原 Adapter 执行。
+
 接入入口只允许 Python 主进程解析凭据和调用 Provider，Worker 与
 工具执行器继续只处理模型消息、Tool Call 和脱敏结果。
 

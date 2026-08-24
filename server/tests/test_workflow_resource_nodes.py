@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
+from fastapi.responses import StreamingResponse
 
 import server.main as main_module
 from server.main import app, workflow_topological_order
@@ -537,6 +538,73 @@ async def test_external_xpert_runs_in_process_and_registers_child_trace(
     }
     assert "external_xpert.started" in checkpoint_types
     assert "external_xpert.completed" in checkpoint_types
+
+
+@pytest.mark.asyncio
+async def test_external_xpert_only_inherits_trusted_published_xpert_control(
+    resource_stores,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    xpert_store, _ = resource_stores
+    specialist = xpert_store.create_xpert(name="Controlled Child")
+    xpert_store.publish_xpert(
+        specialist.id,
+        expected_revision=specialist.draft_revision,
+    )
+    captured: list[str | None] = []
+
+    async def fake_run(*_args, **kwargs):
+        captured.append(kwargs.get("runtime_execution_source_kind"))
+
+        async def body():
+            yield main_module.sse_payload(
+                {"event": "workflow_end", "final_output": "done", "run_id": "child"}
+            )
+
+        return StreamingResponse(body(), media_type="text/event-stream")
+
+    monkeypatch.setattr(main_module, "_run_workflow_response", fake_run)
+    resource = {
+        "xpert_id": specialist.id,
+        "pinned_version": 1,
+    }
+    base_metadata = {
+        "external_xpert_depth": 0,
+        "external_xpert_path": [],
+        "xpert_id": "parent",
+    }
+
+    await main_module.execute_external_xpert_resource(
+        resource,
+        "legacy task",
+        RuntimeToolCall(tool_name="child", arguments={}, metadata=base_metadata),
+    )
+    await main_module.execute_external_xpert_resource(
+        resource,
+        "managed task",
+        RuntimeToolCall(
+            tool_name="child",
+            arguments={},
+            metadata={
+                **base_metadata,
+                "provider_workload_source_kind": "xpert_chat",
+            },
+        ),
+    )
+    await main_module.execute_external_xpert_resource(
+        resource,
+        "managed app task",
+        RuntimeToolCall(
+            tool_name="child",
+            arguments={},
+            metadata={
+                **base_metadata,
+                "provider_workload_source_kind": "xpert_app",
+            },
+        ),
+    )
+
+    assert captured == [None, "xpert_chat", "xpert_app"]
 
 
 @pytest.mark.asyncio

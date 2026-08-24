@@ -193,6 +193,99 @@ def _activate(
     assert active.effective_status == "managed_required"
 
 
+def test_xpert_sources_use_separate_integrated_entries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, connection_id = _qualified_router(tmp_path)
+    monkeypatch.setenv("MODEL_CONTROL_XPERT_ENABLED", "true")
+    monkeypatch.setenv("MODEL_CONTROL_XPERT_APP_ENABLED", "true")
+    for entry_id in ("xpert", "xpert_app"):
+        _activate(
+            service,
+            connection_id,
+            entry_id,
+            shapes=("chat_text", "chat_tools", "chat_json_object"),
+        )
+
+    gateway = ManagedWorkflowGateway.for_router(service)
+    xpert_run = gateway.start_agent_run(
+        source_kind="xpert_chat",
+        execution_reference="xpert-task-1",
+        node_id="agent-node",
+    )
+    app_run = gateway.start_agent_run(
+        source_kind="xpert_app",
+        execution_reference="app-task-1",
+        node_id="agent-node",
+    )
+    xpert_record = service.repository.get_workload_run("local", xpert_run.run_id)
+    app_record = service.repository.get_workload_run("local", app_run.run_id)
+
+    assert gateway.entry_id("xpert_chat") == "xpert"
+    assert gateway.agent_entry_id("xpert_chat") == "xpert"
+    assert gateway.entry_id("xpert_app") == "xpert_app"
+    assert gateway.agent_entry_id("xpert_app") == "xpert_app"
+    assert xpert_record["parent_run_reference"] == (
+        "xpert:xpert-task-1:agent-node:agent:initial"
+    )
+    assert app_record["parent_run_reference"] == (
+        "xpert_app:app-task-1:agent-node:agent:initial"
+    )
+    xpert_run.finish("failed", reason_code="test_complete")
+    app_run.finish("failed", reason_code="test_complete")
+
+
+@pytest.mark.asyncio
+async def test_managed_xpert_failure_dispatches_exactly_one_provider_post(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, connection_id = _qualified_router(tmp_path)
+    monkeypatch.setenv("MODEL_CONTROL_XPERT_ENABLED", "true")
+    _activate(
+        service,
+        connection_id,
+        "xpert",
+        shapes=("chat_text",),
+    )
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(503, json={"error": "private upstream failure"})
+
+    run = ManagedWorkflowGateway.for_router(
+        service,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=False,
+            trust_env=False,
+        ),
+    ).start_agent_run(
+        source_kind="xpert_chat",
+        execution_reference="xpert-failed-task",
+        node_id="agent-node",
+    )
+
+    with pytest.raises(ManagedWorkflowRoutingError):
+        await run.complete_text(
+            purpose="agent_text",
+            model_id=MODEL_ID,
+            messages=[{"role": "user", "content": "private xpert prompt"}],
+            temperature=0,
+            max_tokens=64,
+        )
+    run.finish("failed", reason_code="provider_workload_upstream_http_error")
+
+    receipt = run.receipt_summary()
+    assert len(requests) == 1
+    assert receipt["entry_id"] == "xpert"
+    assert receipt["call_count"] == 1
+    assert receipt["calls"][0]["dispatched"] is True
+    assert b"private xpert prompt" not in service.repository.database_path.read_bytes()
+
+
 @pytest.fixture
 def qualified_interactive(
     tmp_path: Path,

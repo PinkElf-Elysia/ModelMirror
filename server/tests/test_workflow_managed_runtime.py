@@ -192,6 +192,8 @@ class FakeManagedWorkflowGateway:
         return {
             "workflow_classic": "workflow_interactive_llm",
             "workflow_deployment": "workflow_deployment_llm",
+            "xpert_chat": "xpert",
+            "xpert_app": "xpert_app",
         }.get(str(source_kind or ""))
 
     @staticmethod
@@ -199,6 +201,8 @@ class FakeManagedWorkflowGateway:
         return {
             "workflow_classic": "workflow_interactive_agent",
             "workflow_deployment": "workflow_deployment_agent",
+            "xpert_chat": "xpert",
+            "xpert_app": "xpert_app",
         }.get(str(source_kind or ""))
 
     @staticmethod
@@ -250,6 +254,29 @@ def _workflow(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> Any:
             "inputs": {"user_input": "private workflow input"},
         }
     )
+
+
+def test_only_direct_published_xpert_route_derives_managed_context() -> None:
+    direct_request = main_module.Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/xperts/xpert-1/run",
+            "headers": [],
+            "route": SimpleNamespace(path="/api/xperts/{xpert_id}/run"),
+        }
+    )
+
+    assert main_module._trusted_workflow_execution_source_kind(
+        direct_request,
+        runtime_run_type="xpert",
+        resume_execution=None,
+    ) == "xpert_chat"
+    assert main_module._trusted_workflow_execution_source_kind(
+        None,
+        runtime_run_type="xpert",
+        resume_execution=None,
+    ) is None
 
 
 async def _events(response: Any) -> list[dict[str, Any]]:
@@ -349,7 +376,7 @@ async def test_managed_llm_runs_without_legacy_gateway_and_adds_receipt(
 
 
 @pytest.mark.asyncio
-async def test_excluded_runtime_source_keeps_legacy_llm_path(
+async def test_independent_xpert_runtime_without_control_context_keeps_legacy_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, str]] = []
@@ -383,7 +410,6 @@ async def test_excluded_runtime_source_keeps_legacy_llm_path(
         ),
         None,
         runtime_run_type="xpert",
-        runtime_execution_source_kind="xpert_chat",
         runtime_task_id="excluded-xpert-task",
     )
     events = await _events(response)
@@ -395,6 +421,77 @@ async def test_excluded_runtime_source_keeps_legacy_llm_path(
         if item.get("event") == "node_end" and item.get("node_id") == "llm"
     )
     assert "provider_route_receipts" not in llm_end
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_kind", "run_type", "entry_id"),
+    [
+        ("xpert_chat", "xpert", "xpert"),
+        ("xpert_app", "xpert_app", "xpert_app"),
+        ("xpert_app", "xpert", "xpert_app"),
+    ],
+)
+async def test_xpert_control_context_uses_managed_provider_and_persists_source(
+    source_kind: str,
+    run_type: str,
+    entry_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def legacy_must_not_run(*_args: Any, **_kwargs: Any):
+        raise AssertionError("legacy Xpert stream must not run")
+
+    monkeypatch.setattr(main_module, "stream_workflow_llm_text", legacy_must_not_run)
+    task_id = f"{entry_id}-managed-task"
+    response = await main_module._run_workflow_response(
+        _workflow(
+            [
+                {"id": "input", "type": "input", "data": {"kind": "input"}},
+                {
+                    "id": "llm",
+                    "type": "llm",
+                    "data": {
+                        "kind": "llm",
+                        "modelId": MODEL_ID,
+                        "prompt": "{{user_input}}",
+                        "outputVariable": "answer",
+                    },
+                },
+                {
+                    "id": "output",
+                    "type": "output",
+                    "data": {"kind": "output", "outputVariable": "answer"},
+                },
+            ],
+            [
+                {"id": "e1", "source": "input", "target": "llm"},
+                {"id": "e2", "source": "llm", "target": "output"},
+            ],
+        ),
+        None,
+        runtime_run_type=run_type,
+        runtime_execution_source_kind=source_kind,
+        runtime_task_id=task_id,
+    )
+    events = await _events(response)
+    llm_end = next(
+        item
+        for item in events
+        if item.get("event") == "node_end" and item.get("node_id") == "llm"
+    )
+    execution = main_module.workflow_execution_store.get(task_id)
+
+    assert llm_end["provider_route_receipts"]["entry_id"] == entry_id
+    assert llm_end["provider_route_receipts"]["call_count"] == 1
+    assert execution is not None
+    assert execution.source_kind == source_kind
+    assert FakeManagedWorkflowGateway.instances[0].started == [
+        {
+            "source_kind": source_kind,
+            "execution_reference": task_id,
+            "node_id": "llm",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -1513,3 +1610,29 @@ def test_durable_event_bounds_malformed_provider_receipt_numbers(
 
     receipt = store.require("task-malformed").events[0]["provider_route_receipts"]
     assert receipt["calls"][0]["call_sequence"] == 1
+
+
+@pytest.mark.parametrize(
+    "entry_id",
+    [
+        "workflow_interactive_agent",
+        "workflow_deployment_agent",
+        "xpert",
+        "xpert_app",
+    ],
+)
+def test_durable_event_preserves_integrated_workload_entry_ids(
+    tmp_path: Path,
+    entry_id: str,
+) -> None:
+    receipt = WorkflowExecutionStore._safe_provider_route_receipt(
+        {
+            "entry_id": entry_id,
+            "status": "passed",
+            "connection_id": "must-not-survive",
+            "calls": [],
+        }
+    )
+
+    assert receipt["entry_id"] == entry_id
+    assert "connection_id" not in json.dumps(receipt)
