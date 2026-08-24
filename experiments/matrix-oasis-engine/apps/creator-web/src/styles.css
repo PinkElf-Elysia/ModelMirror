@@ -442,6 +442,37 @@ h1 {
   font-weight: 700;
 }
 
+.qualification-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem;
+  max-height: 18rem;
+  margin: 1rem 0 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.qualification-summary > div {
+  min-width: 0;
+  border-left: 2px solid #386277;
+  padding: 0.5rem 0.625rem;
+  background: #0e1a21;
+}
+
+.qualification-summary dt {
+  color: #8fa1b1;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.qualification-summary dd {
+  min-width: 0;
+  margin: 0.25rem 0 0;
+  color: #dbe5ed;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
 .approval-panel {
   border: 1px solid #5d4f37;
   border-radius: 0.5rem;
@@ -1297,6 +1328,10 @@ footer {
   }
 
   .stage-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qualification-summary {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -193,6 +193,15 @@ async function recoverSources(options, dependencies) {
   return recovered;
 }
 
+export async function recoverR16CreatorSourceRuns(options, overrides = {}) {
+  const dependencies = Object.freeze({ ...defaultDependencies, ...overrides });
+  if (!options || typeof options.prototypeRunRoot !== "string" || typeof options.temporaryRoot !== "string" ||
+      path.dirname(path.resolve(options.prototypeRunRoot)) !== path.resolve(options.temporaryRoot)) {
+    fail("R16_CREATOR_QUALIFICATION_SOURCE_INVALID");
+  }
+  return await recoverSources(options, dependencies);
+}
+
 async function sourceByRunId(options, dependencies, runId) {
   if (!SOURCE_RUN_ID.test(runId)) return null;
   const recovered = await recoverSources(options, dependencies);
